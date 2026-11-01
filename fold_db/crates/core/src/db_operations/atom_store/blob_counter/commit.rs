@@ -1,9 +1,10 @@
 //! The store side of the blob planner: read the counters, plan, build the writes.
 //!
-//! [`AtomStore::blob_counter_mutations`] is called by the atom counter planner
-//! (`counter::build`) inside the native write request scope. It returns the
-//! mutations that join the one batch of the tip change, so a blob count and the
-//! references it counts change together. [`AtomStore::register_blob_upload`] is
+//! [`AtomStore::blob_counter_mutations`] is called by the record write
+//! (`records.rs`), the history release (`atom_history/records.rs`) and the scope
+//! drop inside the native write request scope. It returns the mutations that
+//! join the one batch of the row change, so a blob count and the references it
+//! counts change together. [`AtomStore::register_blob_upload`] is
 //! the other writer: a blob row put starts the dwell of a blob that has no
 //! reference yet, in the same scope as the row.
 

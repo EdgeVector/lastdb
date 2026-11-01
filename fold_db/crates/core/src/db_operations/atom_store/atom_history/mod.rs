@@ -1,4 +1,6 @@
-//! Optional field history. Sidecar rows own counted atom and file references.
+//! Optional field history of format 7 records. Each entry keeps its own copy of
+//! one old field value, and each file blob that the copy names holds one
+//! reference while the entry lives.
 
 mod key_counts;
 mod policy;
@@ -7,7 +9,7 @@ mod records;
 mod release;
 pub(crate) use records::RecordHistoryRows;
 // The archive row shapes are records that the storage layer also reads.
-pub(crate) use crate::records::atom_history::{is_archive, ArchiveRecord};
+pub(crate) use crate::records::atom_history::is_archive;
 pub use crate::records::atom_history::{
     AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation,
 };
@@ -80,32 +82,4 @@ pub(crate) fn queue() -> TimeQueue {
 
 pub(crate) fn digest(value: &[u8]) -> String {
     lastdb_model::hex::hex_lower(Sha256::digest(value))
-}
-
-pub(crate) fn files(bytes: &[u8]) -> Result<Vec<String>, serde_json::Error> {
-    let record: ArchiveRecord = serde_json::from_slice(bytes)?;
-    Ok(super::blob_counter::tip_blobs(&record.archive.source))
-}
-
-pub(crate) fn archive_slot(
-    key: &str,
-    record: &ArchiveRecord,
-) -> Result<String, crate::schema::SchemaError> {
-    let scope = crate::storage::current_keys::exact_scope(key)?;
-    let (Some(hash), Some(range)) = (
-        record.event.field_key.hash.as_deref(),
-        record.event.field_key.range.as_deref(),
-    ) else {
-        return Err(crate::schema::SchemaError::InvalidData(
-            "archive key coordinates are missing".into(),
-        ));
-    };
-    Ok(crate::schema::types::field::build_storage_key(
-        scope,
-        &crate::atom::molecule_key_codec::hash_range_record_key(
-            &record.event.molecule_uuid,
-            hash,
-            range,
-        ),
-    ))
 }

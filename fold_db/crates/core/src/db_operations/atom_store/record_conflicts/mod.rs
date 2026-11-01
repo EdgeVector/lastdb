@@ -25,6 +25,7 @@ mod release;
 mod stage;
 
 pub use read::{RecordConflictEntry, RecordFieldConflicts};
+pub(crate) use release::RecordReleases;
 
 use crate::schema::types::KeyValue;
 use lastdb_model::record_value::FieldStamp;

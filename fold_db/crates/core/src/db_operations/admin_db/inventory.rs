@@ -145,7 +145,6 @@ impl AtomStore {
             main_total_bytes,
             per_schema_atoms: atoms.per_schema,
             per_schema_atoms_total_bytes: atoms.total_logical_bytes,
-            atom_counters: atoms.atom_counters,
             per_schema_history,
             scan,
             attribution: crate::db_operations::AttributionSummary::default(),
@@ -189,7 +188,6 @@ fn inventory_notes() -> Vec<String> {
     let notes = vec![
         "Sizes count live keys and values; physical file sizes can differ.".into(),
         "History contains current mutation events and conflict records.".into(),
-        "atom: holds two records for each atom: the body (atom:{uuid}\\0b) and its counter (atom:{uuid}\\0c). atom_counters reports the counters.".into(),
     ];
 
     notes

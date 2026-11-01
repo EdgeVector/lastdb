@@ -14,7 +14,7 @@ impl AtomStore {
         &self,
         guard: &mut StepGuard<'_>,
     ) -> Result<(), SchemaError> {
-        let (run, _) = guard.split();
+        let run = guard.run();
         let request = run
             .walk
             .request()

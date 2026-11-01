@@ -1,11 +1,10 @@
 use super::*;
 
-/// `lastdb status` line for `lastdb db verify-refs`. The atom counter totals
-/// and the molecule drain line left the text status with the format 6 tools;
-/// the `atom_counters` object stays in `/api/status`.
+/// `lastdb status` line for `lastdb db verify-refs`. The `atom_counters`
+/// object keeps its name in `/api/status`.
 pub fn verify_refs_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let Some(report) = snapshot.atom_counters.as_ref() else {
-        return vec!["Verify refs: unsupported by daemon (no planner report)".to_string()];
+        return vec!["Verify refs: unsupported by daemon (no verifier report)".to_string()];
     };
     vec![verify_refs_line(report)]
 }
@@ -22,31 +21,13 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
         Some(last) => {
             let m = &last.mismatches;
             format!(
-                "Verify refs: last run {} scope={} complete pages={} tips={} faults={} suspect_atoms={} candidates={} (below_tips={} above_tips={} body_without_counter={} counter_without_body={} zero={} tip_without_body={} queue_rows={}){}{}",
+                "Verify refs: last run {} scope={} complete pages={} faults={} (queue_rows={} blob_counters={})",
                 last.finished_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 last.scope.as_deref().unwrap_or("personal"),
                 last.pages,
-                last.tips_read,
                 last.mismatches_total,
-                last.suspect_atoms,
-                m.unconfirmed_count_mismatch,
-                m.counter_below_tips,
-                m.counter_above_tips,
-                m.body_without_counter,
-                m.counter_without_body,
-                m.zero_counter,
-                m.tip_without_body + m.record_without_body,
-                m.record_without_queue_entry + m.queue_entry_without_directory,
-                if last.tally_complete {
-                    ""
-                } else {
-                    " INCOMPLETE (counters were not compared with the totals)"
-                },
-                if last.tips_read == 0 {
-                    " WARNING 0 tips read in this scope: check the scope"
-                } else {
-                    ""
-                },
+                m.queue_entry_without_directory,
+                m.blob.total(),
             )
         }
     };

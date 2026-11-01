@@ -1,4 +1,4 @@
-//! The queue repairs of the blob step of the recount, written through the planner.
+//! The queue repairs of the blob step of the recount, written as row commits.
 //!
 //! Two things make a blob invisible to the dwell pass, and the recount finds both
 //! on a stopped home:
@@ -10,11 +10,11 @@
 //!   directory, so it never lists the bucket. The row is written again
 //!   (`TimeQueue::register_buckets`).
 //!
-//! Both are batches of the planner (`commit_tip_changes`, rows only), so they add
-//! no writer to the writer lint. A second run finds nothing: the rows are there.
+//! Both are row commits (`commit_rows`, rows only). A second run finds nothing:
+//! the rows are there.
 
 use super::{BlobQueue, BlobRecountReport};
-use crate::db_operations::atom_store::counter::TipChangeSet;
+use crate::db_operations::atom_store::counter::RowChanges;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeSet;
@@ -42,9 +42,9 @@ impl AtomStore {
                 .flat_map(|(blob, at)| queue.put_rows(*at, blob))
                 .collect();
             self.in_background_scope(async {
-                self.commit_tip_changes(TipChangeSet {
+                self.commit_rows(RowChanges {
                     rows,
-                    ..TipChangeSet::default()
+                    ..RowChanges::default()
                 })
                 .await
                 .map(|_| ())

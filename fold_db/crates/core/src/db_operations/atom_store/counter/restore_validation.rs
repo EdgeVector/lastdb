@@ -20,39 +20,31 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
     let atoms = AtomStore::new(Arc::new(crate::storage::TypedKvStore::new(main)))
         .with_namespaced_store(namespaces);
     atoms.minimum_replay_time().await?;
-    for scope in &scopes {
-        let mut request = VerifyRequest {
-            scope: scope.clone(),
-            max_pages: Some(1024),
-            max_ms: Some(30_000),
-            pause_ms: Some(0),
-            ..VerifyRequest::default()
-        };
-        loop {
-            let report = atoms.verify_refs_step(request.clone()).await?;
-            if report.mismatches_total != 0
-                || !report.tally_complete
-                || report.touched_atoms != 0
-                || report
-                    .notes
-                    .iter()
-                    .any(|note| !note.starts_with("0 tips read in scope "))
-            {
-                return Err(invalid(
-                    "restored records and counters do not have a complete exact match",
-                ));
-            }
-            if report.done {
-                break;
-            }
-            let next = report
-                .next_cursor
-                .ok_or_else(|| invalid("counter verification has no cursor"))?;
-            if request.cursor.as_ref() == Some(&next) {
-                return Err(invalid("counter verification did not advance"));
-            }
-            request.cursor = Some(next);
+    // The retention queue and the blob counters are global: one personal run
+    // checks them. The blob recount below reads the records of every scope.
+    let mut request = VerifyRequest {
+        max_pages: Some(1024),
+        max_ms: Some(30_000),
+        pause_ms: Some(0),
+        ..VerifyRequest::default()
+    };
+    loop {
+        let report = atoms.verify_refs_step(request.clone()).await?;
+        if report.mismatches_total != 0 || !report.notes.is_empty() {
+            return Err(invalid(
+                "the restored retention queue or blob counters do not have a complete exact match",
+            ));
         }
+        if report.done {
+            break;
+        }
+        let next = report
+            .next_cursor
+            .ok_or_else(|| invalid("reference verification has no cursor"))?;
+        if request.cursor.as_ref() == Some(&next) {
+            return Err(invalid("reference verification did not advance"));
+        }
+        request.cursor = Some(next);
     }
     validate_global_blobs(&atoms, scopes).await?;
     Ok(())

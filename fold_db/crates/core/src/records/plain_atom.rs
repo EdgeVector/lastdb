@@ -1,16 +1,8 @@
 //! The plain atom row of a disk format v2 home.
 
-/// The plain row of a disk format v2 home: the atom JSON with sorted keys, no
-/// content seal and no molecule key bundle name. The block encryption of each
-/// run file is the encryption at rest of this row.
-pub(crate) fn encode_plain_atom(
-    atom: &crate::atom::Atom,
-) -> Result<Vec<u8>, crate::schema::SchemaError> {
-    serde_json::to_value(atom)
-        .and_then(|value| serde_json::to_vec(&value))
-        .map_err(|e| crate::schema::SchemaError::InvalidData(format!("serialize plain atom: {e}")))
-}
-
+/// Decode the plain row of a disk format v2 home: the atom JSON with no content
+/// seal and no molecule key bundle name. The block encryption of each run file
+/// is the encryption at rest of this row.
 pub(crate) fn decode_plain_atom(
     stored: &[u8],
 ) -> Result<crate::atom::Atom, crate::schema::SchemaError> {

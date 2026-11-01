@@ -7,18 +7,14 @@ fold_db/crates/core/src/db_operations/atom_store/atom_history/policy.rs|set_fiel
 
 fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legacy|-|bounded cleanup inside the reserved idempotency namespace; deletes only validated legacy idem keys and writes its cleanup marker in the native request snapshot; no tip, atom or counter keys
 
-fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_barriers|-|explicit stopped-home maintenance: durably publish the replay floor and older-reader refusal before any Delete barrier can leave; never modifies a tip, atom or reference counter
-fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_scope|-|explicit stopped-home maintenance removes only identity-checked Delete barriers at or before the durable replay floor; no planner-owned record changes
+fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|raise_replay_cutoff|-|explicit stopped-home maintenance (`lastdb db recount --delete-cutoff`): puts the one replay cutoff row; no record, history, blob counter or conflict row
 
 
-fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
-fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N|the planner: its one batch_mutate joins the pending batch of the request
-fold_db/crates/core/src/db_operations/atom_store/blob_counter/commit.rs|*|R|the blob planner: blob counters and queue entries change in the batch of the atom counters (counter/build.rs), or in the request scope of a blob row put
+fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|C|the row commit: releases rcf: conflict rows, writes queue and blob planner rows and guarded deletes in one batch_mutate that joins the pending batch of the request
+fold_db/crates/core/src/db_operations/atom_store/blob_counter/commit.rs|*|R|the blob planner: blob counters and queue entries change in the batch of the record write (records.rs), or in the request scope of a blob row put
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/dwell_chunk.rs|*|R|the dwell chunk: reads the counter again in the write gate, then deletes the blob row, the counter and the queue entry in one batch (the retirement of a bucket is the guarded delete of the planner)
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/recount.rs|*|R|the blob step of the offline recount: writes the exact blob counters and deletes stale queue entries on a stopped home, in whole batches
 
-fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|plan_decision|B N|offline recount (`lastdb db recount` on a stopped home, the one scan the design keeps): writes the exact counter, deletes a counter that has no body, and deletes a body that no tip and no counted record names; no gate and no writer exist while it runs; only the offline command calls it
-fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_pending|-|offline recount: writes the batch that plan_decision built; the batch is whole, and a second run changes only what is still wrong
 
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 

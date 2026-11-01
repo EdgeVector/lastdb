@@ -56,89 +56,6 @@ pub struct SchemaStorage {
     pub record_bytes: u64,
 }
 
-/// What one inventory walk found about the atom counters.
-///
-/// The walk reads every `atom:` record in key order. A body record
-/// (`atom:{uuid}\0b`) is followed by its counter record (`atom:{uuid}\0c`),
-/// so the walk checks the pairing as it goes: a body with no counter and a
-/// counter with no body are both faults. A scan of the whole home is a
-/// maintenance verb. The planner never reads a scan result.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct AtomCounterTotals {
-    /// Counter records read.
-    pub counters: u64,
-    /// Sum of `refs` over the counters.
-    pub refs_total: u64,
-    /// Largest `refs` of one counter.
-    pub max_refs: u64,
-    /// Counters with the `suspect` flag.
-    pub suspect: u64,
-    /// Bodies that have no counter record.
-    pub bodies_without_counter: u64,
-    /// Counters that have no body record.
-    pub counters_without_body: u64,
-    /// Counters that hold zero and are not `suspect`.
-    pub zero_counters: u64,
-    /// How many counters hold each count.
-    #[serde(default)]
-    pub refs_histogram: RefsHistogram,
-    /// The atoms with the most references, most first.
-    #[serde(default)]
-    pub hottest: Vec<HotAtom>,
-}
-
-/// How many atom counters hold each count. A counter at zero is not here: it
-/// is in `zero_counters`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct RefsHistogram {
-    pub one: u64,
-    pub two: u64,
-    pub three_to_nine: u64,
-    pub ten_to_ninety_nine: u64,
-    pub hundred_or_more: u64,
-}
-
-/// One atom with a high count.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HotAtom {
-    pub atom: String,
-    pub refs: u64,
-}
-
-/// How many hot atoms the inventory lists.
-const HOTTEST_ATOMS: usize = 5;
-
-impl AtomCounterTotals {
-    /// Fold the count of one counter into the histogram and the hot list.
-    fn note_refs(&mut self, atom: Option<&str>, refs: u64) {
-        let bucket = match refs {
-            0 => return,
-            1 => &mut self.refs_histogram.one,
-            2 => &mut self.refs_histogram.two,
-            3..=9 => &mut self.refs_histogram.three_to_nine,
-            10..=99 => &mut self.refs_histogram.ten_to_ninety_nine,
-            _ => &mut self.refs_histogram.hundred_or_more,
-        };
-        *bucket += 1;
-        let Some(atom) = atom else {
-            return;
-        };
-        let full = self.hottest.len() >= HOTTEST_ATOMS;
-        if full && self.hottest.last().is_some_and(|last| last.refs >= refs) {
-            return;
-        }
-        let at = self.hottest.partition_point(|hot| hot.refs >= refs);
-        self.hottest.insert(
-            at,
-            HotAtom {
-                atom: atom.to_string(),
-                refs,
-            },
-        );
-        self.hottest.truncate(HOTTEST_ATOMS);
-    }
-}
-
 /// The local logical storage breakdown: per-schema sizes plus the total.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct StorageBreakdown {
@@ -151,9 +68,6 @@ pub struct StorageBreakdown {
     /// Atom-size histogram over the same walk (p50/p95/p99/max + fence counts).
     #[serde(default)]
     pub histogram: AtomHistogram,
-    /// Counter facts of the same walk.
-    #[serde(default)]
-    pub atom_counters: AtomCounterTotals,
 }
 
 impl AtomStore {
@@ -221,16 +135,7 @@ impl AtomStore {
             }
         }
 
-        let BreakdownWalk {
-            agg,
-            sizes,
-            mut counters,
-            waiting_body,
-            ..
-        } = walk;
-        if waiting_body.is_some() {
-            counters.bodies_without_counter += 1;
-        }
+        let BreakdownWalk { agg, sizes, .. } = walk;
         let mut per_schema: Vec<SchemaStorage> = agg
             .into_iter()
             .map(|(schema_name, (bytes, atom_count))| SchemaStorage {
@@ -249,7 +154,6 @@ impl AtomStore {
             per_schema,
             total_logical_bytes,
             histogram: atom_histogram(&sizes),
-            atom_counters: counters,
         })
     }
 }
@@ -268,9 +172,6 @@ struct BreakdownWalk<'a> {
     wanted: std::collections::HashSet<&'a str>,
     agg: std::collections::HashMap<String, (u64, u64)>,
     sizes: Vec<u64>,
-    counters: AtomCounterTotals,
-    /// The uuid of a body that still waits for its counter record.
-    waiting_body: Option<String>,
 }
 
 impl<'a> BreakdownWalk<'a> {
@@ -279,24 +180,17 @@ impl<'a> BreakdownWalk<'a> {
             wanted: schema_names.iter().map(String::as_str).collect(),
             agg: std::collections::HashMap::new(),
             sizes: Vec::new(),
-            counters: AtomCounterTotals::default(),
-            waiting_body: None,
         }
     }
 }
 
-/// Fold one `atom:` record into the walk: a counter into the totals, a
-/// body into the per-schema sizes.
+/// Fold one `atom:` body record into the per-schema sizes. A counter record
+/// is skipped.
 fn fold_breakdown_row(walk: &mut BreakdownWalk<'_>, k: &[u8], v: &[u8]) -> Result<(), SchemaError> {
     let key = String::from_utf8_lossy(k);
     if crate::atom::atom_key_codec::is_counter_key(&key) {
-        note_counter_row(&mut walk.counters, &mut walk.waiting_body, &key, v);
         return Ok(());
     }
-    if walk.waiting_body.take().is_some() {
-        walk.counters.bodies_without_counter += 1;
-    }
-    walk.waiting_body = crate::atom::atom_key_codec::body_uuid_of(&key).map(str::to_string);
     let atom = decode_plain_atom(v).map_err(|e| {
         SchemaError::InvalidData(format!(
             "storage_breakdown scan: failed to decode {}: {e}",
@@ -313,39 +207,6 @@ fn fold_breakdown_row(walk: &mut BreakdownWalk<'_>, k: &[u8], v: &[u8]) -> Resul
     entry.0 += b;
     entry.1 += 1;
     Ok(())
-}
-
-/// Fold one counter record into the totals and settle the body it follows.
-fn note_counter_row(
-    totals: &mut AtomCounterTotals,
-    waiting_body: &mut Option<String>,
-    key: &str,
-    value: &[u8],
-) {
-    totals.counters += 1;
-    let paired = crate::atom::atom_key_codec::uuid_of(key)
-        .is_some_and(|uuid| waiting_body.as_deref() == Some(uuid));
-    if paired {
-        *waiting_body = None;
-    } else {
-        totals.counters_without_body += 1;
-        if waiting_body.take().is_some() {
-            totals.bodies_without_counter += 1;
-        }
-    }
-    let Ok(counter) =
-        serde_json::from_slice::<crate::db_operations::atom_store::counter::AtomCounter>(value)
-    else {
-        return;
-    };
-    totals.refs_total = totals.refs_total.saturating_add(counter.refs);
-    totals.max_refs = totals.max_refs.max(counter.refs);
-    totals.note_refs(crate::atom::atom_key_codec::uuid_of(key), counter.refs);
-    if counter.suspect {
-        totals.suspect += 1;
-    } else if counter.refs == 0 {
-        totals.zero_counters += 1;
-    }
 }
 
 impl StorageBreakdown {

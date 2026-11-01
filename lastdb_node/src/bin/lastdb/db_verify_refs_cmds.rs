@@ -1,4 +1,5 @@
-//! `lastdb db verify-refs`: report faults in the atom counters. Read-only.
+//! `lastdb db verify-refs`: report faults in the retention queue and the blob
+//! counters. Read-only.
 
 use super::*;
 use serde_json::{json, Value};
@@ -18,7 +19,6 @@ pub(crate) struct VerifyRefsOpts {
     pub scope: Option<String>,
     /// Check the personal scope and each scope that the database catalog names.
     pub all_scopes: bool,
-    pub max_atoms: Option<usize>,
 }
 
 fn u64_of(value: &Value, key: &str) -> u64 {
@@ -36,7 +36,6 @@ fn step_body(opts: &VerifyRefsOpts, scope: Option<&str>, cursor: Option<&str>) -
     let first_only = [
         ("page_rows", opts.page_rows.map(Value::from)),
         ("scope", scope.map(Value::from)),
-        ("max_atoms", opts.max_atoms.map(Value::from)),
     ];
     let kept = fields
         .into_iter()
@@ -129,7 +128,6 @@ fn verify_all_scopes(socket: &Path, opts: &VerifyRefsOpts) -> Result<(), String>
     let mut problems = Vec::new();
     for scope in &scopes {
         let report = run_scope(socket, opts, scope.as_deref(), None)?;
-        warn_empty_scope(&report);
         problems.extend(verdict(&report));
         reports.push(report);
     }
@@ -153,10 +151,9 @@ fn verify_all_scopes(socket: &Path, opts: &VerifyRefsOpts) -> Result<(), String>
     }
 }
 
-/// Print one report, with the loud line for a scope that held no tip.
+/// Print one report.
 fn show_report(report: &Value, json_only: bool) -> Result<(), String> {
     let done = report.get("done").and_then(Value::as_bool).unwrap_or(false);
-    warn_empty_scope(report);
     if json_only {
         println!(
             "{}",
@@ -171,20 +168,7 @@ fn show_report(report: &Value, json_only: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// A run that read no tip in its scope checked nothing. A wrong `--scope` gives
-/// this result, so say it on stderr whatever the output mode.
-fn warn_empty_scope(report: &Value) {
-    let done = report.get("done").and_then(Value::as_bool).unwrap_or(false);
-    if done && u64_of(report, "tips_read") == 0 {
-        eprintln!(
-            "WARNING: 0 tips read in scope {}: check the scope. A scope other than the personal one needs --scope PREFIX or --all-scopes.",
-            report.get("scope").and_then(Value::as_str).unwrap_or("personal")
-        );
-    }
-}
-
-/// The reason to exit non-zero, when a complete run found a fault or could not
-/// compare the counters with the totals.
+/// The reason to exit non-zero, when a complete run found a fault.
 fn verdict(report: &Value) -> Option<String> {
     if !report.get("done").and_then(Value::as_bool).unwrap_or(false) {
         return None;
@@ -192,16 +176,6 @@ fn verdict(report: &Value) -> Option<String> {
     let faults = u64_of(report, "mismatches_total");
     if faults > 0 {
         return Some(format!("verify-refs found {faults} fault(s)"));
-    }
-    if !report
-        .get("tally_complete")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-    {
-        return Some(format!(
-            "verify-refs is incomplete: more than {} atoms are referenced, so a counter above its holders was not checked. Run again with a larger --max-atoms",
-            u64_of(report, "tally_atoms")
-        ));
     }
     None
 }
@@ -235,22 +209,8 @@ fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
 }
 
 /// The fault kinds, in the order the report prints them.
-const KINDS: [&str; 22] = [
-    "counter_below_tips",
-    "counter_above_tips",
-    "body_without_counter",
-    "counter_without_body",
-    "zero_counter",
-    "suspect_counter",
-    "tip_without_body",
-    "record_without_body",
-    "record_without_queue_entry",
+const KINDS: [&str; 8] = [
     "queue_entry_without_directory",
-    "unreadable_tip",
-    "unreadable_record",
-    "unreadable_counter",
-    "blob_counter_missing",
-    "blob_counter_below_refs",
     "blob_zero_without_dwell",
     "blob_dwell_with_refs",
     "zero_blob_without_queue_entry",
@@ -275,57 +235,22 @@ fn print_report(report: &Value, complete: bool) {
         u64_of(report, "elapsed_ms"),
         u64_of(report, "page_retries")
     );
-    if report.get("tips_read").is_some() {
-        println!(
-            "  read: {} tips, {} records, {} counters, {} bodies",
-            u64_of(report, "tips_read"),
-            u64_of(report, "records_read"),
-            u64_of(report, "counters_read"),
-            u64_of(report, "bodies_read")
-        );
-        println!(
-            "  retention queue: {} entries read",
-            u64_of(report, "queue_entries_read")
-        );
-        println!(
-            "  blobs: {} counters, {} queue entries",
-            u64_of(report, "blob_counters_read"),
-            u64_of(report, "blob_queue_read")
-        );
-        println!(
-            "  totals: {} atoms, complete: {}, touched by writers: {}",
-            u64_of(report, "tally_atoms"),
-            report
-                .get("tally_complete")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            u64_of(report, "touched_atoms")
-        );
-    }
-    if !report
-        .get("tally_complete")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-    {
-        println!("  INCOMPLETE: counters were not compared with the totals (more atoms than --max-atoms)");
-    }
     println!(
-        "  faults: {}   suspect atoms: {}",
-        u64_of(report, "mismatches_total"),
-        u64_of(report, "suspect_atoms")
+        "  retention queue: {} entries read",
+        u64_of(report, "queue_entries_read")
     );
+    println!(
+        "  blobs: {} counters, {} queue entries",
+        u64_of(report, "blob_counters_read"),
+        u64_of(report, "blob_queue_read")
+    );
+    println!("  faults: {}", u64_of(report, "mismatches_total"));
     if let Some(kinds) = report.get("mismatches") {
         for kind in KINDS {
             let count = u64_of(kinds, kind);
             if count > 0 {
                 println!("    {kind}: {count}");
             }
-        }
-        let candidates = u64_of(kinds, "unconfirmed_count_mismatch");
-        if candidates > 0 {
-            println!(
-                "  candidates (a writer changed the atom during the pass): {candidates}; run again when writers are quiet"
-            );
         }
     }
     print_samples(report);

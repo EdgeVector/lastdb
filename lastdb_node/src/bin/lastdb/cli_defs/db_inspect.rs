@@ -57,16 +57,14 @@ pub(crate) enum DbInspectCommand {
         #[arg(long, default_value_t = 50)]
         limit: usize,
     },
-    /// Report faults in the atom counters. Read-only: it writes nothing and
-    /// takes no write gate, so it does not stall writers.
+    /// Report faults in the retention queue and the blob counters. Read-only:
+    /// it writes nothing and takes no write gate, so it does not stall writers.
     ///
-    /// Reads the tip records, the conflict records, and the body and counter
-    /// records of atoms in pages with a cursor, and checks that every counter
-    /// holds the number of tips and records that name its atom, that body and
-    /// counter exist together, and that no counter holds zero or is suspect.
-    /// A step reads pages until its page or time budget is spent; the command
-    /// follows the cursor until the run is complete. Exits non-zero when it
-    /// finds a fault. Repair on a stopped node with `lastdb db recount`.
+    /// Surveys the retention queue for buckets without a directory row, and
+    /// checks each blob counter and each entry of the blob queue, in pages with
+    /// a cursor. A step reads pages until its page or time budget is spent; the
+    /// command follows the cursor until the run is complete. Exits non-zero
+    /// when it finds a fault. Repair on a stopped node with `lastdb db recount`.
     VerifyRefs {
         /// Emit raw JSON only.
         #[arg(long)]
@@ -100,8 +98,5 @@ pub(crate) enum DbInspectCommand {
         /// names. A scope that holds data and has no catalog entry needs --scope.
         #[arg(long)]
         all_scopes: bool,
-        /// The most atoms the totals hold (default 1000000).
-        #[arg(long)]
-        max_atoms: Option<usize>,
     },
 }

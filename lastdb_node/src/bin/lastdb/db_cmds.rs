@@ -84,7 +84,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             all_scopes,
             blobs_exact,
             delete_cutoff_unix_secs,
-            shards,
             i_know_this_is_primary,
             json,
         } => lastdb_node::offline_recount::recount_offline(
@@ -95,7 +94,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
                 all_scopes,
                 blobs_exact,
                 delete_cutoff_unix_secs,
-                shards,
                 i_know_this_is_primary,
                 json,
             },

@@ -26,8 +26,10 @@ def main():
                 current["fields"].append(line.rstrip())
             else:
                 current = None
-    if not layouts or not any("commit_tip_changes" in name for name in layouts):
-        raise RuntimeError("The compiler output lacks the mutation planner layout")
+    # An older revision names the row commit `commit_tip_changes`; format 7 names it `commit_rows`.
+    if not layouts or not any(part in name for name in layouts
+                              for part in ("commit_tip_changes", "commit_rows")):
+        raise RuntimeError("The compiler output lacks the row commit layout")
     args.output.write_text(json.dumps({"revision": args.revision, "layouts": layouts},
                                      sort_keys=True, indent=2) + "\n")
     futures = [(name, row) for name, row in layouts.items()

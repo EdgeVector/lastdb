@@ -9,21 +9,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
-    /// Tip records (`mk:`): the atom of each tip has a body, and the counter is
-    /// not below the tips of the page.
-    Tips,
-    /// Conflict records: the same check for the atoms a record holds.
-    Records,
-    /// Body and counter records of atoms: pairing, zero, suspect, and the
-    /// counter against the totals of the first two phases.
-    Atoms,
     /// The retention queue: every entry it holds, in the buckets of the
     /// directory and in the slices that the directory does not list. A bucket
     /// that holds entries and has no directory row is a fault.
     Queue,
-    /// The conflict records whose id no queue entry names, read again. A record
-    /// that is still there is a fault: the janitor never releases it.
-    Suspects,
     /// Blob counters (personal run only): each counter alone. See `blobs.rs`.
     Blobs,
     /// The queue of blobs at zero (personal run only): each entry against its
@@ -33,26 +22,10 @@ pub enum Phase {
     Done,
 }
 
-/// The kinds of fault the verifier reports. A kind is a fact about one atom. An
-/// atom can show more than one.
+/// The kinds of fault the verifier reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Kind {
-    CounterBelowTips,
-    CounterAboveTips,
-    UnconfirmedCountMismatch,
-    BodyWithoutCounter,
-    CounterWithoutBody,
-    ZeroCounter,
-    SuspectCounter,
-    TipWithoutBody,
-    RecordWithoutBody,
-    RecordWithoutQueueEntry,
     QueueEntryWithoutDirectory,
-    UnreadableTip,
-    UnreadableRecord,
-    UnreadableCounter,
-    BlobCounterMissing,
-    BlobCounterBelowRefs,
     BlobZeroWithoutDwell,
     BlobDwellWithRefs,
     ZeroBlobWithoutQueueEntry,
@@ -65,22 +38,7 @@ pub(crate) enum Kind {
 impl Kind {
     pub(crate) fn name(self) -> &'static str {
         match self {
-            Self::CounterBelowTips => "counter_below_tips",
-            Self::CounterAboveTips => "counter_above_tips",
-            Self::UnconfirmedCountMismatch => "unconfirmed_count_mismatch",
-            Self::BodyWithoutCounter => "body_without_counter",
-            Self::CounterWithoutBody => "counter_without_body",
-            Self::ZeroCounter => "zero_counter",
-            Self::SuspectCounter => "suspect_counter",
-            Self::TipWithoutBody => "tip_without_body",
-            Self::RecordWithoutBody => "record_without_body",
-            Self::RecordWithoutQueueEntry => "record_without_queue_entry",
             Self::QueueEntryWithoutDirectory => "queue_entry_without_directory",
-            Self::UnreadableTip => "unreadable_tip",
-            Self::UnreadableRecord => "unreadable_record",
-            Self::UnreadableCounter => "unreadable_counter",
-            Self::BlobCounterMissing => "blob_counter_missing",
-            Self::BlobCounterBelowRefs => "blob_counter_below_refs",
             Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
             Self::BlobDwellWithRefs => "blob_dwell_with_refs",
             Self::ZeroBlobWithoutQueueEntry => "zero_blob_without_queue_entry",
@@ -92,101 +50,43 @@ impl Kind {
     }
 }
 
-/// Faults by kind. `unconfirmed_count_mismatch` is not a fault: it names atoms
-/// whose count differs from the totals of the pass while a writer changed
-/// them. A second run with no writers settles each of them.
+/// Faults by kind.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mismatches {
-    /// The counter holds fewer references than the tips or records that name the atom.
-    pub counter_below_tips: u64,
-    /// The counter holds more references than the tips and records that name the atom.
-    pub counter_above_tips: u64,
-    /// A count differs from the totals, and a writer changed the atom during the pass.
-    pub unconfirmed_count_mismatch: u64,
-    /// A body record has no counter record.
-    pub body_without_counter: u64,
-    /// A counter record has no body record.
-    pub counter_without_body: u64,
-    /// A counter holds zero and is not `suspect`.
-    pub zero_counter: u64,
-    /// A counter has the `suspect` flag.
-    pub suspect_counter: u64,
-    /// A tip names an atom that has no body.
-    pub tip_without_body: u64,
-    /// A conflict record names an atom that has no body.
-    pub record_without_body: u64,
-    /// No queue entry can be reached from a conflict record: its slot
-    /// directory entry is missing, does not decode, or names a queue entry that
-    /// is missing. The janitor never releases such a record. `recount
-    /// --execute` writes its rows again.
-    #[serde(default)]
-    pub record_without_queue_entry: u64,
     /// A queue entry sits in a bucket that the directory of the queue does not
-    /// list, so the janitor never finds it. The safety net of the janitor, or
-    /// `recount --execute`, writes the row again.
+    /// list, so the janitor or the dwell pass never finds it. The safety net,
+    /// or `recount --execute`, writes the row again.
     #[serde(default)]
     pub queue_entry_without_directory: u64,
-    pub unreadable_tip: u64,
-    pub unreadable_record: u64,
-    pub unreadable_counter: u64,
     /// The blob counter faults (counters, queue). See `blob_report.rs`.
     #[serde(flatten)]
     pub blob: BlobMismatches,
 }
 
 impl Mismatches {
-    pub(crate) fn add(&mut self, kind: Kind) {
-        self.add_many(kind, 1);
-    }
-
     pub(crate) fn add_many(&mut self, kind: Kind, count: u64) {
         *self.slot(kind) += count;
     }
 
     fn slot(&mut self, kind: Kind) -> &mut u64 {
         match kind {
-            Kind::CounterBelowTips => &mut self.counter_below_tips,
-            Kind::CounterAboveTips => &mut self.counter_above_tips,
-            Kind::UnconfirmedCountMismatch => &mut self.unconfirmed_count_mismatch,
-            Kind::BodyWithoutCounter => &mut self.body_without_counter,
-            Kind::CounterWithoutBody => &mut self.counter_without_body,
-            Kind::ZeroCounter => &mut self.zero_counter,
-            Kind::SuspectCounter => &mut self.suspect_counter,
-            Kind::TipWithoutBody => &mut self.tip_without_body,
-            Kind::RecordWithoutBody => &mut self.record_without_body,
-            Kind::RecordWithoutQueueEntry => &mut self.record_without_queue_entry,
             Kind::QueueEntryWithoutDirectory => &mut self.queue_entry_without_directory,
-            Kind::UnreadableTip => &mut self.unreadable_tip,
-            Kind::UnreadableRecord => &mut self.unreadable_record,
-            Kind::UnreadableCounter => &mut self.unreadable_counter,
             kind => self.blob.slot(kind),
         }
     }
 
-    /// The faults, without the unconfirmed candidates.
+    /// Every fault.
     #[must_use]
     pub fn total(&self) -> u64 {
-        self.counter_below_tips
-            + self.counter_above_tips
-            + self.body_without_counter
-            + self.counter_without_body
-            + self.zero_counter
-            + self.suspect_counter
-            + self.tip_without_body
-            + self.record_without_body
-            + self.record_without_queue_entry
-            + self.queue_entry_without_directory
-            + self.unreadable_tip
-            + self.unreadable_record
-            + self.unreadable_counter
-            + self.blob.total()
+        self.queue_entry_without_directory + self.blob.total()
     }
 }
 
-/// One example of a fault, so an operator can look at the atom.
+/// One example of a fault, so an operator can look at it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sample {
     pub kind: String,
+    /// The blob, the blob counter id or the queue key that the fault names.
     pub atom: String,
     pub detail: String,
 }
@@ -212,9 +112,6 @@ pub struct VerifyRequest {
     /// The storage scope prefix. Without it the run checks the personal scope. A new run only.
     #[serde(default)]
     pub scope: Option<String>,
-    /// The most atoms the totals hold (default 1,000,000). A new run only.
-    #[serde(default)]
-    pub max_atoms: Option<usize>,
 }
 
 /// The result of a step: the state of the run so far.
@@ -234,11 +131,7 @@ pub struct VerifyReport {
     pub elapsed_ms: u64,
     pub steps: u64,
     pub pages: u64,
-    pub tips_read: u64,
-    pub records_read: u64,
-    pub counters_read: u64,
-    pub bodies_read: u64,
-    /// Entries the queue phase read (records and drain markers).
+    /// Entries the queue phase read.
     #[serde(default)]
     pub queue_entries_read: u64,
     /// Blob counters the blobs phase read.
@@ -250,18 +143,9 @@ pub struct VerifyReport {
     /// Pages read again because a read hit the read limit of one call.
     pub page_retries: u64,
     pub range_reads: WalkStats,
-    /// Atoms the totals of the first two phases hold.
-    pub tally_atoms: u64,
-    /// False when more atoms than the cap were referenced. Then the verifier
-    /// does not compare counters with totals.
-    pub tally_complete: bool,
-    /// Atoms that writers changed while the run read.
-    pub touched_atoms: u64,
     pub mismatches: Mismatches,
-    /// The faults, without the unconfirmed candidates.
+    /// Every fault.
     pub mismatches_total: u64,
-    /// Counters with the `suspect` flag that the run read.
-    pub suspect_atoms: u64,
     pub samples: Vec<Sample>,
     pub notes: Vec<String>,
 }

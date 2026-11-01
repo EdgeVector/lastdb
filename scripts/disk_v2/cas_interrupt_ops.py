@@ -120,11 +120,10 @@ def counters(node):
         require(identity in (None, report["run_id"]), "counter verifier identity changed")
         identity = report["run_id"]
         if report["done"]:
-            require(report["next_cursor"] is None and report["tally_complete"] is True
-                    and report["mismatches_total"] == 0 and report["suspect_atoms"] == 0
-                    and report["mismatches"]["unconfirmed_count_mismatch"] == 0,
-                    "counter verification did not prove exact references")
-            return {"complete": True, "faults": 0, "tally_complete": True}
+            require(report["next_cursor"] is None and report["mismatches_total"] == 0
+                    and not report["notes"],
+                    "reference verification did not prove exact blob counters")
+            return {"complete": True, "faults": 0}
         require(report["next_cursor"] and report["next_cursor"] != cursor, "counter verifier cursor did not advance")
         cursor = report["next_cursor"]
     raise RuntimeError("counter verification exceeded the operation bound")

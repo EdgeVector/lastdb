@@ -7,7 +7,7 @@
 //! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb:`) of
 //! the molecule history. A file blob pointer in the copied value holds one
 //! blob reference: the capture and the release change the blob counter in the
-//! batch of the entry, not through the tip commit planner.
+//! batch of the entry.
 
 use super::*;
 use crate::db_operations::atom_store::blob_counter::BlobDeltas;

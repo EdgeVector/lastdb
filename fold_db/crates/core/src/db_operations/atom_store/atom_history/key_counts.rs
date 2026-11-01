@@ -1,6 +1,6 @@
 //! A derived per-key count permits one batch presence check for history-only keys.
 use super::*;
-use crate::db_operations::atom_store::{counter::RecordRefs, AtomStore};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,26 +22,6 @@ fn count_key(slot: &str) -> Result<String, SchemaError> {
 }
 
 impl AtomStore {
-    pub(crate) async fn history_key_rows(
-        &self,
-        records: &[RecordRefs],
-        new_records: &[bool],
-        released: &[String],
-    ) -> Result<CountRows, SchemaError> {
-        let mut deltas = BTreeMap::<String, i64>::new();
-        for (record, is_new) in records.iter().zip(new_records) {
-            if *is_new {
-                if let Some(slot) = &record.history_slot {
-                    *deltas.entry(count_key(slot)?).or_default() += 1;
-                }
-            }
-        }
-        for slot in released {
-            *deltas.entry(count_key(slot)?).or_default() -= 1;
-        }
-        self.history_count_rows(deltas).await
-    }
-
     /// The count rows after `deltas`, a change for each count key. A count
     /// that reaches zero is deleted; one that would go below zero is refused.
     async fn history_count_rows(

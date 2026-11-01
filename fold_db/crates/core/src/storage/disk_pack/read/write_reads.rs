@@ -57,20 +57,6 @@ impl ReadContext {
         Ok(Some(value))
     }
 
-    pub(super) fn has_disk_value(&self, coordinate: &Coordinate) -> StorageResult<bool> {
-        self.write_reads
-            .as_ref()
-            .map(|reads| {
-                reads
-                    .saved
-                    .lock()
-                    .map(|saved| saved.values.contains_key(coordinate))
-                    .map_err(|_| poisoned())
-            })
-            .transpose()
-            .map(|present| present.unwrap_or(false))
-    }
-
     pub(super) fn remember_disk_value(
         &self,
         coordinate: &Coordinate,

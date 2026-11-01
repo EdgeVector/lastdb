@@ -1,22 +1,21 @@
-//! Explicit offline delete-barrier retirement behind a durable replay fence.
+//! The global replay cutoff of a home: a write older than it is refused. Only
+//! stopped-home maintenance (`lastdb db recount --delete-cutoff-unix-secs`)
+//! moves it, and only up.
 
-use super::{AtomStore, RangeWalk};
-use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
+use super::AtomStore;
 use crate::records::key_format::{
     validate_frozen_replay_floor, Cutoff, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY,
 };
-use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
+/// What a raise of the replay cutoff did.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeletePruneReport {
+pub struct ReplayCutoffReport {
     pub executed: bool,
     pub cutoff_before_nanos: u64,
     pub cutoff_after_nanos: u64,
-    pub examined: u64,
-    pub pruned: u64,
     pub operations: u64,
     pub batches: u64,
 }
@@ -70,17 +69,15 @@ impl AtomStore {
     }
 
     /// Explicit offline maintenance only. The caller holds the stopped-home
-    /// lock and includes every requested scope. Fence publication completes
-    /// before the first barrier delete; interruption can leave extra barriers.
-    pub(crate) async fn prune_delete_barriers(
+    /// lock. The cutoff never moves down or into the future.
+    pub(crate) async fn raise_replay_cutoff(
         &self,
-        scopes: &[Option<String>],
         cutoff: u64,
         execute: bool,
-    ) -> StorageResult<DeletePruneReport> {
+    ) -> StorageResult<ReplayCutoffReport> {
         if self.serving_replay_cutoff.get().is_some() {
             return Err(invalid(
-                "cleanup requires a stopped-home maintenance instance",
+                "a raise requires a stopped-home maintenance instance",
             ));
         }
         let previous = self.minimum_replay_time().await?;
@@ -93,17 +90,18 @@ impl AtomStore {
                 "the cutoff must be positive, cannot decrease, and cannot move into the future",
             ));
         }
-        let mut report = DeletePruneReport {
+        let mut report = ReplayCutoffReport {
             executed: execute,
             cutoff_before_nanos: previous,
             cutoff_after_nanos: cutoff,
             ..Default::default()
         };
-        if previous != cutoff {
-            report.operations += 1;
-            report.batches += 1;
+        if previous == cutoff {
+            return Ok(report);
         }
-        if execute && previous != cutoff {
+        report.operations = 1;
+        report.batches = 1;
+        if execute {
             let floor = serde_json::to_vec(&Cutoff {
                 v: 1,
                 minimum_written_at_nanos: cutoff,
@@ -115,45 +113,6 @@ impl AtomStore {
                 .await?;
             self.main_store.inner().flush().await?;
         }
-        for scope in scopes {
-            self.prune_delete_scope(scope.as_deref(), cutoff, execute, &mut report)
-                .await?;
-        }
         Ok(report)
-    }
-
-    async fn prune_delete_scope(
-        &self,
-        scope: Option<&str>,
-        cutoff: u64,
-        execute: bool,
-        report: &mut DeletePruneReport,
-    ) -> StorageResult<()> {
-        let prefix = build_storage_key(scope, "rdel:v2:");
-        let end = FilterUtils::create_prefix_end(&prefix).map_err(invalid)?;
-        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), 256);
-        while !walk.done() {
-            let page = self.walk_step(&mut walk).await.map_err(invalid)?;
-            let mut deletes = Vec::new();
-            for (key, value) in page.rows {
-                let barrier: DeleteBarrier = serde_json::from_slice(&value).map_err(invalid)?;
-                if delete_barrier_key(barrier.mk_key.as_bytes()).as_bytes() != key.as_slice() {
-                    return Err(invalid(
-                        "a barrier disagrees with its key; the durable fence remains in force",
-                    ));
-                }
-                report.examined += 1;
-                if barrier.written_at <= cutoff {
-                    deletes.push(KvMutation::delete(key));
-                }
-            }
-            report.pruned += deletes.len() as u64;
-            report.operations += deletes.len() as u64;
-            report.batches += u64::from(!deletes.is_empty());
-            if execute && !deletes.is_empty() {
-                self.main_store.inner().batch_mutate(deletes).await?;
-            }
-        }
-        Ok(())
     }
 }

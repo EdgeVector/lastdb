@@ -54,7 +54,6 @@ pub(crate) struct RetentionState {
     released_by_janitor: AtomicU64,
     released_by_purge: AtomicU64,
     undecodable: AtomicU64,
-    pending_drains: AtomicU64,
     consecutive_failures: AtomicU64,
     next_retry_unix_ms: AtomicU64,
     net_sweeps: AtomicU64,
@@ -88,7 +87,6 @@ impl RetentionState {
             released_by_janitor: AtomicU64::new(0),
             released_by_purge: AtomicU64::new(0),
             undecodable: AtomicU64::new(0),
-            pending_drains: AtomicU64::new(0),
             consecutive_failures: AtomicU64::new(0),
             next_retry_unix_ms: AtomicU64::new(0),
             net_sweeps: AtomicU64::new(0),
@@ -147,11 +145,6 @@ impl RetentionState {
         self.buckets_repaired.fetch_add(buckets, Ordering::Relaxed);
     }
 
-    /// The janitor holds this many slot drains that are not finished.
-    pub(crate) fn set_pending_drains(&self, pending: u64) {
-        self.pending_drains.store(pending, Ordering::Relaxed);
-    }
-
     /// One janitor wake ended: how many records it released, and why it
     /// stopped early. `failures` is the number of wakes in a row that ended
     /// with an error (zero after a good wake), and `retry_in` is the wait that
@@ -192,7 +185,6 @@ impl RetentionState {
             queue_depth: None,
             queue_depth_capped: false,
             queue_buckets: None,
-            pending_drains: self.pending_drains.load(Ordering::Relaxed),
             consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),
             next_retry_unix_ms: self.next_retry_unix_ms.load(Ordering::Relaxed),
             net_sweeps: self.net_sweeps.load(Ordering::Relaxed),
@@ -234,9 +226,6 @@ pub struct ConflictRetentionReport {
     /// an entry. The count reads the directory only.
     #[serde(default)]
     pub queue_buckets: Option<u64>,
-    /// Slot drains the janitor has started and not finished.
-    #[serde(default)]
-    pub pending_drains: u64,
     /// Janitor wakes in a row that ended with an error. The janitor waits
     /// longer after each one, and a good wake sets the count to zero.
     #[serde(default)]

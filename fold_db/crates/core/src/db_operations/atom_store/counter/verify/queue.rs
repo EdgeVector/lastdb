@@ -1,11 +1,11 @@
-//! The queue phase of `verify-refs`: survey the retention queue, then compare
-//! the entries with the conflict records that the records phase counted.
+//! The queue phase of `verify-refs`: survey the retention queue and report the
+//! buckets that hold entries and have no directory row.
 
-use super::pages::{phase_range, SuspectsPage};
 use super::report::{Kind, Phase};
+use super::run::enter_phase;
 use super::state::{Run, StepGuard};
 use crate::db_operations::atom_store::time_queue::QueueSurvey;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 
 impl AtomStore {
@@ -16,7 +16,7 @@ impl AtomStore {
         &self,
         guard: &mut StepGuard<'_>,
     ) -> Result<(), SchemaError> {
-        let (run, _) = guard.split();
+        let run = guard.run();
         if run.survey.is_none() {
             let state = self.retention_state();
             run.survey = Some(QueueSurvey::new(
@@ -24,7 +24,6 @@ impl AtomStore {
                 state.clock_nanos(),
                 state.window_nanos(),
                 run.page_rows,
-                run.max_ids,
             ));
         }
         let survey = run.survey.as_mut().expect("the survey was just made");
@@ -36,8 +35,8 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Judge the survey: buckets without a directory row, and the records that
-    /// no entry names. The records are read again in the last phase.
+    /// Judge the survey: buckets without a directory row. Then the personal run
+    /// checks the blob counters, which are global, once.
     async fn finish_queue(&self, run: &mut Run) -> Result<(), SchemaError> {
         let Some(survey) = run.survey.take() else {
             return Ok(());
@@ -61,59 +60,18 @@ impl AtomStore {
                 survey.unknown()
             ));
         }
-        let judge = survey.complete() && run.ids_complete;
-        if !judge {
+        if !survey.complete() {
             run.report.notes.push(
-                "more records or queue entries than --max-atoms; records were not compared with the queue"
+                "the queue directory lists more buckets than the survey walks; the rest were not judged"
                     .into(),
             );
         }
-        run.suspects = if judge {
-            run.record_ids
-                .iter()
-                .filter(|id| !survey.has(**id))
-                .copied()
-                .collect()
+        let next = if run.report.scope.is_none() {
+            Phase::Blobs
         } else {
-            std::collections::HashSet::new()
+            Phase::Done
         };
-        run.record_ids = std::collections::HashSet::new();
-        if run.suspects.is_empty() {
-            // The blob counters are global. The personal run checks them once,
-            // after the retention queue.
-            run.phase = if run.report.scope.is_none() {
-                Phase::Blobs
-            } else {
-                Phase::Done
-            };
-            if let Some((start, end)) = phase_range(run.phase, run.report.scope.as_deref()) {
-                run.walk = RangeWalk::new(&start, &end, run.page_rows);
-            }
-            if run.phase == Phase::Done && !run.tally.complete {
-                run.report.notes.push(format!(
-                    "more than {} atoms are referenced; counters were not compared with the totals of the pass",
-                    run.tally.len()
-                ));
-            }
-        } else {
-            run.phase = Phase::Suspects;
-            if let Some((start, end)) = phase_range(Phase::Suspects, run.report.scope.as_deref()) {
-                run.walk = RangeWalk::new(&start, &end, run.page_rows);
-            }
-        }
+        enter_phase(run, next);
         Ok(())
-    }
-}
-
-/// Judge a page of the suspects phase: each record on it has no queue entry.
-pub(super) fn apply_suspects(run: &mut Run, page: &SuspectsPage) {
-    run.walk.finish_yield(page.rows, page.resume.as_deref());
-    run.report.pages += 1;
-    for key in &page.keys {
-        run.note_fault(
-            Kind::RecordWithoutQueueEntry,
-            key,
-            "no queue entry names this record (its entry was deleted, or never written)".into(),
-        );
     }
 }

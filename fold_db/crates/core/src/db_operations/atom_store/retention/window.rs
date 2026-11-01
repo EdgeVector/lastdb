@@ -16,7 +16,7 @@
 //! uses its own environment.
 
 use super::keys::QUEUE_DIRECTORY;
-use crate::db_operations::atom_store::counter::TipChangeSet;
+use crate::db_operations::atom_store::counter::RowChanges;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,7 @@ impl AtomStore {
     }
 
     /// Record the window of this process, when the row says another one. One
-    /// batch of the planner (rows only).
+    /// row commit (rows only).
     pub(crate) async fn record_retention_window(&self) -> Result<(), SchemaError> {
         let window_secs = self.retention_state().window_nanos() / 1_000_000_000;
         if self.recorded_retention_window().await? == Some(window_secs) {
@@ -58,9 +58,9 @@ impl AtomStore {
         }
         let row = json!({ "v": 1, "window_secs": window_secs });
         self.in_background_scope(async {
-            self.commit_tip_changes(TipChangeSet {
+            self.commit_rows(RowChanges {
                 rows: vec![(window_key(), row)],
-                ..TipChangeSet::default()
+                ..RowChanges::default()
             })
             .await
             .map(|_| ())

@@ -1,41 +1,53 @@
 //! The janitor side: the release of the records that a page of due queue keys
 //! names.
 
-use super::entry::{QueueValue, RetentionEntry};
-use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
+use super::entry::RetentionEntry;
+use crate::db_operations::atom_store::counter::RowChanges;
+use crate::db_operations::atom_store::time_queue::DuePage;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use std::collections::BTreeMap;
 
 /// The records one release batch releases, at most. A page of the queue has
-/// as many keys, and a drain of a slot takes as many entries.
+/// as many keys.
 pub(crate) const RELEASE_BATCH_RECORDS: usize = 32;
 
 /// What one release batch did.
 #[derive(Debug, Default)]
 pub(crate) struct ReleaseOutcome {
-    /// History rows released: references lowered, rows deleted.
+    /// Conflict rows released: rows deleted.
     pub(crate) released: u64,
-    /// Entries left alone: an entry that did not decode.
+    /// Entries left alone: an entry whose row key has no valid scope.
     pub(crate) skipped: u64,
 }
 
-/// One due queue key after the read in the gate.
-enum Due {
-    /// Gone, not due, or not readable: nothing to release.
-    Nothing,
-    Record(RetentionEntry),
-}
-
 impl AtomStore {
+    /// The keys of the record entries of a page. An entry that does not decode,
+    /// or whose key has no readable expiry, is counted and left alone: the cursor
+    /// moves past it, and the entry stays.
+    pub(super) fn due_record_keys(&self, page: &DuePage) -> Vec<String> {
+        let queue = self.retention_state().queue();
+        let mut records = Vec::new();
+        for (key, value) in &page.rows {
+            if queue.entry_expiry(key).is_none() {
+                tracing::error!(%key, "retention queue key has no readable expiry");
+                self.retention_state().note_undecodable();
+                continue;
+            }
+            match serde_json::from_slice::<RetentionEntry>(value) {
+                Ok(_) => records.push(key.clone()),
+                Err(error) => {
+                    tracing::error!(%key, %error, "retention queue entry does not decode");
+                    self.retention_state().note_undecodable();
+                }
+            }
+        }
+        records
+    }
+
     /// Release the records of the queue keys `due`: one native write scope, one
     /// batch. The entries are read again inside the gate, and an entry that is
     /// gone, or is not due at `now_nanos`, is left alone. The scope holds the
     /// write gate for this batch only, never across pages.
-    ///
-    /// A record entry releases one record. The caller passes record entries
-    /// only: a drain marker needs no write gate, and the janitor drains it in
-    /// its own batches (`steps.rs`). A marker that comes here is left alone.
     pub(crate) async fn release_due_records(
         &self,
         due: &[String],
@@ -45,81 +57,38 @@ impl AtomStore {
             return Ok(ReleaseOutcome::default());
         }
         self.in_background_scope(async {
-            let items = self.read_due_items(due, now_nanos).await?;
             let mut outcome = ReleaseOutcome::default();
-            let mut entries: Vec<RetentionEntry> = Vec::new();
-            for item in items {
-                if let Due::Record(entry) = item {
-                    entries.push(entry);
+            let mut releases = Vec::new();
+            for entry in self.read_due_entries(due, now_nanos).await? {
+                match entry.scope() {
+                    Ok(_) => releases.push(entry.request()),
+                    Err(error) => {
+                        tracing::error!(%error, "retention entry has no valid scope");
+                        outcome.skipped += 1;
+                    }
                 }
             }
-            outcome.skipped += self
-                .commit_releases(entries, Vec::new(), &mut outcome.released)
-                .await?;
+            if !releases.is_empty() {
+                let commit = self
+                    .commit_rows(RowChanges {
+                        releases,
+                        ..RowChanges::default()
+                    })
+                    .await?;
+                outcome.released = commit.records_released;
+            }
             Ok(outcome)
         })
         .await
     }
 
-    /// Release `entries` in one batch for each storage scope, and delete the
-    /// keys `extra` in the last of them (or alone, when no entry is left). The
-    /// caller holds a write scope. Returns the number of entries that have no
-    /// valid scope, which the batch leaves alone.
-    pub(super) async fn commit_releases(
-        &self,
-        entries: Vec<RetentionEntry>,
-        extra: Vec<Vec<u8>>,
-        released: &mut u64,
-    ) -> Result<u64, SchemaError> {
-        let mut skipped = 0;
-        let mut by_scope: BTreeMap<Option<String>, Vec<ReleaseRequest>> = BTreeMap::new();
-        for entry in &entries {
-            match entry.scope() {
-                Ok(scope) => by_scope
-                    .entry(scope.map(str::to_string))
-                    .or_default()
-                    .push(entry.request()),
-                Err(error) => {
-                    tracing::error!(%error, "retention entry has no valid scope");
-                    skipped += 1;
-                }
-            }
-        }
-        // The extra deletes go with the last batch. A crash before it leaves
-        // the entries that they name, so the next pass finds them again.
-        let last = by_scope.len().saturating_sub(1);
-        let mut extra = Some(extra);
-        for (at, (scope, releases)) in by_scope.into_iter().enumerate() {
-            let commit = self
-                .commit_tip_changes(TipChangeSet {
-                    scope: scope.as_deref(),
-                    releases,
-                    deletes: if at == last {
-                        extra.take().unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    },
-                    ..TipChangeSet::default()
-                })
-                .await?;
-            *released += commit.records_released;
-        }
-        if let Some(deletes) = extra.filter(|deletes| !deletes.is_empty()) {
-            self.commit_tip_changes(TipChangeSet {
-                deletes,
-                ..TipChangeSet::default()
-            })
-            .await?;
-        }
-        Ok(skipped)
-    }
-
-    /// The due queue keys, read again in the gate and decoded, in key order.
-    async fn read_due_items(
+    /// The due queue keys, read again in the gate and decoded, in key order. A
+    /// key that is gone, not due, or not readable gives nothing.
+    async fn read_due_entries(
         &self,
         due: &[String],
         now_nanos: u64,
-    ) -> Result<Vec<Due>, SchemaError> {
+    ) -> Result<Vec<RetentionEntry>, SchemaError> {
         let queue = self.retention_state().queue();
         let keys: Vec<Vec<u8>> = due.iter().map(|key| key.as_bytes().to_vec()).collect();
         let stored = self
@@ -128,35 +97,28 @@ impl AtomStore {
             .get_many(keys)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read queue entries: {error}")))?;
-        let mut items = Vec::with_capacity(due.len());
+        let mut entries = Vec::with_capacity(due.len());
         for (key, bytes) in due.iter().zip(stored) {
             let Some(bytes) = bytes else {
-                items.push(Due::Nothing);
                 continue;
             };
             match queue.entry_expiry(key) {
                 Some(expiry) if expiry <= now_nanos => {}
-                Some(_) => {
-                    items.push(Due::Nothing);
-                    continue;
-                }
+                Some(_) => continue,
                 None => {
                     tracing::error!(%key, "retention queue key has no readable expiry");
                     self.retention_state().note_undecodable();
-                    items.push(Due::Nothing);
                     continue;
                 }
             }
-            match QueueValue::decode(&bytes) {
-                Ok(QueueValue::Record(entry)) => items.push(Due::Record(entry)),
-                Ok(QueueValue::Drain(_)) => items.push(Due::Nothing),
+            match serde_json::from_slice::<RetentionEntry>(&bytes) {
+                Ok(entry) => entries.push(entry),
                 Err(error) => {
                     tracing::error!(%key, %error, "retention queue entry does not decode");
                     self.retention_state().note_undecodable();
-                    items.push(Due::Nothing);
                 }
             }
         }
-        Ok(items)
+        Ok(entries)
     }
 }

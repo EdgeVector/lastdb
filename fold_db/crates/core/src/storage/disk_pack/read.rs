@@ -5,7 +5,6 @@ use budget::call_error;
 mod budget;
 pub(super) mod memory;
 mod overlay;
-mod probes;
 mod raw;
 pub(crate) mod snapshots;
 mod write_reads;

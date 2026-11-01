@@ -62,7 +62,7 @@ impl AtomStore {
     /// One chunk of the safety net: probe the next slices of the sweep, and
     /// register again each bucket that holds a live entry and has no directory
     /// row. A new sweep starts when the net is on and its time has come. `None`
-    /// means no sweep is due. The registration is a batch of the planner.
+    /// means no sweep is due. The registration is one row commit.
     pub async fn blob_dwell_net_step(
         &self,
         cursor: &mut DwellCursor,

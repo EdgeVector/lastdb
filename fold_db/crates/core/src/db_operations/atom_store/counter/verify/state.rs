@@ -1,42 +1,34 @@
-//! Memory of the verifier. Nothing here is a counter and nothing is stored on
-//! disk: a run, the last result, and the set of atoms that writers touched.
+//! Memory of the verifier. Nothing here is stored on disk: a run and the last
+//! result.
 
 use super::report::{
     Mismatches, Phase, Sample, VerifyLast, VerifyProgress, VerifyReport, VerifyRequest,
     VerifySummary,
 };
-use super::totals::{lock, Tally, Watch};
 use crate::db_operations::atom_store::time_queue::QueueSurvey;
 use crate::db_operations::atom_store::{RangeWalk, WalkStats};
 use crate::schema::SchemaError;
-use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// A run that no step touched for this long is dropped.
 const RUN_IDLE_LIMIT: Duration = Duration::from_secs(600);
-/// The most atoms the below-set holds (atoms a page reported as below).
-const MAX_REPORTED_BELOW: usize = 100_000;
 /// The most samples of one kind in a report.
 const SAMPLES_PER_KIND: usize = 8;
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// One run of the verifier.
 pub(super) struct Run {
     pub phase: Phase,
+    /// The range walk of a blob phase. Empty in the queue phase.
     pub walk: RangeWalk,
-    pub tally: Tally,
-    pub reported_below: HashSet<u128>,
-    /// The ids of the counted records (first 128 bits), over the second phase.
-    pub record_ids: HashSet<u128>,
-    /// False when the run met more records than `max_atoms`: the ids are a
-    /// part, and the queue phase judges nothing.
-    pub ids_complete: bool,
-    /// The most ids the run keeps.
-    pub max_ids: usize,
     /// The survey of the retention queue, while the queue phase runs.
     pub survey: Option<QueueSurvey>,
-    /// Ids of records that no queue entry names, for the last phase.
-    pub suspects: HashSet<u128>,
     pub report: VerifyReport,
     pub page_rows: usize,
     started: Instant,
@@ -44,27 +36,16 @@ pub(super) struct Run {
 }
 
 impl Run {
-    pub(super) fn new(
-        request: &VerifyRequest,
-        walk: RangeWalk,
-        page_rows: usize,
-        max_atoms: usize,
-    ) -> Self {
+    pub(super) fn new(request: &VerifyRequest, page_rows: usize) -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
         Self {
-            phase: Phase::Tips,
-            walk,
-            tally: Tally::new(max_atoms),
-            reported_below: HashSet::new(),
-            record_ids: HashSet::new(),
-            ids_complete: true,
-            max_ids: max_atoms,
+            phase: Phase::Queue,
+            walk: RangeWalk::new(&[], &[], page_rows),
             survey: None,
-            suspects: HashSet::new(),
             report: VerifyReport {
                 run_id: id,
                 scope: request.scope.clone(),
-                phase: Phase::Tips,
+                phase: Phase::Queue,
                 done: false,
                 next_cursor: None,
                 started_at: chrono::Utc::now(),
@@ -72,21 +53,13 @@ impl Run {
                 elapsed_ms: 0,
                 steps: 0,
                 pages: 0,
-                tips_read: 0,
-                records_read: 0,
-                counters_read: 0,
-                bodies_read: 0,
                 queue_entries_read: 0,
                 blob_counters_read: 0,
                 blob_queue_read: 0,
                 page_retries: 0,
                 range_reads: WalkStats::default(),
-                tally_atoms: 0,
-                tally_complete: true,
-                touched_atoms: 0,
                 mismatches: Mismatches::default(),
                 mismatches_total: 0,
-                suspect_atoms: 0,
                 samples: Vec::new(),
                 notes: Vec::new(),
             },
@@ -113,15 +86,15 @@ impl Run {
     }
 
     /// Record one fault: the count, and a sample while the kind has room.
-    pub(super) fn note_fault(&mut self, kind: super::report::Kind, atom: &str, detail: String) {
-        self.note_faults(kind, atom, detail, 1);
+    pub(super) fn note_fault(&mut self, kind: super::report::Kind, subject: &str, detail: String) {
+        self.note_faults(kind, subject, detail, 1);
     }
 
     /// Record `count` faults of one kind with one sample.
     pub(super) fn note_faults(
         &mut self,
         kind: super::report::Kind,
-        atom: &str,
+        subject: &str,
         detail: String,
         count: u64,
     ) {
@@ -136,30 +109,17 @@ impl Run {
         if held < SAMPLES_PER_KIND {
             self.report.samples.push(Sample {
                 kind: name.to_string(),
-                atom: atom.to_string(),
+                atom: subject.to_string(),
                 detail,
             });
         }
     }
 
-    /// Remember that a page reported this atom as below its holders.
-    /// Returns false when an earlier page did, so one atom counts once.
-    pub(super) fn first_below(&mut self, atom: u128) -> bool {
-        if self.reported_below.len() >= MAX_REPORTED_BELOW {
-            return !self.reported_below.contains(&atom);
-        }
-        self.reported_below.insert(atom)
-    }
-
     /// Copy the running totals into the report before it leaves the node.
-    pub(super) fn refresh_report(&mut self, touched_atoms: u64) {
+    pub(super) fn refresh_report(&mut self) {
         let report = &mut self.report;
         report.phase = self.phase;
-        report.tally_atoms = self.tally.len() as u64;
-        report.tally_complete = self.tally.complete && self.ids_complete;
-        report.touched_atoms = touched_atoms;
         report.mismatches_total = report.mismatches.total();
-        report.suspect_atoms = report.mismatches.suspect_counter;
         report.elapsed_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.touched_at = Instant::now();
     }
@@ -180,25 +140,20 @@ struct Inner {
 #[derive(Default)]
 pub(crate) struct VerifyState {
     inner: Mutex<Inner>,
-    watch: Watch,
 }
 
 impl VerifyState {
-    pub(crate) fn watch(&self) -> &Watch {
-        &self.watch
-    }
-
     /// What `lastdb status` shows.
     pub(crate) fn summary(&self) -> VerifySummary {
         let mut inner = lock(&self.inner);
-        self.expire(&mut inner);
+        Self::expire(&mut inner);
         VerifySummary {
             last: inner.last.clone(),
             running: inner.progress.clone(),
         }
     }
 
-    fn expire(&self, inner: &mut Inner) {
+    fn expire(inner: &mut Inner) {
         let idle = inner
             .run
             .as_ref()
@@ -206,7 +161,6 @@ impl VerifyState {
         if idle {
             inner.run = None;
             inner.progress = None;
-            self.watch.stop();
         }
     }
 
@@ -217,7 +171,7 @@ impl VerifyState {
         new: impl FnOnce() -> Run,
     ) -> Result<StepGuard<'_>, SchemaError> {
         let mut inner = lock(&self.inner);
-        self.expire(&mut inner);
+        Self::expire(&mut inner);
         if inner.busy {
             return Err(SchemaError::InvalidData(
                 "a verify step is already running; wait for it, then continue with the cursor"
@@ -225,10 +179,7 @@ impl VerifyState {
             ));
         }
         let run = match request.cursor.as_deref() {
-            None => {
-                self.watch.start();
-                new()
-            }
+            None => new(),
             Some(cursor) => {
                 let run = inner.run.take().ok_or_else(|| {
                     SchemaError::InvalidCursor(
@@ -267,18 +218,6 @@ impl StepGuard<'_> {
         self.run.as_mut().expect("the guard holds a run")
     }
 
-    pub(super) fn watch(&self) -> &Watch {
-        &self.state.watch
-    }
-
-    /// The run and the watch together, for a caller that needs both.
-    pub(super) fn split(&mut self) -> (&mut Run, &Watch) {
-        (
-            self.run.as_mut().expect("the guard holds a run"),
-            &self.state.watch,
-        )
-    }
-
     /// End the run: keep its result as the last result, drop its memory.
     pub(super) fn finish(mut self) {
         let Some(run) = self.run.take() else {
@@ -288,7 +227,6 @@ impl StepGuard<'_> {
         inner.last = run.report.last();
         inner.busy = false;
         inner.progress = None;
-        self.state.watch.stop();
     }
 }
 

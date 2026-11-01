@@ -1,37 +1,26 @@
 //! The blob checks of the verifier.
 //!
 //! The blob counters are global: one counter for each blob, whatever the scope
-//! of the atoms that list it. A run reads them in three places. All of them read
-//! at one committed root for each page, so the invariants of a batch hold and no
-//! check here has a false positive.
+//! of the records that name it. Each page reads at one committed root, so the
+//! invariants of a batch hold and no check here has a false positive.
 //!
-//! - **Listed blobs.** The atoms phase and the tips phase read the blob counter of
-//!   every blob that the page's atom counters or tips name. A counter that is
-//!   absent, or below the number of holders in the page, is a fault: the true
-//!   count can only be higher (holders in other pages and other scopes add to
-//!   it). A count that is too high is not found here, because the totals of one
-//!   scope say nothing about the other scopes. `lastdb db recount` computes it.
 //! - **The counters** (phase `blobs`, personal run only). Each counter is
 //!   checked alone: `suspect`, a count of zero with no dwell, a dwell with
-//!   references, a dwell with no queue entry.
+//!   references, a dwell with no queue entry, references with no blob row.
 //! - **The queue** (phase `blob_queue`, personal run only). Each entry must have
 //!   a counter at zero with the same `zero_since`.
 //!
-//! Nothing here writes.
+//! A count that is too high or too low needs every record of every scope.
+//! `lastdb db recount` computes it on a stopped home. Nothing here writes.
 
-use super::check::Finding;
 use super::report::Kind;
 use super::state::Run;
-use crate::db_operations::atom_store::blob_counter::{blob_id, blobs_of_tip_row, BlobRead};
-use crate::db_operations::atom_store::counter::scan::{CounterRead, PairRead};
-use std::collections::BTreeMap;
+use crate::db_operations::atom_store::blob_counter::{blob_id, BlobRead};
 
-/// A blob that holders of one page name, with the counter read at the same root.
-pub(super) struct BlobListed {
-    pub blob: String,
-    /// Counters or tips of the page that name the blob.
-    pub listed: u32,
-    pub counter: BlobRead,
+/// One fault that a check found.
+pub(super) struct Finding {
+    pub kind: Kind,
+    pub detail: String,
 }
 
 /// One counter of the blobs phase.
@@ -85,31 +74,6 @@ fn finding(kind: Kind, detail: String) -> Finding {
     Finding { kind, detail }
 }
 
-/// Check a blob that `listed` holders of one page name. `holder` says which
-/// kind of holder the page has.
-pub(super) fn judge_listed(listed: u32, counter: &BlobRead, holder: &str) -> Vec<Finding> {
-    match counter {
-        BlobRead::Absent => vec![finding(
-            Kind::BlobCounterMissing,
-            format!("{listed} {holder} of the page name the blob and it has no counter"),
-        )],
-        BlobRead::Unreadable => vec![finding(
-            Kind::UnreadableBlobCounter,
-            "blob counter does not decode".into(),
-        )],
-        BlobRead::Present(counter) if !counter.suspect && counter.refs < u64::from(listed) => {
-            vec![finding(
-                Kind::BlobCounterBelowRefs,
-                format!(
-                    "counter holds {} and the page shows {listed} {holder}",
-                    counter.refs
-                ),
-            )]
-        }
-        BlobRead::Present(_) => Vec::new(),
-    }
-}
-
 /// Check one counter alone. `queued` says that the queue holds its entry, and
 /// `row_missing` that the blob has no row.
 pub(super) fn judge_counter(counter: &BlobRead, queued: bool, row_missing: bool) -> Vec<Finding> {
@@ -151,7 +115,7 @@ pub(super) fn judge_counter(counter: &BlobRead, queued: bool, row_missing: bool)
         out.push(finding(
             Kind::BlobCounterWithoutBlob,
             format!(
-                "counter holds {} and the store has no blob row: the atoms name a blob that is not there",
+                "counter holds {} and the store has no blob row: the records name a blob that is not there",
                 counter.refs
             ),
         ));
@@ -177,48 +141,6 @@ pub(super) fn judge_queue_entry(zero_since: u64, counter: &BlobRead) -> Option<F
         ),
     };
     Some(finding(Kind::BlobStaleQueueEntry, detail))
-}
-
-/// The blobs that the atom counters of a page list, with the number of counters
-/// that list each.
-pub(super) fn blobs_of_pairs(pairs: &[PairRead]) -> BTreeMap<String, u32> {
-    let mut out = BTreeMap::new();
-    for pair in pairs {
-        if let CounterRead::Present(counter) = &pair.counter {
-            for blob in &counter.blobs {
-                *out.entry(blob.clone()).or_insert(0u32) += 1;
-            }
-        }
-    }
-    out
-}
-
-/// The blobs that the tips of a page name in their metadata, with the number of
-/// tips that name each. A row that does not decode is reported by the tip read.
-pub(super) fn blobs_of_tips(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, u32> {
-    let mut out = BTreeMap::new();
-    for (key, value) in rows {
-        let blobs = if crate::db_operations::atom_store::atom_history::is_archive(
-            &String::from_utf8_lossy(key),
-        ) {
-            crate::db_operations::atom_store::atom_history::files(value)
-        } else {
-            blobs_of_tip_row(value)
-        };
-        for blob in blobs.unwrap_or_default() {
-            *out.entry(blob).or_insert(0u32) += 1;
-        }
-    }
-    out
-}
-
-/// Judge the blobs that a page's holders name.
-pub(super) fn apply_listed(run: &mut Run, listed: Vec<BlobListed>, holder: &str) {
-    for blob in listed {
-        for finding in judge_listed(blob.listed, &blob.counter, holder) {
-            run.note_fault(finding.kind, &blob.blob, finding.detail);
-        }
-    }
 }
 
 /// Judge a page of blob counters.

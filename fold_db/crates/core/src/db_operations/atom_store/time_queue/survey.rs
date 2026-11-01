@@ -1,10 +1,9 @@
-//! A survey of a queue: every entry id, and the buckets that the directory does
-//! not list.
+//! A survey of a queue: the number of entries, and the buckets that the
+//! directory does not list.
 //!
-//! The verifier and the recount need to know which entries a queue holds. The
-//! ids of the entries are hashes, so the survey keeps the first 128 bits of each
-//! in a set. It reads in steps of one bounded range read, so a caller can run it
-//! in the budget of a verifier step.
+//! The verifier and the recount need to know which buckets hold entries that
+//! the janitor cannot find. The survey reads in steps of one bounded range read,
+//! so a caller can run it in the budget of a verifier step.
 //!
 //! Where the survey looks:
 //!
@@ -59,18 +58,14 @@ pub(crate) struct QueueSurvey {
     lifetime_nanos: u64,
     now_nanos: u64,
     page_rows: usize,
-    cap: usize,
     stage: Stage,
     /// Buckets to walk: the bucket, and whether the directory lists it.
     todo: VecDeque<(u64, bool)>,
     walk: Option<(u64, bool, RangeWalk)>,
-    ids: HashSet<u128>,
     unlisted: BTreeMap<u64, UnlistedBucket>,
     /// Entries read.
     entries: u64,
-    /// False when the survey met more entries than its cap, or more buckets than
-    /// it walks. The set of ids is then a part, and a caller must not infer that
-    /// an id is missing.
+    /// False when the directory lists more buckets than the survey walks.
     complete: bool,
     /// Buckets whose probe gave up.
     unknown: u64,
@@ -78,34 +73,25 @@ pub(crate) struct QueueSurvey {
 
 impl QueueSurvey {
     /// A survey of `queue` at `now_nanos`, for entries that live `lifetime_nanos`.
-    /// It keeps at most `cap` ids.
     pub(crate) fn new(
         queue: TimeQueue,
         now_nanos: u64,
         lifetime_nanos: u64,
         page_rows: usize,
-        cap: usize,
     ) -> Self {
         Self {
             queue,
             lifetime_nanos,
             now_nanos,
             page_rows: page_rows.max(16),
-            cap,
             stage: Stage::Listing,
             todo: VecDeque::new(),
             walk: None,
-            ids: HashSet::new(),
             unlisted: BTreeMap::new(),
             entries: 0,
             complete: true,
             unknown: 0,
         }
-    }
-
-    /// True when `digest` names an entry the survey met.
-    pub(crate) fn has(&self, digest: u128) -> bool {
-        self.ids.contains(&digest)
     }
 
     pub(crate) fn complete(&self) -> bool {
@@ -190,13 +176,6 @@ impl QueueSurvey {
                 continue;
             };
             self.entries += 1;
-            if let Some(digest) = self.queue.entry_digest(&key) {
-                if self.ids.len() >= self.cap {
-                    self.complete = false;
-                } else {
-                    self.ids.insert(digest);
-                }
-            }
             if !listed {
                 let bucket = self.unlisted.entry(bucket).or_default();
                 bucket.entries += 1;

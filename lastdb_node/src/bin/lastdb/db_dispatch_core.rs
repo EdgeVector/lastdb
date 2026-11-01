@@ -24,7 +24,6 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
             page_rows,
             scope,
             all_scopes,
-            max_atoms,
         } => db_verify_refs(
             socket,
             &VerifyRefsOpts {
@@ -38,7 +37,6 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
                 page_rows,
                 scope,
                 all_scopes,
-                max_atoms,
             },
         ),
     }
