@@ -25,21 +25,6 @@ impl MoleculeRangeProfile {
         }
     }
 
-    /// Direct field reads use this domain without a second schema lookup.
-    #[must_use]
-    pub fn comparison_type(self) -> FieldValueType {
-        match self {
-            Self::EmptyV1 => FieldValueType::String,
-            Self::TypedV1 { scalar } => match scalar {
-                RangeStorageProfile::StringUtf8V1 => FieldValueType::String,
-                RangeStorageProfile::IntegerI64V1 => FieldValueType::Integer,
-                RangeStorageProfile::DateDaysV1 => FieldValueType::Date,
-                RangeStorageProfile::DateTimeNanosV1 => FieldValueType::DateTime,
-                RangeStorageProfile::BooleanV1 => FieldValueType::Boolean,
-            },
-        }
-    }
-
     pub fn encode_value(self, api: &str) -> Result<String, String> {
         match self {
             Self::EmptyV1 => empty_slot(api),
@@ -58,20 +43,6 @@ impl MoleculeRangeProfile {
         match self {
             Self::EmptyV1 => Err("a molecule without a range field has no text prefix".into()),
             Self::TypedV1 { scalar } => scalar.require_text_prefix(),
-        }
-    }
-
-    #[must_use]
-    pub fn format_id(self) -> &'static str {
-        match self {
-            Self::EmptyV1 => "empty-v1",
-            Self::TypedV1 { scalar } => match scalar {
-                RangeStorageProfile::StringUtf8V1 => "string-utf8-v1",
-                RangeStorageProfile::IntegerI64V1 => "integer-i64-v1",
-                RangeStorageProfile::DateDaysV1 => "date-days-v1",
-                RangeStorageProfile::DateTimeNanosV1 => "date-time-nanos-v1",
-                RangeStorageProfile::BooleanV1 => "boolean-v1",
-            },
         }
     }
 }
