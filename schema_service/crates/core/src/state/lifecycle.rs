@@ -11,6 +11,20 @@ pub enum DedupeNamesReply {
     Failed { message: String, body: Value },
 }
 
+impl DedupeNamesReply {
+    /// The HTTP status, body, and optional log line.
+    ///
+    /// Ready is 200 and has no log line. Failed is 500. The log line is the
+    /// actix error text. The Lambda router ignores that line.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value, Option<String>) {
+        match self {
+            Self::Ready(body) => (200, body, None),
+            Self::Failed { message, body } => (500, body, Some(message)),
+        }
+    }
+}
+
 /// The schema deprecation both HTTP routers answer.
 #[derive(Debug)]
 pub enum DeprecateSchemasReply {
@@ -19,6 +33,20 @@ pub enum DeprecateSchemasReply {
     /// The deprecation failed. HTTP 500. `message` is the log line. `body` is
     /// `{ "error": message }`.
     Failed { message: String, body: Value },
+}
+
+impl DeprecateSchemasReply {
+    /// The HTTP status, body, and optional log line.
+    ///
+    /// Ready is 200 and has no log line. Failed is 500. The log line is the
+    /// actix error text. The Lambda router ignores that line.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value, Option<String>) {
+        match self {
+            Self::Ready(body) => (200, body, None),
+            Self::Failed { message, body } => (500, body, Some(message)),
+        }
+    }
 }
 
 /// `(owner_app_id, descriptive_name, [(identity_hash, field_count)])`.

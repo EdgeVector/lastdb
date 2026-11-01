@@ -1,6 +1,6 @@
 //! Mutation challenge and app/release/channel registry routes.
 
-use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply, SetChannelReply};
+use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
     missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, RegisterAppReply,
     SchemaMutationChallengeReply, UpdateAppReply,
@@ -108,13 +108,11 @@ pub async fn set_channel(
         Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    match state
+    let (status, body) = state
         .set_channel_reply(&app_id, &channel, &cert, &sig, &body)
         .await
-    {
-        SetChannelReply::Ready(body) => json_status(200, body),
-        SetChannelReply::Failed { status, body } => json_status(status, body),
-    }
+        .into_http();
+    json_status(status, body)
 }
 
 /// `POST /v2/apps/{app_id}/revocations` — revoke a published release.
