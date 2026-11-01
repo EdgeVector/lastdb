@@ -167,12 +167,14 @@ def report(args, pairs, audits):
               "The existing disk ratio gates retain their thresholds.", "", "### Original disk-proof seed audit", "",
               "This audit uses the original 3,000-base seed and declares no alternate keys.",
               "Its atom-volume qualification is reported separately from data correctness.", "",
-              "| Source | Logical atoms MiB | Atoms | Live records verified | Meets old 16 MiB minimum |",
-              "|---|---:|---:|---:|---|"]
+              "A format 7 home stores one record value per key and no atoms.", "",
+              "| Source | Logical MiB | Atoms | Stored records | Live records verified | Meets old 16 MiB minimum |",
+              "|---|---:|---:|---:|---:|---|"]
     for audit in audits:
         logical = audit["logical"]
         lines.append(f"| {audit['label']} | {logical['bytes'] / 2**20:.2f} | {logical['atoms']} | "
-                     f"{audit['reads']['live']} | {audit['qualifies_for_legacy_atom_volume_gate']} |")
+                     f"{logical['records']} | {audit['reads']['live']} | "
+                     f"{audit['qualifies_for_legacy_atom_volume_gate']} |")
     lines += ["", "The original audit is not the alternate-key space comparison.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,

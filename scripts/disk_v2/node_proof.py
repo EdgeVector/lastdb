@@ -269,10 +269,13 @@ class Case:
         report = data["schema_storage"]
         histogram = report.get("histogram") or {}
         # A format 7 home stores records, not atoms: the walk counts the stored
-        # record values and their bytes.
-        return {"bytes": report["total_logical_bytes"], "records": report["total_records"],
+        # record values and their bytes. The alternate-key storage comparison
+        # also runs the previous main binary, whose format 6 home stores atoms.
+        unit = "record_count" if self.node.home_format() == 7 else "atom_count"
+        return {"bytes": report["total_logical_bytes"], "atoms": report["total_atoms"],
+                "records": report.get("total_records", 0),
                 "p50": histogram.get("p50"), "milliseconds": round(elapsed),
-                "schemas": {row["schema_name"]: [row["bytes"], row["record_count"]]
+                "schemas": {row["schema_name"]: [row["bytes"], row[unit]]
                             for row in report["per_schema"]}}
 
     def reads(self):
