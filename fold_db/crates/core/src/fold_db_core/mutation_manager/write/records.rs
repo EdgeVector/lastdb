@@ -77,13 +77,15 @@ impl MutationManager {
                 after,
             });
         }
-        let entries = atoms.alternate_entry_changes(
-            &schema,
-            &changed_keys,
-            &before_fields,
-            &after_fields,
-            scope.as_deref(),
-        )?;
+        let entries = atoms
+            .alternate_entry_changes(
+                &schema,
+                &changed_keys,
+                &before_fields,
+                &after_fields,
+                scope.as_deref(),
+            )
+            .await?;
         if runtime.logical_capture_enabled() {
             self.collect_logical_records(&schema, &changed_keys, &changes)?;
         }
