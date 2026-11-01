@@ -157,7 +157,7 @@ pub struct DbInventory {
     /// read that hit another budget of one call was retried with fewer rows or a
     /// narrower key range (`shrinks` and `splits`).
     #[serde(default)]
-    pub scan: crate::db_operations::atom_store::WalkStats,
+    pub scan: crate::db_operations::record_store::WalkStats,
     /// Attribution ledger summary: object counts by class (schema/retention/
     /// system/derived/residue/unknown) and total path-row count. Absent
     /// (all-zero) on a home written before this field existed.

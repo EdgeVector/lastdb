@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Writer boundary of the blob counter and the record conflict and history rows.
 
-Only the row commit (db_operations/atom_store/counter/commit.rs), the blob
-planner (db_operations/atom_store/blob_counter/) and the record writers may
+Only the row commit (db_operations/record_store/counter/commit.rs), the blob
+planner (db_operations/record_store/blob_counter/) and the record writers may
 write blob counters, blob queue entries, record conflict rows (`rcf:`, `rcm:`)
 and field history rows (`rh:` with its `ahq:`/`ahk:`/`ahb:` rows) inside a
 write scope. This lint finds every Rust function that writes through a store

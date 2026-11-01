@@ -22,7 +22,7 @@ impl MutationManager {
         {
             return Ok(());
         }
-        let cutoff_nanos = self.db_ops.atoms().minimum_replay_time().await?;
+        let cutoff_nanos = self.db_ops.records().minimum_replay_time().await?;
         if cutoff_nanos > 0
             && mutations.iter().any(|mutation| {
                 (mutation.replay_cutoff_required || mutation.imported_written_at.is_some())

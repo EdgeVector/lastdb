@@ -13,7 +13,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::AtomStore;
+use super::RecordStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
@@ -141,7 +141,7 @@ pub fn key_fingerprint(schema: &str, described_key: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-impl AtomStore {
+impl RecordStore {
     /// Read ledger rows in time order (oldest first).
     ///
     /// `limit` of 0 means unbounded. This is a prefix scan by design: the ledger

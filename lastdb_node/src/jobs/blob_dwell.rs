@@ -1,7 +1,7 @@
 //! Background dwell pass: delete the local file blobs whose count is zero and
 //! whose dwell has passed.
 //!
-//! The blob counter (`fold_db::db_operations::AtomStore::blob_dwell_step`)
+//! The blob counter (`fold_db::db_operations::RecordStore::blob_dwell_step`)
 //! keeps a time-bucketed queue of the blobs at zero (`docs/lastdb-time-queue.md`).
 //! Each sampler tick starts at most one pass. A pass keeps the reader of the
 //! queue (its cursors over the buckets) from one pass to the next, and deletes
@@ -62,7 +62,7 @@ pub fn maybe_spawn_blob_dwell_pass(
     if !blob_dwell_pass_enabled() {
         return;
     }
-    let Some(guard) = host.db.db_ops().atoms().begin_blob_dwell_pass() else {
+    let Some(guard) = host.db.db_ops().records().begin_blob_dwell_pass() else {
         return;
     };
     let host = std::sync::Arc::clone(host);
@@ -113,24 +113,24 @@ async fn run_steps(
     cursor: &mut DwellCursor,
     watch: &mut WriterWatch,
 ) -> Result<(), String> {
-    let atoms = host.db.db_ops().atoms();
+    let records = host.db.db_ops().records();
     let pace = Pace::from_env();
     let failed = |error: fold_db::schema::SchemaError| error.to_string();
-    atoms.blob_dwell_begin(cursor).await.map_err(failed)?;
+    records.blob_dwell_begin(cursor).await.map_err(failed)?;
     cursor.set_net_every(pace::net_every_from_env());
     if sweep_net(host, shutdown, cursor, &pace, watch).await > 0 {
         // A bucket that the net registered again is in the directory now.
-        atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
+        records.blob_dwell_refresh(cursor).await.map_err(failed)?;
     }
     for number in 0..MAX_STEPS_PER_PASS {
         if shutdown.load(Ordering::Acquire) {
             return Ok(());
         }
         if number > 0 && number % REFRESH_EVERY == 0 {
-            atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
+            records.blob_dwell_refresh(cursor).await.map_err(failed)?;
         }
         let started = Instant::now();
-        let step = atoms.blob_dwell_step(cursor, pace.chunk);
+        let step = records.blob_dwell_step(cursor, pace.chunk);
         let step = match crate::maintenance_write_gate::run(host, step).await {
             Some(Ok(Some(step))) => step,
             // Nothing is due, or local writes are paused for a retained cloud
@@ -166,14 +166,14 @@ async fn sweep_net(
     pace: &Pace,
     watch: &mut WriterWatch,
 ) -> u64 {
-    let atoms = host.db.db_ops().atoms();
+    let records = host.db.db_ops().records();
     let mut repaired = 0;
     loop {
         if shutdown.load(Ordering::Acquire) {
             return repaired;
         }
         let started = Instant::now();
-        let step = atoms.blob_dwell_net_step(cursor);
+        let step = records.blob_dwell_net_step(cursor);
         match crate::maintenance_write_gate::run(host, step).await {
             Some(Ok(Some(step))) => {
                 repaired += step.repaired;

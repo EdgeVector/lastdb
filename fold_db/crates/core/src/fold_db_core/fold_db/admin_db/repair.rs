@@ -13,7 +13,7 @@ impl FoldDB {
         limit: usize,
     ) -> Result<Vec<AtomDeleteLedgerEntry>, FoldDbError> {
         self.db_ops()
-            .atoms()
+            .records()
             .list_atom_delete_ledger(None, limit)
             .await
             .map_err(|e| FoldDbError::Database(format!("list_atom_delete_ledger: {e}")))

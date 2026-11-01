@@ -14,7 +14,7 @@ state inside the native write gate, so a write during the drop is refused with
 are refused from the same point.
 
 The drop then releases the rows of the schema before it removes the schema
-record and its catalog rows (`atom_store/schema_release.rs`). It reads only
+record and its catalog rows (`record_store/schema_release.rs`). It reads only
 the key prefixes of the schema in its record scope: the records and their
 tombstones (`rk:`), the field history entries (`rh:`) and the entries of each
 declared alternate key (`ak:`). Each batch reads at most 256 rows and deletes

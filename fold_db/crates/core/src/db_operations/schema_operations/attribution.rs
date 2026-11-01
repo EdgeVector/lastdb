@@ -44,7 +44,7 @@ impl DbOperations {
         let paths_by_molecule = Self::schema_root_paths_by_molecule(&schemas);
 
         let ledger = self.attribution();
-        let meters = self.atoms().keep_small();
+        let meters = self.records().keep_small();
         let mut report = SchemaRootAttributionReport {
             schemas_read: schemas.len() as u64,
             molecule_roots: 0,

@@ -1,5 +1,5 @@
 //! An unfiltered ascending read of a format 7 home: one page of the record
-//! walk (`fold_db` `atom_store/record_walk.rs`).
+//! walk (`fold_db` `record_store/record_walk.rs`).
 //!
 //! The walk follows record key order, not page order. A record key starts
 //! with the blinded hash, so only a read of every record finds the first

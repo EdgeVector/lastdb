@@ -293,7 +293,7 @@ impl MutationManager {
             })?
             .try_reserve(schema)?;
         let local_writer_id = self.signer.public_key_base64();
-        let local_origin_device = self.db_ops.atoms().local_origin_device();
+        let local_origin_device = self.db_ops.records().local_origin_device();
         let mut resident_state = self
             .author_clock_state
             .lock()

@@ -5,11 +5,11 @@
 //! `LASTDB_CONFLICT_RETENTION_SECS`) or with a purge of its record. This task
 //! ends the rows that reach the end of their window.
 //!
-//! The queue is time-bucketed (`db_operations::atom_store::time_queue`). One
+//! The queue is time-bucketed (`db_operations::record_store::time_queue`). One
 //! wake reads the directory of the buckets that have started (again at the start
 //! of each turn), and walks them oldest first in bounded pages. The read of a
 //! page holds no write gate. Each page that has due records runs one release batch
-//! (`AtomStore::release_step`): one native write scope, one batch, and the gate
+//! (`RecordStore::release_step`): one native write scope, one batch, and the gate
 //! is free again before the next page. The janitor rests after each batch for
 //! `blocked * (100 - duty) / duty`, where `blocked` is the time the batch keeps
 //! writers waiting: the hold of the write gate (its reads in the gate, its staging
@@ -60,7 +60,7 @@ use super::background_task::BackgroundTask;
 use std::time::Duration;
 
 use super::conflict_janitor_pace::{backoff_after, rest, rest_after};
-use crate::db_operations::atom_store::{AtomStore, RetentionCursor, StepOutcome, WriterWatch};
+use crate::db_operations::record_store::{RecordStore, RetentionCursor, StepOutcome, WriterWatch};
 use crate::db_operations::DbOperations;
 
 /// Batches of one wake, at most. A larger backlog continues at the next wake.
@@ -96,7 +96,7 @@ impl BackgroundConflictJanitorTask {
         net_every: Option<Duration>,
     ) -> Self {
         db_ops
-            .atoms()
+            .records()
             .retention_state()
             .set_janitor_interval_ms(u64::try_from(interval.as_millis()).unwrap_or(u64::MAX));
         let stop = Arc::new(AtomicBool::new(false));
@@ -108,14 +108,14 @@ impl BackgroundConflictJanitorTask {
             ticker.tick().await;
             // The offline recount reads the window from this row. A failed write
             // does not stop the janitor: the recount then uses its own window.
-            if let Err(failure) = db_ops.atoms().record_retention_window().await {
+            if let Err(failure) = db_ops.records().record_retention_window().await {
                 tracing::warn!(
                     target: "fold_node::database",
                     error = %failure,
                     "conflict janitor could not record the retention window"
                 );
             }
-            let mut cursor = db_ops.atoms().retention_cursor();
+            let mut cursor = db_ops.records().retention_cursor();
             cursor.set_net_every(net_every);
             // The watch lives as long as the task: it remembers the last write
             // of another task across the wakes.
@@ -143,7 +143,7 @@ impl BackgroundConflictJanitorTask {
                 };
                 let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
                 retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
-                db_ops.atoms().retention_state().note_run(
+                db_ops.records().retention_state().note_run(
                     wake.released,
                     wake.error,
                     failures,
@@ -189,7 +189,7 @@ impl Wake {
 /// Returns `false` when the janitor was told to stop. A failed sweep ends; it
 /// does not put the janitor in back-off, and the next sweep comes at its time.
 async fn run_net(
-    atoms: &AtomStore,
+    records: &RecordStore,
     stop: &AtomicBool,
     cursor: &mut RetentionCursor,
     duty_pct: u64,
@@ -200,8 +200,8 @@ async fn run_net(
             return false;
         }
         let started = std::time::Instant::now();
-        let now = atoms.retention_state().clock_nanos();
-        match atoms.net_step(cursor, now).await {
+        let now = records.retention_state().clock_nanos();
+        match records.net_step(cursor, now).await {
             Ok(Some(outcome)) => {
                 tracing::debug!(
                     target: "fold_node::database",
@@ -228,13 +228,13 @@ async fn run_net(
 
 /// Note one finished batch in the status and in the wake.
 fn note_batch(
-    atoms: &AtomStore,
+    records: &RecordStore,
     wake: &mut Wake,
     outcome: &StepOutcome,
     took: Duration,
     rest: Duration,
 ) {
-    atoms.retention_state().note_released(outcome.released);
+    records.retention_state().note_released(outcome.released);
     wake.released += outcome.released;
     wake.skipped += outcome.skipped;
     tracing::debug!(
@@ -259,19 +259,19 @@ async fn run_wake(
     duty_pct: u64,
     watch: &mut WriterWatch,
 ) -> Wake {
-    let atoms = db_ops.atoms();
+    let records = db_ops.records();
     let mut wake = Wake::default();
     // The safety net sweeps the slices once in a while (a few chunks, each paced
     // like a batch). A failed sweep does not hold back the release of records.
-    if !run_net(atoms, stop, cursor, duty_pct, watch).await {
+    if !run_net(records, stop, cursor, duty_pct, watch).await {
         return wake;
     }
     let mut batches = 0usize;
     'wake: while batches < PAGES_PER_WAKE {
         // Read the directory at the start of each turn, not only of the wake: a
         // bucket that starts while a long backlog runs must get its turn too.
-        let now = atoms.retention_state().clock_nanos();
-        if let Err(failure) = atoms.refresh_queue(cursor, now).await {
+        let now = records.retention_state().clock_nanos();
+        if let Err(failure) = records.refresh_queue(cursor, now).await {
             wake.fail(&failure);
             break;
         }
@@ -281,8 +281,8 @@ async fn run_wake(
                 break 'wake;
             }
             let started = std::time::Instant::now();
-            let now = atoms.retention_state().clock_nanos();
-            let outcome = match atoms.release_step(cursor, now).await {
+            let now = records.retention_state().clock_nanos();
+            let outcome = match records.release_step(cursor, now).await {
                 Ok(Some(outcome)) => outcome,
                 Ok(None) => break,
                 Err(failure) => {
@@ -293,7 +293,7 @@ async fn run_wake(
             progressed = true;
             batches += 1;
             let rest_for = rest_after(watch, &outcome, duty_pct);
-            note_batch(atoms, &mut wake, &outcome, started.elapsed(), rest_for);
+            note_batch(records, &mut wake, &outcome, started.elapsed(), rest_for);
             rest(rest_for, watch).await;
         }
         if !progressed {

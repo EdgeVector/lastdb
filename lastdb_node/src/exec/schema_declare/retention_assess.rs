@@ -66,7 +66,7 @@ async fn existing_data(host: &Host, binding: &str, anchor: &str) -> Result<bool,
         let holds = host
             .db
             .db_ops()
-            .atoms()
+            .records()
             .schema_may_hold_records(&schema)
             .await
             .map_err(|error| format!("failed to probe the records of {name}: {error}"))?;

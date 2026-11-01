@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::db_operations::atom_store::{record_scope, RecordFieldConflicts};
+use crate::db_operations::record_store::{record_scope, RecordFieldConflicts};
 use crate::schema::types::KeyValue;
 
 use super::FoldDB;
@@ -19,7 +19,7 @@ impl FoldDB {
     ) -> Option<Vec<BTreeSet<String>>> {
         let records = self.record_storage_keys(schema_name, keys)?;
         self.db_ops
-            .atoms()
+            .records()
             .record_conflict_fields(&records)
             .await
             .ok()
@@ -44,7 +44,7 @@ impl FoldDB {
         let read = async {
             let _fence = router.fence_mutations().await;
             self.db_ops
-                .atoms()
+                .records()
                 .selected_record_conflicts(&pairs)
                 .await
                 .ok()
@@ -61,12 +61,12 @@ impl FoldDB {
             .get_schema_metadata(schema_name)
             .ok()??;
         let scope = record_scope(&schema);
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let molecule_keys = self.db_ops.molecule_keys();
         keys.iter()
             .map(|key| {
                 let key = molecule_keys.canonical_key(&schema, key.clone()).ok()?;
-                atoms.record_key(&schema, &key, scope.as_deref()).ok()
+                records.record_key(&schema, &key, scope.as_deref()).ok()
             })
             .collect()
     }

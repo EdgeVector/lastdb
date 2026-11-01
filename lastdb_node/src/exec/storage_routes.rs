@@ -13,7 +13,7 @@ pub(super) async fn execute_app_storage_route(ctx: &AccessContext, host: &Host) 
         RECONCILE_CHECKPOINT_KEY,
     };
 
-    let meters = host.db.db_ops().atoms().keep_small();
+    let meters = host.db.db_ops().records().keep_small();
     let snapshot = meters.export();
     let hydrate_missed = meters.hydrate_missed();
     let stale_after_unclean_stop = meters.stale_after_unclean_stop();
@@ -104,7 +104,7 @@ pub(super) fn collect_home_app_attribution(
         build_inclusive_app_attribution, AppLogicalBinding, AppLogicalMolecule,
     };
 
-    let meters = host.db.db_ops().atoms().keep_small();
+    let meters = host.db.db_ops().records().keep_small();
     let counters_complete = meters.molecule_counters_complete();
     let schema_manager = host.db.schema_manager();
     let mut unresolved = Vec::new();
@@ -321,7 +321,7 @@ pub(super) async fn execute_app_storage_reconcile_route(
         Err(e) => return error_response(400, &format!("invalid reconcile body: {e}"), ctx),
     };
 
-    let snapshot = host.db.db_ops().atoms().keep_small().export();
+    let snapshot = host.db.db_ops().records().keep_small().export();
     let checkpoint = host
         .db
         .db_ops()

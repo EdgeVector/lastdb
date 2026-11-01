@@ -136,9 +136,9 @@ impl FoldDB {
         request: &SchemaRecordKeysRequest<'_>,
         storage_prefix: Option<&str>,
     ) -> Result<(String, KeyPage), SchemaError> {
-        let atoms = self.db_ops().atoms();
-        let comparison = atoms.key_comparison_context(schema).await?;
-        let page = atoms
+        let records = self.db_ops().records();
+        let comparison = records.key_comparison_context(schema).await?;
+        let page = records
             .list_record_keys(
                 schema,
                 &comparison,

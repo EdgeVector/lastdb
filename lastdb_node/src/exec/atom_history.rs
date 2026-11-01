@@ -1,6 +1,6 @@
 //! Owner-only field policy, history lookup, purge, and conditional restore.
 use super::*;
-use fold_db::db_operations::atom_store::atom_history::{FieldHistoryPolicy, HistoryLocation};
+use fold_db::db_operations::record_store::atom_history::{FieldHistoryPolicy, HistoryLocation};
 use fold_db::schema::types::cas::CasExpectation;
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
 use fold_db::schema::types::MutationType;
