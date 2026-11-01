@@ -55,8 +55,8 @@ pub use lifecycle::{DedupeNamesReply, DeprecateSchemasReply};
 pub use lookup::{IdempotentRepostReply, SchemaByNameReply};
 pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};
 pub use resolve::{
-    accepted_similarity_threshold, BatchReuseReply, SchemaResolveReply, SimilarSchemasReply,
-    MAX_SCHEMA_RESOLVE_PROPOSALS,
+    accepted_similarity_threshold, similarity_threshold_reply, BatchReuseReply, SchemaResolveReply,
+    SimilarSchemasReply, SimilarityThresholdReply, MAX_SCHEMA_RESOLVE_PROPOSALS,
 };
 pub use telemetry_reply::SchemaMatchTelemetryReply;
 
