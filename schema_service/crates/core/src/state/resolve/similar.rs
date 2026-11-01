@@ -18,6 +18,20 @@ pub enum SimilarSchemasReply {
     Failed { body: Value },
 }
 
+impl SimilarSchemasReply {
+    /// The similar-schema payload, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. Missing is 404.
+    /// Failed is 500.
+    pub fn into_http(self) -> Result<SimilarSchemasResponse, (u16, Value)> {
+        match self {
+            Self::Ready(response) => Ok(response),
+            Self::Missing { body } => Err((404, body)),
+            Self::Failed { body } => Err((500, body)),
+        }
+    }
+}
+
 /// `None` means 0.5. A value outside `0.0..=1.0` is refused.
 #[must_use]
 pub fn accepted_similarity_threshold(raw: Option<f64>) -> Option<f64> {
@@ -47,6 +61,18 @@ pub fn similarity_threshold_reply(raw: Option<f64>) -> SimilarityThresholdReply 
         None => SimilarityThresholdReply::Refused {
             body: crate::error_only_body("Threshold must be between 0.0 and 1.0"),
         },
+    }
+}
+
+impl SimilarityThresholdReply {
+    /// The accepted threshold, or the HTTP error.
+    ///
+    /// Ready is the threshold. Refused is status 400.
+    pub fn into_http(self) -> Result<f64, (u16, Value)> {
+        match self {
+            Self::Ready(threshold) => Ok(threshold),
+            Self::Refused { body } => Err((400, body)),
+        }
     }
 }
 
