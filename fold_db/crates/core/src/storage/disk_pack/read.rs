@@ -3,10 +3,8 @@ use super::*;
 use budget::call_error;
 
 mod budget;
-mod core_holds;
 pub(super) mod memory;
 mod overlay;
-mod preload;
 mod probes;
 mod raw;
 pub(crate) mod snapshots;
@@ -24,11 +22,6 @@ pub(super) struct ReadContext {
     current: PhysicalRoot,
     write_owner: Option<Arc<transaction::PendingBatch>>,
     write_reads: Option<Arc<write_reads::WriteReads>>,
-    _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
-    // Fields drop in declaration order. Drop call-local value/source owners
-    // before the final holds owner trims paths, so dead call allocations do
-    // not force the purge to discard unrelated live records.
-    core_holds: Arc<core_holds::CoreCallHolds>,
 }
 
 struct ReadFailure {
@@ -99,10 +92,8 @@ impl ReadContext {
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home_identity(),
             failure: Arc::new(Mutex::new(None)),
-            core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
             write_owner,
             write_reads,
-            _preload_charge: None,
         }))
     }
 
@@ -120,7 +111,6 @@ impl ReadContext {
                     call: Arc::clone(&context.call),
                     identity: context.identity,
                     failure,
-                    core_holds: Arc::clone(&context.core_holds),
                     accepted: context.accepted.clone(),
                     hidden_prefix: context.hidden_prefix,
                     snapshots: Arc::clone(&context.snapshots),
@@ -128,7 +118,6 @@ impl ReadContext {
                     current: context.current.clone(),
                     write_owner: context.write_owner.clone(),
                     write_reads: context.write_reads.clone(),
-                    _preload_charge: context._preload_charge.clone(),
                 }));
             }
             return Err(StorageError::InvalidOperation(
@@ -155,14 +144,6 @@ impl ReadContext {
     pub(super) fn remembered<T>(&self, result: StorageResult<T>) -> StorageResult<T> {
         self.remember(&result);
         result
-    }
-
-    pub(super) fn hold_core(
-        &self,
-        core: &mut crate::resident::CoreWarmSet,
-        paths: &[crate::resident::CorePath],
-    ) -> StorageResult<()> {
-        self.core_holds.hold(core, paths)
     }
 
     fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {

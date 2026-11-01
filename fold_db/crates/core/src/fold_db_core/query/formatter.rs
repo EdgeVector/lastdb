@@ -1,4 +1,3 @@
-use crate::schema::types::field::FieldValue;
 use crate::schema::types::key_value::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,45 +16,15 @@ pub struct FieldMetadata {
     pub writer_pubkey: Option<String>,
 }
 
-/// Represents a single logical record keyed by `KeyValue`.
+/// The selected fields of one record, keyed by `KeyValue` in [`QueryRecords`].
 /// The `fields` map stores field_name -> value.
-/// The `metadata` map stores field_name -> atom metadata.
+/// The `metadata` map stores field_name -> the record metadata (decision D7).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub fields: HashMap<String, Value>,
     pub metadata: HashMap<String, FieldMetadata>,
 }
 
-/// Convert field->(key->value) map into key->Record with field->value.
-/// Does not return JSON; this is a typed structure for backend consumption.
-///
-/// Consumes the field map so keys, JSON values, and atom metadata move into
-/// their records. The caller no longer needs the field-oriented representation;
-/// borrowing it here would deep-clone every value merely to discard the input.
-pub fn records_from_field_map(
-    results: HashMap<String, HashMap<KeyValue, FieldValue>>,
-) -> HashMap<KeyValue, Record> {
-    let mut records: HashMap<KeyValue, Record> = HashMap::new();
-
-    for (field_name, key_map) in results {
-        for (key_value, field_val) in key_map {
-            let record = records.entry(key_value).or_insert_with(|| Record {
-                fields: HashMap::new(),
-                metadata: HashMap::new(),
-            });
-            record.fields.insert(field_name.clone(), field_val.value);
-            record.metadata.insert(
-                field_name.clone(),
-                FieldMetadata {
-                    atom_uuid: field_val.atom_uuid,
-                    source_file_name: field_val.source_file_name,
-                    metadata: field_val.metadata,
-                    molecule_uuid: field_val.molecule_uuid,
-                    writer_pubkey: field_val.writer_pubkey,
-                },
-            );
-        }
-    }
-
-    records
-}
+/// The reply of one record query: the selected fields of each record, by
+/// its API key.
+pub type QueryRecords = HashMap<KeyValue, Record>;

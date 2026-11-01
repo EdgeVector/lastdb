@@ -100,14 +100,6 @@ impl KeyValue {
     pub fn cmp_storage_order(&self, other: &Self) -> std::cmp::Ordering {
         self.cmp_page_order_with(other, str::cmp)
     }
-
-    /// Match a scalar field value against this key's original API hash.
-    #[must_use]
-    pub fn hash_matches_scalar(&self, value: &Value) -> bool {
-        self.hash
-            .as_deref()
-            .is_some_and(|hash| scalar_key_coordinate(value).as_deref() == Some(hash))
-    }
 }
 
 /// Resolve a field value as a string, supporting dotted nested paths (e.g., "departure.date").

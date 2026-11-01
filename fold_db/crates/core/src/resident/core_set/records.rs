@@ -3,9 +3,8 @@
 //!
 //! A record enters after a read finds it on disk, or after a flush puts its
 //! write on disk. It leaves when a later write changes its key, or when the
-//! purge needs its bytes. Records share the byte limit and the recency clock
-//! with the field paths, so the purge removes the least recently used entry
-//! of either kind first. A record that a call still holds stays.
+//! purge needs its bytes. The purge removes the least recently used record
+//! first. A record that a call still holds stays.
 
 use super::charge::record_charge;
 use super::*;
@@ -91,7 +90,7 @@ impl CoreWarmSet {
             );
             self.charge_record(charge);
         }
-        self.trim_to_limit(0, &HashSet::new());
+        self.trim_to_limit(0);
     }
 
     /// Call under the same publication boundary as the changed disk view.
@@ -131,8 +130,8 @@ impl CoreWarmSet {
         !held && self.remove_record(coordinate)
     }
 
-    /// The next recency tick. The rare wrap renumbers paths and records in
-    /// their merged order, so the purge order stays the same.
+    /// The next recency tick. The rare wrap renumbers the records in their
+    /// order, so the purge order stays the same.
     pub(super) fn next_tick(&mut self) -> u64 {
         if self.clock == u64::MAX {
             self.renumber();
@@ -176,37 +175,17 @@ impl CoreWarmSet {
     }
 
     fn renumber(&mut self) {
-        enum Entry {
-            Path(path_table::PathId),
-            Record(Arc<RecordCoordinate>),
-        }
-        let mut all: Vec<(u64, Entry)> = std::mem::take(&mut self.order)
-            .into_iter()
-            .map(|(tick, id)| (tick, Entry::Path(id)))
-            .chain(
-                std::mem::take(&mut self.records.order)
-                    .into_iter()
-                    .map(|(tick, key)| (tick, Entry::Record(key))),
-            )
-            .collect();
-        all.sort_by_key(|(tick, _)| *tick);
+        // A `BTreeMap` iterates in tick order.
+        let all = std::mem::take(&mut self.records.order);
         self.clock = 0;
-        for (_, entry) in all {
+        for (_, key) in all {
             self.clock += 1;
-            match entry {
-                Entry::Path(id) => {
-                    self.paths.state_mut(id).expect("ordered core path").tick = self.clock;
-                    self.order.insert(self.clock, id);
-                }
-                Entry::Record(key) => {
-                    self.records
-                        .entries
-                        .get_mut::<RecordCoordinate>(&key)
-                        .expect("ordered warm record")
-                        .tick = self.clock;
-                    self.records.order.insert(self.clock, key);
-                }
-            }
+            self.records
+                .entries
+                .get_mut::<RecordCoordinate>(&key)
+                .expect("ordered warm record")
+                .tick = self.clock;
+            self.records.order.insert(self.clock, key);
         }
     }
 }

@@ -3,9 +3,9 @@
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,
 //! then the projection returns the selected fields of each record. A record
-//! has no atom or molecule, so a field value carries the record metadata
-//! (decision D7) and no atom, molecule or writer ID. While the node receives
-//! data from other users, the read merges the received scopes by key
+//! has no atom or molecule, so each returned field carries the record
+//! metadata (decision D7) and no atom, molecule or writer ID. While the node
+//! receives data from other users, the read merges the received scopes by key
 //! (`records/received.rs`).
 
 mod received;
@@ -17,6 +17,7 @@ use super::condition_rules::{
 };
 use super::*;
 use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow};
+use crate::fold_db_core::query::{FieldMetadata, QueryRecords, Record};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::KeyValuePageOrder;
@@ -25,15 +26,9 @@ use lastdb_model::record_value::StoredRecord;
 type FieldMap = HashMap<String, HashMap<KeyValue, FieldValue>>;
 
 impl HashRangeQueryProcessor {
-    /// True when the node serves a format 7 home.
-    pub(super) fn record_home(&self) -> bool {
-        self.db_ops.atoms().record_home()
-    }
-
     /// One captured read of records. A record is a row when it has the key
     /// field or one of the selected fields. The conditions see every
-    /// candidate, as in the molecule path, so a window applies only to a read
-    /// without them.
+    /// candidate, so a window applies only to a read without them.
     pub(super) async fn query_records(
         &self,
         schema: &Schema,
@@ -42,14 +37,14 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
         options: FieldQueryOptions<'_>,
         comparison: &KeyComparisonContext,
-    ) -> Result<FieldMap, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         let selected = record_fields(schema, fields);
         let needs_conditions = options.requires_condition_pass();
         if !needs_conditions {
             let rows = self
                 .select_rows(schema, comparison, filter.as_ref(), window, &selected)
                 .await?;
-            return Ok(project(&selected, &rows));
+            return Ok(to_records(&selected, rows));
         }
         let filter = filter.or_else(|| Some(full_span_page()));
         let rows = self
@@ -64,8 +59,6 @@ impl HashRangeQueryProcessor {
                 &rows,
             ),
             page_keys: rows.iter().map(|(key, _)| key.clone()).collect(),
-            key_sources: HashMap::new(),
-            primary_field: String::new(),
         };
         let keys = matching_field_predicate_keys(&candidates, predicates, value_filters);
         let kept = order_condition_keys(
@@ -80,9 +73,9 @@ impl HashRangeQueryProcessor {
             .into_iter()
             .filter_map(|key| by_key.remove(&key).map(|record| (key, record)))
             .collect();
-        Ok(project(
+        Ok(to_records(
             &exact_key_selected_fields(schema, fields, options.order_by),
-            &kept,
+            kept,
         ))
     }
 
@@ -190,8 +183,8 @@ impl HashRangeQueryProcessor {
 }
 
 /// The selected fields and the declared key field. The key field sets the
-/// record set and is in each row even when unprojected, as in the molecule
-/// path (`field_rules::primary_field`).
+/// record set and is in each row even when unprojected
+/// (`field_rules::primary_field`).
 fn record_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
     let mut selected = field_rules::selected_fields(schema, fields);
     if !selected.is_empty() {
@@ -221,8 +214,9 @@ fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
     }
 }
 
-/// The selected fields of each row. Every selected field has a map, as in
-/// the molecule path, even when no row has a value for it.
+/// The selected fields of each candidate row, by field, for the conditions
+/// and the value order. Every selected field has a map, even when no row has
+/// a value for it.
 fn project(selected: &[String], rows: &[KeyedRecord]) -> FieldMap {
     let mut out: FieldMap = selected
         .iter()
@@ -253,4 +247,42 @@ fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
         writer_pubkey: None,
         written_at: record.stamps.get(field).map(|stamp| stamp.written_at),
     })
+}
+
+/// The reply rows: the selected fields of each record and the metadata of
+/// each returned field. A row with none of the selected fields is not a row.
+fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
+    let mut out = QueryRecords::with_capacity(rows.len());
+    for (key, record) in rows {
+        let mut row = Record {
+            fields: HashMap::new(),
+            metadata: HashMap::new(),
+        };
+        for field in selected {
+            let Some(value) = record.fields.get(field) else {
+                continue;
+            };
+            row.fields.insert(field.clone(), value.clone());
+            row.metadata.insert(field.clone(), field_metadata(&record));
+        }
+        if !row.fields.is_empty() {
+            out.insert(key, row);
+        }
+    }
+    out
+}
+
+/// The metadata of one returned field: the record metadata (D7), with no
+/// atom, molecule or writer ID.
+fn field_metadata(record: &StoredRecord) -> FieldMetadata {
+    let meta = record.meta.as_ref();
+    FieldMetadata {
+        atom_uuid: String::new(),
+        source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
+        metadata: meta
+            .filter(|meta| !meta.metadata.is_empty())
+            .map(|meta| meta.metadata.clone().into_iter().collect()),
+        molecule_uuid: None,
+        writer_pubkey: None,
+    }
 }

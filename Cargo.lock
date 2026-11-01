@@ -2892,7 +2892,6 @@ dependencies = [
  "async-trait",
  "env_flag",
  "fold_db",
- "futures",
  "lastdb_uds",
  "serde",
  "serde_json",

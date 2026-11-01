@@ -17,9 +17,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
-# Bounded concurrent fan-out for the per-molecule conflict lookups on the read
-# path (handlers::annotate_conflict_flags).
-futures = { workspace = true }
 # QoS admission gate (qos.rs): async semaphores + deadline timers.
 tokio = { workspace = true, features = ["sync", "time"] }
 

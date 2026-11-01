@@ -1,8 +1,7 @@
 //! Per-leg accumulation of a query-defined slice.
 
 use super::*;
-use crate::schema::types::KeyValue;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 /// Accumulates the schemas, molecules, atoms and blobs for the legs of one slice.
 #[derive(Default)]
@@ -53,37 +52,24 @@ impl SliceBuilder {
         let query = leg.to_query();
         let result = db.query_executor().query_with_access(query, access).await?;
 
-        let mut keys: HashSet<KeyValue> = HashSet::new();
-        for field_map in result.values() {
-            for key in field_map.keys() {
-                keys.insert(key.clone());
-            }
-        }
-
-        for key in keys {
+        for (key, record) in &result {
             let record_key = key.to_storage_key();
             for field_name in &leg.fields {
-                let Some(field_map) = result.get(field_name) else {
+                let Some(value) = record.fields.get(field_name) else {
                     continue;
                 };
-                let Some(fv) = field_map.get(&key) else {
-                    continue;
-                };
-                let atom_value = normalize_file_field_value(
-                    db,
-                    &fv.value,
-                    blob_resolver,
-                    &mut self.blobs_by_ref,
-                )
-                .await?;
+                let metadata = record.metadata.get(field_name);
+                let atom_value =
+                    normalize_file_field_value(db, value, blob_resolver, &mut self.blobs_by_ref)
+                        .await?;
                 let atom = content_addressed_atom(atom_value)?;
                 self.molecules.push(SignedMolecule {
                     schema_name: leg.schema_name.clone(),
                     record_key: record_key.clone(),
                     field_name: field_name.clone(),
                     atom_ref: atom.atom_ref.clone(),
-                    molecule_uuid: fv.molecule_uuid.clone(),
-                    writer_pubkey: fv.writer_pubkey.clone(),
+                    molecule_uuid: metadata.and_then(|metadata| metadata.molecule_uuid.clone()),
+                    writer_pubkey: metadata.and_then(|metadata| metadata.writer_pubkey.clone()),
                     signature: None,
                 });
                 self.atoms_by_ref

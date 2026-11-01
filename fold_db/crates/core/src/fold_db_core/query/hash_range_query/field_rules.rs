@@ -1,4 +1,4 @@
-//! Storage-free projection, primary-field, and empty-primary fallback rules.
+//! Storage-free projection and primary-field rules.
 
 use crate::schema::Schema;
 
@@ -30,13 +30,4 @@ pub(super) fn primary_field(schema: &Schema, selected: &[String]) -> String {
         }
     }
     selected[0].clone()
-}
-
-/// One selected non-primary field can supply keys when the primary is empty.
-/// Reads and counts use this same choice after their own presence checks.
-pub(super) fn fallback_field<'a>(selected: &'a [String], primary: &str) -> Option<&'a str> {
-    selected
-        .iter()
-        .find(|field| field.as_str() != primary)
-        .map(String::as_str)
 }

@@ -15,8 +15,6 @@ mod admin_db;
 mod catalog_gc;
 mod catalog_membership;
 mod catalog_share;
-mod conflict_metadata;
-mod hashrange_key_repair;
 mod init;
 mod init_boot;
 mod lifecycle;
@@ -31,7 +29,6 @@ mod schema_drop;
 pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;
 
-pub use hashrange_key_repair::HashRangeKeyFieldRepairReport;
 pub use init::FoldDbInit;
 pub use local_file_blobs::LocalFileBlobPut;
 pub use maintenance_admission::LocalMutationAdmission;

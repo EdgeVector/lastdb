@@ -52,8 +52,8 @@ pub(super) async fn assess(
     })
 }
 
-/// Whether the schema already holds a record. Probes the key molecule for one
-/// live key: no scan.
+/// Whether the schema already holds a record. Probes the record space of the
+/// schema with one bounded read: no scan.
 async fn existing_data(host: &Host, binding: &str, anchor: &str) -> Result<bool, String> {
     let manager = host.db.schema_manager();
     for name in [anchor, binding] {
@@ -63,21 +63,14 @@ async fn existing_data(host: &Host, binding: &str, anchor: &str) -> Result<bool,
         else {
             continue;
         };
-        let map = schema.field_molecule_uuids.clone().unwrap_or_default();
-        let molecule = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref())
-            .and_then(|field| map.get(field));
-        let Some(molecule) = molecule else { continue };
-        let (keys, _, _) = host
+        let holds = host
             .db
             .db_ops()
             .atoms()
-            .list_live_record_keys(molecule, 1, None, None)
+            .schema_may_hold_records(&schema)
             .await
-            .map_err(|error| format!("failed to probe key molecule {molecule}: {error}"))?;
-        if !keys.is_empty() {
+            .map_err(|error| format!("failed to probe the records of {name}: {error}"))?;
+        if holds {
             return Ok(true);
         }
     }

@@ -4,23 +4,18 @@ pub mod core;
 pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
-/// The read path for one schema field: the field is an argument, not the reader.
-pub mod atom_history;
 pub mod atom_store;
 pub mod attribution_ledger;
 mod conflict_index_heal;
 mod conflict_metadata;
 mod conflict_operations;
 pub mod delete_ledger;
-pub mod field_read;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
 pub mod keep_small;
 pub mod lineage_index;
-pub(crate) mod logical_membership;
 pub mod metadata_store;
-mod schema_key_source;
 /// Molecule key bundles are storage key material; the store lives in
 /// `storage`. This path stays for existing callers.
 pub use crate::storage::molecule_key_store;
@@ -30,7 +25,6 @@ mod schema_operations;
 pub mod schema_store;
 pub mod search_index;
 mod storage_breakdown;
-pub mod tip_atoms;
 // Re-exports
 pub use admin_db::{
     DbInventory, HistoryClearReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
@@ -72,8 +66,7 @@ pub use keep_small::{
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.
 pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
-pub use conflict_metadata::{MoleculeConflictState, SELECTED_CONFLICT_MAX_MOLECULES};
-pub use conflict_operations::HomeConflictAnnotation;
+pub use conflict_metadata::MoleculeConflictState;
 pub use core::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
     with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,

@@ -8,7 +8,7 @@ use fold_db::schema::types::key_comparison::KeyComparisonContext;
 /// an exhausted range claim another page — see [`page_payload`].
 #[derive(Debug, Clone, Copy)]
 pub(in crate::handlers) struct RowDrops {
-    /// Rows whose tip pointed at an atom body that could not be resolved.
+    /// Rows whose stored value could not be resolved.
     pub(in crate::handlers) unresolved: usize,
     /// Rows whose atom body is a content tombstone.
     pub(in crate::handlers) tombstoned: usize,
@@ -127,8 +127,8 @@ async fn execute_rows_captured<H: HostNode>(
     // Charged before the error check so a failed executor call still reports
     // where its time went, for the same reason `hydrate` is charged below it.
     request_phases::add_phase(RequestPhase::HydrateAtoms, hydrate_started.elapsed());
-    let result_map = match result.map_err(HostError::from) {
-        Ok(map) => map,
+    let records = match result.map_err(HostError::from) {
+        Ok(records) => records,
         Err(err) => {
             request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
             return Err(err);
@@ -137,7 +137,7 @@ async fn execute_rows_captured<H: HostNode>(
 
     let format_started = std::time::Instant::now();
     let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
-    let mut results = format_rows(result_map, sort_helper.as_deref(), compact);
+    let mut results = format_rows(records, sort_helper.as_deref(), compact);
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
     let sort_started = std::time::Instant::now();

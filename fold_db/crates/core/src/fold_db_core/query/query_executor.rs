@@ -3,13 +3,14 @@
 
 use crate::access::AccessContext;
 use crate::db_operations::DbOperations;
-use crate::schema::types::field::{FieldValue, KeyWindow};
+use crate::schema::types::field::KeyWindow;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Query;
 use crate::schema::SchemaCore;
 use crate::schema::SchemaError;
-use std::collections::HashMap;
 use std::sync::Arc;
+
+use super::QueryRecords;
 
 use super::hash_range_query::{
     FieldQueryOptions, HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds,
@@ -73,10 +74,7 @@ impl QueryExecutor {
     }
 
     /// Query multiple fields from a schema (legacy -- no access control)
-    pub async fn query(
-        &self,
-        query: Query,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    pub async fn query(&self, query: Query) -> Result<QueryRecords, SchemaError> {
         self.query_internal(query, None, None).await
     }
 
@@ -84,13 +82,13 @@ impl QueryExecutor {
     ///
     /// Local access control is consent-only. Fields are no longer filtered by
     /// trust tiers, capability quotas, or payment gates.
-    /// The internal field map can include key and ordering helpers. Response
+    /// A returned record can include key and ordering helpers. Response
     /// formatters remove an unprojected ordering helper after the final sort.
     pub async fn query_with_access(
         &self,
         query: Query,
         access_context: &AccessContext,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         self.query_internal(query, None, Some(access_context)).await
     }
 
@@ -98,7 +96,7 @@ impl QueryExecutor {
     ///
     /// `window` is `(offset, limit)` over the canonical
     /// `KeyValuePageOrder::cmp_page_order` enumeration of the keys `query.filter`
-    /// matched. It is applied before atom bodies are loaded, so a keyed read of
+    /// matched. It is applied before the records are read, so a keyed read of
     /// a large partition costs a page rather than the partition.
     ///
     /// Only pass a window for a key-restricted `query.filter` (see
@@ -112,7 +110,7 @@ impl QueryExecutor {
         query: Query,
         window: (usize, usize),
         access_context: &AccessContext,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         self.query_internal(
             query,
             Some(KeyWindow::offset(window.0, window.1)),
@@ -132,7 +130,7 @@ impl QueryExecutor {
         after: KeyValue,
         limit: usize,
         access_context: &AccessContext,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         self.query_internal(
             query,
             Some(KeyWindow::after(after, limit)),
@@ -146,15 +144,9 @@ impl QueryExecutor {
         query: Query,
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
-        let future = Box::pin(
-            crate::storage::disk_pack::logical_paths::field::query_scope(self.query_current(
-                query,
-                window,
-                access_context,
-            )),
-        );
+        let future = Box::pin(self.query_current(query, window, access_context));
         scope.run_result(future).await
     }
 }

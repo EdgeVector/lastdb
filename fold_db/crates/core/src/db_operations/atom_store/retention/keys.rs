@@ -73,19 +73,6 @@ pub(crate) fn slot_dir_prefix(
     build_storage_key(scope, &format!("{DIR_FAMILY}{molecule}\0{suffix}\0"))
 }
 
-pub(super) fn dir_key(
-    scope: Option<&str>,
-    molecule: &str,
-    hash: &str,
-    range: &str,
-    record_id: &str,
-) -> String {
-    format!(
-        "{}{record_id}",
-        slot_dir_prefix(scope, molecule, hash, range)
-    )
-}
-
 /// The prefix of every directory entry of one molecule in one scope: the whole
 /// directory of the molecule, all its slots, is one hash.
 pub(crate) fn molecule_dir_prefix(scope: Option<&str>, molecule: &str) -> String {

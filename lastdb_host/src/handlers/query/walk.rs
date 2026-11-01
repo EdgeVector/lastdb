@@ -16,12 +16,11 @@ use fold_db::db_operations::RECORD_WALK_ROWS;
 /// The `page_order` of a walk page.
 const RECORD_KEY_ORDER: &str = "record_key";
 
-/// True when an unfiltered read of a format 7 home walks its records: an
-/// ascending read of the primary key with no filter or a caller `Page`, and
-/// no post-key work. Other unfiltered reads keep the complete bounded read.
-pub(super) fn walks_records(query: &Query, record_home: bool) -> bool {
-    record_home
-        && query.key_name.is_none()
+/// True when an unfiltered read walks the records: an ascending read of the
+/// primary key with no filter or a caller `Page`, and no post-key work.
+/// Other unfiltered reads keep the complete bounded read.
+pub(super) fn walks_records(query: &Query) -> bool {
+    query.key_name.is_none()
         && matches!(query.filter, None | Some(HashRangeFilter::Page { .. }))
         && !query.requires_post_key_work()
         && !query.include_tombstones

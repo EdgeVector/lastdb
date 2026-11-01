@@ -251,26 +251,19 @@ impl FoldDB {
         schema: &Schema,
         instance: &str,
     ) -> Result<IndexChangeBatch, SchemaError> {
-        let key_field = schema.key.as_ref().and_then(|key| key.hash_field.clone());
-        let Some(key_field) = key_field else {
+        if schema
+            .key
+            .as_ref()
+            .and_then(|key| key.hash_field.as_ref())
+            .is_none()
+        {
             return Ok(IndexChangeBatch {
                 format_version: 1,
                 schema_name: schema_name.to_string(),
                 searchable_fields: None,
                 changes: Vec::new(),
             });
-        };
-        let molecule = schema
-            .field_molecule_uuids
-            .as_ref()
-            .and_then(|molecules| molecules.get(&key_field).cloned())
-            .or_else(|| {
-                schema
-                    .runtime_fields
-                    .get(&key_field)
-                    .and_then(|field| field.inner.molecule_uuid().cloned())
-            })
-            .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(schema_name, &key_field));
+        }
         let mut schema = schema.clone();
         for field in schema.runtime_fields.values_mut() {
             field
@@ -292,8 +285,8 @@ impl FoldDB {
                 cursor: cursor.as_deref(),
                 hash_filter: None,
             };
-            let (keys, next_cursor, has_more) = self
-                .list_schema_key_page(&schema, &key_field, &molecule, &request, Some(instance))
+            let (_, (keys, next_cursor, has_more)) = self
+                .schema_key_page(&schema, &request, Some(instance))
                 .await?;
             for (hash, range) in keys {
                 let key_value = KeyValue::new(Some(hash), has_range.then_some(range));

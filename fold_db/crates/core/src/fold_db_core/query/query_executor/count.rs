@@ -1,18 +1,13 @@
 //! Live-key counts use the same schema gates as reads, then decline field-dependent controls.
 
-use std::sync::Arc;
-
 use crate::access::AccessContext;
 use crate::schema::{types::Query, SchemaError};
 
 use super::{rules, QueryExecutor};
 
 impl QueryExecutor {
-    /// Count live keys for the same supported keyed query and projection.
-    /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
-    /// also require the declared hash-field values to distinguish their keys.
-    /// See
-    /// [`super::HashRangeQueryProcessor::count_rows`].
+    /// Count live records for the same supported keyed query and projection.
+    /// See [`super::HashRangeQueryProcessor::count_rows`].
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
     /// the caller uses the regular captured query and counts its selected keys.
@@ -62,21 +57,10 @@ impl QueryExecutor {
             return Ok(None);
         }
         rules::scope_fields(&mut schema, storage_prefix.as_deref());
-        // A format 7 home has no field molecules to preload.
-        if let Some(runtime) = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .filter(|runtime| !runtime.record_home())
-        {
-            runtime
-                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
-                .await?;
-        }
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
         let count = self
             .hash_range_processor
-            .count_rows(&mut schema, &query.fields, count_filter)
+            .count_rows(&schema, &query.fields, count_filter)
             .await?;
         Ok(Some(count))
     }

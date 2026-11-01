@@ -1,6 +1,6 @@
 //! Conflict selection and reply rules. No host, admission, clocks, or store access.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use fold_db::access::AccessContext;
 use fold_db::db_operations::atom_store::RecordFieldConflicts;
@@ -50,7 +50,7 @@ pub(super) struct SelectedConflictKey {
     pub(super) schema_name: String,
     pub(super) fields: Vec<String>,
     hash: String,
-    /// The range of a HashRange record. Only a format 7 home reads it.
+    /// The range of a HashRange record.
     #[serde(default)]
     pub(super) range: Option<String>,
 }
@@ -74,50 +74,6 @@ impl SelectedConflictKey {
         }
         Ok(())
     }
-}
-
-pub(super) fn field_molecules(
-    schema: &Schema,
-    fields: &[String],
-) -> Result<Vec<Option<String>>, HostError> {
-    fields
-        .iter()
-        .map(|name| {
-            let field = schema
-                .runtime_fields
-                .get(name)
-                .ok_or_else(|| HostError::new(400, "conflict_field_not_found"))?;
-            if field.kind != FieldKind::Hash {
-                return Err(HostError::new(400, "hash_key_conflict_selection_required"));
-            }
-            Ok(field.common().molecule_uuid().cloned())
-        })
-        .collect()
-}
-
-pub(super) fn field_result(
-    fields: Vec<Option<String>>,
-    states: &HashMap<String, MoleculeConflictState>,
-) -> Value {
-    use MoleculeConflictState::{Clean, Conflict, Unknown};
-    let mut combined = Clean;
-    let fields: Vec<_> = fields
-        .into_iter()
-        .map(|molecule| {
-            let state = molecule
-                .as_ref()
-                .and_then(|molecule| states.get(molecule))
-                .copied()
-                .unwrap_or(Unknown);
-            combined = match (combined, state) {
-                (Unknown, _) | (_, Unknown) => Unknown,
-                (Conflict, _) | (_, Conflict) => Conflict,
-                _ => Clean,
-            };
-            serde_json::json!({ "molecule_uuid": molecule, "state": state })
-        })
-        .collect();
-    serde_json::json!({ "state": combined, "fields": fields })
 }
 
 /// The primary key of a format 7 selection. Each field is declared, and the

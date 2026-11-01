@@ -1,7 +1,5 @@
 //! Owned row/page response assembly. No host access, clocks, or telemetry.
 
-use std::collections::HashMap;
-
 use fold_db::schema::types::{KeyValue, QueryCursor};
 use serde_json::Value;
 
@@ -143,12 +141,11 @@ fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
 /// Keep the sort helper's value until ordering, but exclude its metadata before
 /// choosing the author. Conditions already selected the keys in the core.
 pub(in crate::handlers) fn format_rows(
-    result_map: HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
+    records: fold_db::fold_db_core::query::QueryRecords,
     sort_helper: Option<&str>,
     compact: bool,
 ) -> Vec<Value> {
-    let records_map = fold_db::fold_db_core::query::records_from_field_map(result_map);
-    records_map
+    records
         .into_iter()
         .map(|(key, mut record)| {
             if let Some(field) = sort_helper {
@@ -163,7 +160,7 @@ pub(in crate::handlers) fn format_rows(
                 Value::Object(record.fields.into_iter().collect()),
             );
             if compact {
-                // Conflict annotation only needs each projected molecule. Avoid
+                // Conflict annotation only needs each projected field. Avoid
                 // serializing provenance that the caller did not request.
                 row.insert(
                     "metadata".into(),

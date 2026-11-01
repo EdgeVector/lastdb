@@ -9,11 +9,6 @@ use crate::schema::types::KeyValue;
 use super::FoldDB;
 
 impl FoldDB {
-    /// True when this home stores one record at each key (format 7).
-    pub fn record_home(&self) -> bool {
-        self.db_ops.atoms().record_home()
-    }
-
     /// The conflicted fields of the record at each key of one schema, in
     /// order: one read by key of the markers. `None` when the schema or a key
     /// does not resolve, or the read fails; that is unknown, not clean.
@@ -61,9 +56,6 @@ impl FoldDB {
     }
 
     fn record_storage_keys(&self, schema_name: &str, keys: &[KeyValue]) -> Option<Vec<String>> {
-        if !self.record_home() {
-            return None;
-        }
         let schema = self
             .schema_manager
             .get_schema_metadata(schema_name)

@@ -2,8 +2,6 @@
 
 mod key_counts;
 mod policy;
-mod purge;
-mod read;
 mod record_reads;
 mod records;
 mod release;
@@ -33,14 +31,6 @@ impl super::AtomStore {
 use super::time_queue::TimeQueue;
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
-
-fn history_walk(
-    slot: &str,
-    cursor: Option<&str>,
-    limit: usize,
-) -> Result<super::RangeWalk, crate::schema::SchemaError> {
-    prefix_walk(&prefix(slot)?, cursor, limit)
-}
 
 /// A bounded walk of the history rows under one exact prefix, from a cursor.
 fn prefix_walk(
@@ -74,22 +64,22 @@ fn next_cursor(walk: &super::RangeWalk) -> Option<String> {
         .map(|(start, _, _)| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(start))
 }
 
+/// A history entry identity is the hex SHA-256 of its storage key.
+fn validate_id(id: &str) -> Result<(), crate::schema::SchemaError> {
+    if id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    Err(crate::schema::SchemaError::InvalidData(
+        "invalid history entry identity".into(),
+    ))
+}
+
 pub(crate) fn queue() -> TimeQueue {
     TimeQueue::with_slice("ahq:v1", "ahb:v1", 3_600_000_000_000)
 }
 
 pub(crate) fn digest(value: &[u8]) -> String {
     lastdb_model::hex::hex_lower(Sha256::digest(value))
-}
-
-pub(crate) fn prefix(slot: &str) -> Result<String, crate::schema::SchemaError> {
-    let molecule = crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(slot)
-        .ok_or_else(|| crate::schema::SchemaError::InvalidData("invalid history slot".into()))?;
-    let scope = crate::storage::current_keys::exact_scope(slot)?;
-    Ok(crate::schema::types::field::build_storage_key(
-        scope,
-        &format!("history\0{molecule}:{}:archive:", digest(slot.as_bytes())),
-    ))
 }
 
 pub(crate) fn files(bytes: &[u8]) -> Result<Vec<String>, serde_json::Error> {

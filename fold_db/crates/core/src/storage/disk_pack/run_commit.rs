@@ -23,9 +23,6 @@ use super::*;
 use laststore::disk_run::home::RunHome;
 use laststore::space::SpacePolicy;
 
-/// Hidden record changes and key-membership changes of one commit.
-type Changes<'a> = (&'a [(String, String)], &'a [(String, String, bool)]);
-
 impl PackRuntime {
     /// Admit one v2 batch, or one extension of an accepted prefix. Key and
     /// value limits and disk space are checked here, so an oversized write
@@ -71,7 +68,7 @@ impl PackRuntime {
         v2: &V2Home,
         operations: Vec<HomeMutation>,
         space: SpaceReservation,
-        (hidden_changes, key_changes): Changes<'_>,
+        hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
         let result = (|| {
@@ -92,7 +89,7 @@ impl PackRuntime {
         let root = v2.current_root();
         let publication_timing = laststore::commit_timing::stage("memory_publication_us");
         let (generation, frontier) = (root.generation(), root.frontier());
-        self.install_committed(root, hidden_changes, key_changes, requests)?;
+        self.install_committed(root, hidden_changes, requests)?;
         self.last_root.observe(generation, frontier);
         drop(publication_timing);
         drop(space);

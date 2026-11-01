@@ -147,10 +147,9 @@ pub(super) async fn query_sample_ids(host: &Host) -> Result<Vec<String>, String>
         .await
         .map_err(|e| e.to_string())?;
     let mut ids: Vec<String> = rows
-        .get("sample_id")
         .into_iter()
-        .flat_map(|field| field.keys())
-        .filter_map(|key| key.range.clone())
+        .filter(|(_, record)| record.fields.contains_key("sample_id"))
+        .filter_map(|(key, _)| key.range)
         .collect();
     ids.sort();
     Ok(ids)
@@ -171,10 +170,9 @@ pub(super) async fn query_request_ops_rollup_ids(host: &Host) -> Result<Vec<Stri
         .await
         .map_err(|e| e.to_string())?;
     let mut ids: Vec<String> = rows
-        .get("sample_id")
         .into_iter()
-        .flat_map(|field| field.keys())
-        .filter_map(|key| key.range.clone())
+        .filter(|(_, record)| record.fields.contains_key("sample_id"))
+        .filter_map(|(key, _)| key.range)
         .collect();
     ids.sort();
     Ok(ids)

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::atom::molecule_slot::{FilterLayout, OneDSlot};
 use crate::schema::types::schema::DeclarativeSchemaType;
 
 /// Discriminator for a field's key shape. Mirrors
@@ -25,19 +24,6 @@ impl From<DeclarativeSchemaType> for FieldKind {
             DeclarativeSchemaType::Hash => Self::Hash,
             DeclarativeSchemaType::Range => Self::Range,
             DeclarativeSchemaType::HashRange => Self::HashRange,
-        }
-    }
-}
-
-impl FieldKind {
-    /// Filter/load layout for the unified HashRange store (1-D Hash / 1-D Range /
-    /// composite HashRange). Single uses the empty `("", "")` slot.
-    #[must_use]
-    pub fn filter_layout(self) -> FilterLayout {
-        match self {
-            Self::Hash => FilterLayout::OneD(OneDSlot::Hash),
-            Self::Range => FilterLayout::OneD(OneDSlot::Range),
-            Self::Single | Self::HashRange => FilterLayout::Composite,
         }
     }
 }

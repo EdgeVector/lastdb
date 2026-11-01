@@ -270,17 +270,15 @@ The obsolete `LASTDB_RESIDENT_PERSIST_MS` setting has no effect, including at st
 There is no periodic mutation flusher or delayed durability mode.
 `LASTDB_MUTATION_SYNC_FLUSH` and `LASTDB_BACKGROUND_FLUSH_MS` also have no effect.
 Explicit flush and the final shutdown barrier remain.
-The warm byte budget, definition allowance, selected-key allowance, and write allowance cover separate owners.
+The warm byte budget, definition allowance, and write allowance cover separate owners.
 They do not define one whole-process memory cap.
 Native writes publish clean records after disk commit. They create no dirty warm-record state.
 The retained dirty counters and threshold do not grant an early memory ack or reserve a separate dirty share.
 See the [byte-limit design](lastdb-warm-set-byte-limit-design.md) and [current native summary](lastdb-disk-native-node.md).
 
-Selected HashRange schemas can load all required membership keys before their first query continues.
-Concurrent first queries share that load. Later range calls select complete keys from memory.
-Tips and values remain partial. Range-key preload does not load unused atom values or file contents.
-The policy remains opt-in through `LASTDB_SCHEMA_PRELOAD_SCHEMAS`.
-See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md).
+A format 7 home keeps no field molecules, so no schema key membership preloads.
+`LASTDB_SCHEMA_PRELOAD_SCHEMAS` sets only the `schema_keys.enabled` status flag; the preload counts stay zero.
+See the retired [preload design](lastdb-schema-range-preload-design.md) and [native write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md).
 
 ### Engine cutover
 

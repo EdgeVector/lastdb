@@ -8,6 +8,7 @@
 use super::inbox_fields::{inbox_value, searchable_fields};
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::atom::is_tombstone_value;
+use crate::db_operations::atom_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
@@ -53,8 +54,12 @@ pub struct SearchRebuildReport {
     pub inbox: PathBuf,
 }
 
+/// Records that one rebuild page of the record walk reads in one read scope.
+const REBUILD_WALK_PAGE: usize = 1_000;
+
 /// Collect all searchable field values for one schema into key → fields map.
-/// Each value leaves without its file keys.
+/// Each value leaves without its file keys. The record walk reads the
+/// personal scope in record key order, one bounded page at a time.
 async fn collect_schema_records(
     ops: &DbOperations,
     _schema_name: &str,
@@ -64,36 +69,42 @@ async fn collect_schema_records(
     if searchable.as_ref().is_some_and(HashSet::is_empty) {
         return Ok(vec![]);
     }
-
+    let comparison = ops.atoms().key_comparison_context(schema).await?;
+    let scopes: [Option<String>; 1] = [None];
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
-    let mut field_names: Vec<String> = schema.runtime_fields.keys().cloned().collect();
-    field_names.sort();
-
-    for field_name in field_names {
-        if searchable
-            .as_ref()
-            .is_some_and(|fields| !fields.contains(&field_name))
-        {
-            continue;
-        }
-        let Some(field) = schema.runtime_fields.get_mut(&field_name) else {
-            continue;
+    let mut after: Option<KeyValue> = None;
+    loop {
+        let window = WalkWindow {
+            after: after.as_ref(),
+            skip: 0,
+            take: REBUILD_WALK_PAGE,
         };
-        crate::db_operations::field_read::refresh_from_db(field, ops).await?;
-        for key in field.get_all_keys() {
-            let Some(atom_uuid) = field.current_atom_uuid(&key) else {
-                continue;
-            };
-            let Some(atom) = ops.atoms().get_atom_by_uuid(&atom_uuid, None).await? else {
-                continue;
-            };
-            if is_tombstone_value(atom.content()) {
-                continue;
+        let walk = ops
+            .atoms()
+            .walk_record_window(schema, &comparison, window, &scopes, |_| true);
+        let scope = ops.read_scope().await?;
+        let page = Arc::clone(&comparison).run(scope.run_result(walk)).await?;
+        let full = page.len() == REBUILD_WALK_PAGE;
+        after = page.last().map(|(key, _)| key.clone());
+        for (key, record) in page {
+            let fields: HashMap<String, Value> = record
+                .fields
+                .iter()
+                .filter(|&(name, value)| {
+                    schema.runtime_fields.contains_key(name.as_str())
+                        && searchable
+                            .as_ref()
+                            .is_none_or(|fields| fields.contains(name.as_str()))
+                        && !is_tombstone_value(value)
+                })
+                .map(|(name, value)| (name.clone(), inbox_value(value)))
+                .collect();
+            if !fields.is_empty() {
+                records.insert(key, fields);
             }
-            records
-                .entry(key)
-                .or_default()
-                .insert(field_name.clone(), inbox_value(atom.content()));
+        }
+        if !full {
+            break;
         }
     }
 

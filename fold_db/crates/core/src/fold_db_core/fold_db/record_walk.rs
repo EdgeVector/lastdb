@@ -12,16 +12,13 @@ use super::FoldDB;
 impl FoldDB {
     /// The positions of `keys` in record key order: the order in which an
     /// unfiltered read walks the records of `schema_name`. The schema
-    /// resolves as the read resolves it. `None` when this home is not format
-    /// 7, the schema is absent, or a key does not resolve.
+    /// resolves as the read resolves it. `None` when the schema is absent or
+    /// a key does not resolve.
     pub async fn record_walk_order(
         &self,
         schema_name: &str,
         keys: &[KeyValue],
     ) -> Option<Vec<usize>> {
-        if !self.record_home() {
-            return None;
-        }
         let schema = self
             .schema_manager
             .get_schema_following_supersession_for_read(schema_name)

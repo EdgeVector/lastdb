@@ -17,19 +17,6 @@ use serde::{Deserialize, Serialize};
 /// "molecule data"; prefer [`MoleculeHashRange`] in new code.
 pub type MoleculeData = MoleculeHashRange;
 
-/// Range coordinates in one transient query molecule, independent of its codec.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MoleculeRangeForm {
-    /// Exact narrowed reads retain the caller's original range.
-    Api,
-    /// Ordered walks retain stored ranges until the field reader projects them.
-    Storage,
-}
-
-// The slot layout values live in the molecule model so the schema field
-// types can name them without a dependency on this store.
-pub(crate) use crate::atom::molecule_slot::{FilterLayout, OneDSlot, EMPTY_KEY_COMPONENT};
-
 /// One stored `mk:{M}:{key}` record: a key's atom entry plus its optional
 /// per-key metadata. The key itself is encoded into the storage key by
 /// [`molecule_key_codec`], so it is not duplicated in the value.

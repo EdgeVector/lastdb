@@ -139,7 +139,6 @@ impl PackRuntime {
         &self,
         current: physical::PhysicalRoot,
         hidden_changes: &[(String, String)],
-        key_changes: &[(String, String, bool)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
         // Checked before the view lock; published under it with the root.
@@ -154,11 +153,6 @@ impl PackRuntime {
             if requests.is_empty() {
                 self.invalidate_changed_records(hidden_changes);
             }
-            laststore::commit_timing::during("memory_schema_keys_us", || {
-                self.publish_schema_key_changes(key_changes.iter().map(
-                    |(collection, key, deleted)| (collection.as_str(), key.as_str(), *deleted),
-                ));
-            });
             view.revision = revision;
         }
         for request in requests {
@@ -198,10 +192,10 @@ impl PackRuntime {
     /// The view write lock excludes captures until these raw records and their
     /// epochs agree with the newly visible complete mutation.
     fn invalidate_changed_records(&self, changes: &[(String, String)]) {
-        logical_paths::controls::invalidate(
-            &mut self.core.lock().expect("core publication invalidation"),
-            changes,
-        );
+        self.core
+            .lock()
+            .expect("core publication invalidation")
+            .invalidate_sources(changes);
     }
 }
 
