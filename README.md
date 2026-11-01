@@ -67,7 +67,7 @@ return HTTP 413 `atom_content_too_large` with a `hint`. Many small fields may
 be packed into one atom up to the cap; a list or log that grows → one record per
 entry in a HashRange schema; large opaque bytes → file blob (CAS) with a
 pointer. Full write-up: [`fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`](fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md).
-Operators: `lastdb status` shows `Limits: max_atom_content=…`.
+Operators: `lastdb status` shows `Limits: max_peer_field_value=…`.
 
 ## Build
 

@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbInspectCommand {
-    /// Decrypt/read live store: main key-class + per-schema atom/history sizes.
+    /// Decrypt/read live store: main key-class sizes + per-schema live record sizes.
     ///
     /// **Heavy op:** full-prefix walks over multi-GiB stores can take minutes
     /// (see `lastdb ops`). Prefer `--out PATH` over
@@ -35,11 +35,11 @@ pub(crate) enum DbInspectCommand {
         #[arg(long, value_name = "SECS")]
         timeout: Option<u64>,
     },
-    /// Per-schema logical atom sizes (catalog names joined).
+    /// Per-schema live record sizes (catalog names joined).
     ///
-    /// **Heavy op:** walks live `atom:` rows only — cheaper than
-    /// `db inventory` (no history / order-log / tip-format), but still an
-    /// admin scan. Prefer `--out PATH` over shell redirect.
+    /// **Heavy op:** walks every stored record (`rk:` rows) once — cheaper
+    /// than `db inventory` (no main key-class walk), but still an admin scan.
+    /// Prefer `--out PATH` over shell redirect.
     ///
     /// Do not run this as a routine against a daily-driver primary.
     Schemas {

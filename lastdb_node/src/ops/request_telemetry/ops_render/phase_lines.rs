@@ -67,8 +67,7 @@ pub(crate) fn phase_table_lines(aggregates: &[OpAggregate], labels: &SchemaLabel
         String::new(),
         "Request phases — per-key sums; zero phases omitted; ranked by phase time counted once"
             .to_string(),
-        "  hydrate is the PARENT of hydrate_atoms/format/sort/filter — do not add it to them"
-            .to_string(),
+        "  hydrate is the PARENT of the hydrate_* phases — do not add it to them".to_string(),
     ];
     lines.extend(aligned_table(
         &[
@@ -85,12 +84,10 @@ pub(crate) fn phase_table_lines(aggregates: &[OpAggregate], labels: &SchemaLabel
     ));
     lines.push("  Phase details:".to_string());
     for (i, a) in selected.iter().enumerate() {
+        // `sum_molecules_persisted` and `sum_molecule_store_commits` stay in
+        // the JSON and the rollup rows for their readers. The record model
+        // keeps both at zero, so the text output leaves them out.
         let mut tokens = phase_tokens(a.phase_sums);
-        let molecules =
-            molecule_work_detail(a.sum_molecules_persisted, a.sum_molecule_store_commits);
-        if !molecules.is_empty() {
-            tokens.push(molecules.trim().to_string());
-        }
         let resident = resident_commit_detail(a.sum_resident_operations, a.sum_resident_commits);
         if !resident.is_empty() {
             tokens.push(resident.trim().to_string());
@@ -100,40 +97,11 @@ pub(crate) fn phase_table_lines(aggregates: &[OpAggregate], labels: &SchemaLabel
     lines
 }
 
-/// Render the molecule-persist work counts that go with `persist_molecules_us`.
-///
-/// ` molecules=<persisted>/<commits> (<n> per commit)`. Absent when nothing was
-/// counted, so every non-mutating key's row — and every row served by a daemon
-/// predating the counters — stays byte-identical.
-///
-/// The ratio is the readable part, and it is the one an operator can act on:
-/// **1.0 molecules per commit is the per-molecule store path**, F per commit is
-/// the shared batch commit, and a value in between counts molecules the batch
-/// refused (no durable header yet, or a full order snapshot rather than an
-/// append tail). Two decimals because the interesting differences are small
-/// integers — 1.00 vs 24.00 — and a truncating integer ratio would render
-/// "23 of 24 molecules batched" as the same `1` as "none batched".
-pub(crate) fn molecule_work_detail(molecules: u64, commits: u64) -> String {
-    if molecules == 0 && commits == 0 {
-        return String::new();
-    }
-    // A commit count of zero with molecules counted cannot happen from the
-    // recording sites (each commit site increments before it awaits), but
-    // rendering `inf` on a hand-built or truncated aggregate is worse than
-    // rendering the raw pair.
-    if commits == 0 {
-        return format!(" molecules={molecules}/0");
-    }
-    let per_commit = molecules as f64 / commits as f64;
-    format!(" molecules={molecules}/{commits} ({per_commit:.2} per commit)")
-}
-
 /// `resident=<operations>/<commits>` — the ratio the one-resident-commit
 /// design is defined by.
 ///
-/// Rendered next to `molecules=` and read the same way: the numerator is work
-/// asked for, the denominator is commits issued. `9/1` is one atomic batch,
-/// `9/9` is the serial path it replaces.
+/// The numerator is work asked for, the denominator is commits issued. `9/1`
+/// is one atomic batch, `9/9` is the serial path it replaces.
 pub(crate) fn resident_commit_detail(operations: u64, commits: u64) -> String {
     if operations == 0 && commits == 0 {
         return String::new();

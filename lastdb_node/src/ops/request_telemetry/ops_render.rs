@@ -77,7 +77,8 @@ pub fn snapshot_lines_with_schema_labels(
 
     lines.extend(app_verb_table_lines(snap));
 
-    lines.extend(key_use_lines(snap));
+    // `key_use` stays in the JSON for its readers. The record model keeps it
+    // empty, so the text output has no table for it.
     lines.extend(top_total_time_lines(snap, labels));
     lines.extend(body_volume_lines(snap, labels));
     lines.extend(idle_wait_lines(snap));
@@ -88,30 +89,6 @@ pub fn snapshot_lines_with_schema_labels(
     // the offender summary out of `status`.
     lines.extend(phase_table_lines(&snap.top_by_total_ms, labels));
 
-    lines
-}
-
-/// Distinct returned-tip-key table for the recent window.
-fn key_use_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
-    let mut lines = Vec::new();
-    if let Some(key_use) = &snap.key_use {
-        lines.push(String::new());
-        lines.push(format!(
-            "Returned field tip keys — last {}m, approximate distinct count (global {}, overflow {})",
-            key_use.window_minutes,
-            human_count(key_use.distinct_tip_keys),
-            human_count(key_use.overflow_tip_keys)
-        ));
-        lines.push("  Client / schema                         Distinct tips".to_string());
-        for row in key_use.series.iter().take(10) {
-            lines.push(format!(
-                "  {} / {}: {}",
-                row.client,
-                row.schema.as_deref().unwrap_or("-"),
-                human_count(row.distinct_tip_keys)
-            ));
-        }
-    }
     lines
 }
 
@@ -222,11 +199,6 @@ fn slowest_request_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels)
                     - i64::try_from(s.phases.within_wall_us()).unwrap_or(i64::MAX);
                 let mut phases = phase_tokens(s.phases);
                 phases.push(error_cell(&residual_detail(unphased, wall_us)));
-                let molecules =
-                    molecule_work_detail(s.molecules_persisted, s.molecule_store_commits);
-                if !molecules.is_empty() {
-                    phases.push(molecules.trim().to_string());
-                }
                 let resident = resident_commit_detail(s.resident_operations, s.resident_commits);
                 if !resident.is_empty() {
                     phases.push(resident.trim().to_string());

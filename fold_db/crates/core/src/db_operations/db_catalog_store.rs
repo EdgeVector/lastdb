@@ -1,7 +1,9 @@
 //! Durable database catalog: `(database locator, schema) -> instance`.
 //!
-//! Databases are catalogs over the node-universal molecule/atom store. A
-//! catalog entry selects an existing schema instance; it never copies data.
+//! Databases are catalogs over the node's one record store. A catalog entry
+//! selects an existing schema instance; it never copies records. A share
+//! reuses the source schema instance and adds encryption key wraps for the
+//! schema's record space and alternate key spaces in the target access domain.
 //! The exact-key layout keeps resolution O(1) and avoids any catalog scan.
 
 use crate::storage::error::StorageResult;

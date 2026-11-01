@@ -28,12 +28,12 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
         .cloned()
         .unwrap_or_default();
     if entries.is_empty() {
-        println!("Atom delete ledger: EMPTY — no delete, purge or gc batch has ever run here.");
-        println!("  A missing atom body on this store was not removed by a delete path.");
+        println!("Record delete ledger: EMPTY — no delete or purge batch has run here.");
+        println!("  A missing record on this store was not removed by a delete path.");
         return Ok(());
     }
     println!(
-        "Atom delete ledger — {} row(s), oldest first",
+        "Record delete ledger — {} row(s), oldest first",
         entries.len()
     );
     for e in &entries {
@@ -44,12 +44,15 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         let state = if committed { "ok" } else { "UNCONFIRMED" };
+        // A record model erase row counts its records in `records_converged`.
+        // `atoms_deleted` and `tips_removed` stay in the JSON for its readers;
+        // the record model keeps both at zero, so the text leaves them out.
         let mut line = format!(
-            "  {}  {:<15} {:<11} atoms={}",
+            "  {}  {:<15} {:<11} records={}",
             s("at"),
             s("verb"),
             state,
-            n("atoms_deleted"),
+            n("records_converged"),
         );
         if let Some(schema) = e.get("schema").and_then(|v| v.as_str()) {
             line.push_str(&format!(" schema={schema}"));
@@ -62,16 +65,6 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
         }
         if n("history_rows_deleted") > 0 {
             line.push_str(&format!(" history={}", n("history_rows_deleted")));
-        }
-        // A `delete-converge` row always reads `atoms=0` by design, so without
-        // these two the human view cannot tell it from a batch that did
-        // nothing — and "did the delete path run in this window" is the
-        // question the ledger exists to answer.
-        if n("records_converged") > 0 {
-            line.push_str(&format!(" records={}", n("records_converged")));
-        }
-        if n("tips_removed") > 0 {
-            line.push_str(&format!(" tips={}", n("tips_removed")));
         }
         println!("{line}");
         if !committed {

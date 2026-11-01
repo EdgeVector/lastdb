@@ -225,12 +225,13 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// List live record keys for one schema (hash + range). No atom bodies.
+    /// List live record keys for one schema (hash + range). No field values.
     ///
-    /// Walks the schema's key-field molecule tips. Tombstones are skipped.
+    /// Walks the schema's records in primary key order and skips deleted
+    /// records, so a page can hold fewer keys than the limit. With
+    /// `--key-name`, reads the named alternate key entries under `--key-hash`.
     /// Default page is 100 keys; pass `--cursor` from the previous page to
-    /// continue. This is not a census of field atoms and does not require
-    /// `X-LastDB-Allow-Full-Scan`. Alias of `get-keys`.
+    /// continue. Does not require `X-LastDB-Allow-Full-Scan`. Alias of `get-keys`.
     List(RecordListArgs),
     /// List one page of primary keys, or named alternate keys under --key-hash.
     GetKeys(RecordListArgs),

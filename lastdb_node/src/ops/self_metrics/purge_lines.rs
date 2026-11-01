@@ -4,6 +4,9 @@ use super::*;
 ///
 /// Always emits at least one line. This lets an operator distinguish an empty
 /// process-lifetime ledger from an omitted display section.
+///
+/// `purge_atoms_deleted` stays in the JSON for its readers. The record model
+/// keeps it at zero, so the text output leaves it out.
 pub fn purge_stats_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if snapshot.purge_stats.is_empty() {
         return vec!["Purge stats: (none since process start)".to_string()];
@@ -18,11 +21,10 @@ pub fn purge_stats_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     for name in names {
         let s = &snapshot.purge_stats[name];
         lines.push(format!(
-            "  {name}: purges={} records_purged={} purge_target_slots={} purge_atoms_deleted={} last_purge_finished_unix_ms={}",
+            "  {name}: purges={} records_purged={} purge_target_slots={} last_purge_finished_unix_ms={}",
             s.purges,
             s.records_purged,
             s.purge_target_slots,
-            s.purge_atoms_deleted,
             s.last_purge_finished_unix_ms
         ));
     }
@@ -54,7 +56,6 @@ pub fn purge_stats_table_lines(
                 human_count(stats.purges),
                 human_count(stats.records_purged),
                 human_count(stats.purge_target_slots),
-                human_count(stats.purge_atoms_deleted),
                 human_age(
                     fold_db::clock::unix_millis(),
                     stats.last_purge_finished_unix_ms,
@@ -67,16 +68,9 @@ pub fn purge_stats_table_lines(
         names.len()
     )];
     lines.extend(aligned_table(
-        &[
-            "SCHEMA",
-            "PURGES",
-            "RECORDS",
-            "TARGET SLOTS",
-            "ATOMS DELETED",
-            "LAST",
-        ],
+        &["SCHEMA", "PURGES", "RECORDS", "TARGET SLOTS", "LAST"],
         &rows,
-        &[false, true, true, true, true, true],
+        &[false, true, true, true, true],
     ));
     lines
 }

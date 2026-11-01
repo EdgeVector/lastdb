@@ -291,10 +291,13 @@ fn watchers_line(snapshot: &StatusSnapshot) -> String {
     )
 }
 
+/// The value limit applies to one field value of a peer record
+/// (`peer_import/records/admission.rs`). The JSON fields and the env var keep
+/// their `max_atom_content` names for their readers.
 fn limits_line(snapshot: &StatusSnapshot) -> String {
     format!(
-        "Limits: max_request_body={} B; max_record={} B; max_atom_content={} B (default {} B; abs \
-         max {} B; env {})",
+        "Limits: max_request_body={} B; max_record={} B; max_peer_field_value={} B (default {} B; \
+         abs max {} B; env {})",
         gauge_or_zero(&snapshot.limits.max_request_body_bytes),
         gauge_or_zero(&snapshot.limits.max_record_bytes),
         gauge_or_zero(&snapshot.limits.max_atom_content_bytes),
