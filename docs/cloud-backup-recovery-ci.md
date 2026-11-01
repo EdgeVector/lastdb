@@ -169,6 +169,51 @@ The endpoint comes from `folddb_profile/environments.json`.
 The baseline contains no file encryption key.
 A baseline update requires an accepted DEV backup, provider verification, and independent checks of its expected data.
 Keep that selected backup while CI depends on it. CI never replaces it with the latest head.
+The manual baseline mode is the only supported update path (see "Baseline move").
+
+## Baseline move
+
+A native format change can make the fixed baseline unreadable by the current client.
+The client restores only home format 7, so an older baseline fails the first restore.
+The manual `baseline` mode makes a new fixed baseline. It does not run the normal recovery.
+
+```text
+gh workflow run cloud-backup-recovery.yml -R EdgeVector/lastdb --ref main -f mode=baseline
+```
+
+The mode uses the same protected environment, build, package, cleanup, and start claim as the normal operation.
+`baseline.py` then starts a fresh home of the current format with the fixed CI identity.
+The recovery phrase supplies the identity seed, and the daemon must report the fixed CI account.
+The home receives the `CloudCiBaselineF7` Hash schema, 16 records, and one 8 MiB file.
+Automatic backup uploads exactly one snapshot to the claimed stream. No mutation log enters that stream.
+The source stops cleanly. The snapshot restores to an absent folder, and two boots read every record and the complete file.
+Only then does the step write `ci-baseline.json`. The workflow uploads it as `cloud-ci-baseline-<run_id>-<run_attempt>`.
+
+`register_ownership.py --phase baseline` sends that archive to the DEV service route `ci/baseline`.
+The service requires all of these conditions:
+
+- The `baseline_move` capability. It requires the startup ownership mode.
+- The open start claim of this run for the new stream. The claim must name the current baseline.
+- The exact GitHub archive of the active run on main.
+- An accepted point at the head of the new stream, with no open commit.
+- No open cleanup freeze.
+
+The service then saves the new baseline and adds the replaced baseline to `retained_baselines`.
+Cleanup protects every retained baseline stream. Its deletion is a separate later decision.
+The policy keeps at most eight retained baselines. The move makes no provider deletion and no quota change.
+
+The record notes and the file bytes derive from the recovery phrase and the public stream ID (`baseline_data.py`).
+The run summary shows only public identifiers and `secret_sha256`, a SHA256 commitment of the exact secret value.
+After a successful move, an operator updates the two protected inputs:
+
+1. Derive the secret with `baseline_data.secret` from the phrase, the new point, and the file hash.
+2. Compare `baseline_data.commitment` of that value with the `secret_sha256` of the run summary.
+3. Set `LASTDB_CLOUD_DEV_BASELINE` in the `cloud-backup-dev` environment from stdin. Do not print the value.
+4. Set the `LASTDB_CLOUD_DEV_BASELINE_SCOPE` variable to the new account, generation, and stream.
+5. Run the normal recovery on main.
+
+Update both inputs before the next normal recovery.
+The daily check does not count a baseline-mode run as a recovery result.
 
 ## Limits and cleanup
 
@@ -208,7 +253,7 @@ This requirement identifies completed CI streams without an account-wide ownersh
 It does not classify an old stream merely because it has an automatic request ID.
 The receipt describes observed points, not a complete frozen directory, and grants no provider deletion authority.
 
-The CI retention rule keeps the fixed baseline stream and the latest successful CI stream.
+The CI retention rule keeps the fixed baseline stream, each retained earlier baseline, and the latest successful CI stream.
 The cloud service must validate a complete frozen directory before it retires an older owned CI stream.
 It must preserve shared files, active restores, uploads, and uncertain allocations, then confirm exact provider absence and release quota once.
 An expired or missing ownership record supplies no automatic deletion authority.

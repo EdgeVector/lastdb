@@ -61,7 +61,8 @@ class Control:
 
     def post(self, route, extra):
         require(self.key is not None and route in (
-            "context", "start", "register", "refresh", "usage", "pending", "plan", "execute", "status"),
+            "context", "start", "register", "refresh", "usage", "pending", "plan", "execute", "status",
+            "baseline"),
                 "ci_control_route")
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, "ci_control_deadline")
@@ -172,6 +173,32 @@ class Control:
             require(latest != self.baseline["stream_id"], "ci_register_latest_scope")
         return {"stream_id": value["stream_id"], "state": value["state"],
                 "registration_sha256": value["registration_sha256"]}
+
+    def move_baseline(self, record):
+        """Save the new baseline. The service keeps the replaced one protected."""
+        receipt = record["ownership"]
+        new = receipt["baseline"]
+        require(receipt["schema"] == "lastdb.cloud-ci-baseline.v1" and receipt["account"] == ACCOUNT
+                and receipt["account_generation"] == self.scope["account_generation"]
+                and receipt["previous"] == self.baseline
+                and canonical_uuid(new["stream_id"]) != self.baseline["stream_id"],
+                "ci_baseline_owned_scope")
+        archive = record["archive"]
+        require(isinstance(archive, bytes) and 0 < len(archive) <= 32768, "ci_baseline_archive_bound")
+        value = self.post("baseline", {"artifact_id": record["artifact_id"],
+                          "archive_b64": base64.b64encode(archive).decode("ascii"),
+                          "baseline": self.baseline})
+        no_deletion(value)
+        retained = value.get("retained_baselines")
+        require(value.get("scope") == self.scope and value.get("moved") is True
+                and value.get("baseline") == new and isinstance(retained, list)
+                and 0 < len(retained) <= 8 and retained[-1] == self.baseline, "ci_baseline_moved")
+        latest = value.get("latest_successful_stream")
+        if latest is not None:
+            canonical_uuid(latest)
+            require(latest != new["stream_id"], "ci_baseline_latest_scope")
+        return {"baseline": new, "retained_baselines": len(retained),
+                "latest_successful_stream": latest}
 
     def refresh(self):
         after, records, promoted = None, 0, 0

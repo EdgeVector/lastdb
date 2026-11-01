@@ -83,6 +83,36 @@ def startup_ownership(raw, run, baseline):
     return value
 
 
+def baseline_ownership(raw, run, baseline):
+    value = decode_json(raw)
+    require(isinstance(value, dict) and set(value) == {
+        "schema", "owner", "account", "account_generation", "previous", "baseline",
+        "source_stopped", "restored_to_absent_destination", "restored_reads_verified",
+        "provider_deletion_authority"}, "ci_baseline_receipt_fields")
+    require(value["schema"] == "lastdb.cloud-ci-baseline.v1" and value["owner"] == {
+        "repository": REPOSITORY, "workflow": WORKFLOW, "source": run["head_sha"],
+        "run_id": str(run["id"]), "run_attempt": str(run["run_attempt"])}, "ci_baseline_exact_owner")
+    require(value["account"] == baseline["account"] == ACCOUNT
+            and value["account_generation"] == baseline["account_generation"], "ci_baseline_dev_scope")
+    require(value["previous"] == {name: baseline[name] for name in (
+        "stream_id", "commit_id", "commit_sha256")}, "ci_baseline_replaces_current")
+    require(isinstance(value["baseline"], dict), "ci_baseline_point")
+    stream = canonical_uuid(value["baseline"].get("stream_id"))
+    point(value["baseline"], stream)
+    require(stream != baseline["stream_id"], "ci_baseline_new_stream")
+    require(value["source_stopped"] is True and value["restored_to_absent_destination"] is True
+            and value["restored_reads_verified"] is True
+            and value["provider_deletion_authority"] is False, "ci_baseline_proof_boundary")
+    return value
+
+
+KINDS = {
+    "stream": ("cloud-ci-stream", "ci-stream.json", ownership),
+    "startup": ("cloud-ci-start", "ci-start.json", startup_ownership),
+    "baseline": ("cloud-ci-baseline", "ci-baseline.json", baseline_ownership),
+}
+
+
 def unzip(raw, digest, filename="ci-stream.json"):
     require(0 < len(raw) <= MAX_ZIP and hashlib.sha256(raw).hexdigest() == digest,
             "ci_history_artifact_digest")
@@ -126,7 +156,9 @@ class History:
         except OperationError as error:
             raise OperationError("ci_history_github_response_invalid") from error
 
-    def candidate(self, run, finished=True, startup=False):
+    def candidate(self, run, finished=True, startup=False, kind=None):
+        kind = kind or ("startup" if startup else "stream")
+        prefix, filename, parse = KINDS[kind]
         number(run["id"])
         number(run["run_attempt"])
         require(run["repository"]["full_name"] == run["head_repository"]["full_name"] == REPOSITORY
@@ -135,7 +167,6 @@ class History:
                 and re.fullmatch(r"[0-9a-f]{40}", run["head_sha"]), "ci_history_trusted_run")
         require((run["status"] == "completed" and run["conclusion"] == "success") if finished
                 else run["status"] in ("queued", "in_progress", "completed"), "ci_history_run_state")
-        prefix = "cloud-ci-start" if startup else "cloud-ci-stream"
         expected = f"{prefix}-{run['id']}-{run['run_attempt']}"
         directory = self.api(f"actions/runs/{run['id']}/artifacts?per_page=100")
         require(type(directory["total_count"]) is int and 0 <= directory["total_count"] <= 100
@@ -154,22 +185,22 @@ class History:
                 "ci_history_artifact_hash")
         identifier = number(artifact["id"])
         raw = self.api(f"actions/artifacts/{identifier}/zip", binary=True)
-        receipt_raw = unzip(raw, digest[7:], "ci-start.json" if startup else "ci-stream.json")
-        receipt = (startup_ownership if startup else ownership)(receipt_raw, run, self.baseline)
+        receipt_raw = unzip(raw, digest[7:], filename)
+        receipt = parse(receipt_raw, run, self.baseline)
         completed = self.completion(run) if finished else None
         return {"ownership": receipt, "artifact_id": str(identifier), "artifact_sha256": digest[7:],
                 "archive": raw, "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
                 "artifact_url": f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}/artifacts/{identifier}",
                 "artifact_expires_at": artifact["expires_at"], "completed_at": completed}
 
-    def current(self, identifier, digest, source, startup=False):
+    def current(self, identifier, digest, source, startup=False, kind=None):
         try:
             owner = run_identity(source)
             run = self.api(f"actions/runs/{owner['run_id']}/attempts/{owner['run_attempt']}")
             require(str(run["id"]) == owner["run_id"]
                     and str(run["run_attempt"]) == owner["run_attempt"]
                     and run["head_sha"] == source, "ci_current_run_identity")
-            record = self.candidate(run, finished=False, startup=startup)
+            record = self.candidate(run, finished=False, startup=startup, kind=kind)
             require(record is not None and record["artifact_id"] == identifier
                     and record["artifact_sha256"] == digest, "ci_current_artifact_identity")
             return record

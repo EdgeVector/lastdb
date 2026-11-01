@@ -49,7 +49,8 @@ def clear(operation):
         require((info.st_dev, info.st_ino, info.st_uid) == operation.root_identity
                 and info.st_mode & 0o077 == 0,
                 "credential_cleanup_owned_root")
-        for name in ("credentials", "restored"):
+        # "source" is the fresh connected home of the manual baseline mode.
+        for name in ("credentials", "restored", "source"):
             try:
                 directory = os.open(name, flags, dir_fd=root)
             except FileNotFoundError:
