@@ -253,8 +253,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/atom-history.yml
     with:
-      base_sha: ${{ github.event.pull_request.base.sha || '' }}
-      head_sha: ${{ github.event.pull_request.head.sha || '' }}
+      base_sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
 
   record_home:
     name: Record home product proof
@@ -262,8 +262,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/record-home.yml
     with:
-      base_sha: ${{ github.event.pull_request.base.sha || '' }}
-      head_sha: ${{ github.event.pull_request.head.sha || '' }}
+      base_sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
 
   ci-required:
     name: ci-required
