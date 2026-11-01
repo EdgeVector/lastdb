@@ -248,7 +248,8 @@ fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredRecord>) -> 
 
 /// Merge the fields and the metadata of one mutation into its record. True
 /// when something changed; an equal or older stamp changes nothing. The
-/// metadata belongs to the record (D7): a write without metadata keeps it.
+/// metadata belongs to the record (D7): a write without metadata keeps it, and
+/// a write with metadata replaces only the keys that it sends.
 ///
 /// A delete or a purge removes every value at or below its stamp and keeps
 /// the stamp as the delete floor: the record becomes a tombstone, and its
@@ -285,7 +286,7 @@ fn merge_mutation(
     let mut changed = false;
     let metadata = mutation.metadata.as_ref().filter(|map| !map.is_empty());
     if mutation.source_file_name.is_some() || metadata.is_some() {
-        changed |= record.merge_meta(
+        changed |= record.write_meta(
             mutation.source_file_name.clone(),
             metadata
                 .into_iter()
