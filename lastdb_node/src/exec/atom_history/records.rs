@@ -16,6 +16,9 @@ pub(super) async fn execute(
         .get_schema(&location.schema)
         .await?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
+    // The record key needs the key codec of the record space. After a
+    // restart nothing has loaded it until a query or a write of the schema.
+    db.molecule_keys().load_schema(&schema).await?;
     let identity = schema
         .field_hashes
         .get(&location.field)
