@@ -115,7 +115,7 @@ impl AppUpdateError {
 
     pub fn to_http(&self) -> (u16, Value) {
         match self {
-            Self::InvalidAppId => (400, json!({ "reason": "invalid_app_id" })),
+            Self::InvalidAppId => (400, invalid_app_id_body()),
             Self::InvalidMetadata(detail) => (
                 400,
                 json!({ "reason": "invalid_metadata", "detail": detail }),
@@ -214,7 +214,7 @@ impl AppPromoteError {
 
     pub fn to_http(&self) -> (u16, Value) {
         match self {
-            Self::InvalidAppId => (400, json!({ "reason": "invalid_app_id" })),
+            Self::InvalidAppId => (400, invalid_app_id_body()),
             Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
             Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
             Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),

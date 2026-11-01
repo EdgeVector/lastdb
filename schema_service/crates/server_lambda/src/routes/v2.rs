@@ -3,6 +3,7 @@
 use crate::http::*;
 use lambda_http::{Body, Error, Response};
 use schema_service_core::app_release::release_verification_location;
+use schema_service_core::invalid_app_id_body;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -65,7 +66,7 @@ pub(crate) fn list_releases_for_app(
         .trim_start_matches("/v2/apps/")
         .trim_end_matches("/releases");
     let Some(app_id) = v2_app_id(app_id) else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     let releases = state.list_releases_for_app(app_id);
     let releases_json: Vec<_> = releases
