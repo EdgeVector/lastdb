@@ -152,7 +152,7 @@ fn read_source(
     marker
         .try_lock()
         .map_err(|_| invalid("snapshot identity source is owned"))?;
-    // This release opens only format 7 homes.
+    // This release opens only format 8 homes.
     if files::profile_version(root)?
         != Some(crate::storage::disk_pack::run_admission::RECORD_PROFILE)
     {

@@ -5,7 +5,7 @@ import statistics
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
 from disk_deletes import delete_records, prepare_delete, verify_deleted
-from node import Node, save
+from node import HOME_FORMATS, Node, save
 from disk_usage import validate as validate_breakdown
 
 LIMIT = 1.5
@@ -35,9 +35,9 @@ def logical_storage(node):
 
 
 def validate_logical(report, home_format):
-    """A format 7 home stores one record per key. Its logical bytes are the stored record values."""
-    if home_format != 7:
-        raise ValueError(f"The disk budget requires a format 7 home, not format {home_format}")
+    """A record home stores one record per key. Its logical bytes are the stored record values."""
+    if home_format not in HOME_FORMATS.values():
+        raise ValueError(f"The disk budget requires a record home, not format {home_format}")
     rows = report["per_schema"]
     if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]

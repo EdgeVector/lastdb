@@ -19,8 +19,8 @@ from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architec
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-# Every new home is format 7 (the record model).
-MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+# Every new home is format 8 (the record model).
+MARKER = "format=8\nhome=disk-run\ncas=disk-cas\n"
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -217,7 +217,7 @@ def operations(node):
         raise RuntimeError("The packaged CLI returned an invalid status response")
     marker = node.home / "data" / "laststore-pack-node-v1"
     if marker.read_text() != MARKER:
-        raise RuntimeError("The packaged daemon did not initialize a format 7 home")
+        raise RuntimeError("The packaged daemon did not initialize a format 8 home")
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
         "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,

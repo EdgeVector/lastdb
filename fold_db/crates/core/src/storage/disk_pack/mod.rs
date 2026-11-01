@@ -227,7 +227,7 @@ impl PackRuntime {
         Arc::clone(&self.persist_metrics)
     }
 
-    /// True for a format 7 home: the record model.
+    /// True for a format 8 home: the record model.
     pub(crate) const fn record_home(&self) -> bool {
         self.record_home
     }

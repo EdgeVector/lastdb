@@ -10,13 +10,18 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-/// Format 7: the record model. One record lives at each primary key. Every
-/// new home is format 7, and it is the only format this program opens.
-pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] =
+/// Format 8: the record model with its final disk names. One record lives at
+/// each primary key. Every new home is format 8, and it is the only format
+/// this program opens. The format number names the whole layout, so the
+/// marker holds no feature versions.
+pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] = b"format=8\nhome=disk-run\ncas=disk-cas\n";
+/// The backup profile version of a format 8 home.
+pub(in crate::storage) const RECORD_PROFILE: u16 = 6;
+// Older node markers. `require_record` refuses every profile except format 8.
+pub(super) const FORMAT_SEVEN_BYTES: &[u8] =
     b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n";
 /// The backup profile version of a format 7 home.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 5;
-// Older node markers. `require_record` refuses every profile except format 7.
+pub(in crate::storage) const FORMAT_SEVEN_PROFILE: u16 = 5;
 pub(super) const TYPED_NODE_BYTES: &[u8] =
     b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n";
 pub(super) const FORMAT_FIVE_BYTES: &[u8] =
@@ -25,27 +30,37 @@ pub(super) const FORMAT_FOUR_BYTES: &[u8] =
     b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n";
 
 /// The backup profile version of a known node marker, for any format from 4
-/// to 7. Only format 7 (`RECORD_PROFILE`) is admitted; see [`require_record`].
+/// to 8. Only format 8 (`RECORD_PROFILE`) is admitted; see [`require_record`].
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     match bytes {
         FORMAT_FOUR_BYTES => Some(2),
         FORMAT_FIVE_BYTES => Some(3),
         TYPED_NODE_BYTES => Some(4),
+        FORMAT_SEVEN_BYTES => Some(FORMAT_SEVEN_PROFILE),
         RECORD_NODE_BYTES => Some(RECORD_PROFILE),
         _ => None,
     }
 }
 
-/// Refuse every known profile except format 7. An older home moves to this
-/// release by a fresh home and a one-time copy that the older program serves;
-/// this program has no reader for it.
+/// Refuse every known profile except format 8. A format 7 home moves to this
+/// release by one home copy: the format 7 program reads its records and a
+/// format 8 program writes them into a new home. This program has no reader
+/// for an older home.
 pub(super) fn require_record(version: u16) -> StorageResult<u16> {
     if version == RECORD_PROFILE {
         return Ok(version);
     }
+    if version == FORMAT_SEVEN_PROFILE {
+        return Err(StorageError::InvalidOperation(
+            "node range admission: the home is format 7; this release opens only format 8. \
+             Move the home by a home copy (last-stack-lastdb-home-copy): the format 7 program \
+             reads the records and a format 8 program writes them into a new home."
+                .into(),
+        ));
+    }
     let format = version + 2;
     Err(StorageError::InvalidOperation(format!(
-        "node range admission: the home is format {format}; this release opens only format 7. \
+        "node range admission: the home is format {format}; this release opens only format 8. \
          Move an older home by a one-time copy of its records into a new home, read through \
          the program that wrote it."
     )))

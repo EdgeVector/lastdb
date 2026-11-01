@@ -19,8 +19,11 @@ from conditions import paired_conditions_match
 from narrow_report import narrow_samples_complete
 
 
-# The exact marker of a format 7 (record) home, as scripts/benchmarks/node.py names it.
-RECORD_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+# The exact markers of a record home, as scripts/benchmarks/node.py names them: format 8, and
+# format 7 for a base revision before format 8. Remove format 7 when no compared base predates
+# format 8.
+RECORD_MARKERS = {"format=8\nhome=disk-run\ncas=disk-cas\n": 8,
+                  "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n": 7}
 
 
 def interrupted(_signum, _frame):
@@ -28,9 +31,9 @@ def interrupted(_signum, _frame):
 
 
 def home_format(node):
-    """7 for a format 7 home marker, or None for any other marker."""
+    """The format of a record home marker, or None for any other marker."""
     marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-    return 7 if marker == RECORD_MARKER else None
+    return RECORD_MARKERS.get(marker)
 
 
 def measure(binary, revision, mode, role, output, helper):
@@ -40,9 +43,9 @@ def measure(binary, revision, mode, role, output, helper):
         node = Node(binary, revision, mode, output)
         node.start()
         found = home_format(node)
-        # Every release creates only format 7 homes.
-        if found != 7:
-            raise RuntimeError(f"The {role} did not create a format 7 home")
+        # Every release creates only record homes.
+        if found is None:
+            raise RuntimeError(f"The {role} did not create a record home")
         value = Workload(node, role == "baseline", helper).run()
     except BaseException as failure:
         error = type(failure).__name__ + ": " + str(failure)

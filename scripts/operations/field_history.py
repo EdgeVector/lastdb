@@ -356,7 +356,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker == RECORD_NODE_MARKER, "the new home is not format 7: " + repr(marker))
+        require(marker == RECORD_NODE_MARKER, "the new home is not format 8: " + repr(marker))
         exercise(node, args.cli.resolve())
     finally:
         node.close()

@@ -7,7 +7,7 @@ use crate::storage::disk_pack::{kv, run_admission::RECORD_NODE_BYTES};
 use lastdb_model::field_key_codec::TYPED_KEY_FORMAT;
 use laststore::disk_run::home::HomeMutation;
 
-/// Every new home is format 7 (the record model). The caller publishes the
+/// Every new home is format 8 (the record model). The caller publishes the
 /// returned node marker after this commit.
 pub(super) fn initialize(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'static [u8]> {
     let (collection, key) = kv::coordinate("main", CURRENT_KEY_FORMAT_KEY.as_bytes());

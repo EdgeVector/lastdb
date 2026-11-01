@@ -155,7 +155,7 @@ An incomplete upload never replaces the preceding accepted recovery point.
 
 The client profile and encrypted recovery metadata describe the physical and logical contracts.
 The service does not decode them. A native format change does not require cloud knowledge of LastDB files.
-The current backup feature set is 176: record references 16, large batches 32, and record records 128.
+The current backup feature set is 176: the base bit 16, large batches 32, and the record layout 128.
 Those feature bits occur in client backup metadata, not in the local home descriptor.
 
 A compatible change preserves every accepted byte meaning and reads existing supported files without conversion.

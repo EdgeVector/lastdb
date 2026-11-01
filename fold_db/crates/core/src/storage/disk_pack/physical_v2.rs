@@ -7,7 +7,7 @@ use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunRoot};
 
 /// Logical format features that every v2 home has from its creation.
-pub(in crate::storage) const V2_FEATURES: u64 = laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS
+pub(in crate::storage) const V2_FEATURES: u64 = laststore::disk_run::FEATURE_BASE
     | laststore::disk_run::FEATURE_LARGE_BATCHES
     | laststore::disk_run::FEATURE_RECORD_LAYOUT;
 /// The collection that holds the CAS files. In format v2 it has its own run home.

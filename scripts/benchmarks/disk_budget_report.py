@@ -7,17 +7,17 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import RECORD_NODE_MARKER, save
+from node import HOME_FORMATS, save
 
 
 def require_record_homes(output, manifest):
-    """Each run measured two format 7 homes: the main corpus and the delete corpus."""
+    """Each run measured two record homes: the main corpus and the delete corpus."""
     for run in manifest["runs"]:
         directory = output / run["directory"]
         for corpus in (directory, directory / "delete"):
             marker = json.loads((corpus / "disk-format.json").read_text())
-            if set(marker) != {"marker"} or marker["marker"] != RECORD_NODE_MARKER:
-                raise ValueError("The disk budget did not measure two format 7 homes")
+            if set(marker) != {"marker"} or marker["marker"] not in HOME_FORMATS:
+                raise ValueError("The disk budget did not measure two record homes")
 
 
 def compare(output, manifest):

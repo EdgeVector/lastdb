@@ -50,7 +50,7 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+RUN_NODE = b"format=8\nhome=disk-run\ncas=disk-cas\n"
 # The settings of the primary's launchd job that the node reads: the
 # compression of the at-rest envelopes, the record size limit, the memory
 # budget, and the admin timeout.
@@ -171,7 +171,7 @@ class Case:
     def check_new_home(self):
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
-            raise ProofError(f"a new home has the node marker {marker!r}, not the format 7 marker")
+            raise ProofError(f"a new home has the node marker {marker!r}, not the format 8 marker")
         for name in ("disk-pack", "laststore-layout-v1"):
             if (self.data / name).exists():
                 raise ProofError(f"a new v2 home has the v1 entry {name}")
@@ -208,7 +208,7 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
-            self.failures.append(f"{name}: the node marker is not the format 7 marker")
+            self.failures.append(f"{name}: the node marker is not the format 8 marker")
         self.compare(name, logical, reads, listed)
         self.phases.append({
             "name": name, "settled": settled, "logical": logical,
@@ -265,10 +265,9 @@ class Case:
     def logical(self):
         data, elapsed, _ = self.node.call("/api/db/schemas")
         report = data["schema_storage"]
-        # A format 7 home stores records, not records: the walk counts the stored
-        # record values and their bytes. The alternate-key storage comparison
-        # also runs the previous main binary, whose format 6 home stores records.
-        unit = "record_count" if self.node.home_format() == 7 else "record_count"
+        # A record home stores one record per key: the walk counts the stored
+        # record values and their bytes.
+        unit = "record_count"
         return {"bytes": report["total_logical_bytes"],
                 "records": report.get("total_records", 0),
                 "milliseconds": round(elapsed),

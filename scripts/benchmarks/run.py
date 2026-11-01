@@ -28,7 +28,7 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
                     environment=environment)
         node.start()
-        # Every program creates a format 7 home; the report shows the format of each label.
+        # Every program creates a record home; the report shows the format of each label.
         save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
             require_search_off(node, output, "before")

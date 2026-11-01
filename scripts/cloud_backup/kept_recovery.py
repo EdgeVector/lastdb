@@ -12,7 +12,7 @@ from ci_control import decimal, digest
 from node import OwnedNode
 from ownership import REPOSITORY, WORKFLOW
 from recovery_recipe import ROLES, validate as validate_recipe
-from restore_receipts import NODE_V7, restored
+from restore_receipts import NODE_V8, restored
 from support import OperationError, canonical_uuid, require
 
 # The first accepted main source whose client writes and restores only home
@@ -100,7 +100,7 @@ def recover(operation, kept, credentials, phrase):
     report = operation.programs.restore(credentials, destination, expected, phrase)
     require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
             "ci_kept_native_size")
-    proof = restored(destination, report, expected, node_markers=(NODE_V7,))
+    proof = restored(destination, report, expected, node_markers=(NODE_V8,))
     inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
     proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
     operation.node = OwnedNode(destination, operation.programs)

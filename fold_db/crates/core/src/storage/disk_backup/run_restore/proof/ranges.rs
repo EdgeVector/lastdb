@@ -13,7 +13,7 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    // This release restores only format 7 homes.
+    // This release restores only format 8 homes.
     if version != crate::storage::disk_pack::run_admission::RECORD_PROFILE {
         return Err(invalid("run backup range profile version"));
     }
