@@ -42,7 +42,7 @@ impl MutationManager {
                 // A format 7 home merges record outcomes; another home stages
                 // field tips through the counted atom path.
                 let records = if runtime.record_home() {
-                    Some(self.admit_peer_records(events).await?)
+                    Some(Box::pin(self.admit_peer_records(events)).await?)
                 } else {
                     self.admit_peer_outcomes(events).await?;
                     None
@@ -53,7 +53,9 @@ impl MutationManager {
                 // a counter gap, as on the ordinary author-clock allocation path.
                 self.observe_peer_clocks(events);
                 match &records {
-                    Some(schemas) => self.stage_peer_records(events, schemas, &runtime).await?,
+                    Some(schemas) => {
+                        Box::pin(self.stage_peer_records(events, schemas, &runtime)).await?;
+                    }
                     None => {
                         for event in events {
                             self.stage_peer_event(event, &runtime).await?;

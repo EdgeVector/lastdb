@@ -59,17 +59,6 @@ impl MutationManager {
     async fn peer_record_schema(&self, name: &str) -> Result<Schema, SchemaError> {
         let schema = self.load_schema_for_delta(name, None).await?;
         super::super::super::logical_capture::require_plain_schema(&schema)?;
-        // Field history and TTL of a format 7 home are another change; the
-        // local record write refuses the same schemas.
-        if self
-            .db_ops
-            .schemas()
-            .get_schema_retention_policy(name)
-            .await?
-            .is_some()
-        {
-            return Err(unsupported("a schema with a retention policy"));
-        }
         Ok(schema)
     }
 

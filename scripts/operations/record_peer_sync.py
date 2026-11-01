@@ -244,6 +244,31 @@ def expiry(a, b):
     raise RuntimeError("the conflict record outlived its retention window")
 
 
+def diagnose(node):
+    """Print the end of the daemon log and each crash report before cleanup removes the home."""
+    log = node.output / "node.log"
+    if log.exists():
+        tail = log.read_text(errors="replace").splitlines()[-40:]
+        print(f"--- {node.output.name}: the last {len(tail)} lines of node.log", flush=True)
+        print("\n".join(tail), flush=True)
+    reports = node.home / "crash-reports"
+    for report in sorted(reports.glob("*.txt")) if reports.is_dir() else []:
+        print(f"--- {node.output.name}: {report.name}", flush=True)
+        print(report.read_text(errors="replace")[:4000], flush=True)
+
+
+def close_all(nodes):
+    """Close every node, then raise the first close error."""
+    errors = []
+    for node in reversed(nodes):
+        try:
+            node.close()
+        except Exception as error:  # noqa: BLE001 - each node must still close
+            errors.append(error)
+    if errors:
+        raise errors[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, required=True)
@@ -274,9 +299,12 @@ def main():
         replay(a, b, links)
         deletes(a, b, links)
         expiry(a, b)
+    except BaseException:
+        for node in nodes:
+            diagnose(node)
+        raise
     finally:
-        for node in reversed(nodes):
-            node.close()
+        close_all(nodes)
 
 
 if __name__ == "__main__":
