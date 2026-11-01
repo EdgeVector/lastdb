@@ -200,7 +200,7 @@ fn next_rows(walks: &mut [ScopeWalk], step: usize) -> Option<Vec<StoredRecord>> 
         .iter()
         .flat_map(|walk| walk.rows.iter().map(|(suffix, _)| suffix.as_str()))
         .collect();
-    let last = keys.into_iter().take(step).last()?.to_owned();
+    let last = keys.into_iter().take(step).next_back()?.to_owned();
     let mut merged: BTreeMap<String, Option<StoredRecord>> = BTreeMap::new();
     for walk in &mut *walks {
         while walk
