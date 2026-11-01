@@ -12,7 +12,7 @@ pub(in crate::storage::disk_pack) fn require_record_layout(
 ) -> StorageResult<()> {
     for operation in operations {
         if matches!(
-            super::logical_capture::tips_family(operation)?.as_deref(),
+            tips_family(operation)?.as_deref(),
             Some("mk" | "rdel" | "mgp" | "mgr" | "mgd")
         ) {
             return Err(StorageError::InvalidOperation(
@@ -22,4 +22,20 @@ pub(in crate::storage::disk_pack) fn require_record_layout(
         }
     }
     Ok(())
+}
+
+/// The key family of one row in the `tips` collection. A row of another
+/// collection, and other metadata in the fallback collection, has none.
+fn tips_family(operation: &HomeMutation) -> StorageResult<Option<String>> {
+    if operation.collection != "tips" {
+        return Ok(None);
+    }
+    let key = super::super::native_routing::decode(&operation.key)?;
+    let Ok(key) = std::str::from_utf8(&key) else {
+        return Ok(None);
+    };
+    let Ok(key) = crate::storage::current_keys::source_key(key) else {
+        return Ok(None);
+    };
+    Ok(key.split([':', '\0']).next().map(str::to_owned))
 }

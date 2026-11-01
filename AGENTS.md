@@ -77,7 +77,6 @@ The proofs run the public CLI and daemon on fresh generated homes.
 This authorizes only:
 
 - `scripts/operations/record_home.py`
-- `scripts/operations/record_peer_sync.py`
 - `.github/workflows/record-home.yml`
 - the `record_home` job in `.github/workflows/ci-required.yml`
 

@@ -119,7 +119,7 @@ impl PackRuntime {
 
     /// Replace the readable root with a merged root of the same frontier.
     /// It never waits: a busy view keeps its root until the next capture.
-    pub(super) fn adopt_merged_root(&self) {
+    pub(in crate::storage) fn adopt_merged_root(&self) {
         let replaced = self.view.try_write().ok().and_then(|mut view| {
             let latest = self.physical.current_root();
             adopt(&mut view, latest, &self.last_root)

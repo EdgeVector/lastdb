@@ -12,10 +12,10 @@ use std::path::Path;
 
 /// Format 7: the record model. One record lives at each primary key. Every
 /// new home is format 7, and it is the only format this program opens.
-pub(super) const RECORD_NODE_BYTES: &[u8] =
+pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] =
     b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n";
 /// The backup profile version of a format 7 home.
-pub(super) const RECORD_PROFILE: u16 = 5;
+pub(in crate::storage) const RECORD_PROFILE: u16 = 5;
 // Formats 4 to 6 store atoms and molecules. They stay recognized so that a
 // refusal can name the format it found.
 pub(super) const TYPED_NODE_BYTES: &[u8] =
@@ -27,7 +27,7 @@ pub(super) const FORMAT_FOUR_BYTES: &[u8] =
 
 /// The backup profile version of a known node marker, for any format from 4
 /// to 7. Only format 7 (`RECORD_PROFILE`) is admitted; see [`require_record`].
-pub(super) fn profile(bytes: &[u8]) -> Option<u16> {
+pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     match bytes {
         FORMAT_FOUR_BYTES => Some(2),
         FORMAT_FIVE_BYTES => Some(3),

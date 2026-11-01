@@ -3,7 +3,6 @@
 use super::*;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
-use futures::FutureExt;
 use std::sync::Arc;
 
 pub(super) struct NativeRequest<'a> {
@@ -52,7 +51,6 @@ impl MutationManager {
         request: NativeRequest<'_>,
         state: &mut super::create_update_batch::BatchState,
     ) -> Result<NativeCommit, SchemaError> {
-        self.require_native_logical_admission(&request.mutations)?;
         // The clock queue uses native storage too. Complete its barrier before
         // taking the request's exclusive storage gate, never while owning it.
         if let Some(clock) = request.author_clock {
@@ -105,11 +103,8 @@ impl MutationManager {
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
-            // Keep the private multi-schema stage behind one future
-            // allocation instead of expanding it in every host caller.
-            let (group_count, logical_records) = super::super::logical_capture::collect(
-                &request.runtime,
-                self.stage_record_groups(
+            let group_count = self
+                .stage_record_groups(
                     mutations,
                     hashes,
                     request.storage_prefix,
@@ -117,14 +112,10 @@ impl MutationManager {
                     &mut state.stages,
                     &request.runtime,
                 )
-                .boxed(),
-            )
-            .await?;
+                .await?;
             request
                 .runtime
                 .record_read_stage("stored-stages-done", group_count);
-            self.finish_logical_capture(&request.runtime, &mutation_ids, logical_records)
-                .await?;
             measure("author_clock_us", self.stage_native_author_clock()).await?;
             measure(
                 "change_feed_us",

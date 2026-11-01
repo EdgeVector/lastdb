@@ -2,17 +2,16 @@
 
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use rand::RngCore;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+pub(super) use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
+pub(super) use std::io::{Seek, SeekFrom};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use zeroize::Zeroizing;
 
 pub(super) const FILE: &str = "logical-device-capture-v1";
-const STAGED: &str = ".logical-device-capture-v1.prepared";
 const MARKER: &[u8] = b"lastdb-logical-device-capture-v1\n";
 const BODY_BYTES: usize = 81;
-const READY_OFFSET: u64 = (MARKER.len() + BODY_BYTES - 1) as u64;
 
 #[path = "identity_prepared.rs"]
 mod prepared;
@@ -96,64 +95,6 @@ impl Identity {
         (self.main, self.cas)
     }
 
-    pub(super) fn fresh(v2: &physical::V2Home) -> Self {
-        let mut seed = Zeroizing::new([0u8; 32]);
-        rand::rngs::OsRng.fill_bytes(seed.as_mut());
-        Self {
-            seed,
-            generation: uuid::Uuid::new_v4(),
-            main: v2.home.identity(),
-            cas: v2.cas.identity(),
-            ready: false,
-        }
-    }
-
-    pub(super) fn save(&self, v2: &physical::V2Home) -> StorageResult<()> {
-        let mut bytes = Zeroizing::new(Vec::with_capacity(MARKER.len() + BODY_BYTES));
-        bytes.extend_from_slice(MARKER);
-        bytes.extend_from_slice(self.main.as_bytes());
-        bytes.extend_from_slice(self.cas.as_bytes());
-        bytes.extend_from_slice(self.seed.as_ref());
-        bytes.extend_from_slice(self.generation.as_bytes());
-        bytes.push(u8::from(self.ready));
-        let path = control_path(v2)?;
-        let staged = path.with_file_name(STAGED);
-        // Both native owner locks exclude another legitimate enrollment creator.
-        install_private_file(&path, &staged, &bytes, discard_staged, || sync_parent(v2))
-    }
-
-    /// Enrollment is not exposed until its ready byte and filename are durable.
-    pub(super) fn mark_ready(&mut self, v2: &physical::V2Home) -> StorageResult<()> {
-        let mut file = self.checked_file(v2)?;
-        file.seek(SeekFrom::Start(READY_OFFSET))?;
-        file.write_all(&[1])?;
-        file.sync_all()?;
-        sync_parent(v2)?;
-        self.ready = true;
-        Ok(())
-    }
-
-    pub(super) fn sync_control(&self, v2: &physical::V2Home) -> StorageResult<()> {
-        self.checked_file(v2)?.sync_all()?;
-        sync_parent(v2)
-    }
-
-    fn checked_file(&self, v2: &physical::V2Home) -> StorageResult<File> {
-        let found =
-            Self::load(v2)?.ok_or_else(|| invalid("logical capture control disappeared"))?;
-        if found.seed.as_slice() != self.seed.as_slice()
-            || found.generation != self.generation
-            || found.ready != self.ready
-        {
-            return Err(invalid("logical capture control changed during enrollment"));
-        }
-        Ok(OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(control_path(v2)?)?)
-    }
-
     pub(super) fn origin(&self) -> String {
         let public = SigningKey::from_bytes(&self.seed).verifying_key();
         format!("{}:{}", hex(public.as_bytes()), self.generation)
@@ -161,10 +102,6 @@ impl Identity {
 
     pub(super) fn sign(&self, bytes: &[u8]) -> String {
         hex(&SigningKey::from_bytes(&self.seed).sign(bytes).to_bytes())
-    }
-
-    pub(super) fn anchor(&self) -> StorageResult<String> {
-        anchor_for(&self.origin(), self.main, self.cas)
     }
 }
 
@@ -241,25 +178,6 @@ fn discard_private_stage(path: &Path, max_len: u64, message: &str) -> StorageRes
         return Err(invalid(message));
     }
     std::fs::remove_file(path)?;
-    Ok(())
-}
-
-/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
-fn discard_staged(path: &Path) -> StorageResult<()> {
-    discard_private_stage(
-        path,
-        (MARKER.len() + BODY_BYTES) as u64,
-        "logical capture stage is not a private owned partial control",
-    )
-}
-
-fn sync_parent(v2: &physical::V2Home) -> StorageResult<()> {
-    let path = control_path(v2)?;
-    File::open(
-        path.parent()
-            .ok_or_else(|| invalid("capture control needs a parent"))?,
-    )?
-    .sync_all()?;
     Ok(())
 }
 
