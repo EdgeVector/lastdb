@@ -25,9 +25,6 @@ see *why* something was wired the way it is.
 - [Spawn-instrument lint](spawn-instrument-lint.md) — Phase 5 / T2. CI
   guard that fails if a `tokio::spawn` site does not pair with
   `.instrument(Span::current())`.
-- [Structured-fields lint](structured-fields-lint.md) — Phase 5 / T3-T4.
-  CI guard against `tracing` macros that smuggle dynamic data through
-  the message string instead of structured fields.
 - [Tracing-egress lint](tracing-egress-lint.md) — Phase 5 / T3. CI guard
   pairing every `reqwest` call site with the matching
   `// trace-egress: <class>` annotation.
