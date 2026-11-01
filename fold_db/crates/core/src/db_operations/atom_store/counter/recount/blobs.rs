@@ -2,8 +2,9 @@
 //! `blob_counter::recount` compare the count with the blob counters.
 //!
 //! A blob has one reference for each atom counter that lists it, one for each
-//! live tip that names it in its metadata, and one for each record of a format
-//! 7 home that names it, in every listed scope. The walks read the atom
+//! live tip that names it in its metadata, one for each record of a format 7
+//! home that names it, and one for each field history entry of a format 7
+//! home whose copied value names it, in every listed scope. The walks read the atom
 //! counters and the tips after the atom step, so an executed recount counts the
 //! exact atom counters it just wrote.
 
@@ -12,6 +13,7 @@ use crate::db_operations::atom_store::blob_counter::blobs_of_tip_row;
 use crate::db_operations::atom_store::counter::scan::{family_range, Family};
 use crate::db_operations::atom_store::counter::AtomCounter;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::records::atom_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::RECORD_PREFIX;
@@ -125,7 +127,8 @@ impl AtomStore {
 
     /// A record names its blobs once each, as the write path counts them
     /// (`AtomStore::stage_records`). A tombstone names the blobs of the
-    /// metadata that outlived the delete.
+    /// metadata that outlived the delete. A field history entry names the
+    /// blobs of its copied value once each, as its capture counts them.
     async fn tally_record_blobs(
         &self,
         scope: Option<&str>,
@@ -133,20 +136,31 @@ impl AtomStore {
         unreadable: &mut u64,
         report: &mut RecountReport,
     ) -> Result<(), SchemaError> {
-        let start = build_storage_key(scope, RECORD_PREFIX);
-        let end = FilterUtils::create_prefix_end(&start)?;
-        let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), PAGE_ROWS);
-        while !walk.done() {
-            let step = self.walk_step(&mut walk).await?;
-            for (_, value) in &step.rows {
-                report.blobs.records_read += 1;
-                match StoredRecord::decode(value) {
-                    Ok(record) => {
-                        for blob in record.blob_refs() {
-                            *holders.entry(blob).or_insert(0) += 1;
+        for prefix in [RECORD_PREFIX, RECORD_HISTORY_PREFIX] {
+            let start = build_storage_key(scope, prefix);
+            let end = FilterUtils::create_prefix_end(&start)?;
+            let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), PAGE_ROWS);
+            while !walk.done() {
+                let step = self.walk_step(&mut walk).await?;
+                for (_, value) in &step.rows {
+                    report.blobs.records_read += 1;
+                    let blobs = if prefix == RECORD_PREFIX {
+                        StoredRecord::decode(value)
+                            .map(|record| record.blob_refs())
+                            .ok()
+                    } else {
+                        serde_json::from_slice::<RecordHistoryEntry>(value)
+                            .map(|entry| entry.blobs())
+                            .ok()
+                    };
+                    match blobs {
+                        Some(blobs) => {
+                            for blob in blobs {
+                                *holders.entry(blob).or_insert(0) += 1;
+                            }
                         }
+                        None => *unreadable += 1,
                     }
-                    Err(_) => *unreadable += 1,
                 }
             }
         }

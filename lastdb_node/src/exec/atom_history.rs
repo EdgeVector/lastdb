@@ -5,6 +5,8 @@ use fold_db::schema::types::cas::CasExpectation;
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
 use fold_db::schema::types::MutationType;
 
+mod records;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -67,6 +69,10 @@ async fn execute(
     request.location.schema = handlers::resolve_schema_name(host, &request.location.schema)?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
     let db = host.db.db_ops();
+    // A format 7 home keeps copies of old values at record history keys.
+    if db.atoms().record_home() {
+        return records::execute(host, ctx, request).await;
+    }
     let target = db.atom_history_target(&request.location).await?;
     let atoms = db.atoms();
     // Policies belong to a field. Only a data action needs key coordinates.
@@ -99,50 +105,67 @@ async fn execute(
             expected_mutation,
             absent,
         } => {
-            if absent == expected_mutation.is_some() {
-                return Err(HostError::new(
-                    400,
-                    "restore requires expected_mutation or absent",
-                ));
-            }
+            require_restore_guard(expected_mutation.as_deref(), absent)?;
             let value = atoms
                 .atom_history_value(&slot.await?, &id)
                 .await?
                 .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
-            let field = request.location.field.clone();
-            let expected = match expected_mutation {
-                Some(uuid) if !uuid.is_empty() => CasExpectation::Mutation {
-                    field: field.clone(),
-                    uuid,
-                },
-                Some(_) => return Err(HostError::new(400, "expected mutation must be nonempty")),
-                None => CasExpectation::Absent {
-                    field: field.clone(),
-                },
-            };
-            let components = handlers::MutationComponents {
-                metadata: value
-                    .pointer("/metadata/metadata")
-                    .filter(|v| !v.is_null())
-                    .map(|v| serde_json::from_value(v.clone()))
-                    .transpose()
-                    .map_err(|e| HostError::new(500, e.to_string()))?,
-                schema: request.location.schema,
-                fields_and_values: [(field, value["value"].clone())].into_iter().collect(),
-                key_value: request.location.key,
-                mutation_type: MutationType::Update,
-                source_file_name: value
-                    .pointer("/metadata/source_file_name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                expected: Some(expected),
-                convergence: MutationConvergence::Sync,
-                durability: MutationDurability::Durable,
-                must_exist: None,
-                key_range_prefix: None,
-                aggregate_set: None,
-            };
-            handlers::execute_mutation(host, components, ctx).await
+            restore(host, ctx, request.location, &value, expected_mutation).await
         }
     }
+}
+
+fn require_restore_guard(expected_mutation: Option<&str>, absent: bool) -> Result<(), HostError> {
+    if absent == expected_mutation.is_some() {
+        return Err(HostError::new(
+            400,
+            "restore requires expected_mutation or absent",
+        ));
+    }
+    Ok(())
+}
+
+/// Write an archived value back through the native request, guarded by the
+/// current mutation of the field or by its absence.
+async fn restore(
+    host: &Host,
+    ctx: &AccessContext,
+    location: HistoryLocation,
+    value: &Value,
+    expected_mutation: Option<String>,
+) -> Result<Value, HostError> {
+    let field = location.field.clone();
+    let expected = match expected_mutation {
+        Some(uuid) if !uuid.is_empty() => CasExpectation::Mutation {
+            field: field.clone(),
+            uuid,
+        },
+        Some(_) => return Err(HostError::new(400, "expected mutation must be nonempty")),
+        None => CasExpectation::Absent {
+            field: field.clone(),
+        },
+    };
+    let components = handlers::MutationComponents {
+        metadata: value
+            .pointer("/metadata/metadata")
+            .filter(|v| !v.is_null())
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()
+            .map_err(|e| HostError::new(500, e.to_string()))?,
+        schema: location.schema,
+        fields_and_values: [(field, value["value"].clone())].into_iter().collect(),
+        key_value: location.key,
+        mutation_type: MutationType::Update,
+        source_file_name: value
+            .pointer("/metadata/source_file_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        expected: Some(expected),
+        convergence: MutationConvergence::Sync,
+        durability: MutationDurability::Durable,
+        must_exist: None,
+        key_range_prefix: None,
+        aggregate_set: None,
+    };
+    handlers::execute_mutation(host, components, ctx).await
 }

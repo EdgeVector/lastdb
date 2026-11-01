@@ -20,8 +20,16 @@ pub fn expected(atom: &Atom) -> StorageResult<Vec<FileDependency>> {
 /// is not refused: the byte backup copies every CAS body and the blob counter
 /// keeps it.
 pub fn expected_record(record: &StoredRecord) -> StorageResult<Vec<FileDependency>> {
+    expected_values(record.fields.values())
+}
+
+/// The dependencies of field values without an atom: the values of a record,
+/// or the copied value of a record history entry.
+pub fn expected_values<'a>(
+    values: impl Iterator<Item = &'a Value>,
+) -> StorageResult<Vec<FileDependency>> {
     let mut out = Vec::new();
-    for value in record.fields.values() {
+    for value in values {
         if value.get(file_pointer::LASTDB_FILE_KEY).is_none()
             && file_pointer::blob_refs_of_atom(value, None).is_empty()
         {

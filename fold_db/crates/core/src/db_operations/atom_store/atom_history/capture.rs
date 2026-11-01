@@ -145,7 +145,10 @@ impl AtomStore {
     }
 }
 
-fn history_expiry(policy: FieldHistoryPolicy, now: u64) -> Result<Option<u64>, SchemaError> {
+pub(super) fn history_expiry(
+    policy: FieldHistoryPolicy,
+    now: u64,
+) -> Result<Option<u64>, SchemaError> {
     Ok(match policy {
         FieldHistoryPolicy::Ttl { seconds } => Some(
             now.checked_add(

@@ -169,6 +169,18 @@ impl StoredRecord {
         !self.fields.is_empty()
     }
 
+    /// The write time of the record: the newest write time of a field stamp
+    /// or of the metadata stamp, in nanoseconds. A TTL ages a record by this
+    /// time. `None` when the record holds no stamp above its delete floor.
+    #[must_use]
+    pub fn written_at(&self) -> Option<u64> {
+        self.stamps
+            .values()
+            .chain(self.meta.as_ref().map(|meta| &meta.stamp))
+            .map(|stamp| stamp.written_at)
+            .max()
+    }
+
     /// Merge one field write. `None` removes the field. The newer stamp wins;
     /// an equal stamp keeps the stored value, so a replay changes nothing.
     pub fn merge_field(

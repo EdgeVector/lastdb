@@ -58,8 +58,14 @@ impl AtomStore {
             let released = self
                 .in_background_scope(async {
                     let rows = self.main_store.get_items::<RetentionEntry>(&keys).await?;
-                    let history_keys: Vec<_> =
-                        rows.iter().flatten().map(|e| e.history.clone()).collect();
+                    // A format 7 home keeps copies, not atom references: its
+                    // entries release in their own batch.
+                    let (records, rows): (Vec<_>, Vec<_>) = rows
+                        .into_iter()
+                        .flatten()
+                        .partition(|entry| super::records::is_record_history(&entry.history));
+                    let mut released = self.expire_record_history(records, now).await?;
+                    let history_keys: Vec<_> = rows.iter().map(|e| e.history.clone()).collect();
                     let archived: Vec<Option<ArchiveRecord>> =
                         self.main_store.get_items(&history_keys).await?;
                     let mut archived = archived.into_iter();
@@ -67,7 +73,7 @@ impl AtomStore {
                         Option<String>,
                         Vec<ReleaseRequest>,
                     > = std::collections::BTreeMap::new();
-                    for entry in rows.into_iter().flatten() {
+                    for entry in rows {
                         if let Some(record) = archived.next().flatten() {
                             if !record.expired(now)
                                 || record.archive.queue_key.as_deref() != Some(&entry.queue)
@@ -87,7 +93,6 @@ impl AtomStore {
                             .or_default()
                             .push(entry.request());
                     }
-                    let mut released = 0;
                     for (scope, releases) in by_scope {
                         released += self
                             .commit_tip_changes(TipChangeSet {
