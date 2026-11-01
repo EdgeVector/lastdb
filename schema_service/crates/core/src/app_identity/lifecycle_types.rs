@@ -97,7 +97,7 @@ pub enum AppUpdateError {
 }
 
 impl AppUpdateError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::InvalidMetadata(_) => "invalid_metadata",
@@ -109,33 +109,39 @@ impl AppUpdateError {
             Self::AppNotRegistered => "app_not_registered",
             Self::NotOwner => "not_owner",
             Self::DisplayNameImmutable { .. } => "display_name_immutable",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.http_reason();
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::InvalidMetadata(detail) => (400, reason_detail_body("invalid_metadata", detail)),
-            Self::InvalidCodeSignature(detail) => {
-                (400, reason_detail_body("invalid_code_signature", detail))
+            Self::InvalidMetadata(detail)
+            | Self::InvalidCodeSignature(detail)
+            | Self::InvalidUses(detail) => (400, reason_detail_body(reason, detail)),
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => {
+                (401, reason_only_body(reason))
             }
-            Self::InvalidUses(detail) => (400, reason_detail_body("invalid_uses", detail)),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::NotOwner => (401, reason_only_body("not_owner")),
-            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
+            Self::AppNotRegistered => (404, reason_only_body(reason)),
             Self::DisplayNameImmutable {
                 current_display_name,
             } => (
                 409,
                 json!({
-                    "reason": "display_name_immutable",
+                    "reason": reason,
                     "current_display_name": current_display_name,
                 }),
             ),
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
+            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
         }
     }
 }
