@@ -36,9 +36,9 @@ pub async fn batch_check_reuse(
             }
             HttpResponse::Ok().json(response)
         }
-        BatchReuseReply::Failed { message } => {
+        BatchReuseReply::Failed { message, body } => {
             tracing::error!(target: "schema_service::schema", "{message}");
-            HttpResponse::InternalServerError().json(ErrorResponse { error: message })
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }
