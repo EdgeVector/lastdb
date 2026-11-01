@@ -123,46 +123,6 @@ pub struct LoadedResolverPack {
     pub registry_embeddings: ImportedResolverPackEmbeddings,
 }
 
-impl LoadedResolverPack {
-    pub fn registry_embeddings_for_abi(&self) -> RegistryEmbeddings {
-        RegistryEmbeddings {
-            descriptive_names: self
-                .registry_embeddings
-                .descriptive_names
-                .iter()
-                .map(
-                    |(target_id, vector)| crate::resolver_pack::EmbeddingVectorRecord {
-                        target_id: target_id.clone(),
-                        vector: vector.clone(),
-                    },
-                )
-                .collect(),
-            schema_field_contexts: self
-                .registry_embeddings
-                .schema_field_contexts
-                .iter()
-                .map(
-                    |(target_id, vector)| crate::resolver_pack::EmbeddingVectorRecord {
-                        target_id: target_id.clone(),
-                        vector: vector.clone(),
-                    },
-                )
-                .collect(),
-            canonical_fields: self
-                .registry_embeddings
-                .canonical_fields
-                .iter()
-                .map(
-                    |(target_id, vector)| crate::resolver_pack::EmbeddingVectorRecord {
-                        target_id: target_id.clone(),
-                        vector: vector.clone(),
-                    },
-                )
-                .collect(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolverPackTelemetrySnapshot {
     pub fetch_outcomes: BTreeMap<String, u64>,
