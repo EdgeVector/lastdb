@@ -26,7 +26,7 @@ use crate::resolver_pack::{
     SchemaSnapshotArtifact, TrustedResolverPackKey, RESOLVER_PACK_FORMAT_VERSION,
     SUPPORTED_RESOLVER_CONTRACT_VERSION,
 };
-use crate::schema_resolver_abi::{RegistryEmbeddings, ResolverDecision};
+use crate::schema_resolver_abi::RegistryEmbeddings;
 
 mod config;
 pub use config::*;
