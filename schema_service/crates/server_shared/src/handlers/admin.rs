@@ -102,9 +102,9 @@ pub async fn snapshot_export_shared_only(state: web::Data<SchemaServiceState>) -
 fn write_snapshot_reply(reply: SnapshotExportReply) -> HttpResponse {
     match reply {
         SnapshotExportReply::Ready(envelope) => HttpResponse::Ok().json(envelope),
-        SnapshotExportReply::Failed { message } => {
+        SnapshotExportReply::Failed { message, body } => {
             tracing::error!(target: "schema_service::snapshot", "{message}");
-            HttpResponse::InternalServerError().json(ErrorResponse { error: message })
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }

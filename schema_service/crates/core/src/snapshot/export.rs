@@ -1,3 +1,5 @@
+use serde_json::{json, Value};
+
 use super::*;
 
 /// Offline system-schema heuristic for snapshot projection when the live
@@ -73,13 +75,17 @@ where
 ///
 /// Success is HTTP 200 and the envelope with embeddings removed. Failure is
 /// HTTP 500. `message` is the error text. The Lambda router still checks
-/// `X-API-Key`. The actix router still writes the log.
+/// `X-API-Key`. The actix router still writes the log. `body` is
+/// `{ "error": message }`.
 #[derive(Debug)]
 pub enum SnapshotExportReply {
     /// The export finished. The envelope has embeddings removed.
     Ready(Box<SnapshotEnvelope>),
-    /// The export failed. `message` is `{prefix}: {error}`.
-    Failed { message: String },
+    /// The export failed. HTTP 500.
+    ///
+    /// `message` is `{prefix}: {error}`. The actix router still writes the
+    /// error log. `body` is `{ "error": message }`.
+    Failed { message: String, body: Value },
 }
 
 fn classify_snapshot_export(
@@ -88,9 +94,11 @@ fn classify_snapshot_export(
 ) -> SnapshotExportReply {
     match exported {
         Ok(envelope) => SnapshotExportReply::Ready(Box::new(envelope.without_embeddings())),
-        Err(error) => SnapshotExportReply::Failed {
-            message: format!("{failure_prefix}: {error}"),
-        },
+        Err(error) => {
+            let message = format!("{failure_prefix}: {error}");
+            let body = json!({"error": message});
+            SnapshotExportReply::Failed { message, body }
+        }
     }
 }
 
@@ -167,7 +175,9 @@ impl SchemaServiceState {
 
     /// Classify [`Self::export_snapshot`] for the HTTP routers.
     ///
-    /// The export method stays public. Each router still writes its response.
+    /// A failure stays HTTP 500. The body is `{ "error": message }`. The
+    /// export method stays public. Each router still writes a success
+    /// response. The actix router still writes the error log.
     #[must_use]
     pub fn export_snapshot_reply(&self) -> SnapshotExportReply {
         classify_snapshot_export(self.export_snapshot(), "Failed to export snapshot")
@@ -175,7 +185,9 @@ impl SchemaServiceState {
 
     /// Classify [`Self::export_shared_only_snapshot`] for the HTTP routers.
     ///
-    /// The export method stays public. Each router still writes its response.
+    /// A failure stays HTTP 500. The body is `{ "error": message }`. The
+    /// export method stays public. Each router still writes a success
+    /// response. The actix router still writes the error log.
     #[must_use]
     pub fn export_shared_only_snapshot_reply(&self) -> SnapshotExportReply {
         classify_snapshot_export(
