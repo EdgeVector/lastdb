@@ -141,12 +141,12 @@ case "$MODE" in
     done < <(git diff --cached --name-status --diff-filter=ACMR || true)
     ;;
   tree)
-    while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      # mode type oid size\tpath  (ls-tree -l -r)
-      size=$(printf '%s' "$line" | awk '{print $4}')
-      path=$(printf '%s' "$line" | awk '{print substr($0, index($0,$5))}')
-      # skip non-blobs (size is '-' for trees)
+    # ls-tree -l is "<mode> <type> <oid> <size>\t<path>". Size is padded.
+    # Read the tab split in this shell. One awk per blob made --tree take
+    # about 18s on main (CI run 41349574472, 2922 blobs).
+    while IFS=$'\t' read -r meta path; do
+      [ -z "${path:-}" ] && continue
+      size="${meta##* }"
       [ "$size" = "-" ] && continue
       check_path_and_size "$path" "$size"
     done < <(git ls-tree -r -l "$TREE_REV")
