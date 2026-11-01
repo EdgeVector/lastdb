@@ -48,14 +48,25 @@ impl SchemaError {
     }
 
     /// The discriminated `413 atom_content_too_large` response body for a
-    /// [`Self::AtomContentTooLarge`]. Clients key on
-    /// `error == "atom_content_too_large"`; `hint` says how to reshape the data
-    /// (one record per entry, or a file blob). Returns `None` for every other variant.
+    /// [`Self::AtomContentTooLarge`] or a [`Self::RecordTooLarge`]. Clients key
+    /// on `error == "atom_content_too_large"`; `scope` says which cap refused
+    /// the write, and `hint` says how to reshape the data (one record per entry,
+    /// or a file blob). Returns `None` for every other variant.
     pub fn atom_content_too_large_body(&self) -> Option<serde_json::Value> {
         match self {
+            Self::RecordTooLarge { size, limit } => Some(serde_json::json!({
+                "ok": false,
+                "error": "atom_content_too_large",
+                "scope": "record",
+                "size": size,
+                "limit": limit,
+                "hint": crate::atom::RECORD_TOO_LARGE_HINT,
+                "message": self.to_string(),
+            })),
             Self::AtomContentTooLarge { size, limit } => Some(serde_json::json!({
                 "ok": false,
                 "error": "atom_content_too_large",
+                "scope": "atom",
                 "size": size,
                 "limit": limit,
                 "default_limit": crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,

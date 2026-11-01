@@ -42,11 +42,12 @@ impl MutationManager {
                 // monotonic durable maximum in this same request. Failure can leave
                 // a counter gap, as on the ordinary author-clock allocation path.
                 self.observe_peer_clocks(events);
-                Box::pin(self.stage_peer_records(events, &schemas, &runtime)).await?;
+                let skipped = Box::pin(self.stage_peer_records(events, &schemas, &runtime)).await?;
                 if events.iter().any(|event| event.outcome_count() > 0) {
                     self.stage_native_author_clock().await?;
                 }
-                let receipt = Box::pin(runtime.stage_logical_import(prepared)).await?;
+                let mut receipt = Box::pin(runtime.stage_logical_import(prepared)).await?;
+                receipt.skipped_records = skipped;
                 self.reserve_native_core_memory(&runtime)?;
                 transaction::retain(&runtime, pending)?;
                 Ok::<_, SchemaError>(receipt)

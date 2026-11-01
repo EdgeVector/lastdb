@@ -13,9 +13,10 @@ use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::Schema;
+use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use lastdb_model::record_value::{FieldMerge, FieldStamp, StoredRecord};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::super::cas_rules::{check_expectation, CurrentHead};
@@ -24,15 +25,19 @@ use super::record_effects::ChangedRecord;
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
-    /// repeated key reads the record that the earlier group staged.
+    /// repeated key reads the record that the earlier group staged. The keys
+    /// in `repeated` are written by another group of the request too: their
+    /// cap waits for the final record, and the returned storage keys name the
+    /// records whose check waits.
     pub(super) async fn stage_record_group(
         &self,
         schema_name: &str,
         mut mutations: Vec<Mutation>,
         idempotency_entries: Vec<(String, String)>,
         storage_prefix: Option<&str>,
+        repeated: Option<&HashSet<KeyValue>>,
         runtime: &Arc<PackRuntime>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Vec<String>, SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self
             .load_schema_for_delta(schema_name, storage_prefix)
@@ -49,51 +54,26 @@ impl MutationManager {
             keys.push(key);
         }
         let stored = atoms.read_records(&record_keys).await?;
-
-        let mut changes = Vec::with_capacity(mutations.len());
-        let mut changed = Vec::with_capacity(mutations.len());
-        let (mut changed_keys, mut before_fields, mut after_fields) =
-            (Vec::new(), Vec::new(), Vec::new());
-        for (((mutation, key), record_key), before) in
-            mutations.iter().zip(&keys).zip(record_keys).zip(stored)
-        {
-            let mut after = before.as_deref().cloned().unwrap_or_default();
-            let merged = merge_mutation(schema_name, &schema, mutation, &mut after)?;
-            if !merged && !purges_deleted_record(mutation, before.as_deref()) {
-                continue;
-            }
-            changed.push(ChangedRecord { mutation, key });
-            changed_keys.push(key.clone());
-            before_fields.push(
-                before
-                    .as_ref()
-                    .map(|record| record.fields.clone())
-                    .unwrap_or_default(),
-            );
-            after_fields.push(after.fields.clone());
-            changes.push(RecordChange {
-                key: record_key,
-                before,
-                after,
-            });
-        }
+        let stored = record_keys.into_iter().zip(stored).collect();
+        let group = merge_group(schema_name, &schema, &mutations, &keys, stored, repeated)?;
         let entries = atoms
             .alternate_entry_changes(
                 &schema,
-                &changed_keys,
-                &before_fields,
-                &after_fields,
+                &group.keys,
+                &group.before,
+                &group.after,
                 scope.as_deref(),
             )
             .await?;
         if runtime.logical_capture_enabled() {
-            self.collect_logical_records(&schema, &changed_keys, &changes)?;
+            self.collect_logical_records(&schema, &group.keys, &group.changes)?;
         }
+        let deferred = group.deferred();
         self.stage_records_with_effects(
             &schema,
             (storage_prefix, scope.as_deref()),
-            &changed,
-            changes,
+            &group.changed,
+            group.changes,
             entries,
         )
         .await?;
@@ -120,7 +100,7 @@ impl MutationManager {
                 Self::deliver_search_outbox(inbox, batch).await
             })?;
         }
-        Ok(())
+        Ok(deferred)
     }
 
     /// Refuse each writer that a record cannot hold.
@@ -224,6 +204,69 @@ impl MutationManager {
         }
         Ok(())
     }
+}
+
+/// The records that one group changes, in the order of the mutations.
+struct GroupChanges<'a> {
+    changed: Vec<ChangedRecord<'a>>,
+    changes: Vec<RecordChange>,
+    /// The key and the fields before and after the merge of each change.
+    keys: Vec<KeyValue>,
+    before: Vec<BTreeMap<String, serde_json::Value>>,
+    after: Vec<BTreeMap<String, serde_json::Value>>,
+}
+
+impl GroupChanges<'_> {
+    /// The storage keys of the changes whose cap waits for the final record.
+    fn deferred(&self) -> Vec<String> {
+        self.changes
+            .iter()
+            .filter(|change| change.cap_deferred)
+            .map(|change| change.key.clone())
+            .collect()
+    }
+}
+
+/// Merge each mutation of one group into its stored record. A mutation that
+/// changes nothing stays out, except a purge of a deleted record.
+fn merge_group<'a>(
+    schema_name: &str,
+    schema: &Schema,
+    mutations: &'a [Mutation],
+    keys: &'a [KeyValue],
+    stored: Vec<(String, Option<Arc<StoredRecord>>)>,
+    repeated: Option<&HashSet<KeyValue>>,
+) -> Result<GroupChanges<'a>, SchemaError> {
+    let mut group = GroupChanges {
+        changed: Vec::with_capacity(mutations.len()),
+        changes: Vec::with_capacity(mutations.len()),
+        keys: Vec::with_capacity(mutations.len()),
+        before: Vec::with_capacity(mutations.len()),
+        after: Vec::with_capacity(mutations.len()),
+    };
+    for ((mutation, key), (record_key, before)) in mutations.iter().zip(keys).zip(stored) {
+        let mut after = before.as_deref().cloned().unwrap_or_default();
+        let merged = merge_mutation(schema_name, schema, mutation, &mut after)?;
+        if !merged && !purges_deleted_record(mutation, before.as_deref()) {
+            continue;
+        }
+        group.changed.push(ChangedRecord { mutation, key });
+        group.keys.push(key.clone());
+        group.before.push(
+            before
+                .as_ref()
+                .map(|record| record.fields.clone())
+                .unwrap_or_default(),
+        );
+        group.after.push(after.fields.clone());
+        group.changes.push(RecordChange {
+            key: record_key,
+            before,
+            after,
+            cap_deferred: repeated.is_some_and(|repeated| repeated.contains(key)),
+        });
+    }
+    Ok(group)
 }
 
 /// The miss wording of a delete that must find its record: a purge, or a

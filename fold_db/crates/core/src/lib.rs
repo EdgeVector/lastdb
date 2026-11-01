@@ -26,6 +26,8 @@ pub mod access;
 /// Atom and molecule model types from `lastdb_model`, plus core clock stamps.
 pub mod atom;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
+/// The stored record value of a format 7 home and its cap.
+pub use lastdb_model::record_value;
 pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 
 /// Core logical memory, record retention, and background persist work.

@@ -166,6 +166,7 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
         "limits.max_atom_content_bytes_absolute_max",
         &l.max_atom_content_bytes_absolute_max,
     );
+    push_gauge(out, "limits.max_record_bytes", &l.max_record_bytes);
 }
 
 fn push_process_counter(

@@ -26,7 +26,7 @@ pub use adoption::{
 };
 pub(crate) use bounded::preflight_outcome_size;
 pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position, RetiredFieldOutcome};
-pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
+pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition, SkippedPeerRecord};
 pub use record_outcome::{AcceptedRecordOutcome, RecordFieldOutcome};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};

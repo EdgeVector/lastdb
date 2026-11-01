@@ -152,7 +152,8 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            schema_err @ SchemaError::AtomContentTooLarge { .. } => Self::new(
+            schema_err @ (SchemaError::AtomContentTooLarge { .. }
+            | SchemaError::RecordTooLarge { .. }) => Self::new(
                 413,
                 schema_err
                     .atom_content_too_large_body()

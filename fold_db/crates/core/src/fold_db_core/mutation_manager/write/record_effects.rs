@@ -132,6 +132,7 @@ impl MutationManager {
                 key,
                 before,
                 after: change.after.clone(),
+                cap_deferred: change.cap_deferred,
             })
             .collect())
     }
