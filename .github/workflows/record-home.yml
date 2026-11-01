@@ -2,16 +2,16 @@ name: Record home product proof
 
 # ci-required calls this workflow. A product diff runs the format 7 (record
 # model) fresh-home proof.
-# Any other pull request skips that build and still reports success.
+# Any other pull request or main push skips that build and still reports success.
 on:
   workflow_call:
     inputs:
       base_sha:
-        description: Pull request base SHA. Empty outside a pull request.
+        description: Base SHA. A pull request passes its base. A main push passes the previous commit.
         type: string
         default: ""
       head_sha:
-        description: Pull request head SHA. Empty outside a pull request.
+        description: Head SHA. A pull request passes its head. A main push passes the new commit.
         type: string
         default: ""
   workflow_dispatch:
@@ -45,9 +45,9 @@ jobs:
         run: |
           set -euo pipefail
           run=true
-          if [ "$EVENT" = "pull_request" ]; then
-            if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
-              echo "pull request SHAs were not passed; run the proof"
+          if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "push" ]; then
+            if [ -z "$BASE" ] || [ -z "$HEAD" ] || [[ "$BASE" =~ ^0+$ ]] || [[ "$HEAD" =~ ^0+$ ]]; then
+              echo "SHAs were not passed; run the proof"
             else
               merge_base="$(git merge-base "$BASE" "$HEAD" 2>/dev/null || true)"
               if [ -z "$merge_base" ]; then
