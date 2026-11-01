@@ -1,4 +1,5 @@
-//! Native logical paths retain the actual shared core molecule and atom objects.
+//! Core publication helpers: the receipt lock, typed definition protection,
+//! control coordinate expansion, and call source receipts.
 
 use super::*;
 

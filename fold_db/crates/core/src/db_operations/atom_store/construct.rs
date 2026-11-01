@@ -18,7 +18,6 @@ impl AtomStore {
             content_key,
             molecule_keys: None,
             molecule_commit_locks: Arc::default(),
-            pending_delete_barriers: Arc::default(),
             keep_small: Arc::new(KeepSmallMeters::default()),
             keep_small_persist: None,
             keep_small_last_persist: Arc::default(),

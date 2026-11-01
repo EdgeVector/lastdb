@@ -8,12 +8,6 @@ mod prepare;
 
 const METADATA_BYTES: usize = 16 * 1024 * 1024;
 
-pub(super) struct CoreModelSlot {
-    pub(super) value: Option<CoreWarmSlot>,
-    pub(super) owner: Option<Arc<DeferReservation>>,
-    pub(super) charged_bytes: usize,
-}
-
 pub(super) struct CoreModel {
     budget: Arc<CoreKeyBudget>,
     refused: u64,
@@ -69,25 +63,10 @@ impl CoreWarmSet {
         }
     }
 
+    /// A format 7 home keeps no current field slots, so the current byte
+    /// fields are 0 and every reserved byte counts as retained.
     pub(crate) fn model_stats(&self) -> CoreModelStats {
         let budget = self.model.budget.stats();
-        let current = self
-            .slots
-            .iter()
-            .filter_map(|(_, slot)| slot.owned.as_ref())
-            .map(|slot| slot.charged_bytes)
-            .sum::<usize>();
-        let current_owners: HashMap<_, _> = self
-            .slots
-            .iter()
-            .filter_map(|(_, slot)| slot.owned.as_ref())
-            .filter_map(|slot| {
-                slot.owner
-                    .as_ref()
-                    .map(|owner| (Arc::as_ptr(owner) as usize, owner.bytes()))
-            })
-            .collect();
-        let body_current = current_owners.values().sum();
         let body_used: u64 = self
             .model
             .body_owners
@@ -101,14 +80,14 @@ impl CoreWarmSet {
             dirty_molecules: 0,
             dirty_definitions: 0,
             metadata_limit_bytes: budget.limit_bytes,
-            metadata_current_bytes: current,
+            metadata_current_bytes: 0,
             metadata_used_bytes: budget.used_bytes,
-            metadata_retained_bytes: budget.used_bytes.saturating_sub(current),
+            metadata_retained_bytes: budget.used_bytes,
             metadata_peak_bytes: budget.peak_bytes,
             refused: self.model.refused,
-            body_reserved_current_bytes: body_current,
+            body_reserved_current_bytes: 0,
             body_reserved_used_bytes: body_used,
-            body_reserved_retained_bytes: body_used.saturating_sub(body_current),
+            body_reserved_retained_bytes: body_used,
             body_reserved_peak_bytes: self.model.body_peak_bytes,
         }
     }

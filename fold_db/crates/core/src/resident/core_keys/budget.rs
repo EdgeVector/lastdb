@@ -1,6 +1,6 @@
 //! A separate byte allowance, including build work and read-held old domains.
 
-use super::{CoreKeyError, DEFAULT_SCHEMA_KEY_BYTES, SCHEMA_KEY_BYTES_ENV};
+use super::CoreKeyError;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -34,14 +34,6 @@ impl CoreKeyBudget {
         }
     }
 
-    pub(crate) fn from_env() -> Self {
-        let limit = std::env::var(SCHEMA_KEY_BYTES_ENV)
-            .ok()
-            .and_then(|raw| raw.trim().parse().ok())
-            .unwrap_or(DEFAULT_SCHEMA_KEY_BYTES);
-        Self::new(limit)
-    }
-
     pub(crate) fn stats(&self) -> CoreKeyBudgetStats {
         CoreKeyBudgetStats {
             limit_bytes: self.limit,
@@ -71,22 +63,6 @@ impl CoreKeyBudget {
             .map_err(|_| CoreKeyError::Capacity)?;
         self.peak.fetch_max(previous + bytes, Ordering::AcqRel);
         Ok(())
-    }
-}
-
-impl CoreKeyReservation {
-    pub(super) fn grow(&mut self, bytes: usize) -> Result<(), CoreKeyError> {
-        let total = self
-            .bytes
-            .checked_add(bytes)
-            .ok_or(CoreKeyError::Capacity)?;
-        self.budget.reserve(bytes)?;
-        self.bytes = total;
-        Ok(())
-    }
-
-    pub(super) fn bytes(&self) -> usize {
-        self.bytes
     }
 }
 

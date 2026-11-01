@@ -5,20 +5,11 @@
 //! from capacities; only the per-object constants are estimates. Admission
 //! purges clean records against this byte charge.
 
-use super::SlotKey;
 use lastdb_model::record_value::{FieldStamp, RecordMeta, StoredRecord};
 use serde_json::Value;
 
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
-/// One slot: its chunked table entry with the inline tip, its index bucket,
-/// and its interned key allocations. The tip's strings and boxed metadata are
-/// charged by `tip_heap_charge`. A clean read keeps no owned copy of the tip.
-/// Calibrated on 2026-10-20 from a heap profile after the molecule copy left
-/// (about 620 bytes per slot with a small tip, 1.34 KB before).
-const SLOT_BASE: usize = 350;
-/// Copies of the slot hash and range strings: the interned slot key only.
-const SLOT_KEY_COPIES: usize = 1;
 /// The `Arc` strong and weak counters in front of the atom.
 const ARC_HEADER: usize = 2 * std::mem::size_of::<usize>();
 /// One warm record: its map slot, the `Arc` of its key pair, and its recency
@@ -29,12 +20,6 @@ const SAFETY_PERCENT: usize = 110;
 const ROUND: usize = 16;
 
 const VALUE_SIZE: usize = std::mem::size_of::<Value>();
-
-/// One slot: the per-slot entries and the copies of its hash and range.
-/// Molecule names are shared by every slot of the molecule and not charged.
-pub(super) fn slot_charge(slot: &SlotKey) -> usize {
-    finish(SLOT_BASE + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
-}
 
 /// One decoded record of a format 7 home and its key coordinate.
 pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord) -> usize {

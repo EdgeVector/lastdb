@@ -1,7 +1,5 @@
 //! Resolve the caller's namespace, prepare its schema, then read selected fields.
 
-use std::sync::Arc;
-
 use crate::access::AccessContext;
 use crate::schema::types::field::KeyWindow;
 use crate::schema::types::Query;
@@ -46,18 +44,6 @@ impl QueryExecutor {
         // Scope record reads to the request DB handle (personal /
         // org). Clone-only schema — never written back to the registry.
         rules::scope_fields(&mut schema, storage_prefix.as_deref());
-
-        // A format 7 home has no field molecules to preload.
-        if let Some(runtime) = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .filter(|runtime| !runtime.record_home())
-        {
-            runtime
-                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
-                .await?;
-        }
 
         self.hash_range_processor
             .query_with_field_predicates(

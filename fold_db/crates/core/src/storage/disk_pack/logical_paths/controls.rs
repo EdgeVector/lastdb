@@ -1,7 +1,6 @@
-//! Invalidate exact slot dependencies before a changed view becomes visible.
+//! Expand molecule control coordinates to the base tips that they affect.
 
 use crate::atom::molecule_key_codec;
-use crate::resident::CoreWarmSet;
 use crate::schema::types::field::build_storage_key;
 use crate::storage::disk_pack::native_routing;
 
@@ -39,45 +38,6 @@ pub(in crate::storage::disk_pack) fn expanded_coordinates(
     sources.sort();
     sources.dedup();
     sources
-}
-
-pub(in crate::storage::disk_pack) fn invalidate(
-    core: &mut CoreWarmSet,
-    changes: &[(String, String)],
-) {
-    core.invalidate_sources(changes);
-    for (collection, key) in changes {
-        let Ok(raw) = native_routing::decode(key) else {
-            core.clear_authorizations();
-            continue;
-        };
-        if native_routing::collection_for_key(&raw) != collection {
-            continue;
-        }
-        let Ok(raw) = std::str::from_utf8(&raw) else {
-            core.clear_authorizations();
-            continue;
-        };
-        let Some((scope, bare, family)) = control_coordinate(raw) else {
-            continue;
-        };
-        let molecule = bare[family.len()..]
-            .split([':', '\0'])
-            .next()
-            .unwrap_or_default();
-        if molecule.is_empty() {
-            core.clear_authorizations();
-            continue;
-        }
-        if family == "mgp:v1:" {
-            core.invalidate_molecule(scope, molecule);
-        } else if let Some(base) = generation_tip(molecule, bare, family) {
-            let key = build_storage_key(scope, &base);
-            core.invalidate_sources(&[super::super::kv::coordinate("main", key.as_bytes())]);
-        } else {
-            core.invalidate_molecule(scope, molecule);
-        }
-    }
 }
 
 fn generation_tip(molecule: &str, bare: &str, family: &str) -> Option<String> {

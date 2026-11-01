@@ -1,7 +1,5 @@
 //! Live-key counts use the same schema gates as reads, then decline field-dependent controls.
 
-use std::sync::Arc;
-
 use crate::access::AccessContext;
 use crate::schema::{types::Query, SchemaError};
 
@@ -59,17 +57,6 @@ impl QueryExecutor {
             return Ok(None);
         }
         rules::scope_fields(&mut schema, storage_prefix.as_deref());
-        // A format 7 home has no field molecules to preload.
-        if let Some(runtime) = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .filter(|runtime| !runtime.record_home())
-        {
-            runtime
-                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
-                .await?;
-        }
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
         let count = self
             .hash_range_processor

@@ -219,7 +219,38 @@ impl AtomStore {
         }
         Ok((keys, cursor.filter(|_| has_more), has_more))
     }
+
+    /// Whether the personal record space of one schema may hold a live
+    /// record. One bounded read of at most `RECORD_PROBE_ROWS` records, never
+    /// a walk of the space. When that page holds only deleted records and
+    /// more follow, the answer is `true`: the callers guard against data
+    /// loss, so an unproven absence must not read as an empty schema.
+    pub async fn schema_may_hold_records(&self, schema: &Schema) -> Result<bool, SchemaError> {
+        self.atom_read_scope(async {
+            let prefix = space_prefix(schema);
+            let end = FilterUtils::create_prefix_end(&prefix)?;
+            let rows = self
+                .main_store
+                .inner()
+                .scan_range_paged(prefix.as_bytes(), end.as_bytes(), RECORD_PROBE_ROWS + 1)
+                .await
+                .map_err(|error| SchemaError::InvalidData(format!("probe records: {error}")))?;
+            if rows.len() > RECORD_PROBE_ROWS {
+                return Ok(true);
+            }
+            for (_, value) in &rows {
+                if decode(value)?.is_live() {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .await
+    }
 }
+
+/// The record count one existence probe reads.
+const RECORD_PROBE_ROWS: usize = 16;
 
 /// `rk:{S}:`: the prefix of every record of one schema.
 pub(super) fn space_prefix(schema: &Schema) -> String {

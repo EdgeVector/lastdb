@@ -188,24 +188,7 @@ impl PackRuntime {
         if requests.is_empty() {
             transaction::require_captured_changes(self, None, &operations)?;
         }
-        // A direct durable publication consumes its bodies below. Keep only
-        // membership coordinates; queued flushes already published them.
-        let key_changes = if hidden_changes.is_empty() {
-            Vec::new()
-        } else {
-            operations
-                .iter()
-                .map(|operation| {
-                    (
-                        operation.collection.clone(),
-                        operation.key.clone(),
-                        operation.body.is_none(),
-                    )
-                })
-                .collect()
-        };
-        let changes = (hidden_changes, key_changes.as_slice());
-        self.commit_run(&self.physical, operations, space, changes, requests)
+        self.commit_run(&self.physical, operations, space, hidden_changes, requests)
     }
 
     pub(super) async fn flush(self: &Arc<Self>) -> StorageResult<()> {

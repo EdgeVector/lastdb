@@ -90,20 +90,3 @@ pub(super) fn call_error(error: laststore::Error, call: &PhysicalRead) -> Storag
         ),
     }
 }
-
-impl PackRuntime {
-    /// End a successful list page before the next refill can exhaust its held call.
-    /// The unused half remains available for membership and response materialization.
-    pub(crate) fn list_page_should_yield(&self) -> bool {
-        let Some(context) = ReadContext::captured(self) else {
-            return false;
-        };
-        let call = crate::read_receipts::lock(&context.call);
-        let costs = call.costs();
-        let limits = call.budget();
-        costs.examined_keys >= limits.keys / 2
-            || costs.budget_bytes >= limits.bytes / 2
-            || costs.payload_blocks >= limits.blocks / 2
-            || costs.metadata_pages >= limits.pages / 2
-    }
-}

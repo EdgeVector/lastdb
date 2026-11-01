@@ -1,26 +1,19 @@
-//! Used logical paths over the actual molecule and atom model.
+//! Used records and typed definitions over the actual disk view.
 //!
 //! The caller holds the publication lock before it locks this set. Disk I/O
-//! never runs under the set lock. The path map and recency list contain only
-//! ownership metadata; each slot holds its current tip and key metadata.
-//! There is no second molecule copy (measured 2026-10-20: the copy cost about
-//! 2.5 KB of each 7 KB small record, in text-keyed maps and key copies).
+//! never runs under the set lock. A format 7 home keeps one decoded record
+//! for each used record key (decision D2); there are no field paths.
 
-use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
 mod bytes;
 mod charge;
-mod keys;
 mod lifecycle;
 mod memory;
 mod model;
-mod path_table;
 mod records;
-mod slab;
 mod sources;
-mod tables;
 
 pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
@@ -28,23 +21,6 @@ pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
 pub(crate) use model::{CoreModelStats, CoreModelUpdate};
 pub(crate) use records::RecordCoordinate;
-
-/// Stable identity of one used field path. Its current atom is not its key.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct CorePath {
-    pub(crate) scope: Option<String>,
-    pub(crate) schema: String,
-    pub(crate) field: String,
-    pub(crate) molecule: String,
-    pub(crate) hash: String,
-    pub(crate) range: String,
-}
-
-/// The atom of a prepared path value.
-#[derive(Clone)]
-pub(crate) struct CoreWarmSlot {
-    pub(crate) atom: Arc<Atom>,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CoreCapacity {
@@ -59,6 +35,8 @@ impl std::fmt::Display for CoreCapacity {
 
 impl std::error::Error for CoreCapacity {}
 
+/// The path, tip, molecule and atom counts stay in the status reply. A
+/// format 7 home keeps no field paths, so they are always 0.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
     pub(crate) paths: usize,
@@ -74,86 +52,13 @@ pub(crate) struct CoreWarmStats {
     pub(crate) purged: u64,
 }
 
-/// Shared name strings: every slot of a molecule clones the same `Arc`s.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct MoleculeKey {
-    scope: Option<Arc<str>>,
-    molecule: Arc<str>,
-}
-
-impl MoleculeKey {
-    fn new(scope: Option<&str>, molecule: &str) -> Self {
-        Self {
-            scope: scope.map(Arc::from),
-            molecule: Arc::from(molecule),
-        }
-    }
-}
-
-/// Stored once in the slot table; clones only bump reference counts.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct SlotKey {
-    molecule: MoleculeKey,
-    hash: Arc<str>,
-    range: Arc<str>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct AtomKey {
-    scope: Option<Arc<str>>,
-    /// A hash of the atom uuid. A bucket can hold atoms of two uuids; a
-    /// lookup compares the full atom, so a collision only shares a bucket.
-    /// Measured 2026-10-20: the uuid copy and a Vec per bucket cost about
-    /// 140 bytes per warm atom.
-    uuid_hash: u64,
-}
-
-impl AtomKey {
-    fn new(scope: Option<Arc<str>>, uuid: &str) -> Self {
-        use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
-        Self {
-            scope,
-            uuid_hash: BuildHasherDefault::<DefaultHasher>::default().hash_one(uuid),
-        }
-    }
-}
-
-type AtomVariants = smallvec::SmallVec<[Weak<SharedAtom>; 1]>;
-
-#[derive(Default)]
-struct PathState {
-    /// The interned slot this path shares with its aliases.
-    slot: tables::SlotId,
-    holds: u32,
-    known: bool,
-    absent: bool,
-    tip_authorized: bool,
-    tick: u64,
-    /// Byte charge of this path for the warm set gauge.
-    charge: usize,
-}
-
-struct SharedAtom {
-    value: Arc<Atom>,
-}
-
-/// One current model. The separate path list controls retention, not values.
+/// One current model: warm records and typed definitions.
 #[derive(Default)]
 pub(crate) struct CoreWarmSet {
     memory: memory::CoreMemory,
     model: model::CoreModel,
-    /// Complete key membership attached to a molecule. Tips live in slots.
-    key_domains: HashMap<MoleculeKey, Arc<crate::resident::core_keys::CoreKeyDomain>>,
-    // A content UUID does not identify the immutable metadata of a full atom.
-    // The UUID buckets share only fully equal atoms and own no retained bytes.
-    atoms: HashMap<AtomKey, AtomVariants>,
-    // Interned paths. `order` and slot owner lists hold path ids.
-    paths: path_table::PathTable,
-    order: BTreeMap<u64, path_table::PathId>,
     clock: u64,
-    // Slot owners, atoms, and owned values, by interned id.
-    slots: tables::SlotTable,
-    // Decoded records of a format 7 home, on the same clock as `order`.
+    // Decoded records of a format 7 home, in recency order.
     records: records::RecordTable,
     hits: u64,
     misses: u64,
@@ -163,50 +68,17 @@ pub(crate) struct CoreWarmSet {
 
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
-        let tip_only_paths = self
-            .slots
-            .iter()
-            .filter(|(_, slot)| {
-                slot.tip.as_ref().is_some_and(|entry| {
-                    slot.atom
-                        .as_ref()
-                        .is_none_or(|atom| atom.value.uuid() != entry.atom_uuid.as_str())
-                })
-            })
-            .flat_map(|(_, slot)| &slot.owners)
-            .filter(|path| {
-                self.paths
-                    .state(**path)
-                    .is_some_and(|state| state.known && !state.absent)
-            })
-            .count();
         CoreWarmStats {
-            paths: self.paths.len(),
+            paths: 0,
             records: self.records.len(),
-            tip_only_paths,
-            molecules: self.slots.molecule_count(),
-            atoms: self.atoms.values().map(AtomVariants::len).sum(),
-            held: self
-                .paths
-                .iter()
-                .filter(|(_, state)| state.holds > 0)
-                .count()
-                + self.records.held(),
+            tip_only_paths: 0,
+            molecules: 0,
+            atoms: 0,
+            held: self.records.held(),
             dirty: 0,
             hits: self.hits,
             misses: self.misses,
             purged: self.purged,
         }
-    }
-
-    /// Control records can change visible tips without changing their bodies.
-    pub(crate) fn clear_authorizations(&mut self) {
-        for (_, state) in self.paths.iter_mut() {
-            state.tip_authorized = false;
-        }
-    }
-
-    fn path_id(&self, path: &CorePath) -> Option<path_table::PathId> {
-        self.paths.find(&self.slots, path)
     }
 }

@@ -232,7 +232,7 @@ impl PackRuntime {
                 .expect("native empty prefix root")
                 .current
                 .clone();
-            self.install_committed(current, &hidden, &[], &requests)?;
+            self.install_committed(current, &hidden, &requests)?;
         }
         let queue = self.queue.lock().expect("native accepted queue");
         for request in &queue.requests {

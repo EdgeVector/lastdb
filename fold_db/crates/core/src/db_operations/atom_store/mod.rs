@@ -13,11 +13,9 @@
 //! - [`retention`] — queue, slot directory and release of kept conflict records
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`codec`] — atom body encode/decode and storage-key reads
-//! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
-//! - [`delete_barriers`] — delete-barrier reads and writes
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
 //! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
 //!   binding records and the molecule counters
@@ -34,7 +32,6 @@ mod codec;
 mod conflict_record;
 mod construct;
 pub(crate) mod counter;
-mod delete_barriers;
 mod delete_replay;
 pub use delete_replay::DeletePruneReport;
 mod erase_meters;
@@ -48,7 +45,6 @@ mod molecule_bindings;
 mod molecule_counters;
 mod molecule_drain;
 mod molecule_ref_edges;
-mod molecules;
 mod record_conflicts;
 mod record_reads;
 mod record_spans;
@@ -87,9 +83,7 @@ pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.
 pub use crate::records::molecule_record::MoleculeData;
-pub(crate) use crate::records::molecule_record::{
-    MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, PerKeyRecord,
-};
+pub(crate) use crate::records::molecule_record::PerKeyRecord;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
@@ -173,13 +167,6 @@ pub struct AtomStore {
     /// the two cannot deadlock.
     molecule_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
-    /// A normal Delete enters this map before its memory ack. Peer replay and
-    /// delayed local flushes consult it under the exact tip commit lock.
-    pending_delete_barriers: Arc<
-        std::sync::Mutex<
-            std::collections::HashMap<String, crate::atom::delete_barrier::DeleteBarrier>,
-        >,
-    >,
     /// Incremental live-budget / churn meters. Point-read cheap.
     keep_small: Arc<KeepSmallMeters>,
     /// Metadata namespace used to persist [`KeepSmallMeters`] across reopen.

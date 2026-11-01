@@ -16,7 +16,6 @@ pub mod delete_ledger;
 pub mod keep_small;
 pub mod lineage_index;
 pub mod metadata_store;
-mod schema_key_source;
 /// Molecule key bundles are storage key material; the store lives in
 /// `storage`. This path stays for existing callers.
 pub use crate::storage::molecule_key_store;

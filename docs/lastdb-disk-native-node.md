@@ -28,7 +28,7 @@ Private write preparation retains complete changes until disk commit.
 The commit then publishes clean logical records. Older calls retain their earlier values and memory charges until release.
 The recency list selects clean logical records for purge. It does not hold a second set of values.
 The warm set defaults to a 256 MiB byte limit. The former 10,000-record cap is retired.
-Separate allowances cover definitions, complete selected keys, private writes, and temporary work.
+Separate allowances cover definitions, private writes, and temporary work.
 Those allowances do not define a whole-process memory maximum.
 
 Every native write waits for its complete disk commit and clean core publication before the ack.
@@ -39,7 +39,7 @@ for native writes. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
 The retained dirty-record fields remain zero for compatibility.
-`core_warm_tip_only_paths` counts retained positive paths whose values are not in memory.
+The warm set keeps decoded records only. The path, tip-only, molecule and atom counts remain zero for compatibility.
 Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
 Its tip-only count and warm lookup counters also come from the core.
 Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.

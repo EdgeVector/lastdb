@@ -4,13 +4,6 @@ use super::super::*;
 use crate::resident::{CoreMemorySource, CoreMemoryValue, CoreWarmSet};
 use std::any::Any;
 
-impl PackRuntime {
-    /// Both queries and private write preparation own one complete native view.
-    pub(crate) fn captured_view_active(&self) -> bool {
-        super::ReadContext::active(self)
-    }
-}
-
 impl super::ReadContext {
     pub(in crate::storage::disk_pack) fn require_prepared_view(
         &self,
