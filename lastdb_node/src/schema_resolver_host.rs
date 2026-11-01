@@ -11,10 +11,9 @@ use std::time::Duration;
 
 use app_identity_crypto::{Env, SigningKey};
 use folddb_profile::endpoints::Environment;
-use schema_service_client::types::{SchemaResolveProposal, SchemaResolveResult};
 use schema_service_client::{
-    FacadeProposal, FacadeResolveItem, LiveSchemaResolver, SchemaServiceClient,
-    SharedSurfacePublishRequest, SharedSurfacePublishResult,
+    LiveSchemaResolver, SchemaServiceClient, SharedSurfacePublishRequest,
+    SharedSurfacePublishResult,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -132,35 +131,6 @@ impl MiniSchemaResolverConfig {
     }
 }
 
-/// Resolve a direct Mini declare through the live facade with its stable proposal ID.
-pub async fn resolve_direct_declare_with_host_config(
-    home: &Path,
-    schema_service_url: &str,
-    proposal_id: String,
-    proposal: SchemaResolveProposal,
-) -> Result<SchemaResolveResult, String> {
-    let cfg = MiniSchemaResolverConfig::load_for_home(home);
-    let request_timeout = owner_socket_schema_service_timeout(&cfg);
-    let items = with_owner_socket_schema_service_timeout(
-        request_timeout,
-        "live schema resolve",
-        resolve_live_only(
-            schema_service_url,
-            vec![FacadeProposal {
-                proposal_id,
-                proposal,
-            }],
-            request_timeout,
-        ),
-    )
-    .await?;
-    items
-        .into_iter()
-        .next()
-        .map(|item| item.result)
-        .ok_or_else(|| "schema resolver returned empty direct-declare batch".to_string())
-}
-
 /// Publish or attach through the live facade using the node signing identity.
 pub async fn publish_attach_with_host_config(
     home: &Path,
@@ -175,16 +145,6 @@ pub async fn publish_attach_with_host_config(
         publish_live_only(home, schema_service_url, body, request_timeout),
     )
     .await
-}
-
-async fn resolve_live_only(
-    schema_service_url: &str,
-    proposals: Vec<FacadeProposal>,
-    timeout: Duration,
-) -> Result<Vec<FacadeResolveItem>, String> {
-    let client = SchemaServiceClient::new_with_timeout(schema_service_url, timeout);
-    let facade = LiveSchemaResolver::new(client);
-    facade.resolve(proposals).await.map_err(|e| e.to_string())
 }
 
 async fn publish_live_only(
