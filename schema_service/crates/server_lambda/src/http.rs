@@ -204,14 +204,17 @@ pub(crate) fn v2_cert_headers(
     }
 }
 
+pub(crate) type HandlerResult<T> = Result<T, Result<Response<Body>, Error>>;
+pub(crate) type BodyParser = fn(&Request) -> HandlerResult<Value>;
+
 /// The JSON body and the DevCert header pair, or the response to return.
 ///
 /// `parse` selects the 400 reason. The body is read first, then the cert.
 /// A missing cert still returns 401.
-pub(crate) fn signed_json_body<'a>(
-    event: &'a Request,
-    parse: fn(&Request) -> Result<Value, Result<Response<Body>, Error>>,
-) -> Result<(Value, &'a str, &'a str), Result<Response<Body>, Error>> {
+pub(crate) fn signed_json_body(
+    event: &Request,
+    parse: BodyParser,
+) -> HandlerResult<(Value, &str, &str)> {
     let body = parse(event)?;
     let (cert, sig) = v2_cert_headers(event)?;
     Ok((body, cert, sig))
