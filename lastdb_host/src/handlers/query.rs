@@ -17,6 +17,7 @@ mod execute;
 mod output;
 mod row_rules;
 mod rules;
+mod walk;
 pub use output::QueryResponseFormat;
 
 /// Execute `POST /api/query`: resolve the schema, check request rules, and
@@ -118,13 +119,15 @@ async fn execute_query_scoped<H: HostNode>(
     if query.key_name.is_some() {
         return alternate::execute(host, query, limit, offset, cursor, ctx).await;
     }
-    rules::validate_query_options(&query, cursor.is_some())?;
+    let walk = walk::walks_records(&query, host.fold_db().record_home());
+    let (limit, offset) = walk::page_request(&mut query, walk, limit, offset);
+    rules::validate_query_options(&query, cursor.is_some(), walk)?;
     let comparison = capture_key_comparison(host, &query.schema_name).await?;
     let rules::PreparedQuery {
         query,
         cursor,
         binding,
-    } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref())?;
+    } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref(), walk)?;
     let run = execute::QueryRun {
         host,
         ctx,
@@ -132,6 +135,7 @@ async fn execute_query_scoped<H: HostNode>(
         offset: offset.unwrap_or(0),
         cursor,
         comparison: binding,
+        walk,
     };
     let future = run.execute(query);
     match comparison {

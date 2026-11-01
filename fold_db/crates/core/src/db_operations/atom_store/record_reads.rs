@@ -1,11 +1,13 @@
 //! Record reads of a format 7 home: by key, or by one walk of the record
 //! space of a schema. A range under one hash reads its keys in pages
-//! (`record_spans.rs`).
+//! (`record_spans.rs`). An unfiltered page walks in record key order, one
+//! bounded page at a time (`record_walk.rs`).
 //!
 //! A keyed selector echoes the caller's API hash. A walk cannot decode a
 //! blinded hash, so it recovers each API key from the key fields of the
 //! record; the write path puts those fields in every record.
 
+use super::record_walk::WalkWindow;
 use super::AtomStore;
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::{
@@ -39,9 +41,9 @@ impl AtomStore {
     }
 
     /// The live records that one canonical key selector names, in page
-    /// order. `None` reads the first page of the default size. A range under
-    /// one hash of a HashRange schema reads its keys in pages
-    /// (`record_spans.rs`), so this read refuses it.
+    /// order. `None` reads the first page of the default size in record key
+    /// order (`record_walk.rs`). A range under one hash of a HashRange schema
+    /// reads its keys in pages (`record_spans.rs`), so this read refuses it.
     pub(crate) async fn select_records(
         &self,
         schema: &Schema,
@@ -80,13 +82,23 @@ impl AtomStore {
                 )
                 .await?
             }
+            // A `Page` is a window over every live record in page order: the
+            // count and the condition reads need the complete set. The read
+            // allowance of the request bounds it.
             Some(F::Page { offset, limit }) => {
                 page = Some((*offset, *limit));
                 self.walk_records(schema, comparison, None, scope).await?
             }
+            // The first page of the default size, in record key order.
             None => {
-                page = Some((0, DEFAULT_UNFILTERED_PAGE_LIMIT));
-                self.walk_records(schema, comparison, None, scope).await?
+                let window = WalkWindow {
+                    after: None,
+                    skip: 0,
+                    take: DEFAULT_UNFILTERED_PAGE_LIMIT,
+                };
+                let scopes = [scope.map(str::to_owned)];
+                self.walk_record_window(schema, comparison, window, &scopes, |_| true)
+                    .await?
             }
             Some(_) => {
                 return Err(SchemaError::InvalidData(
@@ -219,7 +231,7 @@ impl AtomStore {
 }
 
 /// `rk:{S}:`: the prefix of every record of one schema.
-fn space_prefix(schema: &Schema) -> String {
+pub(super) fn space_prefix(schema: &Schema) -> String {
     format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name))
 }
 
@@ -229,7 +241,7 @@ fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
 }
 
 /// The canonical API key from the key fields of a live record.
-fn recovered_key(
+pub(super) fn recovered_key(
     schema: &Schema,
     comparison: &KeyComparisonContext,
     record: &StoredRecord,
@@ -251,7 +263,7 @@ fn recovered_key(
     comparison.canonical_key(key)
 }
 
-fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
+pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
     StoredRecord::decode(bytes)
         .map_err(|error| SchemaError::InvalidData(format!("a stored record: {error}")))
 }

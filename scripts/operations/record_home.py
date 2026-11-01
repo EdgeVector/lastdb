@@ -5,11 +5,13 @@ Every new home is format 7. The script writes and reads records with the
 selectors that the brain and LastSecrets apps use, checks that repeated reads
 by key come from the record warm set, keeps field history, lets the TTL sweep
 delete an expired record, reads the delete audit, then restarts the daemon and
-reads again. It runs no test runner or
-benchmark. The home contains generated data only and never reads or copies a
-primary.
+reads again. It also drains a schema of more than 10,000 records with
+unfiltered cursor pages and records the time of each page. It runs no test
+runner or benchmark. The home contains generated data only and never reads or
+copies a primary.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -17,12 +19,17 @@ import time
 import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
-from node import Node, RECORD_NODE_MARKER  # noqa: E402
+from node import Node, RECORD_NODE_MARKER, UnixConnection  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
 # fresh some seconds after the sweep deletes its expired neighbor.
 TTL_SECONDS = 20
+# More records than one request may examine (10,000 keys), so only a paged
+# walk can read them all.
+PAGE_RECORDS = 10_500
+WRITE_BATCH = 500
+PAGE_SIZE = 1_000
 
 
 def require(value, message):
@@ -31,7 +38,8 @@ def require(value, message):
 
 
 def install(node):
-    for name, ranged in [("RecordById", False), ("RecordByBucket", True), ("RecordTtl", False)]:
+    for name, ranged in [("RecordById", False), ("RecordByBucket", True), ("RecordTtl", False),
+                         ("RecordPage", False)]:
         definition = {
             "source": "system_seed", "name": name, "descriptive_name": name,
             "schema_type": "HashRange" if ranged else "Hash",
@@ -308,6 +316,100 @@ def delete_audit(node):
     print(f"Delete audit: {len(rows)} delete rows for {sorted(schemas)} passed", flush=True)
 
 
+def scan(node, body):
+    """One unfiltered /api/query with the full-scan opt-in, and its time in ms."""
+    headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark",
+               "X-LastDB-Allow-Full-Scan": "true"}
+    connection = UnixConnection(node.socket)
+    started = time.perf_counter_ns()
+    try:
+        connection.request("POST", "/api/query", json.dumps(body).encode(), headers)
+        response = connection.getresponse()
+        raw = response.read()
+    finally:
+        connection.close()
+    elapsed = (time.perf_counter_ns() - started) / 1e6
+    if response.status != 200:
+        raise RuntimeError(f"/api/query: HTTP {response.status}: {raw[:600]!r}")
+    result = json.loads(raw)
+    require(result.get("ok") is not False, f"/api/query refused: {raw[:600]!r}")
+    return result.get("data", result), elapsed
+
+
+def drain(node, schema, limit):
+    """Every unfiltered cursor page of a schema, with the time of each page."""
+    pages, times, cursor = [], [], None
+    while True:
+        body = {"schema_name": schema, "fields": FIELDS, "filter": None, "limit": limit}
+        if cursor is not None:
+            body["cursor"] = cursor
+        page, elapsed = scan(node, body)
+        require(page.get("page_order") == "record_key" and page.get("total_count") is None,
+                f"an unfiltered page of {schema} is not a record walk page: "
+                + repr({key: page.get(key) for key in ["page_order", "total_count"]}))
+        pages.append(page)
+        times.append(elapsed)
+        require(len(pages) <= 100, f"the drain of {schema} did not end")
+        cursor = page.get("next_cursor")
+        if not page["has_more"]:
+            require(cursor is None, "the last page has a cursor")
+            return pages, times
+        require(len(page["results"]) == limit and cursor is not None,
+                "a page before the last is short or has no cursor")
+
+
+def page_order(rows):
+    """The API page order of the rows of one page: the range, then the hash."""
+    return [(row["key"].get("range") or "", row["key"]["hash"]) for row in rows]
+
+
+def unfiltered_pages(node):
+    written = [f"p{number:05d}" for number in range(PAGE_RECORDS)]
+    started = time.perf_counter()
+    for start in range(0, PAGE_RECORDS, WRITE_BATCH):
+        node.call("/api/mutations/batch", {"mutations": [
+            mutation("RecordPage", {"hash": key}, {"id": key, "bucket": "bp", "value": key}, "create")
+            for key in written[start:start + WRITE_BATCH]]})
+    write_seconds = time.perf_counter() - started
+    pages, times = drain(node, "RecordPage", PAGE_SIZE)
+    seen = [key for page in pages for key in ids(page["results"])]
+    require(len(seen) == len(set(seen)), "a record came in two pages")
+    require(sorted(seen) == written, f"the drain read {len(seen)} of {PAGE_RECORDS} records")
+    for page in pages:
+        order = page_order(page["results"])
+        require(order == sorted(order), "the rows of one page are not in page order")
+    offset_page, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+                                 "limit": PAGE_SIZE, "offset": 2 * PAGE_SIZE})
+    require(ids(offset_page["results"]) == ids(pages[2]["results"]) and offset_page["has_more"],
+            "the offset page differs from the third cursor page")
+    first, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None})
+    same, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+                          "limit": 100, "offset": 0})
+    require(ids(first["results"]) == ids(same["results"]) and len(first["results"]) == 100,
+            "the default first page differs from the offset 0 page of 100")
+    require(set(ids(first["results"])) <= set(ids(pages[0]["results"])),
+            "the default first page is not the start of the walk")
+    refused(lambda: scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+                                "limit": PAGE_SIZE, "offset": 9 * PAGE_SIZE}), "next_cursor")
+    # Deleted records sit among the live ones; a page skips them.
+    small, _ = drain(node, "RecordById", 1)
+    require(sorted(key for page in small for key in ids(page["results"])) == ["four", "hist", "one", "three"],
+            "the drain of RecordById returned a deleted record or lost a live one")
+    ranged, _ = drain(node, "RecordByBucket", 2)
+    keys = sorted((row["key"]["hash"], row["key"]["range"]) for page in ranged for row in page["results"])
+    require(keys == [("bk", "a"), ("bk", "b"), ("bk", "d"), ("bk", "e"), ("other", "a")],
+            "the drain of RecordByBucket differs: " + repr(keys))
+    ordered = sorted(times)
+    print(f"Unfiltered pages: wrote {PAGE_RECORDS} records in {write_seconds:.1f} s; drained them in "
+          f"{len(pages)} cursor pages of {PAGE_SIZE}, each key once, rows in page order within each page, "
+          f"has_more false at the end", flush=True)
+    print(f"Unfiltered page time (ms): min {ordered[0]:.1f}, median {ordered[len(ordered) // 2]:.1f}, "
+          f"max {ordered[-1]:.1f}; by page " + ", ".join(f"{elapsed:.1f}" for elapsed in times), flush=True)
+    print("Unfiltered pages: the offset 2000 page equals cursor page 3, the default first page equals "
+          "offset 0 limit 100, offset 9000 is refused for next_cursor, deleted records are skipped, "
+          f"a HashRange drain of {len(ranged)} pages of 2 is complete", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, required=True)
@@ -341,6 +443,7 @@ def main():
         delete_audit(node)
         field_history(node)
         retention(node)
+        unfiltered_pages(node)
         entries = history(node, {"op": "list"})["entries"]
         node.stop()
         node.start()

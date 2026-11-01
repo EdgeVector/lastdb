@@ -9,14 +9,25 @@ use fold_db::schema::types::{KeyValue, QueryCursor};
 use crate::qos::Lane;
 use crate::HostError;
 
+/// The cursor binding tag of a record walk page.
+const RECORD_WALK_BINDING: &str = "record-walk-v1";
+
 /// Check options after schema resolution and the product keyed-access check,
-/// preserving the order in which invalid combinations are rejected.
-pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<(), HostError> {
+/// preserving the order in which invalid combinations are rejected. A record
+/// walk (`walk.rs`) continues with a cursor.
+pub(super) fn validate_query_options(
+    query: &Query,
+    has_cursor: bool,
+    walk: bool,
+) -> Result<(), HostError> {
     if query.expected_total_count.is_some() && !can_push_down_key_restricted(query) {
         return Err(HostError::new(
             400,
             "expected_total_count requires a keyed query with no post-key filters".to_string(),
         ));
+    }
+    if walk {
+        return Ok(());
     }
     if has_cursor
         && !query
@@ -50,12 +61,15 @@ pub(super) struct PreparedQuery {
 }
 
 /// Prepare the filter, validate the cursor tag, then normalize its key.
-/// The request supplies the captured contract after option validation.
+/// The request supplies the captured contract after option validation. A
+/// record walk binds its cursor to record key order, so no keyed cursor
+/// continues it.
 pub(super) fn prepare_comparison(
     mut query: Query,
     cursor: Option<QueryCursor>,
     ctx: &AccessContext,
     comparison: Option<&KeyComparisonContext>,
+    walk: bool,
 ) -> Result<PreparedQuery, HostError> {
     if let Some(comparison) = comparison {
         query.filter = comparison
@@ -64,16 +78,20 @@ pub(super) fn prepare_comparison(
     }
     let binding = comparison
         .map(|comparison| {
-            comparison
-                .cursor_binding(&(
-                    &query.filter,
-                    &query.fields,
-                    query.include_tombstones,
-                    &query.sort_order,
-                    &ctx.db_locator,
-                    &ctx.storage_prefix,
-                ))
-                .map_err(HostError::from)
+            let request = (
+                &query.filter,
+                &query.fields,
+                query.include_tombstones,
+                &query.sort_order,
+                &ctx.db_locator,
+                &ctx.storage_prefix,
+            );
+            if walk {
+                comparison.cursor_binding(&(RECORD_WALK_BINDING, request))
+            } else {
+                comparison.cursor_binding(&request)
+            }
+            .map_err(HostError::from)
         })
         .transpose()?;
     if let Some(cursor) = cursor.as_ref() {

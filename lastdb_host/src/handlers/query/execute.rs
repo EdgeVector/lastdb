@@ -10,6 +10,8 @@ pub(super) struct QueryRun<'a, H: HostNode> {
     pub(super) offset: usize,
     pub(super) cursor: Option<KeyValue>,
     pub(super) comparison: Option<String>,
+    /// An unfiltered read of a format 7 home walks its records (`walk.rs`).
+    pub(super) walk: bool,
 }
 
 impl<H: HostNode> QueryRun<'_, H> {
@@ -17,6 +19,9 @@ impl<H: HostNode> QueryRun<'_, H> {
     pub(super) async fn execute(self, query: Query) -> Result<Value, HostError> {
         if QueryResponseFormat::current() == QueryResponseFormat::Count {
             return self.count_only(query).await;
+        }
+        if self.walk {
+            return self.record_walk(query).await;
         }
         if let Some(payload) = self.caller_supplied_page(&query).await? {
             return Ok(payload);
