@@ -95,12 +95,12 @@ async fn reject_unless_authorized(
 /// backed by an S3 presigned URL or paginated chunks) rather than inflating
 /// this response.
 fn write_snapshot_reply(reply: SnapshotExportReply) -> Result<Response<Body>, Error> {
-    match reply {
-        SnapshotExportReply::Ready(envelope) => {
+    match reply.into_http() {
+        Ok(envelope) => {
             let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SnapshotExportReply::Failed { body, .. } => json_response(500, &body),
+        Err((status, body, _)) => json_response(status, &body),
     }
 }
 
