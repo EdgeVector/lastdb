@@ -111,13 +111,12 @@ impl MutationManager {
     }
 }
 
-/// A format 7 home also captures a local delete: its record outcome carries
-/// the delete floor.
+/// A format 7 home also captures a local delete and a local purge: the record
+/// outcome carries the delete floor, so a peer applies a purge as a delete.
 fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), SchemaError> {
     let local_kind = match mutation.mutation_type {
         MutationType::Create | MutationType::Update => true,
-        MutationType::Delete => record_home,
-        _ => false,
+        MutationType::Delete | MutationType::Purge => record_home,
     };
     if !local_kind
         || mutation.imported_written_at.is_some()

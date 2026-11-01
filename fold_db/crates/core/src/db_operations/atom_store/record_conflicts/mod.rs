@@ -19,6 +19,7 @@
 //!   end of the window the janitor deletes the row, and the marker when no
 //!   entry of it is left. A row holds no atom or file blob reference.
 
+mod purge;
 mod read;
 mod release;
 mod stage;
