@@ -262,19 +262,33 @@ impl SchemaClaimError {
         }
     }
 
-    pub fn to_http(&self) -> (u16, Value) {
-        let reason = self.http_reason();
+    fn http_status(&self) -> u16 {
         match self {
             Self::CertRequired
             | Self::CertInvalid
             | Self::CertExpired
             | Self::EnvelopeInvalid
-            | Self::CertForWrongApp => (401, reason_only_body(reason)),
-            Self::NotAuthorizedPublisher | Self::AppNotRegistered | Self::DevRevoked => {
-                (403, reason_only_body(reason))
-            }
-            Self::AppIdentityNotConfigured => (503, reason_only_body(reason)),
-            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
+            | Self::CertForWrongApp => 401,
+            Self::NotAuthorizedPublisher | Self::AppNotRegistered | Self::DevRevoked => 403,
+            Self::AppIdentityNotConfigured => 503,
+            Self::Internal(_) => 500,
         }
+    }
+
+    pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.http_reason();
+        let body = match self {
+            Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::CertRequired
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::CertForWrongApp
+            | Self::NotAuthorizedPublisher
+            | Self::AppNotRegistered
+            | Self::DevRevoked
+            | Self::AppIdentityNotConfigured => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
