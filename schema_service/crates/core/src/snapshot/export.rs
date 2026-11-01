@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -96,7 +96,7 @@ fn classify_snapshot_export(
         Ok(envelope) => SnapshotExportReply::Ready(Box::new(envelope.without_embeddings())),
         Err(error) => {
             let message = format!("{failure_prefix}: {error}");
-            let body = json!({"error": message});
+            let body = crate::error_only_body(&message);
             SnapshotExportReply::Failed { message, body }
         }
     }

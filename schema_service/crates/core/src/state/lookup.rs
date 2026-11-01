@@ -2,7 +2,7 @@
 
 use std::collections::hash_map::Entry;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -90,7 +90,7 @@ impl SchemaServiceState {
             Ok(Some(existing)) => IdempotentRepostReply::Hit(Box::new(existing)),
             Ok(None) => IdempotentRepostReply::Miss,
             Err(error) => IdempotentRepostReply::Failed {
-                body: json!({"error": format!("Failed to read existing schema: {error}")}),
+                body: crate::error_only_body(&format!("Failed to read existing schema: {error}")),
             },
         }
     }
@@ -140,11 +140,11 @@ impl SchemaServiceState {
                 SchemaByNameReply::Ready(Box::new(SchemaEnvelope { schema, system }))
             }
             Ok(None) => SchemaByNameReply::Missing {
-                body: json!({"error": "Schema not found"}),
+                body: crate::error_only_body("Schema not found"),
             },
             Err(error) => {
                 let message = format!("Failed to get schema: {error}");
-                let body = json!({"error": &message});
+                let body = crate::error_only_body(&message);
                 SchemaByNameReply::Failed { message, body }
             }
         }

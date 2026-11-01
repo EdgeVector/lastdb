@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -45,7 +45,7 @@ pub fn similarity_threshold_reply(raw: Option<f64>) -> SimilarityThresholdReply 
     match accepted_similarity_threshold(raw) {
         Some(threshold) => SimilarityThresholdReply::Ready(threshold),
         None => SimilarityThresholdReply::Refused {
-            body: json!({"error": "Threshold must be between 0.0 and 1.0"}),
+            body: crate::error_only_body("Threshold must be between 0.0 and 1.0"),
         },
     }
 }
@@ -135,11 +135,13 @@ impl SchemaServiceState {
                 let detail = error.to_string();
                 if detail.contains("not found") {
                     SimilarSchemasReply::Missing {
-                        body: json!({"error": format!("Schema '{name}' not found")}),
+                        body: crate::error_only_body(&format!("Schema '{name}' not found")),
                     }
                 } else {
                     SimilarSchemasReply::Failed {
-                        body: json!({"error": format!("Failed to find similar schemas: {detail}")}),
+                        body: crate::error_only_body(&format!(
+                            "Failed to find similar schemas: {detail}"
+                        )),
                     }
                 }
             }
@@ -247,7 +249,7 @@ impl SchemaServiceState {
             }
             Err(error) => {
                 let message = format!("Batch schema reuse check failed: {error}");
-                let body = json!({"error": message});
+                let body = crate::error_only_body(&message);
                 BatchReuseReply::Failed { message, body }
             }
         }

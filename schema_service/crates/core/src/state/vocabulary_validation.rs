@@ -1,5 +1,5 @@
 //! Fail closed before a loaded registry or imported snapshot becomes visible.
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -120,7 +120,7 @@ impl SchemaServiceState {
         match self.validate_schema_field_vocabulary(schema).await {
             Ok(()) => FieldVocabularyReply::Ready,
             Err(error) => FieldVocabularyReply::Refused {
-                body: json!({"error": error.to_string()}),
+                body: crate::error_only_body(&error.to_string()),
             },
         }
     }

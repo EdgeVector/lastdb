@@ -145,7 +145,11 @@ pub(crate) fn parse_body(event: &Request) -> Result<String, Response<Body>> {
     match event.body() {
         Body::Text(s) => Ok(s.clone()),
         Body::Binary(b) => Ok(String::from_utf8_lossy(b).into_owned()),
-        Body::Empty => Err(json_response(400, &json!({"error": "Request body is empty"})).unwrap()),
+        Body::Empty => Err(json_response(
+            400,
+            &schema_service_core::error_only_body("Request body is empty"),
+        )
+        .unwrap()),
     }
 }
 

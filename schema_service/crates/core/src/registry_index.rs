@@ -8,7 +8,7 @@ use base64::Engine as _;
 use schema_types::Schema;
 use schema_types::{FoldDbError, FoldDbResult};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
@@ -115,7 +115,7 @@ impl SchemaServiceState {
             }
             Err(error) => {
                 let message = format!("Failed to export registry index: {error}");
-                let body = json!({"error": &message});
+                let body = crate::error_only_body(&message);
                 RegistryIndexReply::Failed { message, body }
             }
         }

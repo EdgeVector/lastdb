@@ -52,7 +52,7 @@ pub(crate) async fn list_apps_v2(state: &SchemaServiceState) -> Result<Response<
         }
         Err(e) => json_response(
             500,
-            &json!({ "error": format!("Failed to list apps: {e}") }),
+            &schema_service_core::error_only_body(&format!("Failed to list apps: {e}")),
         ),
     }
 }

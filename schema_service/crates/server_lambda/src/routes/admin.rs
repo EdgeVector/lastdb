@@ -24,7 +24,9 @@ pub(crate) fn post_debug_field_match_probe(
         Err(e) => {
             return json_response(
                 400,
-                &json!({"error": format!("Invalid field-match-probe request: {e}")}),
+                &schema_service_core::error_only_body(&format!(
+                    "Invalid field-match-probe request: {e}"
+                )),
             );
         }
     };
@@ -112,7 +114,9 @@ pub(crate) async fn post_admin_deprecate_schemas(
         Err(e) => {
             return json_response(
                 400,
-                &json!({"error": format!("Invalid deprecate-schemas request: {e}")}),
+                &schema_service_core::error_only_body(&format!(
+                    "Invalid deprecate-schemas request: {e}"
+                )),
             );
         }
     };

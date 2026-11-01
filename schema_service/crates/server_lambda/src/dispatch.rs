@@ -105,7 +105,7 @@ pub(crate) async fn dispatch_with_state(
 
     json_response(
         404,
-        &json!({"error": format!("Not found: {method} {path}")}),
+        &schema_service_core::error_only_body(&format!("Not found: {method} {path}")),
     )
 }
 
@@ -121,7 +121,7 @@ async fn dispatch_schemas(
             Ok(schema_names) => json_response(200, &json!({ "schemas": schema_names })),
             Err(e) => json_response(
                 500,
-                &json!({"error": format!("Failed to get schema names: {e}")}),
+                &schema_service_core::error_only_body(&format!("Failed to get schema names: {e}")),
             ),
         },
         ("GET", "/v1/registry/index") => routes::schemas::get_registry_index(state, event),
@@ -158,7 +158,10 @@ async fn reload_schemas(state: &SchemaServiceState) -> Result<Response<Body>, Er
                 }),
             )
         }
-        Err(e) => json_response(500, &json!({"error": format!("Failed to reload: {e}")})),
+        Err(e) => json_response(
+            500,
+            &schema_service_core::error_only_body(&format!("Failed to reload: {e}")),
+        ),
     }
 }
 
