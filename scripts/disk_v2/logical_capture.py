@@ -285,15 +285,15 @@ def reopen_and_refuse(node, anchor, acknowledged, live, uncertain, result):
     read(node, live)
     if uncertain:
         read(node, uncertain if extra else [], [] if extra else uncertain)
-    prefix = records(900)
-    # A format 7 home captures a record delete as its delete floor. Capture
-    # still refuses an erasure (purge), so the mixed request pairs a create
-    # with a purge: neither part may apply.
-    erase = {**mutations([live[0]], "purge")[0], "fields_and_values": {}}
-    mixed = [mutations(prefix)[0], erase]
-    result["unsupported_mixed_request"] = refusal(node, mixed, "logical capture v1")
+    # A format 7 home captures a create, an update, a delete and a purge, so
+    # no single local verb is refused. Capture still refuses a request above
+    # its mutation cap as a whole: 128 creates it would admit plus one more.
+    # No part may apply.
+    prefix = [item for batch in range(900, 965) for item in records(batch)][:129]
+    result["unsupported_mixed_request"] = refusal(
+        node, mutations(prefix), "logical capture v1 does not support more than 128 mutations")
     require(capture(node, anchor) == second, "unsupported mixed request changed the capture position")
-    read(node, live, [prefix[0]])
+    read(node, live, [prefix[0], prefix[-1]])
     result["second_reopen"] = second
     result["acknowledged_mutation_ids"] = [identity for batch in acknowledged for identity in batch["mutation_ids"]]
     result["acknowledged_records_read"] = len(live)
