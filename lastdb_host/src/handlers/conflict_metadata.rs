@@ -71,7 +71,7 @@ async fn selected_record_conflicts<H: HostNode>(
         key.validate()?;
         let schema = selected_schema(host, &key.schema_name)?;
         let primary = rules::record_key(&schema, key)?;
-        selections.push((schema.name.clone(), primary, key.fields.clone()));
+        selections.push((schema.name, primary, key.fields.clone()));
     }
     let found = host.fold_db().selected_record_conflicts(&selections).await;
     let results: Vec<_> = match found {

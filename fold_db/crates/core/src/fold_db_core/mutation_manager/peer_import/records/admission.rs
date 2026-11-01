@@ -145,7 +145,7 @@ impl MutationManager {
             return Ok(());
         };
         let coordinate = if declared.hash_field.as_deref() == Some(field) {
-            scalar_key_coordinate(value).map(|value| value.into_owned())
+            scalar_key_coordinate(value).map(std::borrow::Cow::into_owned)
         } else if declared.range_field.as_deref() == Some(field) {
             let range = scalar_key_coordinate(value)
                 .ok_or_else(|| unsupported("a nonscalar key field value"))?;

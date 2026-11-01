@@ -56,7 +56,7 @@ impl MutationManager {
         batch.extend(atoms.record_conflict_mutations(lost).await?);
         atoms
             .stage_records(
-                changed.iter().map(|record| record.change()).collect(),
+                changed.iter().map(merge::PeerRecord::change).collect(),
                 batch,
             )
             .await?;

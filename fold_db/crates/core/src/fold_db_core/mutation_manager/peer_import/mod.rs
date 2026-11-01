@@ -10,7 +10,7 @@ use super::molecules::DeferredPersistJob;
 use super::MutationManager;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_capture::{
-    AcceptedFieldOutcome, CaptureEvent, ImportReceipt,
+    AcceptedFieldOutcome, AcceptedRecordOutcome, CaptureEvent, ImportReceipt,
 };
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use std::collections::BTreeMap;
@@ -143,7 +143,7 @@ fn event_clocks(events: &[CaptureEvent]) -> impl Iterator<Item = (u64, u64)> + '
         let stamps = event
             .records
             .iter()
-            .flat_map(|record| record.stamps())
+            .flat_map(AcceptedRecordOutcome::stamps)
             .map(|stamp| (stamp.written_at, stamp.logical_counter));
         tips.chain(stamps)
     })

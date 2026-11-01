@@ -150,14 +150,15 @@ def conflicts(node, key, fields):
 
 
 def field_merge(a, b, links):
-    mutate(a, "PeerRecord", {"hash": "r1"}, {"id": "r1", "x": "x0"}, "create")
+    mutate(a, "PeerRecord", {"hash": "r1"}, {"id": "r1", "x": "x0", "note": "n0"}, "create")
     links[0].run()
-    require(record(b, "r1")[0] == {"id": "r1", "x": "x0"}, "B did not receive the created record")
+    require(record(b, "r1")[0] == {"id": "r1", "x": "x0", "note": "n0"},
+            "B did not receive the created record")
     mutate(a, "PeerRecord", {"hash": "r1"}, {"x": "xa"})
     mutate(b, "PeerRecord", {"hash": "r1"}, {"y": "yb"})
     counts = both(links)
     for node in (a, b):
-        require(record(node, "r1")[0] == {"id": "r1", "x": "xa", "y": "yb"},
+        require(record(node, "r1")[0] == {"id": "r1", "x": "xa", "y": "yb", "note": "n0"},
                 "a device did not keep both field changes: " + repr(record(node, "r1")[0]))
         found = conflicts(node, "r1", ["x", "y"])
         require(all(found[field]["state"] == "clean" for field in ["x", "y"]),
@@ -188,8 +189,9 @@ def concurrent_write(a, b, links):
         require("has_conflicts" not in (metadata.get("x") or {}), "the query flagged a clean field")
         alternate = query(node, "PeerRecord", {"HashRangeKey": {"hash": "nb", "range": "r1"}},
                           key_name="by_note")
-        stale = query(node, "PeerRecord", {"HashKey": "na"}, key_name="by_note")
-        require(len(alternate) == 1 and stale == [], "the alternate entry did not follow the merged note")
+        stale = [query(node, "PeerRecord", {"HashKey": note}, key_name="by_note") for note in ("na", "n0")]
+        require(len(alternate) == 1 and stale == [[], []],
+                "the alternate entry did not follow the merged note")
     require(kept[0] == kept[1], "the two devices keep different conflict records")
     print("Concurrent write: both devices hold note=nb, one conflict record keeps the losing value na "
           f"(mutation {kept[0][0]}), the query flags only note, and the by_note alternate key follows",
@@ -220,10 +222,10 @@ def deletes(a, b, links):
                 "the alternate entry of a deleted record still resolves")
         rows = query(node, "PeerRange", {"HashKey": "bk"}, fields=RANGE_FIELDS)
         require([row["fields"]["id"] for row in rows] == ["k2"], "a HashRange delete did not propagate")
-    mutate(a, "PeerRecord", {"hash": "r2"}, {"id": "r2", "x": "back"}, "create")
+    mutate(a, "PeerRecord", {"hash": "r2"}, {"id": "r2", "x": "back", "note": "n3"}, "create")
     both(links)
     for node in (a, b):
-        require(record(node, "r2")[0] == {"id": "r2", "x": "back"},
+        require(record(node, "r2")[0] == {"id": "r2", "x": "back", "note": "n3"},
                 "a write after a delete brought back a deleted value")
     print("Delete: B deleted a Hash and a HashRange record; A no longer reads them or their alternate "
           "entry, and a later write makes a new record on both", flush=True)
