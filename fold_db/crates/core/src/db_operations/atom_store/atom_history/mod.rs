@@ -1,6 +1,5 @@
 //! Optional field history. Sidecar rows own counted atom and file references.
 
-mod capture;
 mod key_counts;
 mod policy;
 mod purge;
@@ -10,9 +9,7 @@ mod records;
 mod release;
 pub(crate) use records::RecordHistoryRows;
 // The archive row shapes are records that the storage layer also reads.
-pub(crate) use crate::records::atom_history::{
-    is_archive, ArchiveMetadata, ArchiveRecord, HistoryBinding, HistoryMode,
-};
+pub(crate) use crate::records::atom_history::{is_archive, ArchiveRecord};
 pub use crate::records::atom_history::{
     AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation,
 };

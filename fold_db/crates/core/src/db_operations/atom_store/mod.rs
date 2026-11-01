@@ -36,7 +36,6 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
-mod delete_marker_cleanup;
 mod delete_replay;
 pub use delete_replay::DeletePruneReport;
 mod erase_meters;
@@ -71,7 +70,6 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
     MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,
@@ -82,8 +80,7 @@ pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOutcomeKind};
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
-pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
-pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
+pub use molecule_ref_edges::MoleculeRefEdge;
 pub(crate) use record_conflicts::LostWrite;
 pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
 pub(crate) use record_reads::KeyedRecord;
@@ -95,10 +92,9 @@ pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.
 pub use crate::records::molecule_record::MoleculeData;
-pub(crate) use crate::records::molecule_record::MoleculeHeader;
 pub(crate) use crate::records::molecule_record::{
-    ChangedKey, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
-    MoleculeRangeForm, PerKeyRecord,
+    MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, MoleculeRangeForm,
+    PerKeyRecord,
 };
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
@@ -144,12 +140,6 @@ async fn lock_target_stripes(
     guards
 }
 
-type ExactTipLocks =
-    Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
-type GenerationCleanupLocks = Arc<
-    std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::RwLock<()>>>>,
->;
-
 /// Domain store for atoms, molecules, mutation events, and sync conflicts.
 ///
 /// Backed by the `main` namespace.
@@ -189,13 +179,6 @@ pub struct AtomStore {
     /// the two cannot deadlock.
     molecule_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
-    /// Per-molecule generation cuts exclude marker cleanup until activation ends.
-    generation_cleanup_locks: GenerationCleanupLocks,
-    /// Exact durable-tip locks. These make the read/compare/put winner rule
-    /// atomic per `mk:` row without coupling writes to different slots.
-    tip_commit_locks: ExactTipLocks,
-    /// Exact memory-publication locks. A normal Put does not wait for a durable flush.
-    tip_publication_locks: ExactTipLocks,
     /// A normal Delete enters this map before its memory ack. Peer replay and
     /// delayed local flushes consult it under the exact tip commit lock.
     pending_delete_barriers: Arc<
@@ -297,17 +280,6 @@ impl AtomStore {
     ) -> Result<String, crate::schema::SchemaError> {
         self.key_codec_for_molecule(molecule_uuid)?
             .storage_hash(molecule_uuid, api_hash)
-            .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
-    }
-
-    /// Map API RangeKey to its typed storage payload.
-    pub(crate) fn storage_range(
-        &self,
-        molecule_uuid: &str,
-        api_range: &str,
-    ) -> Result<String, crate::schema::SchemaError> {
-        self.key_codec_for_molecule(molecule_uuid)?
-            .storage_range(molecule_uuid, api_range)
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
     }
 

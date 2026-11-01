@@ -2,35 +2,6 @@
 
 use super::*;
 
-pub(crate) struct CertifiedAtom {
-    pub(crate) atom: Arc<Atom>,
-    pub(crate) key: String,
-}
-
-/// Resolve one batch against this call's real decoded body receipts.
-pub(crate) fn certified_atoms(
-    runtime: Option<Arc<PackRuntime>>,
-    scope: Option<&str>,
-    expected: Vec<Atom>,
-) -> StorageResult<Vec<Option<CertifiedAtom>>> {
-    let Some(sources) = sources(runtime)? else {
-        return Ok(expected.into_iter().map(|_| None).collect());
-    };
-    let sources = sources.lock().expect("native actual body certificates");
-    expected
-        .into_iter()
-        .map(|atom| {
-            let Some((_, key)) = certified_source(&sources, scope, &atom)? else {
-                return Ok(None);
-            };
-            Ok(Some(CertifiedAtom {
-                atom: Arc::new(atom),
-                key,
-            }))
-        })
-        .collect()
-}
-
 /// The source, full decoded content, and exact requested scope form one proof.
 pub(super) fn certified_source(
     sources: &Sources,

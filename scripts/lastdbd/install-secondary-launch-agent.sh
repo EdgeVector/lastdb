@@ -223,7 +223,7 @@ cat > "$plist" <<EOF
   <true/>
   <key>KeepAlive</key>
   <true/>
-  <!-- A graceful stop drains persist lanes, stops sync, and flushes. The
+  <!-- A graceful stop drains pending tasks, stops sync, and flushes. The
        launchd default gave the primary 5 s before SIGKILL on 2026-09-24,
        which cut the drain short. Keep this above the daemon's worst case. -->
   <key>ExitTimeOut</key>

@@ -1,7 +1,7 @@
 //! Native logical paths retain the actual shared core molecule and atom objects.
 
 use super::*;
-use crate::atom::{Atom, AtomEntry, KeyMetadata};
+use crate::atom::{AtomEntry, KeyMetadata};
 use crate::resident::{CorePath, CoreWarmSlot};
 use crate::schema::types::Schema;
 use serde::{Deserialize, Serialize};
@@ -114,128 +114,6 @@ pub(super) fn lock_current_model<'a>(
 pub(super) struct CurrentModel<'a> {
     pub(super) core: std::sync::MutexGuard<'a, crate::resident::CoreWarmSet>,
     _view: std::sync::RwLockReadGuard<'a, super::view::NativeReadView>,
-}
-
-/// One final path effect: a present slot or confirmed absence.
-#[derive(Clone)]
-pub(crate) struct LogicalPathRecord {
-    pub path: LogicalPath,
-    slot: Option<CoreWarmSlot>,
-    sources: Vec<String>,
-    coordinates: Vec<(String, String)>,
-    complete: bool,
-}
-
-impl LogicalPathRecord {
-    pub(crate) fn from_atom(
-        path: LogicalPath,
-        atom: Arc<Atom>,
-        entry: AtomEntry,
-        metadata: Option<KeyMetadata>,
-    ) -> StorageResult<Self> {
-        if path.atom != atom.uuid() || entry.atom_uuid != atom.uuid() {
-            return Err(StorageError::BackendError(
-                "logical tip and atom identities differ".into(),
-            ));
-        }
-        let bytes = body::encoded_len(atom.as_ref())?;
-        Ok(Self {
-            path,
-            slot: Some(CoreWarmSlot {
-                entry,
-                metadata,
-                atom,
-                bytes,
-            }),
-            sources: Vec::new(),
-            coordinates: Vec::new(),
-            complete: false,
-        })
-    }
-
-    /// A complete resolver proved that this logical path has no visible tip.
-    pub(crate) fn absent(path: LogicalPath, sources: Vec<String>) -> Self {
-        Self {
-            path,
-            slot: None,
-            sources: Vec::new(),
-            coordinates: Vec::new(),
-            complete: false,
-        }
-        .with_sources(sources)
-    }
-
-    pub(crate) fn with_sources(mut self, sources: Vec<String>) -> Self {
-        self.sources = sources;
-        (self.complete, self.coordinates) = self.compute_dependencies();
-        self
-    }
-
-    pub(crate) fn source_coordinates(&self) -> &[(String, String)] {
-        &self.coordinates
-    }
-
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let path = self.path.id().map_or(1024, |id| id.len());
-        dependency_bytes(&self.sources, &self.coordinates)
-            .saturating_add(self.slot.as_ref().map_or(0, |slot| slot.bytes))
-            .saturating_add(path.saturating_mul(3))
-    }
-
-    fn source_dependencies(&self) -> (bool, Vec<(String, String)>) {
-        (self.complete, self.coordinates.clone())
-    }
-
-    fn compute_dependencies(&self) -> (bool, Vec<(String, String)>) {
-        let scope = self.path.scope.as_deref();
-        let mut candidates = Vec::new();
-        let mut sources = Vec::new();
-        let mut body = false;
-        for source in &self.sources {
-            let base = match scope {
-                Some(scope) => source
-                    .strip_prefix(scope)
-                    .and_then(|key| key.strip_prefix(':')),
-                None => Some(source.as_str()),
-            };
-            let Some(base) = base else { continue };
-            if self.slot.is_some()
-                && crate::atom::atom_key_codec::body_uuid_of(base) == Some(self.path.atom.as_str())
-            {
-                let collection = crate::storage::disk_pack::native_routing::collection_for_key(
-                    source.as_bytes(),
-                );
-                let encoded = crate::storage::disk_pack::native_routing::encode(source.as_bytes());
-                sources.push((collection.to_owned(), encoded));
-                body = true;
-            } else if crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(base)
-                .is_some()
-            {
-                candidates.push(base.to_owned());
-            }
-        }
-        let complete = (self.slot.is_none() || body) && !candidates.is_empty();
-        sources.extend(dependencies::tip_sources(
-            scope,
-            &self.path.molecule,
-            &candidates,
-        ));
-        (complete, sources)
-    }
-}
-
-fn dependency_bytes(sources: &[String], coordinates: &[(String, String)]) -> usize {
-    let bytes = sources.iter().fold(1024usize, |bytes, source| {
-        bytes
-            .saturating_add(source.len().saturating_mul(2))
-            .saturating_add(64)
-    });
-    coordinates.iter().fold(bytes, |bytes, (collection, key)| {
-        bytes
-            .saturating_add(collection.len())
-            .saturating_add(key.len())
-            .saturating_add(128)
-    })
 }
 
 fn serialization(error: &serde_json::Error) -> StorageError {

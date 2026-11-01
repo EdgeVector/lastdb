@@ -51,8 +51,7 @@ mod scan;
 mod verify;
 
 pub(crate) use commit::{
-    GuardedDelete, PreviousTip, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
-    TipDebit,
+    GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
 };
 pub use molecule::counts_of_header;
 pub use molecule_plan::{MoleculeCounts, MoleculeFault};
@@ -65,17 +64,6 @@ pub(crate) use verify::VerifyState;
 pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 
 use serde::{Deserialize, Serialize};
-
-/// An atom whose body a planner run deleted, with the blob references it held.
-#[derive(Debug)]
-pub(crate) struct DeletedAtom {
-    pub uuid: String,
-    /// Atom owner from its stored counter, independent of the erased peer.
-    pub source_schema: Option<String>,
-    pub blobs: Vec<String>,
-    /// The size its counter held, for the keep-small meters.
-    pub size: Option<AtomSize>,
-}
 
 /// Format version of a counter record.
 pub const ATOM_COUNTER_VERSION: u8 = 1;
@@ -139,15 +127,5 @@ impl AtomSize {
             crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())?;
         let logical = serde_json::to_vec(atom).map_or(0, |bytes| bytes.len() as u64);
         Some(Self(logical, blob))
-    }
-
-    #[must_use]
-    pub const fn atom_bytes(self) -> u64 {
-        self.0
-    }
-
-    #[must_use]
-    pub const fn blob_bytes(self) -> u64 {
-        self.1
     }
 }

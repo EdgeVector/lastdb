@@ -18,20 +18,6 @@ tokio::task_local! {
 }
 
 impl ChangeFeedStore {
-    pub(crate) fn capture_context() -> Option<Captured> {
-        CAPTURE.try_with(Arc::clone).ok()
-    }
-
-    pub(crate) async fn with_capture_context<T>(
-        captured: Option<Captured>,
-        future: impl std::future::Future<Output = T>,
-    ) -> T {
-        match captured {
-            Some(captured) => CAPTURE.scope(captured, future).await,
-            None => future.await,
-        }
-    }
-
     /// Capture notifications in native product commits. Return committed IDs so
     /// the host queues only events that did not share a native transaction.
     pub async fn capture_native<T>(

@@ -1,4 +1,4 @@
-//! Duplicate short-circuit, precondition gate and per-schema delta prepare.
+//! Duplicate short-circuit, precondition gate and per-schema record groups.
 
 use super::*;
 
@@ -23,8 +23,7 @@ impl MutationManager {
             already_seen_ids.len()
         );
         // The idempotency scan was real work; report it even though the
-        // batch turned out to be all duplicates. No schema group ran, so
-        // no molecule locks were taken.
+        // batch turned out to be all duplicates. No schema group ran.
         Self::report_phase_totals(
             timing_breakdown,
             start_time.elapsed(),
@@ -53,43 +52,27 @@ impl MutationManager {
 
     /// Phase 0.5b: Compare-and-set gate (same-node atomicity).
     ///
-    /// Verify each surviving mutation's precondition against the CURRENT
-    /// persisted head before the write pipeline runs. Already-seen
-    /// duplicates were filtered out earlier and never reach this check, so
-    /// a safe retry of an applied CAS-guarded mutation cannot be rejected
-    /// as a conflict against a head its own earlier attempt already
-    /// produced.
+    /// Verify each surviving mutation's precondition against its stored
+    /// record before any group stages. Already-seen duplicates were filtered
+    /// out earlier and never reach this check, so a safe retry of an applied
+    /// CAS-guarded mutation cannot be rejected as a conflict against a value
+    /// its own earlier attempt already produced.
     ///
-    /// Reported separately from the lock wait: this is storage IO (one head
-    /// read per surviving CAS mutation), not queueing, and the two have
-    /// opposite remedies. The same window also carries the `must_exist`
-    /// update gate. It is the same class of work — one persisted-head read per
-    /// guarded mutation, under the same native gate — so it shares the phase rather
-    /// than minting a second name for the same number.
-    ///
-    /// A format 7 home (`records`) checks both against the stored records.
+    /// Reported separately from the lock wait: this is storage IO (one batch
+    /// read of the guarded records), not queueing, and the two have opposite
+    /// remedies. The same window also carries the `must_exist` update gate and
+    /// the loud erasure gate: the same class of work under the same native
+    /// gate, so they share the phase rather than minting a second name for
+    /// the same number.
     pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,
         new_mutations: &[Mutation],
         storage_prefix: Option<&str>,
-        records: bool,
     ) -> Result<(), SchemaError> {
         let cas_precondition_start = std::time::Instant::now();
-        let cas_result = if records {
-            self.check_record_preconditions(new_mutations, storage_prefix)
-                .await
-        } else {
-            match self
-                .check_cas_preconditions(new_mutations, storage_prefix)
-                .await
-            {
-                Ok(()) => {
-                    self.check_must_exist_preconditions(new_mutations, storage_prefix)
-                        .await
-                }
-                Err(error) => Err(error),
-            }
-        };
+        let cas_result = self
+            .check_record_preconditions(new_mutations, storage_prefix)
+            .await;
         crate::request_phases::add_phase(
             crate::request_phases::RequestPhase::CasPrecondition,
             cas_precondition_start.elapsed(),
@@ -100,10 +83,10 @@ impl MutationManager {
         cas_result
     }
 
-    /// Prepare each schema from the current private transaction, then stage it
-    /// before the next schema reads that state. Nothing publishes until every
-    /// group succeeds and the complete request owns its reservations.
-    pub(in crate::fold_db_core::mutation_manager::write) async fn stage_grouped_deltas(
+    /// Stage each schema group as records before the next group reads that
+    /// state. Nothing publishes until every group succeeds and the complete
+    /// request owns its reservations.
+    pub(in crate::fold_db_core::mutation_manager::write) async fn stage_record_groups(
         &self,
         new_mutations: Vec<Mutation>,
         new_hashes: Vec<String>,
@@ -112,9 +95,9 @@ impl MutationManager {
         stages: &mut ResidentCommitStages,
         runtime: &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Result<usize, SchemaError> {
-        // Keep each idempotency decision with the schema envelope that owns
-        // its data. A detached put can pass a failed lane head and make a
-        // client retry skip data that never reached storage.
+        // Keep each idempotency decision with the records it describes. A
+        // detached put could make a client retry skip data that never
+        // reached storage.
         let mut hash_by_uuid: HashMap<String, String> = new_mutations
             .iter()
             .zip(new_hashes.iter())
@@ -122,14 +105,13 @@ impl MutationManager {
             .collect();
 
         // Group mutations by schema to minimize schema reloads. First-seen
-        // order is the prepare order; slot gates sort independently.
+        // order is the stage order.
         let group_start = std::time::Instant::now();
         let grouped_mutations =
             self.independent_key_groups(self.group_mutations_by_schema(new_mutations))?;
         Self::add_timing(timing_breakdown, "grouping", group_start.elapsed());
 
         let group_count = grouped_mutations.len();
-        let mut heads = super::super::super::molecules::batch_rebase::BatchSlotHeads::default();
         let mut prepare_elapsed = std::time::Duration::ZERO;
         for (schema_name, schema_mutations) in grouped_mutations {
             let prepare_started = std::time::Instant::now();
@@ -148,31 +130,15 @@ impl MutationManager {
                     )
                 })
                 .collect();
-            // A format 7 home stores one record at each key: no atom, tip or
-            // molecule delta to prepare.
-            if runtime.record_home() {
-                self.stage_record_group(
-                    &schema_name,
-                    schema_mutations,
-                    idempotency_entries,
-                    storage_prefix,
-                    runtime,
-                )
-                .await?;
-                prepare_elapsed += prepare_started.elapsed();
-                continue;
-            }
-            let delta = self
-                .prepare_schema_delta(
-                    schema_name,
-                    schema_mutations,
-                    idempotency_entries,
-                    storage_prefix,
-                    timing_breakdown,
-                )
-                .await?;
+            self.stage_record_group(
+                &schema_name,
+                schema_mutations,
+                idempotency_entries,
+                storage_prefix,
+                runtime,
+            )
+            .await?;
             prepare_elapsed += prepare_started.elapsed();
-            self.stage_native_delta(delta, runtime, &mut heads).await?;
         }
         stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
         Ok(group_count)

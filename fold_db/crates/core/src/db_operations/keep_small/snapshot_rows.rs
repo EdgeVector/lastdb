@@ -99,13 +99,3 @@ pub(super) fn schema_owner_for_molecule(
         .cloned()
         .unwrap_or_else(|| KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string())
 }
-
-pub(super) fn schema_owner_for_store_key(
-    key: &str,
-    molecule_schema: &HashMap<String, String>,
-) -> String {
-    crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(key).map_or_else(
-        || KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string(),
-        |molecule| schema_owner_for_molecule(molecule, molecule_schema),
-    )
-}

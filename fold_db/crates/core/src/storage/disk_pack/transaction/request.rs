@@ -76,7 +76,7 @@ where
     }
     let operations = pending.freeze_operations();
     super::require_captured_changes(&runtime, Some(&pending), &operations)?;
-    super::require_record_layout(&runtime, &operations)?;
+    super::require_record_layout(&operations)?;
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
     // A merge can publish an equivalent physical root during logical
@@ -233,7 +233,6 @@ fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult
             .expect("native model reservation")
             .take();
     }
-    let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
     let definitions = std::mem::take(
         &mut *pending
             .definitions
@@ -249,7 +248,7 @@ fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult
         .clone();
     let publication = super::super::logical_paths::PathPublication { definitions, owner };
     let protection =
-        match super::super::logical_paths::PathProtection::reserve(runtime, &paths, publication) {
+        match super::super::logical_paths::PathProtection::reserve(runtime, publication) {
             Ok(protection) => protection,
             Err(StorageError::WriteResourceLimit { .. }) => return Ok(()),
             Err(error) => return Err(error),

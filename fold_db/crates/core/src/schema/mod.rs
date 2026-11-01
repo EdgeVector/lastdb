@@ -24,7 +24,6 @@
 // Internal modules
 pub mod core;
 
-pub mod field_write;
 pub mod interpreter;
 pub mod manifest_retention;
 pub mod mutation_author;

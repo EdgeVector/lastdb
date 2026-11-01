@@ -10,7 +10,6 @@ use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
-use super::AtomSize;
 use crate::atom::molecule_key_codec;
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::SchemaError;
@@ -31,7 +30,6 @@ impl AtomStore {
     ) -> Result<TipCommit, SchemaError> {
         self.require_write_scope()?;
         let TipChangeSet {
-            history,
             scope,
             tips,
             bodies,
@@ -44,14 +42,8 @@ impl AtomStore {
         } = set;
         let tips = collapse_tips(tips);
         let old = measure("old_tips_us", self.read_old_tips(&tips)).await?;
-        let recorded = self
-            .prepare_atom_history(history, scope, &tips, &old)
-            .await?;
-        let mut records = records;
-        records.extend(recorded.refs);
         let records = dedupe_records(records);
         let mut rows = rows;
-        rows.extend(recorded.rows);
         let new_records = self.read_new_records(&records).await?;
         let released = self.read_released_records(releases).await?;
         let file_deltas = released.file_deltas(&records, &new_records);
@@ -89,8 +81,6 @@ impl AtomStore {
             self.apply_molecule_counters(scope, &changes, rows),
         )
         .await?;
-        let previous = previous_tips(&old);
-        let atom_sizes = atom_sizes(&before, &offers);
         let (mutations, mut commit) = measure(
             "build_rows_us",
             build_mutations(
@@ -104,9 +94,7 @@ impl AtomStore {
             ),
         )
         .await?;
-        commit.previous = previous;
-        commit.atom_sizes = atom_sizes;
-        commit.headers = molecule_run.headers;
+        commit.old_tips = old.len() as u64;
         commit.records_released = records_released;
         commit.guarded_deleted = guarded_deleted;
         for (molecule, fault) in molecule_run.faults {
@@ -185,41 +173,6 @@ impl AtomStore {
             "atom counter changes require a complete native write scope".into(),
         ))
     }
-}
-
-/// The old tip of each changed key.
-fn previous_tips(old: &HashMap<String, PerKeyRecord>) -> HashMap<String, PreviousTip> {
-    old.iter()
-        .map(|(key, record)| {
-            let row_bytes =
-                crate::db_operations::keep_small::molecule_counter_row_bytes(record).unwrap_or(0);
-            (
-                key.clone(),
-                PreviousTip {
-                    row_bytes,
-                    atom_uuid: record.entry.atom_uuid.clone(),
-                },
-            )
-        })
-        .collect()
-}
-
-/// The known size of each atom whose count changes: the body this run
-/// creates, else the size its counter holds.
-fn atom_sizes(
-    before: &HashMap<String, AtomBefore>,
-    offers: &HashMap<String, super::read::Offer>,
-) -> HashMap<String, AtomSize> {
-    let mut sizes: HashMap<String, AtomSize> = before
-        .iter()
-        .filter_map(|(atom, state)| Some((atom.clone(), state.counter.as_ref()?.size?)))
-        .collect();
-    for (atom, offer) in offers {
-        if let Some(size) = offer.size {
-            sizes.insert(atom.clone(), size);
-        }
-    }
-    sizes
 }
 
 /// Keep the last change of each tip key, in key order.

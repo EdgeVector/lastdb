@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};
-use tracing::info;
 
 use super::receipt::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
@@ -13,37 +12,22 @@ use super::MutationManager;
 
 use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance};
 
-/// Keys in one chunk of an erase. The budget in `purge::budget` counts the same chunks.
-const PURGE_BARRIER_CHUNK: usize = super::super::purge::budget::ERASE_CHUNK_KEYS;
-
 mod access_entry;
 mod admission;
 mod attribution;
 mod batch_inner;
 mod create_update_batch;
-mod delete_winners;
 mod erase_guards;
 mod erasure;
-mod hard_erasure;
-pub(super) use hard_erasure::group_mutations_by_schema;
-mod hard_erasure_process;
 mod layout;
 mod molecule_keys;
 mod native;
-mod native_paths;
 mod record_effects;
 mod records;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 mod replay_cutoff;
-mod schema_delta;
 mod schema_delta_helpers;
 mod timing;
-
-pub(in crate::fold_db_core::mutation_manager) struct HardErasureOptions<'a> {
-    pub(in crate::fold_db_core::mutation_manager) storage_prefix: Option<&'a str>,
-    pub(in crate::fold_db_core::mutation_manager) missing: super::super::purge::PurgeMissingPolicy,
-    pub(in crate::fold_db_core::mutation_manager) verb: super::super::purge::HardEraseVerb,
-}
 
 impl MutationManager {
     /// [`Self::write_mutations_with_access_receipt`] returning only the

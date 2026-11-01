@@ -206,16 +206,6 @@ pub struct MoleculeTipCounterSource {
     pub blob_reference_bytes: u64,
 }
 
-/// Bytes one molecule row contributes to its storage counter: the length of
-/// its JSON serialization. The write path (`account_keep_small_items`) and the
-/// bootstrap measurer (`measure_molecule_counter`) both call this, so a row
-/// they both see can only count the same.
-pub fn molecule_counter_row_bytes<T: Serialize + ?Sized>(
-    value: &T,
-) -> Result<u64, serde_json::Error> {
-    serde_json::to_vec(value).map(|raw| raw.len() as u64)
-}
-
 impl MoleculeStorageCounter {
     #[must_use]
     pub fn logical_value_bytes(&self) -> u64 {
@@ -238,20 +228,6 @@ impl SchemaMeter {
     #[must_use]
     pub fn plane_bytes(&self) -> u64 {
         self.tip_bytes.saturating_add(self.bookkeeping_bytes)
-    }
-}
-
-/// Move a per-schema counter by the signed delta `new - previous`.
-///
-/// Saturating in both directions: a counter that hydrated from an older
-/// snapshot has no history for keys written before the field existed, so a
-/// shrink can legitimately try to subtract more than it holds.
-#[must_use]
-pub fn apply_delta(current: u64, new_bytes: u64, previous_bytes: u64) -> u64 {
-    if new_bytes >= previous_bytes {
-        current.saturating_add(new_bytes - previous_bytes)
-    } else {
-        current.saturating_sub(previous_bytes - new_bytes)
     }
 }
 
@@ -309,10 +285,4 @@ pub fn atom_histogram(sizes: &[u64]) -> AtomHistogram {
             .filter(|&&b| b >= ATOM_HISTOGRAM_64KIB)
             .count() as u64,
     }
-}
-
-/// UTC calendar day used to bucket append bytes.
-#[must_use]
-pub fn utc_day(now: DateTime<Utc>) -> String {
-    now.format("%Y-%m-%d").to_string()
 }

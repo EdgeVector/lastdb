@@ -3,44 +3,9 @@ use std::collections::HashMap;
 use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
 use crate::schema::SchemaError;
 
-use super::{AtomStore, PerKeyRecord};
+use super::AtomStore;
 
 impl AtomStore {
-    /// Read exact Delete target tips in one batch.
-    pub(crate) async fn delete_target_tips(
-        &self,
-        molecule_keys: &[String],
-    ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        self.main_store
-            .get_items(molecule_keys)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("read Delete target tips: {error}")))
-    }
-
-    /// Read the same exact base/generation winner as a point reader, without
-    /// filtering its Delete barrier. The caller supplies the exact scope.
-    pub(crate) async fn delete_target_tips_with_generations(
-        &self,
-        molecule_keys: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        let prefix = crate::schema::types::field::build_storage_key(storage_prefix, "");
-        let base_keys = molecule_keys
-            .iter()
-            .map(|key| {
-                key.strip_prefix(&prefix)
-                    .map(str::to_string)
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData(
-                            "Delete target is outside the exact storage scope".into(),
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        self.load_exact_per_key_records(storage_prefix, &base_keys)
-            .await
-    }
-
     /// Read exact Delete winners in one batch while the caller holds the tip locks.
     /// A negative result is a read by key; it is not a collection scan.
     pub(crate) async fn winning_delete_barriers(
@@ -103,36 +68,5 @@ impl AtomStore {
             }
         }
         Ok(winners)
-    }
-
-    /// Read the barrier winners and eligible target tips for Delete convergence.
-    /// The caller holds the tip locks across both batch reads and the barrier write.
-    pub(crate) async fn delete_converge_targets(
-        &self,
-        planned: &[DeleteBarrier],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<(DeleteBarrier, Option<PerKeyRecord>)>, SchemaError> {
-        let keys: Vec<String> = planned
-            .iter()
-            .map(|barrier| barrier.mk_key.clone())
-            .collect();
-        let winners = self.winning_delete_barriers(&keys).await?;
-        let eligible: Vec<DeleteBarrier> = planned
-            .iter()
-            .filter(|barrier| {
-                !winners
-                    .get(&barrier.mk_key)
-                    .is_some_and(|winner| winner.is_newer_than(barrier))
-            })
-            .cloned()
-            .collect();
-        let eligible_keys: Vec<String> = eligible
-            .iter()
-            .map(|barrier| barrier.mk_key.clone())
-            .collect();
-        let tips = self
-            .delete_target_tips_with_generations(&eligible_keys, storage_prefix)
-            .await?;
-        Ok(eligible.into_iter().zip(tips).collect())
     }
 }

@@ -4,7 +4,7 @@ use crate::schema::types::key_value::KeyValue;
 use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
 
-use super::{ChangeTime, LocalTip, MoleculeHashRange};
+use super::MoleculeHashRange;
 use crate::atom::AtomEntry;
 
 impl MoleculeHashRange {
@@ -18,39 +18,6 @@ impl MoleculeHashRange {
     #[must_use]
     pub fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
-    }
-
-    /// Add a local tip at explicit hash and range values.
-    /// A new write advances its author clock even when the atom is unchanged.
-    ///
-    /// The caller supplies every value the model must not produce: the device
-    /// id from its signing key, the write time, and the molecule's
-    /// `updated_at`. Core's `MoleculeClock` reads the clock and the key.
-    pub fn set_local_tip_at(
-        &mut self,
-        hash_value: String,
-        range_value: String,
-        tip: LocalTip,
-        time: ChangeTime,
-    ) {
-        self.version += 1;
-        self.atom_uuids.entry(hash_value).or_default().insert(
-            range_value,
-            AtomEntry::thin_with_author(
-                tip.atom_uuid,
-                time.written_at,
-                tip.logical_counter,
-                tip.device_id,
-                tip.mutation_uuid,
-                String::new(),
-            ),
-        );
-        self.updated_at = time.updated_at;
-    }
-
-    /// Clear conflict decisions after their successful store.
-    pub fn clear_pending_tip_conflicts(&mut self) {
-        self.pending_tip_conflicts.clear();
     }
 
     /// Returns the UUID of the Atom referenced by the specified hash and range values.
@@ -79,38 +46,6 @@ impl MoleculeHashRange {
                 .map(|(k, e)| (k.clone(), e.atom_uuid.clone()))
                 .collect()
         })
-    }
-
-    /// Removes the reference at the specified hash and range values.
-    /// Bumps the version counter if an entry was actually removed.
-    /// The caller reads the clock for `updated_at`.
-    pub fn remove_atom_uuid_at(
-        &mut self,
-        hash_value: &str,
-        range_value: &str,
-        updated_at: DateTime<Utc>,
-    ) -> Option<String> {
-        let (entry, remove_empty_hash) = match self.atom_uuids.get_mut(hash_value) {
-            Some(range_map) => {
-                let entry = range_map.remove(range_value);
-                let remove_empty_hash = entry.is_some() && range_map.is_empty();
-                (entry, remove_empty_hash)
-            }
-            None => return None,
-        };
-
-        if remove_empty_hash {
-            self.atom_uuids.remove(hash_value);
-        }
-
-        if let Some(entry) = entry {
-            self.remove_key_metadata(hash_value, range_value);
-            self.version += 1;
-            self.updated_at = updated_at;
-            return Some(entry.atom_uuid);
-        }
-
-        None
     }
 
     /// Returns the total number of atoms in this molecule.
@@ -164,33 +99,11 @@ impl MoleculeHashRange {
         keys
     }
 
-    /// Sets per-key metadata for a given hash + range key combination.
-    pub fn set_key_metadata(
-        &mut self,
-        hash: String,
-        range: String,
-        meta: crate::atom::KeyMetadata,
-    ) {
-        self.key_metadata
-            .entry(hash)
-            .or_default()
-            .insert(range, meta);
-    }
-
     /// Returns the per-key metadata for a given hash + range key, if any.
     #[must_use]
     pub fn get_key_metadata(&self, hash: &str, range: &str) -> Option<&crate::atom::KeyMetadata> {
         self.key_metadata
             .get(hash)
             .and_then(|range_map| range_map.get(range))
-    }
-
-    pub(super) fn remove_key_metadata(&mut self, hash: &str, range: &str) {
-        if let Some(range_map) = self.key_metadata.get_mut(hash) {
-            range_map.remove(range);
-            if range_map.is_empty() {
-                self.key_metadata.remove(hash);
-            }
-        }
     }
 }

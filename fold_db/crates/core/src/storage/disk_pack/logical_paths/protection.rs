@@ -1,12 +1,11 @@
-//! Reserve every typed effect before the complete publication boundary.
+//! Reserve the prepared core memory definitions before the complete
+//! publication boundary.
 
 use super::*;
-use crate::resident::{CoreModelChange, CoreModelUpdate, PreparedCoreMemory};
-use std::collections::BTreeMap;
+use crate::resident::{CoreModelUpdate, PreparedCoreMemory};
 
 pub(crate) struct PathProtection {
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
-    keys: Vec<CorePath>,
     pending: Mutex<Option<CoreModelUpdate>>,
 }
 
@@ -18,48 +17,16 @@ pub(crate) struct PathPublication {
 impl PathProtection {
     pub(crate) fn reserve(
         runtime: &PackRuntime,
-        records: &[LogicalPathRecord],
         publication: PathPublication,
     ) -> StorageResult<Arc<Self>> {
-        let bytes = records
-            .iter()
-            .map(LogicalPathRecord::retained_bytes)
-            .try_fold(0usize, |total, bytes| {
-                total.checked_add(bytes).ok_or_else(capacity)
-            })?;
-        if bytes > 128 * 1024 * 1024 {
-            return Err(capacity());
-        }
-        let mut changes = BTreeMap::new();
-        // A disk-first fallback does not turn refused write memory into an
-        // uncharged clean cache entry. Reads can fetch that value after commit.
-        for record in records
-            .iter()
-            .filter(|record| record.slot.is_none() || publication.owner.is_some())
-        {
-            changes.insert(
-                record.path.core(),
-                prepared(
-                    record.path.core(),
-                    record.slot.clone(),
-                    record.source_dependencies(),
-                )?,
-            );
-        }
-        let keys: Vec<_> = changes.keys().cloned().collect();
-        let mut core = runtime.core.lock().expect("core write reservation");
-        let keys = core.reserve_paths(&keys).map_err(|_| capacity())?;
-        let changes: Vec<_> = changes.into_values().collect();
-        let Ok(update) =
-            core.prepare_clean(changes, publication.definitions, publication.owner.as_ref())
-        else {
-            core.release_paths(&keys);
-            return Err(capacity());
-        };
-        drop(core);
+        let update = runtime
+            .core
+            .lock()
+            .expect("core write reservation")
+            .prepare_clean(publication.definitions, publication.owner.as_ref())
+            .map_err(|_| capacity())?;
         Ok(Arc::new(Self {
             core: Arc::clone(&runtime.core),
-            keys,
             pending: Mutex::new(Some(update)),
         }))
     }
@@ -75,31 +42,6 @@ impl PathProtection {
             .install_clean(&update);
         Ok(())
     }
-}
-
-impl Drop for PathProtection {
-    fn drop(&mut self) {
-        if let Ok(mut core) = self.core.lock() {
-            core.release_paths(&self.keys);
-        }
-    }
-}
-
-fn prepared(
-    path: CorePath,
-    slot: Option<CoreWarmSlot>,
-    (complete, mut sources): (bool, Vec<(String, String)>),
-) -> StorageResult<CoreModelChange> {
-    sources.sort();
-    sources.dedup();
-    if !complete || sources.len() > 64 {
-        return Err(capacity());
-    }
-    Ok(CoreModelChange {
-        path,
-        slot,
-        sources,
-    })
 }
 
 fn capacity() -> StorageError {

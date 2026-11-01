@@ -1,6 +1,5 @@
 //! One native request owns every schema's stored bytes before publication.
 
-use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
@@ -101,20 +100,16 @@ impl MutationManager {
                     mutation_ids,
                 });
             }
-            self.check_batch_preconditions(
-                &mutations,
-                request.storage_prefix,
-                request.runtime.record_home(),
-            )
-            .await?;
+            self.check_batch_preconditions(&mutations, request.storage_prefix)
+                .await?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
             // Keep the private multi-schema stage behind one future
             // allocation instead of expanding it in every host caller.
-            let (delta_count, logical_candidates) = super::super::logical_capture::collect(
+            let (group_count, logical_records) = super::super::logical_capture::collect(
                 &request.runtime,
-                self.stage_grouped_deltas(
+                self.stage_record_groups(
                     mutations,
                     hashes,
                     request.storage_prefix,
@@ -127,8 +122,8 @@ impl MutationManager {
             .await?;
             request
                 .runtime
-                .record_read_stage("stored-stages-done", delta_count);
-            self.finish_logical_capture(&request.runtime, &mutation_ids, logical_candidates)
+                .record_read_stage("stored-stages-done", group_count);
+            self.finish_logical_capture(&request.runtime, &mutation_ids, logical_records)
                 .await?;
             measure("author_clock_us", self.stage_native_author_clock()).await?;
             measure(
@@ -170,90 +165,18 @@ impl MutationManager {
         Ok(())
     }
 
-    pub(super) async fn stage_native_delta(
+    /// Charge the request's staged core memory to the defer window, or make
+    /// the request wait for disk when the window is full.
+    pub(in crate::fold_db_core::mutation_manager) fn reserve_native_core_memory(
         &self,
-        mut delta: PreparedSchemaDelta,
-        runtime: &Arc<PackRuntime>,
-        heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
+        runtime: &PackRuntime,
     ) -> Result<(), SchemaError> {
-        self.schema_manager
-            .require_queryable_schema(&delta.schema_name)?;
-        let alternate_keys = crate::alternate_keys::affected_keys(
-            &delta.schema,
-            &delta.schema_mutations,
-            &delta.mutation_key_values,
-        );
-        let scope = delta
-            .schema
-            .runtime_fields
-            .values()
-            .find_map(|field| field.common().storage_prefix())
-            .map(str::to_owned);
-        let alternate_before = if alternate_keys.is_empty() {
-            Vec::new()
+        let bytes = transaction::memory_quote(runtime)?;
+        if let Some(reservation) = self.try_reserve_defer(bytes) {
+            transaction::retain_raw_memory_reservation(runtime, reservation)?;
         } else {
-            self.db_ops
-                .atoms()
-                .alternate_fields(&delta.schema, &alternate_keys, scope.as_deref())
-                .await?
-        };
-        let modified_fields = measure("rebase_us", async {
-            self.rebase_delta_for_publish(&mut delta, heads)
-        })
-        .await;
-        heads.record(&delta);
-        self.collect_logical_delta(&delta, runtime)?;
-        let pending_persist_task = delta.pending_persist_task.take();
-        let mut job = into_native_job(delta, modified_fields);
-        measure("store_job_us", self.stage_native_job(&mut job)).await?;
-        self.db_ops
-            .atoms()
-            .stage_alternate_changes(
-                &job.schema,
-                &alternate_keys,
-                &alternate_before,
-                job.storage_prefix.as_deref(),
-            )
-            .await?;
-        measure("logical_paths_us", self.stage_native_paths(&job, runtime)).await?;
-        runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
-        if let Some(batch) = job.search_batch.take() {
-            let inbox = self.search_outbox_inbox.clone();
-            transaction::after_commit(runtime, async move {
-                Self::deliver_search_outbox(inbox, batch).await
-            })?;
+            transaction::require_durable(runtime)?;
         }
-        transaction::retain(runtime, pending_persist_task)?;
         Ok(())
-    }
-}
-
-fn into_native_job(
-    delta: PreparedSchemaDelta,
-    modified_fields: super::super::helpers::ModifiedFieldKeys,
-) -> DeferredPersistJob {
-    let storage_prefix = delta
-        .schema
-        .runtime_fields
-        .values()
-        .find_map(|field| field.common().storage_prefix())
-        .map(str::to_string);
-    let retention_hash_partitions = delta
-        .tracks_retention_hash_partitions
-        .then(|| delta.mutation_key_values.clone());
-    let retention_write = delta
-        .tracks_retention_age
-        .then_some(delta.mutation_key_values);
-    DeferredPersistJob {
-        deferred_atoms: delta.deferred_atoms,
-        storage_prefix,
-        search_batch: delta.search_batch,
-        share_prefixes: delta.share_prefixes,
-        schema: delta.schema,
-        modified_fields,
-        idempotency_entries: delta.idempotency_entries,
-        retention_write,
-        retention_hash_partitions,
-        schema_name: delta.schema_name,
     }
 }

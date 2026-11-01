@@ -3,19 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    /// A reused body has no new live credit. The old aggregate projection
-    /// cannot infer its revival or aliases; molecule sources stay exact.
-    pub(super) fn mark_reused_atom_aggregate_incomplete(&self, schema: &str) {
-        if let Ok(mut trust) = self.trust.lock() {
-            let cause = "reused_atom_live_transition_requires_repair";
-            trust.global = MeterDomainTrust::incomplete(cause);
-            trust
-                .schemas
-                .insert(schema.to_string(), MeterDomainTrust::incomplete(cause));
-        }
-        self.mark_schema_dirty(Some(schema));
-    }
-
     /// Current persisted trust payload.
     #[must_use]
     pub fn trust(&self) -> MeterTrustPayload {

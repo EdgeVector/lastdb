@@ -1,6 +1,5 @@
 //! Idempotent-mutation filtering against current state.
 
-use crate::db_operations::AtomStore;
 use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
@@ -56,18 +55,13 @@ impl MutationManager {
                         hash,
                         mutation.uuid
                     );
-                } else if self
-                    .idempotency_hit_matches_current_state(&mutation, storage_prefix)
-                    .await?
-                {
+                } else if mutation.fields_and_values.is_empty() {
+                    // A record merges by stamp, so a repeated mutation leaves
+                    // its record as it is. A hit without field values (a
+                    // delete) is already seen; a hit with field values merges
+                    // again and its equal stamp changes nothing.
                     already_seen_ids.push(cached_id);
                     continue;
-                } else {
-                    tracing::debug!(
-                        "Idempotency hit for mutation hash {} is stale against current molecule heads; reapplying mutation {}",
-                        hash,
-                        mutation.uuid
-                    );
                 }
             }
             new_hashes.push(hash);
@@ -86,60 +80,5 @@ impl MutationManager {
             candidate.schema_name == mutation.schema_name
                 && candidate.key_value == mutation.key_value
         })
-    }
-
-    /// A prior mutation-content hash also requires matching current values.
-    /// Atom UUID equality below checks only the source schema and value;
-    /// it does not compare the tip's author clock or per-key metadata.
-    ///
-    /// Without this state check, Create(A) → Delete → Create(A) is misread as
-    /// a duplicate of the first Create and the live heads stay dead. The atom
-    /// UUIDs are content-addressed, so reapplying the second Create still
-    /// reuses the original atom and advances its tip with the new author clock.
-    /// The helper reads current logical tips, including accepted changes that
-    /// still await flush. A disk-only comparison could skip the retry.
-    ///
-    /// Only Create/Update reach here: `write_mutations_batch_async` peels both
-    /// hard-erasure verbs off before the idempotency filter runs.
-    pub(super) async fn idempotency_hit_matches_current_state(
-        &self,
-        mutation: &Mutation,
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        let Some(mut schema) = self
-            .schema_manager
-            .get_schema_metadata(&mutation.schema_name)?
-        else {
-            return Ok(false);
-        };
-        super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
-
-        let key_value =
-            self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
-        let changed_keys = super::molecules::field_rules::changed_keys_by_field(
-            &schema,
-            std::slice::from_ref(mutation),
-            std::slice::from_ref(&key_value),
-        );
-        self.restore_missing_molecules(&mut schema, &changed_keys)
-            .await?;
-
-        for (field_name, value) in &mutation.fields_and_values {
-            let Some(schema_field) = schema.runtime_fields.get(field_name) else {
-                return Ok(false);
-            };
-            let expected_atom = AtomStore::create_atom(
-                &mutation.schema_name,
-                value.clone(),
-                mutation.source_file_name.clone(),
-                mutation.metadata.clone(),
-            )?;
-            let current_uuid = schema_field.current_atom_uuid(&key_value);
-            if current_uuid.as_deref() != Some(expected_atom.uuid()) {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
     }
 }

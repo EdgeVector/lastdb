@@ -9,64 +9,6 @@ use serde::{de::DeserializeOwned, Serialize};
 static HEADER_MEMORY: u8 = 0;
 
 impl AtomStore {
-    pub(crate) async fn stage_current_molecule_selectors(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        molecules: &[String],
-        scope: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let mut keys: Vec<_> = molecules
-            .iter()
-            .map(|molecule| {
-                crate::schema::types::field::build_storage_key(
-                    scope,
-                    &crate::atom::molecule_key_codec::molecule_generation_pointer_key(molecule),
-                )
-            })
-            .collect();
-        keys.sort();
-        keys.dedup();
-        self.stage_loaded_controls::<super::super::MoleculeGenerationPointer>(runtime, keys)
-            .await
-    }
-
-    pub(crate) async fn stage_current_molecule_headers(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        molecules: &[String],
-        scope: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let keys: Vec<_> = molecules
-            .iter()
-            .map(|molecule| {
-                crate::schema::types::field::build_storage_key(
-                    scope,
-                    &crate::atom::molecule_key_codec::header_key(molecule),
-                )
-            })
-            .collect();
-        self.stage_loaded_controls::<MoleculeHeader>(runtime, keys)
-            .await
-    }
-
-    pub(crate) fn stage_molecule_header(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        molecule: &str,
-        data: &super::super::MoleculeData,
-        scope: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let key = crate::schema::types::field::build_storage_key(
-            scope,
-            &crate::atom::molecule_key_codec::header_key(molecule),
-        );
-        let header = Some(MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        });
-        stage_header_control(runtime, key, header)
-    }
-
     pub(super) async fn header_from_memory(
         &self,
         key: &str,
@@ -99,22 +41,6 @@ impl AtomStore {
         let held = core_memory_insert(runtime, owner, key.to_owned(), control, sources, bytes)?;
         Ok(held.as_ref().as_ref().cloned())
     }
-
-    /// Load these storage keys in input order and stage each value.
-    async fn stage_loaded_controls<T>(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        keys: Vec<String>,
-    ) -> Result<(), SchemaError>
-    where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
-    {
-        let values = self.main_store.get_items::<T>(&keys).await?;
-        for (key, value) in keys.into_iter().zip(values) {
-            stage_header_control(runtime, key, value)?;
-        }
-        Ok(())
-    }
 }
 
 fn header_memory_owner() -> usize {
@@ -128,25 +54,4 @@ fn header_control_bytes<T: Serialize>(value: &T) -> Result<usize, SchemaError> {
         .len()
         .saturating_mul(8)
         .saturating_add(256))
-}
-
-fn stage_header_control<T>(
-    runtime: &crate::storage::disk_pack::PackRuntime,
-    key: String,
-    value: T,
-) -> Result<(), SchemaError>
-where
-    T: std::any::Any + Send + Sync + Serialize,
-{
-    let bytes = header_control_bytes(&value)?;
-    let sources = core_memory_sources("main", key.as_bytes());
-    crate::storage::disk_pack::transaction::stage_core_memory(
-        runtime,
-        header_memory_owner(),
-        key,
-        value,
-        sources,
-        bytes,
-    )?;
-    Ok(())
 }

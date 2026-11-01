@@ -5,17 +5,6 @@ use crate::db_operations::atom_store::AtomStore;
 use std::collections::BTreeSet;
 
 impl AtomStore {
-    pub(crate) async fn alternate_fields(
-        &self,
-        schema: &Schema,
-        keys: &[KeyValue],
-        scope: Option<&str>,
-    ) -> Result<Vec<RecordFields>, SchemaError> {
-        let names = schema.alternate_dependency_fields();
-        self.schema_fields_at_keys(schema, keys, scope, &names)
-            .await
-    }
-
     pub(crate) async fn schema_fields_at_keys(
         &self,
         schema: &Schema,

@@ -14,22 +14,19 @@
 //! Cross-node divergence is handled elsewhere (append-only event schemas +
 //! conflict records at the app layer).
 //!
-//! ## Two expectation shapes
+//! ## Expectation shapes
 //!
-//! The card (lastgit review F4) calls for "field value or record content hash".
-//! Both are expressed here, plus the create-only "must not exist yet" case a ref
-//! *creation* needs:
-//!
+//! - [`CasExpectation::Mutation`] — expect a named field to still hold the
+//!   value that one authored mutation wrote.
 //! - [`CasExpectation::Value`] — expect a named field to currently hold exactly
 //!   this JSON value. Natural for a ref update keyed on the ref's current target
-//!   SHA. This is compared against the live molecule head's *value*, so it is
-//!   robust to atom-uuid representation and reads naturally at the call site.
-//! - [`CasExpectation::ContentHash`] — expect the record's current content hash
-//!   (the atom UUID at the mutation's key for the CAS-guarded field) to equal
-//!   this string. The whole-record fingerprint form.
+//!   SHA. This is compared against the field's value in the stored record.
 //! - [`CasExpectation::Absent`] — expect NO live value at the key yet
-//!   (create-if-absent). A tombstoned key counts as absent, matching delete +
+//!   (create-if-absent). A deleted record counts as absent, matching delete +
 //!   recreate semantics.
+//!
+//! The content hash shape was dropped with the record model (Tom,
+//! 2026-11-01): a record has no atom whose identity could be compared.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,15 +54,6 @@ pub enum CasExpectation {
         /// The value that field must currently hold for the write to apply.
         value: Value,
     },
-    /// The record's current content hash — the atom UUID that the CAS-guarded
-    /// `field`'s molecule head resolves to at the mutation's key — must equal
-    /// `hash`. A missing / tombstoned head never matches.
-    ContentHash {
-        /// The field whose current head atom UUID is compared.
-        field: String,
-        /// The atom UUID the field's head must currently be.
-        hash: String,
-    },
     /// No live value may exist yet at the mutation's key for `field`
     /// (create-if-absent). A tombstoned head counts as absent.
     Absent {
@@ -76,15 +64,13 @@ pub enum CasExpectation {
 
 impl CasExpectation {
     /// The field this expectation is asserted against. Every shape names one
-    /// field so the write path knows which molecule head to read for the
-    /// compare.
+    /// field so the write path knows which record field to compare.
     #[must_use]
     pub fn field(&self) -> &str {
         match self {
-            Self::Mutation { field, .. }
-            | Self::Value { field, .. }
-            | Self::ContentHash { field, .. }
-            | Self::Absent { field } => field,
+            Self::Mutation { field, .. } | Self::Value { field, .. } | Self::Absent { field } => {
+                field
+            }
         }
     }
 }
