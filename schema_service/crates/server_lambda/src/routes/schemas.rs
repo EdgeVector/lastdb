@@ -4,8 +4,8 @@ use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
-    accepted_similarity_threshold, BatchReuseReply, SchemaAddReply, SchemaResolveReply,
-    SimilarSchemasReply,
+    similarity_threshold_reply, BatchReuseReply, SchemaAddReply, SchemaResolveReply,
+    SimilarSchemasReply, SimilarityThresholdReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -77,11 +77,9 @@ pub(crate) fn get_schemas_similar(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let schema_name = p.trim_start_matches("/v1/schemas/similar/");
-    let Some(threshold) = accepted_similarity_threshold(Some(parse_threshold(event))) else {
-        return json_response(
-            400,
-            &json!({"error": "Threshold must be between 0.0 and 1.0"}),
-        );
+    let threshold = match similarity_threshold_reply(Some(parse_threshold(event))) {
+        SimilarityThresholdReply::Ready(threshold) => threshold,
+        SimilarityThresholdReply::Refused { body } => return json_response(400, &body),
     };
 
     match state.similar_schemas_reply(schema_name, threshold) {

@@ -2,7 +2,7 @@
 
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
-    accepted_similarity_threshold, SchemaByNameReply, SimilarSchemasReply,
+    similarity_threshold_reply, SchemaByNameReply, SimilarSchemasReply, SimilarityThresholdReply,
 };
 use schema_service_core::RegistryIndexReply;
 
@@ -155,11 +155,10 @@ pub struct SimilarQuery {
 /// by [`find_similar`] and [`find_similar_transforms`]. Defaults to `0.5`
 /// when absent; returns a `400` response when it falls outside `[0.0, 1.0]`.
 pub(super) fn resolve_threshold(query: &SimilarQuery) -> Result<f64, HttpResponse> {
-    accepted_similarity_threshold(query.threshold).ok_or_else(|| {
-        HttpResponse::BadRequest().json(ErrorResponse {
-            error: "Threshold must be between 0.0 and 1.0".to_string(),
-        })
-    })
+    match similarity_threshold_reply(query.threshold) {
+        SimilarityThresholdReply::Ready(threshold) => Ok(threshold),
+        SimilarityThresholdReply::Refused { body } => Err(HttpResponse::BadRequest().json(body)),
+    }
 }
 
 #[allow(

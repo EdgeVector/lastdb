@@ -25,6 +25,31 @@ pub fn accepted_similarity_threshold(raw: Option<f64>) -> Option<f64> {
     (0.0..=1.0).contains(&threshold).then_some(threshold)
 }
 
+/// The similarity threshold both HTTP routers accept.
+///
+/// Absent input is 0.5. A value outside `0.0..=1.0` is HTTP 400.
+/// `body` is `{ "error": "Threshold must be between 0.0 and 1.0" }`.
+#[derive(Debug)]
+pub enum SimilarityThresholdReply {
+    /// The threshold is inside `0.0..=1.0`.
+    Ready(f64),
+    /// The threshold is outside `0.0..=1.0`. HTTP 400.
+    ///
+    /// `body` is `{ "error": "Threshold must be between 0.0 and 1.0" }`.
+    Refused { body: Value },
+}
+
+/// Classify [`accepted_similarity_threshold`] for the HTTP routers.
+#[must_use]
+pub fn similarity_threshold_reply(raw: Option<f64>) -> SimilarityThresholdReply {
+    match accepted_similarity_threshold(raw) {
+        Some(threshold) => SimilarityThresholdReply::Ready(threshold),
+        None => SimilarityThresholdReply::Refused {
+            body: json!({"error": "Threshold must be between 0.0 and 1.0"}),
+        },
+    }
+}
+
 /// The batch reuse result both HTTP routers answer.
 ///
 /// Success is HTTP 200 and `{ "matches": ... }`. Failure is HTTP 500.
@@ -101,7 +126,7 @@ impl SchemaServiceState {
     /// A missing schema stays HTTP 404 when the error text contains `not found`.
     /// The body uses the request name. Every other error stays HTTP 500.
     /// The find method stays public. Each router still writes its response.
-    /// A threshold outside `0.0..=1.0` stays in each router.
+    /// A threshold outside `0.0..=1.0` is refused before this call.
     #[must_use]
     pub fn similar_schemas_reply(&self, name: &str, threshold: f64) -> SimilarSchemasReply {
         match self.find_similar_schemas(name, threshold) {

@@ -7,7 +7,10 @@ mod proposals;
 mod similar;
 
 pub use proposals::SchemaResolveReply;
-pub use similar::{accepted_similarity_threshold, BatchReuseReply, SimilarSchemasReply};
+pub use similar::{
+    accepted_similarity_threshold, similarity_threshold_reply, BatchReuseReply,
+    SimilarSchemasReply, SimilarityThresholdReply,
+};
 
 /// Bound `POST /v1/schemas/resolve` so the public read path cannot turn one
 /// request into unbounded semantic matching work.
