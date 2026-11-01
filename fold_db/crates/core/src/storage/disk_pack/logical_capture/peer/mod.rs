@@ -1,12 +1,9 @@
-//! Owner-pinned peer anchors and bounded import positions share the data commit.
+//! Peer anchors read from one immutable native snapshot.
 
 use super::*;
 use serde::{Deserialize, Serialize};
 
 mod captured;
-mod enrollment;
-mod import;
-mod state;
 
 pub(super) use captured::positions as captured_positions;
 pub(super) const CAPTURE_RECORD_BYTES: u64 = 16 * 1024;
@@ -14,47 +11,11 @@ pub(super) const CAPTURE_RECORD_BYTES: u64 = 16 * 1024;
 const MAX_PEERS: usize = 32;
 const MAX_RECEIPTS: u64 = 65_536;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CaptureExportPage {
+pub(super) struct PeerPosition {
     pub anchor: Position,
     pub position: Position,
-    pub after: u64,
-    pub events: Vec<CaptureEvent>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PeerPosition {
-    pub anchor: Position,
-    pub position: Position,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ImportReceipt {
-    pub position: Position,
-    pub imported_events: usize,
-    pub duplicate_events: usize,
-    pub imported_outcomes: usize,
-    pub receipt_count: u64,
-    /// The merged records that the import kept out, with the reason. Each
-    /// keeps its stored value; the rest of the page lands.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub skipped_records: Vec<SkippedPeerRecord>,
-}
-
-/// One merged record of a peer page that the import kept out.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SkippedPeerRecord {
-    pub schema: String,
-    pub key: crate::schema::types::KeyValue,
-    /// The mutation of the last peer part that changed the merged record.
-    pub mutation_id: String,
-    /// The encoded size of the merged record.
-    pub bytes: usize,
-    pub reason: String,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,17 +51,6 @@ impl Roster {
         }
         Ok(())
     }
-
-    fn reserve_receipts(&mut self, count: usize) -> StorageResult<()> {
-        self.receipt_count = self
-            .receipt_count
-            .checked_add(count as u64)
-            .filter(|count| *count <= MAX_RECEIPTS)
-            .ok_or_else(|| StorageError::WriteResourceLimit {
-                detail: "logical peer import reached its 65536 digest receipt cap".into(),
-            })?;
-        Ok(())
-    }
 }
 
 impl PeerPosition {
@@ -120,30 +70,10 @@ impl PeerPosition {
     }
 }
 
-fn roster_key() -> String {
-    native_routing::encode(b"peers")
-}
-
 fn peer_key(origin: &str) -> String {
     native_routing::encode(format!("p\0{origin}").as_bytes())
 }
 
 pub(super) fn receipt_key(origin: &str, sequence: u64) -> String {
     native_routing::encode(format!("i\0{origin}\0{sequence:020}").as_bytes())
-}
-
-fn operation(key: String, body: Vec<u8>) -> HomeMutation {
-    HomeMutation {
-        collection: COLLECTION.into(),
-        key,
-        body: Some(body),
-    }
-}
-
-fn enabled_origin(runtime: &PackRuntime) -> StorageResult<String> {
-    runtime
-        .logical_capture
-        .as_ref()
-        .map(|capture| capture.identity.origin())
-        .ok_or_else(|| invalid("logical capture is disabled"))
 }

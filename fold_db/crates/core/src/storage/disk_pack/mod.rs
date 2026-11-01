@@ -10,46 +10,43 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod blocking;
-pub mod byte_backup;
-mod cas_delete;
+pub(in crate::storage) mod cas_delete;
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
-mod cleanup;
-mod cloud_work;
 mod diagnostics;
-pub use cleanup::{
-    NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
-};
-pub mod file_dependencies;
-pub use cloud_work::NativeCloudWorkGuard;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
 pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
-pub mod mutation_log;
 mod namespace_delete;
 pub(in crate::storage) mod native_routing;
-mod physical;
-mod physical_v2;
+pub(in crate::storage) mod physical;
+pub(in crate::storage) mod physical_v2;
 mod queue;
 mod read;
 pub(crate) mod record_warm;
 pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
-mod run_admission;
+pub(in crate::storage) mod run_admission;
 mod run_commit;
-mod run_node;
-pub mod run_restore;
-pub(crate) mod schema_keys;
-mod space;
+pub(in crate::storage) mod run_node;
+pub(in crate::storage) mod space;
 mod timing;
 pub(crate) mod transaction;
 mod view;
 mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
+pub use crate::storage::disk_backup::byte_backup;
+pub use crate::storage::disk_backup::file_dependencies;
+pub use crate::storage::disk_backup::mutation_log;
+pub use crate::storage::disk_backup::run_restore;
+pub use crate::storage::disk_backup::NativeCloudWorkGuard;
+pub use crate::storage::disk_cleanup::{
+    NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
+};
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
 pub(crate) use read::memory::{
@@ -61,17 +58,16 @@ pub(crate) use rows::WHOLE_COLLECTION_END;
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
-const NODE_MARKER: &str = "laststore-pack-node-v1";
+pub(in crate::storage) const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
 const NAMESPACES: &str = "namespaces\0";
 
 /// Shared v2 run homes and their complete published root.
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
-    physical: physical::V2Home,
-    cleanup_job: Arc<cleanup::CleanupJob>,
-    mutation_log: mutation_log::MutationLog,
-    logical_capture: Option<logical_capture::Capture>,
+    pub(in crate::storage) physical: physical::V2Home,
+    pub(in crate::storage) cleanup_job: Arc<crate::storage::disk_cleanup::CleanupJob>,
+    pub(in crate::storage) mutation_log: mutation_log::MutationLog,
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
@@ -81,17 +77,16 @@ pub struct PackRuntime {
     completed: tokio::sync::watch::Sender<u64>,
     persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
-    schema_keys: schema_keys::SchemaKeys,
-    failed: AtomicBool,
+    pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
     /// True for a format 7 home: the record model. Only such a home uses the
     /// `rk:` record keys and mints a record space key bundle for a schema.
     record_home: bool,
     restore_blocked: AtomicBool,
-    serving: AtomicBool,
+    pub(in crate::storage) serving: AtomicBool,
     // A failed commit retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
-    space_policy: laststore::space::SpacePolicy,
+    pub(in crate::storage) space_policy: laststore::space::SpacePolicy,
     /// The root that the last commit or merge installed, for a status read
     /// that does not wait for the view lock.
     last_root: Arc<view::LastRoot>,
@@ -108,7 +103,7 @@ struct PackKvStore {
     namespace: String,
 }
 
-fn map(error: laststore::Error) -> StorageError {
+pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {
     match error {
         laststore::Error::NativeProof(code) => StorageError::NativeProof {
             stage: crate::storage::error::NativeProofStage::NativeReader,
@@ -128,7 +123,7 @@ fn map(error: laststore::Error) -> StorageError {
     }
 }
 
-fn budget() -> ReadBudget {
+pub(in crate::storage) fn budget() -> ReadBudget {
     ReadBudget {
         pages: 4096,
         blocks: lastdb_storage_policy::native_read::EAGER_BLOCKS,
@@ -192,18 +187,16 @@ impl PackNamespacedStore {
         initializing: bool,
         record_home: bool,
         space_policy: laststore::space::SpacePolicy,
-        logical_capture: Option<logical_capture::Capture>,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
-        let cleanup_job = Arc::new(cleanup::CleanupJob::open(&physical));
+        let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
                 cleanup_job,
                 mutation_log,
-                logical_capture,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
@@ -215,7 +208,6 @@ impl PackNamespacedStore {
                 completed: tokio::sync::watch::channel(0).0,
                 persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
-                schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
@@ -244,7 +236,7 @@ impl PackRuntime {
 #[async_trait::async_trait]
 impl NamespacedStore for PackNamespacedStore {
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
-        if name.len() > 65531 || name == REGISTRY || name == logical_capture::COLLECTION {
+        if name.len() > 65531 || name == REGISTRY {
             return Err(StorageError::InvalidOperation(
                 "namespace exceeds format limit or uses the reserved registry identity".into(),
             ));
@@ -293,11 +285,6 @@ impl NamespacedStore for PackNamespacedStore {
     }
 
     async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
-        if name == logical_capture::COLLECTION {
-            return Err(StorageError::InvalidOperation(
-                "logical capture namespace is internal".into(),
-            ));
-        }
         self.runtime.delete_namespace(name).await
     }
 

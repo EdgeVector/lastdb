@@ -62,7 +62,7 @@ impl PackRuntime {
         self.restore_blocked.load(Ordering::Acquire)
     }
 
-    pub(super) fn require_restore_validated(&self) -> StorageResult<()> {
+    pub(in crate::storage) fn require_restore_validated(&self) -> StorageResult<()> {
         if self.restore_validation_pending() && !active(self) {
             return Err(StorageError::InvalidOperation(
                 "restore counters are unverified; cleanup and writes remain blocked".into(),

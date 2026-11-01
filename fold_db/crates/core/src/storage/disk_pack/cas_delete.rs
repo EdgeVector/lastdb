@@ -101,7 +101,7 @@ pub(super) fn save(
     v2.home.save_cas_delete_checkpoint(&bytes).map_err(map)
 }
 
-pub(super) fn require_clear(v2: &V2Home) -> StorageResult<()> {
+pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
     if v2.home.load_cas_delete_checkpoint().map_err(map)?.is_some() {
         return Err(invalid(
             "pending CAS deletion requires native recovery before backup",

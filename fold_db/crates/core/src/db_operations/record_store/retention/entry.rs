@@ -4,11 +4,8 @@ use super::super::counter::ReleaseRequest;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 
-pub(super) const ENTRY_VERSION: u8 = 1;
-
-/// The entry of one kept conflict row. A format 7 row writes it with no
-/// conflict key and no directory entry (`rows.rs`). The fields keep the shape
-/// that the release and older decoders read.
+/// The entry of one kept conflict row. The fields keep the shape that the
+/// release and older decoders read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RetentionEntry {
     #[serde(rename = "v")]

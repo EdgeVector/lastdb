@@ -5,9 +5,6 @@ mod accounting;
 pub(crate) mod blocked;
 mod effects;
 mod empty;
-mod logical_capture;
-pub(crate) use logical_capture::mark_logical_capture;
-pub(super) use logical_capture::require_captured_changes;
 mod record_layout;
 pub(super) use record_layout::require_record_layout;
 pub(crate) mod publication;
@@ -32,7 +29,7 @@ struct PendingData {
     bytes: u64,
 }
 
-pub(super) struct PendingBatch {
+pub(in crate::storage) struct PendingBatch {
     identity: uuid::Uuid,
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
@@ -41,7 +38,6 @@ pub(super) struct PendingBatch {
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
-    logical_capture_ready: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
@@ -66,7 +62,6 @@ impl PendingBatch {
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
-            logical_capture_ready: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
             definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
@@ -75,7 +70,7 @@ impl PendingBatch {
             warm_records: Mutex::new(warm_records::WarmRecords::default()),
         }
     }
-    pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {
+    pub(in crate::storage) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {
         WRITE
             .try_with(Arc::clone)
             .ok()
@@ -271,7 +266,7 @@ pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> S
 }
 
 /// Conservative complete-request charge, including fixed preparation overhead.
-pub(super) fn batch_bytes(
+pub(in crate::storage) fn batch_bytes(
     operations: &[HomeMutation],
     operation_limit: usize,
 ) -> StorageResult<u64> {
@@ -310,21 +305,6 @@ where
     E: From<StorageError>,
 {
     request_scope(runtime, future).await
-}
-
-/// Keep the request's shutdown/defer resource with its complete stored batch.
-pub(crate) fn retain(runtime: &PackRuntime, value: impl Send + 'static) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation(
-            "native request resource requires one complete preparation scope".into(),
-        )
-    })?;
-    pending
-        .retained
-        .lock()
-        .expect("native request resources")
-        .push(Box::new(value));
-    Ok(())
 }
 
 /// External consumers see changes only after the complete root is durable.

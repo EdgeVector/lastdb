@@ -65,9 +65,6 @@ impl MutationManager {
                 scope.as_deref(),
             )
             .await?;
-        if runtime.logical_capture_enabled() {
-            self.collect_logical_records(&schema, &group.keys, &group.changes)?;
-        }
         let deferred = group.deferred();
         self.stage_records_with_effects(
             &schema,

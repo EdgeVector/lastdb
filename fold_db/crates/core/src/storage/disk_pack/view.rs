@@ -33,7 +33,6 @@ pub struct NativeDiskStatus {
     pub core_warm_bytes: crate::resident::CoreWarmByteStats,
     pub core_memory: crate::resident::CoreMemoryStats,
     pub(crate) core_model: crate::resident::CoreModelStats,
-    pub schema_keys: schema_keys::SchemaKeyStatus,
 }
 
 #[derive(Clone)]
@@ -128,7 +127,6 @@ impl PackRuntime {
             core_warm_bytes: core_bytes,
             core_memory,
             core_model,
-            schema_keys: self.schema_keys.status(),
         }
     }
 
