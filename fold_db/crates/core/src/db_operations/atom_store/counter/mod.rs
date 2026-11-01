@@ -41,9 +41,7 @@ pub(crate) mod restore_validation;
 mod scan;
 mod verify;
 
-pub(crate) use commit::{
-    GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
-};
+pub(crate) use commit::{GuardedDelete, RecordRefs, ReleaseRequest, TipChangeSet, TipCommit};
 pub use read::AtomCounterView;
 pub use recount::{Change, RecountOptions, RecountReport};
 pub(crate) use refs::event_atoms;
@@ -116,5 +114,31 @@ impl AtomSize {
             crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())?;
         let logical = serde_json::to_vec(atom).map_or(0, |bytes| bytes.len() as u64);
         Some(Self(logical, blob))
+    }
+}
+
+impl super::AtomStore {
+    /// Check the scope that a verb names. The only scopes a verb may name are the
+    /// personal scope (no value) and a database scope: exactly 64 lowercase hex
+    /// characters. A mistyped scope reads an empty range and looks like a clean
+    /// scope, so the verbs that take a scope check it before they read. The check is
+    /// narrower than the key validation of the storage layer on purpose: a verb
+    /// never needs a `cloud:` or `from:` scope or a reserved name.
+    pub fn validate_scope(scope: Option<&str>) -> Result<(), crate::schema::SchemaError> {
+        let Some(scope) = scope else {
+            return Ok(());
+        };
+        let lower_hex = scope.len() == 64
+            && scope
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        if lower_hex {
+            return Ok(());
+        }
+        let shown: String = scope.chars().take(80).collect();
+        Err(crate::schema::SchemaError::InvalidData(format!(
+            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
+             or a database scope of exactly 64 lowercase hex characters"
+        )))
     }
 }
