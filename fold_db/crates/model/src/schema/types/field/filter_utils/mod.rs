@@ -1,50 +1,11 @@
-//! Shared utilities for filter application across keyed molecule fields.
-//!
-//! Storage is one shape ([`MoleculeHashRange`]). Filter **semantics** still
-//! follow the field's key projection ([`KeyedFilterMode`]): hash-only,
-//! range-only, or full hash+range. Production entry point:
-//! [`apply_keyed_filter`]. The `apply_hash_filter` / `apply_range_filter` /
-//! `apply_hash_range_filter` names remain as thin mode-specific wrappers for
-//! call sites that already know the mode.
-
-use crate::atom::MoleculeHashRange;
-use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult};
+//! Shared limits and bounds of the record range reads.
 
 /// Page size for an unfiltered field resolve when the caller passes no filter.
 /// Matches the historical `SampleN(100)` default cap (now that SampleN is a peek
-/// capped at [`SAMPLE_PEEK_CAP`], the bulk default must be a real `Page`). The
+/// capped at [`crate::schema::types::field::SAMPLE_PEEK_CAP`], the bulk default must be a real `Page`). The
 /// node query handler always supplies an explicit `Page`/key filter, so this
 /// only governs direct in-core callers.
 pub const DEFAULT_UNFILTERED_PAGE_LIMIT: usize = 100;
-
-/// How to project `(hash, range)` storage slots into public [`KeyValue`]s and
-/// which filter arms are meaningful for this field kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyedFilterMode {
-    /// Hash-only field: slots live at `(hash, "")`; API keys are `hash` only.
-    Hash,
-    /// Range-only field: slots live at `("", range)`; API keys are `range` only.
-    Range,
-    /// Full composite: slots and API keys are `(hash, range)`.
-    HashRange,
-}
-
-/// Single entry point for applying a [`HashRangeFilter`] to a keyed molecule.
-///
-/// Dispatches to the mode-specific filter body. Prefer this over calling the
-/// `apply_hash_*` wrappers from new production code.
-#[must_use]
-pub fn apply_keyed_filter(
-    molecule: &MoleculeHashRange,
-    optional_filter: Option<HashRangeFilter>,
-    mode: KeyedFilterMode,
-) -> HashRangeFilterResult {
-    match mode {
-        KeyedFilterMode::Hash => apply_hash_filter(molecule, optional_filter),
-        KeyedFilterMode::Range => apply_range_filter(molecule, optional_filter),
-        KeyedFilterMode::HashRange => apply_hash_range_filter(molecule, optional_filter),
-    }
-}
 
 /// Common filter application utilities
 pub struct FilterUtils;
@@ -73,14 +34,3 @@ impl FilterUtils {
         ))
     }
 }
-
-mod atom_match;
-mod hash_range;
-mod one_d;
-mod storage_bounds;
-
-pub use atom_match::field_value_from_atom;
-pub use atom_match::KeyedAtomMatch;
-pub use hash_range::apply_hash_range_filter;
-pub use one_d::{apply_hash_filter, apply_range_filter};
-pub use storage_bounds::filter_range_bounds_for_apply;

@@ -34,7 +34,7 @@
 //! cursors. A delete leaves a deleted key in its bucket, and the bucket leaves
 //! the directory when it is done, so no read ever passes the deleted keys of a
 //! long history. Only the modules here write these records.
-//! `scripts/lints/lint-atom-counter-writers.py` guards that.
+//! `scripts/lints/lint-store-writers.py` guards that.
 
 mod clock;
 mod commit;

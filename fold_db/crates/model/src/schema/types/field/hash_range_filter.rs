@@ -1,6 +1,5 @@
 use crate::schema::types::key_value::KeyValue;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// Hard cap on how many records a [`HashRangeFilter::SampleN`] peek ever
 /// returns. `SampleN` is a "see what the data looks like" primitive, not a
@@ -114,48 +113,5 @@ impl HashRangeFilter {
                 | Self::RangeRange { .. }
                 | Self::HashRange { .. }
         )
-    }
-}
-
-/// Result of a hash-range filter operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HashRangeFilterResult {
-    /// Matches with composite keys in format "KeyValue" -> atom_uuid
-    pub matches: HashMap<KeyValue, String>,
-    /// Total count of matches found
-    pub total_count: usize,
-    /// Number of hash groups that had matches
-    pub hash_groups_count: usize,
-}
-
-impl HashRangeFilterResult {
-    /// Creates an empty result
-    pub fn empty() -> Self {
-        Self {
-            matches: HashMap::new(),
-            total_count: 0,
-            hash_groups_count: 0,
-        }
-    }
-
-    /// Creates a result with matches
-    pub fn new(matches: HashMap<KeyValue, String>) -> Self {
-        // `hash_groups_count` is the number of distinct hash groups across
-        // the matches — not the total number of (hash, range) pairs. A
-        // single-hash filter (e.g. `HashKey("user1")`) over a HashRange
-        // field can return many `(user1, range_*)` matches but still
-        // touches only one hash group. Range-only keys (no hash) don't
-        // belong to any hash group, so they're excluded.
-        let hash_groups_count = matches
-            .keys()
-            .filter_map(|kv| kv.hash.as_deref())
-            .collect::<HashSet<_>>()
-            .len();
-
-        Self {
-            total_count: matches.len(),
-            matches,
-            hash_groups_count,
-        }
     }
 }

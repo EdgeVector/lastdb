@@ -62,7 +62,7 @@ A page of live entries does not bound a read call. The key space bounds it.
 - A writer adds an entry and the directory row of its bucket in one batch
   (`TimeQueue::rows`). The batch goes through the planner: the writer hands the
   rows to the planner as rows of the batch. No writer writes a queue key on its
-  own, and the writer lint (`scripts/lints/lint-atom-counter-writers.py`) lists
+  own, and the writer lint (`scripts/lints/lint-store-writers.py`) lists
   none.
 - Every entry rewrites the directory row with a new token. The token names the
   entry, so two entries never leave the same row. This is the only way to give a
@@ -119,8 +119,8 @@ A reader keeps its state in memory (`QueueReader`) and follows these rules.
    leaves the cursor where it was, and the next try reads the same keys.
    `QueueReader::finish_before(page, key, retry_at)` is the other way to end a
    page: the caller handled the keys of the page that sort before `key` and could
-   not handle `key` (for the retention queue: a drain marker, when the janitor
-   already holds the most pending drains it keeps in memory). The cursor goes to
+   not handle `key` (for the dwell queue: a blob that the pass could not delete
+   in this wake). The cursor goes to
    `key`, and the bucket waits until `retry_at`, a time on the clock of the queue.
    Without it the reader would pass the key and never see it again.
 5. **Stop at the first key that is not due.** The cursor stays at that key, and
@@ -131,32 +131,26 @@ A reader keeps its state in memory (`QueueReader`) and follows these rules.
    a restart of the node does the same by losing the state. The restart covers a
    clock that stepped back, so an entry sorts below a cursor. It never reads a
    bucket that the directory dropped. The cost is one bounded walk for each live
-   bucket. Long work that the caller keeps beside the reader (the pending drains)
-   keeps its own cursors across a restart.
+   bucket.
 
 ## Retirement
 
-A bucket retires when its walk has read every key of it and no entry in it waits
-for other work (for the retention queue: no drain marker that is not finished).
-Retirement deletes the directory row. The deleted keys of the bucket then die
-with it.
-
-The reader does not know the other work. **The caller must check it before it
-asks for the token** (`QueueReader::retire_token`): the retention janitor calls
-`holds_marker(bucket)` first. A reader that retired a bucket with an unfinished
-drain marker in it would drop the only pointer to the drain.
+A bucket retires when its walk has read every key of it. Retirement deletes the
+directory row. The deleted keys of the bucket then die with it. A caller that
+keeps other work of a bucket beside the reader must finish it before it asks for
+the token (`QueueReader::retire_token`).
 
 A writer can add an entry to the bucket after the walk passed that place. The
 reader must not delete the row in that case, or the entry is lost.
 
 - The reader reads the directory row (the token) **before** the walk of the
   bucket. A token that changes at a refresh starts the walk again.
-- The retirement is a guarded delete in the planner. The signature is
+- The retirement is a guarded delete in the row commit. The signature is
   `GuardedDelete { key: Vec<u8>, expected: Vec<u8> }`, and a caller puts a list of
-  them in `TipChangeSet.guarded_deletes`. `AtomStore::retire_bucket(key, token)`
-  is the call of the queue. The planner reads each key by key in the write gate
+  them in `RowChanges.guarded_deletes`. `AtomStore::retire_bucket(key, token)`
+  is the call of the queue. The row commit reads each key by key in the write gate
   (`get_many`) and deletes it only if the stored bytes equal `expected`.
-  `TipCommit.guarded_deleted` counts the keys it deleted. The gate is held for
+  `RowCommit.guarded_deleted` counts the keys it deleted. The gate is held for
   one batch of one key, and nothing else is read.
 - **The token is the raw value of the directory row, as the range read of the
   directory returned it.** The reader keeps the bytes; it does not decode them,
@@ -170,27 +164,8 @@ The retirement never needs a range read in the write gate.
 
 ## Fairness
 
-A queue can hold two kinds of work: due entries, and work that takes many
-batches (a long drain). Run them in turns: at most N batches of the long work,
-then at most N batches of the due entries, and again. The retention janitor uses
-N = 4. A long drain then delays the due entries by at most 4 batches, and a
-long backlog delays a drain by at most 4 batches.
-
-A long piece of work keeps its own cursor in memory. It does not stay at the
-head of the queue. The reader lists the directory again at the start of each
-turn, so a bucket that starts while a long drain runs gets its turn. Many small
-pieces of work share a batch (the drains of many slots with one record each take
-one batch of 32 records), and a batch touches at most 64 drains.
-
-A page of drain markers needs no write gate: the reader decodes the markers from
-the page it read, and keeps them as pending drains. Such a page costs no batch and
-no rest, so a bucket of many markers is passed in a few reads. A marker is ordered
-by its due time like any entry: due records that expired before the erase are
-released first.
-
-The janitor holds at most 1,024 pending drains. A marker that finds no room stays
-in its bucket. The cursor of the bucket stays at it, and the bucket waits for a
-second before it is read again. Memory does not grow with the number of markers.
+A reader lists the directory again at the start of each wake, so a bucket that
+starts during a long backlog gets its turn. Many due entries share a batch.
 
 ## Pacing
 
@@ -214,11 +189,9 @@ is at least 25 ms and at most 30 s. With 10 percent, writers wait for the user a
 a tenth of the time. The page reads before the gate block nobody and are not part of
 it. `storage::disk_pack::transaction::blocked::measure` runs a step and adds up the
 time of every write scope the step opens in its own task. The steps of the retention
-janitor (`release_step`, `drain_step`, `net_step`), of the dwell pass
-(`blob_dwell_step`, `blob_dwell_net_step`) and of the molecule drain
-(`molecule_drain_step`, `docs/lastdb-molecule-drain.md`) return it in `blocked`. The three
-users share the meter, the watch, the quiet period and the rest (`conflict_janitor_pace.rs`).
-The drain keeps its own duty knob (`LASTDB_MOLECULE_DRAIN_DUTY_PCT`, 10 percent).
+janitor (`release_step`, `net_step`) and of the dwell pass (`blob_dwell_step`,
+`blob_dwell_net_step`) return it in `blocked`. The two users share the meter, the
+watch, the quiet period and the rest (`conflict_janitor_pace.rs`).
 
 The rest protects the writers, so the user needs it only when a writer is there. A
 `WriterWatch` counts the write scopes that the process opens and takes off the ones
@@ -242,15 +215,11 @@ start. A write scope that stages a write counts, also when it writes little: the
 of a schema and `lastdb db inventory` (it writes its attribution rows) do. A write scope
 that stages nothing does not count. `lastdb db verify-refs` opens one such scope at the
 start of each run, to order the run after the writes in flight. It counted as a writer
-before, and a poll of it every 30 s kept the user in the paced mode for ever (the molecule
-drain on a system disk, a poll every 30 s: 24 and 36 tips a second, 418 and 279 s for 10,000
-tips, against 87 and 111 tips a second, 115 and 90 s, with the empty scope left out; the same
-drain with no poll: 81 to 102). A scope counts when it ends, and only if it staged something
-(`transaction/request.rs`, `blocked::opened`). A read, `lastdb status`, `lastdb liveness
-explain` and a `lastdb db molecule-drain` call that named no molecule (a command that API
-version 15 removed) open no write scope at all (a poll of each of them every 30 s left the drain at its idle speed). A task of the node
-itself that opens a write scope (the blob dwell pass, the janitor and the drain see each
-other) counts as another writer.
+before, and a poll of it every 30 s kept the user in the paced mode for ever. A scope
+counts when it ends, and only if it staged something (`transaction/request.rs`,
+`blocked::opened`). A read, `lastdb status` and `lastdb liveness explain` open no
+write scope at all. A task of the node itself that opens a write scope (the blob dwell
+pass and the janitor see each other) counts as another writer.
 
 Measured on synthetic homes with the default knobs. In each test the nodes ran at the
 same time on one host: main before this change, this change with the drain on, and
@@ -317,55 +286,6 @@ by 33 to 60 percent while the janitor released records (3 pairs of nodes, one wi
 the janitor and one without, on the same host; the same test gave a median change of
 +5 percent, from -2 to +18 percent, for the wall-time rest). The flush is the larger
 part of the time that the writers wait, and the gate hold leaves it out.
-
-**The molecule drain** (`docs/lastdb-molecule-drain.md`) uses the same meter, watch, quiet
-period and rest as the janitor and the pass. It rested for a share of the wall time of each step
-before. Measured on synthetic homes with the default knobs: a clone of one home with a schema of
-2,500 keys (10,000 tips) dropped, the build before and the build after at the same time on one host,
-3 pairs for each case (a schema of 10,000 keys, 40,000 tips, for the sparse writer on the RAM disk).
-
-| Tips a second | before | after |
-|---|---|---|
-| No other writer, RAM disk (28 to 38 s) | 261 to 283 | 330 to 354 |
-| No other writer, system disk | 14 to 20 (487 to 717 s) | 81 to 102 (98 to 124 s) |
-| 4 continuous writers, RAM disk | 40 to 46 (217 to 252 s) | 216 to 219 (46 s) |
-| 4 continuous writers, busy system disk | 8 to 13 (one of 3 not done in 1,200 s) | 14 to 21 (478 to 726 s) |
-| One sparse writer, RAM disk | 298 to 303 | 364 to 378 |
-| One sparse writer, system disk | 48 to 84 | 76 to 100 |
-
-The drop that makes the candidates is a write scope of another task, so the first 60 s of a drain
-with no other writer go at the paced speed (38 to 50 tips a second on the system disk) and the rest
-at full speed (120 to 240). With four continuous writers the drain is 5 times as fast on the RAM
-disk and the writers wait the same: the p50 of a test writer with the drain on was 106 to 116 ms
-against 101 to 124 ms before the drop (3 pairs), and the p95 672 to 1,123 ms against 705 to 1,337 ms.
-On the busy system disk (a write took 3 to 5 s there, whatever the drain did) the p50 was 3,898 to
-5,324 ms against 3,237 to 4,483 ms.
-
-One sparse writer, one write every 3 s, from the start; the drain began after 150 s and the
-writer went on for 150 s after it ended. The time of one write in ms, p50 / p95 (the range of 3
-pairs):
-
-| | before the drop | drain on | after the drain |
-|---|---|---|---|
-| RAM disk, before build | 38 to 46 / 52 to 74 | 42 to 47 / 53 to 136 | 42 to 52 / 45 to 72 |
-| RAM disk, after build | 38 to 47 / 53 to 157 | 42 to 48 / 86 to 130 | 42 to 52 / 46 to 69 |
-| System disk, before build | 458 to 482 / 495 to 757 | 482 to 729 / 758 to 1,561 | 436 to 592 / 514 to 839 |
-| System disk, after build | 450 to 462 / 498 to 719 | 472 to 636 / 937 to 1,380 | 478 to 602 / 737 to 1,296 |
-
-On the RAM disk the p50 with the drain on is within the noise of the writer without it (the two
-windows without the drain differ by as much). The p95 is higher with the drain on, for both builds:
-about one write in ten meets a sealed batch. On the system disk the p50 moved by +2 to +41 percent
-(before build: +1 to +59) while the windows without the drain differed by up to 30 percent from
-each other, and the p95 was about twice as high, for both builds. The drain does not change what a
-sparse writer sees compared with the build before.
-
-A poll of a read-only verb every 30 s (drain of 10,000 tips on the system disk, no other writer, 1
-pair for each verb, the build with the pacing change but with empty scopes counted against the
-final build): `lastdb db verify-refs` kept the first build at 24 and 36 tips a second (418 and 279
-s) and the final build at 87 and 111 (115 and 90 s). `lastdb status`, `lastdb liveness explain` and
-`lastdb db molecule-drain` (no molecule) left both builds at full speed after the first 60 s (318 to
-544 tips a second), so they open no write scope at all. `lastdb db inventory` kept both builds at 58
-to 62 tips a second, because it writes rows and counts as a writer.
 
 ## Failure
 
@@ -434,12 +354,7 @@ What the net does not cover:
   bucket is not found as a bucket. A conflict record in it shows as
   `record_without_queue_entry`, and `recount --execute` gives it a new queue
   entry. The old entry stays as a row that no directory lists: it holds no
-  reference, so it is garbage and not a leak of atoms.
-- A drain marker represents unfinished erase work. It has no age deadline.
-  The janitor deletes it only with the final release batch of its exact slot directory.
-  This also applies when the retention window becomes shorter before the erase.
-  Older records can retain a longer original expiry; the new window cannot prove their absence.
-  The directory row and marker enter the same atomic erase batch.
+  reference, so it is garbage and not a leak of blobs.
   Listed buckets remain visible after the arithmetic net's probe window ends.
   A corrupt or externally removed directory row outside that window remains a repair case.
   The per-record expiry entries and offline recount retain their existing recovery roles.
@@ -456,7 +371,7 @@ all of them.
 | A writer adds an entry without the row (code outside `TimeQueue::rows`). | The entry and the row are one `TimeQueue::rows` call, in the batch of the work, through the planner. The writer lint finds a writer that bypasses the planner. | `verify-refs`: `queue_entry_without_directory` for a record entry. The net counts `buckets_repaired`. | The net registers the bucket within one sweep. `recount --execute` writes the row. |
 | A crash between the write of the entry and the write of the row. | Excluded: one batch holds both, and a crash keeps whole batches. | (not possible) | |
 | A retirement races a writer: the reader decided that the bucket was empty, and a writer added an entry. | Every entry rewrites the row with a new token, and the retirement is a guarded delete that compares the raw bytes in the write gate. A writer that came after the reader read the row changes the token, so the delete leaves the row. | As above, if the guard were wrong. | As above. |
-| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry, also a drain marker, which lives at most one window). | The net, and `recount --execute`. |
+| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry). | The net, and `recount --execute`. |
 
 A fifth, quieter fault belongs to the same chain. A conflict record whose queue
 entry is missing is never released by the janitor, because the janitor finds

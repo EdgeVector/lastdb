@@ -19,7 +19,6 @@ pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result
     schema.field_molecule_uuids = (!molecules.is_empty()).then_some(molecules);
     schema.populate_runtime_fields()?;
     schema.sync_molecule_uuids();
-    schema.clear_runtime_molecules();
     Ok(())
 }
 

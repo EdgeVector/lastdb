@@ -75,62 +75,6 @@ pub fn blob_refs_of_atom(
     refs
 }
 
-/// Logical bytes of every unique blob reference named by an atom.
-///
-/// `None` means the atom names a blob but does not carry its logical size.
-/// Storage accounting must then fail closed instead of reporting a false
-/// exact zero. No blob reference means an exact `Some(0)`.
-pub fn blob_logical_bytes_of_atom(
-    content: &Value,
-    metadata: Option<&HashMap<String, String>>,
-) -> Option<u64> {
-    let refs = blob_refs_of_atom(content, metadata);
-    if refs.is_empty() {
-        return Some(0);
-    }
-    let pointer = content.get(LASTDB_FILE_KEY).and_then(Value::as_object);
-    let main_ref = pointer
-        .and_then(|obj| obj.get("blob_ref"))
-        .and_then(Value::as_str);
-    let main_size = pointer
-        .and_then(|obj| obj.get("encrypted_size_bytes"))
-        .and_then(Value::as_u64);
-    let thumbnail = pointer.and_then(|obj| obj.get("thumbnail"));
-    let thumbnail_ref = thumbnail
-        .and_then(|value| value.get("blob_ref"))
-        .and_then(Value::as_str);
-    let thumbnail_size = thumbnail
-        .and_then(|value| value.pointer("/access/encrypted_size_bytes"))
-        .and_then(Value::as_u64);
-    let metadata_ref = metadata.and_then(|meta| meta.get("file_blob_ref").map(String::as_str));
-    let metadata_hash_ref = metadata
-        .and_then(|meta| meta.get("file_hash"))
-        .filter(|hash| !is_private_pointer_hash(content, hash))
-        .map(|hash| format!("sha256:{hash}"));
-    let metadata_size = metadata.and_then(|meta| {
-        meta.get("encrypted_size_bytes")
-            .or_else(|| meta.get("file_size_bytes"))
-            .and_then(|value| value.parse::<u64>().ok())
-    });
-
-    let mut total = 0u64;
-    for blob_ref in refs {
-        let size = if main_ref == Some(blob_ref.as_str()) {
-            main_size
-        } else if thumbnail_ref == Some(blob_ref.as_str()) {
-            thumbnail_size
-        } else if metadata_ref == Some(blob_ref.as_str())
-            || metadata_hash_ref.as_deref() == Some(blob_ref.as_str())
-        {
-            metadata_size
-        } else {
-            None
-        }?;
-        total = total.saturating_add(size);
-    }
-    Some(total)
-}
-
 /// True when `hash` is the plaintext hash of the account-v2 pointer in
 /// `content`. That hash is not a CAS address.
 pub(crate) fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {

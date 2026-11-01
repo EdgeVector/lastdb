@@ -82,7 +82,7 @@ jobs:
       - name: lint no write-path syncing store
         run: bash scripts/ci/mini-gate-step.sh "lint no write-path syncing store" -- bash scripts/lints/lint-no-write-path-syncing-store.sh
       - name: Atom counter writer-boundary lint
-        run: bash scripts/ci/mini-gate-step.sh "Atom counter writer-boundary lint" -- python3 scripts/lints/lint-atom-counter-writers.py
+        run: bash scripts/ci/mini-gate-step.sh "Store writer-boundary lint" -- python3 scripts/lints/lint-store-writers.py
       - name: Model purity lint
         run: bash scripts/ci/mini-gate-step.sh "Model purity lint" -- bash scripts/ci/model-purity-lint.sh
       - name: Module layer check

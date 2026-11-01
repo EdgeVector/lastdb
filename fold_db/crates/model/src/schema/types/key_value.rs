@@ -60,7 +60,7 @@ impl KeyValue {
     ///
     /// This is the one order that pagination depends on, and three places have
     /// to agree on it or a page silently overlaps or drops rows: the `Page` /
-    /// `PageAfter` slice in `apply_hash_range_filter`, the pre-hydrate window
+    /// `PageAfter` slice of a record range read, the pre-hydrate window
     /// applied to a key-restricted read, and the node's final `format_rows`
     /// sort. They used to each spell it out; this is the single definition.
     ///

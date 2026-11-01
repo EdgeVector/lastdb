@@ -181,8 +181,6 @@ impl SchemaCore {
                 "alternate keys require this schema's owned field molecules".into(),
             ));
         }
-        // Cache definitions only: retained UUIDs drive per-key molecule fetches.
-        schema.clear_runtime_molecules();
         Self::stamp_identity_for_load(&mut schema, existing.as_ref());
 
         let refresh = existing.is_some();
