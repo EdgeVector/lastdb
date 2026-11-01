@@ -65,16 +65,4 @@ impl FieldKeyCodec {
         let range = self.storage_range(space, api_range)?;
         Ok(record_key(space, &hash, &range))
     }
-
-    /// The prefix of every record under one API hash.
-    pub fn api_record_hash_prefix(
-        &self,
-        space: &str,
-        api_hash: &str,
-    ) -> Result<String, FieldKeyCodecError> {
-        Ok(record_hash_prefix(
-            space,
-            &self.storage_hash(space, api_hash)?,
-        ))
-    }
 }
