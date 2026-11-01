@@ -23,14 +23,16 @@ pub struct RunBackupProfile {
     pub cas: RunBackupHome,
 }
 impl RunBackupProfile {
+    /// The node marker of the profile. Only format 7 (profile 5) backs up and
+    /// restores: this release opens no older home.
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
         match self.version {
-            2 => Ok(super::super::run_admission::FORMAT_FOUR_BYTES),
-            3 => Ok(super::super::run_admission::FORMAT_FIVE_BYTES),
-            4 => Ok(super::super::run_admission::TYPED_NODE_BYTES),
             super::super::run_admission::RECORD_PROFILE => {
                 Ok(super::super::run_admission::RECORD_NODE_BYTES)
             }
+            2..=4 => Err(invalid(
+                "run backup profile is format 4 to 6; this release restores only format 7",
+            )),
             _ => Err(invalid("run backup logical profile version")),
         }
     }

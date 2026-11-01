@@ -59,7 +59,8 @@ impl MutationManager {
             mutations.iter().zip(&keys).zip(record_keys).zip(stored)
         {
             let mut after = before.as_deref().cloned().unwrap_or_default();
-            if !merge_mutation(schema_name, &schema, mutation, &mut after)? {
+            let merged = merge_mutation(schema_name, &schema, mutation, &mut after)?;
+            if !merged && !purges_deleted_record(mutation, before.as_deref()) {
                 continue;
             }
             changed.push(ChangedRecord { mutation, key });
@@ -175,7 +176,30 @@ impl MutationManager {
             keys.push(atoms.record_key(schema, &key, record_scope(schema).as_deref())?);
         }
         let records = atoms.read_records(&keys).await?;
-        for (mutation, record) in guarded.into_iter().zip(records) {
+        // A purge of a deleted record finds the record while its field history
+        // still holds copies of old values: the compliance verb releases them.
+        let deleted: Vec<&str> = guarded
+            .iter()
+            .zip(&keys)
+            .zip(&records)
+            .filter(|((mutation, _), record)| {
+                mutation.mutation_type == MutationType::Purge
+                    && !record.as_deref().is_some_and(StoredRecord::is_live)
+            })
+            .map(|((_, key), _)| key.as_str())
+            .collect();
+        let mut with_history = std::collections::HashSet::new();
+        if !deleted.is_empty() {
+            let counts = atoms.record_history_counts(&deleted).await?;
+            with_history.extend(
+                deleted
+                    .into_iter()
+                    .zip(counts)
+                    .filter(|(_, n)| *n > 0)
+                    .map(|(key, _)| key),
+            );
+        }
+        for ((mutation, record), key) in guarded.into_iter().zip(records).zip(&keys) {
             let record = record.unwrap_or_default();
             if Self::is_must_exist_update(mutation) && !record.is_live() {
                 return Err(SchemaError::InvalidData(format!(
@@ -185,7 +209,8 @@ impl MutationManager {
                     mutation.key_value.to_storage_key(),
                 )));
             }
-            if let Some((noun, suffix)) = loud_erasure(mutation).filter(|_| !record.is_live()) {
+            let found = record.is_live() || with_history.contains(key.as_str());
+            if let Some((noun, suffix)) = loud_erasure(mutation).filter(|_| !found) {
                 // The wording of the erase lane for one absent key.
                 return Err(SchemaError::InvalidData(format!(
                     "{noun} target not found: schema '{}', key {} — refusing to silently no-op \
@@ -212,6 +237,16 @@ fn loud_erasure(mutation: &Mutation) -> Option<(&'static str, &'static str)> {
         }
         _ => None,
     }
+}
+
+/// True for a compliance purge of a deleted record. The merge changes nothing,
+/// but the purge still releases the field history of the record. The
+/// precondition check refused a deleted record with no history. A TTL sweep
+/// purge carries its cutoff and never takes this path.
+fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredRecord>) -> bool {
+    mutation.mutation_type == MutationType::Purge
+        && mutation.erase_tips_before_nanos.is_none()
+        && before.is_some_and(|record| !record.is_live())
 }
 
 /// Merge the fields and the metadata of one mutation into its record. True

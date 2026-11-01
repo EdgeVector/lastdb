@@ -151,7 +151,10 @@ fn read_source(
     marker
         .try_lock()
         .map_err(|_| invalid("snapshot identity source is owned"))?;
-    if !matches!(files::profile_version(root)?, Some(2..=5)) {
+    // This release opens only format 7 homes.
+    if files::profile_version(root)?
+        != Some(crate::storage::disk_pack::run_admission::RECORD_PROFILE)
+    {
         return Err(invalid("snapshot identity source format differs"));
     }
     let bindings = source_bindings(root)?;

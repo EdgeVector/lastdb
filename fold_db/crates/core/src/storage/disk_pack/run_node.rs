@@ -1,7 +1,7 @@
 //! A node home in disk format v2: the node marker and two run homes.
 //!
 //! ```text
-//! <node>/laststore-pack-node-v1   format 4: typed ranges
+//! <node>/laststore-pack-node-v1   format 7: the record model
 //! <node>/disk-run/                the run home for every collection except CAS
 //! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
 //! ```
@@ -11,8 +11,9 @@
 //!
 //! Every node home is v2: a node that opens an absent or empty home creates
 //! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
-//! one on request. Both need the node encryption key. A home in any other
-//! format is refused (see `not_v2`). The run homes are complete before the
+//! one on request. Both need the node encryption key. Every new home is
+//! format 7. Admission refuses a format 4, 5 or 6 home by name, and any other
+//! home is refused (see `not_v2`). The run homes are complete before the
 //! marker appears, so a crash during creation leaves the creation intent
 //! without a marker. The runtime opens only after the marker, so that home
 //! holds no application records: the next open removes the partial run homes
@@ -39,7 +40,8 @@ const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
-/// True for the current typed home, with or without alternate-key activation.
+/// True for a typed run home of format 4 to 7. Admission then opens only
+/// format 7, so an older home gets a refusal that names its format.
 pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
     match std::fs::read(path.join(NODE_MARKER)) {
         Ok(bytes) => Ok(super::run_admission::profile(&bytes).is_some()),
@@ -131,12 +133,12 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-/// The refusal for a node home that is not format 4 to 7, such as a format 3
-/// home or a disk format v1 home. This program has no reader and no converter
-/// for another format.
+/// The refusal for a node home that is not a typed run home, such as a
+/// format 3 home or a disk format v1 home. This program has no reader and no
+/// converter for another format.
 pub(super) fn not_v2(path: &Path) -> StorageError {
     StorageError::InvalidOperation(format!(
-        "{} is not a supported typed node home; this program opens formats 4 to 7",
+        "{} is not a supported node home; this release opens only format 7 (the record model)",
         path.display()
     ))
 }

@@ -49,12 +49,10 @@ The exact base and candidate daemons perform every measured read.
 One toolchain builds both daemons into separate fresh optimized targets.
 Only dependency downloads use the cache.
 
-## Format 7 candidate
+## Home format
 
-A manual dispatch can set the `candidate_record_home` input.
-The driver then starts only the candidate with `LASTDB_RECORD_HOME=1`.
-The candidate seed helper receives the same setting.
-The run fails unless the candidate home marker is format 7, which stores one record per key.
+The candidate release creates only format 7 homes, which store one record per key.
+The run fails unless the candidate home marker is format 7.
 The baseline keeps the default fresh-home format of its release.
 The summary names the home format of each run.
 
@@ -150,5 +148,5 @@ The measurement step permits 55 minutes. The workflow permits 90 minutes.
 Actions command:
 
 ```text
-python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-seed-helper <base-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output> [--candidate-record-home]
+python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-seed-helper <base-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output>
 ```

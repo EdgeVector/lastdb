@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Exercise a format 7 (record model) home through a fresh CI daemon.
 
-The daemon creates the home with LASTDB_RECORD_HOME=1. The script writes and
-reads records with the selectors that the brain and LastSecrets apps use,
-checks that repeated reads by key come from the record warm set, keeps field
-history, lets the TTL sweep delete an expired record, reads the delete audit,
-then restarts the daemon and reads again. It runs no test runner or
+Every new home is format 7. The script writes and reads records with the
+selectors that the brain and LastSecrets apps use, checks that repeated reads
+by key come from the record warm set, keeps field history, lets the TTL sweep
+delete an expired record, reads the delete audit, then restarts the daemon and
+reads again. It runs no test runner or
 benchmark. The home contains generated data only and never reads or copies a
 primary.
 """
@@ -320,8 +320,7 @@ def main():
     require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
     output.mkdir(mode=0o700)
     node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
-                environment={"LASTDB_RECORD_HOME": "1",
-                             "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
+                environment={"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
                              # The TTL sweep runs from the sampler tick.
                              "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
                              "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",

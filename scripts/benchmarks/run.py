@@ -18,22 +18,19 @@ from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 from disk_budget import DiskBudgetWorkload, require_search_off
 
 
-def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0, record_home=False):
+def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0):
     node, error = None, None
     started = time.monotonic()
     try:
         program = seed or (binary, revision, workers)
         environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
-        if record_home:
-            # The daemon creates a format 7 home; the marker keeps it format 7 after that.
-            environment["LASTDB_RECORD_HOME"] = "1"
         node = Node(program[0], program[1], output,
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
                     environment=environment)
         node.start()
-        save(output / "home-format.json", {"format": node.home_format(), "record_home_requested": record_home})
-        if record_home and not node.record_home():
-            raise ValueError("LASTDB_RECORD_HOME=1 did not create a format 7 home")
+        # The program decides the format of a new home: format 7 from the record model
+        # release, format 6 before it. A PR baseline built before that release measures format 6.
+        save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
             require_search_off(node, output, "before")
             if node.disk_format() != 2:
@@ -111,8 +108,6 @@ def recipe_for(args):
                                   "or stored record values in a format 7 home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
-    if args.candidate_record_home:
-        recipe["candidate_record_home"] = True
     if args.seed_with_baseline:
         recipe["seed_with_baseline"] = True
         recipe["minimum_retired"] = args.minimum_retired
@@ -134,8 +129,6 @@ def main():
     parser.add_argument("--seed-with-baseline", action="store_true",
                         help="Measure a real upgrade of an owned home created by the baseline daemon")
     parser.add_argument("--minimum-retired", type=int, default=0)
-    parser.add_argument("--candidate-record-home", action="store_true",
-                        help="Start only the candidate with LASTDB_RECORD_HOME=1, so it measures a format 7 home")
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -154,8 +147,6 @@ def main():
         parser.error("The upgrade measurement uses the ordinary request workload")
     if not 0 <= args.minimum_retired <= 1_000_000 or (args.minimum_retired and not args.seed_with_baseline):
         parser.error("A bounded legacy retirement requirement needs --seed-with-baseline")
-    if args.candidate_record_home and args.seed_with_baseline:
-        parser.error("The baseline daemon creates the upgrade home, so it cannot be a candidate record home")
     if not re.fullmatch(r"[0-9a-f]{40}", args.driver_revision):
         parser.error("The driver revision must be a complete commit SHA")
     signal.signal(signal.SIGTERM, interrupted)
@@ -201,8 +192,7 @@ def main():
                      "uds_workers": recipe["uds_workers"][label],
                      **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output,
                                recipe["uds_workers"][label], seed,
-                               args.minimum_retired if label == "candidate" else 0,
-                               record_home=label == "candidate" and args.candidate_record_home)}
+                               args.minimum_retired if label == "candidate" else 0)}
             manifest["runs"].append(entry)
             save(manifest_path, manifest)
             if not entry["complete"]:

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Exercise atom history through the actual CLI and a fresh CI daemon.
+"""Exercise field history through the actual CLI and a fresh CI daemon.
 
-This uses the existing owned-node launcher. It runs no test runner or benchmark.
-The home contains generated data only and never reads or copies a primary.
+Every new home is format 7: a history entry keeps its own copy of an old field
+value at a record history key (`rh:`). The proof counts those rows through the
+inventory to show that an expiry and a purge remove the copies, not only hide
+them. It uses the existing owned-node launcher and runs no test runner or
+benchmark. The home contains generated data only and never reads or copies a
+primary.
 """
 import argparse
 import json
@@ -13,7 +17,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
-from node import Node  # noqa: E402
+from node import Node, RECORD_NODE_MARKER  # noqa: E402
 
 
 def require(value, message):
@@ -108,12 +112,17 @@ def absent(node, action, schema, key, field="value"):
     raise RuntimeError("history get returned a body")
 
 
-def inventory_counts(node):
+def history_rows(node):
+    """The stored field history copies (`rh:` rows), expired or not."""
     payload = node.call("/api/db/inventory")[0]
     inventory = payload.get("inventory")
-    require(isinstance(inventory, dict) and "per_schema_atoms" in inventory,
-            "inventory response has no per_schema_atoms")
-    return {row["schema_name"]: row["atom_count"] for row in inventory["per_schema_atoms"]}
+    require(isinstance(inventory, dict) and "main_classes" in inventory,
+            "inventory response has no main_classes")
+    return sum(row["keys"] for row in inventory["main_classes"] if row["class"] == "record_history")
+
+
+def ledger(node):
+    return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
 
 
 def capture_rules(node):
@@ -192,38 +201,33 @@ def expiry_body(node):
     })[0]
     require(result["policy"] == {"mode": "ttl", "seconds": 2}, "expiry policy was not ttl")
     key = {"hash": "expire-one"}
-    inventory_counts(node)
-    before = inventory_counts(node)
+    before = history_rows(node)
     mutate(node, "HistoryExpiry", key, {"id": "expire-one", "note": "held"}, "create")
     mutate(node, "HistoryExpiry", key, {"note": "next"}, "update")
     page = history(node, {"op": "list"}, "HistoryExpiry", key, "note")
     expiring = [entry for entry in page["entries"] if entry["expires_at"] is not None]
-    require(len(expiring) == 1, "expiry write did not list one body")
+    require(len(expiring) == 1, "expiry write did not list one entry")
     expired_id = expiring[0]["id"]
-    after = inventory_counts(node)
-    grown = sorted(name for name in set(before) | set(after)
-                   if after.get(name, 0) > before.get(name, 0))
-    require(len(grown) == 1, "expiry atoms did not land in one schema: "
-            + json.dumps({"before": before, "after": after}))
-    schema_name = grown[0]
-    held = after[schema_name]
+    held = history_rows(node)
+    require(held == before + 1, "expiry write did not store one history copy: "
+            + json.dumps({"before": before, "after": held}))
     deadline = time.monotonic() + 20
     dropped = None
     last_count = None
     while time.monotonic() < deadline:
         page = history(node, {"op": "list"}, "HistoryExpiry", key, "note")
         visible = any(entry["id"] == expired_id for entry in page["entries"])
-        last_count = inventory_counts(node).get(schema_name)
+        last_count = history_rows(node)
         if not visible and last_count == held - 1:
             dropped = last_count
             break
         time.sleep(1)
     require(dropped == held - 1,
-            "expiry worker did not drop the atom body from " + str(held)
+            "expiry worker did not drop the history copy from " + str(held)
             + " to " + str(held - 1) + "; last count " + str(last_count))
     absent(node, {"op": "get", "id": expired_id}, "HistoryExpiry", key, "note")
     verify(node)
-    print("ttl worker dropped the expired atom body", flush=True)
+    print("ttl worker dropped the expired history copy", flush=True)
 
 
 def exercise(node, binary):
@@ -306,11 +310,30 @@ def exercise(node, binary):
     cli(node, binary, "policy", "keep")
     write(node, "before-delete")
     write(node, operation="delete")
-    require(history(node, {"op": "list"})["entries"], "delete left no retained history")
+    held = history(node, {"op": "list"})["entries"]
+    require(held, "delete left no retained history")
+    rows = history_rows(node)
     write(node, operation="purge")
     require(history(node, {"op": "list"})["entries"] == [], "compliance purge retained history-only key")
+    require(history_rows(node) == rows - len(held), "compliance purge left history copies")
+    audit = [row for row in ledger(node) if row.get("schema") == "HistoryById" and row["verb"] == "purge"]
+    require(len(audit) == 1 and audit[0]["committed"] and audit[0]["history_rows_deleted"] == len(held),
+            "the compliance purge audit row differs: " + json.dumps(audit))
+    try:
+        write(node, operation="purge")
+    except RuntimeError as error:
+        require("Purge target not found" in str(error), "a second purge failed for another reason")
+    else:
+        raise RuntimeError("a purge of a key with no record and no history did not refuse")
     verify(node)
     print("compliance purge of a key with only history and final reference verification passed", flush=True)
+    kept = [("HistoryById", {"hash": "capture-one"}), ("HistoryByBucket", {"hash": "bucket-one", "range": "one"}),
+            ("HistoryAlternate", {"hash": "move-one"})]
+    listed = sum(len(history(node, {"op": "list"}, schema, key)["entries"]) for schema, key in kept)
+    require(listed == 3 and history_rows(node) == listed,
+            "stored history copies differ from the listed entries: "
+            + json.dumps({"listed": listed, "stored": history_rows(node)}))
+    print("every stored history copy belongs to a listed entry", flush=True)
 
 
 def main():
@@ -332,6 +355,8 @@ def main():
                              "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
     try:
         node.start()
+        marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+        require(marker == RECORD_NODE_MARKER, "the new home is not format 7: " + repr(marker))
         exercise(node, args.cli.resolve())
     finally:
         node.close()

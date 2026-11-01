@@ -105,7 +105,9 @@ impl HashRangeQueryProcessor {
     /// The rows of one selector in page order: the live records of the own
     /// scope with one of the selected fields, bounded by the window. While a
     /// sender is active, the received scopes join the read; a node with no
-    /// sender reads only its own scope.
+    /// sender reads only its own scope. A range under one hash reads its keys
+    /// in bounded pages of each scope (`records/received_range.rs`), so the
+    /// window ends the read in the own scope too.
     async fn select_rows(
         &self,
         schema: &Schema,
@@ -114,19 +116,29 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
         selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let own = record_scope(schema);
-        let received = self.collect_received_from_namespaces().await?;
-        if !received.is_empty() {
-            let mut scopes = vec![own];
-            for namespace in received.into_iter().map(Some) {
-                if !scopes.contains(&namespace) {
-                    scopes.push(namespace);
-                }
+        let mut scopes = vec![record_scope(schema)];
+        for namespace in self
+            .collect_received_from_namespaces()
+            .await?
+            .into_iter()
+            .map(Some)
+        {
+            if !scopes.contains(&namespace) {
+                scopes.push(namespace);
             }
+        }
+        if let Some((hash, bound)) = received::range_under_hash(schema, filter) {
+            return self
+                .received_range(schema, hash, bound, &scopes, selected, window)
+                .await;
+        }
+        if scopes.len() > 1 {
             return self
                 .select_received(schema, comparison, filter, window, selected, &scopes)
                 .await;
         }
+        // The own scope is the only scope.
+        let own = scopes.pop().flatten();
         let mut rows = self
             .db_ops
             .atoms()

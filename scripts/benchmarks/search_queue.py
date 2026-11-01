@@ -42,16 +42,12 @@ def measure(args, mode, folder):
     result, node = {"complete": False, "mode": mode}, None
     cap = (4 if args.profile == "nightly" else 1) * 2**20
     environment = {"LASTDB_SEARCH_QUEUE_MAX_BYTES": str(cap)}
-    if args.candidate_record_home:
-        environment["LASTDB_RECORD_HOME"] = "1"
     try:
         node = Node(args.candidate, args.candidate_revision, folder, environment=environment,
                     arguments=("--enable-search",) if mode == "enabled" else ())
         node.start()
         # The checkpoints read the logical measure of this home's format.
         result["home_format"] = node.home_format()
-        if args.candidate_record_home and result["home_format"] != 7:
-            raise ValueError("LASTDB_RECORD_HOME=1 did not create a format 7 home")
         workload = DiskBudgetWorkload(node, {"growth": PROFILES[args.profile]}, folder)
         workload.seed()
         started = time.monotonic()
@@ -135,8 +131,6 @@ def main():
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--profile", choices=("standard", "nightly", "batch-insert"), required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--candidate-record-home", action="store_true",
-                        help="Start the candidate with LASTDB_RECORD_HOME=1, so it measures a format 7 home")
     args = parser.parse_args()
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
@@ -149,7 +143,6 @@ def main():
     manifest = {"complete": False, "candidate_revision": args.candidate_revision,
                 "candidate_sha256": file_hash(args.candidate), "driver_revision": args.driver_revision,
                 "profile": args.profile, "host": host_details(), "runs": [],
-                "candidate_record_home": args.candidate_record_home,
                 "drivers": {name: file_hash(Path(__file__).with_name(name)) for name in
                             ("search_queue.py", "node.py", "disk_usage.py", "disk_budget.py", "disk_deletes.py", "growth.py", "workload.py")}}
     try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transfer signed logical events between two real generated V2 homes in hosted CI."""
+"""Transfer signed logical events between two real generated format 7 homes in hosted CI."""
 
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -80,10 +80,10 @@ def operate(nodes, output, result):
         save(output / f"{label}-original-events.json", page)
     identities = []
     for page in pages:
-        identities.append({(outcome["schema_name"], outcome["field_name"]):
-                           (outcome["schema_identity"], outcome["field_identity"], outcome["molecule_uuid"])
-                           for event in page["events"] for outcome in event["outcomes"]})
-    require(identities[0] == identities[1], "identical canonical seed schemas have different field or molecule identities")
+        identities.append({(record["schema_name"], field): (record["schema_identity"], written["identity"])
+                           for event in page["events"] for record in event["records"]
+                           for field, written in record["fields"].items()})
+    require(identities[0] == identities[1], "identical canonical seed schemas have different schema or field identities")
     result["matching_canonical_identities"] = len(identities[0])
     result["refusals"] = refusals(b, pages[0])
     refusal_values(b, batches, pages, result)
@@ -160,7 +160,7 @@ def summary(result):
         f"Result: {'PASS' if result['complete'] else 'FAIL'}. Source: `{result['source_revision']}`.",
         "Two fresh V2 homes exchange original signed events through the owner API.",
         "The operation checks explicit trust, signatures, exact retries, gaps, tamper refusal, keyed values, and range pages.",
-        "Conflicts use the original signed tip order. Imports must leave each local outgoing head unchanged.",
+        "Conflicts use the original signed field stamps. Imports must leave each local outgoing head unchanged.",
         "A SIGKILL interrupts the receiver with an import request pending. Two reopens check the durable cursor and exact data prefix.",
         "Checkpoint disk and memory samples have finite safety caps. They do not establish universal peaks or power-loss behavior.",
         "The driver closes both owned nodes and removes only their generated homes. The primary and cloud stay unchanged.",
