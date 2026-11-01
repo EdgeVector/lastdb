@@ -235,6 +235,26 @@ pub(crate) async fn post_schemas(
     add_schema_response(state, schema, mutation_mappers).await
 }
 
+/// Success body for a schema add and for an idempotent repost.
+///
+/// `replaced_schema` is present only for an expansion. `composed` stays off
+/// this body, so a composed outcome still matches a plain add.
+pub(super) fn schema_add_body(
+    schema: &schema_types::Schema,
+    mutation_mappers: &HashMap<String, String>,
+    replaced_schema: Option<&str>,
+    system: bool,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    body.insert("schema".to_owned(), json!(schema));
+    body.insert("mutation_mappers".to_owned(), json!(mutation_mappers));
+    if let Some(old_name) = replaced_schema {
+        body.insert("replaced_schema".to_owned(), json!(old_name));
+    }
+    body.insert("system".to_owned(), json!(system));
+    Value::Object(body)
+}
+
 /// Register `schema` and map the outcome to its HTTP response.
 async fn add_schema_response(
     state: &SchemaServiceState,
@@ -254,34 +274,21 @@ async fn add_schema_response(
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     201,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, None, system),
                 )
             }
             SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     200,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, None, system),
                 )
             }
             SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     201,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "replaced_schema": old_name,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, Some(old_name.as_str()), system),
                 )
             }
             SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
