@@ -2,8 +2,8 @@
 
 use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
-    missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, RegisterAppReply,
-    SchemaMutationChallengeReply, UpdateAppReply,
+    missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, SchemaMutationChallengeReply,
+    UpdateAppReply,
 };
 
 use super::*;
@@ -54,11 +54,11 @@ pub async fn register_app(
         Err(resp) => return resp,
     };
 
-    match state.register_app_reply(&cert, &sig, &body).await {
-        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
-            json_status(status, body)
-        }
-    }
+    let (status, body) = state
+        .register_app_reply(&cert, &sig, &body)
+        .await
+        .into_http();
+    json_status(status, body)
 }
 
 // ─── `/v2` app release registry ───────────────────────────────────────────

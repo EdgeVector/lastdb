@@ -4,9 +4,7 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
-use schema_service_core::{
-    invalid_app_id_body, reason_only_body, PromoteAppReply, RegisterAppReply, UpdateAppReply,
-};
+use schema_service_core::{invalid_app_id_body, reason_only_body, PromoteAppReply, UpdateAppReply};
 use schema_service_server_shared::state::SchemaServiceState;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
@@ -20,11 +18,11 @@ pub(crate) async fn post_app_v1(
         Ok(parts) => parts,
         Err(response) => return response,
     };
-    match state.register_app_reply(cert, sig, &body_value).await {
-        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
-            json_response(status, &body)
-        }
-    }
+    let (status, body) = state
+        .register_app_reply(cert, sig, &body_value)
+        .await
+        .into_http();
+    json_response(status, &body)
 }
 
 // Public, lookup-by-known-id app registry read
