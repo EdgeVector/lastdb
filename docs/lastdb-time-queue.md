@@ -113,7 +113,10 @@ A reader keeps its state in memory (`QueueReader`) and follows these rules.
    still too much, it cuts the key range in two and reads the lower half first.
    Each cut makes the span smaller, so the walk always moves. A walk that finds
    no key to continue from for too long stops with an error that names the cause.
-   A reader never loops on a failed read.
+   A reader never loops on a failed read. One `QueueReader::read_due` call makes
+   at most 16 such reads. A call that passed only released keys returns an empty
+   page that does not wait. The dwell step stops after 64 empty pages and reports
+   `DwellStep::passed`; the next step continues from the cursor.
 4. **Move the cursor after the work.** A page read changes nothing in the state.
    The caller releases the keys, then calls `QueueReader::finish`. A failure
    leaves the cursor where it was, and the next try reads the same keys.

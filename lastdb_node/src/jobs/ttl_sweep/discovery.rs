@@ -13,10 +13,13 @@
 //! hash, and each pass would read them again from the start of the hash. So
 //! the sweep keeps a floor for each hash, in memory: the key where a page of
 //! the leading run of deleted records ended. The next pass of the hash starts
-//! after its floor. A write below the floor (a peer import of old records, or
-//! a key with an old entry time) is not seen while the floor stays. Once in
-//! [`floors::FULL_PASS_EVERY`] passes of a hash, and after a restart of the
-//! node, the pass reads the hash from its start again.
+//! after its floor. The floors live with the schema store
+//! (`fold_db::db_operations::schema_store::RetentionFloors`), because the write
+//! paths note each live key that they commit there. A write below a floor (a
+//! peer import of old records, or a key with an old entry time) removes the
+//! floor, so the next pass reads the hash from its start and erases the key.
+//! Once in 64 passes of a hash, and after a restart of the node, the pass
+//! reads the hash from its start again.
 
 use fold_db::db_operations::{with_query_page_tally, PageResume};
 use fold_db::schema::types::field::HashRangeFilter;
@@ -93,8 +96,9 @@ pub(super) async fn fill_page(
                 return Ok(());
             }
             let hash = &hashes[*partition];
+            let floors = host.db.db_ops().schemas().retention_floors();
             if after.is_none() {
-                *after = floors::start(&backlog.schema_name, hash);
+                *after = floors.start(&backlog.schema_name, hash);
                 *leading = true;
             }
             let filter = range_filter(&backlog.schema_type, hash, backlog.cutoff);
@@ -126,10 +130,11 @@ pub(super) async fn fill_page(
                     return Err("TTL discovery cursor did not advance".into());
                 }
                 if *leading && page.resume.is_some() {
-                    floors::keep(&backlog.schema_name, hash, &next);
+                    floors.keep(&backlog.schema_name, hash, &next);
                 }
                 *after = Some(next);
             } else {
+                floors.end(&backlog.schema_name, hash);
                 *partition += 1;
                 *after = None;
             }
@@ -212,60 +217,4 @@ async fn range_page(
             .collect(),
         resume,
     })
-}
-
-/// The floor of each hash of each schema: where the leading run of deleted
-/// records ended in an earlier pass. Process memory only.
-pub(super) mod floors {
-    use fold_db::schema::types::KeyValue;
-    use std::collections::HashMap;
-    use std::sync::{LazyLock, Mutex};
-
-    /// A pass of a hash starts from the start of the hash once in this many
-    /// passes, so a write below the floor is erased in time.
-    pub(super) const FULL_PASS_EVERY: u32 = 64;
-
-    struct Floor {
-        after: KeyValue,
-        /// Passes of the hash that started after this floor.
-        passes: u32,
-    }
-
-    type Floors = HashMap<(String, String), Floor>;
-
-    static FLOORS: LazyLock<Mutex<Floors>> = LazyLock::new(Mutex::default);
-
-    /// Where a pass of `hash` starts: after its floor, or at its start when it
-    /// has none or a full pass is due.
-    pub(super) fn start(schema: &str, hash: &str) -> Option<KeyValue> {
-        let mut floors = FLOORS.lock().ok()?;
-        let key = (schema.to_owned(), hash.to_owned());
-        let passes = {
-            let floor = floors.get_mut(&key)?;
-            floor.passes += 1;
-            floor.passes
-        };
-        if passes >= FULL_PASS_EVERY {
-            floors.remove(&key);
-            return None;
-        }
-        floors.get(&key).map(|floor| floor.after.clone())
-    }
-
-    /// Move the floor of `hash` to `after`: every key up to it was a deleted
-    /// record when this pass read it.
-    pub(super) fn keep(schema: &str, hash: &str, after: &KeyValue) {
-        let Ok(mut floors) = FLOORS.lock() else {
-            return;
-        };
-        let key = (schema.to_owned(), hash.to_owned());
-        let passes = floors.get(&key).map_or(0, |floor| floor.passes);
-        floors.insert(
-            key,
-            Floor {
-                after: after.clone(),
-                passes,
-            },
-        );
-    }
 }

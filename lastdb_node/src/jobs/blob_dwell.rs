@@ -82,8 +82,9 @@ pub fn maybe_spawn_blob_dwell_pass(
 }
 
 /// Run one bounded dwell pass with the reader that the last pass left. A step
-/// reads one page of due entries and deletes it in one chunk, or retires one
-/// bucket. After each step the pass rests. An error ends the pass, and the next
+/// reads one page of due entries and deletes it in one chunk, retires one
+/// bucket, or passes a bounded run of released keys. After each step the pass
+/// rests. An error ends the pass, and the next
 /// pass waits longer (30 s, doubling, up to 10 min).
 pub async fn run_pass(
     host: &Host,
@@ -143,6 +144,7 @@ async fn run_steps(
             target: "lastdbd::blob_dwell",
             chunk = step.handled(),
             retired = step.retired,
+            passed = step.passed,
             buckets = cursor.buckets(),
             took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
             blocked_us = u64::try_from(step.blocked.as_micros()).unwrap_or(u64::MAX),

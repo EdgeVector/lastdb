@@ -17,6 +17,12 @@
 //! reference that arrived during the dwell raised the counter, so the chunk finds
 //! a count above zero and deletes only the stale queue entry.
 //!
+//! A step that meets only released keys stops after [`EMPTY_PAGES_PER_STEP`]
+//! empty pages and reports that it passed them ([`DwellStep::passed`]). Each
+//! page is at most 16 bounded reads (`time_queue/reader.rs`), so one step costs a
+//! bounded time however long the deleted run is. The cursor keeps its place, and
+//! the next step continues from it after the node rests.
+//!
 //! The cursor moves after the work. A step that fails leaves it where it was, and
 //! the next step reads the same keys. The gate is held for one chunk and released
 //! between chunks, so a writer waits for at most the reads and the staging of a
@@ -40,6 +46,11 @@ pub const DWELL_CHUNK: usize = 64;
 /// cursor, and the restart finds it. A bucket that the directory dropped is not
 /// read again.
 const FULL_PASS_EVERY: u64 = 60;
+
+/// Empty pages one step reads, at most. An empty page that does not wait passed
+/// a run of released keys. After this many the step ends with
+/// [`DwellStep::passed`], and the next step continues from the cursor.
+const EMPTY_PAGES_PER_STEP: usize = 64;
 
 /// The reader of the dwell queue, with the state it keeps between steps and
 /// passes. A restart of the node loses it, and the next pass then walks each live
@@ -102,6 +113,9 @@ pub struct DwellStep {
     pub unreadable: u64,
     /// The step deleted the directory row of a bucket whose walk was complete.
     pub retired: bool,
+    /// The step read [`EMPTY_PAGES_PER_STEP`] pages of released keys and found no
+    /// due entry. The cursor moved past them, and more keys remain.
+    pub passed: bool,
     /// How long the step kept writers waiting: the hold of the native write gate,
     /// and for a batch that seals the queue, the wait until it is durable
     /// (`storage::disk_pack::transaction::blocked`). The node rests for a share of
@@ -180,8 +194,17 @@ impl AtomStore {
         let now = self.blob_clock_millis();
         let due = BlobQueue::nanos(now.saturating_sub(blob_dwell_millis()));
         let queue = self.blob_events.queue();
+        let mut empty_pages = 0usize;
         for bucket in cursor.reader.candidates(due) {
             loop {
+                if empty_pages >= EMPTY_PAGES_PER_STEP {
+                    // The step passed a long run of released keys. The cursors
+                    // keep their places; the next step continues from them.
+                    return Ok(Some(DwellStep {
+                        passed: true,
+                        ..DwellStep::default()
+                    }));
+                }
                 if cursor.reader.exhausted(bucket) {
                     if cursor.partial.contains(&bucket) {
                         break;
@@ -207,6 +230,7 @@ impl AtomStore {
                     if waits {
                         break;
                     }
+                    empty_pages += 1;
                     continue;
                 }
                 let take = page.rows.len().min(max);

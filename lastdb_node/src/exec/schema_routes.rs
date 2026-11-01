@@ -350,7 +350,10 @@ pub(super) async fn execute_drop_schema_route(
             });
             return json_ok(&envelope(&payload, ctx.user_id.as_str()));
         }
-        Err(e) => return render(Err(e), ctx),
+        Err(e) => match blocked_drop_target(host, schema, &e) {
+            Some(canonical) => canonical,
+            None => return render(Err(e), ctx),
+        },
     };
 
     let existed = match host.db.drop_schema_and_bindings(&canonical).await {
@@ -370,6 +373,25 @@ pub(super) async fn execute_drop_schema_route(
         "schema": canonical,
     });
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
+}
+
+/// A drop that stopped leaves its schema blocked (`DbOperations::drop_schema`),
+/// and the name resolution of the other routes refuses an alias of a blocked
+/// schema with a 400. The drop route alone takes the one blocked schema whose
+/// descriptive name or identity is `requested`, so a retry by the same alias
+/// finishes the drop. A canonical name resolves without this.
+fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
+    if error.status != 400 {
+        return None;
+    }
+    let schemas = host.db.schema_manager().get_schemas_with_states().ok()?;
+    let mut blocked = schemas.into_iter().filter(|entry| {
+        entry.state == fold_db::schema::SchemaState::Blocked
+            && (entry.schema.descriptive_name.as_deref() == Some(requested)
+                || entry.schema.identity_hash.as_deref() == Some(requested))
+    });
+    let first = blocked.next()?;
+    blocked.next().is_none().then(|| first.schema.name.clone())
 }
 
 // ---------------------------------------------------------------------------

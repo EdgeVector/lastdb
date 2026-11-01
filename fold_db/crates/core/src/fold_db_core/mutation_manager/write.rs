@@ -85,7 +85,7 @@ impl MutationManager {
                 == SchemaState::Blocked
             {
                 return Err(SchemaError::Blocked(format!(
-                    "Schema '{}' is blocked and cannot be mutated",
+                    "Schema '{}' is blocked and cannot be mutated (superseded, or a drop is running)",
                     mutation.schema_name
                 )));
             }

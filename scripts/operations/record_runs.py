@@ -9,14 +9,25 @@ limit that names next_cursor. A sample that the run ends early says that it
 is not complete and names a cursor for the walk. A Hash schema with no hash
 key field walks and samples with opaque keys.
 
+A share snapshot reads a keyed leg past the same run, page by page, and
+delivers the records after it.
+
 The TTL sweep lists the expired keys of a hash with the same range read: it
-reads past a run of deleted records to the expired records after the run. A
+reads past a run of deleted records to the expired records after the run. It
+keeps a floor for each hash after the run; a write below the floor removes the
+floor, so the next passes erase the key, not a full pass 64 passes later. A
 schema drop releases the records, field history entries and alternate key
 entries of the schema, so the same schema installed again holds none of them,
-and the records of other schemas stay. record_home.py runs this module on its
-CI daemon.
+and the records of other schemas stay. An installed schema refuses a change of
+its alternate keys, so its current alternate revision is its only one. A drop
+blocks the schema first: a write during the drop is refused, and no record of
+it stays. record_home.py runs this module on its CI daemon.
 """
+import base64
+import os
+import threading
 import time
+import uuid
 
 FIELDS = ["id", "bucket", "value"]
 # More deleted records under one hash than one request may examine.
@@ -31,6 +42,16 @@ TTL_SECONDS = 3_600
 SWEEP_SECONDS = 120
 # More records than one release batch of a schema drop reads (256 rows).
 DROP_RECORDS = 600
+# A write below the floor of a hash must be erased within this time: a few passes at one pass
+# a second. Without the write note the floor stays for up to 64 passes.
+FLOOR_SECONDS = 20
+# Passes after an erase that set the floor of the hash again before the next write below it.
+FLOOR_SETTLE_SECONDS = 5
+FLOOR_ROUNDS = 3
+# Records of the schema that a drop releases while a writer writes to it: the release then
+# takes many batches, and the writer meets the drop.
+RACE_RECORDS = 3_000
+RACE_BATCH = 20
 
 
 def require(value, message):
@@ -70,6 +91,7 @@ def definition(name, schema_type, key, fields, alternates=None):
 
 RANGED = {"hash_field": "bucket", "range_field": "id"}
 DROPPED = definition("RecordDrop", "Hash", {"hash_field": "id"}, FIELDS, {"by_bucket": RANGED})
+RACED = definition("RecordRace", "Hash", {"hash_field": "id"}, FIELDS, {"by_bucket": RANGED})
 
 
 def seed(node, schema):
@@ -81,7 +103,7 @@ def install(node):
     for schema in [definition("RecordRun", "HashRange", RANGED, FIELDS),
                    definition("RecordNoKey", "Hash", None, ["value"]),
                    definition("RecordAged", "HashRange", RANGED, FIELDS),
-                   DROPPED]:
+                   DROPPED, RACED]:
         seed(node, schema)
 
 
@@ -178,11 +200,26 @@ def opaque_keys(node, scan):
             f"a sample of 3 returned {len(sample['results'])} rows")
 
 
-def wait_gone(node, keys, message):
+def share_snapshot(node):
+    """A share snapshot reads its keyed legs past the run of deleted records."""
+    body = {"recipient_pubkey": "record-home",
+            "messaging_public_key": base64.b64encode(os.urandom(32)).decode(),
+            "messaging_pseudonym": str(uuid.uuid4()),
+            "legs": [{"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}},
+                     {"schema_name": "RecordRun", "fields": FIELDS,
+                      "filter": {"HashRangeRange": {"hash": "run", "start": "a", "end": "zz"}}}]}
+    reply = node.call("/api/sharing/snapshot", body)[0]
+    require(reply["record_count"] == 2,
+            f"the share snapshot over a run of {RUN} deleted records holds "
+            f"{reply['record_count']} records, not 2")
+    require(reply["encrypted_blob"], "the share snapshot has no sealed blob")
+
+
+def wait_gone(node, keys, message, seconds=SWEEP_SECONDS):
     """Wait until the TTL sweep erased every one of `keys` under the hash "aged"."""
     body = {"schema_name": "RecordAged", "fields": FIELDS,
             "filter": {"HashRangeKeys": [["aged", key] for key in keys]}}
-    deadline = time.time() + SWEEP_SECONDS
+    deadline = time.time() + seconds
     while node.call("/api/query", body)[0]["results"]:
         require(time.time() < deadline, message)
         time.sleep(1)
@@ -214,6 +251,28 @@ def ttl_resume(node):
     converged = sum(row["records_converged"] for row in rows if row["committed"])
     require(converged == len(erased), f"the TTL sweep audit rows name {converged} records, "
             f"not {len(erased)}: " + repr(rows))
+
+
+def ttl_below_floor(node):
+    """A write below the floor of a hash is erased by the next passes of the TTL sweep.
+
+    After ttl_resume the floor of the hash "aged" is in the run of deleted records. A key
+    older than the run sorts below it. Each round writes one such key and waits less than the
+    64 passes after which a pass reads the hash from its start without the write note.
+    """
+    older = int(time.time()) - 3 * TTL_SECONDS
+    for number in range(FLOOR_ROUNDS):
+        # The passes after the last erase read the erased key as a deleted record and set the
+        # floor of the hash again.
+        time.sleep(FLOOR_SETTLE_SECONDS)
+        key = f"{older:020d}-a{number}"
+        write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
+                              {"id": key, "bucket": "aged", "value": key}, "create")])
+        started = time.time()
+        wait_gone(node, [key], f"the TTL sweep did not erase the expired record {key} below the "
+                  f"floor of its hash within {FLOOR_SECONDS} s", FLOOR_SECONDS)
+        print(f"TTL floor: round {number + 1} erased a write below the floor in "
+              f"{time.time() - started:.1f} s", flush=True)
 
 
 def ledger(node):
@@ -260,6 +319,11 @@ def drop_release(node, scan):
     require(walked == [] and alternate == [],
             f"the schema installed again after its drop holds {len(walked)} walked and "
             f"{len(alternate)} alternate records")
+    # The drop releases the entries of the current alternate revision. The schema has no other:
+    # an installed schema refuses a change of its alternate keys.
+    changed = definition("RecordDrop", "Hash", {"hash_field": "id"}, FIELDS,
+                         {"by_value": {"hash_field": "value", "range_field": "id"}})
+    refused(lambda: seed(node, changed), ["alternate"])
     require(drop_history(node, "d0000", {"op": "list"})["entries"] == [],
             "the schema installed again after its drop holds a field history entry")
     write(node, [mutation("RecordDrop", {"hash": "d0001"},
@@ -270,6 +334,69 @@ def drop_release(node, scan):
     body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}}
     rows, _, _ = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"], "the drop of RecordDrop changed RecordRun: " + repr(ids(rows)))
+
+
+def race_writer(node, stop, outcome):
+    """Write new records of RecordRace until `stop`, and count how each batch ended."""
+    number = 0
+    while not stop.is_set():
+        names = [f"w{number + offset:06d}" for offset in range(RACE_BATCH)]
+        number += RACE_BATCH
+        batch = [mutation("RecordRace", {"hash": name}, {"id": name, "bucket": "race", "value": name},
+                          "create") for name in names]
+        try:
+            node.call("/api/mutations/batch", {"mutations": batch})
+            outcome["written"] += 1
+        except RuntimeError as error:
+            text = str(error)
+            if "blocked" in text:
+                outcome["blocked"] += 1
+            elif "not found" in text.lower():
+                outcome["missing"] += 1
+            else:
+                outcome["other"].append(text[:400])
+                return
+
+
+def race_rows(node, scan):
+    """Every live record of RecordRace, by walk and by its alternate key."""
+    body = {"schema_name": "RecordRace", "fields": FIELDS, "filter": None}
+    walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
+    page = node.call("/api/query", {"schema_name": "RecordRace", "fields": FIELDS,
+                                    "filter": {"HashKey": "race"}, "key_name": "by_bucket",
+                                    "limit": 1_000})[0]
+    return ids(walked), ids(page["results"])
+
+
+def drop_race(node, scan):
+    """A write during a schema drop is refused, and the drop leaves no record of the schema."""
+    names = [f"r{number:05d}" for number in range(RACE_RECORDS)]
+    write(node, [mutation("RecordRace", {"hash": name}, {"id": name, "bucket": "race", "value": name},
+                          "create") for name in names])
+    stop = threading.Event()
+    outcome = {"written": 0, "blocked": 0, "missing": 0, "other": []}
+    writer = threading.Thread(target=race_writer, args=(node, stop, outcome), daemon=True)
+    writer.start()
+    deadline = time.time() + SWEEP_SECONDS
+    while outcome["written"] < 3 and not outcome["other"]:
+        require(time.time() < deadline, "the race writer wrote nothing: " + repr(outcome))
+        time.sleep(0.05)
+    try:
+        reply = node.call("/api/schemas/drop", {"schema": "RecordRace", "must_exist": True})[0]
+    finally:
+        stop.set()
+        writer.join(SWEEP_SECONDS)
+    require(not writer.is_alive(), "the race writer did not stop")
+    require(not outcome["other"], "a write during the drop failed for another reason: "
+            + repr(outcome["other"]))
+    require(reply["existed"], "the schema drop did not find RecordRace: " + repr(reply))
+    require(outcome["blocked"] >= 1, "no write met the drop while it ran: " + repr(outcome))
+    seed(node, RACED)
+    walked, alternate = race_rows(node, scan)
+    require(walked == [] and alternate == [],
+            f"the drop left {len(walked)} walked and {len(alternate)} alternate records of a "
+            f"writer that wrote during it: {outcome}")
+    return outcome
 
 
 def check(node, scan):
@@ -285,10 +412,21 @@ def check(node, scan):
           "count failed with a read limit that names next_cursor; a sample said it was not "
           "complete and the walk continued it; a schema with no key field walked and sampled "
           "with opaque keys", flush=True)
+    share_snapshot(node)
+    print(f"Share snapshot: two keyed legs read past {RUN} deleted records page by page and "
+          "delivered the 2 records", flush=True)
     ttl_resume(node)
     print(f"TTL resume: the sweep read past {RUN} deleted records and erased the expired records "
           "after them, twice, and wrote their audit rows", flush=True)
+    ttl_below_floor(node)
+    print(f"TTL floor: {FLOOR_ROUNDS} writes below the floor of a hash were each erased within "
+          f"{FLOOR_SECONDS} s", flush=True)
     drop_release(node, scan)
     print(f"Schema drop: the drop of a schema with {DROP_RECORDS} records, field history and an "
-          "alternate key released them; the schema installed again held none of them; another "
-          "schema kept its records", flush=True)
+          "alternate key released them; the schema installed again held none of them and "
+          "refused a change of its alternate keys; another schema kept its records", flush=True)
+    outcome = drop_race(node, scan)
+    print(f"Drop race: a writer wrote {outcome['written']} batches before the drop, the drop "
+          f"refused {outcome['blocked']} batches as blocked and {outcome['missing']} found no "
+          f"schema after it; the schema installed again held none of the {RACE_RECORDS} records "
+          "or the writes", flush=True)

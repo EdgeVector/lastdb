@@ -96,6 +96,16 @@ impl MutationManager {
             .atoms()
             .stage_records(changes, entries, history.blobs)
             .await?;
+        if storage_prefix.is_none() {
+            // A live record below a floor of the TTL sweep removes the floor.
+            let live = changed
+                .iter()
+                .zip(&outcomes)
+                .filter(|(_, outcome)| outcome.live);
+            self.db_ops
+                .schemas()
+                .note_live_writes(schema, live.map(|(record, _)| record.key))?;
+        }
         self.stage_record_side_rows(schema, storage_prefix, changed, &outcomes, history.released)
             .await
     }

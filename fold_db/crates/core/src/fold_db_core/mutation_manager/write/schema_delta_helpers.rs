@@ -12,7 +12,7 @@ impl MutationManager {
         let snapshot = self.db_ops.schemas().read_snapshot(schema_name).await?;
         if snapshot.state == SchemaState::Blocked {
             return Err(SchemaError::Blocked(format!(
-                "Schema '{schema_name}' is blocked and cannot be mutated"
+                "Schema '{schema_name}' is blocked and cannot be mutated (superseded, or a drop is running)"
             )));
         }
         let mut schema = snapshot
