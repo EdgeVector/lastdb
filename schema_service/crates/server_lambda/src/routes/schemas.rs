@@ -321,7 +321,7 @@ pub(crate) fn post_schemas_batch_check_reuse(
         BatchReuseReply::Ready(response) => {
             json_response(200, &json!({ "matches": response.matches }))
         }
-        BatchReuseReply::Failed { message } => json_response(500, &json!({"error": message})),
+        BatchReuseReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 

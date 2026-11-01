@@ -29,13 +29,17 @@ pub fn accepted_similarity_threshold(raw: Option<f64>) -> Option<f64> {
 ///
 /// Success is HTTP 200 and `{ "matches": ... }`. Failure is HTTP 500.
 /// `message` is `Batch schema reuse check failed: {error}`. The actix router
-/// still records match telemetry and writes the error log.
+/// still records match telemetry and writes the error log. `body` is
+/// `{ "error": message }`.
 #[derive(Debug)]
 pub enum BatchReuseReply {
     /// Every entry was checked. The body is `{ "matches": ... }`.
     Ready(crate::types::BatchSchemaReuseResponse),
-    /// The check failed. `message` is the error text.
-    Failed { message: String },
+    /// The check failed. HTTP 500.
+    ///
+    /// `message` is the error text. The actix router still writes the error
+    /// log and the match telemetry. `body` is `{ "error": message }`.
+    Failed { message: String, body: Value },
 }
 
 impl SchemaServiceState {
@@ -207,16 +211,20 @@ impl SchemaServiceState {
 
     /// The same call as [`Self::batch_check_schema_reuse`], classified for HTTP.
     ///
-    /// The check method stays public. Each router still writes its response.
+    /// A failure stays HTTP 500. The body is `{ "error": message }`. The check
+    /// method stays public. Each router still writes a success response. The
+    /// actix router still records match telemetry and writes the error log.
     #[must_use]
     pub fn batch_reuse_reply(&self, entries: &[SchemaLookupEntry]) -> BatchReuseReply {
         match self.batch_check_schema_reuse(entries) {
             Ok(matches) => {
                 BatchReuseReply::Ready(crate::types::BatchSchemaReuseResponse { matches })
             }
-            Err(error) => BatchReuseReply::Failed {
-                message: format!("Batch schema reuse check failed: {error}"),
-            },
+            Err(error) => {
+                let message = format!("Batch schema reuse check failed: {error}");
+                let body = json!({"error": message});
+                BatchReuseReply::Failed { message, body }
+            }
         }
     }
 }
