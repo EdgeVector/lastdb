@@ -121,28 +121,40 @@ impl AppUpdateError {
         }
     }
 
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId
+            | Self::InvalidMetadata(_)
+            | Self::InvalidCodeSignature(_)
+            | Self::InvalidUses(_) => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => 401,
+            Self::AppNotRegistered => 404,
+            Self::DisplayNameImmutable { .. } => 409,
+            Self::Internal(_) => 500,
+        }
+    }
+
     pub fn to_http(&self) -> (u16, Value) {
         let reason = self.http_reason();
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
+        let body = match self {
             Self::InvalidMetadata(detail)
             | Self::InvalidCodeSignature(detail)
-            | Self::InvalidUses(detail) => (400, reason_detail_body(reason, detail)),
-            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => {
-                (401, reason_only_body(reason))
-            }
-            Self::AppNotRegistered => (404, reason_only_body(reason)),
+            | Self::InvalidUses(detail)
+            | Self::Internal(detail) => reason_detail_body(reason, detail),
             Self::DisplayNameImmutable {
                 current_display_name,
-            } => (
-                409,
-                json!({
-                    "reason": reason,
-                    "current_display_name": current_display_name,
-                }),
-            ),
-            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
-        }
+            } => json!({
+                "reason": reason,
+                "current_display_name": current_display_name,
+            }),
+            Self::InvalidAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotOwner
+            | Self::AppNotRegistered => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
 
