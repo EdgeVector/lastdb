@@ -57,6 +57,8 @@ pub(super) fn validate_query_options(
 pub(super) struct PreparedQuery {
     pub(super) query: Query,
     pub(super) cursor: Option<KeyValue>,
+    /// The record key position of a record walk cursor (`walk.rs`).
+    pub(super) record: Option<String>,
     pub(super) binding: Option<String>,
 }
 
@@ -111,6 +113,29 @@ pub(super) fn prepare_comparison(
             _ => {}
         }
     }
+    // A record walk page names the record key position where it ended: a
+    // run of deleted records has no API key to name.
+    let record = cursor
+        .as_ref()
+        .map(QueryCursor::record_position)
+        .transpose()
+        .map_err(|error| HostError::new(400, error))?
+        .flatten();
+    if record.is_some() {
+        if !walk {
+            return Err(HostError::new(
+                400,
+                "a record cursor continues only an unfiltered read; continue a keyed read with \
+                 the next_cursor of that read",
+            ));
+        }
+        return Ok(PreparedQuery {
+            query,
+            cursor: None,
+            record,
+            binding,
+        });
+    }
     let cursor = cursor.map(QueryCursor::into_key);
     let cursor = match comparison {
         Some(comparison) => cursor
@@ -122,6 +147,7 @@ pub(super) fn prepare_comparison(
     Ok(PreparedQuery {
         query,
         cursor,
+        record: None,
         binding,
     })
 }

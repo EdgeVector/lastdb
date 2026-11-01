@@ -1,3 +1,6 @@
+use crate::schema::types::KeyValue;
+use std::cell::{Cell, RefCell};
+
 /// What one query dropped between "the index says this row exists" and "the
 /// caller was handed this row".
 ///
@@ -114,16 +117,81 @@ tokio::task_local! {
     /// computing layout of {async fn body of watch_target()}") while every
     /// `-p` build of the touched crates stayed green. A second counter is not
     /// worth a second scope.
-    static QUERY_ROW_DROPS: std::cell::Cell<QueryRowDrops>;
+    static QUERY_ROW_DROPS: QueryTally;
+}
+
+/// The per-query tally: the row drops and, for a caller that continues a
+/// short page, where the page ended.
+struct QueryTally {
+    drops: Cell<QueryRowDrops>,
+    end: RefCell<PageEnd>,
+    /// The caller continues a page that ends early (`with_query_page_tally`).
+    resumable: bool,
+}
+
+impl QueryTally {
+    fn new(resumable: bool) -> Self {
+        Self {
+            drops: Cell::new(QueryRowDrops::default()),
+            end: RefCell::new(PageEnd::default()),
+            resumable,
+        }
+    }
+}
+
+/// Where one page ended, for the caller that builds its cursor. NOT a drop.
+///
+/// One request may examine at most 10,000 keys, and a deleted record is a key.
+/// A run of deleted records longer than that would make a page that must pass
+/// it fail at the same place on every retry. A read that the caller can
+/// continue ends its page early instead, with fewer rows than the window, and
+/// names the last key it examined; the next page starts after that key.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PageEnd {
+    /// The page ended before its window was full while keys remained.
+    pub resume: Option<PageResume>,
+    /// The record key position of each row of an unfiltered record walk, in
+    /// record key order: the reply keeps the first rows of the walk and its
+    /// cursor names the position of the last row it keeps.
+    pub walk: Vec<(KeyValue, String)>,
+}
+
+/// The position after which the next page of a read starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageResume {
+    /// A range under one hash: the API key of the last key the read examined.
+    Key(KeyValue),
+    /// An unfiltered record walk: the record key suffix of the last record
+    /// the walk examined. A deleted record has no API key.
+    Record(String),
 }
 
 /// Bump one field of the per-query tally, if one is installed.
 pub(super) fn note_row_drop(bump: impl Fn(&mut QueryRowDrops)) {
     let _ = QUERY_ROW_DROPS.try_with(|tally| {
-        let mut drops = tally.get();
+        let mut drops = tally.drops.get();
         bump(&mut drops);
-        tally.set(drops);
+        tally.drops.set(drops);
     });
+}
+
+/// True when the caller installed a tally that continues a page that ends
+/// early. Another caller (a count, a condition pass, a background job) needs
+/// the complete set, so a read that cannot finish in one request fails.
+pub fn page_can_resume() -> bool {
+    QUERY_ROW_DROPS
+        .try_with(|tally| tally.resumable)
+        .unwrap_or(false)
+}
+
+/// Note where a page that ended early goes on, if a tally is installed.
+pub fn note_page_resume(resume: PageResume) {
+    let _ = QUERY_ROW_DROPS.try_with(|tally| tally.end.borrow_mut().resume = Some(resume));
+}
+
+/// Note the record key position of each row of a record walk page.
+pub fn note_walk_positions(rows: Vec<(KeyValue, String)>) {
+    let _ = QUERY_ROW_DROPS.try_with(|tally| tally.end.borrow_mut().walk = rows);
 }
 
 /// Note one row dropped for a content tombstone, if a tally is installed.
@@ -155,7 +223,7 @@ where
     F: std::future::Future,
 {
     let before = QUERY_ROW_DROPS
-        .try_with(|tally| tally.get().total())
+        .try_with(|tally| tally.drops.get().total())
         .unwrap_or(0);
     let result = fut.await;
     note_row_drop(|drops| {
@@ -176,9 +244,24 @@ where
     F: std::future::Future,
 {
     QUERY_ROW_DROPS
-        .scope(std::cell::Cell::new(QueryRowDrops::default()), async move {
+        .scope(QueryTally::new(false), async move {
             let out = fut.await;
-            (out, QUERY_ROW_DROPS.with(std::cell::Cell::get))
+            (out, QUERY_ROW_DROPS.with(|tally| tally.drops.get()))
+        })
+        .await
+}
+
+/// [`with_query_row_drop_tally`] for a caller that continues a page that
+/// ends early: also returns where the page ended ([`PageEnd`]).
+pub async fn with_query_page_tally<F>(fut: F) -> (F::Output, QueryRowDrops, PageEnd)
+where
+    F: std::future::Future,
+{
+    QUERY_ROW_DROPS
+        .scope(QueryTally::new(true), async move {
+            let out = fut.await;
+            let (drops, end) = QUERY_ROW_DROPS.with(|tally| (tally.drops.get(), tally.end.take()));
+            (out, drops, end)
         })
         .await
 }

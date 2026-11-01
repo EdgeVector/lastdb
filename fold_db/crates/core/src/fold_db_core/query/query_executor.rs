@@ -139,6 +139,20 @@ impl QueryExecutor {
         .await
     }
 
+    /// [`Self::query_with_access`], hydrating one page of `window`: an
+    /// offset page, a keyset page, or a record walk page after a record key
+    /// position ([`KeyWindow::AfterRecord`], an unfiltered read only). The
+    /// preconditions of [`Self::query_with_access_windowed`] apply.
+    pub async fn query_with_access_window(
+        &self,
+        query: Query,
+        window: KeyWindow,
+        access_context: &AccessContext,
+    ) -> Result<QueryRecords, SchemaError> {
+        self.query_internal(query, Some(window), Some(access_context))
+            .await
+    }
+
     async fn query_internal(
         &self,
         query: Query,

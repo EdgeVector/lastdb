@@ -17,6 +17,16 @@ pub(super) async fn execute<H: HostNode>(
             "alternate pages use cursors rather than offsets",
         ));
     }
+    if cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.record.is_some())
+    {
+        return Err(HostError::new(
+            400,
+            "a record cursor continues only an unfiltered read; continue an alternate page with \
+             the next_cursor of that page",
+        ));
+    }
     if QueryResponseFormat::current() == QueryResponseFormat::Count {
         if cursor.is_some() {
             return Err(HostError::new(400, "alternate counts do not use a cursor"));

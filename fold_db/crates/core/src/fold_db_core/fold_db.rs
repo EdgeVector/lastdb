@@ -23,7 +23,6 @@ mod maintenance_admission;
 
 mod provenance;
 mod record_conflicts;
-mod record_walk;
 mod schema_drop;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;

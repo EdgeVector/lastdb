@@ -5,10 +5,12 @@
 //!
 //! A keyed selector echoes the caller's API hash. A walk cannot decode a
 //! blinded hash, so it recovers each API key from the key fields of the
-//! record; the write path puts those fields in every record.
+//! record; the write path puts those fields in every record of a schema that
+//! declares them (`walk_key`).
 
 use super::record_walk::WalkWindow;
 use super::AtomStore;
+use crate::db_operations::note_page_key_forms;
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::{
     build_storage_key, FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP,
@@ -137,8 +139,12 @@ impl AtomStore {
             take,
         };
         let scopes = [scope.map(str::to_owned)];
-        self.walk_record_window(schema, comparison, window, &scopes, |_| true)
-            .await
+        // A sample or a first page that reaches the read allowance in a run
+        // of deleted records keeps the rows it found.
+        Ok(self
+            .walk_record_window(schema, comparison, window, &scopes, |_| true)
+            .await?
+            .into_keyed())
     }
 
     /// One walk of every record in the record space of a schema. The store's
@@ -157,11 +163,13 @@ impl AtomStore {
             .await
             .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
         let mut out = Vec::with_capacity(rows.len());
-        for (_, value) in rows {
+        for (key, value) in rows {
             let record = decode(&value)?;
             if record.is_live() {
+                let key = String::from_utf8(key).unwrap_or_default();
+                let suffix = key.strip_prefix(prefix.as_str()).unwrap_or_default();
                 out.push((
-                    recovered_key(schema, comparison, &record)?,
+                    walk_key(schema, comparison, &record, suffix)?,
                     Arc::new(record),
                 ));
             }
@@ -273,7 +281,7 @@ fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
 }
 
 /// The canonical API key from the key fields of a live record.
-pub(super) fn recovered_key(
+fn recovered_key(
     schema: &Schema,
     comparison: &KeyComparisonContext,
     record: &StoredRecord,
@@ -293,6 +301,36 @@ pub(super) fn recovered_key(
         ));
     }
     comparison.canonical_key(key)
+}
+
+/// The API key of a walk row at the record key suffix `suffix`. A Hash
+/// schema with no hash key field writes no key field into its records
+/// (`key_rules`), and the blinded hash of a record key cannot be decoded, so
+/// such a row keeps the storage form of its hash: the HMAC token, which the
+/// reply flags (`key_form: "opaque"`). Any other record that lacks its key
+/// fields is damaged.
+pub(super) fn walk_key(
+    schema: &Schema,
+    comparison: &KeyComparisonContext,
+    record: &StoredRecord,
+    suffix: &str,
+) -> Result<KeyValue, SchemaError> {
+    let hash_field = schema
+        .key
+        .as_ref()
+        .and_then(|key| key.hash_field.as_deref());
+    if schema.schema_type != DeclarativeSchemaType::Hash || hash_field.is_some() {
+        return recovered_key(schema, comparison, record);
+    }
+    // A base64url HMAC token needs no unescape; the separator ends it.
+    let token = suffix.split('\0').next().unwrap_or_default();
+    if token.is_empty() {
+        return Err(SchemaError::InvalidData(
+            "a stored record key has no hash".into(),
+        ));
+    }
+    note_page_key_forms(0, 1);
+    Ok(KeyValue::new(Some(token.to_owned()), None))
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
