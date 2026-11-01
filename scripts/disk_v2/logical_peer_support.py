@@ -1,4 +1,9 @@
-"""Bounded owner requests and keyed observations on real generated peer nodes."""
+"""Bounded owner requests and keyed observations on real generated peer nodes.
+
+A format 7 home exports version 2 events. Each event lists the final record
+effects of one request: the schema, the primary key, and each written field
+with its canonical identity, value and stamp.
+"""
 
 import copy
 import json
@@ -42,7 +47,8 @@ def export(node, after=0, limit=4):
             and len(encoded(events)) <= EVENT_BYTES, "export exceeds its declared bounds")
     for offset, event in enumerate(events, after + 1):
         require(event["sequence"] == offset and event["origin"] == head["origin"]
-                and event["signature"] and event["outcomes"], "original exported event is incomplete")
+                and event["signature"] and event.get("version") == 2 and event.get("records")
+                and not event.get("outcomes"), "original exported event is incomplete")
     return page
 
 
@@ -95,21 +101,32 @@ def record_key(entry):
     return entry["schema"], entry["key"]["hash"], entry["key"].get("range")
 
 
+def stamp_order(stamp):
+    """The merge order of a field stamp: write time, logical counter, device, mutation."""
+    if isinstance(stamp, dict):
+        stamp = [stamp["written_at"], stamp.get("logical_counter", 0),
+                 stamp.get("device_id", ""), stamp.get("mutation_id", "")]
+    require(isinstance(stamp, list) and len(stamp) == 4, "event field stamp is incomplete")
+    return tuple(stamp)
+
+
 def add_model(model, batches, events):
+    """Merge the signed fields of each event into the model by stamp, as a receiver does."""
     require(len(batches) == len(events), "authored batches and signed events differ")
     for batch, event in zip(batches, events):
         known = {record_key(entry): entry for entry in batch}
-        for outcome in event["outcomes"]:
-            coordinate = (outcome["schema_name"], outcome["key"]["hash"], outcome["key"]["range"])
+        for outcome in event["records"]:
+            coordinate = (outcome["schema_name"], outcome["key"]["hash"], outcome["key"].get("range"))
             require(coordinate in known, "event changed an original authored key")
-            field, tip = outcome["field_name"], outcome["tip"]
-            require(field in known[coordinate]["fields"], "event changed an original authored field")
-            order = (tip["written_at"], tip.get("logical_counter", 0),
-                     tip.get("device_id") or tip.get("writer_pubkey", ""),
-                     tip.get("mutation_uuid", ""), tip["atom_uuid"])
-            selected = model.setdefault(coordinate, {})
-            if field not in selected or order > selected[field][0]:
-                selected[field] = (order, known[coordinate]["fields"][field])
+            require(not outcome.get("deleted"), "event deleted an authored record")
+            for field, written in outcome["fields"].items():
+                authored = known[coordinate]["fields"]
+                require(field in authored, "event changed an original authored field")
+                require(written.get("value") == authored[field], "event value differs from the authored value")
+                order = stamp_order(written["stamp"])
+                selected = model.setdefault(coordinate, {})
+                if field not in selected or order > selected[field][0]:
+                    selected[field] = (order, authored[field])
 
 
 def records(model):
@@ -151,7 +168,8 @@ def refusals(node, source_page):
     request(node, {"action": "enroll", "anchor": anchor})
     results["gap"] = request(node, {"action": "import", "events": events[1:2]}, (409,))
     changed = copy.deepcopy(events[:1])
-    changed[0]["outcomes"][0]["atom"]["content"] = "tampered-original-event"
+    field = next(iter(changed[0]["records"][0]["fields"].values()))
+    field["value"] = "tampered-original-event"
     results["tamper"] = request(node, {"action": "import", "events": changed}, (409,))
     signature = copy.deepcopy(events[:1])
     signature[0]["signature"] = "00" * 64
