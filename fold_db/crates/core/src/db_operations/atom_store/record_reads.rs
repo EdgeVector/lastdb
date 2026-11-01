@@ -8,9 +8,9 @@
 //! record; the write path puts those fields in every record of a schema that
 //! declares them (`walk_key`).
 
-use super::record_walk::WalkWindow;
+use super::record_walk::{WalkWindow, PAGE_READ_KEYS};
 use super::AtomStore;
-use crate::db_operations::note_page_key_forms;
+use crate::db_operations::{note_page_key_forms, note_page_resume, page_can_resume, PageResume};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::{
     build_storage_key, FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP,
@@ -126,6 +126,14 @@ impl AtomStore {
 
     /// The first `take` live records of one scope in record key order
     /// (`record_walk.rs`).
+    ///
+    /// A run of deleted records can use the read allowance before `take`
+    /// records are found. A caller that continues a page that ends early
+    /// gets the short page and the record key position where the walk
+    /// stopped (`PageResume::Record`); any other caller gets a read limit
+    /// error, never a short page that looks complete. The query path reads a
+    /// sample through `HashRangeQueryProcessor::sample_rows`, which merges the
+    /// scopes in one walk; this read serves one scope.
     async fn walk_first(
         &self,
         schema: &Schema,
@@ -139,12 +147,21 @@ impl AtomStore {
             take,
         };
         let scopes = [scope.map(str::to_owned)];
-        // A sample or a first page that reaches the read allowance in a run
-        // of deleted records keeps the rows it found.
-        Ok(self
+        let mut page = self
             .walk_record_window(schema, comparison, window, &scopes, |_| true)
-            .await?
-            .into_keyed())
+            .await?;
+        if let Some(stopped) = page.stopped.take() {
+            if !page_can_resume() {
+                return Err(SchemaError::ReadResourceLimit {
+                    detail: format!(
+                        "a sample passed {PAGE_READ_KEYS} deleted records before it was full; \
+                         read the schema in pages with next_cursor"
+                    ),
+                });
+            }
+            note_page_resume(PageResume::Record(stopped));
+        }
+        Ok(page.into_keyed())
     }
 
     /// One walk of every record in the record space of a schema. The store's

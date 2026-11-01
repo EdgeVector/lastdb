@@ -284,8 +284,10 @@ pub(super) async fn execute_retire_schema_name_claim_route(
 
 /// `POST /api/schemas/drop` — remove one catalog identity, or every identity
 /// owned by one app. ACK is catalog absence: the schema record and its database
-/// catalog rows are gone in the answer. The drop does not remove the records of
-/// the schema.
+/// catalog rows are gone in the answer. Before the schema record goes, the drop
+/// releases the records, field history entries and alternate key entries of
+/// the schema in bounded batches (`AtomStore::release_schema_rows`). A drop
+/// that fails or times out leaves the schema installed, and a retry goes on.
 pub(super) async fn execute_drop_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,

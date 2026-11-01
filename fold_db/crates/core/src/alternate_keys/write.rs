@@ -43,7 +43,7 @@ impl AtomStore {
         }
         leaves.retain(|(key, _)| !puts.contains_key(key));
         let mut changes: Vec<KvMutation> = self
-            .owned_entries(leaves)
+            .owned_entries(schema, leaves)
             .await?
             .into_iter()
             .map(KvMutation::delete)
@@ -96,7 +96,19 @@ impl AtomStore {
 
     /// The storage keys of the left entries that still name their record.
     /// One read by key; an absent entry needs no delete.
-    async fn owned_entries(&self, leaves: Vec<Leave<'_>>) -> Result<Vec<String>, SchemaError> {
+    ///
+    /// Two primary keys name one record when they encode to one record key.
+    /// The text of a key is not its identity: the record key blinds the hash
+    /// and types the range, so two texts can name one record (an Integer range
+    /// written as `7` and as `07`, or one DateTime instant in two UTC offsets).
+    /// A text compare kept such an entry after its record left the key. A
+    /// stored primary that no longer encodes names no record that this write
+    /// can own, so it stays.
+    async fn owned_entries(
+        &self,
+        schema: &Schema,
+        leaves: Vec<Leave<'_>>,
+    ) -> Result<Vec<String>, SchemaError> {
         if leaves.is_empty() {
             return Ok(Vec::new());
         }
@@ -118,17 +130,12 @@ impl AtomStore {
             let Some(bytes) = bytes else { continue };
             let entry: AlternateEntry =
                 serde_json::from_slice(&bytes).map_err(|_| invalid("invalid alternate entry"))?;
-            if same_record(&entry.primary, primary) {
+            let leaving = self.record_key(schema, primary, None)?;
+            let named = self.record_key(schema, &entry.primary, None).ok();
+            if named.as_deref() == Some(leaving.as_str()) {
                 owned.push(key);
             }
         }
         Ok(owned)
     }
-}
-
-/// True when two primary keys name one record. A record key reads an absent
-/// range as an empty one.
-fn same_record(a: &KeyValue, b: &KeyValue) -> bool {
-    a.hash == b.hash
-        && a.range.as_deref().unwrap_or_default() == b.range.as_deref().unwrap_or_default()
 }

@@ -133,6 +133,30 @@ pub(in crate::handlers) fn materialized_page_payload(
     page_payload(page, Some(total_count), limit, offset, has_more, drops)
 }
 
+/// A sample that a run of deleted records ended before it was full. Its rows
+/// are the live records the walk found, and the sample is not complete:
+/// `has_more` is true and `total_count` is null. When the reply holds the last
+/// row the walk found, `next_cursor` names the record key position where the
+/// walk stopped, and the unfiltered read of the same fields continues from
+/// there in record key order. A reply that leaves found rows out (a limit
+/// below the sample) has no cursor, because the cursor would pass them.
+pub(in crate::handlers) fn incomplete_sample_payload(
+    results: Vec<Value>,
+    limit: usize,
+    offset: usize,
+    drops: RowDrops,
+    stopped: &str,
+    binding: Option<String>,
+) -> Value {
+    let found = results.len();
+    let page: Vec<Value> = results.into_iter().skip(offset).take(limit).collect();
+    let holds_last = offset.saturating_add(page.len()) >= found;
+    let next_cursor = holds_last.then(|| QueryCursor::at_record(stopped, binding));
+    let mut payload = page_payload(page, None, limit, offset, true, drops);
+    payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
+    payload
+}
+
 fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
     if !has_more {
         return None;

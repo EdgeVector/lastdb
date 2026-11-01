@@ -8,14 +8,15 @@
 //! row does not name its sender.
 //!
 //! A keyed selector reads each key in each scope in one batch read. A range
-//! under one hash merges paged key reads (`received_range.rs`). A page or a
-//! sample walks each scope, as the own-scope read does.
+//! under one hash merges paged key reads (`received_range.rs`). A page walks
+//! each scope, as the own-scope read does. A sample is one merged walk of the
+//! scopes (`HashRangeQueryProcessor::sample_rows`), so it does not come here.
 
 use super::{bound, has_any};
 use crate::db_operations::atom_store::{KeyedRecord, RecordBound};
 use crate::fold_db_core::query::hash_range_query::HashRangeQueryProcessor;
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
-use crate::schema::types::field::{HashRangeFilter, KeyWindow, SAMPLE_PEEK_CAP};
+use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, KeyValuePageOrder};
@@ -61,7 +62,7 @@ impl HashRangeQueryProcessor {
                 let key = KeyValue::new(Some(hash.clone()), None);
                 self.received_at(schema, &[key], scopes).await?
             }
-            Some(F::SampleN(_) | F::Page { .. }) | None => {
+            Some(F::Page { .. }) | None => {
                 self.received_walk(schema, comparison, filter, scopes)
                     .await?
             }
@@ -122,9 +123,8 @@ impl HashRangeQueryProcessor {
         Ok(rows)
     }
 
-    /// A page or a sample over every scope. Each scope walks its own live
-    /// records; the first scope with a key keeps it. The page applies to the
-    /// merged rows.
+    /// A page over every scope. Each scope walks its own live records; the
+    /// first scope with a key keeps it. The page applies to the merged rows.
     async fn received_walk(
         &self,
         schema: &Schema,
@@ -132,13 +132,10 @@ impl HashRangeQueryProcessor {
         filter: Option<&HashRangeFilter>,
         scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let (walk, (offset, limit)) = match filter {
-            Some(HashRangeFilter::SampleN(count)) => (
-                HashRangeFilter::SampleN(*count),
-                (0, (*count).min(SAMPLE_PEEK_CAP)),
-            ),
-            Some(HashRangeFilter::Page { offset, limit }) => (whole_walk(), (*offset, *limit)),
-            _ => (whole_walk(), (0, DEFAULT_UNFILTERED_PAGE_LIMIT)),
+        let walk = whole_walk();
+        let (offset, limit) = match filter {
+            Some(HashRangeFilter::Page { offset, limit }) => (*offset, *limit),
+            _ => (0, DEFAULT_UNFILTERED_PAGE_LIMIT),
         };
         let atoms = self.db_ops.atoms();
         let mut merged = HashMap::new();

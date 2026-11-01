@@ -13,6 +13,9 @@ pub(super) struct QueryRun<'a, H: HostNode> {
     /// The record key position of a record walk cursor.
     pub(super) record: Option<String>,
     pub(super) comparison: Option<String>,
+    /// The binding of the record walk that continues a sample which a run of
+    /// deleted records ended early (`rules::sample_resumes`).
+    pub(super) sample: Option<String>,
     /// An unfiltered read of a format 7 home walks its records (`walk.rs`).
     pub(super) walk: bool,
 }
@@ -233,7 +236,19 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Interactive.
         let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
-        let (all_results, drops, _) = execute_query_rows_windowed(host, query, None, ctx).await?;
+        let (all_results, drops, end) = execute_query_rows_windowed(host, query, None, ctx).await?;
+        // A sample that a run of deleted records ended early is not complete,
+        // and its reply says so (`rules::sample_resumes`).
+        if let Some(PageResume::Record(stopped)) = end.resume {
+            return Ok(incomplete_sample_payload(
+                all_results,
+                limit,
+                offset,
+                drops,
+                &stopped,
+                self.sample.clone(),
+            ));
+        }
         // Native inspection proves its bounded set is complete, including an
         // exact ceiling-sized set. Views keep their existing truncation signal.
         Ok(materialized_page_payload(

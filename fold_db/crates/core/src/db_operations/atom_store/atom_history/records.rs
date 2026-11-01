@@ -35,7 +35,7 @@ pub(crate) struct RecordHistoryRows {
     /// The entries that a purge released.
     pub(crate) released: u64,
     /// The change of the entry count of each record key.
-    counts: BTreeMap<String, i64>,
+    pub(super) counts: BTreeMap<String, i64>,
 }
 
 /// One old field value that a write replaced or a delete removed.
@@ -83,7 +83,7 @@ pub(super) fn is_record_history(key: &str) -> bool {
 
 /// Delete one entry, its queue entry and its blob references, and lower the
 /// entry count of its record.
-fn release(key: &str, entry: &RecordHistoryEntry, out: &mut RecordHistoryRows) {
+pub(super) fn release(key: &str, entry: &RecordHistoryEntry, out: &mut RecordHistoryRows) {
     out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
     if let Some(queue) = &entry.queue_key {
         out.rows.push(KvMutation::delete(queue.as_bytes().to_vec()));

@@ -128,6 +128,7 @@ async fn execute_query_scoped<H: HostNode>(
         cursor,
         record,
         binding,
+        sample,
     } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref(), walk)?;
     let run = execute::QueryRun {
         host,
@@ -137,6 +138,7 @@ async fn execute_query_scoped<H: HostNode>(
         cursor,
         record,
         comparison: binding,
+        sample,
         walk,
     };
     let future = run.execute(query);

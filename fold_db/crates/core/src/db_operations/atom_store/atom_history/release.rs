@@ -1,7 +1,9 @@
 use crate::db_operations::atom_store::retention::RetentionEntry;
 use crate::db_operations::atom_store::time_queue::QueueReader;
 use crate::db_operations::atom_store::AtomStore;
+use crate::records::atom_history::RecordHistoryEntry;
 use crate::schema::SchemaError;
+use crate::storage::KvMutation;
 
 impl AtomStore {
     /// One bounded cleanup step. A failed step never advances the cursor.
@@ -42,5 +44,46 @@ impl AtomStore {
             return Ok(released);
         }
         Ok(0)
+    }
+
+    /// Release field history rows of a dropped schema in one batch: each
+    /// entry, its queue entry and its blob references. The drop releases every
+    /// entry of the schema, so the entry count of each named record is deleted,
+    /// not lowered: an entry of the record in a later batch deletes the gone
+    /// count again, and a count that drifted cannot stop the drop. The caller
+    /// read the rows by key in its write scope. A row that does not decode
+    /// names no record or queue entry: it is deleted, and its blob counters
+    /// stay too high until a recount.
+    pub(crate) async fn release_dropped_history(
+        &self,
+        rows: Vec<(String, Vec<u8>)>,
+    ) -> Result<u64, SchemaError> {
+        let mut out = super::records::RecordHistoryRows::default();
+        let mut unreadable = 0usize;
+        for (key, bytes) in &rows {
+            match serde_json::from_slice::<RecordHistoryEntry>(bytes) {
+                Ok(entry) => super::records::release(key, &entry, &mut out),
+                Err(_) => {
+                    unreadable += 1;
+                    out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
+                }
+            }
+        }
+        if unreadable > 0 {
+            tracing::warn!(
+                target: "fold_node::database",
+                unreadable,
+                "field history rows of a dropped schema do not decode; their blob counters stay \
+                 too high until a recount"
+            );
+        }
+        if out.rows.is_empty() {
+            return Ok(0);
+        }
+        let mut batch = out.rows;
+        batch.extend(super::key_counts::history_count_deletes(out.counts.keys())?);
+        batch.extend(self.blob_counter_mutations(out.blobs).await?);
+        self.main_store.inner().batch_mutate(batch).await?;
+        Ok(out.released + unreadable as u64)
     }
 }

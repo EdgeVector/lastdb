@@ -186,7 +186,10 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
         | DataRoute::SyncByteBackupV2Connect
-        | DataRoute::DeclareSchema => admin_handler_timeout(),
+        | DataRoute::DeclareSchema
+        // The drop releases every record, history entry and alternate entry
+        // of the schema in bounded batches before it removes the schema.
+        | DataRoute::DropSchema => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),
         DataRoute::AdminShed => Duration::from_secs(60),
@@ -222,7 +225,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
-        | DataRoute::DropSchema
         | DataRoute::SeedSystemSchema
         | DataRoute::AppBlobPut
         | DataRoute::AppBlobGet

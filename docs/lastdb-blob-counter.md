@@ -164,8 +164,9 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
 2. **An upload** of a blob row (`blob_cas::put_blob_sealed_with_access_dedup_in_ops`)
    calls `AtomStore::register_blob_upload` in the same native write request as the
    row. A blob at zero starts its dwell again. A blob with references is left alone.
-3. **The drop of a storage scope** (`delete_catalog_membership`) lowers the blobs
-   that the dropped records and history entries held, in the same batch as the rows.
+3. **The drop of a storage scope** (`delete_catalog_membership`) and **the drop of
+   a schema** (`atom_store/schema_release.rs`) lower the blobs that the dropped
+   records and history entries held, in the same batch as the rows.
 4. **The dwell pass** deletes a blob (see below).
 5. **The offline recount** (see "Verify and recount").
 
