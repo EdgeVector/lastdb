@@ -232,23 +232,32 @@ impl AppPromoteError {
         }
     }
 
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId | Self::MissingInstallPointer => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => 401,
+            Self::NotAuthorizedPublisher => 403,
+            Self::AppNotRegistered => 404,
+            Self::Internal(_) => 500,
+        }
+    }
+
     pub fn to_http(&self) -> (u16, Value) {
         let reason = self.http_reason();
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => {
-                (401, reason_only_body(reason))
-            }
-            Self::AppNotRegistered => (404, reason_only_body(reason)),
-            Self::NotAuthorizedPublisher => (403, reason_only_body(reason)),
-            Self::MissingInstallPointer => (
-                400,
-                reason_detail_body(
-                    reason,
-                    "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
-                ),
+        let body = match self {
+            Self::MissingInstallPointer => reason_detail_body(
+                reason,
+                "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
             ),
-            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
-        }
+            Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::InvalidAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotOwner
+            | Self::NotAuthorizedPublisher
+            | Self::AppNotRegistered => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
