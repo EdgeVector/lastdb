@@ -15,12 +15,6 @@ pub(super) async fn dispatch_core(
             heap_route!(execute_conflict_metadata_route, req, ctx, host).await
         }
         DataRoute::Mutation => heap_route!(execute_mutation_route, req, ctx, host).await,
-        DataRoute::AggregateRepair => {
-            heap_route!(execute_aggregate_repair_route, req, ctx, host).await
-        }
-        DataRoute::AggregateFinalize => {
-            heap_route!(execute_aggregate_finalize_route, req, ctx, host).await
-        }
         DataRoute::MutationBatch => {
             heap_route!(execute_mutations_batch_route, req, ctx, host).await
         }
@@ -48,11 +42,6 @@ pub(super) async fn dispatch_core(
         DataRoute::DbVerifyRefsScopes => {
             heap_route_ctx_host!(execute_db_verify_refs_scopes_route, ctx, host).await
         }
-        DataRoute::DbMoleculeDrain => {
-            heap_route!(execute_db_molecule_drain_route, req, ctx, host).await
-        }
-        DataRoute::SchemaStorage => execute_schema_storage_route(req, ctx, host),
-        DataRoute::SchemaStorageReport => execute_schema_storage_report_route(ctx, host),
         DataRoute::LivenessExplain => {
             heap_route!(execute_liveness_explain_route, req, ctx, host).await
         }
@@ -89,11 +78,7 @@ pub(super) async fn dispatch_search_app(
         DataRoute::NativeIndexKnn => {
             heap_route!(execute_native_index_knn_route, req, ctx, host).await
         }
-        DataRoute::MoleculeHistory => {
-            heap_route!(execute_molecule_history_route, req, ctx, host).await
-        }
         DataRoute::AtomHistory => heap_route!(execute_atom_history_route, req, ctx, host).await,
-        DataRoute::AtomContent => heap_route!(execute_atom_content_route, req, ctx, host).await,
         // No upload-storage backend in the minimal daemon; blob routes are
         // structurally absent — content-free 404, exactly like an
         // unrecognized path (I4).

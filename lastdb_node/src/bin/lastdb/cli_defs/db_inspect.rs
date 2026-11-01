@@ -104,47 +104,4 @@ pub(crate) enum DbInspectCommand {
         #[arg(long)]
         max_atoms: Option<usize>,
     },
-    /// Name one molecule to the drain, and show the drain report.
-    ///
-    /// A molecule is dead when nothing names it: its `bindings` counter is zero
-    /// and no binding record exists. The drain erases the keys of a dead
-    /// molecule through the atom counter planner and then removes its rows, in
-    /// bounded batches. It reads the counters again inside the write gate for
-    /// every batch. A molecule with a `suspect` counter, a header without
-    /// counters, or a binding record with no counter is refused: the command
-    /// reports it and exits non-zero, and the drain never removes it. The
-    /// candidates of a dropped schema are queued by the drop itself; use this
-    /// for a molecule that lost its last binding before the drain existed.
-    /// Without `--molecule` it shows the report only.
-    MoleculeDrain {
-        /// Molecule uuid to queue. Write `--molecule=UUID` when the uuid starts
-        /// with a dash.
-        #[arg(long)]
-        molecule: Option<String>,
-        /// Storage scope prefix of the molecule (default: the personal scope).
-        #[arg(long)]
-        scope: Option<String>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show the bounded identities behind skipped atom reads on this daemon.
-    /// Owner socket only. The result can contain user keys.
-    UnresolvedAtoms {
-        #[arg(long)]
-        json: bool,
-    },
-    /// List one molecule's live `mk:` storage keys (decoded hash/range +
-    /// collision flag). Read-only diagnostic for the current key format.
-    MoleculeKeys {
-        /// Molecule uuid (the `M` in `mk:{M}:…`).
-        #[arg(long)]
-        molecule: String,
-        /// Cap rows returned (default 10_000).
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
 }

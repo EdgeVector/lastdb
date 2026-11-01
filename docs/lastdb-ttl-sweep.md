@@ -274,33 +274,9 @@ An old incorrect Hash age needs explicit backfill or a later nonduplicate write.
 
 ### Bounded cleanup of redundant delete markers
 
-Use `lastdb db cleanup-delete-markers --molecule <identity> --json` to preview one page.
-Add `--scope <scope>` for a scoped molecule. Omit it for the personal molecule.
-Add `--execute` to delete the eligible markers in that page.
-Use the returned `next_cursor` as `--after-key` for the next page.
-The cursor is opaque text and remains valid after its key is deleted.
-An empty page returns `complete: true`. A short nonempty page still needs another call.
-`--max-keys` defaults to 128 and accepts 1 to 256.
-
-The command uses the owner socket and native storage.
-Each call needs its own native request scope; cleanup refuses an inherited write scope.
-It changes no tips, atom counters, atom bodies, conflict records, or Delete barriers.
-It returns `blocked: active_generation` while an immutable generation remains selected.
-It returns `blocked: generation_preparation` while a generation cut remains in flight.
-These responses retain every marker and do not claim completion.
-A shared lock covers each generation from its first source read through activation and reclamation.
-Cleanup tries the exclusive lock for that molecule after native admission. It never waits for that lock.
-Generation preparation also tries its shared lock without a wait.
-If cleanup still holds that lock, the complete write refuses with a retryable HTTP 503.
-The native request drops its private stages and releases admission before it returns that error.
-The client can retry after cleanup commits. No write waits for cleanup while it holds native admission.
-Normal keyed writes take no additional lock.
-Cleanup checks the generation pointer and deletes one page within the native write scope.
-A future generation therefore reads the state after cleanup, or keeps cleanup blocked until its activation ends.
-Each page commits before the response. Cancellation or restart can repeat the page safely.
-Concurrent erases can add markers before the cursor. A new pass can collect those markers.
-Compaction can then reclaim the removed metadata bytes.
-This is explicit owner maintenance; it adds no automatic cleanup pass.
+API version 15 (record model PR 8c) removed `lastdb db cleanup-delete-markers`.
+The command used `POST /api/db/molecule-drain`, a format 4 to 6 route.
+A format 7 home keeps one record for each key and has no generation delete markers.
 
 ### Last writer wins
 

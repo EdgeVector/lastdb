@@ -51,18 +51,12 @@ pub(crate) enum DbOfflineCommand {
         /// count too low.
         #[arg(long, requires = "all_scopes")]
         blobs_exact: bool,
-        /// Repair molecule slots, conflict-record and binding counts. The home
-        /// must be stopped. Missing live headers or undecodable holders refuse repair.
-        #[arg(long)]
-        molecules: bool,
         /// Reject replay at or before this unix second, then prune older Delete
         /// barriers. This is an explicit global cutoff. Stale peers need resync.
         /// Without --execute this reports only.
         #[arg(long, requires = "all_scopes")]
         delete_cutoff_unix_secs: Option<u64>,
         /// Passes over the tips and records. More passes use less memory.
-        /// Molecule repair permits 100,000 molecules and 64 MiB of header bytes
-        /// in one pass; increase this count if either budget refuses the run.
         #[arg(long, default_value_t = 1)]
         shards: u32,
         /// Allow a home under the primary directory.

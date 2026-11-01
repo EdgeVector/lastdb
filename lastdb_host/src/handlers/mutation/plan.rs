@@ -20,12 +20,7 @@ impl MutationPlan {
     pub fn new(components: MutationComponents, canonical: String) -> Result<Self, HostError> {
         reject_illegal_must_exist(components.mutation_type, components.must_exist)?;
         if let Some(prefix) = components.key_range_prefix.as_deref() {
-            validate_key_range_prefix(
-                prefix,
-                components.mutation_type,
-                &components.key_value,
-                components.aggregate_set.is_some(),
-            )?;
+            validate_key_range_prefix(prefix, components.mutation_type, &components.key_value)?;
         }
         Ok(Self {
             components,
@@ -63,7 +58,6 @@ fn validate_key_range_prefix(
     prefix: &str,
     mutation_type: MutationType,
     key_value: &KeyValue,
-    has_aggregate_set: bool,
 ) -> Result<(), HostError> {
     if !matches!(mutation_type, MutationType::Delete) {
         return Err(HostError::new(
@@ -84,12 +78,6 @@ fn validate_key_range_prefix(
         return Err(HostError::new(
             400,
             "key_range_prefix cannot be combined with key_value.range",
-        ));
-    }
-    if has_aggregate_set {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix does not support aggregate_set",
         ));
     }
     Ok(())

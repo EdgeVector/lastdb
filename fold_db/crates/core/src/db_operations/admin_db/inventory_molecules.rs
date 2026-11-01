@@ -53,7 +53,7 @@ pub struct MoleculeCounterTotals {
     pub binding_record_without_counter: u64,
     /// Headers with tip records, no binding counter and no binding record: the
     /// keys of a molecule that nothing names. The drain erases them once the
-    /// molecule is a candidate (`lastdb db molecule-drain --molecule`).
+    /// molecule is a candidate.
     #[serde(default)]
     pub unbound_with_tips: u64,
     /// The first of them, by uuid.

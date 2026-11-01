@@ -3,8 +3,8 @@
 //! `lastdbd` serves the SAME wire surface fbrain/fkanban speak to the full
 //! node's socket — the [`lastdb_uds::uds_router::DataRoute`] allowlist with
 //! identical request/response JSON shapes. The query / mutation /
-//! native-index-search / molecule-history / atom-content HANDLER BODIES now live
-//! in the shared [`lastdb_host::handlers`] module, driven off the [`HostNode`]
+//! native-index-search HANDLER BODIES now live in the shared
+//! [`lastdb_host::handlers`] module, driven off the [`HostNode`]
 //! trait, so this executor and the full node's (`fold_db_node::server::uds_exec`)
 //! are literally ONE implementation below the app-identity axis — no drift.
 //!
@@ -38,8 +38,8 @@ use serde_json::Value;
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
 // verbatim by the full node's socket executor too so the two cannot drift.
 use lastdb_host::envelope::{content_free, envelope, json_ok};
-use lastdb_host::handlers::{self, render, AppSearchParams, HistoryScope, NativeSearchParams};
-use lastdb_host::reject::{Reject, RejectKind, WireKey};
+use lastdb_host::handlers::{self, render, AppSearchParams, NativeSearchParams};
+use lastdb_host::reject::{Reject, WireKey};
 use lastdb_host::wire::{
     body_object, parse_batch_mutation_body, parse_min_score, parse_mutation_body, parse_query_body,
     path_tail, query_flag, query_value, schema_name_from_target, QueryRequest,
@@ -154,7 +154,6 @@ macro_rules! heap_route_ctx_host {
 }
 
 mod admin_routes;
-mod aggregate_routes;
 mod app_routes;
 mod atom_history;
 mod batch_mutation_routes;
@@ -162,7 +161,6 @@ mod db_compact_routes;
 mod deferred_mutation;
 mod dispatch;
 mod introspection_routes;
-mod liveness_molecule_route;
 mod liveness_routes;
 mod mutation_notifications;
 mod query_filters;
@@ -177,7 +175,6 @@ mod timeouts;
 pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
 use admin_routes::*;
-use aggregate_routes::*;
 use app_routes::*;
 use atom_history::*;
 use batch_mutation_routes::*;
@@ -185,7 +182,6 @@ use db_compact_routes::*;
 pub use deferred_mutation::execute_deferred_mutation;
 pub use dispatch::*;
 use introspection_routes::*;
-use liveness_molecule_route::explain_molecules;
 use liveness_routes::*;
 use query_filters::*;
 use query_mutation_routes::*;

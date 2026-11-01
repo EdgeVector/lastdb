@@ -1,10 +1,9 @@
 use super::*;
 
 mod rules;
-pub(super) use rules::target_ids;
-use rules::{ExplainClass, ExplainRequest};
+use rules::{target_ids, ExplainRequest};
 
-/// `POST /api/storage/liveness/explain` — one target partition only.
+/// `POST /api/storage/liveness/explain` — the counter of each named file blob.
 pub(super) async fn execute_liveness_explain_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -23,50 +22,12 @@ pub(super) async fn execute_liveness_explain_route(
             ctx,
         );
     }
-    // A scope in the request is checked as it is: an empty or blank value is an
-    // error, not the personal scope (leave the value out for that).
-    if let Err(error) = fold_db::db_operations::AtomStore::validate_scope(request.scope.as_deref())
-    {
-        return error_response(400, &error.to_string(), ctx);
-    }
-    let scope = request.scope.as_deref().or(ctx.storage_prefix.as_deref());
-    let id = request.id.trim();
-    match request.class {
-        ExplainClass::Atom => explain_atoms(host, ctx, scope, id, request.ids).await,
-        ExplainClass::Molecule => explain_molecules(host, ctx, scope, id, request.ids).await,
-        ExplainClass::Blob => explain_blobs(host, ctx, id, request.ids).await,
-    }
+    explain_blobs(host, ctx, request.id.trim(), request.ids).await
 }
 
-/// The counter of each named atom. An atom has no list of referrers: the
-/// counter holds the number of tip records and conflict records that name it.
-async fn explain_atoms(
-    host: &Host,
-    ctx: &AccessContext,
-    storage_prefix: Option<&str>,
-    id: &str,
-    ids: Vec<String>,
-) -> UdsResponse {
-    let ids = target_ids(id, ids);
-    match host
-        .db
-        .db_ops()
-        .atoms()
-        .atom_counter_views(&ids, storage_prefix)
-        .await
-    {
-        Ok(views) => json_ok(&envelope(&rules::atom_reply(&views), ctx.user_id.as_str())),
-        Err(error) => mapped_error_response(
-            "liveness explain failed",
-            fold_db::error::FoldDbError::Schema(error),
-            ctx,
-        ),
-    }
-}
-
-/// The counter of each named blob. A blob counts the atom counters that list it
-/// and the live tips that name it; it has no list of referrers. A blob at zero
-/// is in its dwell until `zero_since` plus the dwell has passed.
+/// The counter of each named blob. A blob counts the live records that name
+/// it; it has no list of referrers. A blob at zero is in its dwell until
+/// `zero_since` plus the dwell has passed.
 async fn explain_blobs(
     host: &Host,
     ctx: &AccessContext,

@@ -57,8 +57,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
             }
         }
     }
-    println!();
-    print_history_tips();
 }
 
 fn print_main_classes(inventory: &Value) {
@@ -205,7 +203,7 @@ fn print_molecule_counters(counters: &Value) {
         u64_of(counters, "binding_record_without_counter")
     );
     println!(
-        "  unbound with tips:      {} (queue one with `lastdb db molecule-drain --molecule=<uuid>`)",
+        "  unbound with tips:      {}",
         u64_of(counters, "unbound_with_tips")
     );
     println!(
@@ -233,12 +231,4 @@ fn print_sample(counters: &Value, field: &str, label: &str) {
             sample.len() - SHOWN
         );
     }
-}
-
-fn print_history_tips() {
-    println!("Tip: clear long history with:");
-    println!("  lastdb db clear-history                         # dry-run keep_last=1");
-    println!("  lastdb db clear-history --execute               # keep newest 1 per field key");
-    println!("  lastdb db clear-history --keep-last 0           # dry-run full history purge");
-    println!("  lastdb db clear-history --keep-last 0 --execute # purge all history (tip = only version)");
 }

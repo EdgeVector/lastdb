@@ -11,7 +11,7 @@ use super::*;
 pub const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
 
 /// Longer budget for owner DB admin scans (`/api/db/inventory`,
-/// `/api/db/clear-history`) — full-prefix walks over multi-GiB stores.
+/// `/api/db/verify-refs`) — full-prefix walks over multi-GiB stores.
 /// Override with `LASTDB_UDS_ADMIN_TIMEOUT_SECS`.
 pub const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
 
@@ -126,7 +126,7 @@ where
 }
 
 /// Dispatch a data route with the right wall-clock budget (admin scans and
-/// schema-mutation declare get the longer inventory/clear-history timeout).
+/// schema-mutation declare get the longer inventory/verify-refs timeout).
 ///
 /// `POST /api/schemas/declare` falls back to Schema Service register when the
 /// live resolver is cold; that path solves node-key proof-of-work (diff 18 can
@@ -183,12 +183,9 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::DbInventory
         | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
-        | DataRoute::DbClearHistory
         | DataRoute::DbDeleteLedger
-        | DataRoute::DbRepairHashRangeKeyFields
         | DataRoute::SyncByteBackupV2
         | DataRoute::SyncByteBackupV2Connect
-        | DataRoute::AggregateRepair
         | DataRoute::DeclareSchema => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),
@@ -208,9 +205,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbNativeStatus
         | DataRoute::DbVerifyRefsLast
         | DataRoute::DbVerifyRefsScopes
-        | DataRoute::DbMoleculeDrain
         | DataRoute::Mutation
-        | DataRoute::AggregateFinalize
         | DataRoute::MutationBatch
         | DataRoute::QueryBatch
         | DataRoute::ConflictMetadata
@@ -223,9 +218,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppSearch
         | DataRoute::NativeIndexAppVectorPut
         | DataRoute::NativeIndexKnn
-        | DataRoute::MoleculeHistory
         | DataRoute::AtomHistory
-        | DataRoute::AtomContent
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
@@ -240,17 +233,12 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppStorageReconcile
         | DataRoute::HomeStorage
         | DataRoute::HomeStorageReconcile
-        | DataRoute::SchemaStorage
-        | DataRoute::SchemaStorageReport
         | DataRoute::LivenessExplain
         | DataRoute::DbCatalogGet
         | DataRoute::DbCatalogPut
         | DataRoute::DbCatalogDelete
         | DataRoute::DbCatalogShare
-        | DataRoute::DbMoleculeKeys
-        | DataRoute::DbUnresolvedAtoms
         | DataRoute::DbSchemaRetention
-        | DataRoute::DbAlternateKeys
         | DataRoute::DbFetchFileBlob
         | DataRoute::DbPutBlobLocal
         | DataRoute::DeliverSnapshot

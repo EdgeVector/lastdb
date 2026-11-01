@@ -247,8 +247,8 @@ drain on a system disk, a poll every 30 s: 24 and 36 tips a second, 418 and 279 
 tips, against 87 and 111 tips a second, 115 and 90 s, with the empty scope left out; the same
 drain with no poll: 81 to 102). A scope counts when it ends, and only if it staged something
 (`transaction/request.rs`, `blocked::opened`). A read, `lastdb status`, `lastdb liveness
-explain` and a `lastdb db molecule-drain` call that names no molecule open no write scope at
-all (a poll of each of them every 30 s left the drain at its idle speed). A task of the node
+explain` and a `lastdb db molecule-drain` call that named no molecule (a command that API
+version 15 removed) open no write scope at all (a poll of each of them every 30 s left the drain at its idle speed). A task of the node
 itself that opens a write scope (the blob dwell pass, the janitor and the drain see each
 other) counts as another writer.
 

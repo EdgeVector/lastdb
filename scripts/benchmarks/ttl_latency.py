@@ -143,7 +143,7 @@ def measure(binary, revision, output, state, clients, maintenance):
         if not state.startswith("active") and entries:
             raise RuntimeError("The control unexpectedly ran a TTL purge")
         if maintenance and state.startswith("active"):
-            maintain(node, output, LIVE, OLD, CALLS * BATCH)
+            maintain(node, output, LIVE, CALLS * BATCH)
         validate_live(node)
         result = {"complete": True, "known_live_values": CALLS * BATCH, **metric}
     except BaseException as failure:

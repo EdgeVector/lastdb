@@ -1,38 +1,29 @@
 //! Liveness request, target, and reply rules. Callers own scope checks and store reads.
+//! Only the file blob class is served: the format 7 record model has no atom
+//! or molecule counters to explain.
 
-use fold_db::db_operations::{AtomCounterView, BlobCounterView};
+use fold_db::db_operations::BlobCounterView;
 use serde::Deserialize;
 use serde_json::Value;
 
 const MAX_EXPLAIN_IDS: usize = 10_000;
 
-pub(super) enum ExplainClass {
-    Atom,
-    Molecule,
-    Blob,
-}
-
 pub(super) struct ExplainRequest {
-    pub class: ExplainClass,
     pub id: String,
     pub ids: Vec<String>,
-    pub scope: Option<String>,
 }
 
 impl ExplainRequest {
-    /// Keep body errors before class errors; scope checks belong to the route.
+    /// Keep body errors before class errors.
     pub(super) fn parse(body: &[u8]) -> Result<Self, String> {
         #[derive(Deserialize)]
         struct Request {
             class: String,
             #[serde(default)]
             id: String,
-            /// Several ids in one call. All three classes read them.
+            /// Several ids in one call.
             #[serde(default)]
             ids: Vec<String>,
-            /// Atom and molecule storage scope; blobs span the whole node.
-            #[serde(default)]
-            scope: Option<String>,
         }
 
         let body: Request = serde_json::from_slice(body)
@@ -40,50 +31,22 @@ impl ExplainRequest {
         if body.class.trim().is_empty() || (body.id.trim().is_empty() && body.ids.is_empty()) {
             return Err("liveness explain requires class and id".to_string());
         }
-        let class = match body.class.trim().to_ascii_lowercase().as_str() {
-            "atom" => ExplainClass::Atom,
-            "molecule" => ExplainClass::Molecule,
-            "blob" => ExplainClass::Blob,
-            _ => return Err("class must be atom, molecule, or blob".to_string()),
-        };
+        if !body.class.trim().eq_ignore_ascii_case("blob") {
+            return Err("class must be blob".to_string());
+        }
         Ok(Self {
-            class,
             id: body.id,
             ids: body.ids,
-            scope: body.scope,
         })
     }
 }
 
-pub(in crate::exec) fn target_ids(id: &str, mut ids: Vec<String>) -> Vec<String> {
+pub(super) fn target_ids(id: &str, mut ids: Vec<String>) -> Vec<String> {
     if !id.is_empty() {
         ids.insert(0, id.to_string());
     }
     ids.truncate(MAX_EXPLAIN_IDS);
     ids
-}
-
-pub(super) fn atom_reply(views: &[AtomCounterView]) -> Value {
-    let atoms: Vec<Value> = views
-        .iter()
-        .map(|view| {
-            let state = match (view.refs, view.body_present, view.suspect) {
-                (Some(_), _, true) => "suspect",
-                (Some(_), true, false) => "live",
-                (Some(_), false, false) | (None, true, _) => "inconsistent",
-                (None, false, _) => "absent",
-            };
-            serde_json::json!({
-                "atom": view.atom,
-                "refs": view.refs,
-                "suspect": view.suspect,
-                "blobs": view.blobs,
-                "body_present": view.body_present,
-                "state": state,
-            })
-        })
-        .collect();
-    serde_json::json!({ "liveness": { "class": "atom", "atoms": atoms } })
 }
 
 pub(super) fn blob_reply(views: &[BlobCounterView], dwell_secs: u64) -> Value {

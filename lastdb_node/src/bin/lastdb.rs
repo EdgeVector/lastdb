@@ -9,12 +9,8 @@ mod app_cmds;
 #[path = "lastdb/history_cmds.rs"]
 mod history_cmds;
 use app_cmds::*;
-#[path = "lastdb/liveness_atom_print.rs"]
-mod liveness_atom_print;
 #[path = "lastdb/liveness_blob_print.rs"]
 mod liveness_blob_print;
-#[path = "lastdb/liveness_molecule_print.rs"]
-mod liveness_molecule_print;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;
@@ -156,12 +152,6 @@ fn schema_inspect_dispatch(
     action: SchemaInspectCommand,
 ) -> Result<(), String> {
     match action {
-        SchemaInspectCommand::Storage { schema, json } => {
-            schema_storage_command(data_dir, &schema, json)
-        }
-        SchemaInspectCommand::StorageReport { json } => {
-            schema_storage_report_command(data_dir, json)
-        }
         SchemaInspectCommand::Show { name, json } => schema_show_command(data_dir, &name, json),
         SchemaInspectCommand::Drop {
             schema,
@@ -174,12 +164,9 @@ fn schema_inspect_dispatch(
 
 fn liveness_dispatch(data_dir: Option<PathBuf>, action: LivenessCommand) -> Result<(), String> {
     match action {
-        LivenessCommand::Explain {
-            class,
-            id,
-            scope,
-            json,
-        } => liveness_explain_command(data_dir, (&class, &id, scope.as_deref()), json),
+        LivenessCommand::Explain { class, id, json } => {
+            liveness_explain_command(data_dir, (&class, &id), json)
+        }
     }
 }
 

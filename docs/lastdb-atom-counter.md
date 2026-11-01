@@ -158,8 +158,6 @@ It omits the unused displaced atom identity. Older barriers remain readable.
 A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
 safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that
 has a tip written at or after the cutoff.
-`GET /api/atom/{id}` returns 404 after the last holder is gone (see Reads and
-acknowledgement for the exception after a `queued` write).
 
 ## Underflow and `suspect`
 
@@ -296,8 +294,6 @@ that is gone lowers nothing. A row that does not decode is kept with its referen
 and counted (`undecodable_rows`). Only a row that `is_counted_record_key` accepts can
 be released.
 
-`lastdb db clear-history` (`POST /api/db/clear-history`) never selects a conflict row.
-
 Not covered: the conflict-state caches `mcc:` and `hcu:mols` (the conflict reader
 repairs them when it finds a conflict row gone), and the keep-small meters, which a
 release does not debit.
@@ -364,14 +360,11 @@ release the kept conflict records of the slots they remove. See
   Create, Update, Delete, Purge, and replay share that boundary. There is no early memory ack or 500 ms collection timer.
   Each native commit keeps the affected tips, counters, and bodies consistent.
 - A query by key sees the new committed value after the ack.
-  `GET /api/atom/{id}` reads a body by identity, without a tip.
-  It returns 404 after the commit removes that body's last counted reference.
-  A body with another reference remains present.
-- `POST /api/storage/liveness/explain` (`lastdb liveness explain atom|molecule|blob`)
-  returns the counters. For an atom it returns `refs`, `suspect`, `blobs`,
-  `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
-  call takes up to 10,000 ids. It cannot list the referrers: the counter holds a
-  number, not a list.
+  API version 15 removed `GET /api/atom/{id}`. No route reads a body by identity.
+- `POST /api/storage/liveness/explain` (`lastdb liveness explain blob`) returns the
+  counter of a file blob. API version 15 removed the atom and molecule classes.
+  One call takes up to 10,000 ids. It cannot list the referrers: the counter holds
+  a number, not a list.
 - Private background requests can share the eager FIFO commit without early publication.
   Write preparation can read that owned prefix; ordinary reads retain the committed state.
   The janitor, dwell pass, and molecule drain still return after durability.
@@ -384,10 +377,8 @@ release the kept conflict records of the slots they remove. See
 | `lastdb db verify-refs` | `POST` and `GET /api/db/verify-refs`, `GET /api/db/verify-refs/scopes` | live node | reads, writes nothing, holds no write gate for a read, reports faults |
 | `lastdb db recount [--execute]` | none (offline) | stopped home | rebuilds the counters from the tips and the counted conflict records |
 | `lastdb db inventory` | `GET /api/db/inventory` | live node | walks the key classes of the home; it also writes idempotent attribution rows, so it is not read-only |
-| `lastdb db molecule-drain` | `POST /api/db/molecule-drain` | live node | names a molecule to the drain and shows the drain report |
-| `lastdb liveness explain atom\|molecule\|blob` | `POST /api/storage/liveness/explain` | live node | shows the counters of named atoms, molecules or blobs |
+| `lastdb liveness explain blob` | `POST /api/storage/liveness/explain` | live node | shows the counters of named file blobs |
 | `lastdb db delete-ledger` | `GET /api/db/delete-ledger` | live node | reads the durable audit trail of purges and deletes, oldest first; a row names the caller and holds counts, never content |
-| `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
 | `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth |
 
 ### `lastdb db verify-refs`
@@ -629,9 +620,8 @@ that does not parse gives the default.
   Native restore keeps its target blocked until the restored records and counts validate.
   Cloud activation remains disabled; these guards do not establish cloud readiness.
 - A lost body (a tip names an atom that has no body) is found and never repaired.
-- The drain does not repair counter faults. The offline `db recount --molecules` option
-  repairs molecule headers and binding counters from complete, readable source records.
-  A missing live header needs metadata recovery before that repair.
+- The drain does not repair counter faults. The CLI has no molecule repair: API
+  version 15 removed `db recount --molecules` with the other format 6 tools.
 - The planner cannot catch a counter that is too low by less than the removal.
 - A blob row with no counter is invisible to the verifier and the recount, and nothing
   deletes it (cloud paths only).
