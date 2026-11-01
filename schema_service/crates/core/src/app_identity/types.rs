@@ -220,7 +220,7 @@ pub enum SchemaClaimError {
 }
 
 impl SchemaClaimError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::CertRequired => "cert_required",
             Self::NotAuthorizedPublisher => "not_authorized_publisher",
@@ -231,24 +231,31 @@ impl SchemaClaimError {
             Self::AppNotRegistered => "app_not_registered",
             Self::DevRevoked => "dev_revoked",
             Self::AppIdentityNotConfigured => "app_identity_not_configured",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.http_reason();
         match self {
-            Self::CertRequired => (401, reason_only_body("cert_required")),
-            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::CertForWrongApp => (401, reason_only_body("cert_for_wrong_app")),
-            Self::AppNotRegistered => (403, reason_only_body("app_not_registered")),
-            Self::DevRevoked => (403, reason_only_body("dev_revoked")),
-            Self::AppIdentityNotConfigured => {
-                (503, reason_only_body("app_identity_not_configured"))
+            Self::CertRequired
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::CertForWrongApp => (401, reason_only_body(reason)),
+            Self::NotAuthorizedPublisher | Self::AppNotRegistered | Self::DevRevoked => {
+                (403, reason_only_body(reason))
             }
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
+            Self::AppIdentityNotConfigured => (503, reason_only_body(reason)),
+            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
         }
     }
 }
