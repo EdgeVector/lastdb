@@ -20,13 +20,17 @@ enum Request {
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
 enum Action {
-    SnapshotPrepare,
-    SnapshotInspect,
-    SnapshotResume,
-    SnapshotRelease,
-    SnapshotPlan,
+    #[serde(rename = "snapshot_prepare")]
+    Prepare,
+    #[serde(rename = "snapshot_inspect")]
+    Inspect,
+    #[serde(rename = "snapshot_resume")]
+    Resume,
+    #[serde(rename = "snapshot_release")]
+    Release,
+    #[serde(rename = "snapshot_plan")]
+    Plan,
 }
 
 #[derive(Deserialize)]
@@ -45,15 +49,15 @@ impl TryFrom<WireRequest> for Request {
             (action, Some(request_id), None) => {
                 use crate::byte_cloud_backup::LocalSnapshotAction;
                 let action = match action {
-                    Action::SnapshotPrepare => LocalSnapshotAction::Prepare,
-                    Action::SnapshotInspect => LocalSnapshotAction::Inspect,
-                    Action::SnapshotResume => LocalSnapshotAction::Resume,
-                    Action::SnapshotRelease => LocalSnapshotAction::Release,
-                    Action::SnapshotPlan => return Err(()),
+                    Action::Prepare => LocalSnapshotAction::Prepare,
+                    Action::Inspect => LocalSnapshotAction::Inspect,
+                    Action::Resume => LocalSnapshotAction::Resume,
+                    Action::Release => LocalSnapshotAction::Release,
+                    Action::Plan => return Err(()),
                 };
                 Ok(Self::Snapshot { action, request_id })
             }
-            (Action::SnapshotPlan, Some(request_id), Some(candidate)) => Ok(Self::SnapshotPlan {
+            (Action::Plan, Some(request_id), Some(candidate)) => Ok(Self::SnapshotPlan {
                 request_id,
                 candidate,
             }),
