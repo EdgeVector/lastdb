@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Make, upload and restore a new fixed CI baseline after a native format change.
+"""Make, upload and restore a new fixed CI baseline.
 
-A format change is one manual copy to a new home, so the current client can
-refuse the old CI baseline. This manual mode starts a fresh home of the current
+The baseline is cut once on home format 7, the one-time 6 -> 7 cloud break.
+The cloud contract stays fixed after that: a later local format change must
+keep the baseline restorable, and a failed restore is a defect of that change.
+Use this mode again only for an exception that Tom approves, such as a cloud
+contract change (decision-2026-11-01-lastdb-cloud-backup-has-its-own-format).
+
+This manual mode starts a fresh home of the current
 format with the fixed CI identity. It writes the 16 known records and one
 complete 8 MiB file, and uploads exactly one automatic snapshot to this run's
 claimed stream. The source then stops. The snapshot restores to an absent

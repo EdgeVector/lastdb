@@ -2,8 +2,9 @@ name: Cloud backup recovery
 
 # Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
-# The manual `baseline` mode makes a new fixed baseline after a native format
-# change (docs/cloud-backup-recovery-ci.md, "Baseline move").
+# The manual `baseline` mode cuts the fixed baseline: once on format 7, later
+# only for an approved cloud contract change. A local format change must keep
+# the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
 on:
   pull_request:
     paths: &cloud_paths

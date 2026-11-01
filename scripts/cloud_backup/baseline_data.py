@@ -1,8 +1,9 @@
 """Deterministic private content of the fixed CI baseline.
 
-A native format change moves the CI baseline to a new stream. The baseline
-operation and the operator who saves the protected baseline secret must make
-the same 16 notes and the same 8 MiB file without a transfer of either value.
+A baseline move (once on format 7, later only for an approved cloud contract
+change) puts the CI baseline on a new stream. The baseline operation and the
+operator who saves the protected baseline secret must make the same 16 notes
+and the same 8 MiB file without a transfer of either value.
 Both derive them from the account recovery phrase and the public stream ID.
 
 The recovery phrase is BIP39: its 256-bit entropy is the account Ed25519 seed.
