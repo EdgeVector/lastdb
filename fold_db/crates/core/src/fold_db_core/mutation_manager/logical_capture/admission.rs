@@ -111,11 +111,13 @@ impl MutationManager {
     }
 }
 
-/// A format 7 home also captures a local delete and a local purge: the record
-/// outcome carries the delete floor, so a peer applies a purge as a delete.
+/// A format 7 home also captures a local delete and a local purge, and the TTL
+/// sweep's erase of an expired record: the record outcome carries the delete
+/// floor, so a peer applies each of them as a delete. The floor of a TTL erase
+/// is a local write of this device at the cutoff (`write/records.rs`).
 fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), SchemaError> {
     let local_kind = match mutation.mutation_type {
-        MutationType::Create | MutationType::Update => true,
+        MutationType::Create | MutationType::Update => mutation.erase_tips_before_nanos.is_none(),
         MutationType::Delete | MutationType::Purge => record_home,
     };
     if !local_kind
@@ -123,7 +125,6 @@ fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), Schem
         || mutation.provenance.is_some()
         || mutation.aggregate_set.is_some()
         || mutation.aggregate_derived_internal
-        || mutation.erase_tips_before_nanos.is_some()
         || mutation.imported_version.is_some()
         || !mutation.origin_device.is_empty()
         || mutation.logical_counter != 0

@@ -6,8 +6,9 @@ Each enrolls the other, and the script moves the signed version 2 events through
 /api/sync/logical-v1. It proves a two-field merge of one record, the convergence
 of a concurrent write of one field with one kept conflict record, a replay that
 changes nothing, the propagation of a delete, the release of the conflict rows of
-a purged record on its device, and the release of the conflict record at the end of
-its retention window. It runs no test runner or benchmark.
+a purged record on its device, a TTL sweep that expires a record and sends the
+expiry as a delete, and the release of the conflict record at the end of its
+retention window. It runs no test runner or benchmark.
 The homes hold generated data only and never read or copy a primary.
 """
 import argparse
@@ -22,11 +23,13 @@ from node import Node, RECORD_NODE_MARKER  # noqa: E402
 SYNC = "/api/sync/logical-v1"
 FIELDS = ["id", "x", "y", "note"]
 RANGE_FIELDS = ["bucket", "id", "x"]
+TTL_FIELDS = ["id", "x"]
+TTL_SECS = 12
 RETENTION_SECS = 60
 ENVIRONMENT = {
     "LASTDB_RECORD_HOME": "1", "LASTDB_LOGICAL_CAPTURE": "1",
     "LASTDB_CONFLICT_RETENTION_SECS": str(RETENTION_SECS), "LASTDB_CONFLICT_JANITOR_MS": "1000",
-    "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "0",
+    "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "EXEMEM_API_URL": "http://127.0.0.1:9",
     "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9", "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
 }
@@ -54,6 +57,7 @@ def install(node):
         definition("PeerRecord", FIELDS, {"hash_field": "id"}, "Hash",
                    {"by_note": {"hash_field": "note", "range_field": "id"}}),
         definition("PeerRange", RANGE_FIELDS, {"hash_field": "bucket", "range_field": "id"}, "HashRange"),
+        definition("PeerTtl", TTL_FIELDS, {"hash_field": "id"}, "Hash"),
     ]
     for schema in schemas:
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
@@ -117,6 +121,12 @@ class Link:
             self.after = events[-1]["sequence"]
         require(head(self.target) == target_head, f"{self.name}: an import authored an event")
         return imported, outcomes
+
+    def pending(self):
+        events, after = [], self.after
+        while page := self.page(after):
+            events, after = events + page, page[-1]["sequence"]
+        return events
 
     def replay(self):
         after = duplicates = 0
@@ -268,6 +278,46 @@ def purge(a, b, links):
           flush=True)
 
 
+def ttl_ids(node):
+    rows = query(node, "PeerTtl", {"HashRangeKeys": [["t1", ""], ["t2", ""]]}, fields=TTL_FIELDS)
+    return sorted(row["fields"]["id"] for row in rows)
+
+
+def ttl_health(node):
+    return node.call("/api/status")[0]["status"]["local_retention"]
+
+
+def ttl(a, b, links):
+    reply = a.call("/api/db/schema-retention", {"action": "set", "schema": "PeerTtl", "ttl_seconds": TTL_SECS})[0]
+    require(reply["retention_policy"]["ttl_seconds"] == TTL_SECS, "the retention policy differs")
+    mutate(a, "PeerTtl", {"hash": "t1"}, {"id": "t1", "x": "old"}, "create")
+    links[0].run()
+    require(ttl_ids(b) == ["t1"], "B did not receive the record to expire")
+    time.sleep(TTL_SECS * 3 / 4)
+    mutate(a, "PeerTtl", {"hash": "t2"}, {"id": "t2", "x": "fresh"}, "create")
+    kept_until, deadline = time.time() + TTL_SECS, time.time() + TTL_SECS + 60
+    while "t1" in ttl_ids(a):
+        require(time.time() < deadline, "the TTL sweep did not expire the record on A")
+        time.sleep(0.5)
+    require(time.time() < kept_until and ttl_ids(a) == ["t2"], "the sweep expired a record written after its cutoff")
+    outcomes = {outcome["key"]["hash"]: outcome for event in links[0].pending()
+                for outcome in event["records"] if outcome["schema_name"] == "PeerTtl"}
+    floor, written = outcomes["t1"]["deleted"], outcomes["t2"]["fields"]["x"]["stamp"]
+    require(floor[1] > 0 and floor[2] == written[2] and floor[0] < written[0],
+            "the TTL floor is not a write of A at the cutoff: " + repr((floor, written)))
+    links[0].run()
+    require(ttl_ids(b) == ["t2"], "B did not apply the expiry as a delete")
+    first, deadline = ttl_health(a), time.monotonic() + 30
+    while not ((health := ttl_health(a))["passes"] > first["passes"] and health["settled"]):
+        require(time.monotonic() < deadline, "the TTL sweep did not finish a clean pass: " + repr(health)[:400])
+        time.sleep(0.5)
+    require(health["failures"] == 0 and health["schema_failures"] == 0 and health["rows_reaped"] >= 1,
+            "the TTL sweep failed in a capture home: " + repr(health)[:400])
+    print(f"TTL: the sweep on A expired a record written before its cutoff and kept a later one; its floor is a "
+          f"write of A at the cutoff (logical counter {floor[1]}); B applied it as a delete; a later pass on A "
+          f"was clean ({health['passes']} passes, {health['rows_reaped']} reaped, 0 failures)", flush=True)
+
+
 def expiry(a, b):
     deadline = time.monotonic() + RETENTION_SECS * 3
     while time.monotonic() < deadline:
@@ -336,6 +386,7 @@ def main():
         replay(a, b, links)
         deletes(a, b, links)
         purge(a, b, links)
+        ttl(a, b, links)
         expiry(a, b)
     except BaseException:
         for node in nodes:

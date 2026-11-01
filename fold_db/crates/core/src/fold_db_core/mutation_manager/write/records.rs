@@ -242,17 +242,17 @@ fn merge_mutation(
     ) {
         // The TTL sweep of a Hash or Single schema ages a record by its write
         // time. A record written at or after the cutoff is not expired. An
-        // expired record is deleted with its floor at the cutoff, so a write
-        // with a later stamp that arrives after the sweep stays.
+        // expired record is deleted with a floor that is a local write of this
+        // device (its device ID and logical counter) at the cutoff, so a write
+        // with a later stamp from any device stays, and a peer that receives
+        // the floor in a capture event applies it as a delete.
         if let Some(cutoff) = mutation.erase_tips_before_nanos {
             if record.written_at().is_some_and(|at| at >= cutoff) {
                 return Ok(false);
             }
             return Ok(record.delete(FieldStamp {
                 written_at: cutoff,
-                logical_counter: 0,
-                device_id: String::new(),
-                mutation_id: stamp.mutation_id,
+                ..stamp
             }));
         }
         return Ok(record.delete(stamp));
