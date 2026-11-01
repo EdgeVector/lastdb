@@ -3,7 +3,6 @@
 use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
     missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, SchemaMutationChallengeReply,
-    UpdateAppReply,
 };
 
 use super::*;
@@ -206,11 +205,11 @@ pub async fn update_app(
         Err(resp) => return resp,
     };
 
-    match state.update_app_reply(&app_id, &cert, &sig, &body).await {
-        UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
-            json_status(status, body)
-        }
-    }
+    let (status, body) = state
+        .update_app_reply(&app_id, &cert, &sig, &body)
+        .await
+        .into_http();
+    json_status(status, body)
 }
 
 /// `POST /v1/apps/{app_id}/promote` — promote a sandbox app to live
