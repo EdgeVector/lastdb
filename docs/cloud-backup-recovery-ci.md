@@ -296,6 +296,13 @@ It checks the restored native inventory before the first boot, then checks all b
 The helper accesses only a fresh private DEV restore. The pre-upload controller calls it before a new source starts.
 Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
+The client restores only home format 7. The first such main source is `2cdc5531c1f056891ff17e16fbe25b52a5c4a201` (#929).
+A kept stream from an older main source holds a format 4 to 6 snapshot, which this client refuses by design.
+The job reads the full main commit history without file contents and checks the ancestry of the kept owner source.
+For an older source, the controller records the kept stream and its source, and attempts no restore.
+The service still keeps that stream. A later successful format 7 CI stream replaces it under the normal retention rules.
+A kept source outside the main history fails CI. The recovery step recomputes this check from the validated kept record.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.

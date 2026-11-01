@@ -92,6 +92,9 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          # The kept-snapshot format check reads commit ancestry on main only.
+          fetch-depth: 0
+          filter: tree:0
       - name: Require protected DEV inputs
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}

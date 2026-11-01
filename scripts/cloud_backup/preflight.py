@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from ci_control import Control
-from kept_recovery import recover as recover_kept
+from kept_recovery import FORMAT_SEVEN_SOURCE, legacy_format, recover as recover_kept
 from ownership import run_identity
 from ownership_history import History
 from recover import Operation
@@ -72,10 +72,18 @@ class Preflight(Operation):
             complete = terminal["phase"] == "complete"
             self.summary.update(retirement=terminal, terminal_repeat_checked=complete)
             control.context(startup=True)
-            if complete and terminal["kept_latest"] is not None:
+            kept = terminal["kept_latest"] if complete else None
+            if kept is not None and legacy_format(kept):
+                # This client opens only format 7. The service keeps the
+                # older kept stream; a refused restore would prove nothing.
+                self.summary["kept_latest_legacy_format"] = {
+                    "stream_id": kept["stream_id"], "source": kept["owner"]["source"],
+                    "format_seven_source": FORMAT_SEVEN_SOURCE, "restore_attempted": False,
+                    "retained_by_service": True}
+            elif kept is not None:
                 self.summary["stage"] = "kept-latest-recovery"
                 self.summary["kept_latest_recovery"] = recover_kept(
-                    self, terminal["kept_latest"], credentials, phrase)
+                    self, kept, credentials, phrase)
             self.summary["stage"] = "ci-quota-headroom"
             self.summary["ci_quota"] = control.usage()
             self.summary["backup_service_requests"] = control.calls
