@@ -79,9 +79,6 @@ pub struct PackRuntime {
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
-    /// True for a format 7 home: the record model. Only such a home uses the
-    /// `rk:` record keys and mints a record space key bundle for a schema.
-    record_home: bool,
     restore_blocked: AtomicBool,
     pub(in crate::storage) serving: AtomicBool,
     // A failed commit retains its space charge until this runtime drops.
@@ -185,7 +182,6 @@ impl PackNamespacedStore {
         physical: physical::V2Home,
         current: physical::V2Root,
         initializing: bool,
-        record_home: bool,
         space_policy: laststore::space::SpacePolicy,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
@@ -212,7 +208,6 @@ impl PackNamespacedStore {
                 restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
                 initializing: AtomicBool::new(initializing),
-                record_home,
                 failed_write: Mutex::new(None),
                 space_policy,
                 last_root,
@@ -225,11 +220,6 @@ impl PackRuntime {
     /// Share one process counter owner with DbOperations and its background work.
     pub(crate) fn persist_metrics(&self) -> Arc<PersistLaneMetrics> {
         Arc::clone(&self.persist_metrics)
-    }
-
-    /// True for a format 8 home: the record model.
-    pub(crate) const fn record_home(&self) -> bool {
-        self.record_home
     }
 }
 

@@ -24,21 +24,12 @@ pub struct RunBackupProfile {
 }
 impl RunBackupProfile {
     /// The node marker of the profile. Only format 8 (profile 6) backs up and
-    /// restores: this release opens no older home.
+    /// restores.
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
-        match self.version {
-            crate::storage::disk_pack::run_admission::RECORD_PROFILE => {
-                Ok(crate::storage::disk_pack::run_admission::RECORD_NODE_BYTES)
-            }
-            crate::storage::disk_pack::run_admission::FORMAT_SEVEN_PROFILE => Err(invalid(
-                "run backup profile 5 is a format 7 snapshot; this release restores only \
-                 format 8 (profile 6). Restore it with the format 7 program, then move the \
-                 home by a home copy into a format 8 home",
-            )),
-            2..=4 => Err(invalid(
-                "run backup profile is format 4 to 6; this release restores only format 8",
-            )),
-            _ => Err(invalid("run backup logical profile version")),
+        if self.version == crate::storage::disk_pack::run_admission::RECORD_PROFILE {
+            Ok(crate::storage::disk_pack::run_admission::RECORD_NODE_BYTES)
+        } else {
+            Err(invalid("run backup logical profile version"))
         }
     }
 

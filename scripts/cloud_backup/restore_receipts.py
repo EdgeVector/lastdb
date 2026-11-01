@@ -19,9 +19,8 @@ UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
 # Every home of this release is format 8 (the record model), backup profile 6.
-# The product restores no older snapshot, so a format 4 to 7 marker is refused
-# here too. Kept recovery hashes the restored bytes in place; it does not
-# upgrade the marker.
+# Only that marker is accepted. Kept recovery hashes the restored bytes in
+# place; it does not upgrade the marker.
 NODE_V8 = b"format=8\nhome=disk-run\ncas=disk-cas\n"
 NODE_PROFILE = {NODE_V8: (6, 8)}
 MAX_FILES = 4096

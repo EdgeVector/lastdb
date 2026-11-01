@@ -17,57 +17,15 @@ use std::path::Path;
 pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] = b"format=8\nhome=disk-run\ncas=disk-cas\n";
 /// The backup profile version of a format 8 home.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 6;
-// Older node markers. `require_record` refuses every profile except format 8.
-pub(super) const FORMAT_SEVEN_BYTES: &[u8] =
-    b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n";
-/// The backup profile version of a format 7 home.
-pub(in crate::storage) const FORMAT_SEVEN_PROFILE: u16 = 5;
-pub(super) const TYPED_NODE_BYTES: &[u8] =
-    b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n";
-pub(super) const FORMAT_FIVE_BYTES: &[u8] =
-    b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n";
-pub(super) const FORMAT_FOUR_BYTES: &[u8] =
-    b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n";
 
-/// The backup profile version of a known node marker, for any format from 4
-/// to 8. Only format 8 (`RECORD_PROFILE`) is admitted; see [`require_record`].
+/// The backup profile version of a node marker. Only the format 8 marker has
+/// one; every other marker is unsupported.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
-    match bytes {
-        FORMAT_FOUR_BYTES => Some(2),
-        FORMAT_FIVE_BYTES => Some(3),
-        TYPED_NODE_BYTES => Some(4),
-        FORMAT_SEVEN_BYTES => Some(FORMAT_SEVEN_PROFILE),
-        RECORD_NODE_BYTES => Some(RECORD_PROFILE),
-        _ => None,
-    }
+    (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
 }
 
-/// Refuse every known profile except format 8. A format 7 home moves to this
-/// release by one home copy: the format 7 program reads its records and a
-/// format 8 program writes them into a new home. This program has no reader
-/// for an older home.
-pub(super) fn require_record(version: u16) -> StorageResult<u16> {
-    if version == RECORD_PROFILE {
-        return Ok(version);
-    }
-    if version == FORMAT_SEVEN_PROFILE {
-        return Err(StorageError::InvalidOperation(
-            "node range admission: the home is format 7; this release opens only format 8. \
-             Move the home by a home copy (last-stack-lastdb-home-copy): the format 7 program \
-             reads the records and a format 8 program writes them into a new home."
-                .into(),
-        ));
-    }
-    let format = version + 2;
-    Err(StorageError::InvalidOperation(format!(
-        "node range admission: the home is format {format}; this release opens only format 8. \
-         Move an older home by a one-time copy of its records into a new home, read through \
-         the program that wrote it."
-    )))
-}
-
-/// Admit the home and return its backup profile version.
-pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
+/// Admit a format 8 home with complete creation proofs.
+pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let marker = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -77,12 +35,10 @@ pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
-    let version = profile(&bytes).ok_or_else(|| invalid("the node range format is unsupported"))?;
-    let version = require_record(version)?;
+    profile(&bytes).ok_or_else(|| invalid("the node range format is unsupported"))?;
     // Creation commits both proofs before its node marker appears. Even with
     // a creation intent, no missing or partial proof is admitted.
-    verify(root, key)?;
-    Ok(version)
+    verify(root, key)
 }
 
 fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {

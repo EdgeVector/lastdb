@@ -107,12 +107,10 @@ impl FieldKeyStore {
         self.node_wrap_key.is_some()
     }
 
-    /// True when this store serves a format 7 home. Only such a home mints and
+    /// True when this store serves a node home. Only a node home mints and
     /// loads the record space key bundle of a schema.
     fn record_home(&self) -> bool {
-        self.runtime
-            .as_deref()
-            .is_some_and(crate::storage::disk_pack::PackRuntime::record_home)
+        self.runtime.is_some()
     }
 
     /// Resolve the exact field key contract and its key bundle.
@@ -242,7 +240,7 @@ pub(crate) fn wrap_key_for(field_key_id: &str, domain: &str) -> String {
     format!("fkw:{field_key_id}:{domain_hash:x}")
 }
 
-/// Every field and alternate field key of a schema. With `records` (a format 7
+/// Every field and alternate field key of a schema. With `records` (a node
 /// home), the record space of the schema too.
 pub(crate) fn schema_field_key_ids(schema: &Schema, records: bool) -> Vec<String> {
     let mut field_keys = schema
@@ -269,7 +267,7 @@ pub(crate) fn schema_field_key_ids(schema: &Schema, records: bool) -> Vec<String
 }
 
 /// Every field and alternate owns its own declared range profile. With
-/// `records` (a format 7 home), the record space of the schema uses the range
+/// `records` (a node home), the record space of the schema uses the range
 /// profile of the primary key.
 pub(crate) fn schema_field_key_profiles(
     schema: &Schema,
