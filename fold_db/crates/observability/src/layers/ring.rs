@@ -1,48 +1,7 @@
-//! RING layer — bounded in-memory `VecDeque<LogEntry>` queryable in-process.
+//! RING layer — a bounded in-memory record of tracing events.
 //!
-//! Phase 1 / T5. The RING layer captures every event the registry emits into
-//! a fixed-capacity ring buffer that another part of the process can drain on
-//! demand. In Phase 3 it replaces `LoggingSystem::query_logs` and powers the
-//! `/api/logs` HTTP endpoint that the dashboard polls.
-//!
-//! ## LogEntry shape
-//!
-//! The on-the-wire JSON shape preserves the legacy `LoggingSystem::LogEntry`
-//! contract (retired in Phase 3 / T7) so the dashboard parser did not change
-//! when the endpoint was rewired:
-//!
-//! ```json
-//! {
-//!   "id": "<uuid v4>",
-//!   "timestamp": 1714060800123,
-//!   "level": "INFO",
-//!   "event_type": "module::path",
-//!   "message": "the formatted event message",
-//!   "user_id": null,
-//!   "metadata": { "trace_id": "...", "span_id": "...", "field.name": "..." }
-//! }
-//! ```
-//!
-//! `user_id` is left as `None` here on purpose: task-local user context lives
-//! in `fold_db_core` and the observability crate has zero deps on it. Phase 3
-//! will bridge that when it consolidates logging — until then RING is the
-//! plumbing, not the policy.
-//!
-//! ## Trace correlation
-//!
-//! When a `tracing-opentelemetry` layer is also installed in the registry,
-//! the current span carries a real W3C span context. The RING layer reads
-//! that context and writes `trace_id` (32 hex chars) and `span_id` (16 hex
-//! chars) into `LogEntry.metadata` so individual log lines can be joined
-//! against distributed traces at query time.
-//!
-//! ## Concurrency
-//!
-//! `on_event` is synchronous and called on the event-emitting thread. The
-//! buffer is guarded by `std::sync::RwLock`, which is cheap on the hot write
-//! path because writes hold the lock for the duration of one `push_back` (+
-//! one `pop_front` at capacity). Queries take a read lock and clone out the
-//! slice they need.
+//! The layer keeps the newest events. The handle keeps that buffer alive.
+//! No caller reads the buffer back.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -109,94 +68,12 @@ impl LogLevel {
     }
 }
 
-/// Handle to a RING buffer that lets other parts of the process query the
-/// recently-emitted entries. Cheap to clone — internally an `Arc`.
+/// Handle that keeps the RING buffer alive. The recording layer writes events
+/// through it. Cheap to clone — internally an `Arc`.
 #[derive(Clone)]
 pub struct RingHandle {
     buffer: Arc<RwLock<VecDeque<LogEntry>>>,
     capacity: usize,
-}
-
-impl RingHandle {
-    /// Return up to `limit` most-recent entries, optionally filtered to those
-    /// with `timestamp >= from_timestamp`. Results are ordered oldest → newest
-    /// to match the existing `WebOutput::query` contract that the dashboard
-    /// already consumes.
-    pub fn query(&self, limit: Option<usize>, from_timestamp: Option<i64>) -> Vec<LogEntry> {
-        self.query_range(limit, from_timestamp, None)
-    }
-
-    /// Like [`Self::query`] but bounds the upper end of the time window too:
-    /// entries are kept when `from_timestamp <= timestamp <= until_timestamp`
-    /// (ms since epoch; either bound optional). Powers `folddb logs --since
-    /// --until` over the daemon path. Results stay oldest → newest, and an
-    /// explicit `limit` keeps the most-recent N *within* the window.
-    pub fn query_range(
-        &self,
-        limit: Option<usize>,
-        from_timestamp: Option<i64>,
-        until_timestamp: Option<i64>,
-    ) -> Vec<LogEntry> {
-        let buf = self
-            .buffer
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let from_ts = from_timestamp.unwrap_or(i64::MIN);
-        let until_ts = until_timestamp.unwrap_or(i64::MAX);
-
-        // Walk newest → oldest so an explicit `limit` keeps the *most recent*
-        // N entries; reverse at the end to restore chronological order.
-        let mut picked: Vec<LogEntry> = buf
-            .iter()
-            .rev()
-            .filter(|e| e.timestamp >= from_ts && e.timestamp <= until_ts)
-            .take(limit.unwrap_or(usize::MAX))
-            .cloned()
-            .collect();
-        picked.reverse();
-        picked
-    }
-
-    /// Buffer capacity (the bound enforced on each push).
-    pub fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    /// Render the most-recent `limit` entries as plain text lines, oldest →
-    /// newest, one entry per line: `<timestamp_ms> <LEVEL> <event_type>:
-    /// <message>`. Used by the crash-report writer to embed a tail of the
-    /// in-memory event log into the on-disk report. Kept dependency-free (no
-    /// timestamp formatting) so it stays callable from a panic hook where we
-    /// must avoid surprises.
-    pub fn tail_text(&self, limit: usize) -> Vec<String> {
-        self.query(Some(limit), None)
-            .into_iter()
-            .map(|e| {
-                let level: &str = match e.level {
-                    LogLevel::Trace => "TRACE",
-                    LogLevel::Debug => "DEBUG",
-                    LogLevel::Info => "INFO",
-                    LogLevel::Warn => "WARN",
-                    LogLevel::Error => "ERROR",
-                };
-                format!("{} {} {}: {}", e.timestamp, level, e.event_type, e.message)
-            })
-            .collect()
-    }
-
-    /// Current entry count. Primarily for tests; not part of the stable API
-    /// that `/api/logs` will rely on.
-    pub fn len(&self) -> usize {
-        self.buffer
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
-    }
-
-    /// `true` when no entries have been recorded yet.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 /// Subscriber layer that records each event into a bounded ring buffer.
@@ -204,9 +81,8 @@ pub struct RingLayer {
     handle: RingHandle,
 }
 
-/// Build a RING layer + the handle that lets the rest of the process query
-/// it. Capacity is clamped to a minimum of 1 — a zero-capacity ring is a
-/// foot-gun that silently drops every event.
+/// Build a RING layer and the handle that keeps its buffer alive.
+/// Capacity is clamped to a minimum of 1. A zero-capacity ring drops every event.
 pub fn build_ring_layer(capacity: usize) -> (RingLayer, RingHandle) {
     let cap = capacity.max(1);
     let handle = RingHandle {
