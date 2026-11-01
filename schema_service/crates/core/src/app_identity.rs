@@ -64,19 +64,27 @@ use app_identity_crypto::{
 /// Both HTTP routers write this body. Each router still reads its own headers.
 #[must_use]
 pub fn missing_dev_cert_body() -> Value {
-    json!({
-        "reason": "cert_invalid",
-        "detail": "missing X-Exemem-Dev-Cert or X-Signature header"
-    })
+    reason_detail_body(
+        "cert_invalid",
+        "missing X-Exemem-Dev-Cert or X-Signature header",
+    )
 }
 
 /// HTTP body with one `reason` field and no other fields.
 ///
-/// Each caller keeps its own status code. A body with `detail` or another
-/// field stays at that caller.
+/// Each caller keeps its own status code. A body with a field other than
+/// `reason` and `detail` stays at that caller.
 #[must_use]
 pub fn reason_only_body(reason: &str) -> Value {
     json!({ "reason": reason })
+}
+
+/// HTTP body with `reason` and `detail` and no other fields.
+///
+/// Each caller keeps its own status code and its own detail text.
+#[must_use]
+pub fn reason_detail_body(reason: &str, detail: &str) -> Value {
+    json!({ "reason": reason, "detail": detail })
 }
 
 /// HTTP 400 body when an app id is refused.
