@@ -1,9 +1,7 @@
 //! Conflict records of a format 7 home.
 //!
-//! A peer import merges each field by stamp (decision D1). A losing value goes
-//! to a conflict record when the two stamps come from two devices: a newer
-//! peer value replaces a stored one, or a stored newer value keeps an older
-//! peer value out. The rows are:
+//! The peer import that wrote these rows is gone. A stored row still decodes.
+//! The rows are:
 //!
 //! - Row `{scope:}rcf:{S}:{digest}`, where `digest` is the SHA-256 in hex of
 //!   `{record key}\0{field}\0{losing mutation id}`. The value holds the losing
@@ -37,19 +35,6 @@ use std::collections::BTreeMap;
 const ROW_FAMILY: &str = "rcf:";
 const MARKER_FAMILY: &str = "rcm:";
 const RECORD_FAMILY: &str = "rk:";
-const ROW_VERSION: u8 = 1;
-
-/// One losing value that a peer import found.
-pub(crate) struct LostWrite {
-    /// The full storage key of the record.
-    pub record: String,
-    pub schema: String,
-    pub key: KeyValue,
-    pub field: String,
-    pub value: Value,
-    pub loser: FieldStamp,
-    pub winner: FieldStamp,
-}
 
 /// The stored value of one conflict row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

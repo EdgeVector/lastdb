@@ -80,10 +80,6 @@ pub struct MutationManager {
     schema_manager: Arc<SchemaCore>,
     /// Signing keypair for the author clock
     signer: Arc<crate::security::Ed25519KeyPair>,
-    /// Tracks search side effects and author-clock rows until completion.
-    /// Shutdown waits through `FoldDb::wait_for_background_tasks` even when
-    /// the mutation returns before those tasks finish.
-    pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
     /// Explicit Search app inbox for this database instance. Daemon boots pass
     /// this so two `Host::boot` calls in one process do not race through
     /// process-global `LASTDB_HOME`.
@@ -144,7 +140,6 @@ impl MutationManager {
             db_ops,
             schema_manager,
             signer,
-            pending_tasks,
             search_outbox_inbox,
             defer_gauge,
             author_clock_state: std::sync::Mutex::new(author_clock_state),

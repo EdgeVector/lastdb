@@ -7,9 +7,6 @@ mod budget;
 
 pub(crate) use budget::{CoreKeyBudget, CoreKeyReservation};
 
-pub(crate) const DEFAULT_SCHEMA_KEY_BYTES: usize = 128 * 1024 * 1024;
-pub(crate) const SCHEMA_KEY_BYTES_ENV: &str = "LASTDB_SCHEMA_KEY_BYTES";
-
 #[derive(Clone, Debug, thiserror::Error)]
 pub(crate) enum CoreKeyError {
     #[error("complete key byte allowance refused the allocation")]

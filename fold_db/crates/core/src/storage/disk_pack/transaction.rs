@@ -307,21 +307,6 @@ where
     request_scope(runtime, future).await
 }
 
-/// Keep the request's shutdown/defer resource with its complete stored batch.
-pub(crate) fn retain(runtime: &PackRuntime, value: impl Send + 'static) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation(
-            "native request resource requires one complete preparation scope".into(),
-        )
-    })?;
-    pending
-        .retained
-        .lock()
-        .expect("native request resources")
-        .push(Box::new(value));
-    Ok(())
-}
-
 /// External consumers see changes only after the complete root is durable.
 pub(crate) fn after_commit(
     runtime: &PackRuntime,
