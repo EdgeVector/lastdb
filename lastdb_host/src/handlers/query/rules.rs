@@ -60,6 +60,45 @@ pub(super) struct PreparedQuery {
     /// The record key position of a record walk cursor (`walk.rs`).
     pub(super) record: Option<String>,
     pub(super) binding: Option<String>,
+    /// The binding of the record walk that continues a sample which a run of
+    /// deleted records ended early ([`sample_resumes`], [`walk_binding`]).
+    pub(super) sample: Option<String>,
+}
+
+/// True when a sample read continues a page that ends early: an ascending
+/// sample with no post-key work. A run of deleted records can end its walk
+/// before the sample is full; the reply then says the sample is not complete
+/// and names where the walk stopped. Another sample fails with a read limit
+/// rather than return a short sample that looks complete.
+pub(super) fn sample_resumes(query: &Query) -> bool {
+    matches!(query.filter, Some(HashRangeFilter::SampleN(_)))
+        && !query.requires_post_key_work()
+        && !query.include_tombstones
+        && !matches!(query.sort_order, Some(SortOrder::Desc))
+}
+
+/// The cursor binding of the record walk of `query` with no filter: the
+/// unfiltered read of the same fields, order and database. A sample that a
+/// run of deleted records ends early gives a record cursor with this binding,
+/// so that unfiltered read continues the sample after the last key the walk
+/// examined. It is the binding that [`prepare_comparison`] gives a walk.
+fn walk_binding(
+    comparison: &KeyComparisonContext,
+    query: &Query,
+    ctx: &AccessContext,
+) -> Result<String, HostError> {
+    let unfiltered: Option<HashRangeFilter> = None;
+    let request = (
+        &unfiltered,
+        &query.fields,
+        query.include_tombstones,
+        &query.sort_order,
+        &ctx.db_locator,
+        &ctx.storage_prefix,
+    );
+    comparison
+        .cursor_binding(&(RECORD_WALK_BINDING, request))
+        .map_err(HostError::from)
 }
 
 /// Prepare the filter, validate the cursor tag, then normalize its key.
@@ -96,6 +135,10 @@ pub(super) fn prepare_comparison(
             .map_err(HostError::from)
         })
         .transpose()?;
+    let sample = match comparison {
+        Some(comparison) if sample_resumes(&query) => Some(walk_binding(comparison, &query, ctx)?),
+        _ => None,
+    };
     if let Some(cursor) = cursor.as_ref() {
         match cursor.comparison.as_deref() {
             Some(received) if binding.as_deref() != Some(received) => {
@@ -134,6 +177,7 @@ pub(super) fn prepare_comparison(
             cursor: None,
             record,
             binding,
+            sample,
         });
     }
     let cursor = cursor.map(QueryCursor::into_key);
@@ -149,6 +193,7 @@ pub(super) fn prepare_comparison(
         cursor,
         record: None,
         binding,
+        sample,
     })
 }
 

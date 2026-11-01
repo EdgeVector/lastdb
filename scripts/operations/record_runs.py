@@ -1,13 +1,22 @@
-"""Reads past a run of deleted records in a format 7 home.
+"""Reads past a run of deleted records in a format 7 home, and a schema drop.
 
 One hash holds more deleted records between two live records than one
-request may examine (10,000 keys). A range page that meets the run ends early
+request may examine (8,192 keys). A range page that meets the run ends early
 with has_more and a cursor past the last key it examined, so the caller reads
 the range to its end page by page. An unfiltered walk page does the same with
 a record key cursor. A count needs the complete range and fails with a read
-limit that names next_cursor. A Hash schema with no hash key field walks and
-samples with opaque keys. record_home.py runs this module on its CI daemon.
+limit that names next_cursor. A sample that the run ends early says that it
+is not complete and names a cursor for the walk. A Hash schema with no hash
+key field walks and samples with opaque keys.
+
+The TTL sweep lists the expired keys of a hash with the same range read: it
+reads past a run of deleted records to the expired records after the run. A
+schema drop releases the records, field history entries and alternate key
+entries of the schema, so the same schema installed again holds none of them,
+and the records of other schemas stay. record_home.py runs this module on its
+CI daemon.
 """
+import time
 
 FIELDS = ["id", "bucket", "value"]
 # More deleted records under one hash than one request may examine.
@@ -16,6 +25,12 @@ BATCH = 500
 LIMIT = 10
 # Generous page bounds: the run needs two pages of each kind.
 MAX_PAGES = 50
+# The expired records of the TTL proof are this old, against a policy of half that age.
+TTL_SECONDS = 3_600
+# Time for the TTL sweep (one pass from each 1 s sampler tick) to erase a few records.
+SWEEP_SECONDS = 120
+# More records than one release batch of a schema drop reads (256 rows).
+DROP_RECORDS = 600
 
 
 def require(value, message):
@@ -37,21 +52,37 @@ def refused(call, words):
     raise RuntimeError("the call did not fail: " + repr(words))
 
 
+def definition(name, schema_type, key, fields, alternates=None):
+    schema = {
+        "source": "system_seed", "name": name, "descriptive_name": name,
+        "schema_type": schema_type,
+        "fields": fields,
+        "field_types": {field: "String" for field in fields},
+        "field_descriptions": {field: "Record home example " + field for field in fields},
+        "field_versions": {field: 1 for field in fields},
+    }
+    if key:
+        schema["key"] = key
+    if alternates:
+        schema["alternate_keys"] = alternates
+    return schema
+
+
+RANGED = {"hash_field": "bucket", "range_field": "id"}
+DROPPED = definition("RecordDrop", "Hash", {"hash_field": "id"}, FIELDS, {"by_bucket": RANGED})
+
+
+def seed(node, schema):
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+
+
 def install(node):
     # A Hash schema with no hash key field declares exactly one field.
-    for name, key, fields in [("RecordRun", {"hash_field": "bucket", "range_field": "id"}, FIELDS),
-                              ("RecordNoKey", None, ["value"])]:
-        definition = {
-            "source": "system_seed", "name": name, "descriptive_name": name,
-            "schema_type": "HashRange" if key else "Hash",
-            "fields": fields,
-            "field_types": {field: "String" for field in fields},
-            "field_descriptions": {field: "Record home example " + field for field in fields},
-            "field_versions": {field: 1 for field in fields},
-        }
-        if key:
-            definition["key"] = key
-        node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
+    for schema in [definition("RecordRun", "HashRange", RANGED, FIELDS),
+                   definition("RecordNoKey", "Hash", None, ["value"]),
+                   definition("RecordAged", "HashRange", RANGED, FIELDS),
+                   DROPPED]:
+        seed(node, schema)
 
 
 def mutation(schema, key, values, operation):
@@ -74,9 +105,9 @@ def deleted_run(node):
                  for key in keys[1:-1]])
 
 
-def drain(read, body, limit):
-    """Every page of one read: its rows, its page count and its short pages."""
-    rows, short, cursor = [], 0, None
+def drain(read, body, limit, cursor=None):
+    """Every page of one read from `cursor`: its rows, its page count and its short pages."""
+    rows, short = [], 0
     for count in range(1, MAX_PAGES + 1):
         page = read({**body, "limit": limit, **({"cursor": cursor} if cursor else {})})
         rows.extend(page["results"])
@@ -113,6 +144,19 @@ def walks(node, scan):
     return pages
 
 
+def incomplete_sample(node, scan):
+    """A sample that the run of deleted records ends early says so, and the walk continues it."""
+    page, _ = scan(node, {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"SampleN": 5}})
+    shown = {name: page.get(name) for name in ["has_more", "total_count", "next_cursor"]}
+    require(ids(page["results"]) == ["a-first"],
+            "the sample before the run of deleted records differs: " + repr(ids(page["results"])))
+    require(page.get("has_more") is True and page.get("total_count") is None and page.get("next_cursor"),
+            "a sample that a run of deleted records ended early reads as complete: " + repr(shown))
+    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": None}
+    rows, _, _ = drain(lambda request: scan(node, request)[0], body, LIMIT, page["next_cursor"])
+    require(ids(rows) == ["z-last"], "the walk from the sample cursor differs: " + repr(ids(rows)))
+
+
 def opaque_keys(node, scan):
     """A Hash schema with no hash key field keeps no key field in its records."""
     names = [f"n{number}" for number in range(5)]
@@ -134,14 +178,117 @@ def opaque_keys(node, scan):
             f"a sample of 3 returned {len(sample['results'])} rows")
 
 
+def wait_gone(node, keys, message):
+    """Wait until the TTL sweep erased every one of `keys` under the hash "aged"."""
+    body = {"schema_name": "RecordAged", "fields": FIELDS,
+            "filter": {"HashRangeKeys": [["aged", key] for key in keys]}}
+    deadline = time.time() + SWEEP_SECONDS
+    while node.call("/api/query", body)[0]["results"]:
+        require(time.time() < deadline, message)
+        time.sleep(1)
+
+
+def ttl_resume(node):
+    """The TTL sweep reads past a run of deleted records to the expired records after it."""
+    old = int(time.time()) - 2 * TTL_SECONDS
+    run = [f"{old:020d}-m{number:05d}" for number in range(RUN)]
+    # The run is written and deleted before the policy exists, so only the client deletes it.
+    write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
+                          {"id": key, "bucket": "aged", "value": key}, "create") for key in run])
+    write(node, [mutation("RecordAged", {"hash": "aged", "range": key}, {}, "delete") for key in run])
+    reply = node.call("/api/db/schema-retention",
+                      {"action": "set", "schema": "RecordAged", "ttl_seconds": TTL_SECONDS})[0]
+    require(reply["retention_policy"]["ttl_seconds"] == TTL_SECONDS, "the retention policy differs")
+    # A write after the policy registers the hash. The second group comes after the first is
+    # erased, so a later pass that starts after the floor of the hash must find it too.
+    erased = []
+    for group in [["z0", "z1", "z2"], ["z7", "z8"]]:
+        keys = [f"{old:020d}-{suffix}" for suffix in group]
+        write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
+                              {"id": key, "bucket": "aged", "value": key}, "create") for key in keys])
+        wait_gone(node, keys, "the TTL sweep did not erase the expired records after a run of "
+                  f"{RUN} deleted records: {group}")
+        erased += keys
+    rows = [row for row in ledger(node) if row.get("schema") in {"RecordAged", reply.get("anchor")}
+            and row["caller"] == "ttl-sweep-purge"]
+    converged = sum(row["records_converged"] for row in rows if row["committed"])
+    require(converged == len(erased), f"the TTL sweep audit rows name {converged} records, "
+            f"not {len(erased)}: " + repr(rows))
+
+
+def ledger(node):
+    return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
+
+
+def drop_history(node, key, action):
+    return node.call("/api/atom-history", {
+        "location": {"schema": "RecordDrop", "field": "value", "key": {"hash": key}},
+        "action": action,
+    })[0]
+
+
+def dropped_rows(node, scan):
+    """Every live record of RecordDrop, by walk and by its alternate key."""
+    body = {"schema_name": "RecordDrop", "fields": FIELDS, "filter": None}
+    walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
+    page = node.call("/api/query", {"schema_name": "RecordDrop", "fields": FIELDS,
+                                    "filter": {"HashKey": "bd"}, "key_name": "by_bucket",
+                                    "limit": 1_000})[0]
+    require(not page.get("has_more"), "the alternate read of RecordDrop was truncated")
+    return ids(walked), ids(page["results"])
+
+
+def drop_release(node, scan):
+    """A schema drop releases the rows of the schema and leaves the other schemas."""
+    reply = drop_history(node, "d0000", {"op": "policy", "policy": {"mode": "keep"}})
+    require(reply["policy"] == {"mode": "keep"}, "the field history policy was not set")
+    names = [f"d{number:04d}" for number in range(DROP_RECORDS)]
+    write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name},
+                          "create") for name in names])
+    write(node, [mutation("RecordDrop", {"hash": name}, {"value": name + "-2"}, "update")
+                 for name in names[:10]])
+    write(node, [mutation("RecordDrop", {"hash": name}, {}, "delete") for name in names[-10:]])
+    walked, alternate = dropped_rows(node, scan)
+    require(len(walked) == len(alternate) == DROP_RECORDS - 10,
+            f"RecordDrop holds {len(walked)} walked and {len(alternate)} alternate records before the drop")
+    require(len(drop_history(node, "d0000", {"op": "list"})["entries"]) == 1,
+            "the overwrite before the drop kept no history entry")
+    reply = node.call("/api/schemas/drop", {"schema": "RecordDrop", "must_exist": True})[0]
+    require(reply["existed"], "the schema drop did not find RecordDrop: " + repr(reply))
+    seed(node, DROPPED)
+    walked, alternate = dropped_rows(node, scan)
+    require(walked == [] and alternate == [],
+            f"the schema installed again after its drop holds {len(walked)} walked and "
+            f"{len(alternate)} alternate records")
+    require(drop_history(node, "d0000", {"op": "list"})["entries"] == [],
+            "the schema installed again after its drop holds a field history entry")
+    write(node, [mutation("RecordDrop", {"hash": "d0001"},
+                          {"id": "d0001", "bucket": "fresh", "value": "new"}, "create")])
+    walked, alternate = dropped_rows(node, scan)
+    require(walked == ["d0001"] and alternate == [],
+            f"a new record after the drop reads as {walked} by walk and {alternate} under the old bucket")
+    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}}
+    rows, _, _ = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
+    require(ids(rows) == ["a-first", "z-last"], "the drop of RecordDrop changed RecordRun: " + repr(ids(rows)))
+
+
 def check(node, scan):
     """`scan(node, body)` is one unfiltered /api/query with the full-scan opt-in."""
     install(node)
     deleted_run(node)
     range_pages = range_reads(node)
     walk_pages = walks(node, scan)
+    incomplete_sample(node, scan)
     opaque_keys(node, scan)
     print(f"Deleted runs: {RUN} deleted records under one hash; the range read took {range_pages} "
           f"pages and the walk {walk_pages} pages of {LIMIT}, both complete and in key order; a "
-          "count failed with a read limit that names next_cursor; a schema with no key field "
-          "walked and sampled with opaque keys", flush=True)
+          "count failed with a read limit that names next_cursor; a sample said it was not "
+          "complete and the walk continued it; a schema with no key field walked and sampled "
+          "with opaque keys", flush=True)
+    ttl_resume(node)
+    print(f"TTL resume: the sweep read past {RUN} deleted records and erased the expired records "
+          "after them, twice, and wrote their audit rows", flush=True)
+    drop_release(node, scan)
+    print(f"Schema drop: the drop of a schema with {DROP_RECORDS} records, field history and an "
+          "alternate key released them; the schema installed again held none of them; another "
+          "schema kept its records", flush=True)

@@ -155,28 +155,39 @@ impl DbOperations {
         self.schemas().get_all_schema_states().await
     }
 
+    /// Remove one installed schema: release the rows it stored, then remove
+    /// its schema record. Returns whether the schema was installed.
+    ///
+    /// The release goes first, in bounded batches with one write scope each
+    /// (`AtomStore::release_schema_rows`): the records, their conflict rows,
+    /// the field history and the alternate entries of the schema, with their
+    /// blob counts. A schema installed again under the same name gets the same
+    /// record space, so a record that the drop left would come back in it. A
+    /// release that stops leaves the schema record, and the next drop goes on.
+    /// Then one write scope removes the schema record.
     pub fn drop_schema<'a>(
         &'a self,
         schema_name: &'a str,
     ) -> BoxFuture<'a, Result<bool, SchemaError>> {
-        crate::storage::disk_pack::transaction::scope(
-            self.namespaced_store().disk_pack_runtime(),
-            self.drop_schema_in_scope(schema_name),
-        )
-        .boxed()
-    }
-
-    async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        let old = self.schemas().get_schema(schema_name).await?;
-        if old
-            .as_ref()
-            .is_some_and(|schema| !schema.alternate_keys.is_empty())
-        {
-            return Err(SchemaError::InvalidData(
-                "LastDB does not remove a schema that declares alternate keys".into(),
-            ));
+        async move {
+            if let Some(schema) = self.schemas().get_schema(schema_name).await? {
+                let released = self.atoms().release_schema_rows(&schema).await?;
+                tracing::info!(
+                    target: "fold_node::database",
+                    schema = schema_name,
+                    records = released.records,
+                    history = released.history,
+                    alternates = released.alternates,
+                    "schema drop released the stored rows of the schema"
+                );
+            }
+            crate::storage::disk_pack::transaction::scope(
+                self.namespaced_store().disk_pack_runtime(),
+                self.schemas().drop_schema(schema_name),
+            )
+            .await
         }
-        self.schemas().drop_schema(schema_name).await
+        .boxed()
     }
 
     pub async fn get_schema_drop_receipt(

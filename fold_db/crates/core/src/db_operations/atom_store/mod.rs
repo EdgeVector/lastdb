@@ -10,6 +10,7 @@
 //! - [`retention`] — queue and release of kept conflict records
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
+//! - [`schema_release`] — the release of the rows of a dropped schema
 //! - [`read_scope`] — one memory and disk boundary for a read
 //! - [`locks`] — write scopes, molecule commit and blob liveness locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
@@ -40,6 +41,7 @@ mod record_spans;
 mod record_walk;
 mod records;
 mod retention;
+mod schema_release;
 pub(crate) mod time_queue;
 mod writer_watch;
 

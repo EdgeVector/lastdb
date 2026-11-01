@@ -14,7 +14,7 @@ pub(crate) mod read;
 mod write;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
-pub(crate) const PREFIX: &str = "ak:";
+pub(crate) const PREFIX: &str = crate::atom::molecule_uuid::ALTERNATE_ENTRY_PREFIX;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
