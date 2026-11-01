@@ -19,13 +19,9 @@ pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, app_metadata_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state.register_app_reply(cert, sig, &body_value).await {
         RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
@@ -65,13 +61,9 @@ pub(crate) async fn put_app_v1(
     let Some(app_id) = known_app_id(p, "/v1/apps/") else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, app_metadata_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state.update_app_reply(app_id, cert, sig, &body_value).await {
         UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
@@ -123,13 +115,9 @@ pub(crate) async fn post_apps_releases(
     let Some(app_id) = app_id_before(p, "/v2/apps/", "/releases") else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state
         .publish_release_reply(app_id, cert, sig, &body_value)
@@ -158,13 +146,9 @@ pub(crate) async fn post_apps_revocations(
     let Some(app_id) = app_id_before(p, "/v2/apps/", "/revocations") else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state
         .revoke_release_reply(app_id, cert, sig, &body_value)
@@ -192,13 +176,9 @@ pub(crate) async fn put_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state
         .set_channel_reply(app_id, channel, cert, sig, &body_value)

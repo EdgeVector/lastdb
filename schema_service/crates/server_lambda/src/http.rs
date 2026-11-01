@@ -155,9 +155,8 @@ pub(crate) fn parse_body(event: &Request) -> Result<String, Response<Body>> {
 
 // ─── `/v2` route helpers ──────────────────────────────────────────────────
 //
-// The `/v2` arms repeat the same three preludes — parse the body, require
-// the DevCert header pair, split an app id or an (app id, channel) pair out
-// of the path. Naming them keeps each arm to its own logic.
+// A signed write reads its JSON body and DevCert pair in one step
+// (`signed_json_body`). A path split stays its own step.
 
 /// The parsed JSON body, or the 400 to return.
 pub(crate) fn v2_body(event: &Request) -> Result<Value, Result<Response<Body>, Error>> {
@@ -203,6 +202,19 @@ pub(crate) fn v2_cert_headers(
         (Some(cert), Some(sig)) => Ok((cert, sig)),
         _ => Err(json_response(401, &missing_dev_cert_body())),
     }
+}
+
+/// The JSON body and the DevCert header pair, or the response to return.
+///
+/// `parse` selects the 400 reason. The body is read first, then the cert.
+/// A missing cert still returns 401.
+pub(crate) fn signed_json_body<'a>(
+    event: &'a Request,
+    parse: fn(&Request) -> Result<Value, Result<Response<Body>, Error>>,
+) -> Result<(Value, &'a str, &'a str), Result<Response<Body>, Error>> {
+    let body = parse(event)?;
+    let (cert, sig) = v2_cert_headers(event)?;
+    Ok((body, cert, sig))
 }
 
 /// A path segment that must be exactly one id — non-empty and with no
