@@ -1,4 +1,4 @@
-use fold_db::sync::auth::AuthClient;
+use cloud_backup_client::AuthClient;
 use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io::Read;

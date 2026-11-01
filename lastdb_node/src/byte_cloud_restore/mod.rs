@@ -15,8 +15,8 @@ pub use session::RestoreSession;
 pub type Result<T> = std::result::Result<T, RestoreError>;
 
 use crate::native_cloud_restore::{NativeFileProof, NativeInventory, VerifiedNativeContext};
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
+use cloud_backup_client::byte_backup::ByteBackupClient;
 
-fn source_error(_: fold_db::sync::auth::byte_backup::BackupTransportError) -> RestoreError {
+fn source_error(_: cloud_backup_client::byte_backup::BackupTransportError) -> RestoreError {
     RestoreError::Source("byte transport")
 }

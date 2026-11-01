@@ -23,6 +23,7 @@ on:
       - 'fold_db/crates/observability/**'
       - 'fold_db/crates/core/**'
       - '**/cloud_backup_protocol/**'
+      - 'cloud_backup_client/**'
       - 'vendor/laststore/**'
       - 'folddb_profile/**'
       - 'Cargo.toml'

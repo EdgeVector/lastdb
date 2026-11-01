@@ -8,12 +8,12 @@ requests and signed provider grants. It disables redirects and automatic
 decompression. The control request and connection deadline stay at 30 seconds.
 Transfer byte limits, stream limits, and provider-grant expiry checks remain.
 
-The control request in `sync/auth/backup_transport/http.rs` uses
+The control request in `cloud_backup_client/src/backup_transport/http.rs` uses
 `observability::propagation::inject_w3c` before the request leaves the client.
 The provider upload, download, and feed requests preserve the signed grant
 headers. They add no trace header that can invalidate the grant.
 
-The account registration path uses `build_shared_http_client` separately.
+The account registration path uses `cloud_backup_client::build_shared_http_client` separately.
 It keeps HTTPS, the redirect refusal, and the connection timeout.
 
 The egress source comments use these classes:

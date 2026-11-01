@@ -4,14 +4,15 @@ use super::FoldDB;
 use std::future::Future;
 
 pub struct LocalMutationAdmission {
-    admission: Option<crate::sync::capture::MutationAdmission>,
+    admission: Option<crate::fold_db_core::admission::MutationAdmission>,
 }
 
 impl LocalMutationAdmission {
     /// Once admitted, finish the complete operation. Its durable clock jobs
     /// retain this same guard; a selected source cut waits for their writes.
     pub async fn run<F: Future>(self, future: F) -> F::Output {
-        crate::sync::capture::with_existing_mutation_admission(self.admission, future).await
+        crate::fold_db_core::admission::with_existing_mutation_admission(self.admission, future)
+            .await
     }
 }
 

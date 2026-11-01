@@ -1,6 +1,6 @@
 use super::source_diagnostic;
+use cloud_backup_client::byte_backup::BackupTransportError;
 use fold_db::storage::error::NativeProofCause;
-use fold_db::sync::auth::byte_backup::BackupTransportError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

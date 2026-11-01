@@ -24,7 +24,7 @@ impl MutationManager {
         &self,
         events: Vec<CaptureEvent>,
     ) -> Result<ImportReceipt, SchemaError> {
-        crate::sync::capture::with_mutation_admission(self.capture_router(), async {
+        crate::fold_db_core::admission::with_mutation_admission(self.capture_router(), async {
             let runtime = self
                 .db_ops
                 .namespaced_store()

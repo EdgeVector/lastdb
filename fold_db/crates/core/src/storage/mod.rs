@@ -14,8 +14,8 @@
 //! ```
 //!
 //! Cloud multi-device export is **not** a KvStore decorator. No store-level
-//! capture exists; `crate::sync::capture` holds only the mutation admission
-//! gate. Native cloud activation remains disabled.
+//! capture exists; `crate::fold_db_core::admission` holds only the mutation
+//! admission gate. Native cloud activation remains disabled.
 //!
 //! Normal logical constructors use the native packed engine and refuse older
 //! nonempty formats without migration.

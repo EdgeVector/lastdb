@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, ReadBuf};
 pub type ObjectStream = Pin<Box<dyn AsyncRead + Send>>;
 
 impl BackupTransport {
-    pub(in crate::sync::auth) async fn open(
+    pub(crate) async fn open(
         &self,
         object: StoredObject<'_>,
         grant: TemporaryGrant<'_>,

@@ -1,0 +1,32 @@
+[package]
+name = "cloud_backup_client"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+autotests = false
+description = "HTTPS client for the native LastDB cloud backup service"
+
+[dependencies]
+cloud_backup_protocol = { path = "../cloud_backup_protocol" }
+lastdb_storage_policy = { path = "../lastdb_storage_policy" }
+lastdb_model = { workspace = true }
+# `otel` carries `propagation::inject_w3c` for the service requests.
+observability = { workspace = true, features = ["otel"] }
+# The same feature set the core declared when this client lived in it, so the
+# build graph does not change. Only `stream` is used here.
+reqwest = { version = "0.12", features = ["json", "multipart", "blocking", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "io-util", "rt"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false

@@ -47,7 +47,7 @@ pub async fn register_native_device(
         invite_code,
         Some(device_id),
     )?;
-    let client = fold_db::sync::build_shared_http_client()
+    let client = cloud_backup_client::build_shared_http_client()
         .map_err(|_| "cannot construct DEV recovery register client")?;
     let mut response = client
         .post(request.url.clone())

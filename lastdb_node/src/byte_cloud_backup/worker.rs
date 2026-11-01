@@ -3,6 +3,7 @@ use super::{
     model::Saved, publication, retry, source::Source, store::Store, transfer, BackupError, Phase,
     Result,
 };
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
@@ -10,7 +11,6 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
 mod stream;

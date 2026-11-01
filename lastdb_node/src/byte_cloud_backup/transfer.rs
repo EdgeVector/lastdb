@@ -1,7 +1,7 @@
 use super::{retry, wait, BackupError, Result};
+use cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use cloud_backup_protocol::v2::transfer::*;
 use cloud_backup_protocol::v2::Version;
-use fold_db::sync::auth::byte_backup::{BackupTransportError, ByteBackupClient};
 use std::cell::RefCell;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};

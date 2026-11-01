@@ -1,12 +1,12 @@
 use super::capture::Capture;
 use super::{model::Saved, retry, store::Store, transfer, wait, BackupError, Phase, Result};
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::access::{
     InventoryMetadata, InventoryPutRequest, InventoryPutResult,
 };
 use cloud_backup_protocol::v2::inventory::{InventoryIndex, InventoryPage, InventoryVerifier};
 use cloud_backup_protocol::v2::publication::{CommitResponse, CommitStatusRequest};
 use cloud_backup_protocol::v2::{AcceptedBackup, Commit, Version};
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
 

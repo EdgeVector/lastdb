@@ -1,4 +1,5 @@
 use super::*;
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest,
     discovery::StreamsListRequest,
@@ -6,7 +7,6 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Job, Stream, Version,
 };
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Text};
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
 use std::io::Read;
