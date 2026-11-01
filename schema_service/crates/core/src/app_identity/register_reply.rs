@@ -14,6 +14,19 @@ pub enum RegisterAppReply {
     Failed { status: u16, body: Value },
 }
 
+impl RegisterAppReply {
+    /// The HTTP status and body.
+    ///
+    /// Ready and Failed already carry both. Each router still writes the
+    /// response.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value) {
+        match self {
+            Self::Ready { status, body } | Self::Failed { status, body } => (status, body),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Classify [`Self::register_app`] for the HTTP routers.
     ///
