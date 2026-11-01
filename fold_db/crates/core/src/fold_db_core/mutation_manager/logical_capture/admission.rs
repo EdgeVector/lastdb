@@ -117,7 +117,6 @@ fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), Schem
     let local_kind = match mutation.mutation_type {
         MutationType::Create | MutationType::Update => true,
         MutationType::Delete | MutationType::Purge => record_home,
-        _ => false,
     };
     if !local_kind
         || mutation.imported_written_at.is_some()
