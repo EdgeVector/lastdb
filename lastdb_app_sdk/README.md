@@ -149,7 +149,7 @@ read those for the full rationale.
 **"App isolation" is not a security wall.** A same-user process can reach the
 owner socket regardless, so the app socket's write-own rule is an
 **attribution + accident-prevention** boundary — it keeps two honest apps on the
-same node from clobbering each other's data (single-writer-per-molecule, so
+same node from clobbering each other's data (one writer app per schema, so
 cross-app reads stay trustworthy), not an adversary defense. That is exactly why
 self-authored code just uses the owner socket: you already trust it.
 
@@ -424,7 +424,7 @@ a custom `capabilityStore`.
 ## Keys-only membership
 
 Use `list()` when an app needs the live members of a schema without loading
-field atoms. It calls `GET /api/list`; it does not delegate to an unfiltered
+their field values. It calls `GET /api/list`; it does not delegate to an unfiltered
 `queryAll()` scan. The cursor is opaque and exclusive, so pass it back exactly
 as returned until `has_more` is false:
 
@@ -459,8 +459,8 @@ Each `QueryRow` carries:
 | `key` | the row's storage key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
 | `keyValue` | the row's **structured** `{hash, range}` key — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` only when the key has neither a hash nor a range |
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
-| `metadata` | per-field write metadata as the node stores it (atom/molecule ids, `writer_pubkey`, …), keyed by field name |
-| `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null` |
+| `metadata` | write metadata keyed by field name. In a format 7 home each entry holds the record's `source_file_name` and `metadata`, and `atom_uuid` is an empty string; there is no `molecule_uuid` or `writer_pubkey` |
+| `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null`; always `null` from a format 7 home |
 
 This is the exact shape `lastdbd`'s `/api/query` builds
 (`{key, fields, metadata, author_pub_key}` per result key, under `results`);

@@ -1,5 +1,11 @@
 # LastDB logical warm set work plan
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 CAUTION: This plan records the October 18 implementation sequence and its earlier limits and write policy.
 Use the [memory and disk routes](lastdb-rehydrate.md) and [native summary](lastdb-disk-native-node.md) for current behavior.
 All native writes now wait for disk commit and clean memory publication. The warm set uses a byte limit.

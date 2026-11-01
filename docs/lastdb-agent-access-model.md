@@ -16,7 +16,7 @@ See [the multi-key schema guide](multi-key-schemas.md).
 | **Canonical model (umbrella)** | `docs/lastdb-canonical-model.md` |
 | **Core logical memory and native disk** | `docs/lastdb-rehydrate.md` |
 | **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` |
-| **Atom lifecycle (counters, delete, purge, TTL)** | `docs/lastdb-atom-counter.md` · `docs/lastdb-ttl-sweep.md` |
+| **Record lifecycle (delete, purge, TTL, file blobs)** | `docs/lastdb-canonical-model.md` §1 · `docs/lastdb-ttl-sweep.md` · `docs/lastdb-blob-counter.md` |
 | This file | `docs/lastdb-agent-access-model.md` |
 | Public | https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md · https://thelastdb.com/llms.txt |
 
@@ -26,10 +26,10 @@ See [the multi-key schema guide](multi-key-schemas.md).
 
 ## 1. One-sentence model
 
-Design each key for a required read. A schema owns its records and field molecules.
+Design each key for a required read. A schema owns its records: one stored record per primary key.
 Named alternate keys address those same records through fields declared in the schema.
 An alternate read returns the primary key. Mutations use that primary key.
-The native request updates the record and its alternate addresses atomically.
+The native request updates the record and its alternate entries atomically.
 
 ---
 
@@ -71,23 +71,22 @@ Canonical field identity supplies definitions and types. It does not connect rec
 You do **not** need the full engine lecture for day-to-day CRUD. Minimum:
 
 1. **Schema** — names fields and the supported logical key type: `Hash` or `HashRange`. Older template metadata can retain other forms.
-2. **Field** — each field has its own **molecule** (tip index): “for this key, which atom is current?” Same key coordinates `(hash[, range])` across fields assemble a logical row at read time.
-3. **Atom** — immutable, content-addressed field value (`atom:{uuid}`).
-   **Size fence:** each atom's content is hard-capped (default **256 KiB** serialized JSON; env `LASTDB_MAX_ATOM_CONTENT_BYTES`, absolute max 1 MiB). Many small fields may be packed into one atom up to the fence. A list or log that grows is one record per entry in a HashRange schema. Atoms are **not** a blob store — packs/files go in file-blob/CAS with a pointer. See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` and the Shape rules below.
-   **Lifecycle:** every atom has a counter of the tips and kept conflict records that name it. The batch that takes the counter to zero deletes the body. A rewrite keeps no older version, and the home has no history or `as_of` read.
-4. **Query** — resolve tips for the keys you care about, batch-fetch atoms, zip fields into the JSON the API returns.
+2. **Record** — every field of the schema at one primary key, stored as **one value** (`rk:` key). Each field has a stamp (write time, logical counter, device, mutation). A write changes only the fields it names; when two writes meet, each field keeps the newer stamp (the field merge). The record has one metadata block (source file name and metadata map).
+   **Record cap:** a record holds at most **64 KiB** — all fields, stamps and metadata together. A list or log that grows is one record per entry in a HashRange schema. A record is **not** a blob store — packs/files go in a file blob with a reference. See the Shape rules below.
+3. **Alternate entry** — one `ak:` key per named alternate key of a record. It holds the primary key, not a copy of the record.
+4. **Query** — read the record at the key (1 read), a range under one hash (1 range read), or an alternate key (the alternate entries, then one batch of records). The reply carries the primary key and the record metadata. A rewrite keeps no older version, and the home has no `as_of` read; a field history policy can keep copies of old values of one field.
 
-Multi-field “rows” (a Card with title+body+column) are **co-keyed at read time**, not one physical row blob.
+A Card with title+body+column is **one stored record**. The node does not join separate field values at read time.
 
-Deeper: `docs/lastdb-atom-counter.md` (the records and the write path), `docs/lastdb-rehydrate.md` (memory and disk).
+Deeper: `docs/lastdb-canonical-model.md` (the record, the write path, delete and TTL), `docs/lastdb-rehydrate.md` (memory and disk, written for the molecule model).
 
 ### Shape rules
 
 Pick the shape of your data before you write the schema. The node enforces the ceiling; it cannot fix a bad shape.
 
 1. **Data that grows without bound is one record per entry** in a HashRange schema. The hash is the partition (an owner, a day) and the range is the entry key. Never rewrite one growing document on every append: each write re-encrypts the whole document, and it fails at the ceiling.
-2. **Large opaque write-once bytes go to a file blob** (files, packs, images, PDFs, base64 of any of those). The atom holds a pointer (hash, size, media type). Upload the blob first and write the atom that names it soon after: a blob that nothing references is deleted after a dwell of one hour (`docs/lastdb-blob-counter.md`).
-3. **Everything else is one atom, up to 256 KiB**, with its small fields packed. Conflict is per atom, so packing couples the fate of the fields: do not pack facts that different devices write independently.
+2. **Large opaque write-once bytes go to a file blob** (files, packs, images, PDFs, base64 of any of those). The record holds a reference (hash, size, media type). Upload the blob first and write the record that names it soon after: a blob that nothing references is deleted after a dwell of one hour (`docs/lastdb-blob-counter.md`).
+3. **Everything else is one record, up to 64 KiB.** Keep facts that different devices write independently in separate fields: the field merge keeps each field's newer value. Do not pack independent facts into one field value.
 4. **A TTL needs an age rule.** A schema declares retention in the app manifest. A HashRange range key must start with 20 digits of unix seconds, zero-padded. Use a day-slice hash for a log. A Hash schema uses its latest write time. Set the policy before the first write, or run the explicitly confirmed personal-schema backfill. It keeps original write ages and registers old hashes. A TTL deletes records for good (`docs/app-manifest-retention.md`, `docs/lastdb-ttl-sweep.md`).
 5. **A lease, a claim or a counter that several writers change needs compare-and-set.** Put `expected` on the mutation (`Absent` or `Value`). It is atomic on one node. Across devices last-write-wins decides, and the loser is kept as a conflict record, so run such state on one device. A node that does not know `expected` can ignore it: check the node before you claim a lease.
 
@@ -104,7 +103,7 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 | Load one card / brain record by slug | **HashKey** on the primary schema (`Card`, Concept, …) via CLI `show` / `get` — **O(1)** |
 | List a board / column | Card named key `by_board`: hash = board, optional column range prefix; via `kanban list` |
 | Point update | Mutate the primary record. The native request updates its declared alternate addresses. Prefer the product CLI. |
-| Remove data | `Delete` (writes a barrier), `Purge` (hard erase, no barrier), or a manifest TTL. The atom counter frees each body whose last reference goes, in the same batch. Send at most the number of keys that the 400 error names. See `docs/lastdb-atom-counter.md` |
+| Remove data | `Delete`, `Purge` (also releases history and conflict records), or a manifest TTL. Each leaves a tombstone so an older write cannot bring the record back, and releases file blob references in the same batch. Send at most the number of keys that the 400 error names. See `docs/lastdb-canonical-model.md` §1 |
 | Another list of the same records | Declare a named alternate key from the schema fields. |
 | Read several independent things from **different schemas** | **`POST /api/queries/batch`** — `{"queries":[<`/api/query` body>, …]}`, up to 64, replies in request order with one `status` per item. Not a join: items cannot use each other's results. Within one schema use `HashRangeKeys`. See `docs/designs/lastdb-query-batch-route.md` |
 | Health / load | `lastdb status` (exit 0 iff the owner socket answers `/health`) + socket `/api/status` request_ops; `lastdb ops` (`docs/lastdb-ops-telemetry.md`) |
@@ -115,8 +114,8 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 | Anti-pattern | Why |
 |--------------|-----|
 | Full scan as list | **Not supported**; not Dynamo Query; historical node meltdowns |
-| Rewrite one growing document on every append | Each write re-encrypts the whole document and fails at 256 KiB. One record per entry |
-| Read an atom body by id | API version 15 removed `GET /api/atom/{id}`. Read by key |
+| Rewrite one growing document on every append | Each write re-encrypts the whole record and fails at the 64 KiB record cap. One record per entry |
+| Read a field value by an atom id | Atoms do not exist. API version 15 removed `GET /api/atom/{id}`. Read by key |
 | Rely on an older version or a history read | A rewrite keeps no older version. There is no `as_of` read |
 | Field-equality filter like `{ column: "todo" }` as if SQL WHERE | Filters are key-shaped only; fake filters 400 or force client fallbacks |
 | Cross-partition range without hash | Same class as scan — design a hash that partitions the list |
@@ -129,10 +128,10 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 
 ## 6. Record values and alternate addresses
 
-Keep one source schema for each logical record type.
+Keep one source schema for each record type.
 Declare alternate keys for different reads of those same records.
-The alternate stores the primary address and no payload copy.
-An update changes the affected addresses in the same native transaction as the record.
+The alternate entry stores the primary key and no copy of the record.
+An update changes the affected alternate entries in the same native transaction as the record.
 
 Use separate schemas for relationships, counters, tags, links, or files with their own data.
 Collect known keys first. Batch independent reads and mutations.
@@ -163,15 +162,15 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 | Piece | Shipping default | Notes |
 |-------|------------------|--------|
-| HashKey in `mk:…` | `blind_v1` on every home | No setting selects another encoding. |
-| RangeKey in `mk:…` | One canonical ordered scalar payload. No range uses OPE. | The persisted molecule profile selects the payload type. |
+| HashKey in `rk:…` and `ak:…` | `blind_v1` on every home | No setting selects another encoding. |
+| RangeKey in `rk:…` and `ak:…` | One canonical ordered scalar payload. No range uses OPE. | The range profile in the record space key bundle selects the payload type. |
 | Run data and lookup blocks | Compression, then AES-256-GCM | Main and CAS use separate derived home keys. |
-| Atom content | Plain logical JSON inside encrypted V2 blocks | No extra atom envelope. |
+| Record values | Plain logical JSON inside encrypted V2 blocks | No extra record envelope. |
 | Portable file blobs | Existing portable ciphertext and access bundles | The enclosing CAS run blocks also use V2 encryption. |
 | Schema records | Plain JSON inside encrypted V2 blocks | A native put refuses an `ENC:` or `ENB:` envelope in a catalog collection. The schema store reads plain JSON only. |
 | Local `identity.key` | A plaintext 32-byte seed with owner-only permissions | Possession of this seed permits data decryption. |
 
-The block encryption covers logical keys, metadata, atom headers, tips, counters, and control values together.
+The block encryption covers logical keys, records, alternate entries, metadata, counters, and control values together.
 Clear file descriptors, footers, frame sizes, and object counts remain visible.
 The cloud adapter retains the same ciphertext for both native homes. It excludes the local identity file and cloud credentials.
 The account-key proof and exact format checks protect startup and native restore admission.
@@ -184,8 +183,8 @@ A person who reads that seed can derive the file encryption keys. Database encry
 **Agent rules:**
 
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
-2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE.
-3. Preserve the V2 plain atom representation inside encrypted blocks. Do not add an atom envelope or a second ordered lookup.
+2. Read the persisted home and record space contracts. Typed lookup keys use no OPE.
+3. Preserve the V2 plain record representation inside encrypted blocks. Do not add a record envelope or a second ordered lookup.
 4. See `docs/designs/typed-range-field-contract.md` for the complete contract and release limits. Trinity describes the older record-encryption design.
 
 ---
@@ -202,7 +201,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 [ ] Load: lastdb status (exit 0 = socket reachable) / ops (or /api/status request_ops) before blaming “node down”
 [ ] Version: GET /api/version api_version ≥ what the client needs; a 400 kind=unknown_key is version skew, not a bad request
 [ ] Secrets: LastSecrets only — never put secrets in brain/kanban bodies
-[ ] Read the home/profile contract; V2 blocks protect plain atoms and ordered keys; keep the private identity outside backups
+[ ] Read the home/profile contract; V2 blocks protect plain records and ordered keys; keep the private identity outside backups
 ```
 
 ---
@@ -211,12 +210,12 @@ A person who reads that seed can derive the file encryption keys. Database encry
 
 | What | Where |
 |------|--------|
-| **Canonical model (schema→field→molecule→atom→file and named keys)** | `docs/lastdb-canonical-model.md` |
-| **rehydrate (resident-first miss path)** | `docs/lastdb-rehydrate.md` |
+| **Canonical model (schema → record → file blob and named keys)** | `docs/lastdb-canonical-model.md` |
+| **rehydrate (resident-first miss path, molecule model)** | `docs/lastdb-rehydrate.md` |
 | **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` |
-| **Atom counter, delete, purge, crash states** | `docs/lastdb-atom-counter.md` |
+| **Delete, purge, TTL, file blobs** | `docs/lastdb-canonical-model.md` §1 · `docs/lastdb-blob-counter.md` |
 | **TTL sweep and manifest retention** | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
-| **Atom size ceiling** | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
+| **Record cap (64 KiB) and the peer field value limit** | `docs/lastdb-canonical-model.md` §1 · `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
 | ENC model | this file §8 |
 | Ops telemetry | `docs/lastdb-ops-telemetry.md` |
 | Safe Mini upgrade | skill `lastdb-safe-upgrade` |
@@ -225,7 +224,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 
 ## 11. Model for humans and agents
 
-A schema owns each record and its field molecules.
+A schema owns each record. Each primary key holds one stored record.
 Declare named alternate keys for other reads of those records.
 Reuse canonical field definitions across schemas while each schema keeps separate values.
 Copy an older value layout into a fresh home.

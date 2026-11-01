@@ -1,5 +1,11 @@
 # LastDB key selection study
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Status: historical alternatives study, 2026-10-17. Its default-range recommendation is superseded.
 The selected [preload design](lastdb-schema-range-preload-design.md) loads complete schema keys before the first query continues.
 Later ready ranges and sample select keys from the logical set.

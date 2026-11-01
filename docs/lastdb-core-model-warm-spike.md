@@ -1,5 +1,11 @@
 # LastDB core model warm set spike
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Status: historical exact-read spike, 2026-10-17.
 The later [schema preload design](lastdb-schema-range-preload-design.md) supersedes its range recommendation.
 The [product receipts](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/) record the subsequent implementation and measurements.

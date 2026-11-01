@@ -1,5 +1,11 @@
 # Schema range key preload design
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Status: selected route merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18. The policy remains opt-in.
 Tom selected first-use preload for selected schemas after the [memory and disk study](lastdb-schema-range-preload-study.md).
 The [logical design](lastdb-logical-warm-set-design.md) defines common values, fields, and publication rules.

@@ -1,5 +1,10 @@
 # Atom content size limit
 
+> **Model note (2026-11-01).** Since home format 7 (the record model) a local write has one
+> limit: the 64 KiB record cap (`MAX_RECORD_BYTES`) on the whole record. The atom content
+> limit below (`LASTDB_MAX_ATOM_CONTENT_BYTES`) now applies only to one field value of a
+> peer record. Read [the canonical model](../../docs/lastdb-canonical-model.md) for the record cap.
+
 **Product rule (2026-10-12):** one global ceiling of **256 KiB** for the content of a new atom write. It was 64 KiB before. An atom may pack many small fields up to that size. LastDB is still not a blob store: see "Which shape?" below.
 
 | | |
