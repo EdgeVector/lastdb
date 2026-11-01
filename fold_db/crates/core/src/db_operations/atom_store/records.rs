@@ -17,6 +17,7 @@ use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::record_warm::WrittenRecord;
 use crate::storage::KvMutation;
+use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
@@ -72,7 +73,20 @@ impl AtomStore {
     /// The stored records at these storage keys, in the order given. Memory
     /// answers first; one read by key for each chunk of the misses. Inside a
     /// native request the read sees the request's earlier private writes.
+    ///
+    /// The memory lookup and every disk chunk read one revision: a caller
+    /// without a read scope gets one for this call (`atom_read_scope`), so a
+    /// commit between two chunks cannot mix two revisions in one result. A
+    /// caller with a scope keeps its own revision and read limit.
     pub(crate) async fn read_records(
+        &self,
+        keys: &[String],
+    ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
+        self.atom_read_scope(self.read_records_scoped(keys).boxed())
+            .await
+    }
+
+    async fn read_records_scoped(
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
