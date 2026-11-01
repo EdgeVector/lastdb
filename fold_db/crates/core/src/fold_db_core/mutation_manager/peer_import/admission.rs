@@ -10,7 +10,7 @@ impl MutationManager {
         if events.iter().all(|event| event.outcome_count() == 0) {
             return Ok(());
         }
-        let cutoff_nanos = self.db_ops.atoms().minimum_replay_time().await?;
+        let cutoff_nanos = self.db_ops.records().minimum_replay_time().await?;
         if cutoff_nanos > 0
             && super::event_clocks(events).any(|(written_at, _)| written_at <= cutoff_nanos)
         {

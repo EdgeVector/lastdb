@@ -141,6 +141,17 @@ impl From<cloud_backup_protocol::ProtocolError> for BackupError {
         Self::Invalid
     }
 }
+impl From<cloud_backup_plan::PlanError> for BackupError {
+    fn from(error: cloud_backup_plan::PlanError) -> Self {
+        use cloud_backup_plan::PlanError;
+        match error {
+            PlanError::SourceLength => Self::Identity,
+            PlanError::ExtentBound => Self::Limit,
+            PlanError::Io(error) => Self::from(error),
+            PlanError::Invalid(_) | PlanError::Protocol(_) => Self::Invalid,
+        }
+    }
+}
 impl From<fold_db::storage::StorageError> for BackupError {
     fn from(error: fold_db::storage::StorageError) -> Self {
         use fold_db::storage::StorageError;

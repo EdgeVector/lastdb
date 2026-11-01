@@ -6,7 +6,7 @@
 
 use super::merge::PeerRecord;
 use super::*;
-use crate::db_operations::atom_store::record_scope;
+use crate::db_operations::record_store::record_scope;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::KvMutation;
@@ -20,7 +20,7 @@ impl MutationManager {
         records: &[&PeerRecord],
         mut entries: Vec<KvMutation>,
     ) -> Result<(), SchemaError> {
-        let atoms = self.db_ops.atoms();
+        let record_store = self.db_ops.records();
         let scope = record_scope(schema);
         let keys: Vec<KeyValue> = records.iter().map(|record| record.key.clone()).collect();
         let before: Vec<_> = records
@@ -38,13 +38,13 @@ impl MutationManager {
             .map(|record| record.after.fields.clone())
             .collect();
         entries.extend(
-            atoms
+            record_store
                 .alternate_entry_changes(schema, &keys, &before, &after, scope.as_deref())
                 .await?,
         );
         let changes: Vec<_> = records.iter().copied().map(PeerRecord::change).collect();
         let purges = vec![false; changes.len()];
-        let history = atoms
+        let history = record_store
             .record_history_rows(schema, scope.as_deref(), &changes, &purges)
             .await?;
         entries.extend(history.rows);
@@ -52,7 +52,9 @@ impl MutationManager {
             .iter()
             .map(|change| change.after.written_at().filter(|_| change.after.is_live()))
             .collect();
-        atoms.stage_records(changes, entries, history.blobs).await?;
+        record_store
+            .stage_records(changes, entries, history.blobs)
+            .await?;
         // A live record below a floor of the TTL sweep removes the floor.
         let live = records.iter().filter(|record| record.after.is_live());
         self.db_ops

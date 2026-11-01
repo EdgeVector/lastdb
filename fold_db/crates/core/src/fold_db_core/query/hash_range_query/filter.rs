@@ -21,7 +21,7 @@ impl HashRangeQueryProcessor {
         options: FieldQueryOptions<'_>,
     ) -> Result<QueryRecords, SchemaError> {
         Self::require_supported_query(schema, filter.as_ref())?;
-        let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
+        let comparison = self.db_ops.records().key_comparison_context(schema).await?;
         let filter = comparison.canonical_filter(filter)?;
         let window = comparison.canonical_window(window)?;
         if options.requires_condition_pass() {

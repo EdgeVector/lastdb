@@ -121,7 +121,7 @@ impl HashRangeWatch {
                 .ok_or_else(invalid_watch)?;
             self.comparison = Some(
                 self.db_ops
-                    .atoms()
+                    .records()
                     .key_comparison_context(&schema)
                     .await
                     .map_err(|_| invalid_watch())?,

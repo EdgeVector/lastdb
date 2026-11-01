@@ -1,10 +1,10 @@
-use super::super::atom_store::AtomStore;
 use super::super::attribution_ledger::AttributionLedger;
 use super::super::change_feed::ChangeFeedStore;
 use super::super::db_catalog_store::DbCatalogStore;
 use super::super::lineage_index::LineageIndex;
 use super::super::metadata_store::MetadataStore;
 use super::super::public_key_store::PublicKeyStore;
+use super::super::record_store::RecordStore;
 use super::super::schema_store::SchemaStore;
 use super::DbOperations;
 use crate::storage::molecule_key_store::MoleculeKeyStore;
@@ -180,7 +180,7 @@ impl DbOperations {
             molecule_wrap_key,
             store.disk_pack_runtime(),
         );
-        let atom_store = Self::open_atom_store(
+        let record_store = Self::open_record_store(
             &store,
             AtomNamespaces::new(main_kv, keep_small_kv),
             content_key,
@@ -200,7 +200,7 @@ impl DbOperations {
             schema_store,
             db_catalog,
             molecule_keys,
-            atom_store,
+            record_store,
             public_key_store,
             metadata_store,
             attribution_ledger,
@@ -210,20 +210,20 @@ impl DbOperations {
         })
     }
 
-    async fn open_atom_store(
+    async fn open_record_store(
         store: &Arc<dyn NamespacedStore>,
         namespaces: AtomNamespaces,
         content_key: Option<[u8; 32]>,
         molecule_keys: &MoleculeKeyStore,
         admit_meter_trust: bool,
         proof_key: Option<[u8; 32]>,
-    ) -> Result<AtomStore, crate::storage::StorageError> {
+    ) -> Result<RecordStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
-        let atom_store = AtomStore::new_with_content_key(namespaces.main, content_key)
+        let record_store = RecordStore::new_with_content_key(namespaces.main, content_key)
             .with_namespaced_store(Arc::clone(store))
             .with_molecule_keys(molecule_keys.clone())
             .with_keep_small_persist(namespaces.keep_small);
-        Self::initialize_fresh_native_refs(store, &atom_store, proof_key).await?;
+        Self::initialize_fresh_native_refs(store, &record_store, proof_key).await?;
         // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
         // boot on any hydrate error; on 2026-09-25 that made every new build
         // refuse the primary home because its keep_small group (1.08 GB of
@@ -233,8 +233,8 @@ impl DbOperations {
         // meter-dependent deletion stays closed) and the node boots. Tom's
         // decision: decision-2026-09-25-lastdb-node-stays-upgradeable-soft-hard-cap.
         if admit_meter_trust {
-            if let Err(e) = atom_store.hydrate_keep_small().await {
-                atom_store
+            if let Err(e) = record_store.hydrate_keep_small().await {
+                record_store
                     .note_keep_small_hydrate_failure(&e.to_string())
                     .await;
                 tracing::warn!(
@@ -246,19 +246,19 @@ impl DbOperations {
                 );
             }
         }
-        Ok(atom_store)
+        Ok(record_store)
     }
 
     async fn initialize_fresh_native_refs(
         store: &Arc<dyn NamespacedStore>,
-        atoms: &AtomStore,
+        records: &RecordStore,
         proof_key: Option<[u8; 32]>,
     ) -> Result<(), crate::storage::StorageError> {
         let Some(runtime) = store.disk_pack_runtime() else {
             return Ok(());
         };
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
-            atoms.require_current_key_format().await?;
+            records.require_current_key_format().await?;
             if let Some(key) = proof_key {
                 crate::storage::content_key_proof::verify_stored(store.as_ref(), &key).await?;
             }

@@ -12,13 +12,13 @@ pub(crate) async fn retention_tip_clocks(
     keys: &[KeyValue],
 ) -> Result<Vec<(KeyValue, u64)>, SchemaError> {
     let schema = schemas.require_schema_metadata(name)?;
-    let scope = crate::db_operations::atom_store::record_scope(&schema);
-    let atoms = db_ops.atoms();
+    let scope = crate::db_operations::record_store::record_scope(&schema);
+    let record_store = db_ops.records();
     let record_keys = keys
         .iter()
-        .map(|key| atoms.record_key(&schema, key, scope.as_deref()))
+        .map(|key| record_store.record_key(&schema, key, scope.as_deref()))
         .collect::<Result<Vec<_>, _>>()?;
-    let records = atoms.read_records(&record_keys).await?;
+    let records = record_store.read_records(&record_keys).await?;
     Ok(keys
         .iter()
         .zip(records)

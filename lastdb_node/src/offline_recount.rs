@@ -5,7 +5,7 @@
 //! references of each blob, and repairs the blob counters and the blob queue.
 //! It gives a bucket of the retention queue that holds entries its directory
 //! row back, and it can raise the replay cutoff. See
-//! `fold_db::db_operations::AtomStore::recount_counters`. No gate and no write
+//! `fold_db::db_operations::RecordStore::recount_counters`. No gate and no write
 //! path uses it.
 //!
 //! The home is protected before anything is opened: no daemon is alive for it,
@@ -76,7 +76,7 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         );
     }
     for scope in &args.scopes {
-        fold_db::db_operations::AtomStore::validate_scope(Some(scope))
+        fold_db::db_operations::RecordStore::validate_scope(Some(scope))
             .map_err(|e| e.to_string())?;
     }
     let (preflight, _lock) = preflight_stopped_home(args.home, &store_root)?;
@@ -145,7 +145,7 @@ async fn run_recount(
     }
     let outcome = db
         .db_ops()
-        .atoms()
+        .records()
         .recount_counters(&options)
         .await
         .map_err(|e| format!("recount: {e}"));

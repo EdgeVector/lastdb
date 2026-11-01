@@ -1,5 +1,5 @@
 //! Bounded history expiry. The handle follows the database shutdown lifecycle.
-use crate::db_operations::{atom_store::time_queue::QueueReader, DbOperations};
+use crate::db_operations::{record_store::time_queue::QueueReader, DbOperations};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ impl BackgroundAtomHistory {
         // unused expiry task must not warm another worker's allocator heaps.
         // An unreadable marker preserves the existing expiry retry behavior.
         let enabled = db
-            .atoms()
+            .records()
             .atom_history_enabled()
             .await
             .unwrap_or_else(|error| {
@@ -27,12 +27,14 @@ impl BackgroundAtomHistory {
             });
         // lint:spawn-bare-ok process-lifetime expiry task, stopped with the database.
         let task = tokio::spawn(async move {
-            let atoms = db.atoms();
+            let records = db.records();
             if !enabled {
-                atoms.history_activation().notified().await;
+                records.history_activation().notified().await;
             }
-            let mut reader =
-                QueueReader::new(crate::db_operations::atom_store::atom_history::queue(), 32);
+            let mut reader = QueueReader::new(
+                crate::db_operations::record_store::atom_history::queue(),
+                32,
+            );
             let mut ticks = 0u64;
             let mut timer = tokio::time::interval(Duration::from_secs(1));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -42,7 +44,7 @@ impl BackgroundAtomHistory {
                     reader.restart();
                 }
                 ticks = ticks.wrapping_add(1);
-                if let Err(error) = atoms.atom_history_expire_step(&mut reader).await {
+                if let Err(error) = records.atom_history_expire_step(&mut reader).await {
                     tracing::error!(%error, "atom history expiry failed; records remain");
                 }
             }

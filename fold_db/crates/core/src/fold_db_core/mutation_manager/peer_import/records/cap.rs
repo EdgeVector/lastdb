@@ -8,7 +8,7 @@
 //! the receipt with the reason. The rest of the page lands.
 
 use super::merge::PeerRecord;
-use crate::db_operations::atom_store::LostWrite;
+use crate::db_operations::record_store::LostWrite;
 use crate::storage::disk_pack::logical_capture::SkippedPeerRecord;
 use lastdb_model::record_value::{RecordValueError, MAX_RECORD_BYTES};
 use std::collections::HashSet;

@@ -7,7 +7,7 @@
 //! The stamps carry no causal order, so a later edit of a value that another
 //! device wrote also keeps that value as a conflict, as on the molecule path.
 
-use crate::db_operations::atom_store::{LostWrite, RecordChange};
+use crate::db_operations::record_store::{LostWrite, RecordChange};
 use crate::schema::types::KeyValue;
 use crate::storage::disk_pack::logical_capture::{AcceptedRecordOutcome, RecordFieldOutcome};
 use lastdb_model::record_value::{FieldMerge, StoredRecord};

@@ -51,7 +51,7 @@ impl QueryExecutor {
         loop {
             let entries = self
                 .db_ops
-                .atoms()
+                .records()
                 .select_alternate_entries(
                     &schema,
                     name,
@@ -64,7 +64,7 @@ impl QueryExecutor {
             let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
             let fields = self
                 .db_ops
-                .atoms()
+                .records()
                 .schema_fields_at_keys(&schema, &keys, scope.as_deref(), &names)
                 .await?;
             for (entry, fields) in entries.iter().zip(fields) {
@@ -133,7 +133,7 @@ impl QueryExecutor {
         let after = cursor.map(QueryCursor::into_key);
         let mut entries = self
             .db_ops
-            .atoms()
+            .records()
             .select_alternate_entries(
                 &schema,
                 &name,

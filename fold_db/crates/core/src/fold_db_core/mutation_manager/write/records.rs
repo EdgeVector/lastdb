@@ -8,7 +8,7 @@
 //! hold are refused here, before any byte is staged.
 
 use super::*;
-use crate::db_operations::atom_store::{record_scope, RecordChange};
+use crate::db_operations::record_store::{record_scope, RecordChange};
 use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
@@ -44,19 +44,19 @@ impl MutationManager {
             .await?;
         Self::require_record_write(&mutations)?;
         let scope = record_scope(&schema);
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut record_keys = Vec::with_capacity(mutations.len());
         for mutation in &mut mutations {
             let key = self.resolve_mutation_key_value(schema_name, &schema, mutation)?;
             self.materialize_key_fields(schema_name, &schema, mutation, &key)?;
-            record_keys.push(atoms.record_key(&schema, &key, scope.as_deref())?);
+            record_keys.push(records.record_key(&schema, &key, scope.as_deref())?);
             keys.push(key);
         }
-        let stored = atoms.read_records(&record_keys).await?;
+        let stored = records.read_records(&record_keys).await?;
         let stored = record_keys.into_iter().zip(stored).collect();
         let group = merge_group(schema_name, &schema, &mutations, &keys, stored, repeated)?;
-        let entries = atoms
+        let entries = records
             .alternate_entry_changes(
                 &schema,
                 &group.keys,
@@ -147,14 +147,14 @@ impl MutationManager {
                 slot.insert(self.load_schema_for_delta(name, storage_prefix).await?);
             }
         }
-        let atoms = self.db_ops.atoms();
+        let record_store = self.db_ops.records();
         let mut keys = Vec::with_capacity(guarded.len());
         for &mutation in &guarded {
             let schema = &schemas[mutation.schema_name.as_str()];
             let key = self.resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
-            keys.push(atoms.record_key(schema, &key, record_scope(schema).as_deref())?);
+            keys.push(record_store.record_key(schema, &key, record_scope(schema).as_deref())?);
         }
-        let records = atoms.read_records(&keys).await?;
+        let records = record_store.read_records(&keys).await?;
         // A purge of a deleted record finds the record while its field history
         // still holds copies of old values: the compliance verb releases them.
         let deleted: Vec<&str> = guarded
@@ -169,7 +169,7 @@ impl MutationManager {
             .collect();
         let mut with_history = std::collections::HashSet::new();
         if !deleted.is_empty() {
-            let counts = atoms.record_history_counts(&deleted).await?;
+            let counts = record_store.record_history_counts(&deleted).await?;
             with_history.extend(
                 deleted
                     .into_iter()

@@ -38,7 +38,7 @@ impl FoldDB {
                 .map_err(|e| StorageError::IoError(std::io::Error::other(e.to_string())))?,
         );
         if !offline_maintenance {
-            db_ops.atoms().freeze_replay_cutoff().await?;
+            db_ops.records().freeze_replay_cutoff().await?;
         }
 
         // Create QueryExecutor for handling all query operations

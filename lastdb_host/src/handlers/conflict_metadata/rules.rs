@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use fold_db::access::AccessContext;
-use fold_db::db_operations::atom_store::RecordFieldConflicts;
+use fold_db::db_operations::record_store::RecordFieldConflicts;
 use fold_db::db_operations::RecordConflictState;
 use fold_db::schema::types::field::FieldKind;
 use fold_db::schema::types::{KeyValue, Schema};

@@ -35,9 +35,9 @@ async fn explain_blobs(
     ids: Vec<String>,
 ) -> UdsResponse {
     let ids = target_ids(id, ids);
-    match host.db.db_ops().atoms().blob_counter_views(&ids).await {
+    match host.db.db_ops().records().blob_counter_views(&ids).await {
         Ok(views) => {
-            let dwell_secs = host.db.db_ops().atoms().blob_counter_report().dwell_secs;
+            let dwell_secs = host.db.db_ops().records().blob_counter_report().dwell_secs;
             json_ok(&envelope(
                 &rules::blob_reply(&views, dwell_secs),
                 ctx.user_id.as_str(),

@@ -23,7 +23,7 @@ on:
       - 'fold_db/crates/model/src/atom/**'
       - 'fold_db/crates/core/src/crypto/**'
       - 'fold_db/crates/core/src/mini_cutover/**'
-      - 'fold_db/crates/core/src/db_operations/atom_store/**'
+      - 'fold_db/crates/core/src/db_operations/record_store/**'
       - 'lastdb_node/src/host/**'
       - 'scripts/disk_v2/**'
       - 'scripts/benchmarks/node.py'

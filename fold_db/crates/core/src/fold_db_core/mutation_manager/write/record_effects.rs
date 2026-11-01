@@ -23,7 +23,7 @@
 //!   personal record keeps the history.
 
 use super::*;
-use crate::db_operations::atom_store::{RecordChange, RecordHistoryRows};
+use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
 use crate::db_operations::{AtomDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::field::build_storage_key;
@@ -93,7 +93,7 @@ impl MutationManager {
         let mut changes = changes;
         changes.extend(copies);
         self.db_ops
-            .atoms()
+            .records()
             .stage_records(changes, entries, history.blobs)
             .await?;
         if storage_prefix.is_none() {
@@ -133,7 +133,7 @@ impl MutationManager {
                     .map(move |change| build_storage_key(Some(prefix.as_str()), &change.key))
             })
             .collect();
-        let stored = self.db_ops.atoms().read_records(&keys).await?;
+        let stored = self.db_ops.records().read_records(&keys).await?;
         Ok(keys
             .into_iter()
             .zip(stored)
@@ -160,7 +160,7 @@ impl MutationManager {
             .map(|record| record.mutation.mutation_type == MutationType::Purge)
             .collect();
         self.db_ops
-            .atoms()
+            .records()
             .record_history_rows(schema, scope, changes, &purges)
             .await
     }
@@ -177,7 +177,7 @@ impl MutationManager {
             .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
             .map(|(_, change)| change.key.as_str())
             .collect();
-        self.db_ops.atoms().purged_record_conflicts(&purged).await
+        self.db_ops.records().purged_record_conflicts(&purged).await
     }
 
     /// Stage the delete audit rows and the retention age rows of one group in
@@ -249,7 +249,7 @@ impl MutationManager {
                 .or_default()
                 .push((record.key, outcome));
         }
-        let atoms = self.db_ops.atoms();
+        let record_store = self.db_ops.records();
         for ((verb, caller), records) in groups {
             let descriptor = match records.as_slice() {
                 [(key, _)] => describe_key(key),
@@ -264,7 +264,7 @@ impl MutationManager {
             if verb == LEDGER_VERB_PURGE {
                 entry.history_rows_deleted = history_released;
             }
-            atoms.record_atom_delete_audit(None, entry).await?;
+            record_store.record_atom_delete_audit(None, entry).await?;
         }
         Ok(())
     }

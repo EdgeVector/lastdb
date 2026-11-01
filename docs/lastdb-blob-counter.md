@@ -107,7 +107,7 @@ NUL. The counter of a blob is one hash.
 ### The queue
 
 The queue is the time-bucketed queue of `docs/lastdb-time-queue.md`
-(`atom_store/time_queue`). Read that contract first. Why: a queue under one hash
+(`record_store/time_queue`). Read that contract first. Why: a queue under one hash
 loses speed after about 10,000 deleted entries, because a delete leaves a deleted
 key, the oldest entries go first, and every read has to pass the deleted keys at
 the head. The review measured 16 blobs a minute after 9,800 deletions.
@@ -154,18 +154,18 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
 
 ## Who changes a counter
 
-1. **The record write and the history release** (`atom_store/records.rs`,
-   `atom_store/atom_history/records.rs`) in the batch of the change. A record or a
+1. **The record write and the history release** (`record_store/records.rs`,
+   `record_store/atom_history/records.rs`) in the batch of the change. A record or a
    history entry that names a blob raises it. A replaced or removed record, and a
    released history entry, lowers it. The blob changes are summed for the whole
    batch first. `blob_counter::BlobDeltas` does that, and
-   `AtomStore::blob_counter_mutations` reads the counters by key and builds the
+   `RecordStore::blob_counter_mutations` reads the counters by key and builds the
    writes.
 2. **An upload** of a blob row (`blob_cas::put_blob_sealed_with_access_dedup_in_ops`)
-   calls `AtomStore::register_blob_upload` in the same native write request as the
+   calls `RecordStore::register_blob_upload` in the same native write request as the
    row. A blob at zero starts its dwell again. A blob with references is left alone.
 3. **The drop of a storage scope** (`delete_catalog_membership`) and **the drop of
-   a schema** (`atom_store/schema_release.rs`) lower the blobs that the dropped
+   a schema** (`record_store/schema_release.rs`) lower the blobs that the dropped
    records and history entries held, in the same batch as the rows.
 4. **The dwell pass** deletes a blob (see below).
 5. **The offline recount** (see "Verify and recount").
