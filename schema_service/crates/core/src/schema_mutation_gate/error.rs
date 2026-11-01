@@ -22,57 +22,7 @@ pub enum SchemaMutationGateError {
 }
 
 impl SchemaMutationGateError {
-    pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::InvalidChallengeRequest(detail) => (
-                400,
-                json!({"error": "Invalid schema mutation challenge request", "reason": "invalid_challenge_request", "detail": detail}),
-            ),
-            Self::NodeKeyRequired => (
-                401,
-                json!({"error": "Node publish key required", "reason": "node_key_required"}),
-            ),
-            Self::NodeKeyInvalid => (
-                401,
-                json!({"error": "Node publish key is invalid", "reason": "node_key_invalid"}),
-            ),
-            Self::NodeSignatureRequired => (
-                401,
-                json!({"error": "Node publish signature required", "reason": "node_signature_required"}),
-            ),
-            Self::NodeSignatureInvalid => (
-                401,
-                json!({"error": "Node publish signature is invalid", "reason": "node_signature_invalid"}),
-            ),
-            Self::ProofOfWorkRequired => (
-                401,
-                json!({"error": "Proof-of-work challenge required", "reason": "proof_of_work_required"}),
-            ),
-            Self::ProofOfWorkInvalid => (
-                401,
-                json!({"error": "Proof-of-work is invalid", "reason": "proof_of_work_invalid"}),
-            ),
-            Self::ProofOfWorkExpired => (
-                401,
-                json!({"error": "Proof-of-work challenge expired", "reason": "proof_of_work_expired"}),
-            ),
-            Self::QuotaExceeded {
-                bucket,
-                window,
-                limit,
-                retry_after_secs,
-            } => (
-                429,
-                json!({"error": "Schema mutation quota exceeded", "reason": "quota_exceeded", "bucket": bucket, "window": window, "limit": limit, "retry_after_secs": retry_after_secs}),
-            ),
-            Self::Internal(detail) => (
-                500,
-                json!({"error": "Schema mutation gate failed", "reason": "internal", "detail": detail}),
-            ),
-        }
-    }
-
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn reason_code(&self) -> &'static str {
         match self {
             Self::InvalidChallengeRequest(_) => "invalid_challenge_request",
             Self::NodeKeyRequired => "node_key_required",
@@ -85,6 +35,66 @@ impl SchemaMutationGateError {
             Self::QuotaExceeded { .. } => "quota_exceeded",
             Self::Internal(_) => "internal",
         }
+    }
+
+    /// Body with `error` and `reason` and no other fields.
+    fn error_reason_body(error: &'static str, reason: &str) -> Value {
+        json!({"error": error, "reason": reason})
+    }
+
+    pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.reason_code();
+        match self {
+            Self::InvalidChallengeRequest(detail) => (
+                400,
+                json!({"error": "Invalid schema mutation challenge request", "reason": reason, "detail": detail}),
+            ),
+            Self::NodeKeyRequired => (
+                401,
+                Self::error_reason_body("Node publish key required", reason),
+            ),
+            Self::NodeKeyInvalid => (
+                401,
+                Self::error_reason_body("Node publish key is invalid", reason),
+            ),
+            Self::NodeSignatureRequired => (
+                401,
+                Self::error_reason_body("Node publish signature required", reason),
+            ),
+            Self::NodeSignatureInvalid => (
+                401,
+                Self::error_reason_body("Node publish signature is invalid", reason),
+            ),
+            Self::ProofOfWorkRequired => (
+                401,
+                Self::error_reason_body("Proof-of-work challenge required", reason),
+            ),
+            Self::ProofOfWorkInvalid => (
+                401,
+                Self::error_reason_body("Proof-of-work is invalid", reason),
+            ),
+            Self::ProofOfWorkExpired => (
+                401,
+                Self::error_reason_body("Proof-of-work challenge expired", reason),
+            ),
+            Self::QuotaExceeded {
+                bucket,
+                window,
+                limit,
+                retry_after_secs,
+            } => (
+                429,
+                json!({"error": "Schema mutation quota exceeded", "reason": reason, "bucket": bucket, "window": window, "limit": limit, "retry_after_secs": retry_after_secs}),
+            ),
+            Self::Internal(detail) => (
+                500,
+                json!({"error": "Schema mutation gate failed", "reason": reason, "detail": detail}),
+            ),
+        }
+    }
+
+    pub(super) fn metric_status(&self) -> &'static str {
+        self.reason_code()
     }
 }
 
