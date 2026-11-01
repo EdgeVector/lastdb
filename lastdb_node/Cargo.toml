@@ -43,6 +43,7 @@ purging-allocator = ["dep:mimalloc", "dep:libmimalloc-sys"]
 lastdb_storage_policy = { path = "../lastdb_storage_policy" }
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 cloud_backup_client = { workspace = true }
+cloud_backup_plan = { workspace = true }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
 env_flag = { workspace = true }

@@ -1,9 +1,10 @@
 //! Small local evidence for the route checks on one exact accepted log link.
 use super::{local, plan, MutationLogRoot, RestoreError, RestoreSession, Result};
 use crate::byte_cloud_restore::inventory::Inventory;
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{inventory::InventoryRoot, AcceptedBackup};
 use cloud_backup_protocol::Digest;
-use fold_db::storage::disk_pack::{byte_backup::ClientNativeFile, mutation_log::LogPosition};
+use fold_db::storage::disk_pack::mutation_log::LogPosition;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

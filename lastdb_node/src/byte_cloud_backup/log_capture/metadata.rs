@@ -1,10 +1,9 @@
 use super::*;
 use crate::byte_cloud_log::{LogKind, MutationLogPage, MutationLogRoot, VERSION};
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Object;
 use cloud_backup_protocol::DecimalU64;
-use fold_db::storage::disk_pack::byte_backup::{
-    ClientNativeFile, ClientPageReference, MAX_PAGE_FILES,
-};
+use fold_db::storage::disk_pack::byte_backup::{ClientPageReference, MAX_PAGE_FILES};
 
 pub(super) fn finish(
     capture: &mut LogCapture,
