@@ -1,4 +1,21 @@
+use serde_json::{json, Value};
+
 use super::*;
+
+/// The add-schema result both HTTP routers answer.
+#[derive(Debug)]
+pub enum SchemaAddReply {
+    /// The add completed. Each router writes its own success body.
+    ///
+    /// The outcome is boxed so the failure variant stays small.
+    Ready(Box<SchemaAddOutcome>),
+    /// The add failed. HTTP 400.
+    ///
+    /// `detail` is the error text. The actix router still writes the error
+    /// log and the match telemetry. `body` is
+    /// `{ "error": "Failed to add schema: {detail}" }`.
+    Failed { detail: String, body: Value },
+}
 
 impl SchemaServiceState {
     /// [`Self::add_schema_inner`] with a defensive assertion that
@@ -50,6 +67,26 @@ impl SchemaServiceState {
             }
         }
         Ok(outcome)
+    }
+
+    /// The same call as [`Self::add_schema`], classified for HTTP.
+    ///
+    /// A failure stays HTTP 400. The body carries the prefix. Each router
+    /// still writes a success response. [`Self::add_schema`] stays public.
+    #[must_use]
+    pub async fn schema_add_reply(
+        &self,
+        schema: Schema,
+        mutation_mappers: HashMap<String, String>,
+    ) -> SchemaAddReply {
+        match self.add_schema(schema, mutation_mappers).await {
+            Ok(outcome) => SchemaAddReply::Ready(Box::new(outcome)),
+            Err(error) => {
+                let detail = error.to_string();
+                let body = json!({"error": format!("Failed to add schema: {detail}")});
+                SchemaAddReply::Failed { detail, body }
+            }
+        }
     }
 
     /// Validate and canonicalize a proposal in place, up to (not including)
