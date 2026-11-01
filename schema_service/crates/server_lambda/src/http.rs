@@ -4,9 +4,9 @@ use crate::cors;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::state::SchemaByNameReply;
 use schema_service_core::{
-    missing_dev_cert_body, SchemaMutationGateHeaders, HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY,
-    HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER,
-    HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
+    missing_dev_cert_body, reason_detail_body, SchemaMutationGateHeaders, HEADER_DEV_PUBKEY,
+    HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC,
+    HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
@@ -166,18 +166,22 @@ pub(crate) fn app_metadata_body(event: &Request) -> Result<Value, Result<Respons
     json_body(event, "invalid_metadata")
 }
 
-fn json_body(
+/// The parsed JSON value, or the 400 to return.
+///
+/// `reason` is the body `reason`. A release uses `invalid_manifest`. An app
+/// write uses `invalid_metadata`. A field declare uses `invalid_body`.
+pub(crate) fn json_body(
     event: &Request,
     reason: &'static str,
 ) -> Result<Value, Result<Response<Body>, Error>> {
     let raw = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Err(Ok(r)),
+        Ok(body) => body,
+        Err(response) => return Err(Ok(response)),
     };
-    serde_json::from_str(&raw).map_err(|e| {
+    serde_json::from_str(&raw).map_err(|error| {
         json_response(
             400,
-            &json!({"reason": reason, "detail": format!("invalid JSON: {e}")}),
+            &reason_detail_body(reason, &format!("invalid JSON: {error}")),
         )
     })
 }
