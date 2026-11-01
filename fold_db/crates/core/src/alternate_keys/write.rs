@@ -16,6 +16,9 @@ use crate::storage::KvMutation;
 /// One entry that a record leaves: the storage key and the record's primary key.
 type Leave<'a> = (String, &'a KeyValue);
 
+/// The entries that the records put (storage key to encoded entry) and leave.
+type EntryMoves<'a> = (BTreeMap<String, Vec<u8>>, Vec<Leave<'a>>);
+
 impl AtomStore {
     /// The entry changes between the old and the new field values at each
     /// primary key. A format 7 record write already holds both values, so it
@@ -61,7 +64,7 @@ impl AtomStore {
         before: &[RecordFields],
         after: &[RecordFields],
         scope: Option<&str>,
-    ) -> Result<(BTreeMap<String, Vec<u8>>, Vec<Leave<'a>>), SchemaError> {
+    ) -> Result<EntryMoves<'a>, SchemaError> {
         let mut puts = BTreeMap::new();
         let mut leaves = Vec::new();
         for ((primary, before), after) in keys.iter().zip(before).zip(after) {
