@@ -14,12 +14,4 @@ impl MoleculeKeyCodec {
             .require_text_prefix()
             .map_err(MoleculeKeyCodecError::InvalidRange)
     }
-
-    pub fn canonical_api_range(&self, api: &str) -> Result<String, MoleculeKeyCodecError> {
-        let profile = self.range_profile;
-        profile
-            .encode_value(api)
-            .and_then(|stored| profile.decode_value(&stored))
-            .map_err(MoleculeKeyCodecError::InvalidRange)
-    }
 }

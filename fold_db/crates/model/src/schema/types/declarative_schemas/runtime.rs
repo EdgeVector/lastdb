@@ -9,36 +9,12 @@ impl DeclarativeSchemaDefinition {
         names
     }
 
-    /// `&self` twin of [`Self::clone_for_read`], for the **concurrent** read path.
-    ///
-    /// `clone_for_read` takes `&mut self` purely as an optimization: it
-    /// `mem::take`s the hydrated `runtime_fields` aside so the derived `Clone`
-    /// never deep-copies a molecule, then restores them. That `&mut` borrow is
-    /// what forced the schema cache (`SchemaCore::schemas`) to be held under an
-    /// *exclusive* lock on every read, serializing concurrent readers into a
-    /// lock convoy (the bug this card disambiguated and fixed). This variant
-    /// returns the identical molecule-stripped clone WITHOUT mutating `self`, so
-    /// callers hold only a *shared* `RwLock::read()` guard and N readers clone
-    /// their schema in parallel.
-    ///
-    /// Why a plain `self.clone()` is already cheap here: schemas are stored in
-    /// the cache molecule-free — `load_schema_internal` calls
-    /// `clear_runtime_molecules()` before inserting (#950, "drop materialized
-    /// molecules from schema cache → keyed reads O(1)"), so the cached entry's
-    /// fields already carry `molecule: None`. The derived `Clone` therefore
-    /// copies no molecule bytes. We still rebuild `runtime_fields` through
-    /// `cloned_without_molecule()` as belt-and-suspenders so the contract is
-    /// identical to `clone_for_read` even if a caller ever hands this a
-    /// not-yet-cleared schema: the returned copy is guaranteed molecule-free.
-    /// The executor re-hydrates molecules from storage regardless, so a stripped
-    /// clone is exactly what it needs.
+    /// A copy of the schema for one read. It takes `&self`, so callers hold
+    /// only a shared `RwLock::read()` guard and readers clone in parallel. A
+    /// field holds no data, so the copy is small.
     #[must_use]
     pub fn clone_for_read_shared(&self) -> Self {
-        let mut cloned = self.clone();
-        for field in cloned.runtime_fields.values_mut() {
-            *field = field.cloned_without_molecule();
-        }
-        cloned
+        self.clone()
     }
 
     /// Populates runtime_fields from declarative schema definition
@@ -100,15 +76,6 @@ impl DeclarativeSchemaDefinition {
         }
         if !uuids.is_empty() {
             self.field_molecule_uuids = Some(uuids);
-        }
-    }
-
-    /// Drop every field's materialized in-memory molecule, keeping each field's
-    /// `molecule_uuid` so the molecule re-hydrates lazily from disk on the next
-    /// read/write.
-    pub fn clear_runtime_molecules(&mut self) {
-        for field in self.runtime_fields.values_mut() {
-            field.clear_molecule();
         }
     }
 }

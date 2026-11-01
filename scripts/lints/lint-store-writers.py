@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Writer boundary of the atom counter.
+"""Writer boundary of the blob counter and the record conflict and history rows.
 
-Only the planner (db_operations/atom_store/counter/ and, for blob counters and
-the blob dwell queue, db_operations/atom_store/blob_counter/) may write tip
-records (`mk:`), conflict and history records, atom bodies, atom counters, blob
-counters, blob queue entries and the molecule counters in the molecule header
-(`mh:`) inside a write scope. The `bindings` counter has one writer,
-`molecule_bindings.rs`. This lint finds every Rust function that writes through a store
+Only the row commit (db_operations/atom_store/counter/commit.rs), the blob
+planner (db_operations/atom_store/blob_counter/) and the record writers may
+write blob counters, blob queue entries, record conflict rows (`rcf:`, `rcm:`)
+and field history rows (`rh:` with its `ahq:`/`ahk:`/`ahb:` rows) inside a
+write scope. This lint finds every Rust function that writes through a store
 and either (a) names one of those key families or (b) holds a raw store handle,
-and it compares the set with scripts/lints/atom-counter-writers.allow.
+and it compares the set with scripts/lints/store-writers.allow.
+
+A format 7 home has no tip, atom body, atom counter or molecule header, so the
+lint names no family for them.
 
 The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 
-- a key family token (family T tip, C conflict or history, B body, N atom
-  counter, M molecule header and binding counters, R blob counter or blob queue
-  entry);
+- a key family token (family C record conflict or field history row, R blob
+  counter or blob queue entry);
 - a raw handle token: `.raw()`, `main_store`, `open_namespace(`, a generic row
   restore (`restore_batch_put(`), or a scan (`scan_prefix(`, `scan_range(`, ...)
   next to a delete, which is a range delete of rows of every family.
@@ -23,14 +24,14 @@ has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 Each writer needs an allow-list line `path|function|families|reason`. The
 families on the line must cover the families the function names. `*` as the
 function covers every function of the file and still checks the families, so a
-file that is listed with `-` (no family) fails when someone adds a tip put to it.
+file that is listed with `-` (no family) fails when someone adds a blob counter put to it.
 A line that no writer matches fails, so the list stays honest.
 
 This is a source check. It does not prove the live result. It finds a direct
 write in the source; it cannot see a key that a caller builds elsewhere and
 hands to a generic helper.
 
-Exit 0 on a clean tree, 1 otherwise. Usage: lint-atom-counter-writers.py [--root DIR]
+Exit 0 on a clean tree, 1 otherwise. Usage: lint-store-writers.py [--root DIR]
 """
 import argparse
 import os
@@ -38,7 +39,7 @@ import re
 import sys
 
 SOURCE_DIRS = ["fold_db/crates/core/src", "lastdb_node/src", "lastdb_host", "lastdb_uds"]
-ALLOW = "scripts/lints/atom-counter-writers.allow"
+ALLOW = "scripts/lints/store-writers.allow"
 
 WRITE = re.compile(
     r"\.(?:put_item|batch_put_items|batch_delete_keys|delete_item|batch_mutate|batch_put|"
@@ -50,19 +51,8 @@ RAW = re.compile(
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {
-    "T": re.compile(
-        r'"mk:|\bMK_PREFIX\b|\bhash_range_record_key\b|\bapi_hash_range_record_key|'
-        r"\bPerKeyRecord\b|\bmolecule_record_key|\bmolecule_generation_record_key\b"
-    ),
     "C": re.compile(
-        r'\bhistory_event_key\b|"conflict|"history|\bmcc:|\bhcu:|anchored\("conflict"|'
-        r'\bconflict_record_key|\bconflict_key\('
-    ),
-    "B": re.compile(r'\bbody_key\(|\bbody_storage_key\(|\batom_key_codec\b|"atom:'),
-    "N": re.compile(r"\bcounter_key\(|\bAtomCounter\b"),
-    "M": re.compile(
-        r'"mh:|\bMH_PREFIX\b|\bheader_key\(|\bMoleculeHeader\b|'
-        r'\bmolecule_bindings_key\b|\bMoleculeBindings\b|"mref:v1:n:'
+        r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq:|"ahk:|"ahb:'
     ),
     "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:v3'),
 }
@@ -226,7 +216,7 @@ def load_allow(root):
                 sys.exit(1)
             path, fn, fams, reason = (p.strip() for p in parts)
             allowed = set() if fams == "-" else set(fams.split())
-            bad = allowed - {"T", "C", "B", "N", "M", "R"}
+            bad = allowed - set(FAMILIES)
             if bad:
                 print(f"{ALLOW}:{number}: unknown family {sorted(bad)}", file=sys.stderr)
                 sys.exit(1)
@@ -250,7 +240,7 @@ def main():
             failed = True
             kinds = " ".join(sorted(key_fams)) or "raw handle"
             print(
-                f"lint-atom-counter-writers: {path}::{fn} writes through a store and names "
+                f"lint-store-writers: {path}::{fn} writes through a store and names "
                 f"[{kinds}] but is not in the allow list.\n"
                 "  Route the write through the row commit (counter::commit_rows), or add\n"
                 f"  `{path}|{fn}|<families>|<reason>` to {ALLOW}.",
@@ -265,22 +255,22 @@ def main():
         if missing:
             failed = True
             print(
-                f"lint-atom-counter-writers: {path}::{fn} names famil{'ies' if len(missing) > 1 else 'y'} "
+                f"lint-store-writers: {path}::{fn} names famil{'ies' if len(missing) > 1 else 'y'} "
                 f"{' '.join(sorted(missing))} but the allow list covers [{' '.join(sorted(covered)) or '-'}].\n"
-                "  A new tip, conflict, body, counter, molecule counter or blob counter write belongs in the planner.",
+                "  A new conflict, history or blob counter write belongs in the row commit or the blob planner.",
                 file=sys.stderr,
             )
     for e in entries:
         if e["line"] not in used:
             failed = True
             print(
-                f"lint-atom-counter-writers: {ALLOW}:{e['line']} names {e['path']}::{e['fn']}, "
+                f"lint-store-writers: {ALLOW}:{e['line']} names {e['path']}::{e['fn']}, "
                 "which is not a writer any more. Remove the line.",
                 file=sys.stderr,
             )
     if failed:
         return 1
-    print(f"lint-atom-counter-writers: OK ({len(found)} writer functions, {len(entries)} allow lines)")
+    print(f"lint-store-writers: OK ({len(found)} writer functions, {len(entries)} allow lines)")
     return 0
 
 

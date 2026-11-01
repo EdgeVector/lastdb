@@ -18,7 +18,7 @@ modules = [
 
 [[layer]]
 name = "model"
-doc = "Atoms, molecules, schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
+doc = "The key codecs and value limits (atom), schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
 modules = [
   "atom",
   "schema",
