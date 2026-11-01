@@ -12,7 +12,6 @@ use crate::http::{extract_api_key, json_response, serialization_error, unauthori
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::snapshot::SnapshotExportReply;
 use schema_service_server_shared::state::SchemaServiceState;
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -101,7 +100,7 @@ fn write_snapshot_reply(reply: SnapshotExportReply) -> Result<Response<Body>, Er
             let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SnapshotExportReply::Failed { message } => json_response(500, &json!({ "error": message })),
+        SnapshotExportReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 
