@@ -154,7 +154,6 @@ pub struct FieldKeyStorageCounter {
     pub active_blob_reference_bytes: u64,
     #[serde(default)]
     pub tip_index_bytes: u64,
-    #[serde(default)]
     #[serde(default, alias = "molecule_metadata_bytes")]
     pub field_key_metadata_bytes: u64,
     #[serde(default)]

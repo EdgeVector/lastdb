@@ -47,8 +47,8 @@ pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
 /// Native batches admit 16,384 ordered storage operations.
 pub const FEATURE_LARGE_BATCHES: u64 = 32;
 
-/// Every atom body is one record at `atom:{uuid}\0b` in the `atoms` collection.
-pub const FEATURE_ATOM_RECORDS: u64 = 128;
+/// The record key layout. The bit fences a home from a program that predates it.
+pub const FEATURE_RECORD_LAYOUT: u64 = 128;
 
 /// File name suffix of a complete run.
 pub const RUN_SUFFIX: &str = ".ldrun";
