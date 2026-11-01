@@ -1,10 +1,9 @@
 //! Every home is format 7 and stores records. It refuses a field molecule writer.
 //!
 //! The native create, update, delete and purge path and the peer import write
-//! records. The format 6 maintenance passes that remain (the tip planner
-//! behind retention release and the molecule drain) still stage field
-//! molecule tips, delete barriers or generations. Such a request fails before
-//! native acceptance instead of mixing the two layouts in one home.
+//! records. A request that stages a field molecule tip, a delete barrier or a
+//! generation fails before native acceptance instead of mixing the two layouts
+//! in one home.
 
 use super::*;
 

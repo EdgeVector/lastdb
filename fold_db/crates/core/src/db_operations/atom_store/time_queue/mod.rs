@@ -7,7 +7,7 @@
 //!   slice of time, and the range is the expiry and the id. A small directory
 //!   lists every bucket that holds, or held, an entry. See `keys.rs`.
 //! - **Writers.** A writer adds an entry and the directory row of its bucket in
-//!   one batch, through the planner (`TimeQueue::rows`). The directory row gets
+//!   one batch, through the row commit (`TimeQueue::rows`). The directory row gets
 //!   a new token with each entry. No writer writes a queue key on its own.
 //! - **Release.** An entry ends with a delete in the batch of the work that it
 //!   names. A deleted entry leaves a deleted key in its bucket.
@@ -36,7 +36,6 @@ mod retire;
 mod stats;
 mod survey;
 
-pub(crate) use keys::digest_of_id;
 pub(crate) use keys::TimeQueue;
 pub(crate) use net::NetSchedule;
 pub(crate) use reader::{DuePage, QueueReader};

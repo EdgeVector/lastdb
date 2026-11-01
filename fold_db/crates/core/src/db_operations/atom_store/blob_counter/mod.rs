@@ -2,11 +2,11 @@
 //!
 //! A blob is a row of the `cas_blobs` plane, keyed by its `blob_ref`. Each blob
 //! has one counter record in the main store. The counter holds the number of
-//! references to the blob: one for each atom counter that lists the blob in its
-//! `blobs`, and one for each live tip record whose metadata names the blob. The
-//! planner of the atom counter changes the blob counters in the same batch as
-//! the atom counters (`counter::build`), so a count and the references it counts
-//! change together.
+//! references to the blob: one for each record (`rk:`) that lists the blob in
+//! its `blob_refs`, and one for each field history entry (`rh:`) that names it.
+//! The record write and the history release change the blob counters in the
+//! batch of the rows they change (`records.rs`, `atom_history/records.rs`), so
+//! a count and the references it counts change together.
 //!
 //! An upload comes before the atom that names it. So a blob whose count is zero
 //! is not deleted at once. It has a dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
@@ -39,7 +39,6 @@
 mod clock;
 mod commit;
 mod deltas;
-pub(crate) use deltas::tip_blobs;
 mod dwell;
 mod dwell_chunk;
 mod net;
@@ -51,7 +50,7 @@ mod recount_report;
 mod report;
 mod stats;
 
-pub(crate) use deltas::{blobs_of_tip_row, BlobDeltas};
+pub(crate) use deltas::BlobDeltas;
 pub use dwell::{DwellCursor, DwellStep, DWELL_CHUNK};
 pub use net::NetStep;
 pub(crate) use queue::BlobQueue;
@@ -100,7 +99,7 @@ pub struct BlobCounter {
     pub version: u8,
     /// The blob reference. The key holds only its hash.
     pub blob: String,
-    /// References: atom counters that list the blob plus live tips that name it.
+    /// References: records and field history entries that name the blob.
     pub refs: u64,
     /// Unix milliseconds when the count reached zero, or when the blob was last
     /// uploaded at a count of zero. `None` while `refs > 0`.

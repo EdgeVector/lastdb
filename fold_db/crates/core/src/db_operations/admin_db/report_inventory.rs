@@ -160,9 +160,6 @@ pub struct DbInventory {
     pub per_schema_atoms_total_bytes: u64,
     /// Rough history row counts per schema (via field molecules).
     pub per_schema_history: Vec<SchemaHistoryStat>,
-    /// Atom counter totals and pairing faults from the same walk as `per_schema_atoms`.
-    #[serde(default)]
-    pub atom_counters: super::super::storage_breakdown::AtomCounterTotals,
     /// The range reads this inventory made. A read that used its key budget in a
     /// run of deleted keys went on above the last key it examined (`skips`). A
     /// read that hit another budget of one call was retried with fewer rows or a

@@ -14,7 +14,8 @@ pub struct VerifySummary {
     pub running: Option<VerifyProgress>,
 }
 
-/// The result of the last complete run.
+/// The result of the last complete run. `lastdb db verify-refs --last` prints
+/// the same lines as the run did, so it keeps the same numbers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerifyLast {
     pub run_id: String,
@@ -25,28 +26,15 @@ pub struct VerifyLast {
     pub elapsed_ms: u64,
     pub mismatches: Mismatches,
     pub mismatches_total: u64,
-    pub suspect_atoms: u64,
-    pub tally_complete: bool,
-    /// Tips the run read. Zero in a scope that holds data means a wrong scope.
     #[serde(default)]
-    pub tips_read: u64,
-    /// The rest of what the run read and counted. `lastdb db verify-refs --last`
-    /// prints the same lines as the run did, so it needs the same numbers.
+    pub queue_entries_read: u64,
     #[serde(default)]
-    pub records_read: u64,
+    pub blob_counters_read: u64,
     #[serde(default)]
-    pub counters_read: u64,
-    #[serde(default)]
-    pub bodies_read: u64,
+    pub blob_queue_read: u64,
     /// Pages read again because a read hit the read limit of one call.
     #[serde(default)]
     pub page_retries: u64,
-    /// Atoms the totals of the first two phases hold.
-    #[serde(default)]
-    pub tally_atoms: u64,
-    /// Atoms that writers changed while the run read.
-    #[serde(default)]
-    pub touched_atoms: u64,
 }
 
 /// A run in progress.
@@ -69,15 +57,10 @@ impl VerifyReport {
             elapsed_ms: self.elapsed_ms,
             mismatches: self.mismatches,
             mismatches_total: self.mismatches_total,
-            suspect_atoms: self.suspect_atoms,
-            tally_complete: self.tally_complete,
-            tips_read: self.tips_read,
-            records_read: self.records_read,
-            counters_read: self.counters_read,
-            bodies_read: self.bodies_read,
+            queue_entries_read: self.queue_entries_read,
+            blob_counters_read: self.blob_counters_read,
+            blob_queue_read: self.blob_queue_read,
             page_retries: self.page_retries,
-            tally_atoms: self.tally_atoms,
-            touched_atoms: self.touched_atoms,
         })
     }
 }

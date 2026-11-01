@@ -2,26 +2,19 @@
 //! at most one batch.
 //!
 //! The janitor keeps a [`RetentionCursor`] between steps: the reader of the
-//! queue (the buckets and their cursors) and the slot drains it has started.
+//! queue (the buckets and their cursors) and the schedule of the safety net.
 //! Two kinds of work share the janitor:
 //!
 //! - **Ordinary work** ([`AtomStore::release_step`]): release the due records of
 //!   the oldest bucket that has some, and retire a bucket that is done.
-//! - **Drains** ([`AtomStore::drain_step`]): release the records of an erased
-//!   slot, one batch at a time.
-//!
-//! The janitor alternates them, a few batches of one kind and then a few of the
-//! other, so a long drain cannot hold back the due records of the queue, and a
-//! long backlog cannot hold back a drain.
+//! - **The safety net** ([`AtomStore::net_step`]): register again a bucket that
+//!   holds live entries and has no directory row.
 
-use super::drain::{DrainOutcome, PendingDrain, MAX_PENDING_DRAINS};
-use super::entry::DrainMarker;
-use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
+use super::page::RELEASE_BATCH_RECORDS;
 use crate::db_operations::atom_store::time_queue::{NetSchedule, QueueReader, TimeQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::{measure, Cost};
-use std::collections::VecDeque;
 use std::time::Duration;
 
 /// The kind of work that one step did.
@@ -30,8 +23,6 @@ pub(crate) enum Lane {
     /// A batch of due records.
     #[default]
     Ordinary,
-    /// A batch of a slot drain.
-    Drain,
     /// The retirement of a queue bucket.
     Retire,
     /// A chunk of a sweep of the safety net.
@@ -44,8 +35,6 @@ pub(crate) struct StepOutcome {
     pub(crate) lane: Lane,
     pub(crate) released: u64,
     pub(crate) skipped: u64,
-    /// Drains that the batch finished.
-    pub(crate) finished: u64,
     /// The step deleted the directory row of a bucket.
     pub(crate) retired: bool,
     /// Buckets that a net chunk registered again.
@@ -70,14 +59,9 @@ impl StepOutcome {
     }
 }
 
-/// Pages of drain markers that one ordinary step reads before it returns. A page
-/// of markers needs no write gate, so it costs no batch and no rest.
-const MARKER_PAGES_PER_STEP: usize = 64;
 /// Slices that one net chunk probes. A chunk is one batch read and, for each
 /// slice without a row, one bounded range read.
 const NET_CHUNK_SLICES: usize = 16;
-/// A bucket whose marker found no room waits this long before the next read.
-const RETRY_NANOS: u64 = 1_000_000_000;
 
 /// What the janitor keeps between steps. A restart loses it, and the janitor
 /// then walks each live bucket once from its start.
@@ -85,7 +69,6 @@ const RETRY_NANOS: u64 = 1_000_000_000;
 pub(crate) struct RetentionCursor {
     queue: TimeQueue,
     reader: QueueReader,
-    pending: VecDeque<PendingDrain>,
     net: NetSchedule,
 }
 
@@ -94,7 +77,6 @@ impl RetentionCursor {
         Self {
             queue,
             reader: QueueReader::new(queue, RELEASE_BATCH_RECORDS),
-            pending: VecDeque::new(),
             net: NetSchedule::new(),
         }
     }
@@ -106,48 +88,14 @@ impl RetentionCursor {
     }
 
     /// Walk the live buckets again from their start, and read the directory
-    /// again from its start. The slot drains keep their cursors.
+    /// again from its start.
     pub(crate) fn restart(&mut self) {
         self.reader.restart();
-    }
-
-    /// Slot drains that are not finished.
-    pub(crate) fn pending_drains(&self) -> usize {
-        self.pending.len()
     }
 
     /// Buckets the reader knows.
     pub(crate) fn buckets(&self) -> usize {
         self.reader.len()
-    }
-
-    /// Keep the markers of a page as pending drains, in order. A marker that is
-    /// pending already is not added again. When the janitor holds
-    /// [`MAX_PENDING_DRAINS`] drains, the first marker that finds no room is
-    /// returned: the cursor of its bucket must stay at it.
-    fn register(&mut self, markers: Vec<DrainMarker>) -> Option<String> {
-        for marker in markers {
-            if self
-                .pending
-                .iter()
-                .any(|drain| drain.marker.queue == marker.queue)
-            {
-                continue;
-            }
-            if self.pending.len() >= MAX_PENDING_DRAINS {
-                return Some(marker.queue);
-            }
-            let bucket = self.queue.entry_bucket(&marker.queue);
-            self.pending.push_back(PendingDrain::new(marker, bucket));
-        }
-        None
-    }
-
-    /// A marker in `bucket` is not drained yet. The bucket stays until it is.
-    fn holds_marker(&self, bucket: u64) -> bool {
-        self.pending
-            .iter()
-            .any(|drain| drain.bucket == Some(bucket))
     }
 }
 
@@ -169,13 +117,7 @@ impl AtomStore {
     /// One batch of ordinary work: release one page of due records, or retire
     /// one bucket whose walk is complete. `None` means nothing is due.
     ///
-    /// A page that holds drain markers keeps them as pending drains. This needs
-    /// no write gate, so a page of markers costs no batch: the step goes on to the
-    /// next page, up to [`MARKER_PAGES_PER_STEP`] pages, and the batch is the
-    /// release of the first page that holds records.
-    ///
-    /// A bucket is retired only when its walk has read every key, and no slot
-    /// drain still holds a marker in it. The retirement is a guarded delete of
+    /// A bucket is retired only when its walk has read every key. The retirement is a guarded delete of
     /// the directory row (`retire_bucket`): it leaves the row if a writer added
     /// an entry after the reader read the row.
     pub(crate) async fn release_step(
@@ -193,13 +135,9 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
-        let mut marker_pages = 0usize;
         for bucket in cursor.reader.candidates(now_nanos) {
             loop {
                 if cursor.reader.exhausted(bucket) {
-                    if cursor.holds_marker(bucket) {
-                        break;
-                    }
                     let Some((key, token)) = cursor.reader.retire_token(bucket) else {
                         break;
                     };
@@ -224,35 +162,21 @@ impl AtomStore {
                     }
                     continue;
                 }
-                let (records, markers) = self.split_due_rows(&page);
-                let refused = cursor.register(markers);
-                let outcome = if records.is_empty() {
-                    ReleaseOutcome::default()
-                } else {
-                    self.release_due_records(&records, now_nanos).await?
-                };
-                let stays = refused.is_some();
-                match refused {
-                    None => cursor.reader.finish(page),
-                    Some(refused) => cursor.reader.finish_before(
-                        &page,
-                        &refused,
-                        now_nanos.saturating_add(RETRY_NANOS),
-                    ),
+                let records = self.due_record_keys(&page);
+                if records.is_empty() {
+                    cursor.reader.finish(page);
+                    continue;
                 }
-                if !records.is_empty() || marker_pages >= MARKER_PAGES_PER_STEP {
-                    return Ok(Some(StepOutcome {
-                        lane: Lane::Ordinary,
-                        released: outcome.released,
-                        skipped: outcome.skipped,
-                        ..StepOutcome::default()
-                    }));
-                }
-                marker_pages += 1;
-                if stays {
-                    // The bucket waits for room among the pending drains.
-                    break;
-                }
+                // A release that fails leaves the cursor at the page, so the
+                // next step reads it again.
+                let outcome = self.release_due_records(&records, now_nanos).await?;
+                cursor.reader.finish(page);
+                return Ok(Some(StepOutcome {
+                    lane: Lane::Ordinary,
+                    released: outcome.released,
+                    skipped: outcome.skipped,
+                    ..StepOutcome::default()
+                }));
             }
         }
         Ok(None)
@@ -307,33 +231,6 @@ impl AtomStore {
         Ok(Some(StepOutcome {
             lane: Lane::Net,
             repaired,
-            ..StepOutcome::default()
-        }))
-    }
-
-    /// One batch of slot drains. `None` means the janitor holds no drain. A
-    /// batch that fails sends the drain at fault to the back of the line
-    /// (`drain_batch`).
-    pub(crate) async fn drain_step(
-        &self,
-        cursor: &mut RetentionCursor,
-    ) -> Result<Option<StepOutcome>, SchemaError> {
-        if cursor.pending.is_empty() {
-            return Ok(None);
-        }
-        let (batch, cost) = measure(self.drain_batch(&mut cursor.pending)).await;
-        let DrainOutcome {
-            released,
-            skipped,
-            finished,
-        } = batch?;
-        Ok(Some(StepOutcome {
-            lane: Lane::Drain,
-            released,
-            skipped,
-            finished,
-            blocked: cost.blocked,
-            scopes: cost.scopes,
             ..StepOutcome::default()
         }))
     }

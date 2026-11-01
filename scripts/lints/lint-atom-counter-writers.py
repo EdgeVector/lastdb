@@ -252,7 +252,7 @@ def main():
             print(
                 f"lint-atom-counter-writers: {path}::{fn} writes through a store and names "
                 f"[{kinds}] but is not in the allow list.\n"
-                "  Route the write through the planner (counter::commit_tip_changes), or add\n"
+                "  Route the write through the row commit (counter::commit_rows), or add\n"
                 f"  `{path}|{fn}|<families>|<reason>` to {ALLOW}.",
                 file=sys.stderr,
             )

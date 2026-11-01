@@ -75,12 +75,6 @@ pub struct AtomHistoryPage {
     pub cursor: Option<String>,
 }
 
-impl ArchiveRecord {
-    pub(crate) fn expired(&self, now: u64) -> bool {
-        self.archive.expires_at.is_some_and(|at| at <= now)
-    }
-}
-
 /// True for the key of an archive row in the field history family.
 pub(crate) fn is_archive(key: &str) -> bool {
     lastdb_model::kind_partition::rest_of(key, "history")

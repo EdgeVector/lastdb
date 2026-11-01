@@ -17,7 +17,7 @@
 //! slices of a lifetime. For each slice the net reads the directory row by key.
 //! Only a slice with no row needs a second read: one bounded range read of its
 //! hash that stops at the first live key. A slice that holds a live key and has
-//! no row is registered again with a new directory row, in the planner.
+//! no row is registered again with a new directory row, in one row commit.
 //!
 //! The directory covers every slice length that was ever in use, because a row
 //! names the start of its bucket. The net covers the slicing of the current
@@ -25,7 +25,7 @@
 //! length do not line up with the new ones.
 
 use super::keys::TimeQueue;
-use crate::db_operations::atom_store::counter::TipChangeSet;
+use crate::db_operations::atom_store::counter::RowChanges;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use std::collections::VecDeque;
@@ -202,8 +202,8 @@ impl TimeQueue {
         Ok(None)
     }
 
-    /// Write the directory rows of `buckets`, with a new token, in one batch of
-    /// the planner. A bucket that a writer registered in the meantime gets the
+    /// Write the directory rows of `buckets`, with a new token, in one row
+    /// commit. A bucket that a writer registered in the meantime gets the
     /// token of this repair, which differs from every token of a writer, so a
     /// retirement that read the old token fails and starts the bucket again.
     pub(crate) async fn register_buckets(
@@ -219,9 +219,9 @@ impl TimeQueue {
         store
             .in_background_scope(async {
                 store
-                    .commit_tip_changes(TipChangeSet {
+                    .commit_rows(RowChanges {
                         rows,
-                        ..TipChangeSet::default()
+                        ..RowChanges::default()
                     })
                     .await
                     .map(|_| ())

@@ -1,9 +1,9 @@
-//! The retention janitor for kept conflict records.
+//! The retention janitor for kept conflict rows.
 //!
-//! The database keeps every conflicting write. A kept loser stays protected by
-//! its conflict record. The record ends with its retention window (30 days, set
-//! by `LASTDB_CONFLICT_RETENTION_SECS`) or with a purge of its key. This task
-//! ends the records that reach the end of their window.
+//! The database keeps every conflicting write of a record as a conflict row. A
+//! row ends with its retention window (30 days, set by
+//! `LASTDB_CONFLICT_RETENTION_SECS`) or with a purge of its record. This task
+//! ends the rows that reach the end of their window.
 //!
 //! The queue is time-bucketed (`db_operations::atom_store::time_queue`). One
 //! wake reads the directory of the buckets that have started (again at the start
@@ -19,21 +19,17 @@
 //! for the janitor a tenth of the time. The rest is at least 25 ms and at most
 //! 30 s. When no other task opened a write scope since the last batch
 //! ([`WriterWatch`]), the rest protects nobody and it is the minimum rest, so a node
-//! with no other writer drains a backlog at the speed of its flush. The janitor
-//! deletes no atom. The batch names the history rows to the planner,
-//! which lowers the references and deletes a body only when its count reaches
-//! zero.
+//! with no other writer drains a backlog at the speed of its flush. The batch
+//! names the conflict rows to a row commit, which deletes each row with its
+//! queue entry.
 //!
-//! The janitor keeps a cursor for each bucket and for each slot drain, in
-//! memory. A cursor moves over deleted keys and never goes back to the head of
+//! The janitor keeps a cursor for each bucket, in memory. A cursor moves over deleted keys and never goes back to the head of
 //! a hash, so a long history of released records costs nothing to pass. A
 //! bucket that is read to its end leaves the directory (`retire_bucket`).
 //!
-//! The wake does two kinds of work, and alternates them: up to
-//! [`DRAIN_BATCHES_PER_TURN`] batches of slot drains, then up to
-//! [`ORDINARY_BATCHES_PER_TURN`] batches of due records, and again. A long
-//! drain cannot hold back the due records, and a backlog cannot hold back a
-//! drain. Once every [`FULL_PASS_EVERY`] wakes the cursors of the live buckets
+//! The wake reads the directory again after each [`BATCHES_PER_TURN`] batches,
+//! so a bucket that starts during a long backlog gets its turn. Once every
+//! [`FULL_PASS_EVERY`] wakes the cursors of the live buckets
 //! start again from the start of their buckets, in case the node clock stepped
 //! back. A bucket that the directory dropped is not read again.
 //!
@@ -64,17 +60,14 @@ use super::background_task::BackgroundTask;
 use std::time::Duration;
 
 use super::conflict_janitor_pace::{backoff_after, rest, rest_after};
-use crate::db_operations::atom_store::{
-    AtomStore, Lane, RetentionCursor, StepOutcome, WriterWatch,
-};
+use crate::db_operations::atom_store::{AtomStore, RetentionCursor, StepOutcome, WriterWatch};
 use crate::db_operations::DbOperations;
 
 /// Batches of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
-/// Batches of slot drains in one turn, at most. Then due records get a turn.
-const DRAIN_BATCHES_PER_TURN: usize = 4;
-/// Batches of due records in one turn, at most. Then the drains get a turn.
-const ORDINARY_BATCHES_PER_TURN: usize = 4;
+/// Batches of due records in one turn, at most. Then the wake reads the
+/// directory again.
+const BATCHES_PER_TURN: usize = 4;
 /// The cursors of the live buckets start again, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
 
@@ -236,16 +229,12 @@ async fn run_net(
 /// Note one finished batch in the status and in the wake.
 fn note_batch(
     atoms: &AtomStore,
-    cursor: &RetentionCursor,
     wake: &mut Wake,
     outcome: &StepOutcome,
     took: Duration,
     rest: Duration,
 ) {
     atoms.retention_state().note_released(outcome.released);
-    atoms
-        .retention_state()
-        .set_pending_drains(cursor.pending_drains() as u64);
     wake.released += outcome.released;
     wake.skipped += outcome.skipped;
     tracing::debug!(
@@ -253,7 +242,6 @@ fn note_batch(
         lane = ?outcome.lane,
         released = outcome.released,
         skipped = outcome.skipped,
-        finished = outcome.finished,
         retired = outcome.retired,
         took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
         blocked_us = u64::try_from(outcome.blocked.as_micros()).unwrap_or(u64::MAX),
@@ -262,9 +250,8 @@ fn note_batch(
     );
 }
 
-/// One wake: alternate slot drains and due records, batch by batch, and read the
-/// directory of the queue at the start of each turn. A lane that fails ends for
-/// this wake. The other lane goes on.
+/// One wake: release due records batch by batch, and read the directory of the
+/// queue at the start of each turn. A failure ends the wake.
 async fn run_wake(
     db_ops: &DbOperations,
     stop: &AtomicBool,
@@ -274,74 +261,45 @@ async fn run_wake(
 ) -> Wake {
     let atoms = db_ops.atoms();
     let mut wake = Wake::default();
-    let mut ordinary_ok = true;
-    let mut drain_ok = true;
     // The safety net sweeps the slices once in a while (a few chunks, each paced
     // like a batch). A failed sweep does not hold back the release of records.
     if !run_net(atoms, stop, cursor, duty_pct, watch).await {
         return wake;
     }
     let mut batches = 0usize;
-    'wake: while batches < PAGES_PER_WAKE && (ordinary_ok || drain_ok) {
-        let mut progressed = false;
+    'wake: while batches < PAGES_PER_WAKE {
         // Read the directory at the start of each turn, not only of the wake: a
-        // bucket that starts while a long drain runs must get its turn too.
-        if ordinary_ok {
-            let now = atoms.retention_state().clock_nanos();
-            if let Err(failure) = atoms.refresh_queue(cursor, now).await {
-                wake.fail(&failure);
-                ordinary_ok = false;
-            }
+        // bucket that starts while a long backlog runs must get its turn too.
+        let now = atoms.retention_state().clock_nanos();
+        if let Err(failure) = atoms.refresh_queue(cursor, now).await {
+            wake.fail(&failure);
+            break;
         }
-        for lane in [Lane::Drain, Lane::Ordinary] {
-            let (turn, lane_ok) = match lane {
-                Lane::Drain => (DRAIN_BATCHES_PER_TURN, &mut drain_ok),
-                _ => (ORDINARY_BATCHES_PER_TURN, &mut ordinary_ok),
-            };
-            for _ in 0..turn {
-                if stop.load(Ordering::Relaxed) {
+        let mut progressed = false;
+        for _ in 0..BATCHES_PER_TURN {
+            if stop.load(Ordering::Relaxed) {
+                break 'wake;
+            }
+            let started = std::time::Instant::now();
+            let now = atoms.retention_state().clock_nanos();
+            let outcome = match atoms.release_step(cursor, now).await {
+                Ok(Some(outcome)) => outcome,
+                Ok(None) => break,
+                Err(failure) => {
+                    wake.fail(&failure);
                     break 'wake;
                 }
-                if !*lane_ok {
-                    break;
-                }
-                let started = std::time::Instant::now();
-                let step = if lane == Lane::Drain {
-                    atoms.drain_step(cursor).await
-                } else {
-                    let now = atoms.retention_state().clock_nanos();
-                    atoms.release_step(cursor, now).await
-                };
-                let outcome = match step {
-                    Ok(Some(outcome)) => outcome,
-                    Ok(None) => break,
-                    Err(failure) => {
-                        wake.fail(&failure);
-                        *lane_ok = false;
-                        break;
-                    }
-                };
-                progressed = true;
-                batches += 1;
-                let rest_for = rest_after(watch, &outcome, duty_pct);
-                note_batch(
-                    atoms,
-                    cursor,
-                    &mut wake,
-                    &outcome,
-                    started.elapsed(),
-                    rest_for,
-                );
-                rest(rest_for, watch).await;
-            }
+            };
+            progressed = true;
+            batches += 1;
+            let rest_for = rest_after(watch, &outcome, duty_pct);
+            note_batch(atoms, &mut wake, &outcome, started.elapsed(), rest_for);
+            rest(rest_for, watch).await;
         }
         if !progressed {
             break;
         }
     }
-    atoms
-        .retention_state()
-        .set_pending_drains(cursor.pending_drains() as u64);
     if let Some(failure) = &wake.error {
         tracing::warn!(
             target: "fold_node::database",
@@ -354,7 +312,6 @@ async fn run_wake(
             released = wake.released,
             skipped = wake.skipped,
             buckets = cursor.buckets(),
-            pending_drains = cursor.pending_drains(),
             "conflict janitor released kept conflict records"
         );
     }

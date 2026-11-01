@@ -24,7 +24,6 @@ impl AtomStore {
             keep_small_dirty: Arc::default(),
             keep_small_clean_stop_written: Arc::default(),
             keep_small_persist_lock: Arc::default(),
-            counter_events: Arc::default(),
             blob_events: Arc::default(),
             retention: Arc::default(),
             history_activation: Arc::default(),

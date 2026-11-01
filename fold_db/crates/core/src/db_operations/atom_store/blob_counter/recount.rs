@@ -1,8 +1,8 @@
 //! The blob step of the offline recount.
 //!
-//! `lastdb db recount` counts the references of each blob from the atom counters
-//! and the tips of the scopes it recounted (`counter/recount/blobs.rs` does the
-//! counting), and this module compares the count with the blob counters and
+//! `lastdb db recount` counts the references of each blob from the records and
+//! the field history of the scopes it recounted (`counter/recount/blobs.rs` does
+//! the counting), and this module compares the count with the blob counters and
 //! writes the difference. It runs on a **stopped home**, like the rest of the
 //! recount, so it takes no write gate. Each batch is atomic, and a run that
 //! stopped is safe to run again.
@@ -18,7 +18,7 @@
 //! After the counters, the queue is checked: an entry that no counter at zero
 //! backs is deleted; a counter in its dwell with no entry gets its entry back; a
 //! bucket whose entries stay and that has no directory row gets the row back. The
-//! two repairs that write rows go through the planner (`recount_queue.rs`).
+//! two repairs that write rows go through the row commit (`recount_queue.rs`).
 
 use super::{BlobCounter, BlobQueue, BlobRead};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
@@ -54,8 +54,8 @@ enum FixKind {
     StartDwell,
 }
 
-/// Decide for one blob. `holders` is the number of atom counters and tips that
-/// name it in the listed scopes. `None` means the counter is right.
+/// Decide for one blob. `holders` is the number of records and field history
+/// entries that name it in the listed scopes. `None` means the counter is right.
 fn decide(
     blob: &str,
     before: Option<&BlobCounter>,
@@ -169,7 +169,7 @@ impl AtomStore {
     }
 
     /// Compare the blob counters with `holders` (blob reference to the number of
-    /// atom counters and tips that name it) and write the difference. Offline
+    /// records and field history entries that name it) and write the difference. Offline
     /// only. See the module documentation.
     pub(crate) async fn recount_blob_counters(
         &self,
@@ -186,7 +186,7 @@ impl AtomStore {
         let mut pending = Vec::new();
         let mut referenced: Vec<String> = Vec::new();
         // Counters in their dwell whose queue entry is missing: written again at
-        // the end, through the planner (`recount_queue.rs`).
+        // the end, through the row commit (`recount_queue.rs`).
         let mut restore: Vec<(String, u64)> = Vec::new();
         let (start, end) = super::counter_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
@@ -243,7 +243,7 @@ impl AtomStore {
         self.note_missing_rows(&mut referenced, report).await?;
         if report.rows_missing > 0 {
             report.notes.push(format!(
-                "{} referenced blob(s) have no blob row: the atoms name a blob that is not in the store; the recount cannot restore the bytes",
+                "{} referenced blob(s) have no blob row: the records name a blob that is not in the store; the recount cannot restore the bytes",
                 report.rows_missing
             ));
         }

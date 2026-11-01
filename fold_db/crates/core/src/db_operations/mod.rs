@@ -33,9 +33,9 @@ pub use admin_db::{
     SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub use atom_store::{
-    AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
-    BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
-    NetStep, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    AtomCounterReport, AtomStore, BlobCounterReport, BlobCounterView, BlobRecountReport,
+    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData, NetStep,
+    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
     WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
 };
 pub use attribution_ledger::{
@@ -80,4 +80,4 @@ pub use search_index::{
     SearchRebuildReport,
 };
 // SchemaStorage is embedded in DbInventory; StorageBreakdown stays module-private.
-pub use storage_breakdown::{AtomCounterTotals, SchemaStorage};
+pub use storage_breakdown::SchemaStorage;

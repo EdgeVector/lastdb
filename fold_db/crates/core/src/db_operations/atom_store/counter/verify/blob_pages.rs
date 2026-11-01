@@ -2,11 +2,9 @@
 //! the blobs that hold references. Every read of a page runs in one read scope,
 //! so all of them see one committed root.
 
-use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
+use super::blobs::{BlobEntry, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
 use super::pages::Request;
-use crate::db_operations::atom_store::blob_counter::{
-    blob_counter_key, blob_counter_key_of_id, BlobRead,
-};
+use crate::db_operations::atom_store::blob_counter::{blob_counter_key_of_id, BlobRead};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeMap;
@@ -32,28 +30,6 @@ impl AtomStore {
             .get_many(keys)
             .await
             .map_err(SchemaError::from)
-    }
-
-    /// Read the counters of the blobs that the holders of a page name. Call it
-    /// inside the read scope of the page.
-    pub(super) async fn read_blob_listed(
-        &self,
-        lists: BTreeMap<String, u32>,
-    ) -> Result<Vec<BlobListed>, SchemaError> {
-        let keys = lists
-            .keys()
-            .map(|blob| blob_counter_key(blob).into_bytes())
-            .collect();
-        let counters = self.read_blob_counter_bytes(keys).await?;
-        Ok(lists
-            .into_iter()
-            .zip(counters)
-            .map(|((blob, listed), bytes)| BlobListed {
-                blob,
-                listed,
-                counter: BlobRead::parse(bytes.as_deref()),
-            })
-            .collect())
     }
 
     /// One page of blob counters, and whether the queue holds the entry of each.

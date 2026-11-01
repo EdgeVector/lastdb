@@ -1,132 +1,123 @@
-//! [`AtomStore::commit_tip_changes`] is the only function that writes `mk:` tip
-//! records, conflict record keys, atom bodies, and counters. It runs inside the
-//! native write request scope, so every read sees the committed root, the
-//! accepted batches, and this request's pending batch, and the one
-//! `batch_mutate` at the end joins the pending batch of the request.
+//! The row commit: one native batch of rows, deletes, guarded deletes, and the
+//! release of the conflict rows of a format 7 home.
+//!
+//! The retention janitor, the queue repairs, the blob queue repair and the
+//! field history expiry write through [`AtomStore::commit_rows`]. It runs inside
+//! the native write request scope, so every read sees the committed root, the
+//! accepted batches and the pending batch of the request, and the one
+//! `batch_mutate` at the end joins that pending batch.
+//!
+//! A release names a conflict row (`rcf:`). The row holds no atom or file blob
+//! reference, so a release only deletes: the row, its queue rows, and the marker
+//! of the record when no live entry of it is left (`record_conflicts/release.rs`).
 
-use super::build::build_mutations;
-use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
-use super::read::Offer;
-use super::records::{dedupe_records, with_new_record_rows};
-use super::report::CounterEvent;
-use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
+use crate::db_operations::atom_store::record_conflicts::is_record_conflict_row_key;
+use crate::db_operations::atom_store::record_conflicts::RecordReleases;
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use crate::write_preparation::measure;
-use std::collections::{BTreeMap, HashMap};
+use crate::storage::KvMutation;
+use serde_json::Value;
+use std::collections::BTreeSet;
 
-pub(crate) use super::commit_types::*;
+/// One kept conflict row to release.
+pub(crate) struct ReleaseRequest {
+    /// The full storage key of the conflict row.
+    pub history: String,
+    /// The other rows of the record (the queue entry). They go with the row, or
+    /// when it is already gone.
+    pub deletes: Vec<Vec<u8>>,
+}
+
+/// A delete that runs only while the key still holds the value the caller read.
+/// The commit reads the key in the write gate. A key that holds other bytes, or
+/// none, is left alone.
+pub(crate) struct GuardedDelete {
+    pub key: Vec<u8>,
+    pub expected: Vec<u8>,
+}
+
+/// Everything one row commit writes.
+#[derive(Default)]
+pub(crate) struct RowChanges {
+    /// Conflict rows this batch releases at the end of their window.
+    pub releases: Vec<ReleaseRequest>,
+    /// Rows the batch puts: queue rows, bucket rows, the retention window.
+    pub rows: Vec<(String, Value)>,
+    /// Keys the batch deletes.
+    pub deletes: Vec<Vec<u8>>,
+    /// Keys that the batch deletes only if they still hold the bytes read
+    /// before (the retirement of a queue bucket).
+    pub guarded_deletes: Vec<GuardedDelete>,
+}
+
+/// What one row commit did.
+#[derive(Debug, Default)]
+pub(crate) struct RowCommit {
+    /// Conflict rows released, and releases whose row was already gone.
+    pub records_released: u64,
+    /// Guarded deletes that found the expected bytes and deleted the key.
+    pub guarded_deleted: u64,
+}
 
 impl AtomStore {
-    /// Plan and write one change of tip records and conflict records.
+    /// Write one batch of rows and deletes.
     ///
     /// The caller holds the native write gate through a request scope. A call
     /// outside a scope on a native store is a defect and fails here, because the
-    /// atomic batch is the whole safety argument.
-    pub(crate) async fn commit_tip_changes(
-        &self,
-        set: TipChangeSet<'_>,
-    ) -> Result<TipCommit, SchemaError> {
+    /// reads of the releases and the guarded deletes must see the batch they
+    /// join.
+    pub(crate) async fn commit_rows(&self, changes: RowChanges) -> Result<RowCommit, SchemaError> {
         self.require_write_scope()?;
-        let TipChangeSet {
-            scope,
-            tips,
-            bodies,
-            body_source,
-            records,
+        let RowChanges {
             releases,
             rows,
-            deletes,
+            mut deletes,
             guarded_deletes,
-        } = set;
-        let tips = collapse_tips(tips);
-        let old = measure("old_tips_us", self.read_old_tips(&tips)).await?;
-        let records = dedupe_records(records);
-        let mut rows = rows;
-        let new_records = self.read_new_records(&records).await?;
-        let released = self.read_released_records(releases).await?;
-        let file_deltas = released.file_deltas(&records, &new_records);
-        let (key_rows, key_deletes) = self
-            .history_key_rows(&records, &new_records, &released.history_slots)
-            .await?;
-        rows.extend(key_rows);
-        self.note_touched_atoms(&tips, &old, (&records, &new_records));
-        self.note_released_atoms(&released);
-        let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
-        released.lower(&mut deltas);
-        let rows = with_new_record_rows(rows, &records, &new_records);
-        let records_released = released.count();
-        let mut deletes = deletes;
-        deletes.extend(key_deletes);
-        deletes.extend(released.into_deletes());
+        } = changes;
+        let released = self.release_conflict_rows(releases).await?;
+        deletes.extend(released.deletes);
         let guarded = self.guarded_delete_keys(guarded_deletes).await?;
-        let guarded_deleted = guarded.len() as u64;
-        deletes.extend(guarded);
-        let before = measure("atom_counters_us", self.read_counters(&deltas, scope)).await?;
-        let sources = BodySources {
-            bodies,
-            source: body_source,
+        let commit = RowCommit {
+            records_released: released.released + released.gone,
+            guarded_deleted: guarded.len() as u64,
         };
-        let offers = measure(
-            "body_offers_us",
-            self.offer_bodies(&deltas, &before, &sources),
-        )
-        .await?;
-        let plans = plan_all(&deltas, &before, &offers)?;
-        let (mutations, mut commit) = measure(
-            "build_rows_us",
-            build_mutations(
-                self,
-                scope,
-                &tips,
-                &old,
-                (rows, deletes, file_deltas),
-                plans,
-                offers,
-            ),
-        )
-        .await?;
-        commit.old_tips = old.len() as u64;
-        commit.records_released = records_released;
-        commit.guarded_deleted = guarded_deleted;
+        deletes.extend(guarded);
+        let mut mutations = Vec::with_capacity(rows.len() + deletes.len());
+        for (key, value) in rows {
+            let bytes = serde_json::to_vec(&value)
+                .map_err(|error| SchemaError::InvalidData(format!("serialize row: {error}")))?;
+            mutations.push(KvMutation::put(key.into_bytes(), bytes));
+        }
+        mutations.extend(deletes.into_iter().map(KvMutation::delete));
         if !mutations.is_empty() {
             self.main_store
                 .inner()
                 .batch_mutate(mutations)
                 .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("commit tip changes: {error}"))
-                })?;
+                .map_err(|error| SchemaError::InvalidData(format!("commit rows: {error}")))?;
         }
         Ok(commit)
     }
 
-    /// Tell the verifier which atoms this batch changes, while a run reads.
-    /// Every atom of an old or a new tip or of a new record counts, also when
-    /// the net change of its count is zero: a tip that moves from one atom to
-    /// another changes what a page of tips shows. One atomic load when no run
-    /// reads.
-    fn note_touched_atoms(
+    /// Release each conflict row once. A release that names another row is a
+    /// defect of its caller: it is logged and released nothing.
+    async fn release_conflict_rows(
         &self,
-        tips: &BTreeMap<String, Option<PerKeyRecord>>,
-        old: &HashMap<String, PerKeyRecord>,
-        (records, new_records): (&[RecordRefs], &[bool]),
-    ) {
-        let watch = self.counter_verify().watch();
-        if !watch.is_active() {
-            return;
-        }
-        let new_tips = tips.values().flatten();
-        let atoms = new_tips
-            .chain(old.values())
-            .map(|tip| tip.entry.atom_uuid.as_str())
-            .chain(
-                records
-                    .iter()
-                    .zip(new_records)
-                    .filter(|(_, is_new)| **is_new)
-                    .flat_map(|(record, _)| record.atoms.iter().map(String::as_str)),
-            );
-        watch.note(atoms);
+        releases: Vec<ReleaseRequest>,
+    ) -> Result<RecordReleases, SchemaError> {
+        let mut seen = BTreeSet::new();
+        let releases: Vec<ReleaseRequest> = releases
+            .into_iter()
+            .filter(|release| seen.insert(release.history.clone()))
+            .filter(|release| {
+                let row = is_record_conflict_row_key(&release.history);
+                if !row {
+                    tracing::error!(history = %release.history, "release names a row that is not a conflict row; nothing released");
+                }
+                row
+            })
+            .collect();
+        self.release_record_conflicts(&releases).await
     }
 
     /// A native writer needs a request scope.
@@ -144,78 +135,7 @@ impl AtomStore {
             return Ok(());
         }
         Err(SchemaError::InvalidData(
-            "atom counter changes require a complete native write scope".into(),
+            "row commits require a complete native write scope".into(),
         ))
-    }
-}
-
-/// Keep the last change of each tip key, in key order.
-fn collapse_tips(tips: Vec<TipChange>) -> BTreeMap<String, Option<PerKeyRecord>> {
-    let mut out = BTreeMap::new();
-    for tip in tips {
-        out.insert(tip.key, tip.new);
-    }
-    out
-}
-
-/// The net change of references for each atom. Zero entries stay out.
-fn ref_deltas(
-    tips: &BTreeMap<String, Option<PerKeyRecord>>,
-    old: &HashMap<String, PerKeyRecord>,
-    records: &[RecordRefs],
-    new_records: &[bool],
-) -> BTreeMap<String, i64> {
-    let mut deltas: BTreeMap<String, i64> = BTreeMap::new();
-    for (key, new) in tips {
-        if let Some(old) = old.get(key) {
-            *deltas.entry(old.entry.atom_uuid.clone()).or_default() -= 1;
-        }
-        if let Some(new) = new {
-            *deltas.entry(new.entry.atom_uuid.clone()).or_default() += 1;
-        }
-    }
-    for (record, is_new) in records.iter().zip(new_records) {
-        if !is_new {
-            continue;
-        }
-        for atom in &record.atoms {
-            *deltas.entry(atom.clone()).or_default() += 1;
-        }
-    }
-    deltas.retain(|_, delta| *delta != 0);
-    deltas
-}
-
-fn plan_all(
-    deltas: &BTreeMap<String, i64>,
-    before: &HashMap<String, AtomBefore>,
-    offers: &HashMap<String, Offer>,
-) -> Result<Vec<(String, AtomPlan)>, SchemaError> {
-    let mut plans = Vec::with_capacity(deltas.len());
-    for (atom, delta) in deltas {
-        let state = before.get(atom).expect("every delta atom has a state");
-        let offer = offers.get(atom).map(|offer| BodyOffer {
-            blobs: offer.blobs.as_slice(),
-            size: offer.size,
-            source_schema: offer.atom.source_schema_name(),
-        });
-        let plan = plan_atom(state, *delta, offer.as_ref()).map_err(|error| match error {
-            PlanError::NoBody => SchemaError::InvalidData(format!(
-                "a tip names atom {atom}, which has no counter and no body to store"
-            )),
-            PlanError::Overflow => {
-                SchemaError::InvalidData(format!("atom {atom} reference count overflows"))
-            }
-        })?;
-        plans.push((atom.clone(), plan));
-    }
-    Ok(plans)
-}
-
-impl TipCommit {
-    pub(super) fn note_fault(&mut self, event: &CounterEvent) {
-        if !matches!(event, CounterEvent::Created | CounterEvent::Deleted) {
-            self.counter_events += 1;
-        }
     }
 }

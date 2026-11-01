@@ -1,11 +1,11 @@
-//! `POST` and `GET /api/db/verify-refs`: the atom counter verifier.
+//! `POST` and `GET /api/db/verify-refs`: the reference verifier.
 
 use super::*;
 
-/// `POST /api/db/verify-refs` — one bounded step of the counter verifier.
+/// `POST /api/db/verify-refs` — one bounded step of the reference verifier.
 ///
-/// Reads tip records, conflict records, and the body and counter records of
-/// atoms, in pages, and reports the faults it finds. It writes nothing and
+/// Reads the conflict retention queue, the blob counters and the blob dwell
+/// queue, in pages, and reports the faults it finds. It writes nothing and
 /// takes no write gate. A step ends after `max_pages` pages or `max_ms`
 /// milliseconds; the answer holds `next_cursor` while the run is not complete.
 pub(in crate::exec) async fn execute_db_verify_refs_route(

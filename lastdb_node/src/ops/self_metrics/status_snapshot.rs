@@ -157,8 +157,8 @@ pub struct StatusSnapshot {
     /// Configured node-local TTL policies plus process-lifetime sweep state.
     #[serde(default)]
     pub local_retention: LocalRetentionHealth,
-    /// The atom counter planner: bodies created and deleted, counter faults.
-    /// `None` means the daemon predates this field.
+    /// The reference verifier: the last run of `lastdb db verify-refs` and a
+    /// run in progress. `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
     /// The blob counters: totals, the dwell queue at the last pass, counter

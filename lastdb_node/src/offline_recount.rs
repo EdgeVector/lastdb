@@ -1,9 +1,12 @@
-//! `lastdb db recount`: rebuild every atom counter of a STOPPED home.
+//! `lastdb db recount`: repair the blob counters and the retention queue of a
+//! STOPPED home.
 //!
-//! The recount reads the tip records and the conflict records, counts the
-//! references of each atom, and writes the exact count into the counter record.
-//! See `fold_db::db_operations::AtomStore::recount_counters`. It is the one
-//! scan the counter design keeps. No gate and no write path uses it.
+//! The recount reads the records and the field history, counts the file blob
+//! references of each blob, and repairs the blob counters and the blob queue.
+//! It gives a bucket of the retention queue that holds entries its directory
+//! row back, and it can raise the replay cutoff. See
+//! `fold_db::db_operations::AtomStore::recount_counters`. No gate and no write
+//! path uses it.
 //!
 //! The home is protected before anything is opened: no daemon is alive for it,
 //! neither socket accepts a connection, the last session ended cleanly with a
@@ -33,7 +36,6 @@ pub struct RecountArgs<'a> {
     /// Set the blob counters to the exact count. Needs `all_scopes`.
     pub blobs_exact: bool,
     pub delete_cutoff_unix_secs: Option<u64>,
-    pub shards: u32,
     pub i_know_this_is_primary: bool,
     pub json: bool,
 }
@@ -84,7 +86,6 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
     let options = RecountOptions {
         execute: args.execute,
         scopes,
-        shards: args.shards.max(1),
         blobs_exact: args.blobs_exact && args.all_scopes,
         delete_cutoff_nanos: args
             .delete_cutoff_unix_secs
@@ -196,31 +197,9 @@ fn print_report(
         .collect();
     println!("  scopes: {}", scopes.join(", "));
     println!(
-        "  read: {} tips, {} conflict records, {} counters, {} bodies; {} atoms are referenced",
-        report.tips_read,
-        report.records_read,
-        report.counters_read,
-        report.bodies_read,
-        report.referenced_atoms
-    );
-    println!(
-        "  counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} rewritten",
-        report.unchanged, report.created, report.raised, report.lowered, report.suspect_cleared, report.rewritten
-    );
-    println!(
-        "  deleted: {} counters without a body, {} bodies without a holder",
-        report.counters_deleted, report.bodies_deleted
-    );
-    println!(
-        "  lost bodies (named by tips or records, no body): {}",
-        report.lost_bodies
-    );
-    println!(
-        "  retention queue: {} entries read; {} records without a queue entry, {} entries in a bucket without a directory row; repaired: {} records, {} buckets",
+        "  retention queue: {} entries read; {} entries in a bucket without a directory row; {} buckets repaired",
         report.queue_entries_read,
-        report.records_without_queue_entry,
         report.queue_entries_without_directory,
-        report.retention_records_repaired,
         report.retention_buckets_repaired
     );
     println!(
@@ -234,12 +213,6 @@ fn print_report(
         report.range_reads.splits
     );
     print_blob_step(report);
-    for change in &report.changes {
-        println!(
-            "  {} {} {:?} -> {:?}",
-            change.action, change.atom, change.before, change.after
-        );
-    }
     for note in &report.notes {
         println!("  note: {note}");
     }
@@ -254,16 +227,15 @@ fn print_report(
 
 /// The blob step of the report.
 fn print_blob_step(report: &RecountReport) {
-    print_delete_prune(report);
+    print_replay_cutoff(report);
     let blobs = &report.blobs;
     if !blobs.ran {
         return;
     }
     println!(
-        "  blobs ({}): {} atom counters and {} tips name {} blobs; {} counters read",
+        "  blobs ({}): {} records and field history entries name {} blobs; {} counters read",
         if blobs.exact { "exact" } else { "raise only" },
-        blobs.atom_counters_read,
-        blobs.tips_read,
+        blobs.records_read,
         blobs.referenced_blobs,
         blobs.counters_read
     );
@@ -293,15 +265,13 @@ fn print_blob_step(report: &RecountReport) {
     }
 }
 
-fn print_delete_prune(report: &RecountReport) {
-    if let Some(prune) = &report.delete_prune {
+fn print_replay_cutoff(report: &RecountReport) {
+    if let Some(raised) = &report.replay_cutoff {
         println!(
-            "  delete barriers: {} examined, {} pruned; global replay cutoff {} -> {} ns ({})",
-            prune.examined,
-            prune.pruned,
-            prune.cutoff_before_nanos,
-            prune.cutoff_after_nanos,
-            if prune.executed {
+            "  global replay cutoff {} -> {} ns ({})",
+            raised.cutoff_before_nanos,
+            raised.cutoff_after_nanos,
+            if raised.executed {
                 "executed"
             } else {
                 "report only"

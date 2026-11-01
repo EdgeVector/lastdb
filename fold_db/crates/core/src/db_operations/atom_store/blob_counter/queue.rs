@@ -89,8 +89,8 @@ impl BlobQueue {
     }
 
     /// The two rows that the batch of a new entry writes: the entry, and the
-    /// directory row of its bucket with a new token. The planner takes them as
-    /// rows of its batch (`TipChangeSet::rows`).
+    /// directory row of its bucket with a new token. A row commit takes them as
+    /// rows of its batch (`RowChanges::rows`).
     pub(crate) fn put_rows(
         &self,
         zero_since_ms: u64,
@@ -137,9 +137,8 @@ impl BlobQueue {
     }
 
     /// One batch writes the directory row of a bucket once. Several blobs of one
-    /// planner run can reach zero in one slice of time, and each of them brings
-    /// the row with its own token. The last row of a key stays, as in the planner
-    /// (`counter/records.rs`).
+    /// batch can reach zero in one slice of time, and each of them brings the row
+    /// with its own token. The last row of a key stays.
     pub(crate) fn keep_last_directory_rows(mutations: Vec<KvMutation>) -> Vec<KvMutation> {
         let prefix = format!("{DIRECTORY}\0").into_bytes();
         let is_row = |mutation: &KvMutation| matches!(mutation, KvMutation::Put { key, .. } if key.starts_with(&prefix));

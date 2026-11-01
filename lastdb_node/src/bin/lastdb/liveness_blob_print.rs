@@ -1,8 +1,8 @@
 //! Human output of `lastdb liveness explain blob`.
 
 /// One block for each blob: the counter, the state and the dwell. A blob has no
-/// list of referrers; the counter holds the number of atom counters that list
-/// the blob plus the live tip records that name it.
+/// list of referrers; the counter holds the number of records and field history
+/// entries that name the blob.
 pub(super) fn print_blob_liveness(blobs: &[serde_json::Value], dwell_secs: u64) {
     for blob in blobs {
         let id = blob
@@ -24,7 +24,7 @@ pub(super) fn print_blob_liveness(blobs: &[serde_json::Value], dwell_secs: u64) 
         };
         println!("Liveness: blob {id}");
         println!("  State: {state}");
-        println!("  Counter (atom counters and tip records that name the blob): {refs}");
+        println!("  Counter (records and history entries that name the blob): {refs}");
         match blob
             .get("zero_since_unix_ms")
             .and_then(serde_json::Value::as_u64)

@@ -134,19 +134,6 @@ impl TimeQueue {
         ]
     }
 
-    /// The two rows of an entry whose key is known (a repair that puts an entry
-    /// back at its own key): the entry, and the directory row of the bucket that
-    /// its key names, with a token that names the entry. `None` when the key is
-    /// not the key of an entry of this queue.
-    pub(crate) fn rows_for_key(&self, key: &str, value: &Value) -> Option<Vec<(String, Value)>> {
-        let (bucket, expires) = self.parse_entry(key)?;
-        let id = key.rsplit(':').next()?;
-        Some(vec![
-            (key.to_string(), value.clone()),
-            self.directory_row(bucket, &format!("{expires:020}:{id}")),
-        ])
-    }
-
     /// The expiry and the bucket in the key of an entry.
     fn parse_entry(&self, key: &str) -> Option<(u64, u64)> {
         let rest = key.strip_prefix(self.entries)?.strip_prefix(':')?;
@@ -156,13 +143,6 @@ impl TimeQueue {
             return None;
         }
         Some((bucket.parse().ok()?, expires.parse().ok()?))
-    }
-
-    /// The id in the key of an entry, as a 128-bit digest of its first 32 hex
-    /// digits. The ids of a queue are hashes, so the digest names an entry.
-    pub(crate) fn entry_digest(&self, key: &str) -> Option<u128> {
-        self.parse_entry(key)?;
-        digest_of_id(key.rsplit(':').next()?)
     }
 
     /// The expiry in the key of an entry.
@@ -197,9 +177,4 @@ impl TimeQueue {
         }
         digits.parse().ok()
     }
-}
-
-/// The first 128 bits of an id of hex digits (at least 32 digits), or `None`.
-pub(crate) fn digest_of_id(id: &str) -> Option<u128> {
-    u128::from_str_radix(id.get(..32)?, 16).ok()
 }

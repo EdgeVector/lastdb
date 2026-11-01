@@ -9,8 +9,8 @@
 //! - `crate::records::molecule_record` — molecule/atom storage types
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
-//! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
-//! - [`retention`] — queue, slot directory and release of kept conflict records
+//! - [`counter`] — the row commit, the offline recount and the reference verifier
+//! - [`retention`] — queue and release of kept conflict records
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`filter`] — filtered loads + page index
@@ -25,13 +25,12 @@ pub mod atom_history;
 mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
-mod chunk_read;
 mod codec;
 mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_replay;
-pub use delete_replay::DeletePruneReport;
+pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
@@ -59,8 +58,7 @@ pub use blob_counter::{
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub use counter::{
-    AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,
-    VerifyRequest, VerifySummary,
+    AtomCounterReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub use molecule_ref_edges::MoleculeRefEdge;
 pub(crate) use record_conflicts::LostWrite;
@@ -71,7 +69,7 @@ pub(crate) use record_walk::WalkWindow;
 pub use record_walk::RECORD_WALK_ROWS;
 pub(crate) use records::{record_scope, RecordChange};
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{record_digest, Lane, RetentionCursor, StepOutcome};
+pub(crate) use retention::{RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.
 pub use crate::records::molecule_record::MoleculeData;
 pub(crate) use crate::records::molecule_record::PerKeyRecord;
@@ -175,16 +173,13 @@ pub struct AtomStore {
     /// Serialize whole-snapshot writes so an older export cannot land after a
     /// newer export under concurrent molecule commits.
     keep_small_persist_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Totals and recent faults of the atom counter planner.
-    counter_events: Arc<counter::CounterEvents>,
     /// Totals, the last queue reading and recent faults of the blob counters.
     blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.
     retention: Arc<retention::RetentionState>,
     /// Wake expiry after a history policy activation attempt. Shared by clones.
     history_activation: Arc<tokio::sync::Notify>,
-    /// The verifier: the run in progress, the last result and the watch of
-    /// atoms that writers touch while a run reads. Memory only.
+    /// The verifier: the run in progress and the last result. Memory only.
     counter_verify: Arc<counter::VerifyState>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
@@ -210,11 +205,6 @@ pub struct AtomStore {
 }
 
 impl AtomStore {
-    /// The planner report: bodies created and deleted, and counter faults.
-    pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
-        &self.counter_events
-    }
-
     /// The blob counter report: totals, the queue reading of the last dwell pass.
     #[must_use]
     pub fn blob_counter_report(&self) -> BlobCounterReport {
@@ -226,7 +216,7 @@ impl AtomStore {
         &self.retention
     }
 
-    /// The verifier state: the run in progress, the last result, the watch.
+    /// The verifier state: the run in progress and the last result.
     pub(crate) fn counter_verify(&self) -> &counter::VerifyState {
         &self.counter_verify
     }

@@ -9,11 +9,9 @@ pub struct BlobRecountReport {
     pub ran: bool,
     /// The counters were set to the exact count (`--blobs-exact`).
     pub exact: bool,
-    /// Blobs that atom counters or tips of the listed scopes name.
+    /// Blobs that the records and the field history of the listed scopes name.
     pub referenced_blobs: u64,
-    pub atom_counters_read: u64,
-    pub tips_read: u64,
-    /// Records of a format 7 home, live or tombstone.
+    /// Records, live or tombstone, and field history entries.
     #[serde(default)]
     pub records_read: u64,
     pub counters_read: u64,
@@ -31,7 +29,7 @@ pub struct BlobRecountReport {
     /// A blob that nothing references starts its dwell (exact only).
     pub dwell_started: u64,
     pub unreadable_counters: u64,
-    /// Blobs that atom counters, tips or a counter hold references to, and whose
+    /// Blobs that records or a counter hold references to, and whose
     /// `cas_blobs` row is missing. The recount cannot restore the bytes. A late
     /// write that names a blob after its dwell makes one.
     #[serde(default)]
