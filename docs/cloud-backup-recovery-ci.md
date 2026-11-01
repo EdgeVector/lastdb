@@ -169,13 +169,21 @@ The endpoint comes from `folddb_profile/environments.json`.
 The baseline contains no file encryption key.
 A baseline update requires an accepted DEV backup, provider verification, and independent checks of its expected data.
 Keep that selected backup while CI depends on it. CI never replaces it with the latest head.
-The manual baseline mode is the only supported update path (see "Baseline move").
+A baseline update uses the manual baseline mode, and only for an exception that Tom approves (see "Baseline move").
 
 ## Baseline move
 
-A native format change can make the fixed baseline unreadable by the current client.
-The client restores only home format 7, so an older baseline fails the first restore.
-The manual `baseline` mode makes a new fixed baseline. It does not run the normal recovery.
+The fixed baseline is cut once on home format 7.
+The change from format 6 to format 7 is a one-time break: the format 7 client refuses the older baseline.
+The cloud backup contract (snapshot, mutation log, and CAS files) stays fixed, and the local format adapts to it.
+A later local format change must still restore a snapshot that an earlier release wrote.
+When the local layout differs, the client converts it inside backup and restore.
+Tom set this rule on 2026-11-01 (brain `decision-2026-11-01-lastdb-cloud-backup-has-its-own-format`).
+
+CAUTION: A failed fixed-baseline restore after a local format change is a defect of that change. Fix the change. Do not move the baseline.
+
+The baseline move is only for an exception that Tom approves, for example a change of the cloud contract.
+The manual `baseline` mode makes the new fixed baseline. It does not run the normal recovery.
 
 ```text
 gh workflow run cloud-backup-recovery.yml -R EdgeVector/lastdb --ref main -f mode=baseline
