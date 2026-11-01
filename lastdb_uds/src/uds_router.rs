@@ -95,7 +95,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `atomic_aggregate_set_v1` and `alternate_key_changes_v1` capabilities are
 /// gone. No other app-socket request changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 15;
+/// `16` (2026-11-01) removes the `independent_fields` key from the schema
+/// list, the schema detail and the declare reply. Installed apps accept a
+/// missing key from API 13 and later. No request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 16;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

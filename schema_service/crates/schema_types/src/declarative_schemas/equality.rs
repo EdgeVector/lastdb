@@ -9,7 +9,6 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.schema_type == other.schema_type
             && self.key == other.key
             && self.alternate_keys == other.alternate_keys
-            && self.owned_values == other.owned_values
             && self.fields == other.fields
             && self.transform_fields == other.transform_fields
             && self.hash == other.hash

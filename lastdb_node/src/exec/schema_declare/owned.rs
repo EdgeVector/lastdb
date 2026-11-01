@@ -148,7 +148,6 @@ fn owned_schema(
     schema.field_classifications = definition.field_classifications;
     schema.field_data_classifications = definition.field_data_classifications;
     schema.field_interest_categories = definition.field_interest_categories;
-    schema.owned_values = true;
     schema.field_molecule_uuids = installed.and_then(|schema| schema.field_molecule_uuids.clone());
     if let Some(installed) = installed {
         schema.name = installed.name.clone();
@@ -228,10 +227,9 @@ pub(super) async fn load(
     } else {
         let mut definition =
             schema_types::DeclarativeSchemaDefinition::from(&declare.catalog_schema);
-        // Alternate declarations and the storage marker are node-owned.
-        // Older services can supply the same canonical field definitions.
+        // Alternate declarations are node-owned. Older services can supply
+        // the same canonical field definitions.
         definition.alternate_keys.clear();
-        definition.owned_values = false;
         definition.field_molecule_uuids = None;
         client
             .add_schema_with_match_source(

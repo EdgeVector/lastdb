@@ -166,26 +166,6 @@
     "sub_stage_suffix": "The substage, e.g. 'a' for Stage IIIa.",
     "typical_test": "A medical test typically performed given this condition."
   },
-  "field_mappers": {
-    "associated_anatomy": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.associated_anatomy",
-    "cause": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.cause",
-    "differential_diagnosis": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.differential_diagnosis",
-    "drug": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.drug",
-    "epidemiology": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.epidemiology",
-    "expected_prognosis": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.expected_prognosis",
-    "identifier": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.identifier",
-    "natural_progression": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.natural_progression",
-    "pathophysiology": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.pathophysiology",
-    "possible_complication": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.possible_complication",
-    "possible_treatment": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.possible_treatment",
-    "primary_prevention": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.primary_prevention",
-    "risk_factor": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.risk_factor",
-    "secondary_prevention": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.secondary_prevention",
-    "sign_or_symptom": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.sign_or_symptom",
-    "stage": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.stage",
-    "status": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.status",
-    "typical_test": "e73bb8e940a480e3e6e8a47f52bdc1f8203e265a1c7be02be89597fd565a9028.typical_test"
-  },
   "field_types": {
     "associated_anatomy": "String",
     "cause": "String",

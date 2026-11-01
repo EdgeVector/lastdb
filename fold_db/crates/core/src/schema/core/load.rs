@@ -162,7 +162,7 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        owned::normalize_owned_declaration(&mut schema)?;
+        owned::check_owned_declaration(&schema)?;
         molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
         schema.sync_molecule_uuids();
         // Each field keeps the molecule of the installed owned schema. A field

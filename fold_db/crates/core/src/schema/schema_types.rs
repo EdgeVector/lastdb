@@ -210,11 +210,7 @@ pub struct SchemaWithState {
 
 impl SchemaWithState {
     /// Create a new [`SchemaWithState`] from components.
-    ///
-    /// Every installed schema owns its record values. The reply states that
-    /// for each schema even when the stored copy lacks the per-schema flag.
-    pub fn new(mut schema: DeclarativeSchemaDefinition, state: SchemaState) -> Self {
-        schema.owned_values = true;
+    pub fn new(schema: DeclarativeSchemaDefinition, state: SchemaState) -> Self {
         Self { schema, state }
     }
 
@@ -241,11 +237,6 @@ pub struct SchemaListEntry {
     pub purpose_statement: Option<String>,
     /// Schema type ("Single" | "Hash" | "Range" | "HashRange").
     pub schema_type: DeclarativeSchemaType,
-    /// Every installed schema owns its record values. Installed apps read
-    /// this key to confirm the owned layout before they write, so the node
-    /// still sends it. It does not depend on the stored per-schema flag.
-    #[serde(default, rename = "independent_fields")]
-    pub owned_values: bool,
     /// Key configuration for keyed schemas.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyConfig>,
@@ -282,7 +273,6 @@ impl SchemaListEntry {
             descriptive_name: schema.descriptive_name.clone(),
             purpose_statement: schema.purpose_statement.clone(),
             schema_type: schema.schema_type.clone(),
-            owned_values: true,
             key: schema.key.clone(),
             fields: schema.fields.clone(),
             transform_fields: schema.transform_fields.clone(),

@@ -43,8 +43,6 @@ pub(crate) fn declare_resolution_payload(
         "descriptive_name": declare.catalog_schema.descriptive_name,
         "canonical": resolution.runtime_schema,
         "identity_hash": declare.catalog_schema.identity_hash,
-        // Apps confirm the owned layout from this key before they write.
-        "independent_fields": true,
         "resolution": resolution.outcome(),
         "adapter": adapter,
         "adapters": [adapter],

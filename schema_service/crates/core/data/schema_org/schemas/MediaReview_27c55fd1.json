@@ -46,12 +46,6 @@
     "original_media_context_description": "Describes, in a [[MediaReview]] when dealing with [[DecontextualizedContent]], background information that can contribute to better interpretation of the [[MediaObject]].",
     "original_media_link": "Link to the page containing an original version of the content, or directly to an online copy of the original [[MediaObject]] content, e.g. video file."
   },
-  "field_mappers": {
-    "identifier": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.identifier",
-    "media_authenticity_category": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.media_authenticity_category",
-    "original_media_context_description": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.original_media_context_description",
-    "original_media_link": "5979a1e9ce6c16eda1b9971cd1f4382cc03f14f5192a6465688169c59a032e9a.original_media_link"
-  },
   "field_types": {
     "identifier": "String",
     "media_authenticity_category": "String",

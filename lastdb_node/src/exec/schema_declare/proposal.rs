@@ -133,7 +133,6 @@ pub(crate) fn normalize_direct_declare_proposal(
         schema.descriptive_name = Some(local_schema_id.rsplit('/').next().unwrap().to_string());
     }
     schema.name = local_schema_id.clone();
-    schema.owned_values = true;
     schema.validate_owned_schema()?;
     schema.compute_identity_hash();
     schema
