@@ -122,7 +122,7 @@ pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeRes
 pub use near_miss::{NearMissDecision, NearMissRecord};
 pub use registry_index::{
     RegistryIndexEntry, RegistryIndexEnvelope, RegistryIndexReply, RegistryIndexSignature,
-    REGISTRY_INDEX_FORMAT_VERSION,
+    RegistryIndexSuccess, REGISTRY_INDEX_FORMAT_VERSION,
 };
 pub use resolver_config::{
     AlgorithmSelector, ResolverConfig, ResolverConfigError, NATIVE_COMPONENT_COVER_ALGORITHM_ID,

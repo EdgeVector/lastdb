@@ -2,7 +2,7 @@
 
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::similarity_threshold_reply;
-use schema_service_core::RegistryIndexReply;
+use schema_service_core::RegistryIndexSuccess;
 
 use super::*;
 
@@ -18,17 +18,17 @@ pub async fn registry_index(
         .headers()
         .get("if-none-match")
         .and_then(|v| v.to_str().ok());
-    match state.registry_index_reply(if_none_match) {
-        RegistryIndexReply::NotModified { etag } => HttpResponse::NotModified()
+    match state.registry_index_reply(if_none_match).into_http() {
+        Ok(RegistryIndexSuccess::NotModified { etag }) => HttpResponse::NotModified()
             .insert_header(("ETag", etag))
             .finish(),
-        RegistryIndexReply::Ready { index, etag } => HttpResponse::Ok()
+        Ok(RegistryIndexSuccess::Ready { index, etag }) => HttpResponse::Ok()
             .insert_header(("Cache-Control", "public, max-age=60"))
             .insert_header(("ETag", etag))
             .json(index),
-        RegistryIndexReply::Failed { message, body } => {
+        Err((status, body, message)) => {
             tracing::error!(target: "schema_service::schema", "{message}");
-            HttpResponse::InternalServerError().json(body)
+            json_status(status, body)
         }
     }
 }

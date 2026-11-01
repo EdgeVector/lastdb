@@ -5,7 +5,7 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{similarity_threshold_reply, FieldVocabularyReply};
 use schema_service_core::{
-    log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
+    log_schema_mutation_gate_result, RegistryIndexSuccess, SchemaMutationChallengeReply,
     SchemaMutationChallengeRequest,
 };
 use schema_service_server_shared::state::SchemaServiceState;
@@ -26,16 +26,16 @@ pub(crate) fn get_registry_index(
         .headers()
         .get("if-none-match")
         .and_then(|v| v.to_str().ok());
-    match state.registry_index_reply(if_none_match) {
-        RegistryIndexReply::NotModified { etag } => cors_builder(304, "application/json")
+    match state.registry_index_reply(if_none_match).into_http() {
+        Ok(RegistryIndexSuccess::NotModified { etag }) => cors_builder(304, "application/json")
             .header("ETag", etag)
             .body(Body::Empty)
             .map_err(|e| Error::from(format!("Failed to build response: {e}"))),
-        RegistryIndexReply::Ready { index, etag } => {
+        Ok(RegistryIndexSuccess::Ready { index, etag }) => {
             let body = serde_json::to_value(index).map_err(serialization_error)?;
             json_response_cacheable(200, &body, &etag)
         }
-        RegistryIndexReply::Failed { body, .. } => json_response(500, &body),
+        Err((status, body, _)) => json_response(status, &body),
     }
 }
 
