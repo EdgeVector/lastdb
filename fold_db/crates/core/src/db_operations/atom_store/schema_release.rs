@@ -124,7 +124,7 @@ impl AtomStore {
             return Ok(0);
         }
         if matches!(family, Family::History) {
-            return self.release_dropped_history(rows).await;
+            return self.release_dropped_history(&rows).await;
         }
         let count = rows.len() as u64;
         let deletes: Vec<KvMutation> = rows

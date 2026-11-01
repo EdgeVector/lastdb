@@ -56,17 +56,16 @@ impl AtomStore {
     /// stay too high until a recount.
     pub(crate) async fn release_dropped_history(
         &self,
-        rows: Vec<(String, Vec<u8>)>,
+        rows: &[(String, Vec<u8>)],
     ) -> Result<u64, SchemaError> {
         let mut out = super::records::RecordHistoryRows::default();
         let mut unreadable = 0usize;
-        for (key, bytes) in &rows {
-            match serde_json::from_slice::<RecordHistoryEntry>(bytes) {
-                Ok(entry) => super::records::release(key, &entry, &mut out),
-                Err(_) => {
-                    unreadable += 1;
-                    out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
-                }
+        for (key, bytes) in rows {
+            if let Ok(entry) = serde_json::from_slice::<RecordHistoryEntry>(bytes) {
+                super::records::release(key, &entry, &mut out);
+            } else {
+                unreadable += 1;
+                out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
             }
         }
         if unreadable > 0 {
