@@ -39,6 +39,22 @@ impl FoldDB {
         );
         if !offline_maintenance {
             db_ops.atoms().freeze_replay_cutoff().await?;
+            // This release reads no layout marker. It still writes the #901
+            // marker once, so that a program from #911 to #941 can open a home
+            // that this release created (see `owned_layout.rs`). A failed write
+            // leaves the home as it was, and the next start tries again.
+            match db_ops.atoms().record_owned_layout().await {
+                Ok(true) => info!(
+                    target: "fold_node::database",
+                    "recorded the owned-layout marker for rollback"
+                ),
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    target: "fold_node::database",
+                    %error,
+                    "could not record the owned-layout marker; the next start tries again"
+                ),
+            }
         }
 
         // Create QueryExecutor for handling all query operations
