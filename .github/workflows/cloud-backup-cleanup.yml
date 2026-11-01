@@ -1,0 +1,116 @@
+name: Cloud backup cleanup
+
+# Retire old CI DEV backup streams in bounded passes. The service freezes new
+# uploads while one cleanup request is open and keeps a fixed 30-minute drain
+# before it deletes a file. No pass waits through that drain: each pass ends
+# within 10 minutes, and a later pass resumes the saved request. The recovery
+# workflow never waits for a cleanup; while one is open it fails fast.
+#
+# 22:07 UTC starts one new request, 12 hours from the daily recovery dispatch.
+# The later passes resume it through the night. A completed request restores
+# the kept latest CI snapshot with the exact main client.
+on:
+  schedule:
+    - cron: '7 22 * * *'
+    - cron: '15,30,45 22 * * *'
+    - cron: '*/15 23 * * *'
+    - cron: '*/30 0-9 * * *'
+  workflow_dispatch:
+    inputs:
+      create:
+        description: "Start a new cleanup when none is open and no recovery run is active."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-backup-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup-pass:
+    name: Advance the DEV CI cleanup
+    if: github.ref == 'refs/heads/main'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      kept_request: ${{ steps.pass.outputs.kept_request }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run one bounded cleanup pass
+        id: pass
+        env:
+          CREATE: ${{ github.event.schedule == '7 22 * * *' || inputs.create == true }}
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: |
+          set -euo pipefail
+          args=(--output "$RUNNER_TEMP/cloud-ci-cleanup")
+          if [ "$CREATE" = true ]; then
+            args+=(--create)
+          fi
+          python3 scripts/cloud_backup/cleanup_pass.py "${args[@]}"
+
+  kept-build:
+    name: Build
+    needs: cleanup-pass
+    if: needs.cleanup-pass.outputs.kept_request != ''
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
+  kept-recovery:
+    name: Restore the kept CI snapshot after cleanup
+    needs: [cleanup-pass, kept-build]
+    if: needs.cleanup-pass.outputs.kept_request != ''
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+      CLIENT_VERSION: ${{ needs.kept-build.outputs.version }}
+      REQUEST_ID: ${{ needs.cleanup-pass.outputs.kept_request }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          # The kept-snapshot format check reads commit ancestry on main only.
+          fetch-depth: 0
+          filter: tree:0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.kept-build.outputs.artifact }}
+          path: ${{ runner.temp }}/cloud-backup-client
+      - name: Unpack the exact client
+        run: |
+          set -euo pipefail
+          CLIENT_BIN_DIR="$RUNNER_TEMP/cloud-backup-bin"
+          mkdir -m 700 "$CLIENT_BIN_DIR"
+          tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$CLIENT_BIN_DIR" lastdb lastdbd
+          printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
+      - name: Restore and boot the kept latest CI snapshot
+        env:
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: |
+          python3 scripts/cloud_backup/kept_pass.py \
+            --bin-dir "$CLIENT_BIN_DIR" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --request-id "$REQUEST_ID" \
+            --output "$RUNNER_TEMP/cloud-ci-kept"

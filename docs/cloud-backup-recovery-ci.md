@@ -22,6 +22,24 @@ The larger nightly benchmark recipe stays separate from the standard commit reci
 The daily recovery keeps its existing freshness check, ownership rules, safety delay, and complete restore checks.
 This schedule change does not establish that the separate recovery failure is fixed.
 
+## Ten-minute limit
+
+Every job in the cloud backup workflows ends within 10 minutes. No step waits longer than its job.
+The recovery operation has two jobs:
+
+1. `Build` (`cloud-backup-build.yml`) makes and packages the exact client. It receives no cloud credential.
+2. `Automatic DEV backup and recovery` unpacks that package, admits the run, and runs the recovery.
+
+The admission (`preflight.py`) reads the cleanup state, the account context, and the quota.
+It needs a few requests and finishes in seconds.
+While a cleanup request is open, the service refuses new uploads for the account.
+The admission then fails at once with `ci_cleanup_in_progress`. The summary shows the open phase and the resume time.
+The recovery operation never waits for a cleanup and never starts one.
+Cleanup runs in the separate `Cloud backup cleanup` workflow (see "Cleanup passes").
+
+A cleanup request on 2026-11-01 needed 2,629 serial service requests and 64 minutes, including one 30-minute drain.
+That request ran inside the recovery job, so the job limit was 210 minutes.
+
 ## Daily check
 
 The `Daily cloud recovery check` workflow runs at 10:23 UTC each day.
@@ -33,7 +51,8 @@ The driver first checks for an active or queued recovery on main.
 It does not add a second run while that recovery exists.
 It then checks successful main runs from the existing push and manual event paths.
 A fresh result requires the actual `Automatic DEV backup and recovery` job to succeed within the previous 24 hours.
-The exact attempt must also show successful client build, package, recovery, ownership archive, and durable ownership steps.
+The exact attempt must also show successful recovery, ownership archive, and durable ownership steps.
+That job starts only after the exact client build job of the same run succeeds.
 Recipe syntax success alone does not count.
 
 The driver checks exact-attempt completion times, including a recent rerun of an old source.
@@ -199,7 +218,7 @@ The manual `baseline` mode makes the new fixed baseline. It does not run the nor
 gh workflow run cloud-backup-recovery.yml -R EdgeVector/lastdb --ref main -f mode=baseline
 ```
 
-The mode uses the same protected environment, build, package, cleanup, and start claim as the normal operation.
+The mode uses the same protected environment, build, package, admission, and start claim as the normal operation.
 `baseline.py` then starts a fresh home of the current format with the fixed CI identity.
 The recovery phrase supplies the identity seed, and the daemon must report the fixed CI account.
 The home receives the `CloudCiBaselineF7` Hash schema, 16 records, and one 8 MiB file.
@@ -247,8 +266,8 @@ Uncertain native data and recovery receipts stay private when the operation cann
 No secret values enter the summary.
 It accesses no primary, primary copy, archive, or PROD service.
 
-The workflow first resumes an earlier saved CI cleanup, before it registers a new stream.
-It then refreshes verified ownership, retires eligible older CI streams, and proves the kept latest snapshot.
+The separate `Cloud backup cleanup` workflow refreshes verified ownership, retires eligible older CI streams, and proves the kept latest snapshot.
+The recovery operation does not resume or start a cleanup. An open cleanup stops it before a new upload.
 The fixed baseline, latest successful CI stream, active holds, shared files, and unknown data stay protected.
 A quota or integrity block fails CI before a new upload.
 CI does not create replacement accounts, increase quotas, or bypass a block.
@@ -277,16 +296,16 @@ It must preserve shared files, active restores, uploads, and uncertain allocatio
 An expired or missing ownership record supplies no automatic deletion authority.
 General user retention and PROD cleanup remain separate from this CI-only policy.
 
-After pending cleanup, CI reads at most four recent successful main workflow runs.
+Before it starts a new cleanup request, the cleanup pass reads at most four recent successful main workflow runs.
 It verifies each available ownership archive against GitHub's digest, exact source, workflow, run, attempt, account, and generation.
 The exact attempt's successful recovery-job completion time orders reruns correctly.
 Missing or expired ownership records grant no cleanup authority.
 Malformed, unsupported or unverifiable older records also remain unknown; they do not block a valid newer ownership record.
-GitHub transport and directory failures stop the operation before a new upload.
+GitHub transport and directory failures stop the pass before a new request.
 This read-only step does not classify a complete directory or delete cloud files.
 
 Before a new restore or upload, CI requires the isolated DEV ownership capability.
-It registers verified recipe-bearing historical receipts through the existing account key.
+Before a new cleanup request, the pass registers verified recipe-bearing historical receipts through the existing account key.
 The service independently verifies the immutable GitHub artifact and accepted backup points.
 CI then refreshes every durable registration page before it proceeds.
 A partial refresh or a service error fails the operation; it grants no deletion authority.
@@ -294,7 +313,7 @@ A partial refresh or a service error fails the operation; it grants no deletion 
 After the successful receipt upload, CI saves that exact archive in the durable service registry.
 This non-destructive step runs within the existing serialized workflow.
 The service saves the active workflow attempt as `waiting_run`; this state cannot retire a stream.
-A later pre-upload refresh verifies the exact completed successful attempt before promotion.
+The refresh before the next cleanup request verifies the exact completed successful attempt before promotion.
 This preserves ownership after archive expiration, and for reruns of an old workflow that falls outside the bounded history.
 CI supplies no provider administration credential, GitHub token, or recovery phrase to these routes.
 The adapter permits only the compiled DEV endpoint and the fixed CI account.
@@ -306,25 +325,39 @@ It checks reserved bytes, retained bytes, other used bytes, and the current quot
 CI requires at least 96 MiB of observed free quota for its bounded 64 MiB checkpoint allowance and control overhead.
 Insufficient space stops the operation before upload. CI does not increase or reset quota.
 This read supplies an observation, not a reservation; normal service admission still enforces quota for each allocation.
-The pre-upload retirement operation reclaims only verified old CI data before this check.
+The cleanup workflow reclaims only verified old CI data. It runs outside the recovery operation.
+
+## Cleanup passes
 
 The service waits 30 minutes after the logical retirement before it deletes an eligible file.
-CI respects that delay and reads the saved status in waits of at most 30 seconds.
+CI keeps that delay. No pass waits through it.
+A pass reads the saved status in waits of at most 30 seconds only while the delete time is inside its budget.
 A request checks a five-second budget between at most 16 saved steps.
 The client checks the retirement hash, planned allocation counts, and planned byte counts as progress continues.
 After the plan exists, planned counts stay fixed. An assigned retirement hash stays fixed.
 Released bytes cannot exceed the plan.
 A complete result requires one confirmed release for every eligible allocation and no unresolved upload bytes.
 Protected allocation counts remain separate, and legacy or unknown streams stay retained.
-CI allows 140 minutes for the control work and 150 minutes for the full pre-upload step.
-A pending cleanup and the next plan can each need the full 30-minute service delay.
 Each pass also validates the complete saved metadata directory and allocation plan.
-A shared 70-minute limit can expire after one request completes and before the next request finishes.
-The complete job has a 210-minute limit, which also covers the build and the existing recovery checks.
-An expired limit fails CI. The next run resumes the same saved request before it starts new work.
-The failure summary retains the last validated phase, allocation counts, headroom, fixed retry codes, and request count.
+
+`cleanup_pass.py` has a 420-second control budget, and its job has a 10-minute limit.
+A pass stops 30 seconds before its budget ends, or when the drain ends after its budget.
+The summary records the last validated phase, allocation counts, headroom, resume time, fixed retry codes, and request count.
+The service keeps the saved request and its frozen epoch. The next pass reads it with `ci/pending` and resumes it.
+A pass never replaces or abandons a saved request.
+
+The pass at 22:07 UTC, 12 hours from the daily recovery dispatch, can start one new request.
+It starts a request only when none is open and no recovery run is queued, waiting, or in progress.
+Later passes run every 15 minutes until midnight and every 30 minutes until 09:30 UTC. They only resume an open request.
+A manual dispatch resumes an open request. With `create`, it can also start a new one.
 Each request starts with an unobserved state until a saved state passes validation.
 These observations identify the last known progress. They do not claim a completed cleanup.
+
+When a pass confirms a complete request with a kept stream, the same workflow builds the exact main client.
+`kept_pass.py` then reads that request by its ID, repeats the terminal check, and restores the kept snapshot.
+Each of these jobs also ends within 10 minutes.
+
+## Startup ownership
 
 CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.
 The worker supports a preassigned `LASTDB_CLOUD_CI_STREAM_ID` for the exact dedicated CI account.
@@ -340,10 +373,10 @@ Its artifact is `cloud-ci-start-<run_id>-<run_attempt>` and contains only `ci-st
 The caller requires `startup_registered`, the exact claim/receipt identity, and open admission before the source can start.
 This claim makes no restore-success or provider-deletion assertion.
 The service must refuse adoption of any pre-existing stream without the exact prior claim.
-The pre-upload cleanup stage precedes startup registration, so an earlier frozen request can resume before any new effect.
+The admission precedes startup registration, so an open cleanup request stops the run before any new effect.
 Before the first startup claim, the service can return an explicit unsaved headroom observation.
 That response must attest no prior startup claims, no provider deletion, retained unknown data, and sufficient space.
-CI records this first-admission result as incomplete cleanup. It does not call it a completed plan.
+The cleanup pass records this result as phase `bootstrap_headroom`. It does not call it a completed plan.
 
 The recovery command requires the private startup admission record and its exact uploaded receipt.
 It checks the source, workflow, run, attempt, fixed baseline, and receipt hash before the source receives its stream ID.
@@ -356,7 +389,7 @@ After retirement, the kept-latest helper selects the recipe's exact final full s
 The helper refuses absent or unsupported recipes, inconsistent hashes, or inconsistent point order.
 It derives the expected record updates and complete file hash from the saved source revision.
 It checks the restored native inventory before the first boot, then checks all baseline keys and full file bytes after two boots.
-The helper accesses only a fresh private DEV restore. The pre-upload controller calls it before a new source starts.
+The helper accesses only a fresh private DEV restore. `kept_pass.py` calls it after a complete cleanup request.
 Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
 The client restores only home format 7. The first such main source is `2cdc5531c1f056891ff17e16fbe25b52a5c4a201` (#929).
@@ -364,7 +397,7 @@ A kept stream from an older main source holds a format 4 to 6 snapshot, which th
 The job reads the full main commit history without file contents and checks the ancestry of the kept owner source.
 For an older source, the controller records the kept stream and its source, and attempts no restore.
 The service still keeps that stream. A later successful format 7 CI stream replaces it under the normal retention rules.
-A kept source outside the main history fails CI. The recovery step recomputes this check from the validated kept record.
+A kept source outside the main history fails CI. `kept_pass.py` computes this check from the validated kept record.
 
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.

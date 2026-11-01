@@ -5,10 +5,14 @@ name: Cloud backup recovery
 # The manual `baseline` mode cuts the fixed baseline: once on format 7, later
 # only for an approved cloud contract change. A local format change must keep
 # the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
+# Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
+# this operation never waits for it and fails fast while a cleanup is active.
 on:
   pull_request:
     paths:
       - '.github/workflows/cloud-backup-recovery.yml'
+      - '.github/workflows/cloud-backup-build.yml'
+      - '.github/workflows/cloud-backup-cleanup.yml'
       - 'scripts/cloud_backup/**'
       - 'docs/cloud-backup-recovery-ci.md'
       - 'scripts/release/nightly_package.py'
@@ -81,20 +85,28 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: python3 scripts/cloud_backup/inspect_history.py
 
+  build-client:
+    name: Build
+    needs: recipe-syntax
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
   recover-dev:
     name: Automatic DEV backup and recovery
-    needs: recipe-syntax
+    needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 210
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
     env:
-      CARGO_BUILD_JOBS: '2'
-      CARGO_TERM_COLOR: never
       SOURCE_COMMIT: ${{ github.sha }}
+      CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
       # The daily driver dispatches recovery; a manual main run can move the baseline.
       RUN_MODE: ${{ inputs.mode == 'baseline' && 'baseline' || 'recovery' }}
     steps:
@@ -102,9 +114,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          # The kept-snapshot format check reads commit ancestry on main only.
-          fetch-depth: 0
-          filter: tree:0
       - name: Require protected DEV inputs
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
@@ -113,50 +122,27 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           python3 -c 'import os; names=("LASTDB_CLOUD_DEV_API_KEY","LASTDB_CLOUD_DEV_RECOVERY_PHRASE","LASTDB_CLOUD_DEV_BASELINE","LASTDB_CLOUD_DEV_BASELINE_SCOPE"); missing=[n for n in names if not os.environ.get(n)]; raise SystemExit("Missing DEV inputs: "+", ".join(missing) if missing else 0)'
-      - name: Select the repository toolchain
-        run: |
-          set -euo pipefail
-          rustup show active-toolchain
-          base="$(python3 -c 'import re,tomllib; v=tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"].split("-")[0]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",v); print(v)')"
-          printf 'CLIENT_VERSION=%s-nightly.%s.g%s\n' "$base" "$(date -u +%Y%m%d)" "${SOURCE_COMMIT:0:9}" >> "$GITHUB_ENV"
-          printf 'CARGO_TARGET_DIR=%s/cloud-backup-build\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
         with:
-          shared-key: cloud-backup-recovery-linux
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build the exact accepted client
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-          FOLDDB_BUILD_VERSION_OVERRIDE="$CLIENT_VERSION" \
-            cargo build --locked --profile dev-release -p lastdb_node --bin lastdb --bin lastdbd
-      - name: Package the exact client
-        run: |
-          set -euo pipefail
-          python3 scripts/release/nightly_package.py \
-            --target x86_64-unknown-linux-gnu \
-            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
-            --out-dir "$RUNNER_TEMP/cloud-backup-client" \
-            --git-oid "$SOURCE_COMMIT" --expect-version "$CLIENT_VERSION" \
-            --source-epoch "$(git show -s --format=%ct HEAD)"
-      - name: Retain the verified client package
-        id: client-artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: cloud-backup-client-${{ github.sha }}-${{ github.run_attempt }}
+          name: ${{ needs.build-client.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client
-          if-no-files-found: error
-          retention-days: 3
-      - name: Reclaim old CI DEV backups and prove the kept snapshot
+      - name: Unpack the exact client
+        run: |
+          set -euo pipefail
+          CLIENT_BIN_DIR="$RUNNER_TEMP/cloud-backup-bin"
+          mkdir -m 700 "$CLIENT_BIN_DIR"
+          tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$CLIENT_BIN_DIR" lastdb lastdbd
+          sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+          printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
+      - name: Admit this run without waiting for cleanup
         env:
-          GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           python3 scripts/cloud_backup/preflight.py \
-            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --output "$RUNNER_TEMP/cloud-ci-preflight"
       - name: Choose this run's new CI backup stream
@@ -197,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/cloud_backup/recover.py \
-            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
@@ -251,7 +237,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/cloud_backup/baseline.py \
-            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
@@ -279,21 +265,3 @@ jobs:
           python3 scripts/cloud_backup/register_ownership.py \
             --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase baseline
-      - name: Record client provenance
-        if: always() && steps.client-artifact.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.client-artifact.outputs.artifact-id }}
-          ARTIFACT_URL: ${{ steps.client-artifact.outputs.artifact-url }}
-          ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          {
-            printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
-            printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
-            printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
-            sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
-            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
-              --jq '"Artifact expires: " + .expires_at'
-            printf '\nThe operation uses the existing DEV account. It retains accepted backups and makes no PROD or primary change.\n'
-          } >> "$GITHUB_STEP_SUMMARY"

@@ -20,9 +20,10 @@ RECOVERY_JOB = "Automatic DEV backup and recovery"
 ACTIVE = ("requested", "queued", "pending", "waiting", "in_progress")
 PER_PAGE, MAX_PAGES, MAX_CALLS = 100, 10, 80
 MAX_BODY = 2 * 1024 * 1024
-STEPS = ("Build the exact accepted client", "Package the exact client",
-         "Run automatic snapshots, mutation logs, restart and both recoveries",
-         "Retain successful CI stream ownership", "Save durable CI ownership before this run ends")
+# The exact client build is a required earlier job; this job cannot start without it.
+RECOVERY_STEP = "Run automatic snapshots, mutation logs, restart and both recoveries"
+STEPS = (RECOVERY_STEP, "Retain successful CI stream ownership",
+         "Save durable CI ownership before this run ends")
 BASELINE_STEP = "Make, upload and restore a new fixed CI baseline"
 
 
@@ -160,7 +161,7 @@ def successful_job(api, run, now):
     require(job.get("conclusion") == "success", "successful_run_has_failed_recovery_job")
     steps = job.get("steps")
     require(isinstance(steps, list) and len(steps) <= 100, "invalid_real_recovery_steps")
-    recovery = [step for step in steps if step.get("name") == STEPS[2]]
+    recovery = [step for step in steps if step.get("name") == RECOVERY_STEP]
     baseline = [step for step in steps if step.get("name") == BASELINE_STEP]
     if (len(recovery) == 1 and recovery[0].get("conclusion") == "skipped"
             and len(baseline) == 1 and baseline[0].get("conclusion") == "success"):

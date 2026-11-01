@@ -52,7 +52,8 @@ class Control:
         require(endpoint.scheme == "https" and endpoint.path == "" and endpoint.port is None,
                 "ci_control_dev_endpoint")
         self.host = endpoint.hostname
-        require(type(budget_seconds) is int and 0 < budget_seconds <= 8400, "ci_control_time_budget")
+        # Every CI job ends within 10 minutes; a control budget never outlives its job.
+        require(type(budget_seconds) is int and 0 < budget_seconds <= 540, "ci_control_time_budget")
         self.deadline = time.monotonic() + budget_seconds
         self.calls = 0
 

@@ -1,0 +1,93 @@
+name: Cloud backup client build
+
+# One exact DEV client build for the recovery and cleanup workflows. The job
+# has no cloud credentials. Like every cloud backup job, it ends within 10
+# minutes; a slower build fails here instead of delaying the recovery result.
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: The exact client version that the binaries report.
+        value: ${{ jobs.build.outputs.version }}
+      artifact:
+        description: The name of this run's client package artifact.
+        value: ${{ jobs.build.outputs.artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the exact DEV client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CARGO_TERM_COLOR: never
+      SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select the repository toolchain
+        id: version
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          base="$(python3 -c 'import re,tomllib; v=tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"].split("-")[0]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",v); print(v)')"
+          version="$base-nightly.$(date -u +%Y%m%d).g${SOURCE_COMMIT:0:9}"
+          printf 'CLIENT_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          printf 'CARGO_TARGET_DIR=%s/cloud-backup-build\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'version=%s\nartifact=cloud-backup-client-%s-%s\n' \
+            "$version" "$SOURCE_COMMIT" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cloud-backup-recovery-linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the exact accepted client
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          FOLDDB_BUILD_VERSION_OVERRIDE="$CLIENT_VERSION" \
+            cargo build --locked --profile dev-release -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Package the exact client
+        run: |
+          set -euo pipefail
+          python3 scripts/release/nightly_package.py \
+            --target x86_64-unknown-linux-gnu \
+            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --out-dir "$RUNNER_TEMP/cloud-backup-client" \
+            --git-oid "$SOURCE_COMMIT" --expect-version "$CLIENT_VERSION" \
+            --source-epoch "$(git show -s --format=%ct HEAD)"
+      - name: Retain the verified client package
+        id: client-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: ${{ runner.temp }}/cloud-backup-client
+          if-no-files-found: error
+          retention-days: 3
+      - name: Record client provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.client-artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.client-artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
+            printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+              --jq '"Artifact expires: " + .expires_at'
+            printf '\nThe build uses no cloud credentials and makes no PROD or primary change.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

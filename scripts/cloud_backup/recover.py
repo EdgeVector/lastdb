@@ -19,10 +19,8 @@ from node import OwnedNode
 from automatic import Automatic
 from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
-from kept_recovery import legacy_format
 from ownership import run_identity
 from programs import Programs
-from retirement_status import Status
 from restore_receipts import restored
 from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
@@ -79,34 +77,22 @@ class Operation:
         require(path.is_absolute() and path.parent.resolve() == Path(os.environ["RUNNER_TEMP"]).resolve(),
                 "ci_preflight_runner_path")
         value = read_json(path / "summary.json", 32768)
-        require(value.get("schema") == "lastdb.cloud-ci-preflight.v1"
+        require(value.get("schema") == "lastdb.cloud-ci-preflight.v2"
                 and value.get("result") == "passed" and value.get("stage") == "complete"
                 and value.get("owner") == run_identity(self.args.source)
                 and value.get("source") == self.args.source and value.get("version") == self.args.version
                 and value.get("selection") == self.summary["selection"]
                 and value.get("binaries") == self.programs.identities
                 and value.get("cleanup") == "owned runner data removed", "ci_preflight_identity")
-        scope = {"account_id": ACCOUNT, "account_generation": self.baseline["account_generation"]}
-        terminal = value.get("retirement")
-        require(isinstance(terminal, dict), "ci_preflight_retirement")
-        status = Status(scope, self.baseline).validate(terminal, terminal.get("input"))
-        bootstrap = status["phase"] == "bootstrap_headroom"
-        kept = None if bootstrap else status["kept_latest"]
-        if kept is not None and legacy_format(kept):
-            # Recomputed from the validated kept owner; the summary flag alone is not trusted.
-            kept_checked = ("kept_latest_recovery" not in value
-                            and value.get("kept_latest_legacy_format", {}).get("stream_id") == kept["stream_id"])
-        else:
-            kept_checked = kept is None or (
-                value.get("kept_latest_recovery", {}).get("restored_boots") == 2
-                and value["kept_latest_recovery"].get("strict_clean_stops") == 2)
-        require((bootstrap and value.get("terminal_repeat_checked") is False) or (
-                status["phase"] == "complete" and value.get("terminal_repeat_checked") is True
-                and kept_checked), "ci_preflight_finished")
-        self.summary["ci_preflight"] = {"request_id": status["request_id"],
-            "plan_sha256": status["plan_sha256"], "phase": status["phase"],
-            "released_bytes": status.get("released_bytes", 0),
-            "confirmed_allocations": status.get("confirmed_allocations", 0)}
+        # Cleanup runs in its own bounded workflow. This run starts only on an
+        # open account; execute() repeats the open and headroom reads itself.
+        quota = value.get("ci_quota")
+        require(value.get("cleanup_active") is False and isinstance(quota, dict)
+                and type(quota.get("available_bytes")) is int
+                and type(quota.get("minimum_bytes")) is int
+                and quota["available_bytes"] >= quota["minimum_bytes"] > 0, "ci_preflight_finished")
+        self.summary["ci_preflight"] = {"cleanup_active": False,
+                                        "available_bytes": quota["available_bytes"]}
 
     def credentials(self):
         key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
@@ -205,24 +191,18 @@ class Operation:
                  "source": self.args.source, "primary_access": False}
         if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
             value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
-        if self.summary["schema"] == "lastdb.cloud-ci-preflight.v1":
-            value["ci_cleanup"] = cleanup_observation(self.summary)
+        if self.summary["schema"] == "lastdb.cloud-ci-preflight.v2":
+            value["ci_cleanup"] = {name: self.summary.get(name) for name in (
+                "cleanup_active", "active_cleanup", "backup_service_requests")}
+        elif self.summary["schema"] == "lastdb.cloud-ci-kept.v1":
+            value["kept_latest"] = {name: self.summary.get("kept_latest", {}).get(name) for name in (
+                "stream_id", "restored_boots", "strict_clean_stops", "legacy_format")}
         print(json.dumps(value, sort_keys=True))
 
 
-def cleanup_observation(summary):
-    terminal = summary.get("retirement", {})
-    quota = summary.get("ci_quota", summary.get("ci_cleanup_headroom", {}))
-    # These fields already passed the status/usage validators. Never copy a
-    # raw service reply, input, archive, recovery recipe or provider grant.
-    return {"retirement": {name: terminal.get(name) for name in (
-                "request_id", "phase", "plan_sha256", "eligible_allocations", "confirmed_allocations",
-                "protected_allocations", "protected_uncertain_bytes", "released_bytes")},
-            "quota": {name: quota.get(name) for name in (
-                "quota_bytes", "reserved_bytes", "retained_bytes", "available_bytes", "minimum_bytes")},
-            "terminal_repeat_checked": summary.get("terminal_repeat_checked"),
-            "diagnostics": summary.get("retirement_diagnostics", {"state_observed": False}),
-            "backup_service_requests": summary.get("backup_service_requests")}
+TITLES = {"lastdb.cloud-ci-preflight.v2": "DEV CI admission",
+          "lastdb.cloud-ci-cleanup.v1": "DEV CI cleanup pass",
+          "lastdb.cloud-ci-kept.v1": "DEV kept CI snapshot after cleanup"}
 
 
 def step_summary(summary):
@@ -232,8 +212,7 @@ def step_summary(summary):
     path = Path(destination)
     runner = Path(os.environ["RUNNER_TEMP"]).resolve()
     require(path.is_absolute() and path.parent.resolve().is_relative_to(runner), "ci_summary_path")
-    title = ("DEV CI backup cleanup and admission" if summary["schema"] == "lastdb.cloud-ci-preflight.v1"
-             else "DEV automatic backup and recovery")
+    title = TITLES.get(summary["schema"], "DEV automatic backup and recovery")
     text = "\n### " + title + "\n\n```json\n"
     text += json.dumps(summary, sort_keys=True, indent=2) + "\n```\n"
     require(len(text.encode()) <= 65536, "ci_summary_size")
@@ -258,7 +237,8 @@ def main():
         raise OperationError("operation_cancelled_or_deadline")
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(2700)
+    # The job limit is 10 minutes; owned cleanup needs the rest.
+    signal.alarm(480)
     try:
         operation.prepare()
         operation.execute()
