@@ -84,10 +84,7 @@ class OwnedNode:
                      LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0")
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
             environment.pop(name, None)
-        if self.ci_stream_id is not None:
-            environment["LASTDB_CLOUD_CI_STREAM_ID"] = self.ci_stream_id
-        if self.terminal_r2:
-            environment["LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"] = "1"
+        environment.update(self.ci_uploads())
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)], env=environment,
             stdin=subprocess.DEVNULL,
@@ -104,6 +101,15 @@ class OwnedNode:
                 return
             time.sleep(0.2)
         raise OperationError("daemon_start_deadline")
+
+    def ci_uploads(self):
+        """The owned CI stream and upload mode for the daemon and a stopped backup."""
+        environment = {}
+        if self.ci_stream_id is not None:
+            environment["LASTDB_CLOUD_CI_STREAM_ID"] = self.ci_stream_id
+        if self.terminal_r2:
+            environment["LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"] = "1"
+        return environment
 
     def health(self, readiness=False):
         paths = ("/health", "/api/status", "/api/system/boot-identity", "/api/db/native-status")

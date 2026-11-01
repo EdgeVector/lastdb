@@ -81,7 +81,22 @@ The source then stops and restarts with automatic backup enabled. Its saved poli
 Its next snapshot time must also remain unchanged after the restart.
 
 The operation changes the snapshot interval to 60 seconds and requires a later automatic snapshot.
-It then restores the daily interval, disables automatic backup, and stops the source cleanly.
+It then restores the daily interval.
+
+The source then takes a final stopped snapshot while automatic backup stays on.
+CI waits for an idle automatic owner with at least 30 seconds before the next log tick.
+It writes one run-owned key, confirms that the automatic backup does not cover that write, and stops the source cleanly.
+`backup-v2 start-stopped` then backs up the exact stopped session on the same CI stream.
+The report must show automatic backup on, all remote file hashes verified, and the previous automatic head as its predecessor.
+The stopped cut must cover the final write.
+After the restart, the policy keeps its revision and records the stopped cut as backed.
+The active log epoch must start at the stopped cut.
+CI updates the run-owned key, and the next automatic log must publish in that same epoch.
+That log is the stream head, so the ownership receipt names it.
+The stopped point is not a daemon-initiated point, so the v1 receipt and recipe do not name it.
+The run summary records it, and its bytes count against the same checkpoint limits.
+
+The operation then disables automatic backup and stops the source cleanly.
 Two separate absent destinations restore the exact selected mutation-log checkpoint and the later snapshot.
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
@@ -93,6 +108,9 @@ After the source restarts with TTL on, the ordinary TTL purge must erase the two
 The delete ledger and complete journal frontier must confirm those removals before the log selection.
 Two more expired keys pass through the same TTL path before the later snapshot.
 The selected snapshot must cover their complete main and CAS frontiers.
+
+A fourth absent destination restores the stopped snapshot.
+It must return the final write and the baseline changes after two boots, and both temporary keys stay absent.
 
 Three absent destinations restore the initial snapshot, the selected log checkpoint, and the later snapshot.
 The initial snapshot must retain its two original expired keys.

@@ -12,7 +12,7 @@ use super::{
 use crate::backup_runtime::{Disposition, PauseReason, PauseState};
 use cloud_backup_protocol::Id;
 pub use policy::AutomaticBackupStatus;
-pub(super) use policy::{configure, status};
+pub(super) use policy::{check_stopped, configure, record_stopped, status};
 use policy::{Pending, Policy};
 use std::sync::{
     atomic::{AtomicBool, Ordering},

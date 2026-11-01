@@ -6,6 +6,7 @@ import time
 
 from automatic_source import Source
 from automatic_prefixes import PrefixRecords
+from automatic_stopped import StoppedFinal
 from lifecycle import Lifecycle
 from node import OwnedNode
 from ownership import complete as complete_ownership
@@ -132,6 +133,10 @@ class Automatic:
         operation.summary["stage"] = "automatic-disable"
         source.configure()
         source.retired(restarted["request_id"])
+        operation.summary["stage"] = "stopped-backup-automatic-on"
+        stopped = StoppedFinal(source)
+        final_stopped = stopped.run()
+        operation.summary["stage"] = "automatic-disable"
         source.disable()
         source.node.stop()
         dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
@@ -143,6 +148,9 @@ class Automatic:
                                    lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle, temporary=temporary)
+        stopped_restore = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
+                                       temporary=temporary)
+        # The stopped point is not a daemon-initiated v1 recipe point; the log after it is the head.
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
                                        for value in (snapshot, log, later)])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
@@ -154,6 +162,7 @@ class Automatic:
                 "declared_checkpoint_bytes": source.declared_bytes,
                 "base_recovery": base_restore, "log_recovery": log_restore,
                 "later_snapshot_recovery": snapshot_restore,
+                "stopped_backup_with_automatic_on": final_stopped, "stopped_recovery": stopped_restore,
                 "ttl_log_frontiers": first_ttl, "ttl_snapshot_frontiers": second_ttl,
                 "dependency_inspections": dependency_inspections,
                 "ci_stream_ownership": ownership,

@@ -67,6 +67,8 @@ pub async fn backup_stopped(
     let runtime = storage.disk_pack_runtime().ok_or(BackupError::Source)?;
     let source = Source::from_stopped(runtime, &pair, request.account_id.clone())?;
     let client = super::connection::client_for_stopped(home, &source.account, &source.source_home)?;
+    let endpoint = client.canonical_endpoint();
+    super::automatic::check_stopped(home, &source.account, &source.source_home, &endpoint)?;
     let store = Store::open(home, &request.request_id)?;
     manifest::same(&store, "stopped-session.json", &request)?;
     let mut saved: Saved = store
@@ -103,6 +105,19 @@ pub async fn backup_stopped(
     ownership.check_profile(home, &request, &manifest.run_profile)?;
     let remote = verify::remote(&client, &accepted, &manifest, &store).await?;
     ownership.check_profile(home, &request, &manifest.run_profile)?;
+    let point: super::recovery::RecoveryPoint =
+        store.read("recovery.json")?.ok_or(BackupError::Missing)?;
+    point.validate()?;
+    if point.accepted != accepted {
+        return Err(BackupError::Identity);
+    }
+    let automatic_backup_enabled = super::automatic::record_stopped(
+        home,
+        &source.account,
+        &source.source_home,
+        &endpoint,
+        point.frontiers,
+    )?;
     let report = StoppedBackupReport {
         version: 1,
         request,
@@ -114,7 +129,7 @@ pub async fn backup_stopped(
         all_remote_file_hashes_verified: true,
         source_released: true,
         native_cut_unchanged: true,
-        automatic_backup_enabled: false,
+        automatic_backup_enabled,
     };
     manifest::same(&store, "stopped-report.json", &report)?;
     drop(source);

@@ -140,6 +140,9 @@ class Source:
         self.node, self.expected, self.source = node, copy.deepcopy(baseline), source
         self.summary = summary
         self.completed, self.declared_bytes = {}, 0
+        # The one final stopped snapshot. The v1 ownership receipt names only
+        # daemon-initiated points, so this point stays outside `completed`.
+        self.stopped = None
         self.publication_deadlines = {}
 
     def cloud(self, *arguments, input_bytes=None, checkpoint=None):
@@ -213,7 +216,32 @@ class Source:
     def observe_accepted(self, accepted):
         job = accepted["begin"]["job"]
         request = canonical_uuid(job["commit_id"])
+        if self.stopped is not None and request == self.stopped["begin"]["job"]["commit_id"]:
+            require(checkpoint_identity(self.stopped) == checkpoint_identity(accepted),
+                    "immutable_stopped_checkpoint")
+            return
         require(request.startswith("a17dbac2-"), "daemon_initiated_request")
+        self.owned_stream(accepted)
+        if request in self.completed:
+            require(checkpoint_identity(self.completed[request]) == checkpoint_identity(accepted),
+                    "immutable_published_checkpoint")
+        else:
+            self.declare(accepted)
+            self.completed[request] = copy.deepcopy(accepted)
+        self.bounded()
+
+    def bind_stopped(self, accepted):
+        """Count the final stopped snapshot once in the same stream and cloud budget."""
+        request = canonical_uuid(accepted["begin"]["job"]["commit_id"])
+        require(self.stopped is None and not request.startswith("a17dbac2-")
+                and request not in self.completed, "one_stopped_backup")
+        self.owned_stream(accepted)
+        self.declare(accepted)
+        self.stopped = copy.deepcopy(accepted)
+        self.bounded()
+
+    def owned_stream(self, accepted):
+        job = accepted["begin"]["job"]
         require(job["stream"]["scope"]["account_id"] == ACCOUNT, "accepted_dev_scope")
         if self.node.ci_stream_id is not None:
             require(job["stream"]["stream_id"] == self.node.ci_stream_id, "accepted_owned_ci_stream")
@@ -222,15 +250,15 @@ class Source:
         if self.completed:
             first = next(iter(self.completed.values()))
             require(job["stream"] == first["begin"]["job"]["stream"], "one_owned_automatic_stream")
-        if request in self.completed:
-            require(checkpoint_identity(self.completed[request]) == checkpoint_identity(accepted),
-                    "immutable_published_checkpoint")
-        else:
-            declared = int(accepted["inventory_root"]["stored_bytes"])
-            require(declared > 0, "positive_checkpoint_bytes")
-            self.completed[request] = copy.deepcopy(accepted)
-            self.declared_bytes += declared
-        require(len(self.completed) <= MAX_CHECKPOINTS and self.declared_bytes <= MAX_DECLARED_BYTES,
+
+    def declare(self, accepted):
+        declared = int(accepted["inventory_root"]["stored_bytes"])
+        require(declared > 0, "positive_checkpoint_bytes")
+        self.declared_bytes += declared
+
+    def bounded(self):
+        points = len(self.completed) + (self.stopped is not None)
+        require(points <= MAX_CHECKPOINTS and self.declared_bytes <= MAX_DECLARED_BYTES,
                 "bounded_ci_cloud_work")
 
     def retired(self, request):

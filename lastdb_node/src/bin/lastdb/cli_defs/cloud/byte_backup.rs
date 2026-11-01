@@ -52,6 +52,7 @@ pub(crate) enum ByteBackupCommand {
         json: bool,
     },
     /// Back up the final flushed cut without a daemon, copy, or database boot.
+    /// Automatic backup can stay on. A saved automatic job must finish first.
     StartStopped {
         /// Preserve this UUID across retries of the same stopped session.
         #[arg(long)]
