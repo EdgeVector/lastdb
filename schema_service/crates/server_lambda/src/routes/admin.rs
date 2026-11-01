@@ -15,21 +15,11 @@ pub(crate) fn post_debug_field_match_probe(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: schema_service_core::FieldMatchProbeRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid field-match-probe request: {e}"
-                )),
-            );
-        }
-    };
+    let request: schema_service_core::FieldMatchProbeRequest =
+        match typed_json_body(event, "Invalid field-match-probe request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
     match state.field_match_probe_reply(&request) {
         FieldMatchProbeReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
@@ -105,21 +95,11 @@ pub(crate) async fn post_admin_deprecate_schemas(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: DeprecateSchemasRequest = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid deprecate-schemas request: {e}"
-                )),
-            );
-        }
-    };
+    let request: DeprecateSchemasRequest =
+        match typed_json_body(event, "Invalid deprecate-schemas request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
     match state.deprecate_schemas_reply(request).await {
         DeprecateSchemasReply::Ready(body) => json_response(200, &body),
         DeprecateSchemasReply::Failed { body, .. } => json_response(500, &body),

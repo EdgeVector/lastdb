@@ -108,19 +108,11 @@ pub(crate) fn post_schemas_mutation_challenge(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: SchemaMutationChallengeRequest = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!("Invalid challenge request: {e}")),
-            );
-        }
-    };
+    let request: SchemaMutationChallengeRequest =
+        match typed_json_body(event, "Invalid challenge request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
     match state.issue_schema_mutation_challenge_reply(&request, request_ip(event).as_deref()) {
         SchemaMutationChallengeReply::Created(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
@@ -148,19 +140,9 @@ pub(crate) async fn post_schemas(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!("Invalid JSON: {e}")),
-            );
-        }
+    let request: Value = match typed_json_body(event, "Invalid JSON") {
+        Ok(request) => request,
+        Err(response) => return response,
     };
 
     // Keep the raw `schema` sub-object: it is the payload the
@@ -316,22 +298,11 @@ pub(crate) fn post_schemas_batch_check_reuse(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: BatchSchemaReuseRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid batch-check-reuse request: {e}"
-                )),
-            );
-        }
-    };
+    let request: BatchSchemaReuseRequest =
+        match typed_json_body(event, "Invalid batch-check-reuse request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
 
     match state.batch_reuse_reply(&request.schemas) {
         BatchReuseReply::Ready(response) => {
@@ -345,22 +316,11 @@ pub(crate) fn post_schemas_resolve(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: SchemaResolveRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid schema resolve request: {e}"
-                )),
-            );
-        }
-    };
+    let request: SchemaResolveRequest =
+        match typed_json_body(event, "Invalid schema resolve request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
 
     match state.schema_resolve_reply(&request) {
         SchemaResolveReply::Ready(response) => {
