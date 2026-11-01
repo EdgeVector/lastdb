@@ -31,7 +31,7 @@ impl ExplainRequest {
         if body.class.trim().is_empty() || (body.id.trim().is_empty() && body.ids.is_empty()) {
             return Err("liveness explain requires class and id".to_string());
         }
-        if body.class.trim().to_ascii_lowercase() != "blob" {
+        if !body.class.trim().eq_ignore_ascii_case("blob") {
             return Err("class must be blob".to_string());
         }
         Ok(Self {
