@@ -3,6 +3,9 @@
 use super::*;
 use crate::schema::types::KeyValue;
 
+/// The mutations of each group, with the schema name, in stage order.
+type KeyGroups = Vec<(String, Vec<Mutation>)>;
+
 /// The keys of each schema that more than one group of the request writes.
 type RepeatedKeys = HashMap<String, HashSet<KeyValue>>;
 
@@ -167,7 +170,7 @@ impl MutationManager {
     fn independent_key_groups(
         &self,
         groups: Vec<(String, Vec<Mutation>)>,
-    ) -> Result<(Vec<(String, Vec<Mutation>)>, RepeatedKeys), SchemaError> {
+    ) -> Result<(KeyGroups, RepeatedKeys), SchemaError> {
         let mut result = Vec::new();
         let mut repeated = RepeatedKeys::new();
         for (name, mutations) in groups {
