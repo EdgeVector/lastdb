@@ -95,30 +95,6 @@ fn strip_org(key: &str) -> (Option<&str>, &str) {
     (None, key)
 }
 
-/// Administrative bounds for all current rows of a family selector.
-///
-/// The atom family has distinct anchored and compound rows.
-/// This range covers those rows without alternate exact-key probes or rewrites.
-#[must_use]
-pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
-    for kind in KIND_PARTITION_KINDS {
-        let suffix = format!("{kind}:");
-        if let Some(scope) = colon_prefix.strip_suffix(&suffix) {
-            if !scope.is_empty() && !scope.ends_with(':') {
-                continue;
-            }
-            let start = format!("{scope}{kind}{KIND_PARTITION_SEP}");
-            let end = if *kind == "atom" {
-                exclusive_prefix_end(colon_prefix)
-            } else {
-                exclusive_prefix_end(&start)
-            };
-            return (start, end);
-        }
-    }
-    exact_prefix_bounds(colon_prefix)
-}
-
 /// Return the half-open byte range for one physical prefix.
 ///
 /// The bytes name one prefix, molecule, generation, or other exact identity.
