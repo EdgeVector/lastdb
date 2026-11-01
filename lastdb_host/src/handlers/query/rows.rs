@@ -82,6 +82,7 @@ async fn execute_rows_captured<H: HostNode>(
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
+    let schema_name = query.schema_name.clone();
     let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
     // Scope the tally to this request. Atom hydration happens inside
@@ -157,7 +158,7 @@ async fn execute_rows_captured<H: HostNode>(
 
     let annotate_started = std::time::Instant::now();
     let mut drops = RowDrops::from(drops);
-    drops.conflict_flags = annotate_conflict_flags(host, &mut results).await;
+    drops.conflict_flags = annotate_conflict_flags(host, &schema_name, &mut results).await;
     if compact {
         super::output::compact_rows(&mut results, drops.conflict_flags);
     }

@@ -26,6 +26,7 @@ mod local_file_blobs;
 mod maintenance_admission;
 
 mod provenance;
+mod record_conflicts;
 mod schema_drop;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;

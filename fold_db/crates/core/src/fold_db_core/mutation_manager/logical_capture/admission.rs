@@ -31,8 +31,9 @@ impl MutationManager {
         }
         let mut schemas = BTreeMap::new();
         let mut guards = BTreeSet::new();
+        let record_home = self.db_ops.atoms().record_home();
         for mutation in mutations {
-            require_local_put(mutation)?;
+            require_local_put(mutation, record_home)?;
             if !schemas.contains_key(&mutation.schema_name) {
                 let schema = self
                     .schema_manager
@@ -110,11 +111,16 @@ impl MutationManager {
     }
 }
 
-fn require_local_put(mutation: &Mutation) -> Result<(), SchemaError> {
-    if !matches!(
-        mutation.mutation_type,
-        MutationType::Create | MutationType::Update
-    ) || mutation.imported_written_at.is_some()
+/// A format 7 home also captures a local delete: its record outcome carries
+/// the delete floor.
+fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), SchemaError> {
+    let local_kind = match mutation.mutation_type {
+        MutationType::Create | MutationType::Update => true,
+        MutationType::Delete => record_home,
+        _ => false,
+    };
+    if !local_kind
+        || mutation.imported_written_at.is_some()
         || mutation.provenance.is_some()
         || mutation.aggregate_set.is_some()
         || mutation.aggregate_derived_internal

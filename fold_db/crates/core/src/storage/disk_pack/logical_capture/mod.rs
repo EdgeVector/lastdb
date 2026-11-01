@@ -14,6 +14,7 @@ mod model;
 pub(crate) mod outcome;
 mod peer;
 mod reader;
+mod record_outcome;
 mod snapshot;
 pub(crate) mod snapshot_identity;
 mod store;
@@ -26,9 +27,11 @@ pub use adoption::{
     SnapshotAdoptionReplaySource, SnapshotAdoptionRequirement,
 };
 pub(crate) use bounded::preflight_outcome_size;
+pub(crate) use model::Outcomes;
 pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position};
 pub use outcome::AcceptedFieldOutcome;
 pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
+pub use record_outcome::{AcceptedRecordOutcome, RecordFieldOutcome};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};
 pub use snapshot_identity::{

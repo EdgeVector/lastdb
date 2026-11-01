@@ -28,6 +28,12 @@ impl PackRuntime {
         let pending = transaction::PendingBatch::current(self)
             .ok_or_else(|| invalid("logical peer import needs the data's native transaction"))?;
         let origin = verify_page(&events)?;
+        let version = if self.record_home() { 2 } else { 1 };
+        if events.iter().any(|event| event.version != version) {
+            return Err(invalid(
+                "logical peer import needs version 2 events in a format 7 home and version 1 elsewhere",
+            ));
+        }
         if origin == own_origin {
             return Err(invalid(
                 "logical peer import refuses this device's own origin",
@@ -56,7 +62,7 @@ impl PackRuntime {
                 .map_or_else(|| peer.position.clone(), CaptureEvent::position),
             imported_events: fresh,
             duplicate_events: duplicates,
-            imported_outcomes: events.iter().map(|event| event.outcomes.len()).sum(),
+            imported_outcomes: events.iter().map(CaptureEvent::outcome_count).sum(),
             receipt_count: after_roster.receipt_count,
         };
         Ok(PreparedLogicalImport {

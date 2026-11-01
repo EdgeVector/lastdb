@@ -3,9 +3,10 @@
 use std::collections::{BTreeSet, HashMap};
 
 use fold_db::access::AccessContext;
+use fold_db::db_operations::atom_store::RecordFieldConflicts;
 use fold_db::db_operations::MoleculeConflictState;
 use fold_db::schema::types::field::FieldKind;
-use fold_db::schema::types::Schema;
+use fold_db::schema::types::{KeyValue, Schema};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -49,6 +50,9 @@ pub(super) struct SelectedConflictKey {
     pub(super) schema_name: String,
     pub(super) fields: Vec<String>,
     hash: String,
+    /// The range of a HashRange record. Only a format 7 home reads it.
+    #[serde(default)]
+    pub(super) range: Option<String>,
 }
 
 impl SelectedConflictKey {
@@ -57,6 +61,7 @@ impl SelectedConflictKey {
             || self.schema_name.len() > 512
             || self.hash.is_empty()
             || self.hash.len() > 4096
+            || self.range.as_ref().is_some_and(|range| range.len() > 4096)
             || self.fields.is_empty()
             || self.fields.len() > MAX_FIELDS_PER_KEY
             || self
@@ -113,4 +118,64 @@ pub(super) fn field_result(
         })
         .collect();
     serde_json::json!({ "state": combined, "fields": fields })
+}
+
+/// The primary key of a format 7 selection. Each field is declared, and the
+/// range is present exactly for a HashRange schema.
+pub(super) fn record_key(
+    schema: &Schema,
+    key: &SelectedConflictKey,
+) -> Result<KeyValue, HostError> {
+    for name in &key.fields {
+        let field = schema
+            .runtime_fields
+            .get(name)
+            .ok_or_else(|| HostError::new(400, "conflict_field_not_found"))?;
+        let ranged = field.kind == FieldKind::HashRange;
+        if ranged != key.range.is_some() {
+            return Err(HostError::new(400, "conflict_key_range_mismatch"));
+        }
+    }
+    Ok(KeyValue::new(Some(key.hash.clone()), key.range.clone()))
+}
+
+/// One selected record: each field with its kept losing values.
+pub(super) fn record_result(fields: Vec<RecordFieldConflicts>) -> Value {
+    use MoleculeConflictState::{Clean, Conflict};
+    let mut combined = Clean;
+    let fields: Vec<_> = fields
+        .into_iter()
+        .map(|field| {
+            let state = if field.conflicts.is_empty() {
+                Clean
+            } else {
+                Conflict
+            };
+            if state == Conflict {
+                combined = Conflict;
+            }
+            serde_json::json!({
+                "field": field.field,
+                "state": state,
+                "conflicts": field.conflicts,
+            })
+        })
+        .collect();
+    serde_json::json!({ "state": combined, "fields": fields })
+}
+
+/// A selected record whose read did not complete: unknown, not clean.
+pub(super) fn unknown_record_result(key: &SelectedConflictKey) -> Value {
+    let fields: Vec<_> = key
+        .fields
+        .iter()
+        .map(|field| {
+            serde_json::json!({
+                "field": field,
+                "state": MoleculeConflictState::Unknown,
+                "conflicts": [],
+            })
+        })
+        .collect();
+    serde_json::json!({ "state": MoleculeConflictState::Unknown, "fields": fields })
 }

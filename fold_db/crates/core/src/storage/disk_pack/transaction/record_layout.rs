@@ -1,10 +1,10 @@
 //! A format 7 home stores records. It refuses a field molecule writer.
 //!
-//! The native create and update path writes records in a format 7 home. The
-//! other data writers (delete, purge, peer import, restore, aggregates) still
-//! write field molecule tips, delete barriers or generations. Until each moves
-//! to records, its request fails before native acceptance instead of mixing
-//! the two layouts in one home.
+//! The native create, update and delete path and the peer import write
+//! records in a format 7 home. The other data writers (purge, restore,
+//! aggregates) still write field molecule tips, delete barriers or
+//! generations. Until each moves to records, its request fails before native
+//! acceptance instead of mixing the two layouts in one home.
 
 use super::*;
 

@@ -53,6 +53,7 @@ mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod owned_layout;
+mod record_conflicts;
 mod record_reads;
 mod records;
 mod retention;
@@ -81,6 +82,8 @@ pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOu
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
+pub(crate) use record_conflicts::LostWrite;
+pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use records::{record_scope, RecordChange};
 pub use retention::ConflictRetentionReport;

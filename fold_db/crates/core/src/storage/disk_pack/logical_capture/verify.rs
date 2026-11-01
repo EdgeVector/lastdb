@@ -8,11 +8,18 @@ use std::collections::BTreeSet;
 impl CaptureEvent {
     pub fn verify(&self) -> StorageResult<()> {
         bounded::serialized_size(self)?;
-        if self.version != 1 || self.sequence == 0 {
+        // Version 1 carries field outcomes only, version 2 record outcomes only.
+        let shape = match self.version {
+            1 => self.records.is_empty(),
+            2 => self.outcomes.is_empty(),
+            _ => false,
+        };
+        if !shape || self.sequence == 0 {
             return Err(invalid("logical capture event version or sequence differs"));
         }
         mutation_ids(&self.mutation_ids)?;
         outcomes(&self.outcomes, &self.mutation_ids)?;
+        records(&self.records, &self.mutation_ids)?;
         unhex::<32>(&self.previous_sha256)?;
         let expected = unhex::<32>(&self.sha256)?;
         let signature = Signature::from_bytes(&unhex::<64>(&self.signature)?);
@@ -68,6 +75,32 @@ pub(super) fn outcomes(
         .any(|entry| !mutation_ids.contains(&entry.tip.mutation_uuid))
     {
         return Err(invalid("logical capture outcome has an unnamed mutation"));
+    }
+    Ok(())
+}
+
+/// Each record outcome changes something, and each of its stamps names a
+/// mutation of the event. One request is one record outcome for each key, and
+/// the field outcomes of the event stay under the field cap of version 1.
+pub(super) fn records(
+    entries: &[AcceptedRecordOutcome],
+    mutation_ids: &[String],
+) -> StorageResult<()> {
+    let fields: usize = entries.iter().map(|entry| entry.fields.len()).sum();
+    if entries.len() > MAX_MUTATIONS || fields > MAX_OUTCOMES {
+        return Err(StorageError::MutationLimit {
+            detail: "logical capture exceeds 128 record or 1024 field outcomes".into(),
+        });
+    }
+    if entries.iter().any(|entry| {
+        (entry.fields.is_empty() && entry.meta.is_none() && entry.deleted.is_none())
+            || entry
+                .stamps()
+                .any(|stamp| !mutation_ids.contains(&stamp.mutation_id))
+    }) {
+        return Err(invalid(
+            "logical capture record outcome is empty or has an unnamed mutation",
+        ));
     }
     Ok(())
 }

@@ -1,4 +1,5 @@
 use super::super::molecules::PreparedFieldAtom;
+use super::records::RecordCandidates;
 use super::*;
 use crate::atom::AtomEntry;
 use crate::storage::disk_pack::logical_capture::outcome::AcceptedFieldOutcomeRef;
@@ -13,9 +14,18 @@ pub(in crate::fold_db_core::mutation_manager) struct Candidate {
     bytes: usize,
 }
 
+/// The facts of one native request: field tips in a format 4 to 6 home,
+/// records in a format 7 home.
+#[derive(Default)]
+pub(in crate::fold_db_core::mutation_manager) struct Collected {
+    pub fields: Candidates,
+    pub records: RecordCandidates,
+}
+
 #[derive(Default)]
 struct Collector {
     candidates: Candidates,
+    records: RecordCandidates,
     bytes: usize,
 }
 
@@ -26,19 +36,32 @@ tokio::task_local! {
 pub(in crate::fold_db_core::mutation_manager) async fn collect<T>(
     runtime: &PackRuntime,
     future: impl std::future::Future<Output = Result<T, SchemaError>>,
-) -> Result<(T, Candidates), SchemaError> {
+) -> Result<(T, Collected), SchemaError> {
     if !runtime.logical_capture_enabled() {
-        return Ok((future.await?, Candidates::new()));
+        return Ok((future.await?, Collected::default()));
     }
     CANDIDATES
         .scope(Mutex::new(Collector::default()), async {
             let result = future.await?;
-            let candidates = CANDIDATES.with(|state| {
-                std::mem::take(&mut state.lock().expect("logical capture candidates").candidates)
+            let collected = CANDIDATES.with(|state| {
+                let mut state = state.lock().expect("logical capture candidates");
+                Collected {
+                    fields: std::mem::take(&mut state.candidates),
+                    records: std::mem::take(&mut state.records),
+                }
             });
-            Ok((result, candidates))
+            Ok((result, collected))
         })
         .await
+}
+
+/// Run `apply` on the record candidates of the current capture scope.
+pub(super) fn with_record_candidates<T>(
+    apply: impl FnOnce(&mut RecordCandidates) -> Result<T, SchemaError>,
+) -> Result<T, SchemaError> {
+    CANDIDATES
+        .try_with(|state| apply(&mut state.lock().expect("logical capture candidates").records))
+        .map_err(|_| unsupported("an uncaptured native preparation"))?
 }
 
 impl MutationManager {

@@ -44,8 +44,8 @@ impl MutationManager {
         // A format 7 home deletes inside the native request: a delete merges
         // into its record as the delete floor, in caller order with the other
         // writes (write/records.rs). There is no tip, barrier or erase lane to
-        // peel to. Replay never reaches here: such a home refuses capture and
-        // aggregate writes.
+        // peel to. Such a home refuses aggregate writes, and a peer import
+        // merges records in its own request (peer_import/records).
         if self.db_ops.atoms().record_home() {
             return self
                 .write_create_update_batch_async(

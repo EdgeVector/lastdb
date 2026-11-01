@@ -1,7 +1,7 @@
 name: Record home product proof
 
 # ci-required calls this workflow. A product diff runs the format 7 (record
-# model) fresh-home proof.
+# model) fresh-home proof and the two-home peer sync proof.
 # Any other pull request skips that build and still reports success.
 on:
   workflow_call:
@@ -57,7 +57,7 @@ jobs:
                 while IFS= read -r path; do
                   [ -z "$path" ] && continue
                   case "$path" in
-                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|scripts/operations/record_home.py|scripts/benchmarks/node.py|.github/workflows/record-home.yml)
+                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|scripts/operations/record_home.py|scripts/operations/record_peer_sync.py|scripts/benchmarks/node.py|.github/workflows/record-home.yml)
                       run=true
                       ;;
                   esac
@@ -94,6 +94,13 @@ jobs:
           python3 scripts/operations/record_home.py --daemon "$PWD/target/debug/lastdbd" \
             --revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/record-home" 2>&1 | tee "$RUNNER_TEMP/record-home.log"
+      - name: Sync two fresh generated format 7 homes field by field
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/record_peer_sync.py --daemon "$PWD/target/debug/lastdbd" \
+            --revision "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/record-peer-sync" 2>&1 | tee "$RUNNER_TEMP/record-peer-sync.log"
       - uses: actions/upload-artifact@v4
         id: evidence
         if: always()
@@ -102,6 +109,8 @@ jobs:
           path: |
             ${{ runner.temp }}/record-home
             ${{ runner.temp }}/record-home.log
+            ${{ runner.temp }}/record-peer-sync
+            ${{ runner.temp }}/record-peer-sync.log
           retention-days: 7
           if-no-files-found: warn
       - name: Publish the result
