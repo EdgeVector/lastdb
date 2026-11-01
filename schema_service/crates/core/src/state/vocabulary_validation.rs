@@ -1,5 +1,21 @@
 //! Fail closed before a loaded registry or imported snapshot becomes visible.
+use serde_json::{json, Value};
+
 use super::*;
+
+/// The field-vocabulary check both HTTP routers answer before an add.
+///
+/// Success continues the add. Failure is HTTP 400.
+/// `body` is `{ "error": "{detail}" }`. The detail is the error text.
+#[derive(Debug)]
+pub enum FieldVocabularyReply {
+    /// The proposal vocabulary is accepted.
+    Ready,
+    /// The proposal vocabulary is refused. HTTP 400.
+    ///
+    /// `body` is `{ "error": "{detail}" }`.
+    Refused { body: Value },
+}
 
 impl SchemaServiceState {
     pub(super) fn validate_loaded_vocabulary(&self) -> FoldDbResult<()> {
@@ -79,7 +95,8 @@ impl SchemaServiceState {
     /// Refresh only for a new concept. Existing definitions are immutable;
     /// new declarations must work across warm Lambda instances without a deploy.
     pub async fn validate_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<()> {
-        // Both HTTP adapters call this before idempotent/cover fast paths.
+        // HTTP adapters call [`Self::field_vocabulary_reply`] before the
+        // idempotent and cover fast paths. That reply calls this method.
         // Loaded definitions and snapshots use their trusted validators.
         Self::validate_proposal_shape(schema)?;
         let mut names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
@@ -92,6 +109,20 @@ impl SchemaServiceState {
         self.refresh_vocabulary_for_names(&names).await?;
         self.refresh_schema_declarations(&[schema]).await?;
         self.normalized_schema_field_vocabulary(schema).map(|_| ())
+    }
+
+    /// The same call as [`Self::validate_schema_field_vocabulary`], classified for HTTP.
+    ///
+    /// A failure stays HTTP 400. The body is `{ "error": "{detail}" }`.
+    /// The validate method stays public. Each router still writes the response.
+    #[must_use]
+    pub async fn field_vocabulary_reply(&self, schema: &Schema) -> FieldVocabularyReply {
+        match self.validate_schema_field_vocabulary(schema).await {
+            Ok(()) => FieldVocabularyReply::Ready,
+            Err(error) => FieldVocabularyReply::Refused {
+                body: json!({"error": error.to_string()}),
+            },
+        }
     }
 
     pub fn normalized_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<Schema> {

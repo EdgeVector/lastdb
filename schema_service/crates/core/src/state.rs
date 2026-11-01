@@ -59,6 +59,7 @@ pub use resolve::{
     SimilarSchemasReply, SimilarityThresholdReply, MAX_SCHEMA_RESOLVE_PROPOSALS,
 };
 pub use telemetry_reply::SchemaMatchTelemetryReply;
+pub use vocabulary_validation::FieldVocabularyReply;
 
 /// Compose the key used in `descriptive_name_index` (and
 /// `descriptive_name_embeddings`) so dedup is scoped by `owner_app_id`.
