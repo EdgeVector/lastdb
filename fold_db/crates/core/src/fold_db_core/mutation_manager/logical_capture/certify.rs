@@ -1,7 +1,10 @@
-use super::collector::Candidates;
+use super::collector::{Candidates, Collected};
+use super::records::record_outcomes;
 use super::*;
 use crate::atom::file_pointer::blob_refs_of_atom;
-use crate::storage::disk_pack::logical_capture::{preflight_outcome_size, AcceptedFieldOutcome};
+use crate::storage::disk_pack::logical_capture::{
+    preflight_outcome_size, AcceptedFieldOutcome, Outcomes,
+};
 
 impl MutationManager {
     /// Data, original outcomes, and the device head enter one native commit.
@@ -9,12 +12,21 @@ impl MutationManager {
         &self,
         runtime: &Arc<PackRuntime>,
         identities: &[String],
-        candidates: Candidates,
+        collected: Collected,
     ) -> Result<(), SchemaError> {
         if !runtime.logical_capture_enabled() {
             return Ok(());
         }
-        let outcomes = self.certify_logical_outcomes(runtime, candidates).await?;
+        // A format 7 home stages each final record in this request, so the
+        // staged value is the certified effect; there is no tip to re-read.
+        let outcomes = if runtime.record_home() {
+            Outcomes::Records(record_outcomes(collected.records, identities)?)
+        } else {
+            Outcomes::Fields(
+                self.certify_logical_outcomes(runtime, collected.fields)
+                    .await?,
+            )
+        };
         runtime.stage_logical_capture(identities, outcomes).await?;
         Ok(())
     }

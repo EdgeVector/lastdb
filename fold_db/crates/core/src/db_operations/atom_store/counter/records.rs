@@ -23,6 +23,7 @@ use super::molecule_plan::Change;
 use super::refs::event_atoms;
 use crate::atom::MutationEvent;
 use crate::db_operations::atom_store::conflict_record::is_counted_record_key;
+use crate::db_operations::atom_store::record_conflicts::is_record_conflict_row_key;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -78,6 +79,8 @@ pub(super) struct Released {
     deletes: Vec<Vec<u8>>,
     /// Releases whose history row was already gone. Their other rows still go.
     gone: u64,
+    /// Conflict rows of a format 7 home released. They hold no reference.
+    inline: u64,
 }
 
 impl Released {
@@ -99,7 +102,7 @@ impl Released {
     /// releases whose history row was already gone. A release that the run
     /// keeps (a row that does not decode) is not counted.
     pub(super) fn count(&self) -> u64 {
-        self.atoms.len() as u64 + self.gone
+        self.atoms.len() as u64 + self.gone + self.inline
     }
 
     /// One record less for the molecule of each released row. The planner
@@ -144,11 +147,17 @@ impl AtomStore {
         releases: Vec<ReleaseRequest>,
     ) -> Result<Released, SchemaError> {
         let mut seen = BTreeSet::new();
-        let releases: Vec<ReleaseRequest> = releases
+        let (inline, releases): (Vec<ReleaseRequest>, Vec<ReleaseRequest>) = releases
             .into_iter()
             .filter(|release| seen.insert(release.history.clone()))
-            .collect();
-        let mut out = Released::default();
+            .partition(|release| is_record_conflict_row_key(&release.history));
+        let inline = self.release_record_conflicts(&inline).await?;
+        let mut out = Released {
+            deletes: inline.deletes,
+            gone: inline.gone,
+            inline: inline.released,
+            ..Released::default()
+        };
         for chunk in releases.chunks(READ_CHUNK) {
             let keys: Vec<Vec<u8>> = chunk
                 .iter()

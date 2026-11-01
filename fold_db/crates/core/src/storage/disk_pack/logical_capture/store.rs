@@ -126,12 +126,17 @@ impl PackRuntime {
     pub(crate) async fn stage_logical_capture(
         self: &Arc<Self>,
         mutation_ids: &[String],
-        outcomes: Vec<AcceptedFieldOutcome>,
+        outcomes: Outcomes,
     ) -> StorageResult<Position> {
         let capture = self
             .logical_capture
             .as_ref()
             .ok_or_else(|| invalid("logical capture is disabled"))?;
+        if self.record_home() != matches!(outcomes, Outcomes::Records(_)) {
+            return Err(invalid(
+                "a format 7 home captures records; another home captures field tips",
+            ));
+        }
         let pending = transaction::PendingBatch::current(self).ok_or_else(|| {
             invalid("logical capture requires the data's active native transaction")
         })?;

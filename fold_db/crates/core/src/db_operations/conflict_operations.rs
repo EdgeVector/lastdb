@@ -111,6 +111,10 @@ pub enum HomeConflictAnnotation {
     /// Stamp `complete: false`. `molecules` is a lower bound. Every other
     /// field is unknown, not clean.
     Incomplete { molecules: HashSet<String> },
+    /// A format 7 home: conflicts belong to records, not to molecules. The
+    /// caller reads the conflict markers of its rows by key
+    /// (`FoldDB::record_conflict_flags`).
+    Records,
 }
 
 /// One append. The value is the molecule uuid, not the conflict payload.

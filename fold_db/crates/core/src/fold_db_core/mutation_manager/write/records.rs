@@ -38,7 +38,7 @@ impl MutationManager {
         let schema = self
             .load_schema_for_delta(schema_name, storage_prefix)
             .await?;
-        self.require_record_write(&schema, &mutations, storage_prefix, runtime)
+        self.require_record_write(&schema, &mutations, storage_prefix)
             .await?;
         let scope = record_scope(&schema);
         let atoms = self.db_ops.atoms();
@@ -52,7 +52,6 @@ impl MutationManager {
         }
         let stored = atoms.read_records(&record_keys).await?;
 
-        let alternates = !schema.alternate_keys.is_empty();
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
         let (mut changed_keys, mut before_fields, mut after_fields) =
@@ -65,15 +64,14 @@ impl MutationManager {
                 continue;
             }
             changed.push(ChangedRecord { mutation, key });
-            if alternates {
-                changed_keys.push(key.clone());
-                before_fields.push(if let Some(record) = &before {
-                    record.fields.clone()
-                } else {
-                    std::collections::BTreeMap::new()
-                });
-                after_fields.push(after.fields.clone());
-            }
+            changed_keys.push(key.clone());
+            before_fields.push(
+                before
+                    .as_ref()
+                    .map(|record| record.fields.clone())
+                    .unwrap_or_default(),
+            );
+            after_fields.push(after.fields.clone());
             changes.push(RecordChange {
                 key: record_key,
                 before,
@@ -87,6 +85,9 @@ impl MutationManager {
             &after_fields,
             scope.as_deref(),
         )?;
+        if runtime.logical_capture_enabled() {
+            self.collect_logical_records(&schema, &changed_keys, &changes)?;
+        }
         self.stage_records_with_effects(
             &schema,
             (storage_prefix, scope.as_deref()),
@@ -128,13 +129,7 @@ impl MutationManager {
         schema: &Schema,
         mutations: &[Mutation],
         storage_prefix: Option<&str>,
-        runtime: &PackRuntime,
     ) -> Result<(), SchemaError> {
-        // Capture marks the request ready even with no candidate, so an
-        // uncaptured record write would pass the capture gate.
-        if runtime.logical_capture_enabled() {
-            return Err(unsupported("a write in a home with logical capture"));
-        }
         if !self
             .active_share_prefixes(&schema.name, storage_prefix)
             .await?

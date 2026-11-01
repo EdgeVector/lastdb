@@ -3,6 +3,7 @@
 mod admission;
 mod prepare;
 mod publication;
+mod records;
 
 use super::helpers::ModifiedFieldKeys;
 use super::molecules::DeferredPersistJob;
@@ -36,21 +37,30 @@ impl MutationManager {
             let pending = self.pending_tasks.begin();
             transaction::request_scope(Some(Arc::clone(&runtime)), async {
                 let prepared = runtime.begin_logical_import(events).await?;
-                self.require_peer_replay_floor(prepared.events()).await?;
-                self.admit_peer_outcomes(prepared.events()).await?;
+                let events = prepared.events();
+                self.require_peer_replay_floor(events).await?;
+                // A format 7 home merges record outcomes; another home stages
+                // field tips through the counted atom path.
+                let records = if runtime.record_home() {
+                    Some(self.admit_peer_records(events).await?)
+                } else {
+                    self.admit_peer_outcomes(events).await?;
+                    None
+                };
                 // No queue wait is legal under the native prepare gate. Observe the
                 // authenticated clocks under the short resident lock, then stage a
                 // monotonic durable maximum in this same request. Failure can leave
                 // a counter gap, as on the ordinary author-clock allocation path.
-                self.observe_peer_clocks(prepared.events());
-                for event in prepared.events() {
-                    self.stage_peer_event(event, &runtime).await?;
+                self.observe_peer_clocks(events);
+                match &records {
+                    Some(schemas) => self.stage_peer_records(events, schemas, &runtime).await?,
+                    None => {
+                        for event in events {
+                            self.stage_peer_event(event, &runtime).await?;
+                        }
+                    }
                 }
-                if prepared
-                    .events()
-                    .iter()
-                    .any(|event| !event.outcomes.is_empty())
-                {
+                if events.iter().any(|event| event.outcome_count() > 0) {
                     self.stage_native_author_clock().await?;
                 }
                 let receipt = runtime.stage_logical_import(prepared).await?;
@@ -68,12 +78,8 @@ impl MutationManager {
             .author_clock_state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for tip in events
-            .iter()
-            .flat_map(|event| &event.outcomes)
-            .map(|fact| &fact.tip)
-        {
-            state.observe_remote(tip.written_at, tip.logical_counter);
+        for (written_at, logical_counter) in event_clocks(events) {
+            state.observe_remote(written_at, logical_counter);
         }
     }
 
@@ -125,4 +131,20 @@ impl MutationManager {
         }
         Ok(())
     }
+}
+
+/// The write time and logical counter of each tip and record stamp.
+fn event_clocks(events: &[CaptureEvent]) -> impl Iterator<Item = (u64, u64)> + '_ {
+    events.iter().flat_map(|event| {
+        let tips = event
+            .outcomes
+            .iter()
+            .map(|fact| (fact.tip.written_at, fact.tip.logical_counter));
+        let stamps = event
+            .records
+            .iter()
+            .flat_map(|record| record.stamps())
+            .map(|stamp| (stamp.written_at, stamp.logical_counter));
+        tips.chain(stamps)
+    })
 }

@@ -5,6 +5,7 @@ pub(super) use admission::require_plain_schema;
 mod certify;
 mod collector;
 pub(super) use collector::collect;
+mod records;
 
 use super::MutationManager;
 use crate::schema::types::Mutation;

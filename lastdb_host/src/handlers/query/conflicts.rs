@@ -11,12 +11,26 @@ mod rules;
 ///
 /// `LASTDB_HOME_CONFLICT_INDEX_DISABLE` selects bounded per-molecule reads.
 /// The reads stay unprefixed; org-prefixed conflicts stay out of this index.
+///
+/// A format 7 home reads the conflict markers of the rows of `schema_name` by
+/// key, and stamps each conflicted field.
 pub(in crate::handlers) async fn annotate_conflict_flags<H: HostNode>(
     host: &H,
+    schema_name: &str,
     results: &mut [Value],
 ) -> &'static str {
     let db = host.fold_db();
     match db.db_ops().read_home_conflict_annotation(None).await {
+        HomeConflictAnnotation::Records => {
+            if results.is_empty() {
+                return "known";
+            }
+            let flags = match rules::row_keys(results) {
+                Some(keys) => db.record_conflict_flags(schema_name, &keys).await,
+                None => None,
+            };
+            rules::stamp_record_conflict_flags(results, flags.as_deref())
+        }
         HomeConflictAnnotation::Disabled => {
             let molecules = rules::collect_molecule_uuids(results);
             if molecules.is_empty() {

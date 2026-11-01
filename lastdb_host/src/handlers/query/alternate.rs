@@ -34,6 +34,7 @@ pub(super) async fn execute<H: HostNode>(
     }
     let limit = clamp_request_limit(limit);
     let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;
+    let schema_name = query.schema_name.clone();
     let page = host
         .fold_db()
         .query_executor()
@@ -58,7 +59,7 @@ pub(super) async fn execute<H: HostNode>(
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);
     }
-    let conflict_flags = annotate_conflict_flags(host, &mut results).await;
+    let conflict_flags = annotate_conflict_flags(host, &schema_name, &mut results).await;
     if compact {
         output::compact_rows(&mut results, conflict_flags);
     }

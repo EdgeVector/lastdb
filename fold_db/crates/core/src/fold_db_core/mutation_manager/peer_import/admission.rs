@@ -15,15 +15,12 @@ impl MutationManager {
         &self,
         events: &[CaptureEvent],
     ) -> Result<(), SchemaError> {
-        if events.iter().all(|event| event.outcomes.is_empty()) {
+        if events.iter().all(|event| event.outcome_count() == 0) {
             return Ok(());
         }
         let cutoff_nanos = self.db_ops.atoms().minimum_replay_time().await?;
         if cutoff_nanos > 0
-            && events
-                .iter()
-                .flat_map(|event| &event.outcomes)
-                .any(|outcome| outcome.tip.written_at <= cutoff_nanos)
+            && super::event_clocks(events).any(|(written_at, _)| written_at <= cutoff_nanos)
         {
             return Err(SchemaError::ReplayBeforeDeleteCutoff { cutoff_nanos });
         }
