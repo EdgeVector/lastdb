@@ -36,7 +36,7 @@ impl MutationManager {
                 .ok_or_else(|| unsupported("a home without native logical capture"))?;
             let pending = self.pending_tasks.begin();
             transaction::request_scope(Some(Arc::clone(&runtime)), async {
-                let prepared = runtime.begin_logical_import(events).await?;
+                let prepared = Box::pin(runtime.begin_logical_import(events)).await?;
                 let events = prepared.events();
                 self.require_peer_replay_floor(events).await?;
                 // A format 7 home merges record outcomes; another home stages
@@ -44,7 +44,7 @@ impl MutationManager {
                 let records = if runtime.record_home() {
                     Some(Box::pin(self.admit_peer_records(events)).await?)
                 } else {
-                    self.admit_peer_outcomes(events).await?;
+                    Box::pin(self.admit_peer_outcomes(events)).await?;
                     None
                 };
                 // No queue wait is legal under the native prepare gate. Observe the
@@ -58,14 +58,14 @@ impl MutationManager {
                     }
                     None => {
                         for event in events {
-                            self.stage_peer_event(event, &runtime).await?;
+                            Box::pin(self.stage_peer_event(event, &runtime)).await?;
                         }
                     }
                 }
                 if events.iter().any(|event| event.outcome_count() > 0) {
                     self.stage_native_author_clock().await?;
                 }
-                let receipt = runtime.stage_logical_import(prepared).await?;
+                let receipt = Box::pin(runtime.stage_logical_import(prepared)).await?;
                 self.reserve_native_core_memory(&runtime)?;
                 transaction::retain(&runtime, pending)?;
                 Ok::<_, SchemaError>(receipt)

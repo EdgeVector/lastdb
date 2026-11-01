@@ -230,10 +230,10 @@ async fn perform(host: &Host, request: Request) -> Result<Value, String> {
                 .map_err(|error| error.to_string())?;
             encoded(serde_json::json!({ "peers": peers }))
         }
+        // The import future is large in an unoptimized build; keep it off
+        // the UDS worker stack.
         Request::Import { events } => encoded(
-            host.db
-                .mutation_manager()
-                .import_logical_events(events)
+            Box::pin(host.db.mutation_manager().import_logical_events(events))
                 .await
                 .map_err(|error| error.to_string())?,
         ),
