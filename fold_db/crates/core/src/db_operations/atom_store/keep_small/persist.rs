@@ -4,9 +4,9 @@ impl AtomStore {
     /// Mark the meters dirty and point-put them if the debounce interval has
     /// elapsed, so a later boot sees roughly the same live totals.
     ///
-    /// Called from every atom and molecule write path. A persist writes the
-    /// small header plus shards for schemas that changed since the last
-    /// durable write. A skipped write leaves the dirty flag set;
+    /// Called when a schema install seeds its molecule counters. A persist
+    /// writes the small header plus shards for schemas that changed since the
+    /// last durable write. A skipped write leaves the dirty flag set;
     /// [`Self::flush_keep_small`] still lands it. See
     /// [`KEEP_SMALL_PERSIST_INTERVAL`].
     pub async fn persist_keep_small(&self) -> Result<(), crate::schema::SchemaError> {

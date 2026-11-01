@@ -31,17 +31,14 @@ It does not edit snapshot bytes or contact a sender.
 The generated subscriptions contain no cloud grant or encryption secret.
 The homes have no cloud configuration or sync engine.
 
-In a format 7 home, the candidate helper also checks the send side of sharing.
+The helper also checks the send side of sharing.
 It writes one generated share rule for the independent schema.
 It writes two personal records under the hash `send-check` and updates one record.
 It then reads that hash in the personal scope and in the rule's share scope.
 The values must match, or the helper fails the run.
 No workload selector reads the hash `send-check`.
-A format 4 to 6 home skips this check.
-That home copies the complete key set of each touched field molecule to the share scope.
-With the 1,216 local keys of the independent schema, one copy exceeds the 16,384-operation cap of one native mutation.
 
-Each exact source supplies its own helper for its storage format.
+Each exact source supplies its own helper.
 Both helpers receive identical generated mutations. The recipe checks the input hashes and final values before a comparison.
 The manifest records both helper revisions, executable SHA256 values, and input hashes.
 Seed time is excluded from all query latency results.
@@ -51,9 +48,8 @@ Only dependency downloads use the cache.
 
 ## Home format
 
-The candidate release creates only format 7 homes, which store one record per key.
-The run fails unless the candidate home marker is format 7.
-The baseline keeps the default fresh-home format of its release.
+Every release creates only format 7 homes, which store one record per key.
+The run fails unless the home marker of each run is format 7.
 The summary names the home format of each run.
 
 ## Range operations and latency
@@ -68,7 +64,7 @@ An unexpected error or an incomplete candidate operation fails the workflow.
 
 Both variants receive a complete known-key prefill immediately before the latency sample, after the broad walks.
 The latency comparison uses 32 identical 128-key intervals with 64-record pages.
-Two matched pairs use typed range keys and each release's default fresh-home format.
+Two matched pairs use typed range keys and fresh format 7 homes.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.

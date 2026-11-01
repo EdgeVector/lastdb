@@ -52,11 +52,10 @@ pub use delete_ledger::{
 };
 pub use keep_small::{
     keep_small_schema_shard_key, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,
-    LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState, MoleculeStorageCounter,
-    MoleculeTipCounterSource, SchemaMeter, KEEP_SMALL_SCHEMA_SHARD_PREFIX,
-    KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY, KEEP_SMALL_SNAPSHOT_VERSION,
-    KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA, KEEP_SMALL_UNATTRIBUTED_SHARD_KEY,
-    LIVE_BUDGET_BYTES,
+    MeterDomainTrust, MeterTrustPayload, MeterTrustState, MoleculeStorageCounter, SchemaMeter,
+    KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
+    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA,
+    KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.

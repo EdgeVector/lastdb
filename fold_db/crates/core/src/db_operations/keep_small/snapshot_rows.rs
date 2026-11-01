@@ -10,9 +10,10 @@ use super::*;
 pub struct KeepSmallSnapshot {
     /// Version 2 stores aggregate state directly. Older snapshots require
     /// journal replay and cannot establish meter trust in this implementation.
+    /// A version 2 snapshot of an older program also holds `totals`, the
+    /// format 6 atom, tip and bookkeeping totals; serde ignores it on hydrate.
     #[serde(default)]
     pub version: u32,
-    pub totals: LiveBudgetTotals,
     pub schemas: HashMap<String, SchemaMeter>,
     /// One compact counter per molecule that this process has observed on the
     /// normal mutation path.  Missing old snapshots are intentionally not

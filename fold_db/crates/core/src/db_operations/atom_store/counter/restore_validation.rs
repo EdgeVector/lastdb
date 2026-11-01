@@ -89,7 +89,7 @@ async fn restored_scopes(
         let mut keys = Vec::new();
         for (key, _) in page.rows {
             crate::storage::current_keys::validate("main", &key)?;
-            if crate::storage::current_keys::counter_owned("main", &key)? {
+            if crate::storage::current_keys::counter_owned(&key)? {
                 let text =
                     std::str::from_utf8(&key).map_err(|_| invalid("invalid restored key"))?;
                 scopes.insert(crate::storage::current_keys::exact_scope(text)?.map(str::to_owned));

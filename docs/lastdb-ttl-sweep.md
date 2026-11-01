@@ -1,86 +1,95 @@
 # TTL sweep: verb, pacing and knobs
 
-The node-local TTL sweep (`lastdb_node/src/jobs/ttl_sweep.rs`) erases the expired keys of every
+The node-local TTL sweep (`lastdb_node/src/jobs/ttl_sweep.rs`) erases the expired records of every
 schema that has a retention policy. The age rule is in
 `fold_db/crates/core/src/schema/schema_types.rs` (`SchemaRetentionPolicy`) and in
-`lastdb schema-retention set --help`. This page covers what the sweep does with the keys it
-selected, the two verbs, what each verb leaves on disk, how the sweep paces itself, the guard
-for rewritten keys, the measured cost, and the knobs.
+`lastdb schema-retention set --help`. This page covers how the sweep finds the expired keys, the
+two verbs, what each verb leaves on disk, the guard for rewritten keys, the batch size, the
+pacing, the knobs and the status.
 
-The default verb is `purge`. It uses the atom counter.
-The same batch frees each body whose last reference goes.
-`delete` is opt-in because it leaves barrier rows.
+Every home is format 7. A home stores one record for each key (`rk:`). A TTL erase changes that
+record into a tombstone. It does not remove the record row.
+
+The default verb is `purge`. It also releases the field history and the kept conflict rows of
+the record. `delete` keeps them until their own windows end.
 The owner can raise the home-wide [replay cutoff](delete-replay-cutoff.md) on a stopped home.
 
 ## Schema shape that a TTL needs
 
 A TTL deletes records for good. The sweep finds the expired keys without a scan only when the schema
-has the right shape (`docs/app-manifest-retention.md`).
+has the right shape (`docs/app-manifest-retention.md`). A format 7 home has only Hash and HashRange
+schemas.
 
-- A Range or HashRange schema needs a range key that starts with 20 digits of unix seconds, zero-padded.
+- A HashRange schema needs a range key that starts with 20 digits of unix seconds, zero-padded.
   A key that does not start with 20 ASCII digits has no entry time, and the sweep never expires it.
 - Use a day-slice hash for a HashRange log (for example the day of the entry). The sweep lists the
   expired keys hash by hash, in the hashes that it has seen written since the policy exists. A
   day-slice hash keeps each hash small, so one listing reads few keys.
+- A Hash schema ages each record by its write time: the newest field stamp of the record. Each
+  write records that age in the age index of the schema in the same durable commit.
 - Set the policy before the first write, or explicitly backfill existing personal Hash/HashRange records
   with `lastdb schema-retention backfill --schema <name> --confirm-expire-existing`.
-  The backfill keeps the original Hash tip ages and registers untouched HashRange hashes.
-  Retired Single/Range layouts do not support this backfill.
 
 CAUTION: Backfill can make an existing record expire at once.
 The owner must use `--confirm-expire-existing`.
-For Hash records, each page reads the current tips and writes their original clocks through the normal age writer.
-This also corrects an existing age that an older program recorded from replay arrival time.
-The page can move that incorrect age backwards. A newer current tip still keeps its actual newer age.
-The native write scope covers the tip reads and age changes. A repeat page uses the current tips again.
-The same batch removes the old forward age entry and replaces the reverse age entry.
-HashRange backfill registers hashes; the range key still defines the age.
+For a Hash schema, each backfill page reads the current records by key and writes the write time
+of each live record as its age. This also corrects an age that an older program recorded from
+replay arrival time. The page can move that incorrect age backwards. A newer write keeps its
+actual newer age. The native write scope covers the record reads and the age changes.
+For a HashRange schema, each page registers the hashes; the range key still gives the age.
+A page holds at most 64 keys, and fewer for a wide schema (Batch size and the request limit).
 
 ## What a pass does
 
 1. The sampler tick starts at most one pass. Each erase batch uses the normal local mutation
    admission. A snapshot cut keeps that admission until the cut completes.
 2. The pass keeps schema metadata and exclusive cursors. It fetches one key page for the schema
-   that it serves, then erases that page before it fetches another. Hash and Single use a bounded
-   age-entry read. Range and HashRange use the normal keyed page reader. A page holds at most the
-   configured batch size: 16 keys by default, 64 at most, across all schemas combined.
-   Schema and observed-hash metadata still scale with the configured schemas and hashes.
+   that it serves, then erases that page before it fetches another.
+   - A Hash schema reads the age index: at most 256 age entries older than the cutoff in one read.
+   - A HashRange schema reads each hash with the normal keyed page reader, from the start of the
+     hash to the key `{cutoff:020}`.
+   A page holds at most the batch size: 16 keys by default, 64 at most, and fewer for a wide
+   schema. Schema and observed-hash metadata still scale with the configured schemas and hashes.
    An exclusive cursor advances across stale age entries and keys without a valid range age.
    Only an empty physical page ends an interval. A short page does not end it.
    The next pass starts from the oldest remaining key; no offset survives an erase.
-   One request examines at most 8,192 record keys, and a deleted record is a key.
-   A Range or HashRange page that passes that many deleted records ends early and
-   names the last key it examined; the next page starts after that key.
-   The erase leaves deleted records at the oldest keys of each hash. So the pass
-   keeps a floor for each hash in memory: the key where a page of the leading run of
-   deleted records ended. The next pass of the hash starts after that floor. Once
-   in 64 passes of a hash, and after a restart, the pass starts at the start of the
-   hash again. A write below the floor waits for that full pass.
-3. Each round serves one page from each schema, in schema name order. A size refusal splits the
-   current page into smaller batches. A failed schema releases its page and retains only its
-   outstanding count. Other schemas continue. The status does not call a failed or cut pass complete.
-4. Before each batch the sweep re-checks its keys, inside the batch admission:
-   - Hash and Single keys take their age from the write-time index. One batched read drops every
-     key that a client rewrote after the pass listed it. A key with no index row was erased by
-     someone else and is dropped too.
-   - Range and HashRange keys take their age from the key, so a rewrite does not change it.
+3. One request examines at most 8,192 record keys, and a tombstone is a key.
+   A HashRange page that passes that many tombstones ends early and names the last key it
+   examined; the next page starts after that key.
+   The erase leaves tombstones at the oldest keys of each hash. So the pass keeps a floor for each
+   hash in memory: the key where a page of the leading run of tombstones ended. The next pass of the
+   hash starts after that floor. Once in 64 passes of a hash, and after a restart, the pass starts
+   at the start of the hash again. A write below the floor (a peer import of old records, or a key
+   with an old entry time) waits for that full pass.
+4. Each round serves one page from each schema, in schema name order. A size refusal halves the
+   batch of that schema and sends the keys again. A failed schema releases its page and retains
+   only its outstanding count. Other schemas continue. The status does not call a failed or cut
+   pass complete.
+5. Before each batch the sweep re-checks its keys, inside the batch admission. The cutoff of the
+   re-check is the earlier of the listing cutoff and the cutoff of the current policy.
+   - Hash keys take their age from the age index. One batched read drops every key that a client
+     rewrote after the pass listed it. A key with no age entry was erased by someone else and is
+     dropped too.
+   - HashRange keys take their age from the key, so a rewrite does not change it.
    - A policy that is gone ends the schema for this pass. A policy with a longer TTL protects the
      keys that it protects now.
    The log line `ttl sweep re-check dropped keys that are no longer expired` names the count.
-5. The erase spares a Hash or Single key whose tip is newer than the cutoff (see The write-time
+6. The erase spares a Hash record that was written at or after the cutoff (see The write-time
    guard).
-6. The sweep holds the local mutation admission for one batch at a time, and rests after each
-   batch (below). A snapshot cut waits for the admitted batch and blocks later admissions.
+7. The sweep holds the local mutation admission for one batch at a time, and rests after each
+   batch (Pacing). A snapshot cut waits for the admitted batch and blocks later admissions.
    The pass stops between batches when the daemon stops. The next tick lists the rest again.
-7. A `purge` refuses a batch that names a key which is already gone, for example a key that a
-   client, a peer or another purger removed after the re-check. After such a refusal the sweep
-   asks which keys of the batch are absent, counts them as done, drops them, and sends the rest.
-   It repeats this until the batch is sent or empty. Each refusal that names an absent key makes
-   the batch smaller, so the loop ends. A key that another purger removed is never a failure of the
-   sweep. The count is `missing_dropped` in the status. The log line is `ttl sweep drops keys that
-   are already gone and sends the rest of the batch`. A refusal that names no absent key is a real
-   error and ends the schema for this pass (step 8).
-8. A listing error or a batch error ends that schema for this pass. The sweep logs it once with
+8. A `purge` refuses a batch that names a key which is already gone, for example a key that a
+   client, a peer or another purger removed after the re-check. The refusal reads
+   `Purge target not found: ... refusing to silently no-op (compliance verb)`. After such a refusal
+   the sweep asks which keys of the batch are absent, counts them as done, drops them, and sends
+   the rest. It repeats this until the batch is sent or empty. Each refusal that names an absent key
+   makes the batch smaller, so the loop ends. A key that another purger removed is never a failure
+   of the sweep. The count is `missing_dropped` in the status. The log line is `ttl sweep drops keys
+   that are already gone and sends the rest of the batch`. A refusal that names no absent key is a
+   real error and ends the schema for this pass (step 9). A `delete` of an absent record writes
+   nothing, so `delete` has no such retry.
+9. A listing error or a batch error ends that schema for this pass. The sweep logs it once with
    the schema name, counts it, and goes on with the other schemas. A pass in which no schema
    succeeded counts as failed. After three failed passes in a row the sweep waits before each next
    pass: 5 minutes, then 10, 20 and 40 minutes, and 1 hour at most for every pass after that. It
@@ -93,59 +102,112 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 | `LASTDB_TTL_SWEEP_VERB` | Meaning |
 |---|---|
-| `purge` (default) | The hard-erasure verb. It deletes the tips of the key. The atom counter deletes each body whose last tip goes, in the same batch. It writes no delete barrier. |
-| `delete` | The ordinary delete a client uses. It removes the tips and writes the delete barrier. The atom counter deletes each body whose last tip goes, in the same batch. |
-
-Both verbs release the kept conflict records of the slots they remove, in the same batch as the
-tip deletes (the slot directory, `docs/lastdb-atom-counter.md`, section Conflict records and their
-retention). A kept loser whose last reference goes is deleted in that batch.
-Both verbs leave a `mgd:v1:` record only when an active or prepared generation needs it.
-A request guard excludes new generation cuts until the durable commit.
+| `purge` (default) | The hard-erasure verb. It changes the record into a tombstone, releases every field history entry of the record, and deletes its kept conflict rows. It refuses a key that is already gone. |
+| `delete` | The ordinary delete a client uses. It changes the record into a tombstone. A field with a history policy keeps the old value as a history entry. The kept conflict rows stay until their window ends. |
 
 Any other value logs one warning at the first sampler tick and uses `purge`. The delete ledger
 (`lastdb db delete-ledger`) names the caller of each erase: `ttl-sweep-purge` or `ttl-sweep-delete`.
 
-Both verbs free the atom bodies at once. The counter record of each atom decides
-(`docs/lastdb-atom-counter.md`). No audit and no grace window stand between the tip delete and the
-body delete.
+Both verbs do these steps in the same batch as the tombstone:
+
+- They delete the alternate key entries (`ak:`) of the record.
+- They lower the file blob counters of the record (`bref:v3:`). A file blob whose count reaches
+  zero enters the blob dwell queue, and the dwell deletes it after `LASTDB_BLOB_DWELL_SECS` (one
+  hour by default; `docs/lastdb-blob-counter.md`).
+- They remove the age entries of the record from the retention index.
+- They apply the same delete floor to the share copies of the record.
+- They write one hard-delete audit row (`dellog`) for each verb, caller and schema group.
+
+Neither verb writes a delete barrier or a delete marker. The tombstone holds the delete floor.
+
+Only `delete` copies the old values into field history (`rh:`) and updates the history count and
+expiry queue (`ahk:`, `ahq:`). Only `purge` releases the field history of the record. A purge
+releases at most 1,024 history entries of one record in its batch. A record with more refuses the
+purge with `purge its field history (atom-history purge) before the record`
+(`docs/lastdb-atom-history.md`).
 
 ## Why `purge` is the default
 
-`delete` leaves `rdel:v2:` barrier rows for each removed molecule key.
-They remain until the owner selects an explicit replay cutoff and executes stopped-home cleanup.
-The older build below wrote two barriers for each key and field, about 3,170 B in total.
-A log that expires 100,000 records per day on a 3-field schema retained about
-28.6 GB of barriers in 30 days (measured on a build from before the counter work: 2,000 keys of 3
-fields gave 12,000 rows and about 19 MB, and a run of 400 keys gave the same bytes per key, so the
-growth is linear). Compaction removed none of them. `purge` writes no barrier.
-The same earlier build left about 700 B of `mgd:v1:` rows for each key and field.
-The current build omits those markers when no active or prepared generation needs them.
+A TTL is a promise that the expired data goes. `purge` keeps that promise in one batch: the
+record values, the field history and the kept conflict rows go together. `delete` keeps the old
+values in field history for each field with a history policy, and keeps the conflict rows until
+their retention window ends. A TTL schema with a history policy then keeps expired values on disk
+after the sweep.
 
-What `delete` buys: the barrier stops an older write from bringing the key back. A write that
-a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
-With `purge`, an older write can restore the key. A Range or HashRange key takes its age from the key.
-A Hash or Single key takes its age from the newest current tip's original write time.
-The writer reads the final tips by key inside the native write scope and records their clocks in the same commit.
-A replay that loses to a current tip cannot refresh that clock.
-A replay that restores an expired key keeps its old age, so the next pass can erase it again.
+Both verbs leave the same tombstone, and both stop an older write from bringing the key back
+(What stays after a TTL erase). So the choice of verb does not change the replay rule.
 
-A TTL `delete` barrier covers only writes before its signed age cutoff.
-Replay uses that cutoff with the original author order, as the normal tip reader does.
-A write at or after the cutoff remains eligible even when it predates the sweep's author clock.
-A Delete that spares any current field reports that key as spared.
-The key keeps its TTL entry and its LastSeek record; cleanup removes those entries only for erased keys.
+## What stays after a TTL erase
+
+- The tombstone at `rk:`. It holds no field values. It holds the delete floor: the stamp of the
+  erase. A later local write, a replayed peer write, and a restored older record lose against the
+  floor when their stamp is at or below it. A peer that receives a replayed `purge` applies it as a
+  delete.
+- No sweep removes a tombstone. A schema drop removes the records of the schema, tombstones
+  included.
+- `delete` only: the field history entries and the kept conflict rows, until their own windows end.
 
 The default remains `purge`. No timer infers a maximum offline time for a device.
-The owner selects the replay cutoff explicitly.
-After cleanup, an old or unclocked replay refuses and the peer needs a current snapshot.
+The owner selects the home-wide replay cutoff (`layout:v3:delete-replay-cutoff`) explicitly.
+After the cutoff rises, an old or unclocked replay refuses and the peer needs a current snapshot.
 The [replay cutoff guide](delete-replay-cutoff.md) gives the steps and the replay refusal rule.
+
+## The write-time guard (Hash schemas)
+
+The re-check in step 5 reads the stored age for the key.
+A native write records the age in the same durable commit, before its ack.
+The erase still checks the record, because a write can occur after selection and before admission.
+
+The sweep sends the cutoff of the batch with each erase of a Hash key. The erase runs inside the
+native write scope and reads the record:
+
+- A record written at or after the cutoff (its newest field stamp) is spared. The erase changes
+  nothing for that key and writes no audit row for it. The other keys of the batch go on.
+- An expired record becomes a tombstone with its floor at the cutoff: a local write of this device
+  at the cutoff time. A write with a later stamp from any device stays.
+
+No writer can acknowledge a write between the read and the batch.
+The guard is for the whole record: a rewrite of one field spares the whole record.
+The signed TTL mutation includes its cutoff, and replay preserves it.
+Both installed names of an app schema use the same retention anchor.
+HashRange keys take their age from the key. A rewrite does not change it, so the sweep sends no
+cutoff for them.
+An old incorrect Hash age needs explicit backfill or a later write.
+
+## Batch size and the request limit
+
+One erase request stages all its chunks of 64 keys in one native batch. A batch holds at most
+16,384 operations, and the reads of the request share a budget of 40,000 examined keys.
+
+The sweep cuts its batch to the smaller of the pace (`LASTDB_TTL_SWEEP_BATCH`, default 16) and the
+key count that the estimate in `fold_db_core/purge/budget.rs` allows for the schema. For F fields,
+the estimate counts 4 operations and 12 reads for each key and field in a `purge`, 5 and 13 in a
+`delete`, and `F + 8` of each for every chunk. The estimate keeps the per-field cost of the format 6
+erase. A format 7 erase writes one record for each key, so the estimate is conservative.
+
+| Schema | `purge` | `delete` |
+|---|---|---|
+| 6 fields | 553 keys | 511 keys |
+| 24 fields | 138 keys | 128 keys |
+| 48 fields | 69 keys | 64 keys |
+| 300 fields | 11 keys | 10 keys |
+
+The default of 16 fits a schema of up to about 200 fields. A batch that still hits a size limit
+(`read resource limit exceeded`, `complete mutation limit exceeded` or `write resource limit`)
+changed nothing: the sweep halves it for that schema and sends it again. It does not skip the
+schema.
+
+A client request does not use this estimate. A client erase that is too big fails at native
+admission, for example with `write resource limit exceeded: complete native batch exceeds 16384
+operations`. Send fewer keys in one request.
 
 ## Pacing
 
 A sweep batch is one erase request. It retains its durability fence.
 The sweep measures the time its write scopes keep other writers waiting.
 That measure includes a sealed flush wait and excludes reads before the write gate.
-The rest is `blocked * (100 - duty) / duty`, subject to the configured minimum and maximum.
+The rest after a batch is `blocked * (100 - duty) / duty`, at least the minimum rest and at most
+10 minutes. When no other writer wrote during the batch, the rest is the minimum rest.
 
 The TTL sweep uses the same task-local writer-cost measure as the other maintenance jobs.
 A sticky writer watch retains the duty share for sparse writers.
@@ -157,142 +219,13 @@ Private janitor, dwell, and drain batches can share the bounded collection windo
 They still return after durability. Their ordinary measured cost includes the gate and shared flush holds.
 See `docs/lastdb-eager-durable-queue.md` and `docs/lastdb-time-queue.md`.
 
-## Historical measured cost
+A stop waits for the batch in flight. It cannot cancel it.
 
-These measurements precede writer-cost TTL pacing and private background collection.
+## Measured cost
 
-Synthetic fresh home, development-release build, `EXEMEM_ENV=dev`, default knobs (batch 16,
-duty 25, minimum rest 25 ms), verb `purge`. One HashRange schema with 6 fields and 2,400 rows
-(2,100 expired) and 150-byte bodies. Two writers: one on the swept schema and one on a second
-schema (one small durable write every 100 ms each).
-
-All runs used one shared development host (macOS, local SSD) that other builds and runs also used,
-so the load is part of each result. "Load" is the one-minute load average that the run recorded.
-Three runs are in the table.
-
-- `main`: the build before the counter (`main` at `8ed44f56`), host load 4 to 5.
-- `reference`: the build at `a9eb17526`, which is the counter lifecycle from before the pacing change of
-  the janitor and the dwell pass, on a quieter host (load 3 to 4).
-- `2026-10-21`: this page's build (`main` with the pacing change of the janitor and the dwell
-  pass), on a busy host: load 2.5 to 9, with other builds and runs on the disk. A second node on
-  the same host ran the same two writers on the same 2,400 rows with `LASTDB_TTL_SWEEP=0`
-  (`no sweep`). It shows what the host does to the writers without a sweep: their median write
-  took 2.4 s, against 0.4 s in the reference run. The run was cut after 20 minutes.
-
-| | `main` | reference | 2026-10-21 | no sweep (2026-10-21) |
-|---|---|---|---|---|
-| Keys erased | 0 in 782 s | 2,100 in 497 s (4.22 keys per second, 132 batches) | 1,152 in 1,203 s (0.96 keys per second, 72 batches) | - |
-| Sweep result | each pass fails: `read resource limit exceeded`, because the old purge read the whole schema | every pass succeeds | every pass succeeds | - |
-| Time of one batch of 16 keys | no batch finished | median 0.67 s, shortest 0.24 s, longest 3.13 s (131 full batches) | median 4.15 s, shortest 0.76 s, longest 7.79 s (72 full batches) | - |
-| Hold of the native write gate for one erase request | not measured | median 45 ms, longest 123 ms | median 48 ms, longest 109 ms | - |
-| Writes to the swept schema | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 423 ms, p95 994 ms, longest 2.4 s | p50 2,615 ms, p95 5,308 ms, longest 9.1 s (399 writes) | p50 2,483 ms, p95 4,418 ms, longest 6.9 s (143 writes in 407 s) |
-| Writes to the second schema | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 404 ms, p95 1,019 ms, longest 2.1 s | p50 2,538 ms, p95 5,289 ms, longest 7.3 s (417 writes) | p50 2,379 ms, p95 4,096 ms, longest 6.1 s (148 writes in 407 s) |
-| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.61 s | HTTP 200 after 6.7 s, during the sweep | HTTP 200 after 3.8 s |
-
-A client `purge` of 16 keys, on a fresh home with no retention policy (no sweep), 3 requests
-in a row on the same busy host: 1,000 rows 1.8, 2.6 and 2.2 s; 2,400 rows 1.6, 2.2 and 2.4 s. All
-answered HTTP 200. The gate hold of the erase request was 47 ms (median) on 1,000 rows and 37 ms
-on 2,400. The cost follows the 16 keys, not the rows of the schema.
-
-The time of a batch follows the flush of the host: the gate hold of an erase request was the same
-in both runs (about 48 ms), and the batch took six times as long on the busy host. The sweep is
-paced by the time of its batches (duty 25), so it erased a quarter as many keys a second.
-
-The write latencies are mostly the durable wait of each writer.
-These runs used the retired 500 ms collection interval. A current writer starts its disk commit at once.
-A sweep batch holds the write gate for about 50 ms, and it also seals the write queue: a writer
-that arrives while a batch is open waits for the batch to be durable, though the gate is free.
-In the 2026-10-21 run the writers were 5 to 7 percent slower at the median and 20 to 30 percent
-slower at p95 than the same writers on the node with no sweep. The two nodes ran in different
-windows of a host that changed, so read these as a bound and not as a measurement. The duty of
-25 percent means that writers wait for the sweep about a quarter of the time.
-
-A `purge` batch reads the target tips, counters, and body records.
-Its cost follows the selected keys and fields, rather than the size of the schema. It
-never follows the size of the schema. A purge of 64 keys of a 24-field schema (1,536 tips,
-6,046 operations) held the gate for 215 to 255 ms and took 0.66 to 1.6 s.
-
-## Batch size and the request limit
-
-One erase request stages all its chunks of 64 keys in one native batch. A batch holds at most
-16,384 operations, and the reads of the request share a
-budget of 40,000 examined keys. A tip costs at most 4 operations in a `purge` (the tip delete, the
-`mgd` marker, and the body and counter deletes) and 5 in a `delete` (one barrier row more). It costs
-at most 12 and 13 examined keys. A chunk adds `F + 8` of each for F fields. The node counts the
-request before it takes the write gate (`fold_db_core/purge/budget.rs`). A client request that is
-too big returns HTTP 400 at once, with the key count that fits, for example: "this purge of 200 keys
-of 24 fields needs up to 19328 storage operations and 57728 reads; one request holds at most 16384
-operations and 40000 reads; send at most 138 keys of 24 fields in one request".
-
-| Schema | `purge`, fresh home | `delete`, fresh home | `purge`, older home | `delete`, older home |
-|---|---|---|---|---|
-| 6 fields | 553 keys | 511 keys | 168 keys | 135 keys |
-| 24 fields | 138 keys | 128 keys | 42 keys | 33 keys |
-| 48 fields | 69 keys | 64 keys | 21 keys | 16 keys |
-| 300 fields | 11 keys | 10 keys | 3 keys | 2 keys |
-
-The sweep cuts its batch to the smaller of the pace (`LASTDB_TTL_SWEEP_BATCH`, default 16) and the
-key count that fits its schema. The bound is an estimate, so a batch that still hits a size limit
-changed nothing: the sweep halves it for that schema and retries, and it does not skip the schema.
-The default of 16 fits a schema of up to about 200 fields on a fresh home and about 60 on an older
-home. A schema of 300 fields gets batches of 11 keys on a fresh home (measured: 13,487 operations in
-the largest batch, no failure).
-
-## The write-time guard (Hash and Single schemas)
-
-The re-check in step 4 reads the stored age for the key.
-A native write records the final tips' original clocks in the same durable commit, before its ack.
-The erase still checks the tips because a write can occur after selection and before admission.
-
-The sweep sends the cutoff of the batch with each erase of a Hash or Single key. Each verb
-compares the write time of the tip itself with the cutoff:
-
-- `purge`: the erase runs inside the native write gate. It reads the tip on disk of every field
-  of each key. A key with a tip at or after the cutoff keeps all its tips, and the other keys of
-  the batch go on. No writer can acknowledge a write between the read and the batch.
-- `delete`: the cutoff is a field of the local delete barrier. The barrier test that runs under
-  the tip lock spares a tip written at or after the cutoff. It works for each field, so a rewrite
-  of one field spares only that field.
-
-The signed TTL Delete mutation includes its cutoff. Replay preserves that cutoff.
-If the Delete spares any current field, the key keeps its TTL and LastSeek entries.
-Both installed names of an app schema use the same retention anchor.
-Range and HashRange keys take their age from the key. A rewrite does not change it.
-An old incorrect Hash age needs explicit backfill or a later nonduplicate write.
-
-## Records that stay after a TTL erase
-
-- `mgd:v1:` is a sparse delete marker. It holds the removed tip and stops a read from showing a
-  slot of an immutable base generation of the molecule that the delete removed from the live rows
-  (`db_operations/atom_store/molecules/delete.rs`, `generation/slots.rs`). The read looks at it
-  only for a molecule that has an active generation (`generation/merge.rs`).
-  Both verbs write it only for an active or prepared generation. It is local to the device (`sync/policy.rs`).
-  A whole-molecule drain removes its markers. The owner can also remove redundant markers
-  from a molecule with no active generation through bounded cleanup pages (below).
-- `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,
-  a peer write that is replayed, and an older tip from a restore lose against the delete when
-  their clock is not newer (`atom/delete_barrier.rs`, `apply_gate.rs`, `sync/engine/replay`). Only
-  `delete` writes it. The current codec uses the caller's exact molecule identity and one key
-  (`atom/molecule_key_codec.rs`). It does not substitute hex or base64url spellings.
-  Earlier two-spelling measurements describe historical source. Each device builds its own
-  barrier from the replayed erase (`sync/policy.rs`).
-  Explicit stopped-home cleanup can remove barriers at or before its durable replay cutoff.
-  It does not remove historical backup bytes or advance the cutoff on a timer.
-- `lastdb db inventory` classifies generation delete markers and delete barriers separately.
-
-### Bounded cleanup of redundant delete markers
-
-API version 15 (record model PR 8c) removed `lastdb db cleanup-delete-markers`.
-The command used `POST /api/db/molecule-drain`, a format 4 to 6 route.
-A format 7 home keeps one record for each key and has no generation delete markers.
-
-### Last writer wins
-
-An ordinary Delete uses its author order. A TTL Delete also carries its signed age cutoff.
-A write at or after that cutoff remains eligible even if its author clock predates the sweep.
-A purge writes no barrier. An older Put can restore the key.
-Its original tip clock remains the TTL age, so an expired restored key can expire again.
-Core replay evidence does not establish two-device service behavior or cloud readiness.
+This page keeps no format 7 measurement. The benchmark workflow measures TTL purge batches during
+its write window on every measured run: see the active TTL cases in `scripts/benchmarks/README.md`.
+The result is in `ttl-active/` inside the CI artifact, with a separate CI summary.
 
 ## Knobs
 
@@ -309,22 +242,30 @@ needs a restart of the daemon. The sweep reads them at the start of each pass.
 
 A value that does not parse gives the default.
 
-The rest after a batch is `took * (100 - duty) / duty`, at least the minimum rest and at most
-10 minutes. The duty share is exact for a batch of up to 200 seconds at the default duty. After a
-slower batch the rest is 10 minutes, and the real share is `took / (took + 600 s)`.
+## Logs and status
 
-A stop waits for the batch in flight. It cannot cancel it. A batch of 16 keys took 0.24 to 3.1 s
-on a quiet host and up to 7.8 s on a busy one.
+`RUST_LOG=lastdbd::ttl_sweep=debug` prints one `ttl sweep batch erased` line per batch with the
+key counts and `took_ms`. The line also keeps the phase fields of the older erase
+(`materialize_ms`, `trace_ms`, `guard_ms`, `delete_ms`, `finalize_ms`, `other_commit_ms`,
+`barrier_wait_ms`). The format 7 erase does not measure those phases, so use `took_ms`.
 
-`RUST_LOG=lastdbd::ttl_sweep=debug` prints one line per batch with the phase times.
-
-## Status
-
-`lastdb status` prints the line `last_pass:` below the `Local retention:` line:
+`lastdb status` prints the `Local retention:` line:
 
 | Field | Meaning |
 |---|---|
-| `peak_buffered_keys` | The largest expired-key page held by the pass. It excludes schema/hash metadata and temporary query response bytes. |
+| `enabled` | The sweep runs: `LASTDB_TTL_SWEEP` does not stop it. |
+| `policies` | The schemas with a retention policy. |
+| `passes` | The passes in which a schema succeeded, for the life of the process. |
+| `rows_reaped` | The keys that the sweep sent to an erase, spared keys included. |
+| `last_sweep_unix_secs` | The end of the last pass in which a schema succeeded, or `never`. |
+| `failures` | The failed passes in a row. |
+| `in_flight` | A pass runs now. |
+| `settled` | The last pass sent no key and finished its backlog. A new pass sets it to false while it runs. |
+
+The line `last_pass:` follows it:
+
+| Field | Meaning |
+|---|---|
 | `finished_backlog` | The last pass erased or dropped every key that it listed, in every schema, with no failed schema. |
 | `keys_left` | The keys that the pass listed and had not reached when it ended. |
 | `cut` | The pass ended early before it reached all listed keys. |
@@ -332,6 +273,8 @@ on a quiet host and up to 7.8 s on a busy one.
 | `missing_dropped` | The keys of a `purge` batch that were already gone. The sweep dropped them. |
 | `schema_failures_total` | The skipped schemas for the life of the process. |
 
+The JSON status also gives `peak_buffered_keys`: the largest expired-key page held by the pass.
+It excludes schema/hash metadata and temporary query response bytes. The text line does not print it.
+
 A pass that ends with keys left writes one `ttl sweep pass ended with listed keys left over`
-line. The next pass lists those keys again. `settled` in the `Local retention:` line stays false
-until a pass finishes its backlog.
+line. The next pass lists those keys again.

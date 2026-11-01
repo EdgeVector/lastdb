@@ -195,10 +195,11 @@ class Workload:
                     # and actual disk bytes, rather than interpreting zero as hot.
                     if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
                         raise RuntimeError("The cold read did not fetch payload bytes from disk")
-                    needed = self.warm_hits_per_key * len(numbers)
+                    # A format 7 home has one warm entry per record key, whatever the fields.
+                    needed = len(numbers)
                     if mode == "hot" and receipt["logical_warm_hits"] < needed:
                         raise RuntimeError(f"The hot read reported {receipt['logical_warm_hits']} warm hits; "
-                                           f"its keys and fields need {needed}")
+                                           f"its keys need {needed}")
                 else:
                     self.validate_write(result, len(numbers))
                     # Preserve reported zeros, but never invent them when an
@@ -273,9 +274,6 @@ class Workload:
     def run(self):
         try:
             self.seed()
-            # An atom home has one warm entry per requested field. A format 7
-            # home has one per record key, whatever the fields.
-            self.warm_hits_per_key = 1 if self.node.record_home() else len(FIELDS)
             self.cold_next = 0
             self.measure("cold-read/1", "cold")
             self.measure("cold-read/32", "cold", batch=32)

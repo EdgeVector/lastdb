@@ -28,8 +28,7 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
                     environment=environment)
         node.start()
-        # The program decides the format of a new home: format 7 from the record model
-        # release, format 6 before it. A PR baseline built before that release measures format 6.
+        # Every program creates a format 7 home; the report shows the format of each label.
         save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
             require_search_off(node, output, "before")
@@ -104,8 +103,8 @@ def recipe_for(args):
             recipe.update(disk_budget=True, disk_format=2, search_enabled=False, pairs=1,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
-                          logical="GET /api/db/schemas total_logical_bytes; plaintext serialized atoms, "
-                                  "or stored record values in a format 7 home")
+                          logical="GET /api/db/schemas total_logical_bytes; the stored record values "
+                                  "of the format 7 home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
     if args.seed_with_baseline:

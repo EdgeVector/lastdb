@@ -108,25 +108,22 @@ where
 }
 
 /// The kinds of operation in one accepted batch, for a run that reads the log.
-/// Tips, atom bodies, atom counters and blob counters of one request share one
-/// batch, so a delete on zero shows its deletes, and the blob counter change that
-/// goes with them, under one sequence number. The molecule headers (with the slots
-/// and records counters) and the binding records and counters join the same batch.
+/// The record, its alternate key entries, its field history copies and the
+/// blob counter changes of one request share one batch, so a delete shows its
+/// record, its entries and the blob counter change that goes with them under
+/// one sequence number.
 #[derive(Default)]
 struct BatchShape {
-    tip_puts: u32,
-    tip_deletes: u32,
-    body_puts: u32,
-    body_deletes: u32,
-    counter_puts: u32,
-    counter_deletes: u32,
+    record_puts: u32,
+    record_deletes: u32,
+    alternate_puts: u32,
+    alternate_deletes: u32,
+    history_puts: u32,
+    history_deletes: u32,
     blob_counter_puts: u32,
     blob_counter_deletes: u32,
     blob_queue_puts: u32,
     blob_queue_deletes: u32,
-    header_puts: u32,
-    binding_puts: u32,
-    binding_deletes: u32,
 }
 
 impl BatchShape {
@@ -140,47 +137,26 @@ impl BatchShape {
             // structural family follows it.
             let key = operation.key.as_str();
             let key = super::super::super::current_keys::source_key(key).unwrap_or(key);
-            let put = operation.body.is_some();
-            let slot = if key.starts_with("mk:") {
-                if put {
-                    &mut shape.tip_puts
-                } else {
-                    &mut shape.tip_deletes
-                }
-            } else if key.starts_with("atom:") && key.ends_with("\0b") {
-                if put {
-                    &mut shape.body_puts
-                } else {
-                    &mut shape.body_deletes
-                }
-            } else if key.starts_with("atom:") && key.ends_with("\0c") {
-                if put {
-                    &mut shape.counter_puts
-                } else {
-                    &mut shape.counter_deletes
-                }
+            let (puts, deletes) = if key.starts_with("rk:") {
+                (&mut shape.record_puts, &mut shape.record_deletes)
+            } else if key.starts_with("ak:") {
+                (&mut shape.alternate_puts, &mut shape.alternate_deletes)
+            } else if key.starts_with("rh:") {
+                (&mut shape.history_puts, &mut shape.history_deletes)
             } else if key.starts_with("bref:v3:c:") {
-                if put {
-                    &mut shape.blob_counter_puts
-                } else {
-                    &mut shape.blob_counter_deletes
-                }
+                (
+                    &mut shape.blob_counter_puts,
+                    &mut shape.blob_counter_deletes,
+                )
             } else if key.starts_with("bref:v3:q:") || key.starts_with("bref:v3:d\0") {
-                if put {
-                    &mut shape.blob_queue_puts
-                } else {
-                    &mut shape.blob_queue_deletes
-                }
-            } else if key.starts_with("mh:") && put {
-                &mut shape.header_puts
-            } else if key.starts_with("mref:v1:") {
-                if put {
-                    &mut shape.binding_puts
-                } else {
-                    &mut shape.binding_deletes
-                }
+                (&mut shape.blob_queue_puts, &mut shape.blob_queue_deletes)
             } else {
                 continue;
+            };
+            let slot = if operation.body.is_some() {
+                puts
+            } else {
+                deletes
             };
             *slot += 1;
         }
@@ -204,19 +180,16 @@ fn note_gate_hold(
         hold_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX),
         operations,
         sequence,
-        tip_puts = shape.tip_puts,
-        tip_deletes = shape.tip_deletes,
-        body_puts = shape.body_puts,
-        body_deletes = shape.body_deletes,
-        counter_puts = shape.counter_puts,
-        counter_deletes = shape.counter_deletes,
+        record_puts = shape.record_puts,
+        record_deletes = shape.record_deletes,
+        alternate_puts = shape.alternate_puts,
+        alternate_deletes = shape.alternate_deletes,
+        history_puts = shape.history_puts,
+        history_deletes = shape.history_deletes,
         blob_counter_puts = shape.blob_counter_puts,
         blob_counter_deletes = shape.blob_counter_deletes,
         blob_queue_puts = shape.blob_queue_puts,
         blob_queue_deletes = shape.blob_queue_deletes,
-        header_puts = shape.header_puts,
-        binding_puts = shape.binding_puts,
-        binding_deletes = shape.binding_deletes,
         "native write gate released"
     );
     held

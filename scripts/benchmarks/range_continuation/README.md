@@ -22,7 +22,7 @@ The daemon version must contain its selected source revision.
 
 Each variant receives 16,384 records with four fields and 1 KiB generated bodies.
 Create mutations use batches of 128. Complete known-key reads use batches of 256.
-Two matched pairs run on format 4 homes: blinded hash keys and typed range keys.
+Two matched pairs run on format 7 homes: blinded hash keys and typed range keys.
 Pair order reverses in the second pair.
 Automatic maintenance is off for both variants; the warm budget uses the product default.
 

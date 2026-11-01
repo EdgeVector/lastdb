@@ -104,7 +104,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// the per-schema `atom_count` of `GET /api/db/schemas`, and the owner row
 /// `atom_count` of `GET /api/storage/app`. No request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 17;
+/// `18` (2026-11-01) removes `unattributable_plane_bytes` from the owner-only
+/// `GET /api/storage/app` reply. It counted format 6 tips and molecule
+/// bookkeeping, which a format 7 home does not have, so it was always zero.
+/// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 18;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

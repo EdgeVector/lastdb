@@ -3,13 +3,12 @@
 use super::*;
 
 /// Current physical prefixes and their exact destination collections.
-const ROUTED_PREFIXES: &[(&str, &str)] = &[
-    ("atom:", "atoms"),
-    ("fdep:v1:", "tips"),
-    ("mref:v1:", "molecule_ref_edges"),
-    ("bref:v3:", "atoms"),
-    ("schemaidx\0", "indexes"),
-];
+///
+/// A format 7 home keeps the blob counters and the blob dwell queue in
+/// `atoms` and every other `main` row in `tips`. The key law
+/// (`storage::current_keys`) refuses the format 6 families (`atom`, `fdep`,
+/// `mref`, `schemaidx`), so no current row needs a route for them.
+const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:v3:", "atoms")];
 
 pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
     let bare = std::str::from_utf8(key)

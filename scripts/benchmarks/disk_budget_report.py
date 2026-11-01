@@ -7,24 +7,17 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import HOME_FORMATS, save
+from node import RECORD_NODE_MARKER, save
 
 
-def home_formats(output, manifest):
-    """Each label's home format from the markers of its two homes. Both homes of one label share it."""
-    formats = {}
+def require_record_homes(output, manifest):
+    """Each run measured two format 7 homes: the main corpus and the delete corpus."""
     for run in manifest["runs"]:
         directory = output / run["directory"]
-        found = set()
         for corpus in (directory, directory / "delete"):
             marker = json.loads((corpus / "disk-format.json").read_text())
-            if set(marker) != {"marker"} or marker["marker"] not in HOME_FORMATS:
-                raise ValueError("The disk budget did not measure two v2 run homes")
-            found.add(HOME_FORMATS[marker["marker"]])
-        if len(found) != 1:
-            raise ValueError("The two homes of one disk budget run differ in format")
-        formats[run["label"]] = found.pop()
-    return formats
+            if set(marker) != {"marker"} or marker["marker"] != RECORD_NODE_MARKER:
+                raise ValueError("The disk budget did not measure two format 7 homes")
 
 
 def compare(output, manifest):
@@ -107,7 +100,7 @@ def main():
         if not manifest["complete"] or args.job_status != "success":
             raise ValueError("The disk budget measurement did not complete")
         comparison = compare(args.output, manifest)
-        formats = home_formats(args.output, manifest)
+        require_record_homes(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         exceeded = any(item["candidate"]["max_disk_to_logical_ratio"] > disk_budget.LIMIT
                        for item in comparison.values())
@@ -117,8 +110,7 @@ def main():
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
                   f"Driver: `{manifest['driver_revision']}`  \n"
-                  f"Home format: base **{formats['baseline']}**, candidate **{formats['candidate']}** "
-                  "(7 stores records; 4 to 6 store atoms)\n"
+                  "Home format: base **7**, candidate **7**\n"
                   + disk_budget.render(comparison) + headroom_lines(comparison))
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:

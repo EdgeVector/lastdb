@@ -18,8 +18,11 @@
 //!
 //! Slice 4 adds `reconciliation_lag` and a bounded, resumable job that pages
 //! declared schema/key layouts (never a collection scan) to recover
-//! `unresolved_schema_bytes` into owner buckets. Structural
-//! `unattributable_plane_bytes` stay separate.
+//! `unresolved_schema_bytes` into owner buckets.
+//!
+//! A format 7 write meters no schema yet: the per-schema `live_bytes` come
+//! only from a snapshot that an older home persisted. A fresh home reports no
+//! owner rows.
 
 use chrono::{DateTime, Utc};
 use fold_db::db_operations::MeterTrustState;
@@ -202,10 +205,8 @@ pub struct ReconciliationCheckpoint {
     pub overlay: BTreeMap<String, StoredOwner>,
 }
 
-/// How far the job is from an exact owner split.
-///
-/// Structural plane bytes (`unattributable_plane_bytes`) are **not** in this
-/// object: reconciliation only targets unresolved schemas.
+/// How far the job is from an exact owner split. Reconciliation targets the
+/// unresolved schemas.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReconciliationLag {
     pub unresolved_schema_count: u64,
@@ -256,18 +257,12 @@ pub struct AppStorageReport {
     pub system_bytes: u64,
     /// Bytes on the reserved `unattributed` row.
     pub unattributed_bytes: u64,
-    /// Part of `unattributed_bytes` the write path could not trace to any
-    /// schema: tips and bookkeeping written before the molecule was bound to
-    /// its owner, plus any atom-total drift. Structural, not a resolver miss.
-    ///
-    /// Tip and bookkeeping bytes the write path *did* trace sit on their
-    /// owner's row instead, so this number shrinks as a home writes.
-    pub unattributable_plane_bytes: u64,
-    /// Part of `unattributed_bytes` from metered schemas this node cannot
-    /// resolve. A resolver miss, and the part a later slice can close.
+    /// Bytes of metered schemas this node cannot resolve. A resolver miss,
+    /// and the part a reconciliation page can close. Equal to
+    /// `unattributed_bytes`.
     pub unresolved_schema_bytes: u64,
     /// Count/bytes still unresolved plus when the last reconciliation page
-    /// ran. Distinct from `unattributable_plane_bytes`.
+    /// ran.
     pub reconciliation_lag: ReconciliationLag,
     /// App rows by `live_bytes` descending, then the reserved `system` and
     /// `unattributed` rows. Reserved rows stay last so the head of the list

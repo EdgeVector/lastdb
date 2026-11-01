@@ -14,16 +14,10 @@ import time
 from disk_usage import usage
 
 
-# Exact v2 markers: this spike creates fenced format 5 homes; baseline programs create format 4 homes.
-RUN_NODE_MARKER = "format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
-FORMAT_FIVE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
-BASELINE_NODE_MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
-# A format 7 (record model) home. From the record model release every new home is format 7,
-# and that program opens no older home. A program built before it creates format 6.
+# The exact marker of a format 7 (record model) home, a v2 disk home that stores one record per
+# key. The daemon writes it when it creates the home. Every program creates format 7 and opens
+# no older home.
 RECORD_NODE_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
-# The daemon writes the marker when it creates the home; the marker, not the program, decides the
-# format after that. Format 7 stores one record per key; formats 4 to 6 store atoms and molecules.
-HOME_FORMATS = {RECORD_NODE_MARKER: 7, RUN_NODE_MARKER: 6, FORMAT_FIVE_MARKER: 5, BASELINE_NODE_MARKER: 4}
 
 
 def save(path, value):
@@ -37,8 +31,7 @@ def home_format_line(output, manifest):
         path = output / run["directory"] / "home-format.json"
         found[run["label"]].add(str(json.loads(path.read_text())["format"]) if path.exists() else "unreported")
     shown = {label: ", ".join(sorted(values)) or "unreported" for label, values in found.items()}
-    return (f"Home format: base **{shown['baseline']}**, candidate **{shown['candidate']}** "
-            "(7 stores records; 4 to 6 store atoms).")
+    return f"Home format: base **{shown['baseline']}**, candidate **{shown['candidate']}**."
 
 
 def file_hash(path):
@@ -205,17 +198,13 @@ class Node:
         return path.read_text() if path.exists() else None
 
     def home_format(self):
-        """The home format from its marker (7 for a record home), or None for an unknown marker."""
-        return HOME_FORMATS.get(self.marker())
-
-    def record_home(self):
-        return self.home_format() == 7
+        """7 for a format 7 home, or None for an unknown marker or before the home exists."""
+        return 7 if self.marker() == RECORD_NODE_MARKER else None
 
     def disk_format(self):
-        """2 for a v2 run home, 1 for any other marker; the marker exists after the first start."""
+        """2 for a format 7 home (a v2 disk home), 1 for any other marker; the marker exists after the first start."""
         marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
-        v2 = (RECORD_NODE_MARKER, RUN_NODE_MARKER, FORMAT_FIVE_MARKER, BASELINE_NODE_MARKER)
-        return 2 if marker in v2 else 1
+        return 2 if marker == RECORD_NODE_MARKER else 1
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]
