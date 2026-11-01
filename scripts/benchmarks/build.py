@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reuse an exact benchmark baseline build; always build the candidate afresh."""
+"""Reuse exact baselines and dependency artifacts; always compile candidate source."""
 
 import argparse
 import hashlib
@@ -13,6 +13,7 @@ import subprocess
 import time
 
 from node import file_hash, save
+from dependencies import prepare_target
 
 
 COMMAND = ["cargo", "build", "--locked", "--profile", "dev-release",
@@ -47,7 +48,8 @@ def context(output):
         "profiles": {name: value for name, value in os.environ.items()
                      if name.startswith("CARGO_PROFILE_")},
         "recipe_files": {name: file_hash(driver / name)
-                         for name in ("scripts/benchmarks/build.py", ".github/workflows/bench-build.yml",
+                         for name in ("scripts/benchmarks/build.py", "scripts/benchmarks/dependencies.py",
+                                      ".github/workflows/bench-build.yml",
                                       ".github/workflows/bench-run.yml")},
     }
     fingerprint = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
@@ -80,9 +82,7 @@ def compile_binary(args, directory, fingerprint):
     environment = os.environ.copy()
     target = Path(os.environ["RUNNER_TEMP"]) / f"bench-target-{args.label}"
     environment.update(CARGO_TARGET_DIR=str(target), FOLDDB_BUILD_VERSION_OVERRIDE=f"bench-{args.revision}")
-    # No compiled target directory enters the cache. Each build starts in a fresh job.
-    if target.exists():
-        raise ValueError("The build target already exists; refuse stale build inputs")
+    dependencies = prepare_target(args.source, target, environment)
     log_path = args.output / f"build-{args.label}.log"
     with log_path.open("w") as log:
         process = subprocess.Popen(COMMAND, cwd=args.source, env=environment,
@@ -102,6 +102,7 @@ def compile_binary(args, directory, fingerprint):
     shutil.copy2(target / "dev-release" / "lastdb", cli)
     version = subprocess.check_output([str(binary), "--version"], text=True, timeout=10).strip()
     metadata = {"revision": args.revision, "context": fingerprint,
+                "dependency_target": dependencies,
                 "sha256": file_hash(binary), "version": version,
                 "cli_sha256": file_hash(cli),
                 "cli_version": subprocess.check_output([str(cli), "--version"], text=True,
@@ -146,6 +147,11 @@ def build(args):
                       f"Source: {args.revision}  \nSHA-256: {metadata['sha256']}  \n"
                       f"Build: {metadata['producer']}  \n"
                       f"Prepare seconds: {details['prepare_seconds']}\n")
+        if not reused:
+            dependencies = metadata["dependency_target"]
+            summary.write(f"Dependency target present: {dependencies['target_preexisted']}. "
+                          f"Local packages cleaned: {len(dependencies['cleaned_path_packages'])}. "
+                          f"Cleanup seconds: {dependencies['clean_seconds']}.\n")
     print(json.dumps(details), flush=True)
 
 
