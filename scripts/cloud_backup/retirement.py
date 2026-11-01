@@ -1,4 +1,4 @@
-"""Resume one saved DEV cleanup; never replace an uncertain request identity."""
+"""Advance one saved DEV cleanup inside a bounded pass; never replace its identity."""
 
 import time
 import uuid
@@ -10,6 +10,8 @@ from support import OperationError, require, save_json
 TRANSIENT = frozenset(("ci_control_transport_unknown", "ci_control_service_provider_pending",
                        "ci_control_service_outcome_unknown", "ci_control_service_retry_later",
                        *("ci_control_http_" + str(code) for code in (408, 429, 500, 502, 503, 504))))
+# A pass stops with this much budget left: confirm() needs two more requests.
+RESERVE_SECONDS = 30
 
 
 class Retirement:
@@ -43,18 +45,28 @@ class Retirement:
             self.observation(state=state)
         request_id = request["request_id"]
         for _step in range(10000):
-            require(time.monotonic() < self.control.deadline, "ci_cleanup_deadline")
             if state is not None:
                 if state["phase"] == "bootstrap_headroom":
                     return state
                 if state["phase"] == "complete":
                     return self.confirm(validator, state)
+            remaining = self.control.deadline - time.monotonic() - RESERVE_SECONDS
+            if remaining <= 0:
+                # The service keeps the saved request and its frozen epoch.
+                # The next bounded pass resumes it from pending().
+                require(state is not None, "ci_cleanup_deadline")
+                return state
+            if state is not None:
                 if state["phase"] == "drain" and state["resume_after_ms"] is not None:
                     delay = decimal(state["resume_after_ms"]) / 1000 - time.time()
+                    if delay > remaining:
+                        # Never shorten the service's fixed drain. A later
+                        # pass resumes after it; this pass does not wait it out.
+                        return state
                     if delay > 0:
                         # The service owns the final time check. Short waits
                         # avoid repeated delete attempts during its safety delay.
-                        time.sleep(min(30, delay, max(0, self.control.deadline - time.monotonic())))
+                        time.sleep(min(30, delay))
                         try:
                             value = self.control.post("status", {"request_id": request_id})
                         except OperationError as error:

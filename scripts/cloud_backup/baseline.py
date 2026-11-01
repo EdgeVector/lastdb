@@ -248,7 +248,8 @@ def main():
         raise OperationError("operation_cancelled_or_deadline")
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(2700)
+    # The job limit is 10 minutes; owned cleanup needs the rest.
+    signal.alarm(480)
     try:
         operation.prepare()
         operation.execute()
