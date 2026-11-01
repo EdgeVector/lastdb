@@ -9,7 +9,7 @@ from pathlib import Path
 import statistics
 
 from advisories import confirm, lines as confirmation_lines, notices
-from node import save
+from node import home_format_line, save
 from phases import phase_lines
 from mixed_report import mixed_read_lines
 
@@ -112,6 +112,7 @@ def render(output, manifest, comparison):
              f"Candidate: `{manifest['binaries']['candidate']['revision']}`  ",
              f"Driver: `{manifest['driver_revision']}`", "",
              f"Requested socket workers (0 = product default): {manifest['recipe'].get('uds_workers', 'unreported')}", "",
+             home_format_line(output, manifest), "",
              "Each number is the median of the per-run measures. Percent changes use the base commit.",
              "Positive response-time changes and negative throughput changes mean slower results.", "",
              "| Case | Base p95 ms | Candidate p50 / p95 / p99 ms | p95 change | Candidate requests/s | Rate change | Errors |",

@@ -20,10 +20,24 @@ FORMAT_FIVE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nal
 BASELINE_NODE_MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 # A format 7 (record model) home, created when the node runs with LASTDB_RECORD_HOME=1.
 RECORD_NODE_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+# The daemon writes the marker when it creates the home; the marker, not the program, decides the
+# format after that. Format 7 stores one record per key; formats 4 to 6 store atoms and molecules.
+HOME_FORMATS = {RECORD_NODE_MARKER: 7, RUN_NODE_MARKER: 6, FORMAT_FIVE_MARKER: 5, BASELINE_NODE_MARKER: 4}
 
 
 def save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def home_format_line(output, manifest):
+    """One summary line with the home format of each label, from the home-format.json of each run."""
+    found = {"baseline": set(), "candidate": set()}
+    for run in manifest["runs"]:
+        path = output / run["directory"] / "home-format.json"
+        found[run["label"]].add(str(json.loads(path.read_text())["format"]) if path.exists() else "unreported")
+    shown = {label: ", ".join(sorted(values)) or "unreported" for label, values in found.items()}
+    return (f"Home format: base **{shown['baseline']}**, candidate **{shown['candidate']}** "
+            "(7 stores records; 4 to 6 store atoms).")
 
 
 def file_hash(path):
@@ -183,6 +197,18 @@ class Node:
             if line.startswith("VmRSS:"):
                 return int(line.split()[1]) * 1024
         return None
+
+    def marker(self):
+        """The home marker, or None before the daemon creates the home."""
+        path = self.home / "data" / "laststore-pack-node-v1"
+        return path.read_text() if path.exists() else None
+
+    def home_format(self):
+        """The home format from its marker (7 for a record home), or None for an unknown marker."""
+        return HOME_FORMATS.get(self.marker())
+
+    def record_home(self):
+        return self.home_format() == 7
 
     def disk_format(self):
         """2 for a v2 run home, 1 for any other marker; the marker exists after the first start."""

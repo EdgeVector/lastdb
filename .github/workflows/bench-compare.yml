@@ -51,6 +51,10 @@ on:
         type: choice
         options: ["0", "4", "8", "16", "32"]
         default: "0"
+      candidate_record_home:
+        description: Start only the candidate with LASTDB_RECORD_HOME=1 (format 6 vs format 7 homes)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -92,3 +96,4 @@ jobs:
       writer16: ${{ inputs.writer16 }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}
+      candidate_record_home: ${{ inputs.candidate_record_home }}

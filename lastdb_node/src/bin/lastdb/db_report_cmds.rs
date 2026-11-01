@@ -107,15 +107,25 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
         .get("schema_count")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    println!("Per-schema logical atom storage  measured_at={measured}  heavy=true");
+    let total_records = report
+        .get("total_records")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    // A format 7 home stores records, not atoms: count the unit it has.
+    let (unit, column, count_field, total_units) = if total_records > 0 {
+        ("record", "RECORDS", "record_count", total_records)
+    } else {
+        ("atom", "ATOMS", "atom_count", total_atoms)
+    };
+    println!("Per-schema logical {unit} storage  measured_at={measured}  heavy=true");
     println!(
-        "  {:>10}  {:>8} atoms  {} schemas",
+        "  {:>10}  {:>8} {unit}s  {} schemas",
         format_bytes(total_bytes),
-        total_atoms,
+        total_units,
         schema_count
     );
     println!();
-    println!("  {:>10}  {:>8}  {:<32}  SCHEMA", "SIZE", "ATOMS", "NAME");
+    println!("  {:>10}  {:>8}  {:<32}  SCHEMA", "SIZE", column, "NAME");
     let rows = report
         .get("per_schema")
         .and_then(|v| v.as_array())
@@ -142,14 +152,14 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
             .get("bytes")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
-        let atoms = row
-            .get("atom_count")
+        let count = row
+            .get(count_field)
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         println!(
             "  {:>10}  {:>8}  {:<32}  {}",
             format_bytes(bytes),
-            atoms,
+            count,
             truncate_label(name, 32),
             identity
         );
