@@ -54,6 +54,7 @@ pub(in crate::handlers) fn cursor_payload(
     limit: usize,
     offset: usize,
     drops: RowDrops,
+    resume: Option<KeyValue>,
     comparison: Option<String>,
 ) -> Value {
     // This shape over-fetches `limit + 1` and infers `has_more` from the extra
@@ -61,15 +62,19 @@ pub(in crate::handlers) fn cursor_payload(
     // so count those unfilled slots back in. Internal candidate refills retain
     // their integrity counters but replace their missing rows before this
     // boundary; those drops must not make an exhausted range claim more data.
+    // A page that a run of deleted records ended early (`resume`) has more
+    // keys after the last key it examined, and its cursor names that key.
     let fetched = page.len().saturating_add(drops.total());
-    let has_more = fetched > limit;
+    let has_more = fetched > limit || resume.is_some();
     if page.len() > limit {
         page.truncate(limit);
     }
     // Derive the cursor from the truncated page: it has to name the last row the
     // caller actually received, not the `limit + 1`th probe row, or the next
     // continuation skips a row.
-    let next_cursor = next_cursor_for(&page, has_more).map(|key| QueryCursor::new(key, comparison));
+    let next_cursor = resume
+        .or_else(|| next_cursor_for(&page, has_more))
+        .map(|key| QueryCursor::new(key, comparison));
     let mut payload = page_payload(page, total_count, limit, offset, has_more, drops);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
@@ -126,6 +131,30 @@ pub(in crate::handlers) fn materialized_page_payload(
     let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
     let has_more = compute_has_more(offset, page.len(), total_count, cap_may_truncate);
     page_payload(page, Some(total_count), limit, offset, has_more, drops)
+}
+
+/// A sample that a run of deleted records ended before it was full. Its rows
+/// are the live records the walk found, and the sample is not complete:
+/// `has_more` is true and `total_count` is null. When the reply holds the last
+/// row the walk found, `next_cursor` names the record key position where the
+/// walk stopped, and the unfiltered read of the same fields continues from
+/// there in record key order. A reply that leaves found rows out (a limit
+/// below the sample) has no cursor, because the cursor would pass them.
+pub(in crate::handlers) fn incomplete_sample_payload(
+    results: Vec<Value>,
+    limit: usize,
+    offset: usize,
+    drops: RowDrops,
+    stopped: &str,
+    binding: Option<String>,
+) -> Value {
+    let found = results.len();
+    let page: Vec<Value> = results.into_iter().skip(offset).take(limit).collect();
+    let holds_last = offset.saturating_add(page.len()) >= found;
+    let next_cursor = holds_last.then(|| QueryCursor::at_record(stopped, binding));
+    let mut payload = page_payload(page, None, limit, offset, true, drops);
+    payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
+    payload
 }
 
 fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {

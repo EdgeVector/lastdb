@@ -25,6 +25,9 @@ pub(crate) enum Lane {
     Ordinary,
     /// The retirement of a queue bucket.
     Retire,
+    /// Pages that held no record to release. The step wrote nothing, and the
+    /// cursor keeps its place for the next step.
+    Pass,
     /// A chunk of a sweep of the safety net.
     Net,
 }
@@ -62,6 +65,13 @@ impl StepOutcome {
 /// Slices that one net chunk probes. A chunk is one batch read and, for each
 /// slice without a row, one bounded range read.
 const NET_CHUNK_SLICES: usize = 16;
+/// Pages that one ordinary step reads without a record to release, at most.
+/// A page with no record costs no write gate, but it is still a read; a queue
+/// with a long run of entries that do not decode, or of released keys, must not
+/// keep one step reading for an unbounded time. The step then returns a
+/// [`Lane::Pass`] outcome: the janitor counts it as one batch of its turn and
+/// rests, and the next step goes on from the cursor.
+const EMPTY_PAGES_PER_STEP: usize = 64;
 
 /// What the janitor keeps between steps. A restart loses it, and the janitor
 /// then walks each live bucket once from its start.
@@ -117,6 +127,10 @@ impl AtomStore {
     /// One batch of ordinary work: release one page of due records, or retire
     /// one bucket whose walk is complete. `None` means nothing is due.
     ///
+    /// A step reads at most [`EMPTY_PAGES_PER_STEP`] pages that hold no record
+    /// to release. Then it returns a [`Lane::Pass`] outcome with nothing
+    /// released, and the next step goes on from the cursor.
+    ///
     /// A bucket is retired only when its walk has read every key. The retirement is a guarded delete of
     /// the directory row (`retire_bucket`): it leaves the row if a writer added
     /// an entry after the reader read the row.
@@ -135,8 +149,15 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
+        let mut empty_pages = 0usize;
         for bucket in cursor.reader.candidates(now_nanos) {
             loop {
+                if empty_pages >= EMPTY_PAGES_PER_STEP {
+                    return Ok(Some(StepOutcome {
+                        lane: Lane::Pass,
+                        ..StepOutcome::default()
+                    }));
+                }
                 if cursor.reader.exhausted(bucket) {
                     let Some((key, token)) = cursor.reader.retire_token(bucket) else {
                         break;
@@ -154,7 +175,9 @@ impl AtomStore {
                 }
                 let page = cursor.reader.read_due(self, bucket, now_nanos).await?;
                 if page.rows.is_empty() {
-                    // The walk ended, or it met a key that is not due.
+                    // The walk ended, it met a key that is not due, or it passed
+                    // its share of released keys and keeps its place.
+                    empty_pages += 1;
                     let waits = page.waits();
                     cursor.reader.finish(page);
                     if waits {
@@ -164,6 +187,7 @@ impl AtomStore {
                 }
                 let records = self.due_record_keys(&page);
                 if records.is_empty() {
+                    empty_pages += 1;
                     cursor.reader.finish(page);
                     continue;
                 }

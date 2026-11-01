@@ -1,10 +1,8 @@
 //! Mutation challenge and app/release/channel registry routes.
 
-use schema_service_core::app_release::{
-    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
-};
+use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
-    missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply,
+    missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, RegisterAppReply,
     SchemaMutationChallengeReply, UpdateAppReply,
 };
 
@@ -110,13 +108,11 @@ pub async fn set_channel(
         Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    match state
+    let (status, body) = state
         .set_channel_reply(&app_id, &channel, &cert, &sig, &body)
         .await
-    {
-        SetChannelReply::Ready(body) => json_status(200, body),
-        SetChannelReply::Failed { status, body } => json_status(status, body),
-    }
+        .into_http();
+    json_status(status, body)
 }
 
 /// `POST /v2/apps/{app_id}/revocations` — revoke a published release.
@@ -148,11 +144,8 @@ pub async fn get_release(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let release_id = path.into_inner();
-    match state.release_read_reply(&release_id).await {
-        ReleaseReadReply::Ready(body) => json_status(200, body),
-        ReleaseReadReply::Missing(body) => json_status(404, body),
-        ReleaseReadReply::Unavailable(body) => json_status(503, body),
-    }
+    let (status, body) = state.release_read_reply(&release_id).await.into_http();
+    json_status(status, body)
 }
 
 /// `GET /v2/releases/{release_id}/verification` — anonymous redirect to the
@@ -183,11 +176,11 @@ pub async fn get_channel(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let (app_id, channel) = path.into_inner();
-    match state.channel_read_reply(&app_id, &channel).await {
-        ChannelReadReply::Ready(body) => json_status(200, body),
-        ChannelReadReply::Missing(body) => json_status(404, body),
-        ChannelReadReply::Unavailable(body) => json_status(503, body),
-    }
+    let (status, body) = state
+        .channel_read_reply(&app_id, &channel)
+        .await
+        .into_http();
+    json_status(status, body)
 }
 
 /// `PUT /v1/apps/{app_id}` — owner-authenticated metadata update
@@ -265,10 +258,8 @@ pub async fn get_app(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let app_id = path.into_inner();
-    match state.public_app_reply(&app_id) {
-        PublicAppReply::Ready(body) => json_status(200, body),
-        PublicAppReply::Missing(body) => json_status(404, body),
-    }
+    let (status, body) = state.public_app_reply(&app_id).into_http();
+    json_status(status, body)
 }
 
 /// `GET /v1/apps` — public app shelf read.

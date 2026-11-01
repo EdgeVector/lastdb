@@ -133,58 +133,59 @@ pub enum DeclaredFieldError {
 }
 
 impl DeclaredFieldError {
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::OwnerRequired(_) | Self::InvalidHandle(_) | Self::InvalidField(_) => 400,
+            Self::NotOwner { .. } | Self::NotPermitted { .. } => 403,
+            Self::UnknownDeclaration(_) => 404,
+            Self::Internal(_) => 500,
+        }
+    }
+
+    fn http_reason(&self) -> &'static str {
+        match self {
+            Self::OwnerRequired(_) => "owner_required",
+            Self::InvalidHandle(_) => "invalid_handle",
+            Self::InvalidField(_) => "invalid_field",
+            Self::NotOwner { .. } => "not_owner",
+            Self::UnknownDeclaration(_) => "unknown_declaration",
+            Self::NotPermitted { .. } => "not_permitted",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    fn http_detail(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::OwnerRequired(detail)
+            | Self::InvalidHandle(detail)
+            | Self::InvalidField(detail)
+            | Self::Internal(detail) => std::borrow::Cow::Borrowed(detail.as_str()),
+            Self::NotOwner {
+                declaration_id,
+                owner_app_id,
+            } => std::borrow::Cow::Owned(format!(
+                "declaration {declaration_id} is owned by {owner_app_id}"
+            )),
+            Self::UnknownDeclaration(id) => std::borrow::Cow::Owned(format!("no declaration {id}")),
+            Self::NotPermitted {
+                declaration_id,
+                app_id,
+            } => std::borrow::Cow::Owned(format!(
+                "app {app_id} may not reference declaration {declaration_id}; \
+                 the owner must grant it"
+            )),
+        }
+    }
+
     /// `(status, body)` for the HTTP layer. Shapes match the app-identity
     /// handlers: a machine-readable `reason` plus a human `detail`.
     #[must_use]
     pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::OwnerRequired(detail) => (
-                400,
-                crate::app_identity::reason_detail_body("owner_required", detail),
-            ),
-            Self::InvalidHandle(detail) => (
-                400,
-                crate::app_identity::reason_detail_body("invalid_handle", detail),
-            ),
-            Self::InvalidField(detail) => (
-                400,
-                crate::app_identity::reason_detail_body("invalid_field", detail),
-            ),
-            Self::NotOwner {
-                declaration_id,
-                owner_app_id,
-            } => (
-                403,
-                crate::app_identity::reason_detail_body(
-                    "not_owner",
-                    &format!("declaration {declaration_id} is owned by {owner_app_id}"),
-                ),
-            ),
-            Self::UnknownDeclaration(id) => (
-                404,
-                crate::app_identity::reason_detail_body(
-                    "unknown_declaration",
-                    &format!("no declaration {id}"),
-                ),
-            ),
-            Self::NotPermitted {
-                declaration_id,
-                app_id,
-            } => (
-                403,
-                crate::app_identity::reason_detail_body(
-                    "not_permitted",
-                    &format!(
-                        "app {app_id} may not reference declaration {declaration_id}; \
-                         the owner must grant it"
-                    ),
-                ),
-            ),
-            Self::Internal(detail) => (
-                500,
-                crate::app_identity::reason_detail_body("internal", detail),
-            ),
-        }
+        let detail = self.http_detail();
+        (
+            self.http_status(),
+            crate::app_identity::reason_detail_body(self.http_reason(), detail.as_ref()),
+        )
     }
 }
 

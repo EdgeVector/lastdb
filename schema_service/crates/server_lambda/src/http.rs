@@ -9,6 +9,7 @@ use schema_service_core::{
     HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 use schema_service_server_shared::state::SchemaServiceState;
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 /// Pull the `X-API-Key` header from a request. Header lookup is
@@ -153,11 +154,31 @@ pub(crate) fn parse_body(event: &Request) -> Result<String, Response<Body>> {
     }
 }
 
+/// Parsed JSON of type `T`, or the 400 response to return.
+///
+/// An empty body keeps the empty-body 400 from [`parse_body`]. A JSON
+/// failure uses `error` as the message prefix, then `: `, then the parse
+/// error. The status stays 400. The body stays one `error` field.
+pub(crate) fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
+where
+    T: DeserializeOwned,
+{
+    let raw = match parse_body(event) {
+        Ok(body) => body,
+        Err(response) => return Err(Ok(response)),
+    };
+    serde_json::from_str(&raw).map_err(|parse_error| {
+        json_response(
+            400,
+            &schema_service_core::error_only_body(&format!("{error}: {parse_error}")),
+        )
+    })
+}
+
 // ─── `/v2` route helpers ──────────────────────────────────────────────────
 //
-// The `/v2` arms repeat the same three preludes — parse the body, require
-// the DevCert header pair, split an app id or an (app id, channel) pair out
-// of the path. Naming them keeps each arm to its own logic.
+// A signed write reads its JSON body and DevCert pair in one step
+// (`signed_json_body`). A path split stays its own step.
 
 /// The parsed JSON body, or the 400 to return.
 pub(crate) fn v2_body(event: &Request) -> Result<Value, Result<Response<Body>, Error>> {
@@ -205,11 +226,46 @@ pub(crate) fn v2_cert_headers(
     }
 }
 
-/// A path segment that must be exactly one app id — non-empty and with no
+pub(crate) type HandlerResult<T> = Result<T, Result<Response<Body>, Error>>;
+pub(crate) type BodyParser = fn(&Request) -> HandlerResult<Value>;
+
+/// The JSON body and the DevCert header pair, or the response to return.
+///
+/// `parse` selects the 400 reason. The body is read first, then the cert.
+/// A missing cert still returns 401.
+pub(crate) fn signed_json_body(
+    event: &Request,
+    parse: BodyParser,
+) -> HandlerResult<(Value, &str, &str)> {
+    let body = parse(event)?;
+    let (cert, sig) = v2_cert_headers(event)?;
+    Ok((body, cert, sig))
+}
+
+/// A path segment that must be exactly one id — non-empty and with no
 /// embedded slash, so a crafted path cannot smuggle a second segment in.
+/// A trailing slash is ignored.
 pub(crate) fn v2_app_id(segment: &str) -> Option<&str> {
-    let app_id = segment.trim_end_matches('/');
-    (!app_id.is_empty() && !app_id.contains('/')).then_some(app_id)
+    one_segment(segment.trim_end_matches('/'))
+}
+
+/// The one segment between `prefix` and `suffix`.
+///
+/// A slash left after `suffix` is removed is ignored, same as [`v2_app_id`].
+pub(crate) fn app_id_before<'a>(path: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    v2_app_id(path.trim_start_matches(prefix).trim_end_matches(suffix))
+}
+
+/// The one segment between `prefix` and `suffix`, with no extra slash trim.
+///
+/// A promote path that ends in `/promote` must keep a slash that the suffix
+/// did not remove. [`app_id_before`] would accept that path.
+pub(crate) fn segment_before<'a>(path: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    one_segment(path.trim_start_matches(prefix).trim_end_matches(suffix))
+}
+
+fn one_segment(segment: &str) -> Option<&str> {
+    (!segment.is_empty() && !segment.contains('/')).then_some(segment)
 }
 
 /// Split `/v2/apps/{app_id}/channels/{channel}` into its two ids.

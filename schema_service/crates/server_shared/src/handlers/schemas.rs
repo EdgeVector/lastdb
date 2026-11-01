@@ -1,9 +1,7 @@
 //! Schema read routes: registry index, listing, lookup, similarity and reload.
 
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{
-    similarity_threshold_reply, SchemaByNameReply, SimilarSchemasReply, SimilarityThresholdReply,
-};
+use schema_service_core::state::{similarity_threshold_reply, SchemaByNameReply};
 use schema_service_core::RegistryIndexReply;
 
 use super::*;
@@ -155,10 +153,9 @@ pub struct SimilarQuery {
 /// by [`find_similar`] and [`find_similar_transforms`]. Defaults to `0.5`
 /// when absent; returns a `400` response when it falls outside `[0.0, 1.0]`.
 pub(super) fn resolve_threshold(query: &SimilarQuery) -> Result<f64, HttpResponse> {
-    match similarity_threshold_reply(query.threshold) {
-        SimilarityThresholdReply::Ready(threshold) => Ok(threshold),
-        SimilarityThresholdReply::Refused { body } => Err(HttpResponse::BadRequest().json(body)),
-    }
+    similarity_threshold_reply(query.threshold)
+        .into_http()
+        .map_err(|(status, body)| json_status(status, body))
 }
 
 #[allow(
@@ -183,10 +180,12 @@ pub async fn find_similar(
         threshold
     );
 
-    match state.similar_schemas_reply(&schema_name, threshold) {
-        SimilarSchemasReply::Ready(response) => HttpResponse::Ok().json(response),
-        SimilarSchemasReply::Missing { body } => HttpResponse::NotFound().json(body),
-        SimilarSchemasReply::Failed { body } => HttpResponse::InternalServerError().json(body),
+    match state
+        .similar_schemas_reply(&schema_name, threshold)
+        .into_http()
+    {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err((status, body)) => json_status(status, body),
     }
 }
 

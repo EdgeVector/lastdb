@@ -3,9 +3,7 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::{
-    DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
-};
+use schema_service_core::state::SchemaMatchTelemetryReply;
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::DeprecateSchemasRequest;
@@ -15,21 +13,11 @@ pub(crate) fn post_debug_field_match_probe(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: schema_service_core::FieldMatchProbeRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid field-match-probe request: {e}"
-                )),
-            );
-        }
-    };
+    let request: schema_service_core::FieldMatchProbeRequest =
+        match typed_json_body(event, "Invalid field-match-probe request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
     match state.field_match_probe_reply(&request) {
         FieldMatchProbeReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
@@ -92,10 +80,8 @@ pub(crate) async fn post_admin_warm_embeddings(
 pub(crate) async fn post_admin_dedupe_descriptive_names(
     state: &SchemaServiceState,
 ) -> Result<Response<Body>, Error> {
-    match state.dedupe_names_reply().await {
-        DedupeNamesReply::Ready(body) => json_response(200, &body),
-        DedupeNamesReply::Failed { body, .. } => json_response(500, &body),
-    }
+    let (status, body, _) = state.dedupe_names_reply().await.into_http();
+    json_response(status, &body)
 }
 
 // Surgical cleanup for polluted registry entries. Marks schemas
@@ -105,25 +91,13 @@ pub(crate) async fn post_admin_deprecate_schemas(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: DeprecateSchemasRequest = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid deprecate-schemas request: {e}"
-                )),
-            );
-        }
-    };
-    match state.deprecate_schemas_reply(request).await {
-        DeprecateSchemasReply::Ready(body) => json_response(200, &body),
-        DeprecateSchemasReply::Failed { body, .. } => json_response(500, &body),
-    }
+    let request: DeprecateSchemasRequest =
+        match typed_json_body(event, "Invalid deprecate-schemas request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
+    let (status, body, _) = state.deprecate_schemas_reply(request).await.into_http();
+    json_response(status, &body)
 }
 
 pub(crate) fn get_admin_schema_match_telemetry(

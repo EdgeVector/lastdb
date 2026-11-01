@@ -5,10 +5,12 @@
 //!
 //! A keyed selector echoes the caller's API hash. A walk cannot decode a
 //! blinded hash, so it recovers each API key from the key fields of the
-//! record; the write path puts those fields in every record.
+//! record; the write path puts those fields in every record of a schema that
+//! declares them (`walk_key`).
 
-use super::record_walk::WalkWindow;
+use super::record_walk::{WalkWindow, PAGE_READ_KEYS};
 use super::AtomStore;
+use crate::db_operations::{note_page_key_forms, note_page_resume, page_can_resume, PageResume};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::{
     build_storage_key, FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP,
@@ -64,31 +66,23 @@ impl AtomStore {
                 self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)], scope)
                     .await?
             }
+            // A sample is the first live records in record key order. The
+            // walk reads past deleted records in bounded pages, so deleted
+            // records do not use up the sample.
             Some(F::SampleN(count)) => {
-                self.walk_records(
-                    schema,
-                    comparison,
-                    Some((*count).min(SAMPLE_PEEK_CAP)),
-                    scope,
-                )
-                .await?
+                let take = (*count).min(SAMPLE_PEEK_CAP);
+                self.walk_first(schema, comparison, take, scope).await?
             }
             // A `Page` is a window over every live record in page order: the
             // count and the condition reads need the complete set. The read
             // allowance of the request bounds it.
             Some(F::Page { offset, limit }) => {
                 page = Some((*offset, *limit));
-                self.walk_records(schema, comparison, None, scope).await?
+                self.walk_records(schema, comparison, scope).await?
             }
             // The first page of the default size, in record key order.
             None => {
-                let window = WalkWindow {
-                    after: None,
-                    skip: 0,
-                    take: DEFAULT_UNFILTERED_PAGE_LIMIT,
-                };
-                let scopes = [scope.map(str::to_owned)];
-                self.walk_record_window(schema, comparison, window, &scopes, |_| true)
+                self.walk_first(schema, comparison, DEFAULT_UNFILTERED_PAGE_LIMIT, scope)
                     .await?
             }
             Some(_) => {
@@ -130,28 +124,69 @@ impl AtomStore {
             .collect())
     }
 
-    /// One walk of the record space of a schema: every record, or the first
-    /// `limit` in storage order. The store's read allowance bounds the walk.
+    /// The first `take` live records of one scope in record key order
+    /// (`record_walk.rs`).
+    ///
+    /// A run of deleted records can use the read allowance before `take`
+    /// records are found. A caller that continues a page that ends early
+    /// gets the short page and the record key position where the walk
+    /// stopped (`PageResume::Record`); any other caller gets a read limit
+    /// error, never a short page that looks complete. The query path reads a
+    /// sample through `HashRangeQueryProcessor::sample_rows`, which merges the
+    /// scopes in one walk; this read serves one scope.
+    async fn walk_first(
+        &self,
+        schema: &Schema,
+        comparison: &KeyComparisonContext,
+        take: usize,
+        scope: Option<&str>,
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let window = WalkWindow {
+            after: None,
+            skip: 0,
+            take,
+        };
+        let scopes = [scope.map(str::to_owned)];
+        let mut page = self
+            .walk_record_window(schema, comparison, window, &scopes, |_| true)
+            .await?;
+        if let Some(stopped) = page.stopped.take() {
+            if !page_can_resume() {
+                return Err(SchemaError::ReadResourceLimit {
+                    detail: format!(
+                        "a sample passed {PAGE_READ_KEYS} deleted records before it was full; \
+                         read the schema in pages with next_cursor"
+                    ),
+                });
+            }
+            note_page_resume(PageResume::Record(stopped));
+        }
+        Ok(page.into_keyed())
+    }
+
+    /// One walk of every record in the record space of a schema. The store's
+    /// read allowance bounds the walk.
     async fn walk_records(
         &self,
         schema: &Schema,
         comparison: &KeyComparisonContext,
-        limit: Option<usize>,
         scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let prefix = build_storage_key(scope, &space_prefix(schema));
-        let store = self.main_store.inner();
-        let rows = match limit {
-            Some(limit) => store.scan_prefix_paged(prefix.as_bytes(), limit).await,
-            None => store.scan_prefix(prefix.as_bytes()).await,
-        }
-        .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
+        let rows = self
+            .main_store
+            .inner()
+            .scan_prefix(prefix.as_bytes())
+            .await
+            .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
         let mut out = Vec::with_capacity(rows.len());
-        for (_, value) in rows {
+        for (key, value) in rows {
             let record = decode(&value)?;
             if record.is_live() {
+                let key = String::from_utf8(key).unwrap_or_default();
+                let suffix = key.strip_prefix(prefix.as_str()).unwrap_or_default();
                 out.push((
-                    recovered_key(schema, comparison, &record)?,
+                    walk_key(schema, comparison, &record, suffix)?,
                     Arc::new(record),
                 ));
             }
@@ -263,7 +298,7 @@ fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
 }
 
 /// The canonical API key from the key fields of a live record.
-pub(super) fn recovered_key(
+fn recovered_key(
     schema: &Schema,
     comparison: &KeyComparisonContext,
     record: &StoredRecord,
@@ -283,6 +318,36 @@ pub(super) fn recovered_key(
         ));
     }
     comparison.canonical_key(key)
+}
+
+/// The API key of a walk row at the record key suffix `suffix`. A Hash
+/// schema with no hash key field writes no key field into its records
+/// (`key_rules`), and the blinded hash of a record key cannot be decoded, so
+/// such a row keeps the storage form of its hash: the HMAC token, which the
+/// reply flags (`key_form: "opaque"`). Any other record that lacks its key
+/// fields is damaged.
+pub(super) fn walk_key(
+    schema: &Schema,
+    comparison: &KeyComparisonContext,
+    record: &StoredRecord,
+    suffix: &str,
+) -> Result<KeyValue, SchemaError> {
+    let hash_field = schema
+        .key
+        .as_ref()
+        .and_then(|key| key.hash_field.as_deref());
+    if schema.schema_type != DeclarativeSchemaType::Hash || hash_field.is_some() {
+        return recovered_key(schema, comparison, record);
+    }
+    // A base64url HMAC token needs no unescape; the separator ends it.
+    let token = suffix.split('\0').next().unwrap_or_default();
+    if token.is_empty() {
+        return Err(SchemaError::InvalidData(
+            "a stored record key has no hash".into(),
+        ));
+    }
+    note_page_key_forms(0, 1);
+    Ok(KeyValue::new(Some(token.to_owned()), None))
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {

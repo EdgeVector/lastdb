@@ -1,9 +1,7 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
 use schema_service_core::snapshot::SnapshotExportReply;
-use schema_service_core::state::{
-    DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
-};
+use schema_service_core::state::SchemaMatchTelemetryReply;
 
 use super::*;
 
@@ -154,13 +152,11 @@ pub async fn snapshot_import(
 /// Mounted by the actix dev binary AND by the Lambda router so the same
 /// shape works in dev and (when we get there) prod cleanup.
 pub async fn dedupe_descriptive_names(state: web::Data<SchemaServiceState>) -> impl Responder {
-    match state.dedupe_names_reply().await {
-        DedupeNamesReply::Ready(body) => HttpResponse::Ok().json(body),
-        DedupeNamesReply::Failed { message, body } => {
-            tracing::error!(target: "schema_service::dedupe", "{message}");
-            HttpResponse::InternalServerError().json(body)
-        }
+    let (status, body, message) = state.dedupe_names_reply().await.into_http();
+    if let Some(message) = message {
+        tracing::error!(target: "schema_service::dedupe", "{message}");
     }
+    json_status(status, body)
 }
 
 /// `POST /v1/admin/deprecate-schemas` — mark selected registry entries
@@ -170,13 +166,14 @@ pub async fn deprecate_schemas(
     state: web::Data<SchemaServiceState>,
     request: web::Json<DeprecateSchemasRequest>,
 ) -> impl Responder {
-    match state.deprecate_schemas_reply(request.into_inner()).await {
-        DeprecateSchemasReply::Ready(body) => HttpResponse::Ok().json(body),
-        DeprecateSchemasReply::Failed { message, body } => {
-            tracing::error!(target: "schema_service::deprecate", "{message}");
-            HttpResponse::InternalServerError().json(body)
-        }
+    let (status, body, message) = state
+        .deprecate_schemas_reply(request.into_inner())
+        .await
+        .into_http();
+    if let Some(message) = message {
+        tracing::error!(target: "schema_service::deprecate", "{message}");
     }
+    json_status(status, body)
 }
 
 #[allow(

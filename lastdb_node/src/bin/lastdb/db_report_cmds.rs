@@ -58,7 +58,7 @@ pub(crate) fn db_schemas(
     let deadline = inventory_client_timeout(timeout_secs);
     if !json_only {
         eprintln!(
-            "lastdb db schemas: heavy atom walk (client deadline {}s; \
+            "lastdb db schemas: heavy record walk (client deadline {}s; \
              raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS). \
              This is not a cheap status gauge.",
             deadline.as_secs().max(1)
@@ -99,10 +99,6 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
         .get("total_logical_bytes")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    let total_atoms = report
-        .get("total_atoms")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
     let schema_count = report
         .get("schema_count")
         .and_then(serde_json::Value::as_u64)
@@ -111,21 +107,15 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
         .get("total_records")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    // A format 7 home stores records, not atoms: count the unit it has.
-    let (unit, column, count_field, total_units) = if total_records > 0 {
-        ("record", "RECORDS", "record_count", total_records)
-    } else {
-        ("atom", "ATOMS", "atom_count", total_atoms)
-    };
-    println!("Per-schema logical {unit} storage  measured_at={measured}  heavy=true");
+    println!("Per-schema logical record storage  measured_at={measured}  heavy=true");
     println!(
-        "  {:>10}  {:>8} {unit}s  {} schemas",
+        "  {:>10}  {:>8} records  {} schemas",
         format_bytes(total_bytes),
-        total_units,
+        total_records,
         schema_count
     );
     println!();
-    println!("  {:>10}  {:>8}  {:<32}  SCHEMA", "SIZE", column, "NAME");
+    println!("  {:>10}  {:>8}  {:<32}  SCHEMA", "SIZE", "RECORDS", "NAME");
     let rows = report
         .get("per_schema")
         .and_then(|v| v.as_array())
@@ -153,7 +143,7 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let count = row
-            .get(count_field)
+            .get("record_count")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         println!(

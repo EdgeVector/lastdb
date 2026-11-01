@@ -6,9 +6,11 @@ selectors that the brain and LastSecrets apps use, checks that repeated reads
 by key come from the record warm set, keeps field history, lets the TTL sweep
 delete an expired record, reads the delete audit, then restarts the daemon and
 reads again. It also drains a schema of more than 10,000 records with
-unfiltered cursor pages and records the time of each page. It runs no test
-runner or benchmark. The home contains generated data only and never reads or
-copies a primary.
+unfiltered cursor pages and records the time of each page, reads past a run
+of more deleted records than one request examines, lets the TTL sweep read
+past such a run, and drops a schema and installs it again (`record_runs.py`).
+It runs no test runner or benchmark. The home contains generated data only and
+never reads or copies a primary.
 """
 import argparse
 import json
@@ -20,6 +22,7 @@ import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from node import Node, RECORD_NODE_MARKER, UnixConnection  # noqa: E402
+import record_runs  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -444,6 +447,7 @@ def main():
         field_history(node)
         retention(node)
         unfiltered_pages(node)
+        record_runs.check(node, scan)
         entries = history(node, {"op": "list"})["entries"]
         node.stop()
         node.start()

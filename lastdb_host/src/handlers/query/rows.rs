@@ -1,6 +1,7 @@
 //! Query read flow. Response builders and row rules live in sibling modules.
 
 use super::*;
+use fold_db::db_operations::PageEnd;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 
 /// Integrity counters and unfilled output slots for one request.
@@ -60,12 +61,17 @@ impl From<fold_db::db_operations::QueryRowDrops> for RowDrops {
 /// inside the query executor, before atom bodies load — it is the push-down
 /// itself, not a slice of the result. Callers pass `None` to materialize every
 /// matched row, which is what the value-filtered and two-pass shapes need.
+///
+/// The [`PageEnd`] says where a page that a run of deleted records ended early
+/// goes on, and gives the record key position of each row of a record walk.
+/// Only an ascending windowed read and a sample (`rules::sample_resumes`) set
+/// it; the other reads fail rather than end early.
 pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     host: &H,
     query: Query,
     window: Option<KeyWindow>,
     ctx: &AccessContext,
-) -> Result<(Vec<Value>, RowDrops), HostError> {
+) -> Result<(Vec<Value>, RowDrops, PageEnd), HostError> {
     let comparison = super::capture_key_comparison(host, &query.schema_name).await?;
     let future = execute_rows_captured(host, query, window, ctx);
     match comparison {
@@ -74,12 +80,59 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     }
 }
 
+/// The core read of one query, with its row drop tally and, when the read
+/// can continue a page that ends early, where the page ended. An ascending
+/// windowed read continues a page that a run of deleted records ends early:
+/// the reply turns where it ended into its cursor. A sample with no window
+/// ends early the same way, and its reply says that it is not complete.
+async fn read_records(
+    executor: &fold_db::fold_db_core::query::QueryExecutor,
+    query: Query,
+    window: Option<KeyWindow>,
+    ctx: &AccessContext,
+) -> (
+    Result<fold_db::fold_db_core::query::QueryRecords, fold_db::schema::SchemaError>,
+    fold_db::db_operations::QueryRowDrops,
+    PageEnd,
+) {
+    let resumable = match window {
+        Some(_) => !matches!(query.sort_order, Some(SortOrder::Desc)),
+        None => super::rules::sample_resumes(&query),
+    };
+    match window {
+        Some(window) if resumable => {
+            fold_db::db_operations::with_query_page_tally(
+                executor.query_with_access_window(query, window, ctx),
+            )
+            .await
+        }
+        Some(window) => {
+            let (result, drops) = fold_db::db_operations::with_query_row_drop_tally(
+                executor.query_with_access_window(query, window, ctx),
+            )
+            .await;
+            (result, drops, PageEnd::default())
+        }
+        None if resumable => {
+            fold_db::db_operations::with_query_page_tally(executor.query_with_access(query, ctx))
+                .await
+        }
+        None => {
+            let (result, drops) = fold_db::db_operations::with_query_row_drop_tally(
+                executor.query_with_access(query, ctx),
+            )
+            .await;
+            (result, drops, PageEnd::default())
+        }
+    }
+}
+
 async fn execute_rows_captured<H: HostNode>(
     host: &H,
     query: Query,
     window: Option<KeyWindow>,
     ctx: &AccessContext,
-) -> Result<(Vec<Value>, RowDrops), HostError> {
+) -> Result<(Vec<Value>, RowDrops, PageEnd), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
     let schema_name = query.schema_name.clone();
@@ -100,27 +153,7 @@ async fn execute_rows_captured<H: HostNode>(
     // Three sub-phases separate core reads, formatting and final ordering.
     // HydrateFilter is a nested detail inside the core's first-pass reads.
     let hydrate_started = std::time::Instant::now();
-    let (result, drops) =
-        match window {
-            Some(KeyWindow::Offset { offset, limit }) => {
-                fold_db::db_operations::with_query_row_drop_tally(
-                    executor.query_with_access_windowed(query, (offset, limit), ctx),
-                )
-                .await
-            }
-            Some(KeyWindow::After { after, limit }) => {
-                fold_db::db_operations::with_query_row_drop_tally(
-                    executor.query_with_access_keyset_windowed(query, after, limit, ctx),
-                )
-                .await
-            }
-            None => {
-                fold_db::db_operations::with_query_row_drop_tally(
-                    executor.query_with_access(query, ctx),
-                )
-                .await
-            }
-        };
+    let (result, drops, end) = read_records(executor, query, window, ctx).await;
     // Charge the hydration that DID happen before propagating a failure —
     // otherwise a slow query that ends in an error reports no phases at all,
     // which is exactly the case an operator most wants decomposed.
@@ -164,5 +197,5 @@ async fn execute_rows_captured<H: HostNode>(
     }
     request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
 
-    Ok((results, drops))
+    Ok((results, drops, end))
 }

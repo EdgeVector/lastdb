@@ -51,21 +51,21 @@ pub use delete_ledger::{
     LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_PURGE,
 };
 pub use keep_small::{
-    atom_histogram, keep_small_schema_shard_key, AtomHistogram, KeepSmallMeters,
-    KeepSmallSchemaShard, KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload,
-    MeterTrustState, MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter,
-    ATOM_HISTOGRAM_16KIB, ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB,
-    KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
-    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA,
-    KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
+    keep_small_schema_shard_key, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,
+    LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState, MoleculeStorageCounter,
+    MoleculeTipCounterSource, SchemaMeter, KEEP_SMALL_SCHEMA_SHARD_PREFIX,
+    KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY, KEEP_SMALL_SNAPSHOT_VERSION,
+    KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA, KEEP_SMALL_UNATTRIBUTED_SHARD_KEY,
+    LIVE_BUDGET_BYTES,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.
 pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
-pub use conflict_metadata::MoleculeConflictState;
+pub use conflict_metadata::RecordConflictState;
 pub use core::{
-    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
-    with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,
+    note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
+    with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, DbOperations,
+    KeyForm, PageEnd, PageResume, QueryRowDrops,
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;

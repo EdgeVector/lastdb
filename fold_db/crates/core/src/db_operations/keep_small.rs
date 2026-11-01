@@ -1,4 +1,4 @@
-//! Incremental keep-small meters: live budget, per-schema churn, atom histogram.
+//! Incremental keep-small meters: live budget and per-schema churn.
 //!
 //! These are write-path totals (point read of a small in-process projection),
 //! not another store walk. `lastdb db inventory` is the wrong daily tool.

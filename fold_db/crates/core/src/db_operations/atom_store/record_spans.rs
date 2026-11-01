@@ -1,18 +1,22 @@
-//! Paged key reads of the records under one hash in one storage scope.
+//! Paged record reads under one hash in one storage scope.
 //!
 //! A read that merges the records of several scopes (the own scope and the
-//! scopes of data received from other users) takes the keys of each scope one
-//! bounded page at a time, in storage order. The typed range codec keeps the
-//! storage order of one hash in page order, so the merge needs no read past
-//! the keys of its window. A page carries only keys: the merge reads the
-//! records it keeps by key, through the record warm set.
+//! scopes of data received from other users) takes the records of each scope
+//! one bounded page at a time, in storage order. The typed range codec keeps
+//! the storage order of one hash in page order, so the merge needs no read
+//! past the keys of its window. A page carries each record with its key, so
+//! a deleted record costs one examined key. The merge reads the records it
+//! keeps by key once more, through the record warm set (decision D2), so a
+//! warm read answers from memory.
 
+use super::record_reads::decode;
 use super::AtomStore;
 use crate::atom::MoleculeKeyCodec;
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid};
+use lastdb_model::record_value::StoredRecord;
 
 /// The ranges under one hash that one selector reads.
 #[derive(Clone, Copy)]
@@ -32,12 +36,29 @@ pub(crate) struct RecordSpan {
     end: String,
 }
 
-/// One record key of a span: the storage range (the merge order), the API
-/// key and the physical key of the record.
+/// One record of a span: the storage range (the merge order), the API key,
+/// the physical key and the stored record, live or deleted.
 pub(crate) struct SpanKey {
     pub(crate) range: String,
     pub(crate) key: KeyValue,
     pub(crate) physical: String,
+    pub(crate) record: StoredRecord,
+}
+
+/// One page of a span: its records in storage order, and the physical key
+/// of the last key the page examined while keys remain (`None` at the end of
+/// the span). A page can hold fewer records than it asked for and still not
+/// end the span: the request ran low on read keys in a run of deleted keys.
+pub(crate) struct SpanPage {
+    pub(crate) keys: Vec<SpanKey>,
+    pub(crate) next: Option<String>,
+}
+
+impl RecordSpan {
+    /// The storage range of one physical key of the span.
+    pub(crate) fn storage_range<'a>(&self, physical: &'a str) -> &'a str {
+        physical.get(self.base.len()..).unwrap_or_default()
+    }
 }
 
 impl AtomStore {
@@ -89,30 +110,27 @@ impl AtomStore {
         }))
     }
 
-    /// At most `limit` (one or more) record keys of a span in storage order,
-    /// after the exclusive physical cursor `after`. The next cursor is the
-    /// last key of a full page; `None` when the span has no more keys.
-    /// Tombstones are keys too: the caller reads each record and keeps the
-    /// live ones.
+    /// At most `limit` (one or more) records of a span in storage order,
+    /// after the exclusive physical cursor `after`. Deleted records are
+    /// records too: the caller keeps the live ones.
     pub(crate) async fn record_span_page(
         &self,
         span: &RecordSpan,
         after: Option<&str>,
         limit: usize,
-    ) -> Result<(Vec<SpanKey>, Option<String>), SchemaError> {
+    ) -> Result<SpanPage, SchemaError> {
         // The smallest key after the cursor.
         let start = after.map_or_else(|| span.start.clone(), |cursor| format!("{cursor}\0"));
-        let rows = self
+        // The merge reads a record that it keeps once more, by key.
+        let page = self
             .main_store
             .inner()
-            .scan_range_paged(start.as_bytes(), span.end.as_bytes(), limit)
+            .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read record keys: {error}")))?;
-        let full = rows.len() == limit;
-        let mut keys = Vec::with_capacity(rows.len());
-        for (physical, _) in rows {
-            let physical = String::from_utf8(physical)
-                .map_err(|_| SchemaError::InvalidData("a record key is not text".into()))?;
+        let mut keys = Vec::with_capacity(page.rows.len());
+        for (physical, value) in page.rows {
+            let physical = text(physical)?;
             let range = physical
                 .get(span.base.len()..)
                 .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?
@@ -122,11 +140,29 @@ impl AtomStore {
                 range,
                 key: KeyValue::new(Some(span.hash.clone()), Some(api_range)),
                 physical,
+                record: decode(&value)?,
             });
         }
-        let next = keys.last().filter(|_| full).map(|key| key.physical.clone());
-        Ok((keys, next))
+        let next = page.resume.map(text).transpose()?;
+        Ok(SpanPage { keys, next })
     }
+
+    /// The API key of the physical key `physical` of a span, for a cursor.
+    pub(crate) fn span_key(
+        &self,
+        span: &RecordSpan,
+        physical: &str,
+    ) -> Result<KeyValue, SchemaError> {
+        let range = physical
+            .get(span.base.len()..)
+            .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?;
+        let api_range = span.codec.api_range(range).map_err(codec_error)?;
+        Ok(KeyValue::new(Some(span.hash.clone()), Some(api_range)))
+    }
+}
+
+fn text(key: Vec<u8>) -> Result<String, SchemaError> {
+    String::from_utf8(key).map_err(|_| SchemaError::InvalidData("a record key is not text".into()))
 }
 
 fn codec_error(error: impl std::fmt::Display) -> SchemaError {

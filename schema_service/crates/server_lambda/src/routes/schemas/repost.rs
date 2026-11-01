@@ -20,10 +20,6 @@ pub(super) async fn idempotent_repost_response(
     let system = state.is_system_schema(&existing.name);
     Some(json_response(
         200,
-        &json!({
-            "schema": existing,
-            "mutation_mappers": mutation_mappers,
-            "system": system,
-        }),
+        &super::schema_add_body(&existing, mutation_mappers, None, system),
     ))
 }

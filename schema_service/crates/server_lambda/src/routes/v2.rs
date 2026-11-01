@@ -62,10 +62,7 @@ pub(crate) fn list_releases_for_app(
     state: &SchemaServiceState,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v2/apps/")
-        .trim_end_matches("/releases");
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = app_id_before(p, "/v2/apps/", "/releases") else {
         return json_response(400, &invalid_app_id_body());
     };
     let releases = state.list_releases_for_app(app_id);

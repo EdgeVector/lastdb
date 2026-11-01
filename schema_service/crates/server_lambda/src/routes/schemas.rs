@@ -5,7 +5,7 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
     similarity_threshold_reply, BatchReuseReply, FieldVocabularyReply, SchemaAddReply,
-    SchemaResolveReply, SimilarSchemasReply, SimilarityThresholdReply,
+    SchemaResolveReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -77,18 +77,20 @@ pub(crate) fn get_schemas_similar(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let schema_name = p.trim_start_matches("/v1/schemas/similar/");
-    let threshold = match similarity_threshold_reply(Some(parse_threshold(event))) {
-        SimilarityThresholdReply::Ready(threshold) => threshold,
-        SimilarityThresholdReply::Refused { body } => return json_response(400, &body),
+    let threshold = match similarity_threshold_reply(Some(parse_threshold(event))).into_http() {
+        Ok(threshold) => threshold,
+        Err((status, body)) => return json_response(status, &body),
     };
 
-    match state.similar_schemas_reply(schema_name, threshold) {
-        SimilarSchemasReply::Ready(response) => {
+    match state
+        .similar_schemas_reply(schema_name, threshold)
+        .into_http()
+    {
+        Ok(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SimilarSchemasReply::Missing { body } => json_response(404, &body),
-        SimilarSchemasReply::Failed { body } => json_response(500, &body),
+        Err((status, body)) => json_response(status, &body),
     }
 }
 
@@ -108,19 +110,11 @@ pub(crate) fn post_schemas_mutation_challenge(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let request: SchemaMutationChallengeRequest = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!("Invalid challenge request: {e}")),
-            );
-        }
-    };
+    let request: SchemaMutationChallengeRequest =
+        match typed_json_body(event, "Invalid challenge request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
     match state.issue_schema_mutation_challenge_reply(&request, request_ip(event).as_deref()) {
         SchemaMutationChallengeReply::Created(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
@@ -148,19 +142,9 @@ pub(crate) async fn post_schemas(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!("Invalid JSON: {e}")),
-            );
-        }
+    let request: Value = match typed_json_body(event, "Invalid JSON") {
+        Ok(request) => request,
+        Err(response) => return response,
     };
 
     // Keep the raw `schema` sub-object: it is the payload the
@@ -235,6 +219,26 @@ pub(crate) async fn post_schemas(
     add_schema_response(state, schema, mutation_mappers).await
 }
 
+/// Success body for a schema add and for an idempotent repost.
+///
+/// `replaced_schema` is present only for an expansion. `composed` stays off
+/// this body, so a composed outcome still matches a plain add.
+pub(super) fn schema_add_body(
+    schema: &schema_types::Schema,
+    mutation_mappers: &HashMap<String, String>,
+    replaced_schema: Option<&str>,
+    system: bool,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    body.insert("schema".to_owned(), json!(schema));
+    body.insert("mutation_mappers".to_owned(), json!(mutation_mappers));
+    if let Some(old_name) = replaced_schema {
+        body.insert("replaced_schema".to_owned(), json!(old_name));
+    }
+    body.insert("system".to_owned(), json!(system));
+    Value::Object(body)
+}
+
 /// Register `schema` and map the outcome to its HTTP response.
 async fn add_schema_response(
     state: &SchemaServiceState,
@@ -254,34 +258,21 @@ async fn add_schema_response(
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     201,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, None, system),
                 )
             }
             SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     200,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, None, system),
                 )
             }
             SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     201,
-                    &json!({
-                        "schema": schema,
-                        "mutation_mappers": mutation_mappers,
-                        "replaced_schema": old_name,
-                        "system": system,
-                    }),
+                    &schema_add_body(&schema, &mutation_mappers, Some(old_name.as_str()), system),
                 )
             }
             SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
@@ -309,22 +300,11 @@ pub(crate) fn post_schemas_batch_check_reuse(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: BatchSchemaReuseRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid batch-check-reuse request: {e}"
-                )),
-            );
-        }
-    };
+    let request: BatchSchemaReuseRequest =
+        match typed_json_body(event, "Invalid batch-check-reuse request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
 
     match state.batch_reuse_reply(&request.schemas) {
         BatchReuseReply::Ready(response) => {
@@ -338,22 +318,11 @@ pub(crate) fn post_schemas_resolve(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-
-    let request: SchemaResolveRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(e) => {
-            return json_response(
-                400,
-                &schema_service_core::error_only_body(&format!(
-                    "Invalid schema resolve request: {e}"
-                )),
-            );
-        }
-    };
+    let request: SchemaResolveRequest =
+        match typed_json_body(event, "Invalid schema resolve request") {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
 
     match state.schema_resolve_reply(&request) {
         SchemaResolveReply::Ready(response) => {

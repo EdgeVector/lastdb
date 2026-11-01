@@ -35,6 +35,8 @@ pub struct RecountArgs<'a> {
     pub all_scopes: bool,
     /// Set the blob counters to the exact count. Needs `all_scopes`.
     pub blobs_exact: bool,
+    /// Raise the replay cutoff to this unix second. The cutoff is one record
+    /// for the whole home, so it does not depend on the scopes.
     pub delete_cutoff_unix_secs: Option<u64>,
     pub i_know_this_is_primary: bool,
     pub json: bool,
@@ -60,11 +62,8 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_secs();
-        if !args.all_scopes || cutoff == 0 || cutoff > now {
-            return Err(
-                "delete cutoff requires --all-scopes and a positive unix second at or before now"
-                    .into(),
-            );
+        if cutoff == 0 || cutoff > now {
+            return Err("delete cutoff requires a positive unix second at or before now".into());
         }
     }
     if !args.i_know_this_is_primary {

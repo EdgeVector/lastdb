@@ -9,11 +9,12 @@ blocks one.
 
 A reference is one of:
 
-- an atom counter that lists the blob in its `blobs` (the atom body names the blob
-  in a `$lastdb_file` pointer, or in its metadata), in any storage scope;
-- a live tip record whose metadata names the blob (`file_blob_ref` or `file_hash`).
+- a record (`rk:`) that lists the blob in its `blob_refs` (a field value names the
+  blob in a `$lastdb_file` pointer, or the record metadata names it), in any
+  storage scope;
+- a field history entry (`rh:`) whose copied value names the blob.
 
-A blob at zero is not deleted at once. An upload comes before the atom that names
+A blob at zero is not deleted at once. An upload comes before the record that names
 it, so a blob with no reference yet is normal. The blob has a dwell that starts
 when its count reaches zero, or when it is uploaded at a count of zero. The dwell
 is `LASTDB_BLOB_DWELL_SECS` seconds, one hour by default. A reference that arrives
@@ -57,15 +58,15 @@ What stays:
 
 ### A write that names a blob that is gone
 
-An atom can name a blob after the dwell deleted it: the client uploaded, waited
+A record can name a blob after the dwell deleted it: the client uploaded, waited
 longer than the dwell, and then wrote. The counter of the blob went with the row, so
 the write finds no counter and makes one with a count of one. **The write succeeds.**
 The reasons:
 
-- The planner is shared with the paths that bring atoms from a peer. A peer's atom
-  can arrive before the bytes of its blob (on-demand file sync), and a refusal there
-  would stop the sync.
-- A refusal needs a policy for every path that makes an atom counter. Only the local
+- The planner is shared with the paths that bring records from a peer. A peer's
+  record can arrive before the bytes of its blob (on-demand file sync), and a refusal
+  there would stop the sync.
+- A refusal needs a policy for every path that writes a record. Only the local
   write route can tell the client what to do, and that is a decision for the API.
 
 So the write is accepted and the fault is made loud. The write path reads the row of
@@ -80,7 +81,7 @@ no row it
 `blobs.rows_missing`, with the first ten blobs in `blobs.missing_row_samples`. The
 same object is also `recount.blobs` in the full report under the key `recount`. It
 cannot restore the bytes. The fix is to upload the file again and write
-the atom again.
+the record again.
 
 `late_references` in `lastdb status`, like every figure of the `Blob counters` line,
 comes from the status snapshot that the sampler publishes (every
@@ -101,7 +102,7 @@ stays in the `cas_blobs` plane, keyed by its `blob_ref`.
 
 `zero_since` in the counter is in unix milliseconds. It is present only while
 `refs` is zero. `suspect` is present only when true. A key hashes on its first
-NUL. The counter of a blob is one hash, as the counter of an atom is.
+NUL. The counter of a blob is one hash.
 
 ### The queue
 
@@ -153,21 +154,23 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
 
 ## Who changes a counter
 
-1. **The atom counter planner** (`atom_store/counter/build.rs`) in the batch of the
-   change. A created atom counter that lists a blob raises it. A deleted one lowers
-   it. A tip record that names a blob raises it. A replaced or removed tip lowers it.
-   The blob changes are summed for the whole run first. `blob_counter::BlobDeltas`
-   does that, and `AtomStore::blob_counter_mutations` reads the counters by key and
-   builds the writes.
+1. **The record write and the history release** (`atom_store/records.rs`,
+   `atom_store/atom_history/records.rs`) in the batch of the change. A record or a
+   history entry that names a blob raises it. A replaced or removed record, and a
+   released history entry, lowers it. The blob changes are summed for the whole
+   batch first. `blob_counter::BlobDeltas` does that, and
+   `AtomStore::blob_counter_mutations` reads the counters by key and builds the
+   writes.
 2. **An upload** of a blob row (`blob_cas::put_blob_sealed_with_access_dedup_in_ops`)
    calls `AtomStore::register_blob_upload` in the same native write request as the
    row. A blob at zero starts its dwell again. A blob with references is left alone.
-3. **The drop of a storage scope** (`delete_catalog_membership`) lowers the blobs
-   that the dropped atom counters and tips held, in the same batch as the rows.
+3. **The drop of a storage scope** (`delete_catalog_membership`) and **the drop of
+   a schema** (`atom_store/schema_release.rs`) lower the blobs that the dropped
+   records and history entries held, in the same batch as the rows.
 4. **The dwell pass** deletes a blob (see below).
 5. **The offline recount** (see "Verify and recount").
 
-No other code writes these records. `scripts/lints/lint-atom-counter-writers.py`
+No other code writes these records. `scripts/lints/lint-store-writers.py`
 checks that, function by function (family `R`).
 
 ## Arithmetic
@@ -255,7 +258,7 @@ blobs can reach it earlier than a request that names none. The request then fail
 with the read limit error and changes nothing.
 
 The same holds for the 16,384 storage operations of one native mutation. A write
-costs about 8 operations in the atom planner, and a write that names a new blob adds
+costs a few operations in the record batch, and a write that names a new blob adds
 one more (the blob counter; an upload adds the queue entry and the directory row
 too). Measured on a synthetic home: a request of 1,980 plain writes fits, a request
 of 1,800 writes that each name a distinct blob fits, and 1,900 do not (`complete
@@ -324,10 +327,8 @@ expects `3`. The design has no migration.
 
 ## Verify and recount
 
-`lastdb db verify-refs` (`docs/lastdb-atom-counter.md`) reads the blob counters
-without a write gate. For the page of every atom counter and tip it reads the
-counters of the blobs they name at the same root, and reports `blob_counter_missing`
-and `blob_counter_below_refs`. The personal run then walks the counters
+`lastdb db verify-refs` reads the blob counters without a write gate. The
+personal run walks the counters
 (`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `zero_blob_without_queue_entry`,
 `unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`, and
 `queue_entry_without_directory` for an entry whose bucket has no directory row, read
@@ -339,8 +340,8 @@ no false positive under concurrent writers, because one page is one committed ro
 A counter above its references is not found: the verifier checks one scope and the
 counters are global.
 
-`lastdb db recount` (offline) counts the references of each blob from the atom
-counters and the tips of the listed scopes. The default only raises counters, makes
+`lastdb db recount` (offline) counts the references of each blob from the records
+and the field history entries of the listed scopes. The default only raises counters, makes
 missing ones, writes a missing queue entry and a missing directory row again (both
 through the planner, so a second run changes nothing) and deletes a queue entry that
 no counter backs. `--blobs-exact --all-scopes` also lowers a counter that is too high,
@@ -364,17 +365,14 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
 ## Known limits
 
 - A blob is counted in each scope that lists it. Cloud snapshot restore and cloud
-  replay write atom rows that bypass the planner (see `docs/lastdb-atom-counter.md`).
-  A restored atom that lists a blob does not raise the blob counter. The blob can
-  then reach zero while the restored atom names it. Cloud sync is off in this build.
-  `lastdb db verify-refs` reports it (`blob_counter_missing` or
-  `blob_counter_below_refs`) and `lastdb db recount` raises the counter.
-- A tip record names a blob only when a cloud file upload wrote its metadata
-  (`put_personal_file_blob`). A synthetic home cannot write that.
-- An erase of many atoms that list blobs costs up to four more operations for each
+  replay write rows that bypass the planner. A restored record that lists a blob
+  does not raise the blob counter. The blob can then reach zero while the restored
+  record names it. Cloud sync is off in this build. `lastdb db recount` raises the
+  counter.
+- An erase of many records that list blobs costs up to four more operations for each
   blob (the counter, the queue entry, the entry that goes, and the directory row of
-  the bucket, once for each bucket). The size check of an erase request counts four operations for each tip and
-  does not know the blobs. A request that exceeds the batch limit fails with the
+  the bucket, once for each bucket). The size check of an erase request does not
+  know the blobs. A request that exceeds the batch limit fails with the
   limit error and changes nothing. The TTL sweep halves its batch and retries.
 - A row that a dropped scope held and that does not decode lowers no blob counter.
   The drop goes on, the counters stay too high, and `lastdb db recount` repairs them.

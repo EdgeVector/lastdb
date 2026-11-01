@@ -37,6 +37,11 @@ pub fn is_canonical_molecule_uuid(molecule_uuid: &str) -> bool {
         .is_ok_and(|digest| digest.len() == 32 && URL_SAFE_NO_PAD.encode(digest) == molecule_uuid)
 }
 
+/// The key family of the alternate key entries:
+/// `ak:{alternate_molecule_uuid}:{esc(hash)}\0{range}`. A schema drop releases
+/// the entries of each declared alternate by this prefix.
+pub const ALTERNATE_ENTRY_PREFIX: &str = "ak:";
+
 /// The stable identity of one named alternate in its exact declaration revision.
 #[must_use]
 pub fn alternate_molecule_uuid(schema: &crate::schema::types::Schema, name: &str) -> String {

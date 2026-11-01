@@ -11,14 +11,12 @@ use std::collections::BTreeMap;
 #[derive(Default)]
 struct Bucket {
     live_bytes: u64,
-    atom_count: u64,
     schemas: Vec<String>,
 }
 
 impl Bucket {
-    fn add(&mut self, schema: &str, live_bytes: u64, atom_count: u64) {
+    fn add(&mut self, schema: &str, live_bytes: u64) {
         self.live_bytes = self.live_bytes.saturating_add(live_bytes);
-        self.atom_count = self.atom_count.saturating_add(atom_count);
         self.schemas.push(schema.to_string());
     }
 
@@ -29,7 +27,6 @@ impl Bucket {
             owner,
             kind,
             live_bytes: self.live_bytes,
-            atom_count: self.atom_count,
             schema_count: self.schemas.len() as u64,
             schemas: self.schemas,
         }
@@ -110,13 +107,13 @@ fn bucket_schemas(
                     .apps
                     .entry(owner)
                     .or_default()
-                    .add(schema_name, bytes, meter.atom_count);
+                    .add(schema_name, bytes);
             }
             OwnerResolution::System => {
-                buckets.system.add(schema_name, bytes, meter.atom_count);
+                buckets.system.add(schema_name, bytes);
             }
             OwnerResolution::Unknown => {
-                buckets.unresolved.add(schema_name, bytes, meter.atom_count);
+                buckets.unresolved.add(schema_name, bytes);
             }
         }
     }

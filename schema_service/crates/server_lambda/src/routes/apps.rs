@@ -3,12 +3,9 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{
-    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
-};
+use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
-    invalid_app_id_body, reason_only_body, PromoteAppReply, PublicAppReply, RegisterAppReply,
-    UpdateAppReply,
+    invalid_app_id_body, reason_only_body, PromoteAppReply, RegisterAppReply, UpdateAppReply,
 };
 use schema_service_server_shared::state::SchemaServiceState;
 
@@ -19,13 +16,9 @@ pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, app_metadata_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state.register_app_reply(cert, sig, &body_value).await {
         RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
@@ -62,17 +55,12 @@ pub(crate) async fn put_app_v1(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v1/apps/").trim_end_matches('/');
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = known_app_id(p, "/v1/apps/") else {
         return json_response(400, &invalid_app_id_body());
-    }
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
     };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, app_metadata_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state.update_app_reply(app_id, cert, sig, &body_value).await {
         UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
@@ -91,12 +79,9 @@ pub(crate) async fn promote_app_v1(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v1/apps/")
-        .trim_end_matches("/promote");
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = segment_before(p, "/v1/apps/", "/promote") else {
         return json_response(400, &invalid_app_id_body());
-    }
+    };
     let (cert, sig) = match v2_cert_headers(event) {
         Ok(pair) => pair,
         Err(r) => return r,
@@ -124,19 +109,12 @@ pub(crate) async fn post_apps_releases(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v2/apps/")
-        .trim_end_matches("/releases");
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = app_id_before(p, "/v2/apps/", "/releases") else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state
         .publish_release_reply(app_id, cert, sig, &body_value)
@@ -162,19 +140,12 @@ pub(crate) async fn post_apps_revocations(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v2/apps/")
-        .trim_end_matches("/revocations");
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = app_id_before(p, "/v2/apps/", "/revocations") else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
     match state
         .revoke_release_reply(app_id, cert, sig, &body_value)
@@ -202,21 +173,15 @@ pub(crate) async fn put_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &invalid_app_id_body());
     };
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
+    let (body_value, cert, sig) = match signed_json_body(event, v2_body) {
+        Ok(parts) => parts,
+        Err(response) => return response,
     };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
-    };
-    match state
+    let (status, body) = state
         .set_channel_reply(app_id, channel, cert, sig, &body_value)
         .await
-    {
-        SetChannelReply::Ready(body) => json_response(200, &body),
-        SetChannelReply::Failed { status, body } => json_response(status, &body),
-    }
+        .into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: the desired release id + the channel generation. Read from
@@ -228,11 +193,8 @@ pub(crate) async fn get_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &invalid_app_id_body());
     };
-    match state.channel_read_reply(app_id, channel).await {
-        ChannelReadReply::Ready(body) => json_response(200, &body),
-        ChannelReadReply::Missing(body) => json_response(404, &body),
-        ChannelReadReply::Unavailable(body) => json_response(503, &body),
-    }
+    let (status, body) = state.channel_read_reply(app_id, channel).await.into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: one release manifest by its exact key, from storage.
@@ -240,15 +202,11 @@ pub(crate) async fn get_releases(
     state: &SchemaServiceState,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let release_id = p.trim_start_matches("/v2/releases/").trim_end_matches('/');
-    if release_id.is_empty() || release_id.contains('/') {
+    let Some(release_id) = segment_before(p, "/v2/releases/", "/") else {
         return json_response(400, &reason_only_body("invalid_release_id"));
-    }
-    match state.release_read_reply(release_id).await {
-        ReleaseReadReply::Ready(body) => json_response(200, &body),
-        ReleaseReadReply::Missing(body) => json_response(404, &body),
-        ReleaseReadReply::Unavailable(body) => json_response(503, &body),
-    }
+    };
+    let (status, body) = state.release_read_reply(release_id).await.into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: the app record. Same body as `GET /v1/apps/{id}`.
@@ -260,14 +218,12 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
 }
 
 fn known_app_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    v2_app_id(path.trim_start_matches(prefix).trim_end_matches('/'))
+    segment_before(path, prefix, "/")
 }
 
 fn public_app_response(state: &SchemaServiceState, app_id: &str) -> Result<Response<Body>, Error> {
-    match state.public_app_reply(app_id) {
-        PublicAppReply::Ready(body) => json_response(200, &body),
-        PublicAppReply::Missing(body) => json_response(404, &body),
-    }
+    let (status, body) = state.public_app_reply(app_id).into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: list all apps (ordered by app_id).

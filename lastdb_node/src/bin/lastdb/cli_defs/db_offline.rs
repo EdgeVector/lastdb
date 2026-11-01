@@ -44,10 +44,11 @@ pub(crate) enum DbOfflineCommand {
         /// count too low.
         #[arg(long, requires = "all_scopes")]
         blobs_exact: bool,
-        /// Reject replay at or before this unix second. This is an explicit
-        /// global cutoff. Stale peers need resync. Without --execute this
-        /// reports only.
-        #[arg(long, requires = "all_scopes")]
+        /// Raise the replay cutoff of the home to this unix second: a replayed
+        /// write at or before it is refused. The cutoff is one record for the
+        /// whole home, so it needs no --all-scopes. Stale peers need resync.
+        /// Without --execute this reports only.
+        #[arg(long)]
         delete_cutoff_unix_secs: Option<u64>,
         /// Allow a home under the primary directory.
         #[arg(long)]

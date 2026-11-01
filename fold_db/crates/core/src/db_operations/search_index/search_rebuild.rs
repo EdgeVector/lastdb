@@ -72,10 +72,10 @@ async fn collect_schema_records(
     let comparison = ops.atoms().key_comparison_context(schema).await?;
     let scopes: [Option<String>; 1] = [None];
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
-    let mut after: Option<KeyValue> = None;
+    let mut after: Option<String> = None;
     loop {
         let window = WalkWindow {
-            after: after.as_ref(),
+            after: after.as_deref(),
             skip: 0,
             take: REBUILD_WALK_PAGE,
         };
@@ -84,9 +84,10 @@ async fn collect_schema_records(
             .walk_record_window(schema, &comparison, window, &scopes, |_| true);
         let scope = ops.read_scope().await?;
         let page = Arc::clone(&comparison).run(scope.run_result(walk)).await?;
-        let full = page.len() == REBUILD_WALK_PAGE;
-        after = page.last().map(|(key, _)| key.clone());
-        for (key, record) in page {
+        // A page that stopped in a run of deleted records goes on after the
+        // last key it examined.
+        let next = page.next(REBUILD_WALK_PAGE);
+        for (key, record) in page.into_keyed() {
             let fields: HashMap<String, Value> = record
                 .fields
                 .iter()
@@ -103,8 +104,9 @@ async fn collect_schema_records(
                 records.insert(key, fields);
             }
         }
-        if !full {
-            break;
+        match next {
+            Some(next) => after = Some(next),
+            None => break,
         }
     }
 

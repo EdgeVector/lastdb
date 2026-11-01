@@ -16,9 +16,11 @@ use super::condition_rules::{
     order_condition_keys,
 };
 use super::*;
-use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow};
+use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
+use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
 use crate::fold_db_core::query::{FieldMetadata, QueryRecords, Record};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
+use crate::schema::types::field::SAMPLE_PEEK_CAP;
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::KeyValuePageOrder;
 use lastdb_model::record_value::StoredRecord;
@@ -112,6 +114,11 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
         selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        if filter.is_some() && matches!(window, Some(KeyWindow::AfterRecord { .. })) {
+            return Err(SchemaError::InvalidCursor(
+                "a record walk cursor continues only an unfiltered read".into(),
+            ));
+        }
         let mut scopes = vec![record_scope(schema)];
         for namespace in self
             .collect_received_from_namespaces()
@@ -127,6 +134,15 @@ impl HashRangeQueryProcessor {
             return self
                 .walk_rows(schema, comparison, window.as_ref(), selected, &scopes)
                 .await;
+        }
+        if let Some(HashRangeFilter::SampleN(count)) = filter {
+            let rows = self
+                .sample_rows(schema, comparison, *count, selected, &scopes)
+                .await?;
+            return Ok(match window {
+                Some(window) => bound(rows, window),
+                None => rows,
+            });
         }
         if let Some((hash, bound)) = received::range_under_hash(schema, filter) {
             return self
@@ -155,7 +171,10 @@ impl HashRangeQueryProcessor {
 
 impl HashRangeQueryProcessor {
     /// One window of the unfiltered walk over `scopes`, in record key order.
-    /// No window reads the first page of the default size.
+    /// No window reads the first page of the default size. A cursor names a
+    /// row by its API key or a record key position (`AfterRecord`). The page
+    /// notes the record key position of each row for the reply, and where it
+    /// stopped when a run of deleted records ended it early.
     async fn walk_rows(
         &self,
         schema: &Schema,
@@ -164,21 +183,93 @@ impl HashRangeQueryProcessor {
         selected: &[String],
         scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let atoms = self.db_ops.atoms();
         let (after, skip, take) = match window {
             None => (None, 0, DEFAULT_UNFILTERED_PAGE_LIMIT),
             Some(KeyWindow::Offset { offset, limit }) => (None, *offset, *limit),
-            Some(KeyWindow::After { after, limit }) => (Some(after), 0, *limit),
+            Some(KeyWindow::After { after, limit }) => {
+                (Some(atoms.walk_position(schema, after)?), 0, *limit)
+            }
+            Some(KeyWindow::AfterRecord { record, limit }) => (Some(record.clone()), 0, *limit),
         };
-        self.db_ops
+        // Only a page that its caller continues may end early.
+        let resumable = window.is_some() && page_can_resume();
+        let walk = WalkWindow {
+            after: after.as_deref(),
+            skip,
+            take,
+        };
+        let mut page = atoms
+            .walk_record_window(schema, comparison, walk, scopes, |record| {
+                has_any(record, selected)
+            })
+            .await?;
+        if let Some(stopped) = page.stopped.take() {
+            if !resumable {
+                return Err(SchemaError::ReadResourceLimit {
+                    detail: format!(
+                        "an unfiltered read passed {PAGE_READ_KEYS} deleted records before its \
+                         page was full; read it in pages with next_cursor"
+                    ),
+                });
+            }
+            note_page_resume(PageResume::Record(stopped));
+        }
+        note_walk_positions(
+            page.rows
+                .iter()
+                .map(|row| (row.key.clone(), row.at.clone()))
+                .collect(),
+        );
+        Ok(page.into_keyed())
+    }
+
+    /// A sample over `scopes`: the first `count` live records (at most
+    /// `SAMPLE_PEEK_CAP`) with one of the selected fields, in record key
+    /// order, in page order in the result. One walk merges the scopes, as the
+    /// unfiltered walk does, so a received record fills the place of a record
+    /// that the own scope deleted.
+    ///
+    /// A run of deleted records can use the read allowance of the walk before
+    /// the sample is full. A caller that continues a page that ends early
+    /// gets the short sample and the record key position where the walk
+    /// stopped (`PageResume::Record`), so its reply says the sample is not
+    /// complete. Any other caller gets a read limit error: a short sample with
+    /// no sign that it is short looks like the whole schema.
+    async fn sample_rows(
+        &self,
+        schema: &Schema,
+        comparison: &KeyComparisonContext,
+        count: usize,
+        selected: &[String],
+        scopes: &[Option<String>],
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let walk = WalkWindow {
+            after: None,
+            skip: 0,
+            take: count.min(SAMPLE_PEEK_CAP),
+        };
+        let mut page = self
+            .db_ops
             .atoms()
-            .walk_record_window(
-                schema,
-                comparison,
-                WalkWindow { after, skip, take },
-                scopes,
-                |record| has_any(record, selected),
-            )
-            .await
+            .walk_record_window(schema, comparison, walk, scopes, |record| {
+                has_any(record, selected)
+            })
+            .await?;
+        if let Some(stopped) = page.stopped.take() {
+            if !page_can_resume() {
+                return Err(SchemaError::ReadResourceLimit {
+                    detail: format!(
+                        "a sample passed {PAGE_READ_KEYS} deleted records before it was full; \
+                         read the schema in pages with next_cursor"
+                    ),
+                });
+            }
+            note_page_resume(PageResume::Record(stopped));
+        }
+        let mut rows = page.into_keyed();
+        rows.sort_by(|a, b| a.0.cmp_page_order(&b.0));
+        Ok(rows)
     }
 }
 
@@ -211,6 +302,8 @@ fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
             .filter(|(key, _)| key.cmp_page_order(&after).is_gt())
             .take(limit)
             .collect(),
+        // `select_rows` refuses a record walk cursor on a filtered read.
+        KeyWindow::AfterRecord { limit, .. } => rows.into_iter().take(limit).collect(),
     }
 }
 

@@ -148,9 +148,9 @@ counter frees each body whose last reference goes, in the same batch.
   [explicitly backfill existing personal Hash/HashRange records](lastdb-ttl-sweep.md#schema-shape-that-a-ttl-needs)
   with the owner's `--confirm-expire-existing` confirmation. See
   `docs/lastdb-ttl-sweep.md` and `docs/app-manifest-retention.md`.
-- A molecule goes only when its `slots`, `records` and `bindings` counters are all zero.
-  A file blob goes after its counter reaches zero and a dwell of one hour passes.
-  (`docs/lastdb-molecule-counters.md`, `docs/lastdb-blob-counter.md`.)
+- A file blob goes after its counter reaches zero and a dwell of one hour passes
+  (`docs/lastdb-blob-counter.md`). A format 7 home has no molecule counters
+  (`docs/lastdb-molecule-counters.md`, retired).
 
 **Kept conflicting writes.** When two devices write one key, the database keeps the
 losing write as a conflict record for 30 days (`LASTDB_CONFLICT_RETENTION_SECS`). A
@@ -329,8 +329,9 @@ DB synced to another person's node) still replicates data to that node.
 
 **2026-08-18 follow-up:** the node-universal rule above is now implemented as a
 database catalog with per-molecule key bundles (it replaces the earlier
-`{db_hash}:` copy geometry). A catalog entry that names a molecule adds one
-`bindings` count to the molecule (`docs/lastdb-molecule-counters.md`).
+`{db_hash}:` copy geometry). In a format 6 home, a catalog entry that named a
+molecule added one `bindings` count to the molecule. A format 7 home has no
+molecule counters (`docs/lastdb-molecule-counters.md`).
 
 ---
 
@@ -342,8 +343,8 @@ database catalog with per-molecule key bundles (it replaces the earlier
 | Core logical memory and native disk | `docs/lastdb-rehydrate.md` |
 | Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md |
 | Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
-| Atom counter, delete and purge, crash states | `docs/lastdb-atom-counter.md` |
-| Molecule counters and the drain | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |
+| Atom counter (retired in format 7) | `docs/lastdb-atom-counter.md` |
+| Molecule counters and the drain (retired in format 7) | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
 | Atom size ceiling | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |

@@ -46,12 +46,21 @@ jobs:
 
       - name: Reuse Rust dependencies for build scripts and macros
         if: matrix.language == 'rust'
+        id: rust-dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> ${{ steps.rust-target.outputs.relative }}
           shared-key: codeql-rust-dependencies-v1
           cache-workspace-crates: false
           cache-bin: false
+          cache-on-failure: true
+
+      - name: Record the Rust dependency cache result
+        if: matrix.language == 'rust'
+        env:
+          CACHE_HIT: ${{ steps.rust-dependencies.outputs.cache-hit }}
+        run: |
+          echo "Rust CodeQL dependency cache hit: ${CACHE_HIT:-false}. Local packages rebuild before extraction." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove all local-package outputs before Rust extraction
         if: matrix.language == 'rust'

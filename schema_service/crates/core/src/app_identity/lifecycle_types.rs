@@ -97,7 +97,7 @@ pub enum AppUpdateError {
 }
 
 impl AppUpdateError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::InvalidMetadata(_) => "invalid_metadata",
@@ -109,34 +109,52 @@ impl AppUpdateError {
             Self::AppNotRegistered => "app_not_registered",
             Self::NotOwner => "not_owner",
             Self::DisplayNameImmutable { .. } => "display_name_immutable",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
+        }
+    }
+
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId
+            | Self::InvalidMetadata(_)
+            | Self::InvalidCodeSignature(_)
+            | Self::InvalidUses(_) => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => 401,
+            Self::AppNotRegistered => 404,
+            Self::DisplayNameImmutable { .. } => 409,
+            Self::Internal(_) => 500,
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::InvalidMetadata(detail) => (400, reason_detail_body("invalid_metadata", detail)),
-            Self::InvalidCodeSignature(detail) => {
-                (400, reason_detail_body("invalid_code_signature", detail))
-            }
-            Self::InvalidUses(detail) => (400, reason_detail_body("invalid_uses", detail)),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::NotOwner => (401, reason_only_body("not_owner")),
-            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
+        let reason = self.http_reason();
+        let body = match self {
+            Self::InvalidMetadata(detail)
+            | Self::InvalidCodeSignature(detail)
+            | Self::InvalidUses(detail)
+            | Self::Internal(detail) => reason_detail_body(reason, detail),
             Self::DisplayNameImmutable {
                 current_display_name,
-            } => (
-                409,
-                json!({
-                    "reason": "display_name_immutable",
-                    "current_display_name": current_display_name,
-                }),
-            ),
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
-        }
+            } => json!({
+                "reason": reason,
+                "current_display_name": current_display_name,
+            }),
+            Self::InvalidAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotOwner
+            | Self::AppNotRegistered => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
 
@@ -192,7 +210,7 @@ pub enum AppPromoteError {
 }
 
 impl AppPromoteError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::CertInvalid => "cert_invalid",
@@ -202,27 +220,44 @@ impl AppPromoteError {
             Self::NotOwner => "not_owner",
             Self::NotAuthorizedPublisher => "not_authorized_publisher",
             Self::MissingInstallPointer => "missing_install_pointer",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
+        }
+    }
+
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId | Self::MissingInstallPointer => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => 401,
+            Self::NotAuthorizedPublisher => 403,
+            Self::AppNotRegistered => 404,
+            Self::Internal(_) => 500,
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::NotOwner => (401, reason_only_body("not_owner")),
-            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
-            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
-            Self::MissingInstallPointer => (
-                400,
-                reason_detail_body(
-                    "missing_install_pointer",
-                    "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
-                ),
+        let reason = self.http_reason();
+        let body = match self {
+            Self::MissingInstallPointer => reason_detail_body(
+                reason,
+                "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
             ),
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
-        }
+            Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::InvalidAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotOwner
+            | Self::NotAuthorizedPublisher
+            | Self::AppNotRegistered => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }

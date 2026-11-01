@@ -125,7 +125,7 @@ pub enum AppRegisterError {
 }
 
 impl AppRegisterError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::InvalidAppIdCharset(_) => "invalid_app_id_charset",
@@ -140,54 +140,73 @@ impl AppRegisterError {
             Self::NotAuthorizedPublisher => "not_authorized_publisher",
             Self::QuotaExceeded => "quota_exceeded",
             Self::NonMonotonicVersion { .. } => "non_monotonic_version",
+            Self::Conflict { .. } => "app_id_taken",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Conflict` stays `conflict`. `Internal` stays `error`.
+    /// Their HTTP reasons stay `app_id_taken` and `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Conflict { .. } => "conflict",
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
+        }
+    }
+
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId
+            | Self::InvalidAppIdCharset(_)
+            | Self::ReservedAppId
+            | Self::InvalidMetadata(_)
+            | Self::InvalidVersion(_)
+            | Self::InvalidCodeSignature(_)
+            | Self::InvalidUses(_) => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid => 401,
+            Self::NotAuthorizedPublisher => 403,
+            Self::NonMonotonicVersion { .. } | Self::Conflict { .. } => 409,
+            Self::QuotaExceeded => 429,
+            Self::Internal(_) => 500,
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::InvalidAppIdCharset(detail) => {
-                (400, reason_detail_body("invalid_app_id_charset", detail))
-            }
-            Self::ReservedAppId => (400, reason_only_body("reserved_app_id")),
-            Self::InvalidMetadata(detail) => (400, reason_detail_body("invalid_metadata", detail)),
-            Self::InvalidVersion(detail) => (400, reason_detail_body("invalid_version", detail)),
-            Self::InvalidCodeSignature(detail) => {
-                (400, reason_detail_body("invalid_code_signature", detail))
-            }
-            Self::InvalidUses(detail) => (400, reason_detail_body("invalid_uses", detail)),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
-            Self::QuotaExceeded => (
-                429,
-                json!({
-                    "reason": "quota_exceeded",
-                    "max_apps_per_developer": MAX_APPS_PER_DEVELOPER,
-                }),
-            ),
+        let reason = self.http_reason();
+        let body = match self {
+            Self::InvalidAppIdCharset(detail)
+            | Self::InvalidMetadata(detail)
+            | Self::InvalidVersion(detail)
+            | Self::InvalidCodeSignature(detail)
+            | Self::InvalidUses(detail)
+            | Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::QuotaExceeded => json!({
+                "reason": reason,
+                "max_apps_per_developer": MAX_APPS_PER_DEVELOPER,
+            }),
             Self::NonMonotonicVersion {
                 current_version,
                 requested_version,
-            } => (
-                409,
-                json!({
-                    "reason": "non_monotonic_version",
-                    "current_version": current_version,
-                    "requested_version": requested_version,
-                }),
-            ),
+            } => json!({
+                "reason": reason,
+                "current_version": current_version,
+                "requested_version": requested_version,
+            }),
             Self::Conflict {
                 current_owner_dev_pubkey,
-            } => (
-                409,
-                json!({ "reason": "app_id_taken", "current_owner_dev_pubkey": current_owner_dev_pubkey }),
-            ),
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
-        }
+            } => json!({
+                "reason": reason,
+                "current_owner_dev_pubkey": current_owner_dev_pubkey,
+            }),
+            Self::InvalidAppId
+            | Self::ReservedAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotAuthorizedPublisher => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
 
@@ -220,7 +239,7 @@ pub enum SchemaClaimError {
 }
 
 impl SchemaClaimError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::CertRequired => "cert_required",
             Self::NotAuthorizedPublisher => "not_authorized_publisher",
@@ -231,24 +250,45 @@ impl SchemaClaimError {
             Self::AppNotRegistered => "app_not_registered",
             Self::DevRevoked => "dev_revoked",
             Self::AppIdentityNotConfigured => "app_identity_not_configured",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
+        }
+    }
+
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::CertRequired
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::CertForWrongApp => 401,
+            Self::NotAuthorizedPublisher | Self::AppNotRegistered | Self::DevRevoked => 403,
+            Self::AppIdentityNotConfigured => 503,
+            Self::Internal(_) => 500,
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::CertRequired => (401, reason_only_body("cert_required")),
-            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::CertForWrongApp => (401, reason_only_body("cert_for_wrong_app")),
-            Self::AppNotRegistered => (403, reason_only_body("app_not_registered")),
-            Self::DevRevoked => (403, reason_only_body("dev_revoked")),
-            Self::AppIdentityNotConfigured => {
-                (503, reason_only_body("app_identity_not_configured"))
-            }
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
-        }
+        let reason = self.http_reason();
+        let body = match self {
+            Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::CertRequired
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::CertForWrongApp
+            | Self::NotAuthorizedPublisher
+            | Self::AppNotRegistered
+            | Self::DevRevoked
+            | Self::AppIdentityNotConfigured => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }

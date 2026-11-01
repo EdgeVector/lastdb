@@ -174,8 +174,17 @@ export function parseKeyValue(rawKey: unknown): KeyValue | null {
 
 function parseQueryCursor(raw: unknown): QueryCursor | null {
   if (raw === null || raw === undefined) return null;
-  const key = parseKeyValue(raw);
-  if (!key || !isObject(raw)) {
+  if (!isObject(raw)) {
+    throw new UnexpectedResponseError('query returned an invalid cursor', 200, raw);
+  }
+  const record = raw['record'];
+  if (record !== null && record !== undefined
+      && (typeof record !== 'string' || record.length === 0)) {
+    throw new UnexpectedResponseError('query returned an invalid record cursor', 200, raw);
+  }
+  // A record walk cursor names a record key position, not a row key.
+  const key = typeof record === 'string' ? { hash: null, range: null } : parseKeyValue(raw);
+  if (!key) {
     throw new UnexpectedResponseError('query returned an invalid cursor', 200, raw);
   }
   for (const name of ['hash', 'range']) {

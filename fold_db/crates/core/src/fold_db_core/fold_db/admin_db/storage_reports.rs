@@ -45,7 +45,7 @@ impl FoldDB {
 
     /// Per-schema logical storage: the live records of each schema
     /// (`record_count`, `record_bytes`). Their bytes count in `bytes` and the
-    /// logical total. `atom_count` and `total_atoms` stay zero for their readers.
+    /// logical total.
     ///
     /// Catalog `descriptive_name` is joined as `display_name` when it differs
     /// from the runtime identity. This is the `lastdb db schemas` product path.

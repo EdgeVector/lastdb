@@ -1,9 +1,9 @@
 //! Native per-key molecule storage codec.
 //!
-//! A tip uses `mk:{M}:{esc(hash)}\0{range}` and its header uses `mh:{M}`.
+//! A key is `mk:{M}:{esc(hash)}\0{range}`. Alternate keys (`ak:`) and record
+//! ranges (`rk:`) build their keys with it and replace the `mk:` family.
 //! Callers add an optional storage scope with `build_storage_key`. Hash fields
-//! use an empty range; HashRange fields use both coordinates. Physical tools
-//! can also decode the historical empty-slot layouts.
+//! use an empty range; HashRange fields use both coordinates.
 //!
 //! The supplied molecule UUID is an exact identity. Reads and writes never
 //! substitute a hex or base64url spelling. Hash blinding binds that same
@@ -158,17 +158,9 @@ impl std::fmt::Display for MoleculeKeyCodecError {
 
 impl std::error::Error for MoleculeKeyCodecError {}
 
-/// Storage key prefix for a per-key molecule record.
+/// The prefix of a per-key molecule key. Alternate keys and record ranges
+/// build their keys with it and replace it with their own family.
 pub const MK_PREFIX: &str = "mk:";
-/// Storage key prefix for a molecule header record.
-pub const MH_PREFIX: &str = "mh:";
-/// Active molecule-generation pointer. The pointer is the only mutable row in
-/// a generation activation; generation bodies are immutable.
-pub const MOLECULE_GENERATION_POINTER_PREFIX: &str = "mgp:v1:";
-/// Immutable molecule-generation body rows.
-pub const MOLECULE_GENERATION_RECORD_PREFIX: &str = "mgr:v1:";
-/// Sparse post-generation slot deletions.
-pub const MOLECULE_GENERATION_DELETE_PREFIX: &str = "mgd:v1:";
 
 const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
 const ESC: char = '\u{1}'; // escape byte for the hash segment
@@ -218,9 +210,5 @@ fn unescape_segment(escaped: &str) -> Option<String> {
     Some(out)
 }
 
-mod generation_keys;
-pub use generation_keys::*;
-mod history_keys;
-pub use history_keys::*;
 mod record_keys;
 pub use record_keys::*;

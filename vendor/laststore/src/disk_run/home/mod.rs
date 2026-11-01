@@ -76,6 +76,7 @@ use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -193,7 +194,10 @@ impl RunHome {
             name.to_string_lossy(),
             Uuid::new_v4()
         ));
-        fs::create_dir(&staging)?;
+        // The home holds private metadata (the mutation log refuses a
+        // parent that group or other can read), so it is owner-only from
+        // the start, as a restored home is.
+        fs::DirBuilder::new().mode(0o700).create(&staging)?;
         let built = build_empty(&staging, key).and_then(|()| {
             fs::rename(&staging, root)?;
             sync_directory(&File::open(parent)?)

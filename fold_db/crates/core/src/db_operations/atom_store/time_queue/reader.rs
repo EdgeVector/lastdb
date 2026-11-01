@@ -19,6 +19,12 @@ use std::collections::BTreeMap;
 
 /// Directory rows that one read asks for.
 const DIRECTORY_PAGE: usize = 256;
+/// Bounded reads that one [`QueueReader::read_due`] makes, at most. A read that
+/// finds no live entry passes a run of released keys, up to the key budget of
+/// one read call; after this many such reads the call returns an empty page that
+/// does not wait, and the cursor keeps the place for the next call. So one call
+/// costs a bounded time however many released keys a bucket holds.
+const READS_PER_PAGE: usize = 16;
 
 #[derive(Debug)]
 struct Bucket {
@@ -189,6 +195,10 @@ impl QueueReader {
     /// Read the next entries of `bucket`: the entries of one non-empty read, up
     /// to the first key that is not due at `now`. The read holds no write gate. It
     /// changes nothing in the state, so a caller that fails keeps its place.
+    ///
+    /// The call makes at most [`READS_PER_PAGE`] reads. A page with no row that
+    /// does not wait and whose walk is not done passed only released keys:
+    /// [`Self::finish`] moves the cursor past them, and the bucket is not done.
     pub(crate) async fn read_due(
         &self,
         store: &AtomStore,
@@ -201,7 +211,9 @@ impl QueueReader {
         let mut walk = state.walk.clone();
         let mut rows = Vec::new();
         let mut stop = None;
-        while rows.is_empty() && stop.is_none() && !walk.done() {
+        let mut reads = 0usize;
+        while rows.is_empty() && stop.is_none() && !walk.done() && reads < READS_PER_PAGE {
+            reads += 1;
             let step = store.walk_step(&mut walk).await?;
             for (raw, value) in step.rows {
                 let Ok(key) = String::from_utf8(raw) else {

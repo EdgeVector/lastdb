@@ -267,14 +267,13 @@ class Case:
     def logical(self):
         data, elapsed, _ = self.node.call("/api/db/schemas")
         report = data["schema_storage"]
-        histogram = report.get("histogram") or {}
         # A format 7 home stores records, not atoms: the walk counts the stored
         # record values and their bytes. The alternate-key storage comparison
         # also runs the previous main binary, whose format 6 home stores atoms.
         unit = "record_count" if self.node.home_format() == 7 else "atom_count"
-        return {"bytes": report["total_logical_bytes"], "atoms": report["total_atoms"],
+        return {"bytes": report["total_logical_bytes"],
                 "records": report.get("total_records", 0),
-                "p50": histogram.get("p50"), "milliseconds": round(elapsed),
+                "milliseconds": round(elapsed),
                 "schemas": {row["schema_name"]: [row["bytes"], row[unit]]
                             for row in report["per_schema"]}}
 
@@ -426,8 +425,8 @@ def summary(report, candidate):
         keys = sum(value.get("keys", 0) for value in listed.values())
         removed = sum(value.get("deleted", 0) for value in listed.values())
         lines.append(
-            f"| {phase['name']} | {mib(logical['bytes'])}, {logical['records']:,} records, "
-            f"p50 {logical['p50']} B | {mib(stored)} "
+            f"| {phase['name']} | {mib(logical['bytes'])}, {logical['records']:,} records | "
+            f"{mib(stored)} "
             f"({stored / max(1, logical['bytes']):.2f}x) | "
             f"{peak} | {samples} | {reads['live']:,} equal, "
             f"{reads['absent']:,} absent | {keys:,}, {removed:,} of them deleted |")

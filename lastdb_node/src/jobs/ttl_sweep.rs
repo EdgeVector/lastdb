@@ -249,6 +249,7 @@ async fn prepare_backlog(
                 hashes: hash_partitions,
                 partition: 0,
                 after: None,
+                leading: true,
             }
         }
     };

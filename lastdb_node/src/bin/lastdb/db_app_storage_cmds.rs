@@ -113,7 +113,7 @@ fn print_app_storage_owners(report: &serde_json::Value) {
     if rows.is_empty() {
         println!("  (no metered schemas yet — a fresh home reports nothing)");
     } else {
-        println!("  OWNER                     KIND           BYTES  ATOMS  SCHEMAS");
+        println!("  OWNER                     KIND           BYTES  SCHEMAS");
         for row in &rows {
             let owner = row
                 .get("owner")
@@ -127,16 +127,12 @@ fn print_app_storage_owners(report: &serde_json::Value) {
                 .get("live_bytes")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0);
-            let atoms = row
-                .get("atom_count")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
             let schemas = row
                 .get("schema_count")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0);
             println!(
-                "  {owner:<24}  {kind:<12}  {:>6}  {atoms:>5}  {schemas:>7}",
+                "  {owner:<24}  {kind:<12}  {:>6}  {schemas:>7}",
                 format_bytes(bytes)
             );
         }

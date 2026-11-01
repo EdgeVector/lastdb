@@ -10,7 +10,7 @@ for rewritten keys, the measured cost, and the knobs.
 The default verb is `purge`. It uses the atom counter.
 The same batch frees each body whose last reference goes.
 `delete` is opt-in because it leaves barrier rows.
-The owner can remove older barriers through an [explicit stopped-home replay cutoff](delete-replay-cutoff.md).
+The owner can raise the home-wide [replay cutoff](delete-replay-cutoff.md) on a stopped home.
 
 ## Schema shape that a TTL needs
 
@@ -48,6 +48,14 @@ HashRange backfill registers hashes; the range key still defines the age.
    An exclusive cursor advances across stale age entries and keys without a valid range age.
    Only an empty physical page ends an interval. A short page does not end it.
    The next pass starts from the oldest remaining key; no offset survives an erase.
+   One request examines at most 8,192 record keys, and a deleted record is a key.
+   A Range or HashRange page that passes that many deleted records ends early and
+   names the last key it examined; the next page starts after that key.
+   The erase leaves deleted records at the oldest keys of each hash. So the pass
+   keeps a floor for each hash in memory: the key where a page of the leading run of
+   deleted records ended. The next pass of the hash starts after that floor. Once
+   in 64 passes of a hash, and after a restart, the pass starts at the start of the
+   hash again. A write below the floor waits for that full pass.
 3. Each round serves one page from each schema, in schema name order. A size refusal splits the
    current page into smaller batches. A failed schema releases its page and retains only its
    outstanding count. Other schemas continue. The status does not call a failed or cut pass complete.
@@ -130,7 +138,7 @@ The key keeps its TTL entry and its LastSeek record; cleanup removes those entri
 The default remains `purge`. No timer infers a maximum offline time for a device.
 The owner selects the replay cutoff explicitly.
 After cleanup, an old or unclocked replay refuses and the peer needs a current snapshot.
-The [cleanup guide](delete-replay-cutoff.md) gives the peer upgrade order and the older-program refusal rule.
+The [replay cutoff guide](delete-replay-cutoff.md) gives the steps and the replay refusal rule.
 
 ## Pacing
 
