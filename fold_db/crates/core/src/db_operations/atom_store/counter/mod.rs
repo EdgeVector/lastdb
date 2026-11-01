@@ -16,30 +16,21 @@
 //! - I4: the stored count is never lower than the true number of references.
 //!
 //! Only this module writes `mk:` tip records, conflict record keys, atom body
-//! records, atom counter records, and the counters in molecule headers. The
+//! records, and atom counter records. The
 //! planner here reads the old state from the store inside the native write
 //! request scope and writes one batch. A crash keeps whole batches only, so each
 //! batch moves the store from one equal state to another.
 //! `scripts/lints/lint-atom-counter-writers.py` guards this boundary at the
 //! source level.
 //!
-//! The same planner changes the molecule counters `slots` and `records` in the
-//! molecule header, in the same batch (`molecule.rs`, `molecule_plan.rs`). The
-//! third counter, `bindings`, has its own writer (`../molecule_bindings.rs`).
-//! A step that writes conflict records tells the planner the molecule of each
-//! record (`RecordRefs::molecule`), and a step that releases records adds its
-//! removals to `molecule::molecule_changes`.
-//!
 //! Design: `docs/design-lastdb-counter-lifecycle.md`. The contract in short:
-//! `docs/lastdb-atom-counter.md` and `docs/lastdb-molecule-counters.md`.
+//! `docs/lastdb-atom-counter.md`.
 
 mod build;
 mod commit;
 mod commit_types;
 mod file_dependencies;
 mod guarded;
-mod molecule;
-mod molecule_plan;
 mod plan;
 mod read;
 mod records;
@@ -50,13 +41,9 @@ pub(crate) mod restore_validation;
 mod scan;
 mod verify;
 
-pub(crate) use commit::{
-    GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
-};
-pub use molecule::counts_of_header;
-pub use molecule_plan::{MoleculeCounts, MoleculeFault};
+pub(crate) use commit::{GuardedDelete, RecordRefs, ReleaseRequest, TipChangeSet, TipCommit};
 pub use read::AtomCounterView;
-pub use recount::{Change, MoleculeRecountReport, RecountOptions, RecountReport};
+pub use recount::{Change, RecountOptions, RecountReport};
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;
 pub(crate) use report::CounterEvents;
@@ -127,5 +114,31 @@ impl AtomSize {
             crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())?;
         let logical = serde_json::to_vec(atom).map_or(0, |bytes| bytes.len() as u64);
         Some(Self(logical, blob))
+    }
+}
+
+impl super::AtomStore {
+    /// Check the scope that a verb names. The only scopes a verb may name are the
+    /// personal scope (no value) and a database scope: exactly 64 lowercase hex
+    /// characters. A mistyped scope reads an empty range and looks like a clean
+    /// scope, so the verbs that take a scope check it before they read. The check is
+    /// narrower than the key validation of the storage layer on purpose: a verb
+    /// never needs a `cloud:` or `from:` scope or a reserved name.
+    pub fn validate_scope(scope: Option<&str>) -> Result<(), crate::schema::SchemaError> {
+        let Some(scope) = scope else {
+            return Ok(());
+        };
+        let lower_hex = scope.len() == 64
+            && scope
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        if lower_hex {
+            return Ok(());
+        }
+        let shown: String = scope.chars().take(80).collect();
+        Err(crate::schema::SchemaError::InvalidData(format!(
+            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
+             or a database scope of exactly 64 lowercase hex characters"
+        )))
     }
 }

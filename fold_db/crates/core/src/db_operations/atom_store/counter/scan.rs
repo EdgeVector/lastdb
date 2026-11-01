@@ -22,12 +22,6 @@ pub(super) enum Family {
     Records,
     /// Body records and counter records, `atom:`.
     Atoms,
-    /// Molecule headers `mh:`.
-    Headers,
-    /// `bindings` counters of molecules, `mref:v1:n:`.
-    BindingCounters,
-    /// Binding records of molecules, `mref:v1:e:`.
-    BindingRecords,
 }
 
 /// The start and the exclusive end of the range of a family in a scope.
@@ -36,9 +30,6 @@ pub(super) fn family_range(family: Family, scope: Option<&str>) -> (Vec<u8>, Vec
         Family::Tips => "mk:",
         Family::Records => "history\0",
         Family::Atoms => "atom:",
-        Family::Headers => "mh:",
-        Family::BindingCounters => "mref:v1:n:",
-        Family::BindingRecords => "mref:v1:e:",
     };
     let start = build_storage_key(scope, base);
     let end =
@@ -106,37 +97,6 @@ pub(super) fn tip_holders(rows: &[(Vec<u8>, Vec<u8>)]) -> (BTreeMap<String, u32>
         }
     }
     (holders, bad)
-}
-
-/// The tips of a page, counted by their molecule.
-pub(super) fn tip_molecules(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, u32> {
-    let mut molecules = BTreeMap::new();
-    for (key, _) in rows {
-        if let Some(molecule) = crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(
-            &String::from_utf8_lossy(key),
-        ) {
-            *molecules.entry(molecule.to_string()).or_insert(0u32) += 1;
-        }
-    }
-    molecules
-}
-
-/// The counted conflict records of a page, counted by their molecule. The key
-/// `history\0{molecule}:{ts}:{tag}:{digest}` names the molecule.
-pub(super) fn record_molecules(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, u32> {
-    let mut molecules = BTreeMap::new();
-    for (key, _) in rows {
-        let key = String::from_utf8_lossy(key);
-        if !is_counted_record_key(&key) {
-            continue;
-        }
-        let molecule = lastdb_model::kind_partition::rest_of(&key, "history")
-            .and_then(|rest| rest.split(':').next());
-        if let Some(molecule) = molecule.filter(|molecule| !molecule.is_empty()) {
-            *molecules.entry(molecule.to_string()).or_insert(0u32) += 1;
-        }
-    }
-    molecules
 }
 
 /// The ids of the counted conflict records of a page: the first 128 bits of the

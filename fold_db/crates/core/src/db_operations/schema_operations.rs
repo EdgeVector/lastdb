@@ -65,23 +65,11 @@ impl DbOperations {
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
-        let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
-            schema_molecule_ref_edges(schema_name, existing)
-        });
-        let new_edges = schema_molecule_ref_edges(schema_name, schema);
-        self.refuse_while_draining(schema_name, &old_edges, &new_edges)
-            .await?;
         self.molecule_keys()
             .establish_schema_for_publication(schema, old.as_ref())
             .await?;
-        // Bind first. Each new binding record and the counter of its molecule
-        // are one batch, and a binding that already exists changes nothing.
-        let bound = self.atoms().add_molecule_bindings(&new_edges, None).await?;
-        if bound != 0 {
-            self.atoms().flush().await?;
-        }
         self.schemas().store_schema(schema_name, schema).await?;
-        for edge in &new_edges {
+        for edge in &schema_molecule_ref_edges(schema_name, schema) {
             self.atoms()
                 .keep_small()
                 .ensure_molecule_counter(&edge.molecule_uuid, schema_name);
@@ -89,54 +77,7 @@ impl DbOperations {
         // Debounced persist only. `store_schema` runs on every schema put and
         // a per-write flush here was one of the 2026-09-21 flush-storm sites.
         let _ = self.atoms().persist_keep_small().await;
-        let stale: Vec<_> = old_edges
-            .into_iter()
-            .filter(|old| !new_edges.contains(old))
-            .collect();
-        self.atoms().remove_molecule_bindings(&stale, None).await?;
         Ok(())
-    }
-
-    /// Refuse an install that would bind a molecule again while the molecule drain
-    /// still removes its keys. A molecule that the schema already binds is live and
-    /// is not checked.
-    async fn refuse_while_draining(
-        &self,
-        schema_name: &str,
-        old_edges: &[MoleculeRefEdge],
-        new_edges: &[MoleculeRefEdge],
-    ) -> Result<(), SchemaError> {
-        let mut added: Vec<String> = new_edges
-            .iter()
-            .filter(|edge| {
-                !old_edges
-                    .iter()
-                    .any(|old| old.molecule_uuid == edge.molecule_uuid)
-            })
-            .map(|edge| edge.molecule_uuid.clone())
-            .collect();
-        added.sort();
-        added.dedup();
-        if added.is_empty() {
-            return Ok(());
-        }
-        let found = self.atoms().molecules_draining(None, &added).await?;
-        let molecules = found.erasing + found.waiting_records;
-        if molecules == 0 {
-            return Ok(());
-        }
-        let reason = if self.atoms().drain_task_is_off() {
-            "drain_task_off"
-        } else if found.erasing > 0 {
-            "draining"
-        } else {
-            "waiting_for_conflict_records"
-        };
-        Err(SchemaError::SchemaBeingDropped {
-            schema: schema_name.to_string(),
-            reason: reason.to_string(),
-            molecules,
-        })
     }
 
     pub async fn store_schema_state(
@@ -235,16 +176,7 @@ impl DbOperations {
                 "LastDB does not remove a schema that declares alternate keys".into(),
             ));
         }
-        let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
-            schema_molecule_ref_edges(schema_name, existing)
-        });
-        let existed = self.schemas().drop_schema(schema_name).await?;
-        // The schema record goes first. Each binding record and the counter of
-        // its molecule leave in one batch.
-        self.atoms()
-            .remove_molecule_bindings(&old_edges, None)
-            .await?;
-        Ok(existed)
+        self.schemas().drop_schema(schema_name).await
     }
 
     pub async fn get_schema_drop_receipt(

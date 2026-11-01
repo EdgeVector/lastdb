@@ -86,8 +86,6 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         scopes,
         shards: args.shards.max(1),
         blobs_exact: args.blobs_exact && args.all_scopes,
-        // The molecule repair left the CLI with the format 6 tools.
-        molecules: false,
         delete_cutoff_nanos: args
             .delete_cutoff_unix_secs
             .map(|secs| {

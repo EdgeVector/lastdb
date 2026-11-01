@@ -156,14 +156,6 @@ pub enum SchemaError {
         schema: String,
         kind: String,
     },
-    /// An install was refused (`409`): the molecule drain still removes the keys
-    /// of an earlier schema of this name. Nothing changed. `reason` is `draining`,
-    /// `waiting_for_conflict_records` or `drain_task_off`.
-    SchemaBeingDropped {
-        schema: String,
-        reason: String,
-        molecules: u64,
-    },
 }
 
 impl fmt::Display for SchemaError {
@@ -236,9 +228,6 @@ impl fmt::Display for SchemaError {
                 f,
                 "persist queue full for schema '{schema}' ({kind}); retry after drain"
             ),
-            Self::SchemaBeingDropped { schema, reason, molecules } => {
-                f.write_str(&super::being_dropped::message(schema, reason, *molecules))
-            }
         }
     }
 }

@@ -96,9 +96,6 @@ impl AtomStore {
 
     /// Read and judge one page, or move to the next phase.
     async fn verify_page(&self, guard: &mut StepGuard<'_>) -> Result<(), SchemaError> {
-        if guard.run().phase.reads_molecules() && !guard.run().walk.done() {
-            return self.verify_molecule_page(guard).await;
-        }
         if guard.run().phase == Phase::Queue {
             return self.verify_queue_page(guard).await;
         }
@@ -131,13 +128,7 @@ impl AtomStore {
                 run.suspects = suspects;
                 page.map(Page::Suspects)
             }
-            Phase::Headers
-            | Phase::Bindings
-            | Phase::BindingRecords
-            | Phase::Queue
-            | Phase::Blobs
-            | Phase::BlobQueue
-            | Phase::Done => return Ok(()),
+            Phase::Queue | Phase::Blobs | Phase::BlobQueue | Phase::Done => return Ok(()),
         };
         let outcome = match page {
             Ok(Page::Referenced(page)) => {
@@ -206,10 +197,7 @@ fn next_phase(run: &mut Run) {
     run.phase = match run.phase {
         Phase::Tips => Phase::Records,
         Phase::Records => Phase::Atoms,
-        Phase::Atoms => Phase::Headers,
-        Phase::Headers => Phase::Bindings,
-        Phase::Bindings => Phase::BindingRecords,
-        Phase::BindingRecords => Phase::Queue,
+        Phase::Atoms => Phase::Queue,
         // The queue phase ends in `finish_queue`, which picks the next phase.
         // The blob counters are global. The personal run checks them once, after
         // the retention queue.
@@ -217,9 +205,6 @@ fn next_phase(run: &mut Run) {
         Phase::Blobs => Phase::BlobQueue,
         Phase::Queue | Phase::Suspects | Phase::BlobQueue | Phase::Done => Phase::Done,
     };
-    if run.phase == Phase::Bindings {
-        super::molecule_run::finish_headers(run);
-    }
     let range = phase_range(run.phase, run.report.scope.as_deref());
     if let Some((start, end)) = range {
         run.walk = RangeWalk::new(&start, &end, run.page_rows);
@@ -261,13 +246,6 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
         Phase::Records => (Holder::Record, Kind::UnreadableRecord),
         _ => (Holder::Tip, Kind::UnreadableTip),
     };
-    for (molecule, rows) in &page.molecules {
-        let tally = match holder {
-            Holder::Tip => &mut run.molecule_tips,
-            Holder::Record => &mut run.molecule_records,
-        };
-        tally.add(digest(molecule), *rows);
-    }
     run.report.pages += 1;
     match holder {
         Holder::Tip => run.report.tips_read += page.rows as u64,

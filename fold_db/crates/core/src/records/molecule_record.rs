@@ -1,8 +1,7 @@
-//! Molecule records of the atom store: the per-key row, the generation rows
-//! and the molecule header, with the pure rules that merge them.
+//! Molecule records of the atom store: the per-key row and the generation rows,
+//! with the pure rules that merge them.
 
 use crate::atom::{incoming_wins_lww, AtomEntry, KeyMetadata, MoleculeHashRange};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// The one on-disk molecule shape after the one-molecule-kind unify.
@@ -54,26 +53,6 @@ pub(crate) struct MoleculeGenerationPointer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MoleculeGenerationDelete {
     pub shadow: AtomEntry,
-}
-
-/// The molecule header stored at `mh:{M}`: the molecule-level
-/// `(kind, version, updated_at)`, plus a "this molecule lives in the per-key
-/// layout" marker (its mere presence).
-///
-/// The header is intentionally **O(1)**: the HashRange `update_order`
-/// (molecule-global, one entry per key, drives `SampleN`) is NOT stored here —
-/// it lives in the append log (`mord:{M}:{seq}` entries + the `moc:{M}` count).
-/// That split is the linchpin of the filter-aware read path: a point/range
-/// lookup reads only this tiny header + the matched `mk:` records, never the
-/// O(field) order vector. Pre-split blobs (a HashRange header written before
-/// this change) may still carry a `hash_range_order` field — serde ignores it
-/// on read, and the next write re-stores the molecule under the split layout.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct MoleculeHeader {
-    /// Legacy `kind` field (Hash/Range/HashRange) is ignored on deserialize
-    /// and omitted on serialize — storage is always unified HashRange.
-    pub version: u64,
-    pub updated_at: DateTime<Utc>,
 }
 
 /// The live-write winner rule between two per-key rows.

@@ -10,8 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::FoldDB;
 
-/// Catalog rows of one schema that a schema drop removes in one native batch. A row
-/// costs about two operations for each field of the schema.
+/// Catalog rows of one schema that a schema drop removes in one native batch.
 const CATALOG_ROWS_PER_BATCH: usize = 64;
 
 /// Result of deleting one catalog membership and reclaiming a zero-ref instance.
@@ -35,7 +34,7 @@ struct InstanceReclaim {
 impl FoldDB {
     /// Delete one catalog membership and any now-unreferenced instance in one
     /// native batch. Complete-request limits refuse oversized cleanup before
-    /// the catalog row, bindings, or data change.
+    /// the catalog row or data change.
     pub async fn delete_catalog_membership(
         &self,
         db_locator: &str,
@@ -63,19 +62,8 @@ impl FoldDB {
             .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
             .await;
         // The native gate precedes molecule locks, as it does for normal writes.
-        // It also protects the last-reference decision from a concurrent bind.
-        let atoms = self.db_ops().atoms();
+        // It also protects the last-reference decision from a concurrent catalog write.
         let deleted = catalog.delete(db_locator, schema_name).await?;
-        if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref()) {
-            atoms
-                .unbind_catalog_molecules(
-                    db_locator,
-                    schema_name,
-                    schema,
-                    storage_prefix.as_deref(),
-                )
-                .await?;
-        }
         let instance_id = existing.and_then(|entry| entry.instance_id);
         let reclaim = match instance_id.as_deref() {
             Some(instance) if instance != UNPREFIXED_INSTANCE_ID => {
@@ -93,12 +81,10 @@ impl FoldDB {
         })
     }
 
-    /// Remove every catalog row of `schema_name` with the bindings of the row, and
-    /// reclaim no instance. This is the catalog step of a schema drop. The molecule
-    /// drain erases the keys of an instance once its last binding is gone, in small
-    /// batches. The reclaim of `delete_catalog_membership` would delete the whole
-    /// instance in one native request, and a large instance is over the budget of
-    /// one request (the drop would then fail).
+    /// Remove every catalog row of `schema_name`, and reclaim no instance. This is
+    /// the catalog step of a schema drop. The reclaim of `delete_catalog_membership`
+    /// would delete the whole instance in one native request, and a large instance
+    /// is over the budget of one request (the drop would then fail).
     ///
     /// Up to `CATALOG_ROWS_PER_BATCH` rows go in one native batch. A failure leaves
     /// the rows of the later groups in place, and the schema installed, so the drop
@@ -141,20 +127,8 @@ impl FoldDB {
             let _molecule_guards = self
                 .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
                 .await;
-            if !catalog.delete(&row.db_locator, schema_name).await? {
-                continue;
-            }
-            removed += 1;
-            if let Some(schema) = schema.as_ref() {
-                self.db_ops()
-                    .atoms()
-                    .unbind_catalog_molecules(
-                        &row.db_locator,
-                        schema_name,
-                        schema,
-                        storage_prefix.as_deref(),
-                    )
-                    .await?;
+            if catalog.delete(&row.db_locator, schema_name).await? {
+                removed += 1;
             }
         }
         Ok(removed)

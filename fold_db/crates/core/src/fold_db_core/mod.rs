@@ -16,7 +16,6 @@ mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
-pub mod molecule_drain;
 pub mod orchestration;
 pub mod pending_task_tracker;
 
@@ -33,7 +32,6 @@ pub use conflict_janitor_policy::{
     ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV, CONFLICT_JANITOR_MS_ENV,
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
-pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
 pub use mutation_manager::{MutationManager, PurgeStats};
 
 pub use fold_db::{CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB};

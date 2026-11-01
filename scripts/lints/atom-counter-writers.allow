@@ -1,5 +1,5 @@
 # Writer boundary of the atom counter. Format: path|function|families|reason
-# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters and the bindings counter · R blob counter and blob queue · - none of these
+# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters · R blob counter and blob queue · - none of these
 # One line for each function that the lint finds. The lint fails on a function that is missing,
 fold_db/crates/core/src/db_operations/atom_store/atom_history/policy.rs|set_field_history_policy|C|writes only a canonical field policy and the logical format fence in one native transaction; no tip, archive, atom, or reference counter write
 # on a function that names a family the line does not list, and on a line that no function matches.
@@ -10,16 +10,12 @@ fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legac
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_barriers|-|explicit stopped-home maintenance: durably publish the replay floor and older-reader refusal before any Delete barrier can leave; never modifies a tip, atom or reference counter
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_scope|-|explicit stopped-home maintenance removes only identity-checked Delete barriers at or before the durable replay floor; no planner-owned record changes
 
-fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|apply_molecule_recount|M|explicit offline recount on a stopped, exclusively locked home; validates every source family before whole-batch molecule repair and drain rearm
-fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|plan_header|M|offline molecule repair preserves readable header metadata and replaces only exact slots/records counts after a complete tally
-fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|plan_bindings|M|offline molecule repair reconstructs the bindings counter from validated binding records; no tip, atom or conflict writes
 
 fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
-fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N M|the planner: its one batch_mutate joins the pending batch of the request; the molecule counters in the header rows of the batch come from counter/molecule.rs
+fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N|the planner: its one batch_mutate joins the pending batch of the request
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/commit.rs|*|R|the blob planner: blob counters and queue entries change in the batch of the atom counters (counter/build.rs), or in the request scope of a blob row put
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/dwell_chunk.rs|*|R|the dwell chunk: reads the counter again in the write gate, then deletes the blob row, the counter and the queue entry in one batch (the retirement of a bucket is the guarded delete of the planner)
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/recount.rs|*|R|the blob step of the offline recount: writes the exact blob counters and deletes stale queue entries on a stopped home, in whole batches
-fold_db/crates/core/src/db_operations/atom_store/molecule_bindings.rs|flip_molecule_bindings|M|the one writer of binding records and of the bindings counter: both change in one batch inside the write gate, from the state of the records
 
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|plan_decision|B N|offline recount (`lastdb db recount` on a stopped home, the one scan the design keeps): writes the exact counter, deletes a counter that has no body, and deletes a body that no tip and no counted record names; no gate and no writer exist while it runs; only the offline command calls it
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_pending|-|offline recount: writes the batch that plan_decision built; the batch is whole, and a second run changes only what is still wrong

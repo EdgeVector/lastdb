@@ -35,9 +35,8 @@ pub use admin_db::{
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
     BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
-    MoleculeDrainReport, MoleculeDrainVerdict, MoleculeRecountReport, NetStep, RecountOptions,
-    RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
-    RECORD_WALK_ROWS,
+    NetStep, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
 };
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,

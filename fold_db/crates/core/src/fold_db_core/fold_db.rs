@@ -47,8 +47,6 @@ pub struct FoldDB {
     /// Periodic release of kept conflict records. See [`super::conflict_janitor`].
     pub(crate) background_conflict_janitor: super::conflict_janitor::BackgroundConflictJanitorTask,
     pub(crate) background_atom_history: super::atom_history::BackgroundAtomHistory,
-    /// Paced removal of dead molecules. See [`super::molecule_drain`].
-    pub(crate) background_molecule_drain: super::molecule_drain::BackgroundMoleculeDrainTask,
     /// Mutation admission gate. Maintenance and local file-blob writes take
     /// an admission; conflict metadata fences new mutations with it.
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
@@ -61,6 +59,5 @@ impl Drop for FoldDB {
         // destructor and uses the best-effort fallback.
         self.background_conflict_janitor.stop();
         self.background_atom_history.abort();
-        self.background_molecule_drain.stop();
     }
 }

@@ -1,7 +1,6 @@
 //! The request and the result of a verify step.
 
 use super::blob_report::BlobMismatches;
-use super::molecule_report::MoleculeMismatches;
 use crate::db_operations::atom_store::WalkStats;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,13 +17,6 @@ pub enum Phase {
     /// Body and counter records of atoms: pairing, zero, suspect, and the
     /// counter against the totals of the first two phases.
     Atoms,
-    /// Molecule headers: the `slots` and `records` counters against the tips and
-    /// the conflict records the first two phases counted for each molecule.
-    Headers,
-    /// `bindings` counters: each against the binding records of its molecule.
-    Bindings,
-    /// Binding records: each has a `bindings` counter.
-    BindingRecords,
     /// The retention queue: every entry it holds, in the buckets of the
     /// directory and in the slices that the directory does not list. A bucket
     /// that holds entries and has no directory row is a fault.
@@ -39,13 +31,6 @@ pub enum Phase {
     BlobQueue,
     /// The run is complete.
     Done,
-}
-
-impl Phase {
-    /// The phases that check the molecule counters.
-    pub(super) fn reads_molecules(self) -> bool {
-        matches!(self, Self::Headers | Self::Bindings | Self::BindingRecords)
-    }
 }
 
 /// The kinds of fault the verifier reports. A kind is a fact about one atom. An
@@ -66,19 +51,6 @@ pub(crate) enum Kind {
     UnreadableTip,
     UnreadableRecord,
     UnreadableCounter,
-    SlotsAboveTips,
-    SlotsBelowTips,
-    RecordsAboveRecords,
-    RecordsBelowRecords,
-    TipsWithoutHeader,
-    MoleculeCountersUnset,
-    SuspectMolecule,
-    UnreadableHeader,
-    BindingsMismatch,
-    BindingRecordWithoutCounter,
-    ZeroBindingsCounter,
-    SuspectBindings,
-    UnreadableBindings,
     BlobCounterMissing,
     BlobCounterBelowRefs,
     BlobZeroWithoutDwell,
@@ -91,22 +63,6 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    /// The kinds of the blob counter phases.
-    pub(super) fn is_blob(self) -> bool {
-        matches!(
-            self,
-            Self::BlobCounterMissing
-                | Self::BlobCounterBelowRefs
-                | Self::BlobZeroWithoutDwell
-                | Self::BlobDwellWithRefs
-                | Self::ZeroBlobWithoutQueueEntry
-                | Self::BlobStaleQueueEntry
-                | Self::BlobSuspect
-                | Self::UnreadableBlobCounter
-                | Self::BlobCounterWithoutBlob
-        )
-    }
-
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::CounterBelowTips => "counter_below_tips",
@@ -123,19 +79,6 @@ impl Kind {
             Self::UnreadableTip => "unreadable_tip",
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
-            Self::SlotsAboveTips => "molecule_slots_above_tips",
-            Self::SlotsBelowTips => "molecule_slots_below_tips",
-            Self::RecordsAboveRecords => "molecule_records_above_records",
-            Self::RecordsBelowRecords => "molecule_records_below_records",
-            Self::TipsWithoutHeader => "tips_without_header",
-            Self::MoleculeCountersUnset => "molecule_counters_unset",
-            Self::SuspectMolecule => "suspect_molecule",
-            Self::UnreadableHeader => "unreadable_header",
-            Self::BindingsMismatch => "bindings_counter_mismatch",
-            Self::BindingRecordWithoutCounter => "binding_record_without_counter",
-            Self::ZeroBindingsCounter => "zero_bindings_counter",
-            Self::SuspectBindings => "suspect_bindings",
-            Self::UnreadableBindings => "unreadable_bindings",
             Self::BlobCounterMissing => "blob_counter_missing",
             Self::BlobCounterBelowRefs => "blob_counter_below_refs",
             Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
@@ -186,9 +129,6 @@ pub struct Mismatches {
     pub unreadable_tip: u64,
     pub unreadable_record: u64,
     pub unreadable_counter: u64,
-    /// The molecule counter faults (headers, `bindings` counters, binding records).
-    #[serde(flatten)]
-    pub molecule: MoleculeMismatches,
     /// The blob counter faults (counters, queue). See `blob_report.rs`.
     #[serde(flatten)]
     pub blob: BlobMismatches,
@@ -219,8 +159,7 @@ impl Mismatches {
             Kind::UnreadableTip => &mut self.unreadable_tip,
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
-            kind if kind.is_blob() => self.blob.slot(kind),
-            _ => self.molecule.slot(kind),
+            kind => self.blob.slot(kind),
         }
     }
 
@@ -240,7 +179,6 @@ impl Mismatches {
             + self.unreadable_tip
             + self.unreadable_record
             + self.unreadable_counter
-            + self.molecule.total()
             + self.blob.total()
     }
 }
@@ -300,15 +238,6 @@ pub struct VerifyReport {
     pub records_read: u64,
     pub counters_read: u64,
     pub bodies_read: u64,
-    /// Molecule headers the run read.
-    #[serde(default)]
-    pub headers_read: u64,
-    /// `bindings` counters the run read.
-    #[serde(default)]
-    pub binding_counters_read: u64,
-    /// Binding records the run read.
-    #[serde(default)]
-    pub binding_records_read: u64,
     /// Entries the queue phase read (records and drain markers).
     #[serde(default)]
     pub queue_entries_read: u64,

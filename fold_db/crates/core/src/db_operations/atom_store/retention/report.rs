@@ -54,7 +54,6 @@ pub(crate) struct RetentionState {
     released_by_janitor: AtomicU64,
     released_by_purge: AtomicU64,
     undecodable: AtomicU64,
-    purge_capped_slots: AtomicU64,
     pending_drains: AtomicU64,
     consecutive_failures: AtomicU64,
     next_retry_unix_ms: AtomicU64,
@@ -89,7 +88,6 @@ impl RetentionState {
             released_by_janitor: AtomicU64::new(0),
             released_by_purge: AtomicU64::new(0),
             undecodable: AtomicU64::new(0),
-            purge_capped_slots: AtomicU64::new(0),
             pending_drains: AtomicU64::new(0),
             consecutive_failures: AtomicU64::new(0),
             next_retry_unix_ms: AtomicU64::new(0),
@@ -129,13 +127,6 @@ impl RetentionState {
 
     pub(crate) fn note_undecodable(&self) {
         self.undecodable.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// An erase passed some slots to the janitor with a drain marker: the slots
-    /// held more records than one request releases, or the erase did not read
-    /// them (it reads the directory of at most 256 slots).
-    pub(crate) fn note_capped_slots(&self, slots: u64) {
-        self.purge_capped_slots.fetch_add(slots, Ordering::Relaxed);
     }
 
     /// One release batch of the janitor ended. The total counts at once, so a
@@ -198,7 +189,6 @@ impl RetentionState {
             released_by_janitor: self.released_by_janitor.load(Ordering::Relaxed),
             released_by_purge: self.released_by_purge.load(Ordering::Relaxed),
             undecodable_rows: self.undecodable.load(Ordering::Relaxed),
-            purge_capped_slots: self.purge_capped_slots.load(Ordering::Relaxed),
             queue_depth: None,
             queue_depth_capped: false,
             queue_buckets: None,
@@ -234,10 +224,6 @@ pub struct ConflictRetentionReport {
     pub released_by_purge: u64,
     /// History rows that did not decode. They keep their references.
     pub undecodable_rows: u64,
-    /// Slots (of an erase) that got a drain marker: they held more kept records
-    /// than one request releases, or the erase did not read them. The janitor
-    /// releases the records of these slots.
-    pub purge_capped_slots: u64,
     /// Entries in the queue when the report was built, counted up to a limit.
     /// `None` means that the directory of the queue could not be read.
     pub queue_depth: Option<u64>,

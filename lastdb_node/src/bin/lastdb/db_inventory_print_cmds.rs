@@ -33,10 +33,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         print_atom_counters(counters);
         println!();
     }
-    if let Some(counters) = inventory.get("molecule_counters") {
-        print_molecule_counters(counters);
-        println!();
-    }
     print_per_schema_history(inventory);
     if let Some(scan) = inventory.get("scan") {
         println!();
@@ -165,70 +161,5 @@ fn print_atom_counters(counters: &Value) {
                 str_of(hot, "atom", "?")
             );
         }
-    }
-}
-
-fn print_molecule_counters(counters: &Value) {
-    println!("Molecule counters (slots and records in mh:{{M}}, bindings in mref:v1:n:{{M}}):");
-    println!("  headers:                {}", u64_of(counters, "headers"));
-    println!(
-        "  slots total:            {}",
-        u64_of(counters, "slots_total")
-    );
-    println!(
-        "  records total:          {}",
-        u64_of(counters, "records_total")
-    );
-    println!(
-        "  bindings total:         {} (binding records read: {})",
-        u64_of(counters, "bindings_total"),
-        u64_of(counters, "binding_records")
-    );
-    println!(
-        "  molecules with bindings: {}",
-        u64_of(counters, "bound_molecules")
-    );
-    println!("  live (a counter > 0):   {}", u64_of(counters, "live"));
-    println!(
-        "  droppable (all zero):   {}",
-        u64_of(counters, "droppable")
-    );
-    println!("  suspect:                {}", u64_of(counters, "suspect"));
-    println!(
-        "  headers without counters: {}",
-        u64_of(counters, "counters_unset")
-    );
-    println!(
-        "  binding record, no counter: {} (a fault: the drain refuses them)",
-        u64_of(counters, "binding_record_without_counter")
-    );
-    println!(
-        "  unbound with tips:      {}",
-        u64_of(counters, "unbound_with_tips")
-    );
-    println!(
-        "  drain candidates:       {} (molecules removed since the daemon started: {})",
-        u64_of(counters, "drain_candidates"),
-        u64_of(counters, "drained_since_start")
-    );
-    print_sample(counters, "droppable_sample", "droppable");
-    print_sample(counters, "unbound_sample", "unbound with tips");
-}
-
-/// The first molecules of a sample, as many as a screen holds. The JSON report holds
-/// the whole sample (`--json`).
-fn print_sample(counters: &Value, field: &str, label: &str) {
-    const SHOWN: usize = 20;
-    let Some(sample) = array_of(counters, field) else {
-        return;
-    };
-    for molecule in sample.iter().filter_map(|item| item.as_str()).take(SHOWN) {
-        println!("    {label}: {molecule}");
-    }
-    if sample.len() > SHOWN {
-        println!(
-            "    ... {} more in the sample (--json lists all)",
-            sample.len() - SHOWN
-        );
     }
 }

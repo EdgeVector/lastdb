@@ -76,36 +76,6 @@ impl From<FoldDbError> for HostError {
     }
 }
 
-/// The status of a schema error with no arm of its own. An install that the molecule
-/// drain refuses (the keys of the earlier schema of this name are still being removed)
-/// changed nothing and works later: `409`, with the reason, the number of molecules
-/// and a `Retry-After`. Every other error is a `400`.
-fn unlisted_schema_error(err: &SchemaError) -> HostError {
-    let SchemaError::SchemaBeingDropped {
-        schema,
-        reason,
-        molecules,
-    } = err
-    else {
-        return HostError::new(400, err.to_string());
-    };
-    // The drain and the janitor wake about once a minute. A drain task that is off
-    // needs an operator, so the wait is long.
-    let retry_after = match reason.as_str() {
-        "draining" => 30,
-        "waiting_for_conflict_records" => 60,
-        _ => 3600,
-    };
-    HostError::structured(
-        409,
-        err.to_string(),
-        serde_json::json!({"ok": false, "error": "schema_being_dropped", "schema": schema,
-            "reason": reason, "molecules": molecules, "retryable": reason != "drain_task_off",
-            "retry_after_seconds": retry_after, "message": err.to_string()}),
-    )
-    .with_retry_after(retry_after)
-}
-
 impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
@@ -190,7 +160,7 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            other => unlisted_schema_error(other),
+            other => Self::new(400, other.to_string()),
         }
     }
 }

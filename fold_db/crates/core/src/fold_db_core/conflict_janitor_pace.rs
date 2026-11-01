@@ -40,20 +40,8 @@ pub(super) fn rest_after(
     outcome: &StepOutcome,
     duty_pct: u64,
 ) -> Duration {
-    rest_after_cost(watch, (outcome.blocked, outcome.scopes), duty_pct)
-}
-
-/// The same rest for a job that has no `StepOutcome` (the molecule drain): the time
-/// the step kept writers waiting and the write scopes it opened. Call it after every
-/// step, also after one that wrote nothing, so the scopes of the job are taken off the
-/// count of the watch.
-pub(super) fn rest_after_cost(
-    watch: &mut WriterWatch,
-    (blocked, scopes): (Duration, u64),
-    duty_pct: u64,
-) -> Duration {
-    if watch.writer_present(scopes) {
-        pause_after(blocked, duty_pct)
+    if watch.writer_present(outcome.scopes) {
+        pause_after(outcome.blocked, duty_pct)
     } else {
         MIN_PAUSE
     }

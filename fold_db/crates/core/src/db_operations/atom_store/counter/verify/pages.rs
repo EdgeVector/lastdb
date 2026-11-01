@@ -7,8 +7,7 @@ use super::blobs::{blobs_of_pairs, blobs_of_tips, BlobListed};
 use super::report::Phase;
 use crate::db_operations::atom_store::blob_counter::{counter_range, BlobQueue};
 use crate::db_operations::atom_store::counter::scan::{
-    family_range, record_holders, record_ids, record_molecules, tip_holders, tip_molecules,
-    CounterRead, Family, PairRead,
+    family_range, record_holders, record_ids, tip_holders, CounterRead, Family, PairRead,
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -16,7 +15,7 @@ use crate::storage::traits::YieldedScan;
 use std::collections::BTreeMap;
 
 /// The keys that a page read keeps for the reads it makes for each row it gets:
-/// the counter and the body of an atom, a blob counter, a binding record.
+/// the counter and the body of an atom, and a blob counter.
 pub(super) const VERIFY_KEYS_PER_ROW: usize = 4;
 
 /// A read the walk asked for: start, end and the number of rows.
@@ -42,8 +41,6 @@ pub(super) struct ReferencedPage {
     pub atoms: Vec<AtomRead>,
     /// The blobs that the tips of the page name in their metadata (tips phase).
     pub blobs: Vec<BlobListed>,
-    /// Rows of the page for each molecule (tips, or counted conflict records).
-    pub molecules: BTreeMap<String, u32>,
     /// The ids of the counted records of the page (the records phase only): the
     /// first 128 bits of the id that the queue keys name.
     pub record_ids: Vec<u128>,
@@ -76,9 +73,6 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
         Phase::Tips => Family::Tips,
         Phase::Records | Phase::Suspects => Family::Records,
         Phase::Atoms => Family::Atoms,
-        Phase::Headers => Family::Headers,
-        Phase::Bindings => Family::BindingCounters,
-        Phase::BindingRecords => Family::BindingRecords,
         Phase::Blobs => return Some(counter_range()),
         Phase::BlobQueue => return Some(BlobQueue::entries_range()),
         Phase::Queue | Phase::Done => return None,
@@ -118,10 +112,6 @@ impl AtomStore {
                 _ => tip_holders(&rows),
             };
             let blob_lists = blobs_of_tips(&rows);
-            let molecules = match phase {
-                Phase::Records => record_molecules(&rows),
-                _ => tip_molecules(&rows),
-            };
             let record_ids = match phase {
                 Phase::Records => record_ids(&rows),
                 _ => Vec::new(),
@@ -135,7 +125,6 @@ impl AtomStore {
                 unreadable_keys: bad.keys,
                 atoms,
                 blobs,
-                molecules,
                 record_ids,
             })
         })
