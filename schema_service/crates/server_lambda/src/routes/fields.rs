@@ -2,9 +2,8 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::{DeclareFieldReply, DeclaredFieldReadReply};
+use schema_service_core::{invalid_declare_field_body, DeclareFieldReply, DeclaredFieldReadReply};
 use schema_service_server_shared::state::SchemaServiceState;
-use serde_json::{json, Value};
 
 // Declared fields (brain `design-lastdb-declared-fields`).
 //
@@ -20,35 +19,15 @@ pub(crate) async fn post_fields_declare(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({
-                    "reason": "invalid_body",
-                    "detail": format!("invalid JSON: {e}"),
-                }),
-            );
-        }
+    let body_value = match json_body(event, "invalid_body") {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let request: schema_service_core::DeclareFieldRequest =
         match serde_json::from_value(body_value.clone()) {
             Ok(parsed) => parsed,
-            Err(e) => {
-                return json_response(
-                    400,
-                    &json!({
-                        "reason": "invalid_body",
-                        "detail": format!(
-                            "expected {{ owner_app_id, handle, fields[] }}: {e}"
-                        ),
-                    }),
-                );
+            Err(error) => {
+                return json_response(400, &invalid_declare_field_body(&error.to_string()));
             }
         };
 

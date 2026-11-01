@@ -96,6 +96,18 @@ pub fn invalid_app_id_body() -> Value {
     reason_only_body("invalid_app_id")
 }
 
+/// HTTP 400 body when declare-field JSON has the wrong shape.
+///
+/// The Lambda route and the actix route both write this body. The detail is
+/// `expected { owner_app_id, handle, fields[] }: <error>`.
+#[must_use]
+pub fn invalid_declare_field_body(error: &str) -> Value {
+    reason_detail_body(
+        "invalid_body",
+        &format!("expected {{ owner_app_id, handle, fields[] }}: {error}"),
+    )
+}
+
 // ─── Validation bounds (design § "Metadata bounds: strict") ───────────────
 
 mod validation;

@@ -1,6 +1,6 @@
 //! Declared-field routes.
 
-use schema_service_core::{DeclareFieldReply, DeclaredFieldReadReply};
+use schema_service_core::{invalid_declare_field_body, DeclareFieldReply, DeclaredFieldReadReply};
 
 use super::*;
 
@@ -24,15 +24,7 @@ pub async fn declare_field(
     let request: schema_service_core::DeclareFieldRequest =
         match serde_json::from_value(body.clone()) {
             Ok(parsed) => parsed,
-            Err(e) => {
-                return json_status(
-                    400,
-                    json!({
-                        "reason": "invalid_body",
-                        "detail": format!("expected {{ owner_app_id, handle, fields[] }}: {e}"),
-                    }),
-                )
-            }
+            Err(error) => return json_status(400, invalid_declare_field_body(&error.to_string())),
         };
 
     // The signed payload is the whole request body, so the declaration's
