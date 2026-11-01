@@ -4,28 +4,6 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SchemaInspectCommand {
-    /// Show bounded logical-current storage for one schema.
-    ///
-    /// This reads only the schema catalog and its declared molecule counters.
-    /// Shared molecules and atoms intentionally appear in every schema that
-    /// references them; this is not a partition of physical node disk bytes.
-    Storage {
-        /// Installed schema name or identity hash.
-        schema: String,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show labelled logical-current storage for all installed schemas.
-    ///
-    /// This reads the stored schema catalog and molecule counters. It does
-    /// not scan atoms, tips, or filesystem planes.
-    #[command(name = "storage-report", alias = "storage_report")]
-    StorageReport {
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
     /// Print identity, key fields, field list, and legal query shapes.
     Show {
         /// Schema identity hash, `app/Name`, or descriptive name.
@@ -62,16 +40,12 @@ pub(crate) enum SchemaInspectCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum LivenessCommand {
-    /// Explain why one atom, molecule, or blob cannot be reclaimed.
+    /// Explain why one file blob cannot be reclaimed.
     Explain {
-        /// Target class: atom, molecule, or blob.
+        /// Target class. Only `blob` is served.
         class: String,
-        /// Target atom UUID, molecule UUID, or blob reference.
+        /// Target blob reference.
         id: String,
-        /// A storage scope prefix (a database instance) for an atom or a
-        /// molecule. Without it the personal scope applies.
-        #[arg(long)]
-        scope: Option<String>,
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,

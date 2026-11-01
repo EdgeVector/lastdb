@@ -41,9 +41,8 @@ pub(super) fn integrity_status_line(i: &IntegrityHealth) -> Option<String> {
          because their tip pointed at a missing atom. Reads on the affected \
          partitions return 200 with fewer rows than the index claims. Rows are \
          how much is broken; events are how often callers were served short. \
-         List the identities with 'lastdb db unresolved-atoms'. Do not size a \
-         repair from these counts. Keys: grep the daemon log for 'Skipping \
-         unresolved atom ref'."
+         Do not size a repair from these counts. Keys: grep the daemon log for \
+         'Skipping unresolved atom ref'."
     ))
 }
 

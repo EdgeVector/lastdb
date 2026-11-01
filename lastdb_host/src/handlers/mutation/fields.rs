@@ -1,9 +1,8 @@
-//! Mutation field validation and aggregate schema/receipt helpers (shared).
+//! Mutation field validation and schema-name helpers (shared).
 
 use std::collections::HashMap;
 
-use fold_db::fold_db_core::mutation_manager::{ResidentCommitReceipt, ResidentDurability};
-use fold_db::schema::types::{AggregateSet, Schema};
+use fold_db::schema::types::Schema;
 use serde_json::Value;
 
 use crate::handlers::schema_resolve::resolve_schema_name;
@@ -168,50 +167,4 @@ pub(in super::super) fn resolve_required_schema_name<H: HostNode>(
 ) -> Result<String, HostError> {
     resolve_schema_name(host, requested)?
         .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))
-}
-
-pub(in super::super) fn resolve_aggregate_schema_triplet<H: HostNode>(
-    host: &H,
-    source: &str,
-    target: &str,
-    member: &str,
-) -> Result<(String, String, String), HostError> {
-    Ok((
-        resolve_required_schema_name(host, source)?,
-        resolve_required_schema_name(host, target)?,
-        resolve_required_schema_name(host, member)?,
-    ))
-}
-
-pub(in super::super) fn resolve_aggregate_set_schema_names<H: HostNode>(
-    host: &H,
-    mut aggregate: AggregateSet,
-) -> Result<AggregateSet, HostError> {
-    aggregate.target_schema_name =
-        resolve_required_schema_name(host, &aggregate.target_schema_name)?;
-    aggregate.member_schema_name =
-        resolve_required_schema_name(host, &aggregate.member_schema_name)?;
-    Ok(aggregate)
-}
-
-pub(in super::super) fn require_durable_aggregate_receipt(
-    receipt: ResidentCommitReceipt,
-    operation: &str,
-) -> Result<ResidentCommitReceipt, HostError> {
-    if receipt.durability != ResidentDurability::Durable {
-        return Err(HostError::internal(format!(
-            "{operation} returned a queued receipt"
-        )));
-    }
-    Ok(receipt)
-}
-
-pub(in super::super) fn source_mutation_id(
-    receipt: &ResidentCommitReceipt,
-) -> Result<String, HostError> {
-    receipt
-        .mutation_ids
-        .first()
-        .cloned()
-        .ok_or_else(|| HostError::internal("Mutation returned no IDs"))
 }

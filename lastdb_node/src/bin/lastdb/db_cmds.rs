@@ -7,10 +7,6 @@ pub(crate) mod db_snapshot_identity_cmds;
 mod db_cleanup_cmds;
 pub(crate) use db_cleanup_cmds::*;
 
-#[path = "db_delete_marker_cmds.rs"]
-mod db_delete_marker_cmds;
-pub(crate) use db_delete_marker_cmds::*;
-
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
 pub(crate) use db_app_storage_cmds::*;
@@ -26,12 +22,6 @@ pub(crate) use db_ledger_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
-#[path = "db_unresolved_cmds.rs"]
-mod db_unresolved_cmds;
-pub(crate) use db_unresolved_cmds::*;
-#[path = "db_molecule_drain_cmds.rs"]
-mod db_molecule_drain_cmds;
-pub(crate) use db_molecule_drain_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;
@@ -53,8 +43,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     }
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&socket, action),
-        DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
-        DbCommand::Repair(action) => db_repair_command(&socket, action),
+        DbCommand::Reclaim(action) => db_reclaim_command(&socket, &action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),
         DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
@@ -70,9 +59,6 @@ use db_dispatch_ops::*;
 #[path = "db_client_util.rs"]
 mod db_client_util;
 pub(crate) use db_client_util::*;
-#[path = "db_repair_cmds.rs"]
-mod db_repair_cmds;
-pub(crate) use db_repair_cmds::*;
 #[path = "db_report_cmds.rs"]
 mod db_report_cmds;
 pub(crate) use db_report_cmds::*;
@@ -97,7 +83,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             scopes,
             all_scopes,
             blobs_exact,
-            molecules,
             delete_cutoff_unix_secs,
             shards,
             i_know_this_is_primary,
@@ -109,7 +94,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
                 scopes,
                 all_scopes,
                 blobs_exact,
-                molecules,
                 delete_cutoff_unix_secs,
                 shards,
                 i_know_this_is_primary,

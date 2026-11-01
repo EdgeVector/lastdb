@@ -36,7 +36,7 @@ Make **local latest** cheap and **multi-device sync** still possible by replacin
 | `atom:{C}` / `a:{C}` | Immutable value | Always |
 | `mk:{M}:{key}` (or future `t:`) | **Thin tip head** `{ c, t, d, prev_tip_id? }` | Always |
 | `tv:{version_id}` | Archived tip version (same shape as head) | On overwrite |
-| `history:…` | Legacy mutation event log | **Off** (not written); purge with `clear-history --keep-last 0` |
+| `history:…` | Legacy mutation event log | **Off** (not written). API version 15 removed `clear-history` |
 | `mord` / `mhr` / … | HashRange helpers | **Off** unless field needs them |
 | `cas_blobs` / blob ids | File bytes | Files only |
 | Presence `k:{S}:{K}` | Record exists | Optional list helper |

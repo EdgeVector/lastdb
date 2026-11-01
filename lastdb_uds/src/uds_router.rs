@@ -82,7 +82,20 @@ const API_VERSION_PATH: &str = "/api/version";
 /// 12 adds owner-directed alternate changes, named key lists/counts, and signed declaration revisions.
 /// `14` (2026-10-31) removes the owner-only `POST /api/db/repair-schema-molecule-map`
 /// route. Other requests are unchanged; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 14;
+/// `15` (2026-10-31) removes the owner-only routes that serve only a format
+/// 4-6 home or a feature that format 7 drops: `POST /api/db/molecule-drain`,
+/// `GET /api/db/unresolved-atoms`, `POST /api/db/molecule-keys`,
+/// `POST /api/db/alternate-keys`, `POST /api/db/repair-hashrange-key-fields`,
+/// `POST /api/db/clear-history`, `POST /api/storage/schema`,
+/// `GET /api/storage/schemas`, `POST /api/aggregate/repair`,
+/// `POST /api/aggregate/finalize`, `GET /api/history/{molecule_uuid}` and
+/// `GET /api/atom/{atom_uuid}`. `POST /api/storage/liveness/explain` accepts
+/// only the `blob` class. `POST /api/mutation` no longer accepts the
+/// `aggregate_set` key (a format 7 home already refused it), and the
+/// `atomic_aggregate_set_v1` and `alternate_key_changes_v1` capabilities are
+/// gone. No other app-socket request changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 15;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -302,33 +315,16 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
     }
 }
 
-/// Owner-socket-only routes with an id segment.
+/// Owner-socket-only history route.
 ///
-/// Molecule history + atom content: OWNER socket only. History spans every
-/// record of the owning (schema, field) and atom-by-uuid is the terminal
-/// disclosure in that chain, so neither may exist for a jailed app. This is
-/// the "write everything, resolve in history" read surface: concurrent-write
-/// branches, conflict winners AND losers, become readable instead of orphaned.
+/// Field history spans every record of the owning (schema, field), so it may
+/// not exist for a jailed app.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
     if path == "/api/atom-history" {
         return Some(single_method(
             method,
             "POST",
             ControlRoute::Data(DataRoute::AtomHistory),
-        ));
-    }
-    if one_segment(path, "/api/history/").is_some() {
-        return Some(single_method(
-            method,
-            "GET",
-            ControlRoute::Data(DataRoute::MoleculeHistory),
-        ));
-    }
-    if one_segment(path, "/api/atom/").is_some() {
-        return Some(single_method(
-            method,
-            "GET",
-            ControlRoute::Data(DataRoute::AtomContent),
         ));
     }
     None

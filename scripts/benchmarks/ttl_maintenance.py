@@ -26,52 +26,20 @@ def backfill(node, schema, expected, output):
     raise RuntimeError("Backfill exceeded the generated-home page bound")
 
 
-def markers(node, molecule):
-    cursor, deleted, pages = None, 0, []
-    for _ in range(2048):
-        body = {"molecule": molecule, "cleanup_delete_markers": True,
-                "after_key": cursor, "limit": 128}
-        preview = node.call("/api/db/molecule-drain", body)[0]
-        if preview["blocked"] or preview["deleted"] != 0:
-            raise RuntimeError("Generated marker preview is blocked or changed records")
-        page = node.call("/api/db/molecule-drain", {**body, "execute": True})[0]
-        if (page["blocked"] or page["deleted"] != preview["eligible"]
-                or page["next_cursor"] != preview["next_cursor"]):
-            raise RuntimeError("Marker execute differs from its stable preview")
-        pages.append(page)
-        deleted += page["deleted"]
-        if page["complete"]:
-            again = node.call("/api/db/molecule-drain", {**body, "after_key": None})[0]
-            if not again["complete"] or again["eligible"] != 0:
-                raise RuntimeError("A repeat marker pass found leftover generated markers")
-            return {"molecule": molecule, "deleted": deleted, "pages": pages, "repeat": again}
-        next_cursor = page["next_cursor"]
-        if not next_cursor or next_cursor == cursor:
-            raise RuntimeError("Marker cursor did not advance")
-        cursor = next_cursor
-    raise RuntimeError("Marker cleanup exceeded its generated-home page bound")
-
-
-def maintain(node, output, live, old, expected_live):
-    # Stop the sweep before marker enumeration; no concurrent erase moves behind its cursor.
+def maintain(node, output, live, expected_live):
+    # Stop the sweep before the backfill; no concurrent erase moves behind its cursor.
+    # The delete-marker cleanup page (`POST /api/db/molecule-drain`) left the
+    # API with the format 6 tools, so this step no longer runs it.
     node.stop()
     save(output / "post-measurement-shutdown.json", json.loads((output / "shutdown.json").read_text()))
     node.environment["LASTDB_TTL_SWEEP"] = "0"
     node.start()
     ages = backfill(node, live, expected_live, output)
-    definition = node.call(f"/api/schema/{old}")[0]["schema"]
-    molecules = definition["field_molecule_uuids"]
-    if not molecules or len(molecules) != 4:
-        raise RuntimeError("The generated schema lacks its four persisted molecule identities")
-    cleanup = [markers(node, molecule) for molecule in sorted(set(molecules.values()))]
-    # Deletes without an active or prepared generation need no shadow marker.
-    # Zero is valid. Every page still requires a stable preview and an empty
-    # repeat, and the caller verifies the live values after maintenance.
     # A v2 home has no explicit compaction; its run merges are automatic.
     compact = {"format": 2, "automatic_merges": True}
     node.stop()
     save(output / "post-cleanup-shutdown.json", json.loads((output / "shutdown.json").read_text()))
     node.start()
-    save(output / "owner-maintenance.json", {"backfill": ages, "marker_cleanup": cleanup,
+    save(output / "owner-maintenance.json", {"backfill": ages,
                                              "compaction": compact, "restarted": True,
                                              "limit": "No damaged ages or active generations were injected"})

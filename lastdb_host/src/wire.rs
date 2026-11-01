@@ -130,7 +130,7 @@ pub fn parse_batch_mutation_body(body: &[u8]) -> Result<Vec<MutationComponents>,
 
     Ok(operations
         .into_iter()
-        .map(|operation| MutationComponents::from_operation(operation, default_convergence, None))
+        .map(|operation| MutationComponents::from_operation(operation, default_convergence))
         .collect())
 }
 
@@ -357,8 +357,8 @@ pub fn schema_name_from_target(target: &str) -> Option<String> {
 }
 
 /// Extract the single path segment after `prefix` from a request target (query
-/// string stripped, percent-decoded). `None` when absent/empty/nested. Used by
-/// the `/api/history/{uuid}` and `/api/atom/{uuid}` routes.
+/// string stripped, percent-decoded). `None` when absent/empty/nested. The
+/// telemetry schema hint of `GET /api/schema/{name}` uses it.
 #[must_use]
 pub fn path_tail(target: &str, prefix: &str) -> Option<String> {
     let end = target.find(['?', '#']).unwrap_or(target.len());

@@ -7,6 +7,11 @@ section 12 (step S7). The counters themselves: `docs/lastdb-molecule-counters.md
 Code: `fold_db/crates/core/src/db_operations/atom_store/molecule_drain/` (the engine),
 `fold_db/crates/core/src/fold_db_core/molecule_drain.rs` (the paced task).
 
+CAUTION: API version 15 (record model PR 8c) removed the operator tools of the
+format 4 to 6 internals. `lastdb db molecule-drain`, `POST /api/db/molecule-drain`,
+`lastdb liveness explain molecule` and `lastdb db recount --molecules` do not exist.
+The text below names them as they were. A later PR removes the drain itself.
+
 ## Dead
 
 A molecule is **dead** in a storage scope when nothing names it:

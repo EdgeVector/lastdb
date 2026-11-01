@@ -256,8 +256,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: SchemaInspectCommand,
     },
-    /// Inspect the counter of an atom, the three counters of a molecule, or the
-    /// references of a blob.
+    /// Inspect the counter of a file blob.
     Liveness {
         #[command(subcommand)]
         action: LivenessCommand,

@@ -1,5 +1,10 @@
 # Molecule counters
 
+CAUTION: API version 15 (record model PR 8c) removed the operator tools of the
+format 4 to 6 internals. `lastdb db molecule-drain`, `POST /api/db/molecule-drain`,
+`lastdb liveness explain molecule` and `lastdb db recount --molecules` do not exist.
+The text below names them as they were. A later PR removes the drain itself.
+
 ## Contract
 
 Every molecule in a storage scope has three counters. A molecule may go only

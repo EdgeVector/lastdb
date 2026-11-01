@@ -1,4 +1,4 @@
-//! Mutation, aggregate and batch-mutation handlers.
+//! Mutation and batch-mutation handlers.
 //!
 //! `request` shows the single-request steps, and `plan` holds pure request
 //! rules. The write helpers here use the existing host interface directly.
@@ -15,14 +15,13 @@ use fold_db::fold_db_core::mutation_manager::{
 };
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
-use fold_db::schema::types::{AggregateSet, KeyValue, Mutation, MutationType, SchemaError};
+use fold_db::schema::types::{KeyValue, Mutation, MutationType, SchemaError};
 use serde_json::Value;
 
 use crate::host_node::HostNode;
 use crate::qos::Lane;
 use crate::HostError;
 
-use self::fields::require_durable_aggregate_receipt;
 use self::plan::MutationPlan;
 
 mod plan;
@@ -31,8 +30,6 @@ pub use request::execute_mutation;
 
 mod fields;
 pub use fields::{mutation_unknown_fields, mutation_writable_field_names, unknown_fields_body};
-mod aggregate;
-pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
 pub use batch::execute_mutations_batch;
 
@@ -76,9 +73,6 @@ pub struct MutationComponents {
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,
-    /// Concrete replacement for this source row's aggregate member. The
-    /// single-mutation path uses the atomic aggregate commit primitive.
-    pub aggregate_set: Option<AggregateSet>,
 }
 
 impl MutationComponents {
@@ -97,20 +91,17 @@ impl MutationComponents {
             self.durability,
             self.expected,
             self.must_exist,
-            self.aggregate_set,
         );
         mutation.metadata = self.metadata;
         mutation
     }
 
     /// Move parsed fields into a request without host or storage access.
-    /// An operation's convergence overrides the caller's default. The caller
-    /// supplies the separately decoded aggregate sidecar, when supported.
+    /// An operation's convergence overrides the caller's default.
     #[must_use]
     pub fn from_operation(
         operation: Operation,
         default_convergence: Option<MutationConvergence>,
-        aggregate_set: Option<AggregateSet>,
     ) -> Self {
         let Operation::Mutation {
             schema,
@@ -137,7 +128,6 @@ impl MutationComponents {
             durability: durability.unwrap_or_default(),
             must_exist,
             key_range_prefix,
-            aggregate_set,
         }
     }
 }
@@ -169,7 +159,7 @@ pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
     })
 }
 
-/// The commit fields shared by a mutation, a batch, a finalize, and a repair.
+/// The commit fields shared by a mutation and a batch.
 pub(super) fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
     serde_json::json!({
         "revision": receipt.revision,
@@ -276,7 +266,6 @@ fn build_mutations<H: HostNode>(
                 components.durability,
                 components.expected.clone(),
                 components.must_exist,
-                components.aggregate_set.clone(),
             )
         })
         .collect()
@@ -289,7 +278,6 @@ fn configure_mutation(
     durability: MutationDurability,
     expected: Option<fold_db::schema::types::cas::CasExpectation>,
     must_exist: Option<bool>,
-    aggregate_set: Option<AggregateSet>,
 ) -> Mutation {
     mutation.source_file_name = source_file_name;
     if durability.waits_for_persist() {
@@ -297,19 +285,18 @@ fn configure_mutation(
     }
     mutation.expected = expected;
     mutation.must_exist = must_exist;
-    mutation.aggregate_set = aggregate_set;
     mutation
 }
 
 /// Build, admit, and commit the selected mutations under the caller's access
-/// context. Return the receipt and whether it came from the aggregate path.
+/// context.
 async fn commit_mutation<H: HostNode>(
     host: &H,
     plan: MutationPlan,
     key_values: Vec<KeyValue>,
     ctx: &AccessContext,
     payload_bytes: usize,
-) -> Result<(ResidentCommitReceipt, bool), HostError> {
+) -> Result<ResidentCommitReceipt, HostError> {
     let mutations = build_mutations(host, key_values, plan);
     let admission_started = std::time::Instant::now();
     let permit = host
@@ -318,17 +305,9 @@ async fn commit_mutation<H: HostNode>(
     request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     let _permit = permit?;
     let manager = host.fold_db().mutation_manager();
-    let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
-    let receipt = start_core_commit(manager, mutations, ctx, aggregate_write)
+    start_core_commit(manager, mutations, ctx)
         .await
-        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
-
-    let receipt = if aggregate_write {
-        require_durable_aggregate_receipt(receipt, "Aggregate set")?
-    } else {
-        receipt
-    };
-    Ok((receipt, aggregate_write))
+        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))
 }
 
 type CoreCommitFuture<'a> =
@@ -342,19 +321,6 @@ fn start_core_commit<'a>(
     manager: &'a MutationManager,
     mutations: Vec<Mutation>,
     ctx: &'a AccessContext,
-    aggregate_write: bool,
 ) -> CoreCommitFuture<'a> {
-    if aggregate_write {
-        Box::pin(
-            manager.write_aggregate_set_with_access_receipt(
-                mutations
-                    .into_iter()
-                    .next()
-                    .expect("one aggregate mutation"),
-                ctx,
-            ),
-        )
-    } else {
-        Box::pin(manager.write_mutations_with_access_receipt(mutations, ctx))
-    }
+    Box::pin(manager.write_mutations_with_access_receipt(mutations, ctx))
 }

@@ -2,6 +2,8 @@
 
 **Written 2026-10-19 · Status: all steps are built and merged (S1 to S8b, see section 20). Sections 1 to 19 are the plan as it was written, with its estimates and its first-person voice. Section 20 says what was built and where the build differs. For current behavior read `docs/lastdb-atom-counter.md` and the pages it links.**
 
+**2026-10-31: API version 15 (record model PR 8c) removed the operator tools that this plan names: `lastdb db molecule-drain`, `lastdb db clear-history`, `lastdb liveness explain atom|molecule`, `lastdb db recount --molecules`, `GET /api/atom/{id}` and `GET /api/history/{id}`.**
+
 > Design decisions of 2026-10-19:
 > (1) The counter alone decides whether an atom and a molecule can be purged.
 > (2) The next production home starts as a fresh database. No migration. No support for a home that an older build made.

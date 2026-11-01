@@ -334,7 +334,7 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     }
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
-    lines.extend(atom_counter_status_lines(snapshot));
+    lines.extend(verify_refs_status_lines(snapshot));
     lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
     lines
