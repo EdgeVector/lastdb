@@ -1,7 +1,6 @@
 //! Reuse checks, schema resolution, field-match probes and health.
 
-use schema_service_core::state::{BatchReuseReply, SchemaResolveReply};
-use schema_service_core::FieldMatchProbeReply;
+use schema_service_core::state::BatchReuseReply;
 
 use super::*;
 
@@ -53,9 +52,9 @@ pub async fn resolve_schemas(
 ) -> impl Responder {
     let request = payload.into_inner();
 
-    match state.schema_resolve_reply(&request) {
-        SchemaResolveReply::Ready(response) => HttpResponse::Ok().json(response),
-        SchemaResolveReply::Refused { body } => HttpResponse::BadRequest().json(body),
+    match state.schema_resolve_reply(&request).into_http() {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err((status, body)) => json_status(status, body),
     }
 }
 
@@ -68,9 +67,12 @@ pub async fn field_match_probe(
     payload: web::Json<schema_service_core::FieldMatchProbeRequest>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    match state.field_match_probe_reply(&payload.into_inner()) {
-        FieldMatchProbeReply::Ready(response) => HttpResponse::Ok().json(response),
-        FieldMatchProbeReply::Refused { body } => HttpResponse::BadRequest().json(body),
+    match state
+        .field_match_probe_reply(&payload.into_inner())
+        .into_http()
+    {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err((status, body)) => json_status(status, body),
     }
 }
 

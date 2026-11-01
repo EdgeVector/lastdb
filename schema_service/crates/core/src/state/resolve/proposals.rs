@@ -13,6 +13,18 @@ pub enum SchemaResolveReply {
     Refused { body: Value },
 }
 
+impl SchemaResolveReply {
+    /// The resolve payload, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. Refused is 400.
+    pub fn into_http(self) -> Result<SchemaResolveResponse, (u16, Value)> {
+        match self {
+            Self::Ready(response) => Ok(response),
+            Self::Refused { body } => Err((400, body)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Resolve proposed schemas against the current shared registry without
     /// mutating registry state.
