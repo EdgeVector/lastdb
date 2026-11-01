@@ -67,6 +67,33 @@ pub enum RegistryIndexReply {
     Failed { message: String, body: Value },
 }
 
+/// A registry index the router can send. Failure is not in this value.
+#[derive(Debug)]
+pub enum RegistryIndexSuccess {
+    /// HTTP 304. `etag` quotes the current version.
+    NotModified { etag: String },
+    /// HTTP 200. `etag` quotes `registry_version`.
+    Ready {
+        index: RegistryIndexEnvelope,
+        etag: String,
+    },
+}
+
+impl RegistryIndexReply {
+    /// The index the router can send, or the HTTP error.
+    ///
+    /// NotModified and Ready stay typed so each router writes its headers.
+    /// Failed is 500. The log line is the actix error text. The Lambda
+    /// router ignores that line.
+    pub fn into_http(self) -> Result<RegistryIndexSuccess, (u16, Value, String)> {
+        match self {
+            Self::NotModified { etag } => Ok(RegistryIndexSuccess::NotModified { etag }),
+            Self::Ready { index, etag } => Ok(RegistryIndexSuccess::Ready { index, etag }),
+            Self::Failed { message, body } => Err((500, body, message)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     pub fn export_registry_index(&self) -> FoldDbResult<RegistryIndexEnvelope> {
         let registry_version = self.current_state_version();
