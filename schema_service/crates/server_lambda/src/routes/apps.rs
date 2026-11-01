@@ -62,10 +62,9 @@ pub(crate) async fn put_app_v1(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v1/apps/").trim_end_matches('/');
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = known_app_id(p, "/v1/apps/") else {
         return json_response(400, &invalid_app_id_body());
-    }
+    };
     let body_value = match app_metadata_body(event) {
         Ok(v) => v,
         Err(r) => return r,
@@ -91,12 +90,9 @@ pub(crate) async fn promote_app_v1(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v1/apps/")
-        .trim_end_matches("/promote");
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = segment_before(p, "/v1/apps/", "/promote") else {
         return json_response(400, &invalid_app_id_body());
-    }
+    };
     let (cert, sig) = match v2_cert_headers(event) {
         Ok(pair) => pair,
         Err(r) => return r,
@@ -124,10 +120,7 @@ pub(crate) async fn post_apps_releases(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v2/apps/")
-        .trim_end_matches("/releases");
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = app_id_before(p, "/v2/apps/", "/releases") else {
         return json_response(400, &invalid_app_id_body());
     };
     let body_value = match v2_body(event) {
@@ -162,10 +155,7 @@ pub(crate) async fn post_apps_revocations(
     event: &Request,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let app_id = p
-        .trim_start_matches("/v2/apps/")
-        .trim_end_matches("/revocations");
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = app_id_before(p, "/v2/apps/", "/revocations") else {
         return json_response(400, &invalid_app_id_body());
     };
     let body_value = match v2_body(event) {
@@ -240,10 +230,9 @@ pub(crate) async fn get_releases(
     state: &SchemaServiceState,
     p: &str,
 ) -> Result<Response<Body>, Error> {
-    let release_id = p.trim_start_matches("/v2/releases/").trim_end_matches('/');
-    if release_id.is_empty() || release_id.contains('/') {
+    let Some(release_id) = segment_before(p, "/v2/releases/", "/") else {
         return json_response(400, &reason_only_body("invalid_release_id"));
-    }
+    };
     match state.release_read_reply(release_id).await {
         ReleaseReadReply::Ready(body) => json_response(200, &body),
         ReleaseReadReply::Missing(body) => json_response(404, &body),
@@ -260,7 +249,7 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
 }
 
 fn known_app_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    v2_app_id(path.trim_start_matches(prefix).trim_end_matches('/'))
+    segment_before(path, prefix, "/")
 }
 
 fn public_app_response(state: &SchemaServiceState, app_id: &str) -> Result<Response<Body>, Error> {
