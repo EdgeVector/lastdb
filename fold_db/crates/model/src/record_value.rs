@@ -29,8 +29,6 @@ use std::collections::{BTreeMap, HashMap};
 
 mod meta;
 
-pub use meta::META_FILE_REF_KEYS;
-
 /// The format version of a stored record value.
 pub const RECORD_VALUE_VERSION: u8 = 1;
 
