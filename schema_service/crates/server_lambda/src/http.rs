@@ -9,6 +9,7 @@ use schema_service_core::{
     HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 use schema_service_server_shared::state::SchemaServiceState;
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 /// Pull the `X-API-Key` header from a request. Header lookup is
@@ -151,6 +152,27 @@ pub(crate) fn parse_body(event: &Request) -> Result<String, Response<Body>> {
         )
         .unwrap()),
     }
+}
+
+/// Parsed JSON of type `T`, or the 400 response to return.
+///
+/// An empty body keeps the empty-body 400 from [`parse_body`]. A JSON
+/// failure uses `error` as the message prefix, then `: `, then the parse
+/// error. The status stays 400. The body stays one `error` field.
+pub(crate) fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
+where
+    T: DeserializeOwned,
+{
+    let raw = match parse_body(event) {
+        Ok(body) => body,
+        Err(response) => return Err(Ok(response)),
+    };
+    serde_json::from_str(&raw).map_err(|parse_error| {
+        json_response(
+            400,
+            &schema_service_core::error_only_body(&format!("{error}: {parse_error}")),
+        )
+    })
 }
 
 // ─── `/v2` route helpers ──────────────────────────────────────────────────

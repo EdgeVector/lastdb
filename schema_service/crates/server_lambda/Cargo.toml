@@ -59,6 +59,9 @@ aws-sdk-s3 = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 
+# `typed_json_body` names `DeserializeOwned`. The crate is already in the
+# binary through the schema crates. This line only makes that bound legal.
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 tracing = { workspace = true }
