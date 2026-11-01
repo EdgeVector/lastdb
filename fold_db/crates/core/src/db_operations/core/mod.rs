@@ -20,7 +20,7 @@ pub use row_drops::{
     with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, KeyForm,
     PageEnd, PageResume, QueryRowDrops,
 };
-pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, UnresolvedDamage};
+pub use unresolved::UnresolvedDamage;
 
 /// Database operations with pluggable storage backend
 ///
