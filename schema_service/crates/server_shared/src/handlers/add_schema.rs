@@ -281,8 +281,8 @@ fn add_schema_outcome_response(
     let record = |outcome: &'static str| {
         state.record_schema_match_outcome(outcome, telemetry_source, telemetry_reason);
     };
-    match reply {
-        SchemaAddReply::Failed { detail, body } => {
+    match reply.into_http() {
+        Err((status, body, detail)) => {
             record("rejected");
             tracing::error!(
                 target: "schema_service::schema",
@@ -290,9 +290,9 @@ fn add_schema_outcome_response(
                 schema_name,
                 detail
             );
-            HttpResponse::BadRequest().json(body)
+            json_status(status, body)
         }
-        SchemaAddReply::Ready(outcome) => match *outcome {
+        Ok(outcome) => match *outcome {
             SchemaAddOutcome::Added(schema, mutation_mappers) => {
                 record(if response_composition.is_some() {
                     "residual_created"
