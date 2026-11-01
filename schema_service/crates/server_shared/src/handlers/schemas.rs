@@ -1,7 +1,7 @@
 //! Schema read routes: registry index, listing, lookup, similarity and reload.
 
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{similarity_threshold_reply, SchemaByNameReply};
+use schema_service_core::state::similarity_threshold_reply;
 use schema_service_core::RegistryIndexReply;
 
 use super::*;
@@ -124,19 +124,19 @@ pub async fn get_schema(
         schema_name
     );
 
-    match state.schema_by_name_reply(&schema_name).await {
-        SchemaByNameReply::Ready(envelope) => HttpResponse::Ok().json(envelope),
-        SchemaByNameReply::Missing { body } => {
-            tracing::warn!(
-                target: "schema_service::schema",
-                "Schema '{}' not found",
-                schema_name
-            );
-            HttpResponse::NotFound().json(body)
-        }
-        SchemaByNameReply::Failed { message, body } => {
-            tracing::error!(target: "schema_service::schema", "{message}");
-            HttpResponse::InternalServerError().json(body)
+    match state.schema_by_name_reply(&schema_name).await.into_http() {
+        Ok(envelope) => HttpResponse::Ok().json(envelope),
+        Err((status, body, message)) => {
+            if status == 404 {
+                tracing::warn!(
+                    target: "schema_service::schema",
+                    "Schema '{}' not found",
+                    schema_name
+                );
+            } else if let Some(message) = message {
+                tracing::error!(target: "schema_service::schema", "{message}");
+            }
+            json_status(status, body)
         }
     }
 }
