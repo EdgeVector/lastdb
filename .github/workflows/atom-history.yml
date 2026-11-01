@@ -93,7 +93,7 @@ jobs:
           python3 scripts/operations/atom_history.py --daemon "$PWD/target/debug/lastdbd" \
             --cli "$PWD/target/debug/lastdb" --revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/atom-history" 2>&1 | tee "$RUNNER_TEMP/atom-history.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:

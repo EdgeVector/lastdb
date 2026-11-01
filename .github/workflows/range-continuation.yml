@@ -149,7 +149,7 @@ jobs:
       - name: Upload complete raw evidence and build logs
         if: always()
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: range-continuation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RANGE_OUTPUT }}/

@@ -54,7 +54,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12758648156" > "$BENCH_OUTPUT/source-artifact.json"
       - name: Download the exact original CI programs without another build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: 12758648156
           run-id: 40558556490
@@ -80,7 +80,7 @@ jobs:
       - name: Upload measurements and source records
         if: always()
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-write-contention-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.BENCH_OUTPUT }}/
@@ -101,7 +101,7 @@ jobs:
             --metadata "$RUNNER_TEMP/write-contention-artifact.json" --output "$RUNNER_TEMP/write-contention-download"
       - name: Retain the verified download receipt
         if: always() && steps.receipt.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-write-contention-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/write-contention-download/artifact.json
