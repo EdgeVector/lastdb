@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise peer sync between two fresh format 7 (record model) daemons in CI.
 
-Both daemons create a home with LASTDB_RECORD_HOME=1 and LASTDB_LOGICAL_CAPTURE=1.
+Both daemons create a new home, which is format 7, with LASTDB_LOGICAL_CAPTURE=1.
 Each enrolls the other, and the script moves the signed version 2 events through
 /api/sync/logical-v1. It proves a two-field merge of one record, the convergence
 of a concurrent write of one field with one kept conflict record, a replay that
@@ -27,7 +27,7 @@ TTL_FIELDS = ["id", "x"]
 TTL_SECS = 12
 RETENTION_SECS = 60
 ENVIRONMENT = {
-    "LASTDB_RECORD_HOME": "1", "LASTDB_LOGICAL_CAPTURE": "1",
+    "LASTDB_LOGICAL_CAPTURE": "1",
     "LASTDB_CONFLICT_RETENTION_SECS": str(RETENTION_SECS), "LASTDB_CONFLICT_JANITOR_MS": "1000",
     "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "EXEMEM_API_URL": "http://127.0.0.1:9",
