@@ -68,6 +68,21 @@ This authorizes only:
 
 Use CI for the build and the proof. No primary copy. Keep every other test target retired.
 
+### Scoped extension: record home product proofs (Tom, 2026-10-30/31)
+
+Tom approved the record model plan (#911, item 9: "Proof in CI. A fresh format 7 home
+on a synthetic seed: product operations, latency comparisons and `benchmark-complete`").
+The workspace rule of 2026-10-29/30 also asks for CI product operations before merge.
+The proofs run the public CLI and daemon on fresh generated homes.
+This authorizes only:
+
+- `scripts/operations/record_home.py`
+- `scripts/operations/record_peer_sync.py`
+- `.github/workflows/record-home.yml`
+- the `record_home` job in `.github/workflows/ci-required.yml`
+
+The same limits apply: CI only, generated data, no primary copy. Keep every other test target retired.
+
 ## Cursor Cloud specific instructions
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
