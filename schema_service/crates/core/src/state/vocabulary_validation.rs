@@ -17,6 +17,19 @@ pub enum FieldVocabularyReply {
     Refused { body: Value },
 }
 
+impl FieldVocabularyReply {
+    /// The vocabulary passed, or the HTTP error.
+    ///
+    /// Ready continues the add. Refused is 400. Each router still writes
+    /// that response.
+    pub fn into_http(self) -> Result<(), (u16, Value)> {
+        match self {
+            Self::Ready => Ok(()),
+            Self::Refused { body } => Err((400, body)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     pub(super) fn validate_loaded_vocabulary(&self) -> FoldDbResult<()> {
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;

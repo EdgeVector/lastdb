@@ -4,7 +4,7 @@ use super::*;
 
 mod cover;
 use cover::full_component_cover_response;
-use schema_service_core::state::{FieldVocabularyReply, IdempotentRepostReply, SchemaAddReply};
+use schema_service_core::state::{IdempotentRepostReply, SchemaAddReply};
 use schema_service_core::types::SchemaRegistrationComposition;
 
 fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
@@ -182,10 +182,12 @@ pub async fn add_schema(
         Ok(parsed) => parsed,
         Err(response) => return response,
     };
-    if let FieldVocabularyReply::Refused { body } =
-        state.field_vocabulary_reply(&request.schema).await
+    if let Err((status, body)) = state
+        .field_vocabulary_reply(&request.schema)
+        .await
+        .into_http()
     {
-        return HttpResponse::BadRequest().json(body);
+        return json_status(status, body);
     }
     let schema_name = request.schema.name.clone();
     let telemetry_source = request.schema_match_source.clone();

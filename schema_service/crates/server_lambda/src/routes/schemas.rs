@@ -3,7 +3,7 @@
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{similarity_threshold_reply, FieldVocabularyReply};
+use schema_service_core::state::similarity_threshold_reply;
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexSuccess, SchemaMutationChallengeReply,
     SchemaMutationChallengeRequest,
@@ -162,8 +162,8 @@ pub(crate) async fn post_schemas(
         }
     };
 
-    if let FieldVocabularyReply::Refused { body } = state.field_vocabulary_reply(&schema).await {
-        return json_response(400, &body);
+    if let Err((status, body)) = state.field_vocabulary_reply(&schema).await.into_http() {
+        return json_response(status, &body);
     }
     let mutation_mappers = parse_mutation_mappers(&request);
 
