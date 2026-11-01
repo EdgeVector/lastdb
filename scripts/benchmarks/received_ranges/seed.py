@@ -64,9 +64,14 @@ class Seed:
             and name not in ("GH_TOKEN", "GITHUB_TOKEN")}
         environment.update(self.node.settings, LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
             LASTDB_HOME=str(self.node.home), FOLDDB_HOME=str(self.node.home), RUST_MIN_STACK="16777216")
-        with (self.node.output / "seed.log").open("ab") as log:
-            subprocess.run([str(self.helper), str(self.node.home), str(path)], env=environment,
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log, check=True, timeout=600)
+        log_path = self.node.output / "seed.log"
+        with log_path.open("ab") as log:
+            result = subprocess.run([str(self.helper), str(self.node.home), str(path)], env=environment,
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log, check=False, timeout=600)
+        if result.returncode != 0:
+            # The helper prints its error last; keep it in the job log as well as the artifact.
+            tail = log_path.read_bytes()[-2000:].decode(errors="replace")
+            raise RuntimeError("The seed helper exits with status " + str(result.returncode) + ": " + tail)
         self.paths.append({"name": path.name, "sha256": file_hash(path), "bytes": path.stat().st_size})
         self.node.start()
 
