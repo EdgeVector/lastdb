@@ -11,6 +11,19 @@ pub enum PublicAppReply {
     Missing(Value),
 }
 
+impl PublicAppReply {
+    /// The HTTP status and body for this read.
+    ///
+    /// Ready is 200. Missing is 404.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value) {
+        match self {
+            Self::Ready(body) => (200, body),
+            Self::Missing(body) => (404, body),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Snapshot the current app-identity config (clone under the read lock
     /// so verification doesn't hold the lock).

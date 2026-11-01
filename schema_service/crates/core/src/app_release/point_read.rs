@@ -13,6 +13,20 @@ pub enum ReleaseReadReply {
     Unavailable(Value),
 }
 
+impl ReleaseReadReply {
+    /// The HTTP status and body for this read.
+    ///
+    /// Ready is 200. Missing is 404. Unavailable is 503.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value) {
+        match self {
+            Self::Ready(body) => (200, body),
+            Self::Missing(body) => (404, body),
+            Self::Unavailable(body) => (503, body),
+        }
+    }
+}
+
 /// The anonymous channel read both HTTP routers answer.
 #[derive(Debug)]
 pub enum ChannelReadReply {
@@ -22,6 +36,20 @@ pub enum ChannelReadReply {
     Missing(Value),
     /// The storage read failed. HTTP 503. The value is the registry-unavailable body.
     Unavailable(Value),
+}
+
+impl ChannelReadReply {
+    /// The HTTP status and body for this read.
+    ///
+    /// Ready is 200. Missing is 404. Unavailable is 503.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value) {
+        match self {
+            Self::Ready(body) => (200, body),
+            Self::Missing(body) => (404, body),
+            Self::Unavailable(body) => (503, body),
+        }
+    }
 }
 
 impl SchemaServiceState {
