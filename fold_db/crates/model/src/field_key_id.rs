@@ -1,4 +1,4 @@
-//! Deterministic field key UUIDs hash a framed domain, schema and field tuple.
+//! Deterministic field key IDs hash a framed domain, schema and field tuple.
 //! The digest uses the current unpadded base64url spelling.
 //!
 //! Reads, writes, and physical cleanup use the supplied UUID exactly.
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 pub fn field_key_id_digest(schema_name: &str, field_name: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for part in [
-        b"lastdb:molecule-uuid:v1".as_slice(),
+        b"lastdb:field-key:v1".as_slice(),
         schema_name.as_bytes(),
         field_name.as_bytes(),
     ] {
@@ -53,7 +53,7 @@ pub const ALTERNATE_ENTRY_PREFIX: &str = "ak:";
 pub fn alternate_field_key_id(schema: &crate::schema::types::Schema, name: &str) -> String {
     let revision = schema.alternate_key_revision();
     let mut hash = Sha256::new();
-    hash.update(b"lastdb:alternate-molecule:v1");
+    hash.update(b"lastdb:alternate-key:v1");
     for part in [schema.name.as_str(), revision.as_str(), name] {
         hash.update(
             u64::try_from(part.len())
