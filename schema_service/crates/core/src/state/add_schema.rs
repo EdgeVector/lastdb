@@ -17,6 +17,20 @@ pub enum SchemaAddReply {
     Failed { detail: String, body: Value },
 }
 
+impl SchemaAddReply {
+    /// The add outcome, or the HTTP error.
+    ///
+    /// Ready stays typed so each router writes its success body. Failed
+    /// is 400. The detail is the actix error text. The actix router still
+    /// records rejected telemetry. The Lambda router ignores the detail.
+    pub fn into_http(self) -> Result<Box<SchemaAddOutcome>, (u16, Value, String)> {
+        match self {
+            Self::Ready(outcome) => Ok(outcome),
+            Self::Failed { detail, body } => Err((400, body, detail)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// [`Self::add_schema_inner`] with a defensive assertion that
     /// `owner_app_id` never silently disappears between request and

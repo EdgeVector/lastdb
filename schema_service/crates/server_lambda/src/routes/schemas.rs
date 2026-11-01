@@ -3,9 +3,7 @@
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{
-    similarity_threshold_reply, FieldVocabularyReply, SchemaAddReply,
-};
+use schema_service_core::state::{similarity_threshold_reply, FieldVocabularyReply};
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
     SchemaMutationChallengeRequest,
@@ -244,9 +242,13 @@ async fn add_schema_response(
     schema: schema_types::Schema,
     mutation_mappers: HashMap<String, String>,
 ) -> Result<Response<Body>, Error> {
-    match state.schema_add_reply(schema, mutation_mappers).await {
-        SchemaAddReply::Failed { body, .. } => json_response(400, &body),
-        SchemaAddReply::Ready(outcome) => match *outcome {
+    match state
+        .schema_add_reply(schema, mutation_mappers)
+        .await
+        .into_http()
+    {
+        Err((status, body, _)) => json_response(status, &body),
+        Ok(outcome) => match *outcome {
             // `Composed` (newly-registered canonical referencing existing
             // sub-schemas via SchemaRef) serializes like `Added`: 201, no
             // replaced schema. Only produced once the compositional
