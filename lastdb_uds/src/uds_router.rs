@@ -108,7 +108,13 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `GET /api/storage/app` reply. It counted format 6 tips and molecule
 /// bookkeeping, which a format 7 home does not have, so it was always zero.
 /// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 18;
+/// `19` (2026-11-01) removes reply keys that a format 7 home always left
+/// empty. Query field metadata no longer includes `atom_uuid`. `/api/status`
+/// no longer includes `integrity`. Native disk status no longer includes
+/// `core_warm_atoms`. Warm byte stats no longer include `atom_bytes` or
+/// `tracked_atoms`. A field history entry no longer includes `atom`.
+/// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 19;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

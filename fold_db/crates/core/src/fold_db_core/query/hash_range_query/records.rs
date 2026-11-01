@@ -331,7 +331,6 @@ fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
     let meta = record.meta.as_ref();
     Some(FieldValue {
         value: value.clone(),
-        atom_uuid: String::new(),
         source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
         metadata: meta
             .filter(|meta| !meta.metadata.is_empty())
@@ -365,12 +364,10 @@ fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
     out
 }
 
-/// The metadata of one returned field: the record metadata (D7), with no
-/// atom, molecule or writer ID.
+/// The metadata of one returned field: the record metadata (D7).
 fn field_metadata(record: &StoredRecord) -> FieldMetadata {
     let meta = record.meta.as_ref();
     FieldMetadata {
-        atom_uuid: String::new(),
         source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
         metadata: meta
             .filter(|meta| !meta.metadata.is_empty())

@@ -6,7 +6,6 @@ use std::collections::HashMap;
 /// Metadata associated with a field value
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldMetadata {
-    pub atom_uuid: String,
     pub source_file_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,

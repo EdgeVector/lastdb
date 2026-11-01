@@ -112,7 +112,6 @@ pub struct CoreWarmBytesHealth {
     pub held_bytes: u64,
     pub dirty_bytes: u64,
     pub dirty_limit_bytes: u64,
-    pub tracked_atoms: u64,
     #[serde(default)]
     pub purged_bytes: u64,
     #[serde(default)]
@@ -121,9 +120,6 @@ pub struct CoreWarmBytesHealth {
 
 impl CoreWarmBytesHealth {
     /// One `lastdb status` line. `None` from a daemon that predates the gauge.
-    ///
-    /// `tracked_atoms` stays in the JSON for its readers. The record model
-    /// keeps it at zero, so the text line leaves it out.
     pub(super) fn status_line(&self) -> Option<String> {
         if self.limit_bytes == 0 {
             return None;
@@ -152,7 +148,6 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
             held_bytes: stats.held_bytes as u64,
             dirty_bytes: stats.dirty_bytes as u64,
             dirty_limit_bytes: stats.dirty_limit_bytes as u64,
-            tracked_atoms: stats.tracked_atoms as u64,
             purged_bytes: stats.purged_bytes,
             over_limit_admissions: stats.over_limit_admissions,
         }

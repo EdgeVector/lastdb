@@ -459,7 +459,7 @@ Each `QueryRow` carries:
 | `key` | the row's storage key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
 | `keyValue` | the row's **structured** `{hash, range}` key — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` only when the key has neither a hash nor a range |
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
-| `metadata` | write metadata keyed by field name. In a format 7 home each entry holds the record's `source_file_name` and `metadata`, and `atom_uuid` is an empty string; there is no `molecule_uuid` or `writer_pubkey` |
+| `metadata` | write metadata keyed by field name. In a format 7 home each entry holds the record's `source_file_name` and `metadata`. There is no `molecule_uuid` or `writer_pubkey` |
 | `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null`; always `null` from a format 7 home |
 
 This is the exact shape `lastdbd`'s `/api/query` builds

@@ -30,13 +30,13 @@ struct CoreNamespaces {
     keep_small_kv: Arc<dyn KvStore>,
 }
 
-/// The namespace handles required to construct the atom store.
-struct AtomNamespaces {
+/// The namespace handles required to construct the record store.
+struct RecordNamespaces {
     main: Arc<TypedKvStore<dyn KvStore>>,
     keep_small: Arc<TypedKvStore<dyn KvStore>>,
 }
 
-impl AtomNamespaces {
+impl RecordNamespaces {
     fn new(main: Arc<dyn KvStore>, keep_small: Arc<dyn KvStore>) -> Self {
         Self {
             main: Arc::new(TypedKvStore::new(main)),
@@ -109,8 +109,7 @@ impl DbOperations {
     /// Production constructor with a node key for durable molecule-key wraps.
     ///
     /// `content_key` is the account E2E content key. It seals local file
-    /// blobs and is the key that `content_key_proof` checks on each open. Atom
-    /// rows are plain JSON on a disk format v2 home, so it seals no atom content.
+    /// blobs and is the key that `content_key_proof` checks on each open.
     /// The wrap key is also the `content_key_proof` key when `content_key` is
     /// `None`. Each molecule's key bundle blinds its hashes (`blind_v1`).
     pub async fn from_namespaced_store_with_content_and_molecule_keys(
@@ -182,7 +181,7 @@ impl DbOperations {
         );
         let record_store = Self::open_record_store(
             &store,
-            AtomNamespaces::new(main_kv, keep_small_kv),
+            RecordNamespaces::new(main_kv, keep_small_kv),
             content_key,
             &molecule_keys,
             admit_meter_trust,
@@ -212,7 +211,7 @@ impl DbOperations {
 
     async fn open_record_store(
         store: &Arc<dyn NamespacedStore>,
-        namespaces: AtomNamespaces,
+        namespaces: RecordNamespaces,
         content_key: Option<[u8; 32]>,
         molecule_keys: &MoleculeKeyStore,
         admit_meter_trust: bool,

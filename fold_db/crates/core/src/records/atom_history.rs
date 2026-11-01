@@ -29,10 +29,6 @@ fn empty_key() -> crate::schema::types::key_value::KeyValue {
 #[derive(Debug, Clone, Serialize)]
 pub struct AtomHistoryEntry {
     pub id: String,
-    /// The archived atom. A record history entry of a format 7 home holds a
-    /// copy of the value and names no atom (D7).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub atom: Option<String>,
     pub written_at: u64,
     pub mutation: String,
     pub archived_at: u64,
@@ -80,7 +76,6 @@ impl RecordHistoryEntry {
     pub(crate) fn entry(&self, key: &str) -> AtomHistoryEntry {
         AtomHistoryEntry {
             id: key.rsplit(':').next().unwrap_or_default().to_string(),
-            atom: None,
             written_at: self.stamp.written_at,
             mutation: self.stamp.mutation_id.clone(),
             archived_at: self.archived_at,

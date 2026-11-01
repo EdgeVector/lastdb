@@ -135,11 +135,7 @@ class OwnedNode:
         for key in ("persist_lane_failures", "deferred_persist_failed"):
             value = measured["resident"][key]
             require(type(value) is int and value == 0, "daemon_persist_failure")
-        for key in ("unresolved_atom_skips", "unresolved_atom_distinct", "unresolved_atom_rows"):
-            value = measured["integrity"][key]
-            require(type(value) is int and value == 0, "daemon_read_integrity")
-        require(measured["integrity"]["unresolved_distinct_capped"] is False
-                and native["native_disk"]["writer_failed"] is False, "daemon_native_health")
+        require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
         if not self.backup_source:
             require(durability["automatic_enabled"] is False and durability["running"] is False,

@@ -14,14 +14,14 @@ use serde_json::{json, Value};
 
 use super::gauge::Gauge;
 use super::self_metrics::{
-    IntegrityHealth, LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot,
-    UdsPoolHealth, WatchersHealth,
+    LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot, UdsPoolHealth,
+    WatchersHealth,
 };
 
 /// One gauge declaration in the additive contract block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GaugeContractEntry {
-    /// Dotted path relative to the status object (e.g. `integrity.unresolved_atom_distinct`).
+    /// Dotted path relative to the status object (e.g. `resident.resident_key_count`).
     pub path: String,
     /// Closed-set unit id or Named noun (`rows`, `edges`, `hold(s)`, …).
     pub unit: String,
@@ -127,24 +127,6 @@ fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
     );
 }
 
-fn collect_integrity(out: &mut Vec<GaugeContractEntry>, i: &IntegrityHealth) {
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_skips",
-        &i.unresolved_atom_skips,
-    );
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_distinct",
-        &i.unresolved_atom_distinct,
-    );
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_rows",
-        &i.unresolved_atom_rows,
-    );
-}
-
 fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     push_gauge(
         out,
@@ -213,7 +195,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_watchers(&mut gauges, &snapshot.watchers);
     collect_limits(&mut gauges, &snapshot.limits);
     collect_resident(&mut gauges, &snapshot.resident);
-    collect_integrity(&mut gauges, &snapshot.integrity);
     if snapshot.at_rest_compression.is_some() {
         collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
     }

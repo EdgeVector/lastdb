@@ -143,10 +143,6 @@ pub struct StatusSnapshot {
     /// when read from a daemon predating this field.
     #[serde(default)]
     pub build: BuildHealth,
-    /// Read-path integrity: rows dropped from query results because their tip
-    /// pointed at an atom that would not resolve.
-    #[serde(default)]
-    pub integrity: IntegrityHealth,
     /// Per-schema purge accounting (cumulative since process start).
     ///
     /// This ledger reports purge counts, guarded critical-section time, and

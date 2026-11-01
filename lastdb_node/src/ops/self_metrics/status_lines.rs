@@ -334,9 +334,6 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 
 fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = vec![resident_status_line(&snapshot.resident)];
-    if let Some(line) = integrity_status_line(&snapshot.integrity) {
-        lines.push(line);
-    }
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
     lines.extend(verify_refs_status_lines(snapshot));

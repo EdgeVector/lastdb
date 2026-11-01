@@ -128,9 +128,8 @@ file blob waits for a dwell of one hour (`LASTDB_BLOB_DWELL_SECS`), then goes
 
 A read returns the fields, the record metadata and the **primary key**. Use the
 primary key for a later mutation. An alternate read also returns the matched key.
-A reply has no molecule or writer IDs. For compatibility, each field entry of
-`metadata` keeps an empty `atom_uuid` and the record's `source_file_name`, and
-`author_pub_key` is `null`.
+A reply has no molecule id and no writer id. Each field entry of
+`metadata` keeps the record's `source_file_name`. `author_pub_key` is `null`.
 The node does not assemble a record from separate field values: the record is
 stored whole.
 

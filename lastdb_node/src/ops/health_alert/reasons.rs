@@ -64,31 +64,3 @@ pub(super) fn durability_reason(status: &serde_json::Value) -> Option<String> {
     }
     None
 }
-
-/// Reads served short because a tip pointed at a missing atom.
-pub(super) fn integrity_reason(status: &serde_json::Value) -> Option<String> {
-    // Read integrity means callers were already served SHORT: a tip pointed at
-    // a missing atom, so an affected partition returns 200 with fewer rows than
-    // its index claims. This mirrors `integrity_status_line`'s predicate in
-    // `self_metrics` exactly -- DEGRADED iff a MEASURED skip count is non-zero
-    // -- so the alarm and the `lastdb status` line cannot disagree. An absent
-    // or unmeasurable count adds no reason here; whole-payload absence is
-    // already `Degradation::Unknown` above.
-    if let Some(integrity) = status.get("integrity") {
-        if let Some(skips) = integrity
-            .get("unresolved_atom_skips")
-            .and_then(serde_json::Value::as_u64)
-        {
-            if skips > 0 {
-                let rows = integrity
-                    .get("unresolved_atom_rows")
-                    .and_then(serde_json::Value::as_u64)
-                    .map_or_else(|| "unknown".to_string(), |r| r.to_string());
-                return Some(format!(
-                    "integrity.unresolved_atom_rows={rows} ({skips} read(s) served short)"
-                ));
-            }
-        }
-    }
-    None
-}

@@ -64,7 +64,6 @@ pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSna
         limits: LimitsHealth::default(),
         resident,
         build: BuildHealth::current(),
-        integrity: integrity_health(host),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
@@ -128,16 +127,6 @@ fn durability_health(host: &Host) -> DurabilityHealth {
         .unwrap_or_default();
     request_phases::add_phase(RequestPhase::StatusDurability, started.elapsed());
     health
-}
-
-fn integrity_health(host: &Host) -> IntegrityHealth {
-    let damage = host.db.db_ops().unresolved_atom_distinct();
-    IntegrityHealth::measured(
-        host.db.db_ops().unresolved_atom_skip_count(),
-        damage.edges,
-        Some(damage.rows),
-        damage.capped,
-    )
 }
 
 /// Memory budget. Also stamps the persist-lane rows onto `request_ops`.
