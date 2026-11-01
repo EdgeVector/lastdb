@@ -5,7 +5,7 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
     similarity_threshold_reply, BatchReuseReply, FieldVocabularyReply, SchemaAddReply,
-    SchemaResolveReply, SimilarSchemasReply, SimilarityThresholdReply,
+    SchemaResolveReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -77,18 +77,20 @@ pub(crate) fn get_schemas_similar(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let schema_name = p.trim_start_matches("/v1/schemas/similar/");
-    let threshold = match similarity_threshold_reply(Some(parse_threshold(event))) {
-        SimilarityThresholdReply::Ready(threshold) => threshold,
-        SimilarityThresholdReply::Refused { body } => return json_response(400, &body),
+    let threshold = match similarity_threshold_reply(Some(parse_threshold(event))).into_http() {
+        Ok(threshold) => threshold,
+        Err((status, body)) => return json_response(status, &body),
     };
 
-    match state.similar_schemas_reply(schema_name, threshold) {
-        SimilarSchemasReply::Ready(response) => {
+    match state
+        .similar_schemas_reply(schema_name, threshold)
+        .into_http()
+    {
+        Ok(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SimilarSchemasReply::Missing { body } => json_response(404, &body),
-        SimilarSchemasReply::Failed { body } => json_response(500, &body),
+        Err((status, body)) => json_response(status, &body),
     }
 }
 
