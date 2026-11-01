@@ -10,7 +10,7 @@ for rewritten keys, the measured cost, and the knobs.
 The default verb is `purge`. It uses the atom counter.
 The same batch frees each body whose last reference goes.
 `delete` is opt-in because it leaves barrier rows.
-The owner can remove older barriers through an [explicit stopped-home replay cutoff](delete-replay-cutoff.md).
+The owner can raise the home-wide [replay cutoff](delete-replay-cutoff.md) on a stopped home.
 
 ## Schema shape that a TTL needs
 
@@ -130,7 +130,7 @@ The key keeps its TTL entry and its LastSeek record; cleanup removes those entri
 The default remains `purge`. No timer infers a maximum offline time for a device.
 The owner selects the replay cutoff explicitly.
 After cleanup, an old or unclocked replay refuses and the peer needs a current snapshot.
-The [cleanup guide](delete-replay-cutoff.md) gives the peer upgrade order and the older-program refusal rule.
+The [replay cutoff guide](delete-replay-cutoff.md) gives the steps and the replay refusal rule.
 
 ## Pacing
 

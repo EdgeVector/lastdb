@@ -225,7 +225,6 @@ pub struct OwnerRow {
     pub owner: String,
     pub kind: OwnerKind,
     pub live_bytes: u64,
-    pub atom_count: u64,
     pub schema_count: u64,
     /// The schemas that produced this row, sorted. This is the attribution
     /// evidence: an operator can check the grouping instead of trusting it.

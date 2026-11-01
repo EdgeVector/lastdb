@@ -17,10 +17,7 @@
 
 mod record_rows;
 
-use crate::{
-    db_operations::{keep_small::AtomHistogram, AtomStore},
-    schema::SchemaError,
-};
+use crate::{db_operations::AtomStore, schema::SchemaError};
 use serde::{Deserialize, Serialize};
 
 /// One schema's contribution to local logical storage.
@@ -37,9 +34,6 @@ pub struct SchemaStorage {
     /// The stored value bytes of the live records of this schema
     /// (`record_bytes`).
     pub bytes: u64,
-    /// Always zero: a format 7 home stores no atoms. The field stays for its
-    /// readers (`lastdb db schemas`, the app storage report, benchmarks).
-    pub atom_count: u64,
     /// Live records of this schema.
     #[serde(default)]
     pub record_count: u64,
@@ -57,9 +51,6 @@ pub struct StorageBreakdown {
     pub per_schema: Vec<SchemaStorage>,
     /// `sum(per_schema[].bytes)` — the total logical bytes across all schemas.
     pub total_logical_bytes: u64,
-    /// Always empty: it measured atom sizes. The field stays for its readers.
-    #[serde(default)]
-    pub histogram: AtomHistogram,
 }
 
 impl AtomStore {

@@ -27,7 +27,7 @@ impl AtomStore {
     /// schema.
     ///
     /// One paged walk reads the whole record plane under `storage_prefix`, so
-    /// the cost is O(all records), as for the atom walk. `schema_names` maps
+    /// the cost is O(all records). `schema_names` maps
     /// each record space back to its schema: it names the rows, it does not
     /// narrow the walk. A space that no listed schema owns keeps its `rk:{S}`
     /// prefix as the row name, so the total stays complete.
@@ -97,8 +97,8 @@ fn note_record_row(
 }
 
 impl StorageBreakdown {
-    /// Merge record totals into the rows. A record row joins the atom row of
-    /// the same schema, and its bytes join `bytes` and the logical total.
+    /// Merge record totals into the rows, one row for each schema. The bytes
+    /// of a row join `bytes` and the logical total.
     fn add_records(&mut self, totals: RecordTotals) {
         for (schema_name, (count, bytes)) in totals {
             let at = self
@@ -112,7 +112,6 @@ impl StorageBreakdown {
                     schema_name,
                     display_name: None,
                     bytes: 0,
-                    atom_count: 0,
                     record_count: 0,
                     record_bytes: 0,
                 });

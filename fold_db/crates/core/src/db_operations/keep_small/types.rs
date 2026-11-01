@@ -5,13 +5,6 @@ use super::*;
 /// Steady-state budget for live logical DB planes (file blobs exempt).
 pub const LIVE_BUDGET_BYTES: u64 = 1 << 30;
 
-/// 16 KiB fence-visible bucket.
-pub const ATOM_HISTOGRAM_16KIB: u64 = 16 * 1024;
-/// 32 KiB fence-visible bucket.
-pub const ATOM_HISTOGRAM_32KIB: u64 = 32 * 1024;
-/// 64 KiB bucket (the product atom content fence before 2026-10-12).
-pub const ATOM_HISTOGRAM_64KIB: u64 = 64 * 1024;
-
 /// Version of the persisted meter trust payload.
 pub const KEEP_SMALL_TRUST_VERSION: u32 = 1;
 
@@ -228,61 +221,5 @@ impl SchemaMeter {
     #[must_use]
     pub fn plane_bytes(&self) -> u64 {
         self.tip_bytes.saturating_add(self.bookkeeping_bytes)
-    }
-}
-
-/// Atom size histogram on the schemas/atom surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct AtomHistogram {
-    pub p50: u64,
-    pub p95: u64,
-    pub p99: u64,
-    pub max: u64,
-    pub count: u64,
-    pub ge_16kib: u64,
-    pub ge_32kib: u64,
-    pub ge_64kib: u64,
-}
-
-/// Nearest-rank percentile over an already-sorted ascending slice.
-///
-/// Index is `round(p/100 * (n-1))`. Empty → 0.
-#[must_use]
-pub fn percentile_sorted(sorted: &[u64], percentile: u8) -> u64 {
-    if sorted.is_empty() {
-        return 0;
-    }
-    let n = sorted.len();
-    let p = u32::from(percentile.min(100));
-    let idx = ((p as f64 / 100.0) * (n.saturating_sub(1) as f64)).round() as usize;
-    sorted[idx.min(n - 1)]
-}
-
-/// Build a histogram from the exact atom-size population just walked.
-#[must_use]
-pub fn atom_histogram(sizes: &[u64]) -> AtomHistogram {
-    if sizes.is_empty() {
-        return AtomHistogram::default();
-    }
-    let mut sorted = sizes.to_vec();
-    sorted.sort_unstable();
-    AtomHistogram {
-        p50: percentile_sorted(&sorted, 50),
-        p95: percentile_sorted(&sorted, 95),
-        p99: percentile_sorted(&sorted, 99),
-        max: *sorted.last().unwrap_or(&0),
-        count: sorted.len() as u64,
-        ge_16kib: sorted
-            .iter()
-            .filter(|&&b| b >= ATOM_HISTOGRAM_16KIB)
-            .count() as u64,
-        ge_32kib: sorted
-            .iter()
-            .filter(|&&b| b >= ATOM_HISTOGRAM_32KIB)
-            .count() as u64,
-        ge_64kib: sorted
-            .iter()
-            .filter(|&&b| b >= ATOM_HISTOGRAM_64KIB)
-            .count() as u64,
     }
 }

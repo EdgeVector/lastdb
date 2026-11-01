@@ -99,7 +99,12 @@ const API_VERSION_PATH: &str = "/api/version";
 /// list, the schema detail and the declare reply. Installed apps accept a
 /// missing key from API 13 and later. No request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 16;
+/// `17` (2026-11-01) removes the atom keys that a format 7 home always reports
+/// as zero from the owner-only storage reports: `total_atoms`, `histogram` and
+/// the per-schema `atom_count` of `GET /api/db/schemas`, and the owner row
+/// `atom_count` of `GET /api/storage/app`. No request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 17;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

@@ -1,8 +1,9 @@
 //! Format 6 atom record keys.
 //!
 //! A format 6 home kept each atom body at `atom:{uuid}\0b` and its counter at
-//! `atom:{uuid}\0c`. A format 7 write creates neither. The restore proof and
-//! the key law use [`uuid_of`] to recognize such a row and refuse it.
+//! `atom:{uuid}\0c`. A format 7 write creates neither. The restore proof uses
+//! [`uuid_of`] to name such a row before it refuses it. The key law refuses
+//! the whole `atom` family.
 
 use crate::kind_partition;
 

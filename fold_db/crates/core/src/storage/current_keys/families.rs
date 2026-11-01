@@ -1,8 +1,8 @@
 //! Key shapes of the record families that the typed stores own.
 //!
 //! The import key check of the storage layer needs these shapes. The stores
-//! above it (blob counters, schema catalog, molecule drain) name the same
-//! constants here, so one definition serves both.
+//! above it (blob counters, schema catalog) name the same constants here, so
+//! one definition serves both.
 
 /// Key prefix of one blob counter: `bref:v3:c:{sha256}\0c`.
 pub(crate) const BLOB_COUNTER_PREFIX: &str = "bref:v3:c:";
@@ -91,15 +91,4 @@ fn other_schema_metadata_prefixes() -> [&'static str; 6] {
         RETENTION_AGE_LATEST_PREFIX,
         SCHEMA_DROP_RECEIPT_KEY_PREFIX,
     ]
-}
-
-/// True when `rest` has the shape of a molecule drain candidate row with a
-/// valid molecule identity and a valid scope.
-#[must_use]
-pub(crate) fn valid_drain_candidate_key(rest: &str) -> bool {
-    let Some((scope, molecule)) = rest.split_once('\0') else {
-        return false;
-    };
-    crate::atom::molecule_uuid::is_canonical_molecule_uuid(molecule)
-        && (scope.is_empty() || super::validate_scope(scope).is_ok())
 }

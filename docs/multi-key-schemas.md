@@ -23,6 +23,11 @@ Create a fresh home with this release. The previous release serves the old home.
 A one-time read of the old home fills the new home through normal declarations and batch writes.
 Keep the primary unchanged during source and CI work.
 
+CAUTION: Do not roll a home back to a program from #911 to #941.
+From #942 on, a release writes no `layout:owned-values` marker and no per-schema `independent_fields` flag.
+A program from #911 to #941 refuses a stored schema that has no marker, no flag, and no alternate keys.
+That program then does not open a home that a release from #942 on created.
+
 ## Publication and field definitions
 
 Schema Service supplies the canonical definitions, descriptions, and types.
