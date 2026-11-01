@@ -5,7 +5,6 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
     similarity_threshold_reply, BatchReuseReply, FieldVocabularyReply, SchemaAddReply,
-    SchemaResolveReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -324,11 +323,11 @@ pub(crate) fn post_schemas_resolve(
             Err(response) => return response,
         };
 
-    match state.schema_resolve_reply(&request) {
-        SchemaResolveReply::Ready(response) => {
+    match state.schema_resolve_reply(&request).into_http() {
+        Ok(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SchemaResolveReply::Refused { body } => json_response(400, &body),
+        Err((status, body)) => json_response(status, &body),
     }
 }

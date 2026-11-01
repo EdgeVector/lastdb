@@ -45,6 +45,18 @@ pub enum FieldMatchProbeReply {
     Refused { body: Value },
 }
 
+impl FieldMatchProbeReply {
+    /// The probe payload, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. Refused is 400.
+    pub fn into_http(self) -> Result<FieldMatchProbeResponse, (u16, Value)> {
+        match self {
+            Self::Ready(response) => Ok(response),
+            Self::Refused { body } => Err((400, body)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Cosine similarity of embedded texts — used by component_cover.mjs embedding-beam.
     pub fn field_match_probe(
