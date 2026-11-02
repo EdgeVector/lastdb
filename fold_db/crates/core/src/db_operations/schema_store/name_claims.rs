@@ -5,20 +5,6 @@ use super::SchemaStore;
 use crate::schema::{SchemaError, SchemaNameClaim};
 
 impl SchemaStore {
-    /// Read the node-local name-claim record for an installed schema.
-    ///
-    /// `None` means the schema has never had its claim retired — the default,
-    /// and the only shape a pre-existing home carries.
-    pub async fn get_schema_name_claim(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<SchemaNameClaim>, SchemaError> {
-        Ok(self
-            .schema_states_store
-            .get_item(&name_claim_key(schema_name))
-            .await?)
-    }
-
     /// Retire or restore an installed schema's claim on its `descriptive_name`.
     ///
     /// Returns `true` when the durable record changed, so a caller can report
