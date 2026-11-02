@@ -23,9 +23,15 @@ def prepare_target(source, target, environment):
     if not any(package["name"] == "lastdb_node" for package in packages):
         raise ValueError("The dependency target has no identified LastDB package to rebuild")
     # Include vendored path dependencies, even when they are not workspace members.
+    # cargo clean ignores a package-id url and version. The package name is the clean key.
     command = ["cargo", "clean", "--profile", "dev-release", "--locked"]
+    seen = set()
     for package in packages:
-        command.extend(("--package", package["id"]))
+        name = package["name"]
+        if name in seen:
+            continue
+        seen.add(name)
+        command.extend(("--package", name))
     subprocess.run(command, cwd=source, env=environment, check=True, timeout=120)
     for name in ("lastdb", "lastdbd"):
         binary = target / "dev-release" / name
