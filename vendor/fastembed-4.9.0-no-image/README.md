@@ -1,10 +1,12 @@
 <div align="center">
   <h1><a href="https://crates.io/crates/fastembed">FastEmbed-rs 🦀</a></h1>
- <h3>Rust library for generating vector embeddings, reranking locally!</h3>
+ <h3>Rust library for generating vector embeddings locally.</h3>
   <a href="https://crates.io/crates/fastembed"><img src="https://img.shields.io/crates/v/fastembed.svg" alt="Crates.io"></a>
   <a href="https://github.com/Anush008/fastembed-rs/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-apache-blue.svg" alt="MIT Licensed"></a>
   <a href="https://github.com/Anush008/fastembed-rs/actions/workflows/release.yml"><img src="https://github.com/Anush008/fastembed-rs/actions/workflows/release.yml/badge.svg?branch=main" alt="Semantic release"></a>
 </div>
+
+This LastDB fork keeps text embeddings only. Image embeddings, reranking, and sparse text embeddings are removed.
 
 ## 🍕 Features
 
@@ -106,50 +108,6 @@ let documents = vec![
  println!("Embeddings length: {}", embeddings.len()); // -> Embeddings length: 4
  println!("Embedding dimension: {}", embeddings[0].len()); // -> Embedding dimension: 384
 
-```
-
-### Image Embeddings
-
-```rust
-use fastembed::{ImageEmbedding, ImageInitOptions, ImageEmbeddingModel};
-
-// With default InitOptions
-let model = ImageEmbedding::try_new(Default::default())?;
-
-// With custom InitOptions
-let model = ImageEmbedding::try_new(
-    ImageInitOptions::new(ImageEmbeddingModel::ClipVitB32).with_show_download_progress(true),
-)?;
-
-let images = vec!["assets/image_0.png", "assets/image_1.png"];
-
-// Generate embeddings with the default batch size, 256
-let embeddings = model.embed(images, None)?;
-
-println!("Embeddings length: {}", embeddings.len()); // -> Embeddings length: 2
-println!("Embedding dimension: {}", embeddings[0].len()); // -> Embedding dimension: 512
-```
-
-### Candidates Reranking
-
-```rust
-use fastembed::{TextRerank, RerankInitOptions, RerankerModel};
-
-let model = TextRerank::try_new(
-    RerankInitOptions::new(RerankerModel::BGERerankerBase).with_show_download_progress(true),
-)?;
-
-let documents = vec![
-    "hi",
-    "The giant panda (Ailuropoda melanoleuca), sometimes called a panda bear, is a bear species endemic to China.",
-    "panda is animal",
-    "i dont know",
-    "kind of mammal",
-    ];
-
-// Rerank with the default batch size, 256 and return document contents
-let results = model.rerank("what is panda?", documents, true, None)?;
-println!("Rerank result: {:?}", results);
 ```
 
 Alternatively, local model files can be used for inference via the `try_new_from_user_defined(...)` methods of respective structs.
