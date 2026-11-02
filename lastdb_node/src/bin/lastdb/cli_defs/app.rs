@@ -38,8 +38,11 @@ pub(crate) enum AppIndexCommand {
 mod catalog;
 #[path = "app/lifecycle.rs"]
 mod lifecycle;
+#[path = "app/managed.rs"]
+mod managed;
 #[path = "app/release.rs"]
 mod release;
+pub(crate) use managed::AppManagedCommand;
 
 pub(crate) use catalog::AppCatalogCommand;
 pub(crate) use lifecycle::AppLifecycleCommand;
@@ -49,6 +52,8 @@ pub(crate) use release::AppReleaseCommand;
 /// keeps the name it had when every variant lived on one enum.
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppCommand {
+    #[command(flatten)]
+    Managed(AppManagedCommand),
     #[command(flatten)]
     Lifecycle(AppLifecycleCommand),
     #[command(flatten)]

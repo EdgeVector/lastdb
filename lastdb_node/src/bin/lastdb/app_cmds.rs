@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "app_cmds/arg_groups.rs"]
 mod arg_groups;
+#[path = "app_cmds/managed.rs"]
+mod managed;
 pub(crate) use self::arg_groups::*;
 #[path = "app_cmds/check.rs"]
 mod check;
@@ -52,6 +54,7 @@ pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
+        AppCommand::Managed(command) => managed::command(&home, command),
         AppCommand::Lifecycle(AppLifecycleCommand::DevInit { key_file }) => {
             app_dev_init(&home, key_file)
         }
@@ -135,6 +138,8 @@ fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), Str
 
 fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
     let AppCatalogCommand::Install {
+        accept_install,
+        inactive,
         app_ids,
         env,
         schema_url,
@@ -156,6 +161,8 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     app_install(
         home,
         AppInstall {
+            accept_install,
+            inactive,
             app_ids,
             source: RegistrySource {
                 env,
@@ -178,6 +185,8 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
 
 fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
     let AppCatalogCommand::Upgrade {
+        all,
+        accept_install,
         app_ids,
         env,
         schema_url,
@@ -195,6 +204,8 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     app_upgrade(
         home,
         AppUpgrade {
+            all,
+            accept_install,
             app_ids,
             source: RegistrySource {
                 env,

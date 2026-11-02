@@ -44,6 +44,8 @@ pub(crate) struct AppResolveQuery<'a> {
 
 /// `lastdb app install` after the CLI parse.
 pub(crate) struct AppInstall {
+    pub(crate) accept_install: bool,
+    pub(crate) inactive: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
     pub(crate) dir: Option<PathBuf>,
@@ -57,6 +59,8 @@ pub(crate) struct AppInstall {
 
 /// `lastdb app upgrade` after the CLI parse.
 pub(crate) struct AppUpgrade {
+    pub(crate) all: bool,
+    pub(crate) accept_install: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
     pub(crate) dir: Option<PathBuf>,

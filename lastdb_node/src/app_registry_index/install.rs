@@ -137,6 +137,8 @@ where
     F: Fn(String) -> String,
 {
     let clone = ProcessCommand::new("git")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
         .arg("clone")
         .arg("--quiet")
         .arg("--no-checkout")
