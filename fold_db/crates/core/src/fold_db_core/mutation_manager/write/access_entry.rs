@@ -53,6 +53,7 @@ impl MutationManager {
         &self,
         mut mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
+        now: u64,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
         // Which mutations arrive WITHOUT a clock is the only signal that says
@@ -67,7 +68,7 @@ impl MutationManager {
         let wait_for_author_clock = mutations
             .iter()
             .any(|mutation| mutation.synchronous == Some(true));
-        let author_clock_persist = self.prepare_mutation_author_clocks(&mut mutations)?;
+        let author_clock_persist = self.prepare_mutation_author_clocks(&mut mutations, now)?;
         // Submit before resident apply. Each data envelope waits on a clone of
         // this barrier, so durable LWW data cannot pass its durable clock.
         let inline_clock = mutations.iter().all(|mutation| {

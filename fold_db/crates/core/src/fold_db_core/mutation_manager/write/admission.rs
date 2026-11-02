@@ -17,8 +17,14 @@ impl MutationManager {
         // future off callers' default request and maintenance thread stacks.
         // Erase its concrete type here so spawned callers need not resolve the
         // complete nested pipeline again to prove that their future is Send.
+        // One wall-clock sample for the batch, taken when the pipeline runs,
+        // after admission. Author-clock allocation uses this value.
         let future: futures::future::BoxFuture<'_, Result<ResidentCommitReceipt, SchemaError>> =
-            Box::pin(self.write_mutations_batch_with_receipt_admitted(mutations, storage_prefix));
+            Box::pin(async move {
+                let now = crate::clock::unix_nanos();
+                self.write_mutations_batch_with_receipt_admitted(mutations, storage_prefix, now)
+                    .await
+            });
         crate::fold_db_core::admission::with_mutation_admission(self.capture_router(), future).await
     }
 }
