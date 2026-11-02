@@ -80,10 +80,7 @@ fn alternate_bounds(
             let prefix = codec
                 .api_hash_range_scan_prefix_for_hash(&field_key, hash)
                 .map_err(|_| invalid("invalid alternate hash"))?;
-            let prefix = format!(
-                "{PREFIX}{}",
-                prefix.strip_prefix("mk:").expect("typed prefix")
-            );
+            let prefix = format!("{PREFIX}{prefix}");
             Ok(lastdb_model::kind_partition::exact_prefix_bounds(&prefix))
         }
         HashRangeFilter::HashRangePrefix { hash, prefix } => {

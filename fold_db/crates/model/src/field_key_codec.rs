@@ -1,7 +1,7 @@
 //! Native per-key field key storage codec.
 //!
-//! A key is `mk:{M}:{esc(hash)}\0{range}`. Alternate keys (`ak:`) and record
-//! ranges (`rk:`) build their keys with it and replace the `mk:` family.
+//! The field key part of a key is `{F}:{esc(hash)}\0{range}`. Alternate keys
+//! (`ak:`) build their keys with it and add their own family prefix.
 //! Callers add an optional storage scope with `build_storage_key`. Hash fields
 //! use an empty range; HashRange fields use both coordinates.
 //!
@@ -116,7 +116,7 @@ impl FieldKeyCodec {
             .map_err(FieldKeyCodecError::InvalidRange)
     }
 
-    /// `mk:{M}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
+    /// `{F}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
     ///
     /// Reads and writes use one key under the caller's exact `field_key_id`.
     pub fn api_hash_range_record_key(
@@ -130,7 +130,7 @@ impl FieldKeyCodec {
         Ok(hash_range_record_key(field_key_id, &h, &r))
     }
 
-    /// `mk:{M}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.
+    /// `{F}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.
     pub fn api_hash_range_scan_prefix_for_hash(
         &self,
         field_key_id: &str,
@@ -157,10 +157,6 @@ impl std::fmt::Display for FieldKeyCodecError {
 }
 
 impl std::error::Error for FieldKeyCodecError {}
-
-/// The prefix of a per-key field key. Alternate keys and record ranges
-/// build their keys with it and replace it with their own family.
-pub const MK_PREFIX: &str = "mk:";
 
 const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
 const ESC: char = '\u{1}'; // escape byte for the hash segment

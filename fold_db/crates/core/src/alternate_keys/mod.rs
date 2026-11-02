@@ -101,10 +101,7 @@ pub(crate) fn storage_key(
             key.range.as_deref().unwrap_or_default(),
         )
         .map_err(|_| invalid("alternate key coordinate has an invalid type"))?;
-    Ok(format!(
-        "{PREFIX}{}",
-        encoded.strip_prefix("mk:").expect("typed field key")
-    ))
+    Ok(format!("{PREFIX}{encoded}"))
 }
 
 pub(crate) fn invalid(message: &str) -> SchemaError {

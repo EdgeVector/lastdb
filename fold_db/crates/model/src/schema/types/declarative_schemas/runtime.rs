@@ -52,10 +52,10 @@ impl DeclarativeSchemaDefinition {
         let persisted = self.field_key_ids.clone().unwrap_or_default();
         let schema_name = self.name.clone();
         for (field_name, field) in &mut self.runtime_fields {
-            let mol_uuid = persisted.get(field_name).cloned().unwrap_or_else(|| {
+            let field_key_id = persisted.get(field_name).cloned().unwrap_or_else(|| {
                 crate::field_key_id::deterministic_field_key_id(&schema_name, field_name)
             });
-            field.common_mut().set_field_key_id(mol_uuid);
+            field.common_mut().set_field_key_id(field_key_id);
         }
 
         // Regenerate transform metadata that isn't persisted (marked with #[serde(skip)])

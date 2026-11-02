@@ -1,22 +1,20 @@
 use super::*;
 
-/// `mk:{M}:{esc(hash)}\0{range}` — unified per-key record key for every field kind.
+/// `{F}:{esc(hash)}\0{range}` — the field key part of a key. The caller adds
+/// its key family prefix.
 #[must_use]
 pub fn hash_range_record_key(field_key_id: &str, hash: &str, range: &str) -> String {
-    format!(
-        "{MK_PREFIX}{field_key_id}:{}{SEP}{range}",
-        escape_segment(hash)
-    )
+    format!("{field_key_id}:{}{SEP}{range}", escape_segment(hash))
 }
 
-/// `mk:{M}:{esc(hash)}\0` — prefix selecting exactly one hash's ranges in a
+/// `{F}:{esc(hash)}\0` — prefix selecting exactly one hash's ranges in a
 /// HashRange field (`HashKey` scan). Unambiguous: `hash="a"` won't match `"ab"`.
 #[must_use]
 pub fn hash_range_scan_prefix_for_hash(field_key_id: &str, hash: &str) -> String {
-    format!("{MK_PREFIX}{field_key_id}:{}{SEP}", escape_segment(hash))
+    format!("{field_key_id}:{}{SEP}", escape_segment(hash))
 }
 
-/// Parse the part of a unified record key that follows `mk:{M}:` (the
+/// Parse the part of a key that follows its family prefix and `{F}:` (the
 /// `esc(hash)\0range` suffix) back into `(hash, range)`. Use this when the
 /// caller has already stripped the full — possibly `{storage_prefix}:`-prefixed —
 /// record prefix from a scan. `None` if the escape is malformed or the suffix

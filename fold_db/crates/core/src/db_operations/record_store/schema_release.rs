@@ -4,7 +4,7 @@
 //! what the schema stored in its record scope (`record_scope`, the personal
 //! scope for a catalog schema): the records and their tombstones
 //! (`rk:{S}:`), the field history entries (`rh:{S}:`), and the entries of each
-//! declared alternate key (`ak:{M}:`). Each family is one exact key prefix of
+//! declared alternate key (`ak:{F}:`). Each family is one exact key prefix of
 //! this schema, so the release reads only the keyed ranges of this schema and
 //! never a row of another schema.
 //!
@@ -39,7 +39,7 @@
 //! owned declaration (`exec/schema_declare/owned.rs`). So the current revision
 //! is the only revision under which this install wrote entries. A new
 //! alternate-key change command must add a durable list of the revisions that
-//! the schema had, and this release must then read the `ak:{M}:` prefix of each.
+//! the schema had, and this release must then read the `ak:{F}:` prefix of each.
 
 use super::blob_counter::BlobDeltas;
 use super::{record_scope, RangeWalk, RecordStore};
