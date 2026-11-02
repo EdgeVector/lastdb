@@ -131,8 +131,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`,
 /// `core_warm_tip_only_paths`, `core_warm_field_keys`, `core_warm_dirty`, and
 /// the always-zero dirty and current byte keys of `core_model`. `/api/status`
-/// removes `resident_tip_only_keys`, `resident_dirty_keys`, and the purge
-/// stat `purge_records_deleted`. `POST /api/admin/shed` removes
+/// removes `resident_tip_only_keys`, `resident_dirty_keys`, the unserved
+/// `resident_key_budget`, the constant notes `resident_graph_bounds` and
+/// `logical_key_memory_limit`, and the purge stat `purge_records_deleted`. `POST /api/admin/shed` removes
 /// `groups_evicted`, `effective_warm_bytes`, and `target_warm_bytes`, renames
 /// `logical_records_purged` to `records_purged`, and its `native_memory`
 /// block reports `records` and `held_records` in place of the logical record

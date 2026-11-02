@@ -6,16 +6,8 @@ use fold_db::schema::types::MutationIds;
 /// Two properties, both load-bearing, neither available from the per-row
 /// `MutationType::Delete` loop this replaces:
 ///
-/// 1. **`Purge`, not `Delete`.** On this layer `Delete` is repurposed as the
-///    *tombstone write* (`mutation_manager/field_keys/prepare.rs`): it
-///    synthesizes a tombstone record for **every field in the schema at that
-///    key**. At 39 `REQUEST_OPS_ROLLUP_FIELDS`, draining the primary's ~74k
-///    orphaned rows that way would write ~2.9M new records plus ~2.9M order-log
-///    entries and free **zero** tips — the plane grows as it is "pruned". That
-///    is why the retention this file used to run could never have reclaimed
-///    anything, and why the obvious repair ("just call the prune") was the
-///    worst available action. `Purge` hard-deletes field history, field key
-///    entries and embeddings, which is what reclaim means.
+/// 1. **`Purge`, not `Delete`.** A purge removes the record and its field
+///    history, which is what reclaim means.
 ///
 /// 2. **One batch, not one submit per row.** `process_purges` groups by schema
 ///    and runs a single `O(F*R)` pass per group; a per-row submit is `N` such
@@ -24,11 +16,6 @@ use fold_db::schema::types::MutationIds;
 ///    cost the same wall time (232/335/256 ms at N=50/200/800 against a fixed
 ///    R=2000 plane). So the cheapest drain removes everything owed at once, and
 ///    chunking a drain into C passes costs C full drains.
-///
-/// A note for a future reader tempted to assert on the row count afterwards:
-/// a row count cannot tell these two implementations apart. `Delete` makes the
-/// row vanish from every query *while adding records*. The oracle for this
-/// function is `list_records_by_schema`, not `query_*_ids`.
 pub(super) async fn purge_series_rows(
     host: &Host,
     schema_name: &str,

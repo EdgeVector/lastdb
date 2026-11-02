@@ -117,24 +117,14 @@ pub(crate) fn peak_request_bytes_from_ops(
     (slowest_request_ms, peak_request_bytes)
 }
 
-/// One line for `lastdb status`: used-record cap for tips and records.
-///
-/// This is the memory limit for the logical resident set. The byte budgets
-/// on the Memory budget line bound other collections.
-pub(super) fn logical_keys_status_line(r: &ResidentHealth) -> String {
+/// One line for `lastdb status`: the records in the warm set. Bytes, not a
+/// record count, limit the warm set; the Warm set bytes line shows the limit.
+pub(super) fn warm_records_status_line(r: &ResidentHealth) -> String {
     let count = r.resident_key_count.as_wire_u64().map_or_else(
         || "unavailable from this daemon".to_string(),
         |n| n.to_string(),
     );
-    let budget_n = r.resident_key_budget.as_wire_u64();
-    let budget = budget_n.map_or_else(
-        || "unavailable from this daemon".to_string(),
-        |n| n.to_string(),
-    );
-    format!(
-        "Logical keys: {count} / {budget} ({})",
-        logical_key_memory_limit_for(budget_n)
-    )
+    format!("Warm records: {count} (limited by warm set bytes)")
 }
 
 pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<String> {
@@ -322,7 +312,7 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         log_streams_line(&snapshot.logs),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
     ];
-    lines.insert(1, logical_keys_status_line(&snapshot.resident));
+    lines.insert(1, warm_records_status_line(&snapshot.resident));
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
     }

@@ -1,17 +1,5 @@
 use super::*;
 
-/// Retired graph wire fields; the native core has its own current counters.
-pub const RESIDENT_GRAPH_BOUNDS: &str = "retired graph fields; use core_model";
-
-/// What bounds `resident_key_count`. The path-count cap is retired; the warm
-/// set is limited by charged bytes (`memory_budget.core_warm.limit_bytes`).
-pub const LOGICAL_KEY_MEMORY_LIMIT: &str =
-    "no path-count limit; the warm set is limited by bytes (see Warm set bytes)";
-
-pub(super) fn logical_key_memory_limit_for(_budget: Option<u64>) -> String {
-    LOGICAL_KEY_MEMORY_LIMIT.to_string()
-}
-
 /// Cheap runtime view of the memory budget declared at boot.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MemoryBudgetHealth {
@@ -90,13 +78,6 @@ pub struct MemoryBudgetHealth {
     pub peak_request_bytes: u64,
     #[serde(default)]
     pub slowest_request_ms: u64,
-    /// What `resident_graph_budget_bytes` bounds. Empty on an older daemon payload.
-    #[serde(default)]
-    pub resident_graph_bounds: String,
-    /// What `resident.resident_key_count` / `resident_key_budget` bound.
-    /// Empty on an older daemon payload.
-    #[serde(default)]
-    pub logical_key_memory_limit: String,
     /// Warm set byte charge and limit from the native core.
     #[serde(default)]
     pub core_warm: CoreWarmBytesHealth,
@@ -225,10 +206,6 @@ impl MemoryBudgetHealth {
             allocator_reserved_bytes: attribution.allocator.reserved_bytes,
             peak_request_bytes: attribution.peak_request_bytes,
             slowest_request_ms: attribution.slowest_request_ms,
-            resident_graph_bounds: RESIDENT_GRAPH_BOUNDS.to_string(),
-            logical_key_memory_limit: logical_key_memory_limit_for(
-                resident.resident_key_budget.as_wire_u64(),
-            ),
             core_warm: CoreWarmBytesHealth::default(),
         }
     }

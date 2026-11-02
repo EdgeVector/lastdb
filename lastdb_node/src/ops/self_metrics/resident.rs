@@ -45,12 +45,6 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
     pub resident_held_keys: Gauge,
-    /// Retired path-count budget; not served. The warm set limit is
-    /// `memory_budget.core_warm.limit_bytes`.
-    #[serde(default = "default_keys_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_keys_instant")]
-    pub resident_key_budget: Gauge,
     /// LRU purge removals of used records since process start.
     #[serde(default = "default_keys_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
@@ -91,7 +85,6 @@ impl Default for ResidentHealth {
             persist_lane_failures: 0,
             resident_key_count: default_keys_instant_gauge(),
             resident_held_keys: default_keys_instant_gauge(),
-            resident_key_budget: default_keys_instant_gauge(),
             resident_purged_keys: default_keys_lifetime_gauge(),
             warm_lookup_hits: default_events_lifetime_gauge(),
             warm_lookup_misses: default_events_lifetime_gauge(),
@@ -107,7 +100,6 @@ impl ResidentHealth {
         Self {
             resident_key_count: g_instant(core.warm_records as u64, Unit::Keys),
             resident_held_keys: g_instant(core.core_warm_held as u64, Unit::Keys),
-            resident_key_budget: Gauge::field_not_served(Unit::Keys, GAUGE_INSTANT),
             resident_purged_keys: g_lifetime(core.core_warm_purged, Unit::Keys),
             warm_lookup_hits: g_lifetime(core.core_warm_hits, Unit::Events),
             warm_lookup_misses: g_lifetime(core.core_warm_misses, Unit::Events),
