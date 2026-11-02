@@ -71,34 +71,6 @@ pub(crate) fn app_dev_init(home: &Path, key_file: Option<PathBuf>) -> Result<(),
     Ok(())
 }
 
-pub(crate) fn app_publish_command(
-    home: &Path,
-    manifest: &Path,
-    env: Option<String>,
-    schema_url: Option<String>,
-    api_url: Option<String>,
-    key_file: Option<PathBuf>,
-    api_key: Option<String>,
-) -> Result<(), String> {
-    let manifest = app_publish::load_manifest(manifest)?;
-    let target =
-        DevPublishTarget::resolve(home, env.as_deref(), schema_url, api_url, key_file, api_key)?;
-    let outcome = block_on_app(app_publish::publish_app(
-        &target.schema_service,
-        &target.exemem,
-        &target.api_key,
-        &target.dev_key,
-        target.crypto_env,
-        &manifest,
-    ))?;
-    println!(
-        "published ({}): {}",
-        outcome.status,
-        serde_json::to_string_pretty(&outcome.response).unwrap_or_default()
-    );
-    Ok(())
-}
-
 pub(crate) fn app_promote(
     home: &Path,
     manifest_path: &Path,

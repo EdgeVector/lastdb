@@ -1,26 +1,13 @@
-//! The static signed app index — the anonymous read surface of the LastDB app
-//! registry (brain `decision-2026-09-19-app-registry-is-the-release-unit`).
-//!
-//! One JSON file per channel (`stable`, `next`) plus a detached Ed25519
-//! signature. Each app row carries **compat rows**: `<app_version> @ <sha>`
-//! proved with `lastdb <version>` by one named proof run. Install reads the
-//! running node's build string and picks the newest row that names it. There
-//! is no minimum-version rule: a minimum alone fails when the node removes
-//! something, so only an exact proved pair counts.
-//!
-//! The index is served as a plain file (the Homebrew tap repo, or any static
-//! host). A fresh install needs no account and no live service. Publish stays
-//! DevCert-gated elsewhere; this module only signs, verifies, resolves, and
-//! installs.
-//!
-//! Trust: the verifying key is pinned in this binary
-//! ([`RELEASE_INDEX_PUBKEY_B64`]). An operator can override it for a test
-//! index with `--trust-key` or `LASTDB_REGISTRY_TRUST_KEY` (a base64 key or a
-//! path to a file holding one); the override is printed, never silent.
+//! Anonymous installation from a KMS-signed S3 list for one exact API version.
+//! Every entry also carries a publisher Ed25519 signature over RFC 8785 fields.
+//! Verified cached lists survive failed downloads and reject sequence rollback.
+//! Legacy index signing helpers remain for historical GitHub files.
 
 use std::time::Duration;
 
 mod install;
+mod interface_list;
+mod list_cache;
 mod location;
 mod node_version;
 mod resolve;
@@ -31,13 +18,15 @@ mod version_constraint;
 pub use install::{
     install_pinned, upgrade_pinned, PinnedInstallOutcome, PinnedUpgradeOutcome, RECEIPT_FILE,
 };
+pub use interface_list::{valid_app_id, valid_source, InterfaceList, ListEntry};
+pub use list_cache::fetch_list;
 pub use location::{validate_channel, IndexLocation};
-pub use node_version::running_lastdb_version;
+pub use node_version::{running_lastdb_version, running_node};
 pub use resolve::{fetch_verified, pick_row, resolve, ContractVersions, NodeVersion, Resolution};
 pub use resolve_local::resolve_local;
 pub use signing::{
-    load_verified_index, parse_index, resolve_trust_key, sign_index_bytes, verify_index_bytes,
-    CompatRow, IndexApp, IndexSignature, RegistryIndex, TrustSource,
+    load_verified_index, parse_index, resolve_list_trust_key, resolve_trust_key, sign_index_bytes,
+    verify_index_bytes, CompatRow, IndexApp, IndexSignature, RegistryIndex, TrustSource,
 };
 pub use version_constraint::{check_constraint, check_manifest_constraint, Constraint, Version};
 
@@ -47,10 +36,12 @@ pub const INDEX_VERSION: u32 = 1;
 /// The channel a public install reads when none is named.
 pub const DEFAULT_CHANNEL: &str = "stable";
 
-/// Where the public index lives: the Homebrew tap repo, served raw by GitHub.
-/// `<base>/<channel>.json` and `<base>/<channel>.json.sig`.
+/// Public list base. Fetch `<base>/<channel>/api/<api_version>.json` and `.sig`.
 pub const DEFAULT_INDEX_BASE_URL: &str =
-    "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry";
+    folddb_profile::endpoints::registry_index_url_for(folddb_profile::endpoints::Environment::Prod);
+
+/// Registry KMS Ed25519 public key. The private half never leaves AWS KMS.
+pub const REGISTRY_LIST_PUBKEY_B64: &str = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=";
 
 /// The Ed25519 verifying key that signs the public index. Generated
 /// 2026-09-20 (`lastdb app dev-init --key-file ~/.lastdb/registry-index-signing.key`

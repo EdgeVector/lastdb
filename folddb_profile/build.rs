@@ -36,7 +36,12 @@ fn generate_environments_module() {
     // `region` and `portal` stay in environments.json. No Rust caller reads
     // them. Skip both so the generated module has no dead constants. The URL
     // lint still ignores `portal` because its prod value is the shared public host.
-    let keys = ["exemem_api", "schema_service", "release_log_url"];
+    let keys = [
+        "exemem_api",
+        "schema_service",
+        "release_log_url",
+        "registry_index",
+    ];
     // String-list keys. Each becomes a `&[&str]` constant.
     let list_keys = ["release_log_keys"];
 

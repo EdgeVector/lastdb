@@ -6,7 +6,7 @@ use super::*;
 pub(crate) enum AppLifecycleCommand {
     /// Generate the developer Ed25519 signing key used to publish apps.
     DevInit {
-        /// Key file path (default: <home>/dev-signing.key).
+        /// Key path or lastsecrets://slug (default: <home>/dev-signing.key).
         #[arg(long)]
         key_file: Option<PathBuf>,
     },
@@ -71,17 +71,17 @@ pub(crate) enum AppLifecycleCommand {
         #[arg(long)]
         api_key: Option<String>,
     },
-    /// Step 3: reserve the app namespace as a sandbox registry row.
+    /// Publish this clean git commit for the running node's exact API version.
     Publish {
         #[arg(long)]
         manifest: PathBuf,
-        /// Target environment (dev | prod). Default: dev.
+        /// Target registry environment (dev | prod). Default: prod.
         #[arg(long)]
         env: Option<String>,
-        /// Explicit schema service base URL (overrides --env).
+        /// Retired schema-service option; refused for registry publish.
         #[arg(long)]
         schema_url: Option<String>,
-        /// Explicit Exemem API URL (overrides --env).
+        /// Retired Exemem URL option; refused for registry publish.
         #[arg(long)]
         api_url: Option<String>,
         #[arg(long)]
@@ -89,6 +89,12 @@ pub(crate) enum AppLifecycleCommand {
         /// Developer API key (default: $EXEMEM_DEV_API_KEY).
         #[arg(long)]
         api_key: Option<String>,
+        /// Registry HTTP API base URL (default: $LASTDB_APP_REGISTRY_URL).
+        #[arg(long)]
+        registry_url: Option<String>,
+        /// Signed-list channel. Default: stable.
+        #[arg(long)]
+        channel: Option<String>,
     },
     /// Step 4: promote a sandbox app to live. REJECTS if any manifest schema
     /// is still novel, or if the registry row has neither `source` nor

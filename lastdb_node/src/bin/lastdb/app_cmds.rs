@@ -15,6 +15,12 @@ pub(crate) use self::index::*;
 #[path = "app_cmds/publish.rs"]
 mod publish;
 pub(crate) use self::publish::*;
+#[path = "app_cmds/interface_publish.rs"]
+mod interface_publish;
+use interface_publish::{publish_interface, InterfacePublish};
+#[path = "app_cmds/public_catalog.rs"]
+mod public_catalog;
+use public_catalog::{print_public_list, public_list};
 #[path = "app_cmds/registry.rs"]
 mod registry;
 pub(crate) use self::registry::*;
@@ -66,9 +72,24 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             api_url,
             key_file,
             api_key,
-        }) => app_publish_command(
-            &home, &manifest, env, schema_url, api_url, key_file, api_key,
-        ),
+            registry_url,
+            channel,
+        }) => {
+            if schema_url.is_some() || api_url.is_some() {
+                return Err("publish uses the separate app registry; use --registry-url".into());
+            }
+            publish_interface(
+                &home,
+                InterfacePublish {
+                    manifest,
+                    environment: env,
+                    registry_url,
+                    channel,
+                    key_file,
+                    api_key,
+                },
+            )
+        }
         AppCommand::Lifecycle(AppLifecycleCommand::Promote {
             manifest,
             env,
@@ -211,7 +232,7 @@ fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), Str
             channel,
             index,
             trust_key,
-        } => app_info(&app_id, env, schema_url, channel, index, trust_key),
+        } => app_info(home, &app_id, env, schema_url, channel, index, trust_key),
         command @ AppCatalogCommand::Install { .. } => handle_app_install(home, command),
         command @ AppCatalogCommand::Upgrade { .. } => handle_app_upgrade(home, command),
     }

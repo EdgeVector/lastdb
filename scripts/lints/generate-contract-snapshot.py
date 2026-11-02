@@ -105,7 +105,8 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
                     routes.append({
                         "method": method,
                         "path": route_path,
-                        "route_name": variant.group(1)
+                        "route_name": variant.group(1),
+                        "app_accessible": not re.search(r'owner(?:[- ]socket)?\W+only', ' '.join(docs), re.IGNORECASE)
                     })
         docs = []
 
@@ -121,7 +122,7 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
 
 
 ROUTE_TABLE_ROW = re.compile(
-    r'row\("([^"]+)",\s*Scope::\w+,\s*"(GET|POST|PUT|DELETE)",\s*DataRoute::(\w+)\)'
+    r'row\("([^"]+)",\s*Scope::(Both|Owner),\s*"(GET|POST|PUT|DELETE)",\s*DataRoute::(\w+)\)'
 )
 ROUTE_TABLE_CALL = re.compile(r'^\s*row\(', re.MULTILINE)
 
@@ -148,15 +149,19 @@ def add_route_table_rows(path: Path, routes: list[dict[str, Any]]) -> None:
         )
     names = {r["route_name"] for r in routes}
     have = {(r["method"], r["path"]) for r in routes}
-    for route_path, method, variant in rows:
+    for route_path, scope, method, variant in rows:
         if variant not in names:
             raise SnapshotError(
                 f"{path}: row {method} {route_path} names DataRoute::{variant}, "
                 "which the enum docs do not define"
             )
         if (method, route_path) not in have:
-            routes.append({"method": method, "path": route_path, "route_name": variant})
+            routes.append({"method": method, "path": route_path, "route_name": variant, "app_accessible": scope == "Both"})
             have.add((method, route_path))
+        else:
+            for route in routes:
+                if (route["method"], route["path"]) == (method, route_path):
+                    route["app_accessible"] = scope == "Both"
 
 
 def parse_index_change_batch(path: Path) -> dict[str, Any]:

@@ -18,6 +18,52 @@ pub enum IndexLocation {
 }
 
 impl IndexLocation {
+    /// Address of the list for one exact interface version.
+    #[must_use]
+    pub fn describe_interface(&self, channel: &str, api: u32) -> String {
+        let path = format!("{channel}/api/{api}.json");
+        match self {
+            Self::Url(base) => format!("{base}/{path}"),
+            Self::Dir(dir) => dir.join(path).display().to_string(),
+            Self::Local { path, rev } => format!("{}@{rev}", path.display()),
+        }
+    }
+
+    /// Download one list and its detached signature. No credentials are sent.
+    ///
+    /// # Errors
+    /// An invalid channel, insecure URL, or a failed transport or filesystem read.
+    pub async fn fetch_interface(
+        &self,
+        channel: &str,
+        api: u32,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        validate_channel(channel)?;
+        let address = self.describe_interface(channel, api);
+        match self {
+            Self::Dir(_) => {
+                let bytes = std::fs::read(&address).map_err(|e| format!("{address}: {e}"))?;
+                let sig = std::fs::read(format!("{address}.sig"))
+                    .map_err(|e| format!("{address}.sig: {e}"))?;
+                Ok((bytes, sig))
+            }
+            Self::Url(base) => {
+                if !base.starts_with("https://") {
+                    return Err("registry list URL must use HTTPS".into());
+                }
+                let client = reqwest::Client::builder()
+                    .timeout(HTTP_TIMEOUT)
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let bytes = fetch_url(&client, &address).await?;
+                let sig = fetch_url(&client, &format!("{address}.sig")).await?;
+                Ok((bytes, sig))
+            }
+            Self::Local { .. } => Err("local app sources do not fetch registry lists".into()),
+        }
+    }
     /// `--index` flag, then `$LASTDB_REGISTRY_INDEX`, then the public tap.
     /// A value that names an existing directory or starts with `file://` is a
     /// directory; anything else is a URL base.
@@ -89,7 +135,7 @@ impl IndexLocation {
 
 async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     // trace-egress: propagate (anonymous static index read; no credential)
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -98,11 +144,18 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
     if !status.is_success() {
         return Err(format!("GET {url} returned {}", status.as_u16()));
     }
-    response
-        .bytes()
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map(|b| b.to_vec())
-        .map_err(|e| format!("GET {url}: failed to read body: {e}"))
+        .map_err(|e| format!("GET {url}: {e}"))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > 2_097_152 {
+            return Err(format!("GET {url}: registry object exceeds 2 MiB"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// A channel name is one path segment: lowercase letters, digits, `-`.
@@ -110,16 +163,12 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
 /// # Errors
 /// Returns a message naming the offending channel.
 pub fn validate_channel(channel: &str) -> Result<(), String> {
-    let ok = !channel.is_empty()
-        && channel.len() <= 32
-        && channel
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    let ok = channel == "stable" || channel == "next";
     if ok {
         Ok(())
     } else {
         Err(format!(
-            "invalid channel '{channel}' (lowercase letters, digits, '-'; at most 32)"
+            "invalid channel '{channel}' (expected stable or next)"
         ))
     }
 }

@@ -39,10 +39,10 @@ def diff_routes(
     """Detect route changes."""
     changes = []
     base_paths = {
-        (r['method'], r['path']): r for r in base
+        (r['method'], r['path']): r for r in base if r.get('app_accessible', True)
     }
     head_paths = {
-        (r['method'], r['path']): r for r in head
+        (r['method'], r['path']): r for r in head if r.get('app_accessible', True)
     }
     
     # Removed routes

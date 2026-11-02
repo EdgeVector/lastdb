@@ -60,7 +60,7 @@ pub fn install_pinned(
     install_dir: &Path,
     force: bool,
 ) -> Result<PinnedInstallOutcome, String> {
-    if !resolution.sha.chars().all(|c| c.is_ascii_hexdigit()) || resolution.sha.len() < 7 {
+    if !resolution.sha.chars().all(|c| c.is_ascii_hexdigit()) || resolution.sha.len() != 40 {
         return Err(format!(
             "compat row sha '{}' is not a git commit",
             resolution.sha
@@ -83,12 +83,14 @@ pub fn install_pinned(
     )?;
 
     // Check version constraints in manifest (if present)
-    check_version_constraint_or_cleanup(
-        &checkout_path,
-        &resolution.app_id,
-        &resolution.lastdb_version,
-        cleanup,
-    )?;
+    if resolution.list_entry.is_none() {
+        check_version_constraint_or_cleanup(
+            &checkout_path,
+            &resolution.app_id,
+            &resolution.lastdb_version,
+            cleanup,
+        )?;
+    }
 
     let receipt = json!({
         "app_id": resolution.app_id,
@@ -101,6 +103,7 @@ pub fn install_pinned(
         "proof_run": resolution.proof_run,
         "index": resolution.index,
         "trust": resolution.trust,
+        "listing": resolution.list_entry,
         "installed_at": chrono::Utc::now().to_rfc3339(),
     });
     let receipt_path = install_dir.join(RECEIPT_FILE);
@@ -168,7 +171,7 @@ where
         .output()
         .map_err(|e| cleanup(format!("failed to run git rev-parse: {e}")))?;
     let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
-    if !head.starts_with(sha) && !sha.starts_with(&head) {
+    if head != sha {
         return Err(cleanup(format!(
             "checkout HEAD is {head} but the proved commit is {sha}"
         )));

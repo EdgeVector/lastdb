@@ -3,6 +3,7 @@
   "environments": {
     "dev": {
       "region": "us-west-2",
+      "registry_index": "https://lastdb-app-registry-dev-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
       "exemem_api": "https://ygyu7ritx8.execute-api.us-west-2.amazonaws.com",
       "schema_service": "https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com",
       "portal": "https://d3t6377alb85xe.cloudfront.net",
@@ -11,6 +12,7 @@
     },
     "prod": {
       "region": "us-east-1",
+      "registry_index": "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
       "exemem_api": "https://jdsx4ixk2i.execute-api.us-east-1.amazonaws.com",
       "schema_service": "https://axo709qs11.execute-api.us-east-1.amazonaws.com",
       "portal": "https://exemem.com",

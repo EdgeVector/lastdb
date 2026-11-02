@@ -26,6 +26,8 @@ pub struct NodeVersion<'a> {
 /// What `lastdb app resolve` answers: the one proved row for this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Resolution {
+    #[serde(skip)]
+    pub list_entry: Option<super::ListEntry>,
     pub app_id: String,
     pub channel: String,
     pub source: String,
@@ -163,33 +165,44 @@ pub async fn resolve(
     node_version: &NodeVersion<'_>,
     versions: &ContractVersions,
 ) -> Result<Resolution, String> {
-    let (index_bytes, sig_bytes) = location.fetch(channel).await?;
-    let index = load_verified_index(trust, &index_bytes, &sig_bytes)?;
-    if index.channel != channel {
-        return Err(format!(
-            "index at {} says channel '{}' but '{channel}' was requested",
-            location.describe(channel),
-            index.channel
-        ));
-    }
-    let (app, row) = pick_row(&index, app_id, node_version.version, versions)?;
+    let index = super::fetch_list(location, channel, versions.api_version, trust).await?;
+    let entry = index
+        .apps
+        .into_iter()
+        .find(|entry| {
+            entry.app_id == app_id
+                && entry
+                    .outbox_format_version
+                    .is_none_or(|v| v == versions.outbox_format_version)
+        })
+        .ok_or_else(|| {
+            format!(
+                "no {channel} app '{app_id}' was proved with lastdb API {} (build {})",
+                versions.api_version, node_version.version
+            )
+        })?;
     Ok(Resolution {
-        app_id: app.app_id.clone(),
+        list_entry: Some(entry.clone()),
+        app_id: entry.app_id.clone(),
         channel: channel.to_string(),
-        source: app.source.clone(),
+        source: entry.source.clone(),
         lastdb_version: node_version.version.to_string(),
         lastdb_version_source: node_version.source.to_string(),
-        app_version: row.app_version.clone(),
-        sha: row.sha.clone(),
-        artifact: row.artifact.clone(),
-        proved_at: row.proved_at.clone(),
-        proof_run: row.proof_run.clone(),
-        index: location.describe(channel),
-        trust: match trust_source {
-            TrustSource::Pinned => "pinned".to_string(),
-            TrustSource::Flag => "flag".to_string(),
-            TrustSource::Env => format!("env:{TRUST_KEY_ENV}"),
-        },
+        app_version: entry.app_version,
+        sha: entry.sha,
+        artifact: None,
+        proved_at: entry.published_at,
+        proof_run: String::new(),
+        index: location.describe_interface(channel, versions.api_version),
+        trust: format!(
+            "{}:{}",
+            match trust_source {
+                TrustSource::Pinned => "pinned".to_string(),
+                TrustSource::Flag => "flag".to_string(),
+                TrustSource::Env => format!("env:{TRUST_KEY_ENV}"),
+            },
+            app_identity_crypto::key_id(trust)
+        ),
     })
 }
 

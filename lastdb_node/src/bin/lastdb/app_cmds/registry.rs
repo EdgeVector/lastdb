@@ -23,28 +23,6 @@ fn registry_service_url(
     }
 }
 
-/// Fetch and verify the signed public index for `channel` (default channel
-/// when unset). Returns the channel actually used and where it came from.
-fn fetch_signed_index(
-    channel: Option<String>,
-    index: Option<&str>,
-    trust_key: Option<&str>,
-) -> Result<
-    (
-        String,
-        registry_index::IndexLocation,
-        registry_index::RegistryIndex,
-    ),
-    String,
-> {
-    let channel = channel.unwrap_or_else(|| registry_index::DEFAULT_CHANNEL.to_string());
-    let location = registry_index::IndexLocation::resolve(index);
-    let (trust, trust_source) = registry_index::resolve_trust_key(trust_key)?;
-    warn_trust_override(&trust_source);
-    let index = block_on_app(registry_index::fetch_verified(&location, &channel, &trust))?;
-    Ok((channel, location, index))
-}
-
 /// `--dir` names one checkout, so it cannot apply to several apps.
 pub(super) fn check_dir_matches_app_count(
     dir: &Option<PathBuf>,
@@ -89,47 +67,13 @@ pub(crate) fn app_list(
         }
         return Ok(());
     }
-    let (channel, location, index) =
-        fetch_signed_index(channel, index.as_deref(), trust_key.as_deref())?;
-    if json {
-        print_pretty_json(&index);
-    } else if index.apps.is_empty() {
-        println!(
-            "{} index at {} has no apps (generated {})",
-            index.channel,
-            location.describe(&channel),
-            index.generated_at
-        );
-    } else {
-        use lastdb_node::version;
-        let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-        let (node, _) = registry_index::running_lastdb_version(None, &socket);
-        let versions = registry_index::ContractVersions {
-            api_version: version::CURRENT_API_VERSION,
-            min_supported_api_version: version::MIN_SUPPORTED_API_VERSION,
-            outbox_format_version: version::CURRENT_OUTBOX_FORMAT_VERSION,
-            min_supported_outbox_format_version: version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-        };
-        println!(
-            "# {} index · {} · node {node}",
-            index.channel,
-            location.describe(&channel)
-        );
-        for app in &index.apps {
-            let proved_here = registry_index::pick_row(&index, &app.app_id, &node, &versions)
-                .map_or_else(
-                    |_| "no row for this node".to_string(),
-                    |(_, row)| format!("{} @ {}", row.app_version, short_sha(&row.sha)),
-                );
-            println!(
-                "{}\t{}\t{} rows\t{}",
-                app.app_id,
-                proved_here,
-                app.compat.len(),
-                app.description.clone().unwrap_or_default()
-            );
-        }
-    }
+    let list = public_list(
+        home,
+        channel.as_deref(),
+        index.as_deref(),
+        trust_key.as_deref(),
+    )?;
+    print_public_list(&list, json);
     Ok(())
 }
 
@@ -144,7 +88,11 @@ pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<()
         query.lastdb_version,
     )?;
     if query.json {
-        print_pretty_json(&resolution);
+        if let Some(entry) = &resolution.list_entry {
+            print_pretty_json(entry);
+        } else {
+            print_pretty_json(&resolution);
+        }
     } else {
         println!(
             "{} {} @ {} proved with lastdb {} ({}) by {} at {}",
@@ -166,6 +114,7 @@ pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<()
 }
 
 pub(crate) fn app_info(
+    home: &Path,
     app_id: &str,
     env: Option<String>,
     schema_url: Option<String>,
@@ -178,14 +127,23 @@ pub(crate) fn app_info(
         print_pretty_json(&record);
         return Ok(());
     }
-    let (channel, _location, index) =
-        fetch_signed_index(channel, index.as_deref(), trust_key.as_deref())?;
-    let app = index
+    let list = public_list(
+        home,
+        channel.as_deref(),
+        index.as_deref(),
+        trust_key.as_deref(),
+    )?;
+    let entry = list
         .apps
         .iter()
-        .find(|a| a.app_id == app_id)
-        .ok_or_else(|| format!("app '{app_id}' is not in the {channel} index"))?;
-    print_pretty_json(app);
+        .find(|entry| entry.app_id == app_id)
+        .ok_or_else(|| {
+            format!(
+                "no app '{app_id}' was proved with lastdb API {}",
+                list.api_version
+            )
+        })?;
+    print_pretty_json(entry);
     Ok(())
 }
 
@@ -213,6 +171,11 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
     } = install;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
+        if !json {
+            eprintln!(
+                "Apps run with your user permissions. Registry signatures do not sandbox them."
+            );
+        }
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));
         let mut outcomes = Vec::new();
         for app_id in &app_ids {
