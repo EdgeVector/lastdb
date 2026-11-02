@@ -51,6 +51,7 @@ impl IndexLocation {
                 if !base.starts_with("https://") {
                     return Err("registry list URL must use HTTPS".into());
                 }
+                // trace-egress: propagate (anonymous static registry list endpoint)
                 let client = reqwest::Client::builder()
                     .timeout(HTTP_TIMEOUT)
                     .no_proxy()

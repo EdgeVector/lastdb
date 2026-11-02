@@ -101,17 +101,12 @@ Use `cargo fmt --all` to format source changes before a commit.
 The commands below are CI audit commands. Do not run build or clippy commands
 on Tom's machine.
 
-The manual `.github/workflows/ci.yml` audit runs these commands. The normal
-required PR gate uses `.github/workflows/ci-required.yml`; it does not run the
-spawn or tracing-egress audits. Preserve and report inherited audit failures
-without a gate override or unrelated source changes.
+The required PR gate (`.github/workflows/ci-required.yml`) runs the source
+lints on every PR and main push. One script holds the lint list and the crate
+list; add a new workspace crate there:
 
 ```bash
-bash scripts/lints/lint-redaction.sh        --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
-bash scripts/lints/lint-spawn-instrument.sh --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host
-bash scripts/lints/lint-tracing-egress.sh   --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --strict
-bash scripts/lints/lint-byte-slice.sh       --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
-bash scripts/lints/lint-no-hardcoded-urls.sh
+bash scripts/lints/source-lints.sh
 ```
 
 PR / merge: this repo is canonical on GitHub since 2026-09-29 (brain

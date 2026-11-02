@@ -253,8 +253,9 @@ jobs:
             cargo clippy ${{ matrix.args }} --lib --bins -- -D warnings
           fi
 
-  redaction-lint:
-    name: Redaction Lint
+  # ci-required.yml runs the same script on every PR and main push.
+  source-lints:
+    name: Source Lints
     needs: [changes, rust_suite_paths]
     if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
@@ -263,69 +264,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ripgrep
         run: bash scripts/ci/install-ripgrep.sh
-      - name: Redaction lint (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-redaction.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client
-
-  spawn-instrument-lint:
-    name: Spawn Instrument Lint
-    needs: [changes, rust_suite_paths]
-    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install ripgrep
-        run: bash scripts/ci/install-ripgrep.sh
-      - name: Spawn-instrument lint (schema_service + lastdb_*)
-        run: bash scripts/lints/lint-spawn-instrument.sh --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host
-
-  tracing-egress-lint:
-    name: Tracing Egress Lint
-    needs: [changes, rust_suite_paths]
-    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install ripgrep
-        run: bash scripts/ci/install-ripgrep.sh
-      - name: Tracing-egress lint --strict (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-tracing-egress.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client --strict
-
-  no-hardcoded-urls-lint:
-    name: No Hardcoded URLs Lint
-    needs: [changes, rust_suite_paths]
-    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Hardcoded-URL lint
-        run: bash scripts/lints/lint-no-hardcoded-urls.sh
-
-  workspace-edition-lint:
-    name: Workspace Edition Lint
-    needs: [changes, rust_suite_paths]
-    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Workspace member edition inheritance lint
-        run: bash scripts/lints/lint-workspace-edition-inheritance.sh
-
-  byte-slice-lint:
-    name: Byte Slice Lint
-    needs: [changes, rust_suite_paths]
-    if: needs.changes.outputs.rust == 'true' && needs.rust_suite_paths.outputs.rust_suite == 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install ripgrep
-        run: bash scripts/ci/install-ripgrep.sh
-      - name: UTF-8-safe byte-slice lint (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-byte-slice.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client
+      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition)
+        run: bash scripts/lints/source-lints.sh
 
   unused-deps-lint:
     name: Unused Dependencies (cargo-machete)
@@ -430,7 +370,7 @@ jobs:
   # umbrella is the trivial queue check.
   ci-required:
     name: ci-required
-    needs: [changes, rust_suite_paths, fold_paths, clippy, redaction-lint, spawn-instrument-lint, tracing-egress-lint, no-hardcoded-urls-lint, workspace-edition-lint, byte-slice-lint, unused-deps-lint, cargo-deny-lint, app-starter, workflow-structure-lint]
+    needs: [changes, rust_suite_paths, fold_paths, clippy, source-lints, unused-deps-lint, cargo-deny-lint, app-starter, workflow-structure-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
