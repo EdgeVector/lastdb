@@ -4,16 +4,18 @@
 //! into transfer objects: a file larger than one chunk into fixed chunks, and
 //! adjacent small files with one destination into one pack. It hashes the
 //! bytes, names the expected receipt of each object, and records the extents
-//! of each file. It owns no file, store or job state: the caller opens each
-//! frozen file and saves each planned object. The snapshot capture (`fold_db`)
-//! and the mutation log capture (`lastdb_node`) both plan here.
+//! of each file. It owns no file, store, or job state. The caller supplies
+//! each byte range and saves each planned object. The snapshot capture
+//! (`fold_db`) and the mutation log capture (`lastdb_node`) both plan here.
 use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
 use cloud_backup_protocol::v2::{Object, Version};
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, ProtocolError, RelativePath};
 use serde::{Deserialize, Serialize};
 
 mod planner;
-pub use planner::{plan, PlanFile, PlanSegment, PlanTotals, PlannedObject};
+pub use planner::{
+    Chunk, PlanFile, PlanSegment, PlanState, PlanTotals, PlannedObject, Range, Step, READ_BYTES,
+};
 
 pub const MAX_FILE_EXTENTS: usize = 16384;
 
@@ -74,7 +76,6 @@ pub enum PlanError {
     /// A file needs more extents than one record holds.
     ExtentBound,
     Protocol(ProtocolError),
-    Io(std::io::Error),
 }
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -83,7 +84,6 @@ impl std::fmt::Display for PlanError {
             Self::SourceLength => f.write_str("byte native source length changed"),
             Self::ExtentBound => f.write_str("byte native file extent metadata bound"),
             Self::Protocol(_) => f.write_str("byte protocol validation"),
-            Self::Io(error) => write!(f, "byte native source read: {error}"),
         }
     }
 }
@@ -91,11 +91,6 @@ impl std::error::Error for PlanError {}
 impl From<ProtocolError> for PlanError {
     fn from(error: ProtocolError) -> Self {
         Self::Protocol(error)
-    }
-}
-impl From<std::io::Error> for PlanError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
     }
 }
 

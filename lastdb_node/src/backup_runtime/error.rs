@@ -147,7 +147,6 @@ impl From<cloud_backup_plan::PlanError> for BackupError {
         match error {
             PlanError::SourceLength => Self::Identity,
             PlanError::ExtentBound => Self::Limit,
-            PlanError::Io(error) => Self::from(error),
             PlanError::Invalid(_) | PlanError::Protocol(_) => Self::Invalid,
         }
     }

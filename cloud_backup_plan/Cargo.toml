@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 autotests = false
-description = "The one upload planner for native LastDB cloud backups; no I/O of its own"
+description = "The one upload planner for native LastDB cloud backups; no file access of its own"
 
 [dependencies]
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
