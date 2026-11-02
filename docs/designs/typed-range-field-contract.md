@@ -1,10 +1,8 @@
 # Typed range field contract
 
-Status: every node home is a format 4 home: disk format v2 with blinded hashes and typed ranges.
-On 2026-10-28 the program stopped support for format 3 homes.
-The typed-range converter, its stopped-home inventory, the legacy UTF-8 range profile, OPE-v1, node key authority, and the old conflict-ID domain are gone.
+Status: every node home is a format 8 home: disk format v2 with blinded hashes and typed ranges.
+The node marker is `format=8\nhome=disk-run\ncas=disk-cas\n`. The key format entry `layout:keys` holds `typed-ranges`.
 An older home moves with one manual copy into a new home. The program has no migration code.
-Git history keeps the transition design (main `bb2452651`).
 
 ## New home creation
 
@@ -13,8 +11,8 @@ Each range field needs a declared supported scalar type. An unknown type receive
 No setting selects another hash or range encoding.
 
 The creator holds the node directory lock and creates both native homes.
-It commits logical format 7 and the account-key proof together before it publishes node format 4.
-The existing block encryption protects both records.
+It commits the key format entry and the account-key proof together before it publishes the format 8 node marker.
+The existing block encryption protects both entries.
 The creation intent stays until logical construction checks the proofs.
 Only namespace registration can enter a home while that fence remains.
 
@@ -24,8 +22,8 @@ A crash after the marker retains the complete authenticated proof batch.
 Reopen verifies that batch before any writer cleanup, then completes the creation fence.
 Missing, partial, mismatched, and wrong-key proofs receive a refusal.
 
-The program opens only the format 4 marker and logical key format 7.
-A format 3 home, logical key format 6, and an unknown marker receive a refusal.
+The program opens only the format 8 marker with the `typed-ranges` key format.
+Any other marker gets the generic failure "the node range format is unsupported".
 Startup never rewrites a home.
 
 ## Key fields
@@ -38,16 +36,15 @@ The shared type contract includes explicit `Date` and `DateTime` types.
 ## Encryption boundary
 
 The user identity supplies the encryption root. Recovery retains that same identity.
-The existing key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for separate encryption and hash keys.
+The key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for the account encryption key.
 Separate HKDF labels derive the main and CAS home keys from the encryption key.
+Each field key bundle holds its own blind key for hashes.
 No lookup key uses OPE, and the key derivation has no OPE key.
-The unselected portable OPE prototype and its separate proof workflow are also retired.
-Its historical design remains in Git history; it is not an alternate storage format.
 
 | Part | Representation and protection |
 | --- | --- |
 | Memory | Selected keys and values are readable while the node uses them. |
-| Main run blocks | Keys, field key metadata, records, tips, counters, and control values share the existing block encryption. |
+| Main run blocks | Keys, field key metadata, records, alternate entries, blob counters, queue entries, and control values share the existing block encryption. |
 | Lookup blocks | The sparse lookup, its first keys, and its filters use encrypted blocks too. |
 | Field value | Plain logical JSON inside encrypted V2 blocks. No additional record envelope is required. |
 | Portable files | Existing file ciphertext and access bundles retain their separate portable format. |
@@ -71,7 +68,7 @@ The runtime, local key file, logs, and external app files remain separate securi
 
 A future browser client can decrypt selected lookup and data blocks with the same private identity.
 It also needs cloud access and authenticated file-location metadata.
-The ordered file layout leaves that option open without server OPE or complete schema-key preload.
+The ordered file layout leaves that option open without server OPE.
 The current program has no browser reader.
 
 ## Date types
@@ -161,9 +158,9 @@ Schema reads fetch uncached field key metadata in one batch, then fetch the requ
 The reader validates the complete set before it puts key bundles in the memory cache.
 The runtime refuses a missing, incompatible, or incomplete contract before it serves records.
 
-The field key metadata uses version 2 and names its key authority explicitly.
-Bundle authority is the only authority: an independent field key bundle and its node wrap.
-Schema publication creates every field key with bundle authority. The reader refuses any other authority.
+The field key metadata uses version 2.
+Each field key has bundle authority: an independent field key bundle and its node wrap.
+Schema publication creates every field key with bundle authority.
 A share copies only that field key bundle. It never copies account keys into a shareable bundle.
 A normal mutation refuses a missing profile. Only schema publication can create a new field key contract.
 The existing three-key bundle wire form stays unchanged. Its third key has no user.
@@ -193,7 +190,7 @@ String values retain every byte, including control bytes and Unicode.
 Only the String profile permits text prefixes.
 Unsupported types, mixed scalar unions, unknown versions, and malformed fixed-width payloads receive a refusal.
 
-A format 4 home uses the plain range encoding: the stored range bytes are the profile payload.
+A format 8 home uses the plain range encoding: the stored range bytes are the profile payload.
 The block encryption of the run files protects them. Some integer keys grow under the fixed-width format.
 No second lookup key or original range copy enters storage.
 All stored range decode paths use the exact field key codec.
@@ -202,19 +199,16 @@ Normal reads refuse a malformed range. V2 block encryption supplies authenticati
 ## Cloud backup
 
 The paired V2 backup adapter binds the typed logical contract.
-Backup profile version 2 names node format 4 and logical key format 7.
-The program refuses profile version 1, which named node format 3 and logical key format 6.
+Backup profile version 6 names the format 8 node marker.
+Any other profile version gets the generic failure.
 The profile keeps the encrypted main and CAS files and the opaque cloud protocol.
 The profile version binds the exact node marker and its byte count to the backup root.
 Capture and restore check each schema against its existing field key profile and key authority at the held roots.
 Those checks use bounded batch reads. They create no key and change no profile.
 
-## Codec cleanup
+## Codec rules
 
-On 2026-10-28 `FieldKeyCodec` lost the plain hash encoding and its optional range profile.
-The codec always blinds a hash and always uses the range profile of the field key.
-
-On 2026-10-29 the key comparison context and its normalize helpers took a required range profile.
+`FieldKeyCodec` always blinds a hash and always uses the range profile of the field key.
 The field key bundle metadata requires its range profile, key authority, and conflict identity.
-`KeyComparisonContext::current_profile()` returns no profile only when no comparison context is active.
+The key comparison context and its normalize helpers take a required range profile.
 A field read with no field key and no active comparison context uses its key without normalization.

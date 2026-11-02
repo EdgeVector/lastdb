@@ -6,8 +6,8 @@ The element rules below apply inside those blocks.
 The current policy wraps only local CAS blob records.
 Tom set this policy on 2026-10-23.
 
-- Record rows are plain JSON inside those blocks, with no content seal and no outer storage envelope.
-- Tip values, counters, history, conflicts, metadata, and change-feed values use direct storage.
+- Records are plain JSON inside those blocks, with no content seal and no outer storage envelope.
+- Alternate entries, blob counters, queue entries, field history, kept conflict records, and other control values use direct storage.
 - Local CAS records receive an account storage envelope around their existing file envelope.
 - Field key bundles and sensitive identity fields keep their explicit key encryption.
 - Hash blinding and the range codec keep their existing behavior.
@@ -23,10 +23,10 @@ The wrapper encrypts the complete local CAS record, including the blob metadata 
 Every CAS write receives the outer account envelope, the binary `ENB:` form.
 The CAS reader requires that envelope. A record with only its file envelope is an error.
 
-A disk format v2 record row has no content seal. The block encryption protects it.
-Inside a decrypted block, the record header is readable: record identity, schema, source filename, creation time, and optional metadata.
-Tips retain their key encoding, while their record pointer and per-key metadata remain readable.
-Other direct control records can also contain original API keys and private metadata.
+A record has no content seal. The block encryption protects it.
+Inside a decrypted block, the whole record is readable: its fields, the stamp of each field, its record metadata (source file name and metadata map), and its delete stamp.
+An alternate entry holds the primary key of its record.
+Other direct control values can also contain original API keys and private metadata.
 Native cloud backups copy these exact stored bytes and preserve that visibility.
 This is an explicit policy change, not whole-file encryption.
 
@@ -50,11 +50,10 @@ SHA-256 of that complete envelope becomes the public `sha256:<hash>` CAS address
 The `ENC:` prefix and base64 text are storage representation, not another encryption step.
 Names and media types do not enter the address.
 
-The record row contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
-That row is plain JSON inside an encrypted run-file block.
+The `$lastdb_file` pointer in the record contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
+The record is plain JSON inside an encrypted run-file block.
 The raw CAS record contains the encrypted-byte hash and encrypted bytes.
 It contains neither the original hash nor the file key.
-Nonsecret dependency records and local capture files use the encrypted-byte hash for this suite.
 No new file-key lookup or account secret is stored.
 
 The same file on devices with the same account identity produces the same key, envelope, and address.
@@ -73,26 +72,24 @@ The key derivation uses the original file hash.
 
 ## Old-reader boundary
 
-The logical marker `layout:v3:keys` uses direct ASCII value `7;typed-ranges=v1`.
-The node format marker uses `format=4`: disk format v2 with typed ranges.
-The creation-intent marker names the third current-key initialization protocol.
-Normal startup rejects every other node marker before it opens the physical store.
-A direct physical logical constructor also requires `7;typed-ranges=v1`.
+The key format entry `layout:keys` holds the direct ASCII value `typed-ranges`.
+The node marker is `format=8\nhome=disk-run\ncas=disk-cas\n`: disk format v2 with the record model and typed ranges.
+A creation-intent file (`laststore-run-initializing`) marks a creation that did not finish.
+Normal startup gives every other node marker the generic failure before it opens the physical store.
+A direct physical logical constructor also requires `typed-ranges`.
 Startup does not rewrite an older home. An older home moves with one manual copy into a new home.
-The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
-This change does not open or change a primary home.
 
 Native restore requires the marker for its node profile and the explicit encrypted account-key proof.
 It checks both before destination publication.
 Inactive restored-home validation uses the same two-key check.
 An existing home with a missing proof refuses startup. Fresh creation writes the proof and marker in one native transaction.
-The file readers still authenticate their existing encrypted content. A disk format v2 record row has no content seal.
-The metadata and file-dependency decoders read the direct control records.
+The file readers still authenticate their existing encrypted content. A record has no content seal.
+The metadata decoders read the direct control values.
 
 The run-file format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
 Inside the encrypted blocks, new backups retain only the CAS storage wrapper and explicit key encryption.
-A record row has no content seal.
+A record has no content seal.
 
 ## File size and memory
 

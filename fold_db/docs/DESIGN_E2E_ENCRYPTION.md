@@ -9,7 +9,7 @@
 > `backup_manifest`, `sync/policy`.
 >
 > **2026-10-26 note:** Field value encryption (goal item 1 and section 3) is
-> **retired**. Disk format v2 stores each record row as plain JSON, and the
+> **retired**. Disk format v2 stores each record as plain JSON, and the
 > AES-256-GCM block encryption of each run file protects it at rest (Tom,
 > 2026-10-24, compact plain values). The code has no field value seal. See
 > `docs/security/at-rest-threat-model.md` (Operation Trinity status).
@@ -80,7 +80,7 @@ PRF is supported in Chrome 116+, Safari 18+, Edge 116+. Passkeys sync across dev
 ## 3. Encrypted Field value
 
 > **Retired (2026-10-26):** this section is historical. A disk format v2 record
-> row is plain JSON inside an encrypted run-file block, with no content seal.
+> is plain JSON inside an encrypted run-file block, with no content seal.
 
 ### What Changes
 

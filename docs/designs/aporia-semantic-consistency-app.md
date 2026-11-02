@@ -19,21 +19,22 @@ canonical decisions, schemas, SOPs, task bodies, or operational policy.
 
 The current app model already supports most of the outer shell:
 
-- Apps live under `fold/apps/*` with a `folddb.toml`, schemas, command surface,
+- Apps live under `apps/*` with a `folddb.toml`, schemas, command surface,
   and local registry entry. The `ingestion` app is the closest zero-UI scaffold.
-- Runtime apps use `@folddb/app-sdk`, which exposes `connect`, `query`,
-  `queryAll`, `mutate`, and scoped `search`.
-- App search is node-authoritative: `POST /api/app/search` ranks only over the
-  app's granted scope, and an optional `target` can only narrow the scope.
+- Runtime apps use `@lastdb/app-sdk`, which exposes `connect`, `query`,
+  `queryAll`, `mutate`, `changes`, and scoped `search`.
+- `POST /api/app/changes` is an ordered change feed, scoped to the schemas that
+  the app can read. An optional `target` can only narrow the scope.
+- Mini has no search index. `POST /api/app/search` keeps its scope checks, but
+  it returns `search_plane_required`. LastSeek owns search.
 - Mutation responses already report whether background convergence drained:
   `background_tasks_drained` and `convergence_pending`.
 - The schema service already has semantic reuse machinery via dual-signal
   canonicalization: structural similarity plus purpose-statement similarity.
 
-Those pieces are enough for a conservative first version that polls or is
-invoked after known writes. They are not enough for a robust cross-app,
-post-batch product because Aporia needs an app-readable change feed and richer
-search/batch APIs.
+Those pieces are enough for a conservative first version that polls the change
+feed. A robust cross-app product also needs a scoped search through LastSeek
+and SDK batch writes.
 
 ## Product Goals
 
@@ -59,9 +60,9 @@ search/batch APIs.
 
 1. A write or batch mutation commits.
 2. The node indexes the write and reports whether convergence drained.
-3. Aporia receives or discovers the changed rows.
-4. Aporia classifies each row as incidental or meaningful.
-5. Meaningful rows are converted into smaller semantic assertions.
+3. Aporia reads the changed records from the change feed.
+4. Aporia classifies each record as incidental or meaningful.
+5. Aporia converts each meaningful record into smaller semantic assertions.
 6. Each assertion is used to retrieve candidates with hybrid recall:
    vector search, lexical/BM25, structured filters, graph links, and schema
    metadata.
@@ -95,7 +96,7 @@ Fields:
 
 ### `aporia/Assertion`
 
-A normalized claim extracted from an authored row.
+A normalized claim extracted from an authored record.
 
 Fields:
 
@@ -168,7 +169,7 @@ Aporia needs explicit policy, not newest-wins. Initial rules:
 - Workspace `AGENTS.md` beats old task notes.
 - Live Kanban state beats stale completed cards for current work status.
 - Incident notes may temporarily override SOPs until the incident is resolved.
-- App-owned canonical rows beat derived rollups.
+- App-owned canonical records beat derived rollups.
 
 Authority should be represented as data so rules can evolve without prompt-only
 behavior. The classifier may infer an `authority_hint`, but the resolver should
@@ -176,10 +177,10 @@ apply deterministic policy where possible.
 
 ## App Architecture
 
-Aporia starts as a zero-UI app under `fold/apps/aporia`:
+Aporia starts as a zero-UI app under `apps/aporia`:
 
 ```text
-fold/apps/aporia/
+apps/aporia/
   folddb.toml
   package.json
   bin/aporia-app.mjs
@@ -190,7 +191,6 @@ fold/apps/aporia/
   src/classify.mjs
   src/events.mjs
   schemas/*.schema.json
-  test/*.test.mjs
 ```
 
 Commands:
@@ -200,8 +200,8 @@ Commands:
 - `status`: check node target, capability/dev trust, schema availability, and
   unresolved event count.
 - `watch`: automatic worker loop; poll the scoped change feed, wait for index
-  readiness, process changed rows, and persist the cursor.
-- `check-record --schema --key`: debugging escape hatch for one existing row.
+  readiness, process changed records, and persist the cursor.
+- `check-record --schema --key`: debugging escape hatch for one existing record.
 - `check-mutation --mutation-id`: debugging escape hatch for records written by
   one mutation id.
 - `check-batch --batch-id`: debugging escape hatch for a batch.
@@ -209,94 +209,56 @@ Commands:
 - `resolve --event --decision`: mark accepted, dismissed, resolved, or snoozed.
 
 The first implementation must be automatic. `check-record`, `check-mutation`,
-and `check-batch` are test/debug commands only; they are not the product path.
-The MVP depends on a minimal scoped change feed so Aporia can discover writes
-without humans or caller apps passing schema/key handoffs.
+and `check-batch` are debug commands only; they are not the product path.
+The scoped change feed lets Aporia discover writes without humans or caller
+apps passing schema/key handoffs.
 
 ## SDK Integration
 
 Existing SDK support:
 
 - `connect` handles HTTP or UDS transport and capability/dev-trust posture.
-- `queryAll` drains paginated reads and returns full row envelopes.
-- `mutate` writes app-owned rows.
-- `search` performs scoped native-index recall and returns hydrated row
-  envelopes with `schemaName`, `schemaDisplayName`, and `score`.
+- `queryAll` drains paginated reads and returns full record envelopes.
+- `mutate` writes app-owned records.
+- `changes({ since, limit, target })` reads one page of the scoped change
+  feed.
+- `search` sends the scoped search request. Mini answers
+  `search_plane_required`, so retrieval must come from LastSeek.
 
 Needed SDK additions:
 
-1. `mutateBatch(schemaName, ops)` or a general `batchMutate(ops)` wrapper once
-   `/api/mutations/batch` exists for app callers. Aporia itself can write
-   multiple event/assertion rows without N sequential round trips.
-2. `changes({ since, schemas?, limit? })` for an app-readable change feed.
-   This should return records the app is allowed to read, plus mutation id,
-   schema, key, operation, timestamp, author, and convergence/index status.
-3. `getMutation(mutationId)` or `getMutationRecords(mutationId)` if mutation
+1. A `batchMutate(ops)` wrapper for `POST /api/mutations/batch`. The node
+   serves that route on both sockets; the SDK does not call it yet. Aporia
+   can then write several event and assertion records in one request.
+2. `getMutation(mutationId)` or `getMutationRecords(mutationId)` if mutation
    id addressing is preferred over a cursor feed.
-4. Search options for `minScore`, multiple `target` schemas, and possibly
-   lexical/native keyword mode. The current `target` accepts one schema and is
-   intentionally narrowing-only; that security property should remain.
-5. Surface convergence fields in `MutationResult`. The node already returns
+3. A scoped search client for LastSeek with `minScore` and multiple `target`
+   schemas. A `target` must only narrow the scope; that security property
+   must remain.
+4. Surface convergence fields in `MutationResult`. The node already returns
    these concepts; the SDK result carries `mutationId` plus the optional
    `backgroundTasksDrained` and `convergencePending` flags.
 
 ## Node Changes
 
-### 0. Transform-Assisted Automatic Capture
-
-Aporia can use node transforms for the automatic capture layer, but not for the
-full AI review loop.
-
-Current transforms are deterministic WASM view functions. The node assembles an
-input envelope, runs the transform, and writes derived mutations back through
-the derived-mutation path. That is a good fit for:
-
-- detecting that a source row changed;
-- projecting changed rows into a compact `aporia/ChangeCandidate` or
-  `aporia/AssertionCandidate` schema;
-- normalizing source metadata such as schema, key, source app, updated time,
-  and selected text fields;
-- creating a durable queue item that `aporia watch` consumes.
-
-It is not a good fit for:
-
-- calling an LLM;
-- doing network retrieval;
-- running long semantic searches;
-- applying authority policy that may change independently of the transform;
-- writing repair actions outside Aporia-owned derived schemas.
-
-The recommended architecture is therefore hybrid:
-
-1. Node transform or trigger creates an Aporia-owned candidate row
-   automatically after relevant source writes.
-2. Aporia's app worker consumes candidates, waits for index convergence, runs
-   AI classification/retrieval, and writes review events.
-3. Human-approved repairs remain ordinary app/CLI mutations, not transform
-   side effects.
-
-If the transform system cannot subscribe across arbitrary granted app schemas,
-the scoped change feed below is still required. If transforms gain a safe
-cross-schema source declaration with node-enforced read grants, they can become
-the first implementation of the feed.
-
 ### 1. App-Readable Change Feed
 
-Aporia needs to know what changed without owner-wide scans. Add a scoped route:
-
-```text
-GET or POST /api/app/changes
-```
+The node runs no transforms, so the change feed is the capture path.
+`POST /api/app/changes` returns ordered mutation metadata for the schemas that
+the caller can read.
 
 Request:
 
 ```json
 {
-  "since_cursor": "opaque",
+  "since_cursor": "v1-0000000000000000",
   "limit": 100,
   "target": "optional/schema"
 }
 ```
+
+The `limit` counts the feed entries that the node examines. The default is 100,
+and the node clamps it to 1 through 500. A page can hold fewer visible changes.
 
 Response:
 
@@ -304,47 +266,38 @@ Response:
 {
   "changes": [
     {
-      "cursor": "opaque",
+      "cursor": "v1-000000000000002a",
       "mutation_id": "uuid",
       "schema_name": "fbrain/Concept",
       "key": { "hash": null, "range": "semantic-consistency-app" },
       "operation": "Create",
-      "author_pub_key": "...",
-      "committed_at": "2026-07-10T00:00:00Z",
+      "committed_at_ms": 1783641600000,
       "background_tasks_drained": true,
       "convergence_pending": false
     }
   ],
-  "next_cursor": "opaque",
-  "has_more": false
+  "next_cursor": "v1-000000000000002a",
+  "has_more": false,
+  "gap": false
 }
 ```
 
+The reply has no writer identity and no field values. Aporia reads each changed
+record by its key after it gets the page.
+
 Security:
 
-- The node derives the app's readable scope exactly like scoped search.
+- The node derives the readable scope of the app. The owner socket uses the owner scope.
 - A `target` can only narrow, never widen.
 - Forbidden schemas do not reveal existence.
-- The route returns metadata for changed rows, not whole owner history outside
-  the grant.
-
-Implementation likely uses the existing mutation-event storage in core. The
-current code has `get_mutation_events` by field key UUID; Aporia needs either a
-global ordered feed or a mutation-id/batch-id index that maps back to row keys.
+- The route returns metadata for changed records, not whole owner history
+  outside the grant.
 
 ### 2. Batch Mutation Route for App Callers
 
-The dev surface has `/dev/mutations` and core has batch execution seams, but the
-runtime SDK currently exposes one-row `POST /api/mutation`. Aporia will create
-multiple assertions and events per checked write, so an app-facing batch route
-should exist:
-
-```text
-POST /api/mutations/batch
-```
-
-It must enforce the same app write-confinement and read-only LINK behavior as
-`/api/mutation`.
+`POST /api/mutations/batch` writes several mutations in one request, on both
+sockets. It must keep the same app write-confinement and read-only LINK behavior
+as `/api/mutation`. The SDK wrapper is the remaining work (SDK item 1).
 
 ### 3. Index Epoch / Readiness
 
@@ -362,12 +315,12 @@ POST /api/app/wait-index { "epoch": "..." }
 ```
 
 This prevents false negatives where Aporia searches before the new claim or its
-neighbors are in the vector index.
+neighbors are in the LastSeek index.
 
 ### 4. Assertion-Friendly Search
 
-Current scoped search is row-oriented and vector/native-index backed. Aporia can
-start with that. Better results require:
+Mini has no search index. Aporia retrieves candidates through LastSeek, scoped
+to the schemas the app can read. Better results require:
 
 - multiple target schemas, intersected with `S(A)`;
 - optional lexical/BM25 mode or hybrid mode;
@@ -404,7 +357,7 @@ their app schemas and conventions.
 
 Brain:
 
-- Reads `fbrain/*` rows when granted.
+- Reads `fbrain/*` records when granted.
 - Treats `decision`, `sop`, `preference`, `concept`, `reference`, and
   `project` records as high-signal sources.
 - Uses record type and status as authority hints.
@@ -448,82 +401,54 @@ Each model output should be stored with:
 
 ## MVP
 
-MVP must be automatic from day one. It therefore includes the smallest platform
-change that makes automatic discovery real: a scoped app-readable change feed.
+MVP must be automatic from day one. The scoped change feed
+(`/api/app/changes`, SDK `changes()`) makes automatic discovery real.
 
-1. Add `fold/apps/aporia` scaffold with schemas and commands.
-2. Add minimal scoped `/api/app/changes` support and SDK `changes()`.
-3. Add `aporia watch`, which stores a durable cursor and polls changed rows
+1. Add `apps/aporia` scaffold with schemas and commands.
+2. Add `aporia watch`, which stores a durable cursor and polls changed records
    across the schemas Aporia is granted to read.
-4. For each changed row, wait for index readiness or honor
+3. For each changed record, wait for index readiness or honor
    `convergence_pending` by retrying later.
-5. Query the row via SDK, classify it, extract assertions, and write
+4. Query the record via SDK, classify it, extract assertions, and write
    `aporia/Assertion`.
-6. Use current SDK `search` over granted sources to retrieve candidates.
-7. Classify relationships and write `aporia/ConsistencyEvent`.
-8. Provide `inbox` and `resolve`.
-9. Require human review for every non-Aporia mutation.
+5. Use a LastSeek search scoped to granted sources to retrieve candidates.
+6. Classify relationships and write `aporia/ConsistencyEvent`.
+7. Provide `inbox` and `resolve`.
+8. Require human review for every non-Aporia mutation.
 
 MVP limitations:
 
 - `watch` can start as polling; push/subscription delivery is not required.
 - `check-record` remains available only for debugging and backfills.
-- Search is row-level, not assertion-index-level.
+- Search is record-level, not assertion-level.
 - Hybrid retrieval may need local lexical fallback per granted schema.
-- The first change feed can expose row-level changes only; richer batch lineage
-  and mutation provenance can follow.
+- The change feed gives record-level changes only. Batch identity and mutation
+  provenance can follow.
 
 ## Platform Follow-Ups
 
-1. Add app-facing `/api/mutations/batch` and SDK `batchMutate`.
+1. Add SDK `batchMutate` for `/api/mutations/batch`.
 2. Expose explicit index epoch/readiness beyond the initial convergence flag.
-3. Extend scoped search with hybrid options while preserving node-authoritative
-   scoping.
+3. Give the LastSeek scoped search hybrid options and keep scope checks on
+   the server side.
 4. Add schema-service conflict-evidence endpoint for proposed schemas.
 5. Add app registry metadata for background/routine apps so Aporia can be
    scheduled after mutation batches.
 6. Add grants UX for multi-app read access.
 7. Add push/subscription delivery for changes if polling proves too expensive.
 
-## Testing
+## Proof
 
-Unit tests:
-
-- assertion extraction JSON schema validation;
-- relationship classifier output validation;
-- authority-rule resolution;
-- event fingerprinting/deduplication;
-- safe-action gate.
-
-SDK/app tests:
-
-- app scaffold contract like `apps/ingestion/test`;
-- mocked SDK query/search/mutate paths;
-- no writes outside `aporia/*` without explicit approval.
-
-Node tests:
-
-- change feed returns only granted schemas;
-- change feed `target` narrows only;
-- empty scope returns no changes, not owner firehose;
-- batch mutation enforces same write confinement as single mutation;
-- index readiness waits for native-index tasks or reports pending.
-
-End-to-end tests:
-
-- ephemeral dev node;
-- register Aporia, Brain-like, and Kanban-like schemas;
-- write a record with a contradictory claim;
-- run Aporia;
-- assert one open consistency event with evidence and no unauthorized source
-  mutation.
+Run `aporia watch` against an owned DEV node. Write a record with a
+contradictory claim. Proof is one open consistency event with evidence and no
+source mutation outside `aporia/*`.
 
 ## Open Questions
 
 - Should Aporia events be an app-only inbox, or should accepted events also
   create F-Kanban review cards?
-- Should assertions be indexed as first-class rows so future Aporia checks
-  compare assertion-to-assertion instead of row-to-row?
+- Should assertions be searchable as first-class records so future Aporia checks
+  compare assertion-to-assertion instead of record-to-record?
 - What is the first owner-approved grant bundle for Tom's daily node?
 - Should dismissed events expire automatically when either source changes?
 - Which model/provider should run the lightweight classifier locally versus
