@@ -107,6 +107,7 @@ async fn run(
     account: &Account,
     action: CloudPaymentCommand,
 ) -> Result<(Status, Option<String>), String> {
+    // trace-egress: propagate (exemem payments API; short-lived CLI client)
     let client = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
