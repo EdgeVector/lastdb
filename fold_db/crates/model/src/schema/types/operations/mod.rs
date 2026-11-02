@@ -160,10 +160,8 @@ pub struct Query {
     /// only on a keyed query with no post-key filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
-    /// When `false` (default), tombstone records — see
-    /// [`crate::tombstone`] — are filtered out at the field key
-    /// resolution boundary. Set to `true` only for the historical
-    /// population; live `Delete` does not mint these.
+    /// When `true`, the query takes the full read path instead of a keyed
+    /// count or alternate key shortcut. The default is `false`.
     #[serde(default)]
     pub include_tombstones: bool,
     /// Opt in to bounded secondary field reads for this query. One is serial.
@@ -248,9 +246,7 @@ pub enum MutationType {
     /// User-facing hard delete. "Delete means gone": same erasure path as
     /// [`Self::Purge`] (no per-field tombstone records). Missing target is
     /// an idempotent success unless the request sets `must_exist: true`
-    /// (loud miss). Legacy tombstones on disk remain filtered by
-    /// `include_tombstones = false` readers; see
-    /// north-star-lastdb-delete-returns-the-bytes.
+    /// (loud miss). See north-star-lastdb-delete-returns-the-bytes.
     Delete,
     /// Compatibility alias of [`Self::Delete`] + `must_exist`. Same
     /// physical path; a missing target is a *loud* error ("refusing to

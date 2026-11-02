@@ -15,7 +15,6 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackNamespacedStore;
 use crate::storage::NamespacedStore;
-use lastdb_model::tombstone::is_tombstone_value;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -91,12 +90,11 @@ async fn collect_schema_records(
             let fields: HashMap<String, Value> = record
                 .fields
                 .iter()
-                .filter(|&(name, value)| {
+                .filter(|&(name, _)| {
                     schema.runtime_fields.contains_key(name.as_str())
                         && searchable
                             .as_ref()
                             .is_none_or(|fields| fields.contains(name.as_str()))
-                        && !is_tombstone_value(value)
                 })
                 .map(|(name, value)| (name.clone(), inbox_value(value)))
                 .collect();

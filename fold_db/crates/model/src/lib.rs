@@ -24,4 +24,3 @@ pub mod provenance;
 pub mod record_space;
 pub mod record_value;
 pub mod schema;
-pub mod tombstone;
