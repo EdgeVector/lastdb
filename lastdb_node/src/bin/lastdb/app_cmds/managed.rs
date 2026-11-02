@@ -88,6 +88,7 @@ pub(super) fn install(home: &Path, input: &AppInstall) -> Result<(), String> {
         )?);
     }
     print_pretty_json(&results);
+    registry::managed_poll::install()?;
     Ok(())
 }
 

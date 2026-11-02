@@ -12,6 +12,7 @@ mod location;
 pub mod managed;
 mod managed_links;
 mod managed_manifest;
+pub mod managed_poll;
 mod managed_process;
 mod node_version;
 mod resolve;
