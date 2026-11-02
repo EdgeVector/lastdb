@@ -77,17 +77,6 @@ impl KeyId {
     pub const fn as_bytes(&self) -> &[u8; KEY_ID_SIZE] {
         &self.0
     }
-
-    /// Interpret a `u32` as a key id (big-endian), for keyrings that
-    /// allocate ids as integers.
-    pub const fn from_u32(id: u32) -> Self {
-        Self(id.to_be_bytes())
-    }
-
-    /// The big-endian `u32` view of this key id.
-    pub const fn to_u32(self) -> u32 {
-        u32::from_be_bytes(self.0)
-    }
 }
 
 /// The parsed, undecrypted header of an at-rest envelope. Lets a keyring
