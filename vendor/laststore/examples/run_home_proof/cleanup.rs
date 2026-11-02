@@ -1,5 +1,5 @@
 //! Exercise explicit cleanup inside the existing CI-only run-home operation.
-//! This checks physical compaction, not an atom-counter or node completion claim.
+//! This checks physical compaction, not a blob counter or node completion claim.
 
 use crate::gen::{apply, Model, Rng};
 use crate::{budget, dir_bytes, run_files, Result};

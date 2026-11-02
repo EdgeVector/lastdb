@@ -11,7 +11,7 @@ const GROUPS: u64 = 1024;
 
 // ---------------------------------------------------------------------------
 // Measured shape of the primary on 2026-10-24 (`lastdb db schemas`, locator
-// key census). Name, atom count, logical bytes, fields, range kind, derived.
+// key census). Name, value count, logical bytes, fields, range kind, derived.
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Range {
@@ -30,7 +30,7 @@ enum Body {
 }
 
 struct Shape {
-    atoms: usize,
+    values: usize,
     bytes: usize,
     fields: u32,
     range: Range,
@@ -41,14 +41,14 @@ const SHAPES: &[Shape] = &include!("seed/shapes.rs");
 
 const fn shape(
     _name: &'static str,
-    atoms: usize,
+    values: usize,
     bytes: usize,
     fields: u32,
     range: Range,
     body: Body,
 ) -> Shape {
     Shape {
-        atoms,
+        values,
         bytes,
         fields,
         range,
@@ -56,13 +56,13 @@ const fn shape(
     }
 }
 
-/// Measured: 430,767 tips for 196,150 atoms.
-const TIPS_PER_ATOM: f64 = 2.196;
-/// Measured: 440,561 `atom:` keys = body + counter + this share of extra rows.
-const EXTRA_ATOM_ROWS_PER_ATOM: f64 = 0.246;
+/// Measured: 430,767 key entries for 196,150 values.
+const ENTRIES_PER_VALUE: f64 = 2.196;
+/// Measured: 440,561 value keys = body + counter + this share of extra rows.
+const EXTRA_ROWS_PER_VALUE: f64 = 0.246;
 /// Measured: 163,585 idempotency rows and 163,313 change feed rows.
-const MUTATIONS_PER_ATOM: f64 = 0.834;
-/// Record slugs (one BrainTypeDirectory atom per slug).
+const MUTATIONS_PER_VALUE: f64 = 0.834;
+/// Record slugs (one BrainTypeDirectory value per slug).
 const RECORDS: usize = 8_172;
 
 // ---------------------------------------------------------------------------
@@ -163,25 +163,25 @@ pub enum Item {
     Extra {
         id: [u8; 32],
     },
-    Tip {
-        molecule: u32,
+    Entry {
+        field_key: u32,
         hash: [u8; 16],
         range: Option<String>,
-        atom: [u8; 32],
+        value_id: [u8; 32],
     },
     Idem {
         id: [u8; 32],
     },
     Event {
         seq: u64,
-        atom: [u8; 32],
+        value_id: [u8; 32],
     },
 }
 
 pub struct Stream {
     pub items: Vec<Item>,
-    pub logical_atom_bytes: u64,
-    pub atoms: u64,
+    pub logical_value_bytes: u64,
+    pub values: u64,
 }
 
 fn slug_pool(rng: &mut Rng) -> Vec<String> {
@@ -208,22 +208,22 @@ pub fn build_stream() -> Stream {
     let slugs = slug_pool(&mut rng);
     let mut items = Vec::new();
     let mut logical = 0u64;
-    let mut atoms = 0u64;
-    let mut molecule_base = 0u32;
+    let mut values = 0u64;
+    let mut field_key_base = 0u32;
     for (schema, shape) in SHAPES.iter().enumerate() {
-        let base = molecule_base;
-        // Up to three tips per atom, each in its own molecule, so no key repeats.
-        molecule_base += shape.fields * 3;
-        let mean = shape.bytes as f64 / shape.atoms as f64;
+        let base = field_key_base;
+        // Up to three entries per value, each under its own field key, so no key repeats.
+        field_key_base += shape.fields * 3;
+        let mean = shape.bytes as f64 / shape.values as f64;
         let sigma = if shape.body == Body::Text { 1.1 } else { 0.5 };
-        for n in 0..shape.atoms {
+        for n in 0..shape.values {
             let size = rng.lognormal(mean, sigma).clamp(12.0, 48_000.0) as usize;
             let content = match shape.body {
                 Body::Text => text(&mut rng, size),
                 Body::Json => json_list(&mut rng, &slugs, size),
             };
             logical += content.len() as u64;
-            atoms += 1;
+            values += 1;
             let id: [u8; 32] = rng.bytes();
             let field = n as u32 % shape.fields;
             let record = n / shape.fields as usize;
@@ -240,12 +240,12 @@ pub fn build_stream() -> Stream {
                 id,
                 bytes: size as u32,
             });
-            if rng.unit() < EXTRA_ATOM_ROWS_PER_ATOM {
+            if rng.unit() < EXTRA_ROWS_PER_VALUE {
                 items.push(Item::Extra { id });
             }
-            let tips =
-                TIPS_PER_ATOM.floor() as usize + usize::from(rng.unit() < TIPS_PER_ATOM.fract());
-            for t in 0..tips {
+            let entries = ENTRIES_PER_VALUE.floor() as usize
+                + usize::from(rng.unit() < ENTRIES_PER_VALUE.fract());
+            for t in 0..entries {
                 let range = match shape.range {
                     Range::None => None,
                     Range::Marker => Some(if n % 7 == 0 {
@@ -255,27 +255,27 @@ pub fn build_stream() -> Stream {
                     }),
                     Range::Slug => Some(format!("reference#{}", slugs[record % slugs.len()])),
                 };
-                items.push(Item::Tip {
-                    molecule: base + field * 3 + t as u32,
+                items.push(Item::Entry {
+                    field_key: base + field * 3 + t as u32,
                     hash,
                     range,
-                    atom: id,
+                    value_id: id,
                 });
             }
         }
     }
-    let mutations = (atoms as f64 * MUTATIONS_PER_ATOM) as u64;
+    let mutations = (values as f64 * MUTATIONS_PER_VALUE) as u64;
     for seq in 0..mutations {
         items.push(Item::Idem { id: rng.bytes() });
         items.push(Item::Event {
             seq,
-            atom: rng.bytes(),
+            value_id: rng.bytes(),
         });
     }
     Stream {
         items,
-        logical_atom_bytes: logical,
-        atoms,
+        logical_value_bytes: logical,
+        values,
     }
 }
 

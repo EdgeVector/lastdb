@@ -9,12 +9,12 @@ use std::collections::BTreeMap;
 /// Expected visible state per (collection, key); `None` is a deleted key.
 pub type Model = BTreeMap<(String, String), Option<Vec<u8>>>;
 
-pub const TIP_SCHEMAS: u64 = 40;
-pub const TIP_RANGES: u64 = 4000;
-pub const MOLECULES: u64 = 200;
+pub const RECORD_SCHEMAS: u64 = 40;
+pub const RECORD_RANGES: u64 = 4000;
+pub const FIELD_KEYS: u64 = 200;
 
 const WORDS: [&str; 16] = [
-    "atom", "schema", "field", "molecule", "range", "hash", "tip", "record", "brain", "kanban",
+    "entry", "schema", "field", "stamp", "range", "hash", "blob", "record", "brain", "kanban",
     "decision", "design", "note", "update", "value", "key",
 ];
 
@@ -44,12 +44,12 @@ impl Rng {
     }
 }
 
-pub fn tip_key(schema: u64, range: u64) -> String {
+pub fn record_key(schema: u64, range: u64) -> String {
     format!("schema{schema:03}\0{range:08}")
 }
 
-fn molecule_key(molecule: u64, range: u64) -> String {
-    format!("mol{molecule:04}\0{range:010}")
+fn field_key_entry(field_key: u64, range: u64) -> String {
+    format!("fk{field_key:04}\0{range:010}")
 }
 
 /// A brain-like JSON text value; it compresses about as real records do.
@@ -68,8 +68,8 @@ fn value(rng: &mut Rng, batch: u64) -> Vec<u8> {
     .into_bytes()
 }
 
-/// The operations of batch `n` (1-based). About 60% new atoms, 25% tip
-/// writes (many overwrite), 10% molecule entries, 5% tip deletes.
+/// The operations of batch `n` (1-based). About 60% new blob counts, 25%
+/// record writes (many overwrite), 10% field key entries, 5% record deletes.
 pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
     let mut rng = Rng::new(n);
     let mut out = Vec::with_capacity(ops);
@@ -79,13 +79,13 @@ pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
             let key = format!("{n:08x}{op:06x}{:08x}", rng.next_u64() as u32);
             ("blob_counts", key, Some(value(&mut rng, n)))
         } else if pick < 85 {
-            let key = tip_key(rng.below(TIP_SCHEMAS), rng.below(TIP_RANGES));
+            let key = record_key(rng.below(RECORD_SCHEMAS), rng.below(RECORD_RANGES));
             ("records", key, Some(value(&mut rng, n)))
         } else if pick < 95 {
-            let key = molecule_key(rng.below(MOLECULES), rng.next_u64() % 10_000_000_000);
+            let key = field_key_entry(rng.below(FIELD_KEYS), rng.next_u64() % 10_000_000_000);
             ("field_keys", key, Some(format!("{n}:{op}").into_bytes()))
         } else {
-            let key = tip_key(rng.below(TIP_SCHEMAS), rng.below(TIP_RANGES));
+            let key = record_key(rng.below(RECORD_SCHEMAS), rng.below(RECORD_RANGES));
             ("records", key, None)
         };
         out.push(HomeMutation {
@@ -98,12 +98,12 @@ pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
 }
 
 /// Batch `n` of the overwrite-heavy phase: every operation hits one of
-/// 20,000 tip keys, so most writes replace a value or delete it (10%).
+/// 20,000 record keys, so most writes replace a value or delete it (10%).
 pub fn overwrite_batch(n: u64, ops: usize) -> Vec<HomeMutation> {
     let mut rng = Rng::new(n ^ 0x5eed_0f0f);
     (0..ops)
         .map(|_| {
-            let key = tip_key(rng.below(5), rng.below(TIP_RANGES));
+            let key = record_key(rng.below(5), rng.below(RECORD_RANGES));
             let body = match rng.below(10) {
                 0 => None,
                 _ => Some(value(&mut rng, n)),

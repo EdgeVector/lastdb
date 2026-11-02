@@ -1,7 +1,7 @@
 //! Explicit base compaction below the automatic merge thresholds.
 //!
-//! This operation drains already deleted or superseded records. Atom counters
-//! still decide logical deletion. Normal background merge policy is unchanged.
+//! This operation drains already deleted or superseded records. The node
+//! still decides record deletion. Normal background merge policy is unchanged.
 
 use super::{RunHome, RunMerge, MAX_MERGE_INPUTS};
 use crate::space::SpacePolicy;

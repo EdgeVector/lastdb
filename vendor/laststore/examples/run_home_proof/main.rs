@@ -19,7 +19,7 @@ mod gen;
 mod value_gen;
 mod values;
 
-use gen::{apply, batch, logical_bytes, overwrite_batch, tip_key, Model, TIP_SCHEMAS};
+use gen::{apply, batch, logical_bytes, overwrite_batch, record_key, Model, RECORD_SCHEMAS};
 use laststore::disk_run::home::{HomeMutation, RangeBounds, ReadBudget, RunHome, RunRead};
 use laststore::disk_run::{RunOptions, RunWriter};
 use std::fs;
@@ -210,8 +210,8 @@ pub(crate) fn check_all(home: &RunHome, model: &Model) -> Result<usize> {
 fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
     let mut read = home.read(budget());
     let mut records = 0usize;
-    for schema in 0..TIP_SCHEMAS {
-        let prefix = tip_key(schema, 0);
+    for schema in 0..RECORD_SCHEMAS {
+        let prefix = record_key(schema, 0);
         let prefix = &prefix[..prefix.find('\0').expect("NUL") + 1];
         for (start, end) in [("", None), ("00001000", Some("00002000"))] {
             let bounds = RangeBounds {
@@ -244,17 +244,17 @@ fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
         }
     }
     let mut cursor = read.administrative_range("blob_counts", b"", &[0xff])?;
-    let atoms = cursor.next_page(usize::MAX)?;
-    let live_atoms = model
+    let blob_counts = cursor.next_page(usize::MAX)?;
+    let live_blob_counts = model
         .iter()
         .filter(|((c, _), v)| c == "blob_counts" && v.is_some())
         .count();
-    if !atoms.exhausted || atoms.records.len() != live_atoms {
-        return Err("administrative range over atoms differs".into());
+    if !blob_counts.exhausted || blob_counts.records.len() != live_blob_counts {
+        return Err("administrative range over blob counts differs".into());
     }
     Ok(format!(
-        "{} ranges, {records} records equal; administrative range {live_atoms} atoms equal",
-        TIP_SCHEMAS * 2
+        "{} ranges, {records} records equal; administrative range {live_blob_counts} blob counts equal",
+        RECORD_SCHEMAS * 2
     ))
 }
 
