@@ -5,6 +5,7 @@ name: Cloud backup recovery
 # The manual `baseline` mode cuts the fixed baseline: once on format 8, later
 # only for an approved cloud contract change. A local format change must keep
 # the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
+# A baseline run also points the two protected inputs at the new baseline.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.
 on:
@@ -252,7 +253,7 @@ jobs:
           path: ${{ runner.temp }}/cloud-ci-baseline/ci-baseline.json
           if-no-files-found: error
           retention-days: 90
-      - name: Move the saved CI baseline and keep the replaced one
+      - name: Move the service CI baseline and keep the replaced one
         if: env.RUN_MODE == 'baseline'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -265,3 +266,15 @@ jobs:
           python3 scripts/cloud_backup/register_ownership.py \
             --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase baseline
+      # Without this step every later recovery fails its start claim, because the
+      # protected inputs still name the replaced baseline.
+      - name: Point the protected inputs at the new CI baseline
+        if: env.RUN_MODE == 'baseline'
+        env:
+          # GITHUB_TOKEN cannot write Actions secrets or variables.
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+        run: |
+          python3 scripts/cloud_backup/baseline_inputs.py \
+            --receipt "$RUNNER_TEMP/cloud-ci-baseline/ci-baseline.json" \
+            --summary "$RUNNER_TEMP/cloud-ci-baseline/summary.json"

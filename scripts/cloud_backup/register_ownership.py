@@ -22,6 +22,11 @@ from startup_proof import runner_path, save as save_startup
 from support import (OperationError, baseline_from_environment, child_environment,
                      failure, private_directory, require)
 
+# The usual cause of a start-claim refusal after a baseline move.
+STALE_INPUTS = ("The protected inputs can name a replaced baseline after a baseline run. "
+                "Run scripts/cloud_backup/baseline_inputs.py for that run "
+                "(docs/cloud-backup-recovery-ci.md, \"Baseline move\").")
+
 
 def summary(value):
     print(json.dumps(value, sort_keys=True))
@@ -95,6 +100,8 @@ def main():
                           artifact_expires_at=record["artifact_expires_at"])
     except OperationError as error:
         result.update(failure(error))
+        if args.phase == "startup" and str(error) == "ci_control_service_integrity_mismatch":
+            result["next_action"] = STALE_INPUTS
     except BaseException:
         result["failure"] = "unexpected_ci_registration_error"
     finally:

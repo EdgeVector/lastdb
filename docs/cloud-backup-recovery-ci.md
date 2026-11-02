@@ -261,18 +261,31 @@ The policy keeps at most eight retained baselines. The move makes no provider de
 
 The record notes and the file bytes derive from the recovery phrase and the public stream ID (`baseline_data.py`).
 The run summary shows only public identifiers and `secret_sha256`, a SHA256 commitment of the exact secret value.
-After a successful move, an operator updates the two protected inputs:
+After a successful move, the step "Point the protected inputs at the new CI baseline" runs `baseline_inputs.py`:
 
-1. Derive the secret with `baseline_data.secret` from the phrase, the new point, and the file hash.
-2. Compare `baseline_data.commitment` of that value with the `secret_sha256` of the run summary.
-3. Set `LASTDB_CLOUD_DEV_BASELINE` in the `cloud-backup-dev` environment from stdin. Do not print the value.
-4. Set the `LASTDB_CLOUD_DEV_BASELINE_SCOPE` variable to the new account, generation, and stream.
-5. Run the normal recovery on main.
+1. It derives the secret with `baseline_data.secret` from the phrase, the new point, and the file hash.
+2. It compares `baseline_data.commitment` of that value with the `secret_sha256` of the run summary. A difference stops the step before any write.
+3. It sets `LASTDB_CLOUD_DEV_BASELINE` in the `cloud-backup-dev` environment from stdin. The value never enters the log.
+4. It sets the `LASTDB_CLOUD_DEV_BASELINE_SCOPE` variable to the new account, generation, and stream.
+5. It reads the variable back and requires a new update time for the secret.
 
-Update both inputs before the next normal recovery.
+`GITHUB_TOKEN` cannot write Actions secrets or variables, so this step uses the organization secret `GH_PAT`.
+Run the normal recovery on main after the baseline run.
+
 A normal recovery that still names the replaced baseline fails at its start claim.
-Its summary shows `failure` `ci_control_service_integrity_mismatch` and `service_field` `ci.policy`.
+Its summary shows `failure` `ci_control_service_integrity_mismatch` and a `next_action` that names `baseline_inputs.py`.
+The summary can also show `service_field` `ci.policy`.
 The daily check does not count a baseline-mode run as a recovery result.
+
+If the input step fails after a successful move, an operator runs the same command.
+Download the `cloud-ci-baseline-<run_id>-<run_attempt>` archive, and copy `secret_sha256` from the run summary.
+Pipe the phrase on stdin. `gh` uses the operator's login.
+
+```text
+gh run download <run_id> -R EdgeVector/lastdb -n cloud-ci-baseline-<run_id>-<run_attempt> -D <dir>
+lastsecrets get <phrase-name> | python3 scripts/cloud_backup/baseline_inputs.py \
+  --receipt <dir>/ci-baseline.json --secret-sha256 <secret_sha256>
+```
 
 ## Limits and cleanup
 
