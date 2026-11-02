@@ -22,12 +22,12 @@
 //! **Binary wire format — `ENB:` ++ flags ++ envelope.** The low bit of the
 //! one-byte flags field records whether the plaintext was deflated before it
 //! was sealed. The raw-key seal ([`seal_at_rest_raw`]) never deflates, and
-//! [`open_at_rest`] refuses a deflated value.
+//! [`open_at_rest_bounded`] refuses a deflated value.
 //!
 //! Both prefixes are 4 bytes and end in `:`, which is outside the base64
 //! alphabet, so neither can be confused with the other, with a base64 body,
 //! or with JSON (`{`/`[`). A value without one of them is not sealed, and
-//! [`open_at_rest`] rejects it.
+//! [`open_at_rest_bounded`] rejects it.
 //!
 //! **The compression half serves the KV seam.** The namespaced
 //! `EncryptingKvStore`, which wraps only the local CAS blob records
@@ -121,13 +121,6 @@ pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<(bo
         flags & AT_REST_BINARY_FLAG_DEFLATED != 0,
         ciphertext,
     )))
-}
-
-/// Open a sealed value. An `ENC:` value is base64-decoded and decrypted
-/// under `key`. An `ENB:` value reads the raw envelope after the flags byte.
-/// A value without a sealed prefix, or a deflated `ENB:` value, is an error.
-pub fn open_at_rest(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
-    open_sealed(key, stored)
 }
 
 /// Open a sealed value with a caller-owned bound, independent of environment.
