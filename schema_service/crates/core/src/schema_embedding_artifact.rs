@@ -49,8 +49,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::state::SchemaServiceState;
-
 /// Wire-format version of [`SchemaEmbeddingArtifact`] and
 /// [`SchemaEmbeddingArtifactManifest`]. Importers refuse unknown versions
 /// rather than silently degrading. Kept in lockstep with
@@ -162,57 +160,3 @@ pub fn latest_compatible_manifest_pointer_key(env: ArtifactEnv, embedder_id: &st
         env.segment()
     )
 }
-
-/// One object write in an atomic publish plan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublishObject {
-    /// R2 object key.
-    pub key: String,
-    /// `application/json` for both objects.
-    pub content_type: &'static str,
-    /// Write precondition — see [`PutPrecondition`].
-    pub precondition: PutPrecondition,
-}
-
-/// Conditional-write precondition for a published object. Mirrors the
-/// `schema_service_s3` write model exactly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PutPrecondition {
-    /// `If-None-Match: *` — create only if absent. Used for the immutable
-    /// content-addressed objects: a 412 means the byte-identical object is
-    /// already published, which the publisher treats as idempotent success.
-    IfAbsent,
-    /// Unconditional PUT. Used for the mutable "latest" pointer, which is
-    /// meant to be overwritten to advance discovery.
-    Overwrite,
-}
-
-/// A fully-resolved plan for atomically publishing one artifact to R2.
-///
-/// **Ordering is load-bearing.** The publisher writes the immutable
-/// content-addressed objects *first* (manifest then artifact body, both
-/// `IfAbsent`), and only after both succeed does it overwrite the mutable
-/// `latest` pointer. A node that discovers the pointer therefore always
-/// finds a fully-materialized artifact behind it — it can never observe the
-/// pointer advanced to an artifact whose body isn't there yet. This is how
-/// the card's "publishing is atomic; local nodes never download a partial
-/// artifact" requirement is met on an object store with no multi-key
-/// transaction.
-///
-/// The plan is a pure value so it can be unit-tested (key selection,
-/// ordering, preconditions) with no network. A thin R2 executor walks
-/// `content_addressed` in order, then writes `latest_pointer`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublishPlan {
-    /// Immutable objects, in the order they must be written: manifest, then
-    /// artifact body. Both use [`PutPrecondition::IfAbsent`].
-    pub content_addressed: Vec<PublishObject>,
-    /// The mutable discovery pointer, written last with
-    /// [`PutPrecondition::Overwrite`].
-    pub latest_pointer: PublishObject,
-    /// The artifact's content address (SHA-256 of the serialized body),
-    /// echoed for logging/observability.
-    pub artifact_sha256: String,
-}
-
-impl SchemaServiceState {}
