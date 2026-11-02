@@ -374,8 +374,8 @@ grep -qi 'running' "$REPORT_DIR/status.txt" || fail "lastdb status does not repo
 log "declaring a validation schema"
 # field_descriptions are required by the live schema-service catalog for
 # semantic matching (Release run 29885897039: declare 409 without them —
-# "Schema fields missing descriptions"). Keep them stable so the identity
-# hash does not thrash across runs.
+# "Schema fields missing descriptions"). Each name has a subject and a
+# property. Release run 41481685459 rejected the one-word name "body".
 cat > "$REPORT_DIR/declare-request.json" <<'JSON'
 {
   "namespace": "validation",
@@ -383,14 +383,19 @@ cat > "$REPORT_DIR/declare-request.json" <<'JSON'
     "name": "MiniFreshInstall",
     "descriptive_name": "Mini Fresh Install",
     "schema_type": "HashRange",
-    "key": { "hash_field": "bucket", "range_field": "id" },
-    "fields": ["bucket", "id", "title", "body"],
-    "field_types": {"bucket": "String", "id": "String"},
+    "key": { "hash_field": "record_bucket", "range_field": "record_id" },
+    "fields": ["record_bucket", "record_id", "record_title", "note_body"],
+    "field_types": {
+      "record_bucket": "String",
+      "record_id": "String",
+      "record_title": "String",
+      "note_body": "String"
+    },
     "field_descriptions": {
-      "bucket": "hash partition for the validation record",
-      "id": "range key id",
-      "title": "short title",
-      "body": "long body text for semantic search"
+      "record_bucket": "fresh install validation hash bucket",
+      "record_id": "fresh install validation range id",
+      "record_title": "fresh install validation title text",
+      "note_body": "fresh install validation note body"
     }
   }
 }
@@ -418,10 +423,10 @@ cat > "$REPORT_DIR/mutation-request.json" <<JSON
   "type": "mutation",
   "schema": "$SCHEMA_REF",
   "fields_and_values": {
-    "bucket": "release",
-    "id": "mini-1",
-    "title": "Mini fresh install",
-    "body": "A brand new LastDB Mini user can boot the daemon and run semantic search over the owner socket."
+    "record_bucket": "release",
+    "record_id": "mini-1",
+    "record_title": "Mini fresh install",
+    "note_body": "A brand new LastDB Mini user can boot the daemon and run semantic search over the owner socket."
   },
   "key_value": { "hash": "release", "range": "mini-1" },
   "mutation_type": "create"
@@ -444,7 +449,7 @@ log "querying the record back"
 cat > "$REPORT_DIR/query-request.json" <<JSON
 {
   "schema_name": "$SCHEMA_REF",
-  "fields": ["bucket", "id", "title", "body"],
+  "fields": ["record_bucket", "record_id", "record_title", "note_body"],
   "filter": { "HashRangeKey": { "hash": "release", "range": "mini-1" } }
 }
 JSON
@@ -452,7 +457,7 @@ C -H 'Content-Type: application/json' \
   --data-binary "@$REPORT_DIR/query-request.json" \
   "http://lastdb/api/query" > "$REPORT_DIR/query.json" \
   || fail "query request failed (body: $(head -c 400 "$REPORT_DIR/query.json" 2>/dev/null || true))"
-jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.body | contains("boot the daemon and run semantic search"))' \
+jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.note_body | contains("boot the daemon and run semantic search"))' \
   "$REPORT_DIR/query.json" >/dev/null \
   || fail "query did not return the fresh-install validation record"
 
@@ -474,17 +479,17 @@ cat > "$REPORT_DIR/apps-declare-request.json" <<'JSON'
     "name": "AppCatalogProbe",
     "descriptive_name": "AppCatalogProbe",
     "schema_type": "Hash",
-    "key": { "hash_field": "slug" },
-    "fields": ["slug", "title", "body"],
+    "key": { "hash_field": "record_slug" },
+    "fields": ["record_slug", "record_title", "note_body"],
     "field_types": {
-      "slug": "String",
-      "title": "String",
-      "body": "String"
+      "record_slug": "String",
+      "record_title": "String",
+      "note_body": "String"
     },
     "field_descriptions": {
-      "slug": "unique record key",
-      "title": "short title",
-      "body": "body text for first-run app declare path"
+      "record_slug": "fresh install validation app slug",
+      "record_title": "fresh install validation title text",
+      "note_body": "fresh install validation note body"
     }
   }
 }
@@ -509,9 +514,9 @@ cat > "$REPORT_DIR/apps-mutation-request.json" <<JSON
   "type": "mutation",
   "schema": "$APP_HASH",
   "fields_and_values": {
-    "slug": "first-run",
-    "title": "App catalog probe",
-    "body": "brain/kanban-style declare + write by identity hash"
+    "record_slug": "first-run",
+    "record_title": "App catalog probe",
+    "note_body": "brain/kanban-style declare + write by identity hash"
   },
   "key_value": { "hash": "first-run" },
   "mutation_type": "create"
@@ -526,7 +531,7 @@ jq -e '.ok == true and .success == true' "$REPORT_DIR/apps-mutation.json" >/dev/
 cat > "$REPORT_DIR/apps-query-request.json" <<JSON
 {
   "schema_name": "$APP_HASH",
-  "fields": ["slug", "title", "body"],
+  "fields": ["record_slug", "record_title", "note_body"],
   "filter": { "HashKey": "first-run" }
 }
 JSON
@@ -536,7 +541,7 @@ C -H 'Content-Type: application/json' \
 jq -e '
   .ok == true
   and (.results | length) == 1
-  and (.results[0].fields.body | contains("identity hash"))
+  and (.results[0].fields.note_body | contains("identity hash"))
 ' "$REPORT_DIR/apps-query.json" >/dev/null \
   || fail "query by apps/declare-schema identity hash did not return the record"
 
@@ -596,7 +601,7 @@ PY
 C -H 'Content-Type: application/json' \
   --data-binary "@$REPORT_DIR/query-request.json" \
   "http://lastdb/api/query" > "$REPORT_DIR/query-after-restart.json"
-jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.id == "mini-1")' \
+jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.record_id == "mini-1")' \
   "$REPORT_DIR/query-after-restart.json" >/dev/null \
   || fail "record did not persist across a daemon restart"
 
