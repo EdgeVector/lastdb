@@ -1,4 +1,4 @@
-//! Conflict records of a format 7 home.
+//! Conflict records of a home.
 //!
 //! The peer import that wrote these rows is gone. A stored row still decodes.
 //! The rows are:
@@ -106,7 +106,7 @@ pub(crate) fn record_conflict_row_key(record: &str, field: &str, mutation: &str)
     Some(format!("{scope}{ROW_FAMILY}{space}:{digest}"))
 }
 
-/// True for the key of a conflict row of a format 7 home.
+/// True for the key of a conflict row of a home.
 pub(crate) fn is_record_conflict_row_key(key: &str) -> bool {
     crate::storage::current_keys::exact_scope(key)
         .ok()

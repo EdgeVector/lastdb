@@ -1,4 +1,4 @@
-//! The history route of a format 7 home: field history entries keep a copy of
+//! The history route of a home: field history entries keep a copy of
 //! the old value at a record history key (decision D5). A policy needs only
 //! the field identity; a data action reads the record key of the location.
 

@@ -77,7 +77,7 @@ impl DbOperations {
         &self.record_store
     }
 
-    /// Access background purge counters, separate from logical record counts.
+    /// Access background purge counters, separate from record counts.
     pub fn persist_metrics(&self) -> &Arc<crate::resident::PersistLaneMetrics> {
         &self.persist_metrics
     }

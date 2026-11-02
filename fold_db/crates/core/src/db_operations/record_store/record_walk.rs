@@ -1,4 +1,4 @@
-//! An unfiltered read of a format 7 home: a walk of the records of one
+//! An unfiltered read of a home: a walk of the records of one
 //! schema in record key order, one bounded page at a time.
 //!
 //! A record key is `rk:{S}:{esc(blind(hash))}\0{range}`, so the record space

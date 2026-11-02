@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise a format 7 (record model) home through a fresh CI daemon.
+"""Exercise a record model home through a fresh CI daemon.
 
-Every new home is format 7. The script writes and reads records with the
+Every new home uses the record model. The script writes and reads records with the
 selectors that the brain and LastSecrets apps use, checks that repeated reads
 by key come from the record warm set, keeps field history, lets the TTL sweep
 delete an expired record, reads the delete audit, then restarts the daemon and

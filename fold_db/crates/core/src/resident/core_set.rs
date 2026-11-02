@@ -1,7 +1,7 @@
 //! Used records and typed definitions over the actual disk view.
 //!
 //! The caller holds the publication lock before it locks this set. Disk I/O
-//! never runs under the set lock. A format 7 home keeps one decoded record
+//! never runs under the set lock. A home keeps one decoded record
 //! for each used record key (decision D2); there are no field paths.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -52,7 +52,7 @@ pub(crate) struct CoreWarmSet {
     memory: memory::CoreMemory,
     model: model::CoreModel,
     clock: u64,
-    // Decoded records of a format 7 home, in recency order.
+    // Decoded records of a home, in recency order.
     records: records::RecordTable,
     hits: u64,
     misses: u64,

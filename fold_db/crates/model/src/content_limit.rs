@@ -31,7 +31,7 @@ pub const FIELD_VALUE_TOO_LARGE_HINT: &str = "For a list or log that grows, writ
     bytes, store a file blob (CAS) and keep a pointer in the record; many small fields may be \
     packed into one record up to the limit.";
 
-/// Guidance for a record of a format 7 home above its 64 KiB cap
+/// Guidance for a record of a home above its 64 KiB cap
 /// (`record_value::MAX_RECORD_BYTES`). The `413` body `hint` and the error
 /// message both carry this text.
 pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \

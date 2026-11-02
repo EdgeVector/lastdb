@@ -167,7 +167,7 @@ def report(args, pairs, audits):
               "The existing disk ratio gates retain their thresholds.", "", "### Original disk-proof seed audit", "",
               "This audit uses the original 3,000-base seed and declares no alternate keys.",
               "Its record-volume qualification is reported separately from data correctness.", "",
-              "A format 7 home stores one record value per key and no records.", "",
+              "A home stores one record value per key.", "",
               "| Source | Logical MiB | Stored records | Live records verified | Meets old 16 MiB minimum |",
               "|---|---:|---:|---:|---|"]
     for audit in audits:

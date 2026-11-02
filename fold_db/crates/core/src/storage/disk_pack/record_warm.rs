@@ -1,4 +1,4 @@
-//! The record warm set of a format 7 home (decision D2).
+//! The record warm set of a home (decision D2).
 //!
 //! A read by record key checks memory first. A record that the read finds on
 //! disk enters memory only while the view still has the revision of the

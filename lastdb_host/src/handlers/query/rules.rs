@@ -335,7 +335,7 @@ pub(super) fn lane_for_unknown_cardinality(query: &Query) -> Lane {
         .is_some_and(HashRangeFilter::is_key_restricted)
     {
         // Administrative inspection may need to reject many other-layout
-        // candidates before it can return even one logical record.
+        // candidates before it can return even one record.
         return Lane::Bulk;
     }
     let limit = match &query.filter {

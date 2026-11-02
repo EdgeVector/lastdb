@@ -19,7 +19,7 @@ pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSna
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let runtime_memory = footprint.map(|footprint| observe_runtime_memory(host, footprint));
-    // Pressure relief can purge clean logical records. Capture native status
+    // Pressure relief can purge clean records. Capture native status
     // afterward so its current counts describe the state after that relief.
     let namespaced_store = host.db.db_ops().namespaced_store();
     let native = namespaced_store

@@ -61,9 +61,9 @@ def headroom_lines(comparison):
         rows.append(f"| {case} | {value['max_disk_to_logical_ratio']:.6f}× | "
                     f"{value['limit_headroom_bytes'] / 2**20:.3f} | {value['limit_headroom_percent']:.2f}% |")
     deleted = comparison["delete"]["candidate"]
-    rows.extend(["", f"Delete corpus: {deleted['starting_logical_record_bytes'] / 2**20:.3f} MiB logical; "
+    rows.extend(["", f"Delete corpus: {deleted['starting_stored_record_bytes'] / 2**20:.3f} MiB logical; "
                  f"deleted {deleted['deleted_records']} of {deleted['starting_live_records']} records; "
-                 f"{deleted['logical_record_bytes'] / 2**20:.3f} MiB logical remains."])
+                 f"{deleted['stored_record_bytes'] / 2**20:.3f} MiB logical remains."])
     return "\n".join(rows) + "\n"
 
 

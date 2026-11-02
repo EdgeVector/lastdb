@@ -21,7 +21,7 @@ const ROUND: usize = 16;
 
 const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 
-/// One decoded record of a format 7 home and its key coordinate.
+/// One decoded record of a home and its key coordinate.
 pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord) -> usize {
     let fields = record
         .fields

@@ -26,7 +26,7 @@ pub mod access;
 /// The maximum size of one field value. The check reads the environment.
 pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
-/// The stored record value of a format 7 home and its cap.
+/// The stored record value of a home and its cap.
 pub use lastdb_model::record_value;
 pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 

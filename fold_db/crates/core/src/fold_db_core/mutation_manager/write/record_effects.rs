@@ -1,4 +1,4 @@
-//! The side rows of one format 7 record group: field history, the delete
+//! The side rows of one record group: field history, the delete
 //! audit and the retention ages. Each joins the batch of the records.
 //!
 //! - Field history (D5): a copy of each overwritten or deleted field value

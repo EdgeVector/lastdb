@@ -19,7 +19,7 @@ pub struct LimitsHealth {
     pub max_field_value_bytes_absolute_max: Gauge,
     /// Env var name that overrides the default.
     pub max_field_value_bytes_env: String,
-    /// The cap for the encoded record of a format 7 home (64 KiB). A record
+    /// The cap for the encoded record of a home (64 KiB). A record
     /// holds every field of one key, so it is the write limit there.
     #[serde(serialize_with = "serialize_gauge_option")]
     pub max_record_bytes: Gauge,

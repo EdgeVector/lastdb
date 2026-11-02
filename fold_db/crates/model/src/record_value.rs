@@ -1,4 +1,4 @@
-//! The stored value at one record key of a format 7 home (the record model).
+//! The stored value at one record key (the record model).
 //!
 //! One value holds the fields of the record and one stamp for each field
 //! (decision D1). A write or a peer replay merges field by field: the newer

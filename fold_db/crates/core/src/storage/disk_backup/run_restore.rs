@@ -61,7 +61,7 @@ impl RunRestoreGuard {
     }
 }
 
-/// Complete physical closure precedes account and logical record validation.
+/// Complete physical closure precedes account and record validation.
 pub fn verify(
     data_root: &Path,
     profile: &RunBackupProfile,

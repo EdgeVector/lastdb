@@ -81,7 +81,7 @@ def measure(binary, recipe, folder):
         result["after_inventory"] = snapshot(workload, ROUNDS + 3)
         if (result["inventory"]["per_schema_records_total_bytes"]
                 != result["after_reopen"]["logical_storage"]["total_logical_bytes"]):
-            raise ValueError("The inventory and pre-inventory logical record totals differ")
+            raise ValueError("The inventory and pre-inventory record totals differ")
         native, _, _ = node.call("/api/db/native-status")
         result["native_status"] = native
         if native["native_disk"].get("writer_failed") is not False:

@@ -1,4 +1,4 @@
-//! The reads and the purge of the field history of a format 7 home: one page
+//! The reads and the purge of the field history of a home: one page
 //! of the entries of a record field, one entry with its copied value, and one
 //! bounded release (`POST /api/field-history`).
 

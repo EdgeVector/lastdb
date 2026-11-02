@@ -4,7 +4,7 @@ use lastdb_model::file_pointer;
 use lastdb_model::record_value::StoredRecord;
 use serde_json::Value;
 
-/// Derive the dependencies of each field value of a format 7 record. A record
+/// Derive the dependencies of each field value of a record. A record
 /// has no record, so the digest of a field's pointer names its dependencies. The record metadata belongs to the record (D7) and can
 /// outlive the field that set it, so a reference that only the metadata names
 /// is not refused: the byte backup copies every CAS body and the blob counter

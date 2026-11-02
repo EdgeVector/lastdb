@@ -107,7 +107,7 @@ pub(crate) fn print_schema_storage_human(report: &serde_json::Value, limit: usiz
         .get("total_records")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    println!("Per-schema logical record storage  measured_at={measured}  heavy=true");
+    println!("Per-schema record storage  measured_at={measured}  heavy=true");
     println!(
         "  {:>10}  {:>8} records  {} schemas",
         format_bytes(total_bytes),

@@ -1,6 +1,6 @@
 //! HashRange Query Processor
 //!
-//! A format 7 home keeps one record at each primary key. A query reads the
+//! A home keeps one record at each primary key. A query reads the
 //! records that its key selector names (`records.rs`), applies the
 //! conditions, the order and the window to whole records, then returns the
 //! selected fields of each record.
@@ -77,7 +77,7 @@ struct CokeyRows {
     page_keys: Vec<KeyValue>,
 }
 
-/// Processor for record queries of a format 7 home.
+/// Processor for record queries of a home.
 pub struct HashRangeQueryProcessor {
     db_ops: Arc<DbOperations>,
 }

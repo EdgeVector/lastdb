@@ -11,7 +11,7 @@ pub struct MainKeyClass {
     pub bytes: u64,
 }
 
-/// Per-schema logical record storage — the dedicated `lastdb db schemas` report.
+/// Per-schema record storage — the dedicated `lastdb db schemas` report.
 ///
 /// This is the record walk (`storage_breakdown`). It does **not** scan
 /// history the way [`DbInventory`] does. Its rows count the live records of

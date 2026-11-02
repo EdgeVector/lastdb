@@ -1,5 +1,5 @@
 //! Liveness request, target, and reply rules. Callers own scope checks and store reads.
-//! Only the file blob class is served: the format 7 record model has no record
+//! Only the file blob class is served: the record model has no record
 //! or field key counters to explain.
 
 use fold_db::db_operations::BlobCounterView;

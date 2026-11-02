@@ -76,7 +76,7 @@ impl SelectedConflictKey {
     }
 }
 
-/// The primary key of a format 7 selection. Each field is declared, and the
+/// The primary key of a selection. Each field is declared, and the
 /// range is present exactly for a HashRange schema.
 pub(super) fn record_key(
     schema: &Schema,

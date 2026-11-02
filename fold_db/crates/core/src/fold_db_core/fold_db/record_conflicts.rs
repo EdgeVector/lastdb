@@ -1,4 +1,4 @@
-//! Conflict reads of a format 7 home: reads by key of the markers and rows
+//! Conflict reads of a home: reads by key of the markers and rows
 //! that a peer import writes beside each record.
 
 use std::collections::BTreeSet;

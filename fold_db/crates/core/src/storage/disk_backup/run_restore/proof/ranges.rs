@@ -54,7 +54,7 @@ pub(super) fn verify(
         for chunk in field_keys.chunks(128) {
             batch(main, account_key, profile, chunk)?;
         }
-        // A format 7 home adds the record space of each schema.
+        // A home adds the record space of each schema.
         for (field_key, alternate_profile) in
             crate::storage::field_key_store::schema_field_key_profiles(&schema)?
         {

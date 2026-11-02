@@ -9,9 +9,6 @@ write scope. This lint finds every Rust function that writes through a store
 and either (a) names one of those key families or (b) holds a raw store handle,
 and it compares the set with scripts/lints/store-writers.allow.
 
-A format 7 home has no tip, record body, record counter or field key header, so the
-lint names no family for them.
-
 The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 

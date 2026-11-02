@@ -105,7 +105,7 @@ pub enum SchemaError {
         size: usize,
         limit: usize,
     },
-    /// The encoded record of a format 7 home exceeded the record cap
+    /// The encoded record of a home exceeded the record cap
     /// (`MAX_RECORD_BYTES`, 64 KiB, in `record_value.rs`). The HTTP layer
     /// renders the same discriminated `413 field_value_too_large` body with
     /// `scope: "record"`, so a client that keys on the error keeps working.

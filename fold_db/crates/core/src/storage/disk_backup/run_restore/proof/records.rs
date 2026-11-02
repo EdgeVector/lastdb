@@ -1,4 +1,4 @@
-//! The file dependencies of the records of a format 7 home.
+//! The file dependencies of the records of a home.
 //!
 //! A record has no separate body row and no `fdep` directory row. Each field
 //! value that holds a file pointer names its blobs. The proof copies and opens

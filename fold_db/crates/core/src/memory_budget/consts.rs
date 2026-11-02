@@ -80,7 +80,7 @@ pub const FOOTPRINT_EVICT_HARD_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 pub const FOOTPRINT_EVICT_TARGET_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 /// Bound on stepwise eviction passes per [`crate`] measured-footprint defense
-/// call. Each pass purges clean logical records and re-measures; this caps
+/// call. Each pass purges clean records and re-measures; this caps
 /// worst-case work per sampler tick so a pathological footprint cannot loop
 /// the sampler thread indefinitely.
 pub const FOOTPRINT_EVICT_MAX_STEPS: u32 = 12;

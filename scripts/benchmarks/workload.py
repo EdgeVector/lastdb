@@ -113,7 +113,7 @@ class Workload:
         result, _, _ = self.node.call("/api/db/flush", {})
         if result.get("durable") is not True:
             raise RuntimeError("The generated seed lacks a durable flush")
-        # Reopen the same owned home. No seeded logical record remains warm.
+        # Reopen the same owned home. No seeded record remains warm.
         self.node.stop()
         self.node.start()
         result, _, _ = self.node.call("/api/admin/shed", {})
@@ -184,7 +184,7 @@ class Workload:
                     # and actual disk bytes, rather than interpreting zero as hot.
                     if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
                         raise RuntimeError("The cold read did not fetch payload bytes from disk")
-                    # A format 7 home has one warm entry per record key, whatever the fields.
+                    # A home has one warm entry per record key, whatever the fields.
                     needed = len(numbers)
                     if mode == "hot" and receipt["logical_warm_hits"] < needed:
                         raise RuntimeError(f"The hot read reported {receipt['logical_warm_hits']} warm hits; "

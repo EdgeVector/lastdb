@@ -1,6 +1,6 @@
 //! Record domain store.
 //!
-//! Owns the main storage namespace where the records of a format 7 home, their
+//! Owns the main storage namespace where the records of a home, their
 //! alternate keys, field history and conflict rows live. External callers use
 //! `DbOperations::records()` to reach these operations.
 //!
@@ -101,7 +101,7 @@ async fn lock_target_stripes(
     guards
 }
 
-/// Record store for a format 7 home. One record at each primary key.
+/// Record store for a home. One record at each primary key.
 ///
 /// Backed by the `main` namespace.
 #[derive(Clone)]

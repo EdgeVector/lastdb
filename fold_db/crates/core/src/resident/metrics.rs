@@ -1,7 +1,7 @@
 //! Background persist counters for the status object.
 
 /// Background-work counters shared by the native runtime and its callers.
-/// Logical-record measurements come directly from the core warm set.
+/// Record measurements come directly from the core warm set.
 ///
 /// No write queues background persist work: every verb commits in its
 /// native request. The status object keeps the zero snapshot.

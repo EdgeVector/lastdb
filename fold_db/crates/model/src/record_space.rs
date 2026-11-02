@@ -1,13 +1,13 @@
-//! The record key space of a format 7 home (the record model).
+//! The record key space of a home (the record model).
 //!
-//! A format 7 home stores one record at each primary key:
+//! A home stores one record at each primary key:
 //! `rk:{S}:{esc(hash)}\0{range}`. A tombstone uses the same key. `S` is the
 //! record space of one schema. The record space owns one key bundle, as a
 //! field key does: its blind key blinds the hash, and the typed range profile
 //! of the primary key orders the range payload. So the records under one hash
 //! are one ordered key range.
 //!
-//! An alternate entry keeps its `ak:` key and its value in format 7. Its
+//! An alternate entry keeps its `ak:` key and its value. Its
 //! identity already names one schema and one key name.
 
 use crate::field_key_codec::escape_segment;
@@ -15,7 +15,7 @@ use crate::field_key_codec::{FieldKeyCodec, FieldKeyCodecError};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 
-/// Storage key prefix of a record or a tombstone in a format 7 home.
+/// Storage key prefix of a record or a tombstone.
 pub const RECORD_PREFIX: &str = "rk:";
 
 /// The record space of one schema: the unpadded base64url SHA-256 of a

@@ -15,9 +15,9 @@ pub(super) fn check_owned_declaration(schema: &Schema) -> Result<(), SchemaError
 
 /// Admit one stored schema at startup with the owned-schema rules.
 ///
-/// This release opens only format 7 homes, and every program that writes
-/// format 7 refuses cross-schema value sharing. So the home format is the
-/// layout proof, and startup reads no layout marker.
+/// This release opens only its own home format, which never shares values
+/// across schemas. So the home format is the layout proof, and startup reads
+/// no layout marker.
 pub(in crate::schema::core) fn admit_stored_schema(schema: &Schema) -> Result<(), SchemaError> {
     schema
         .validate_owned_schema()

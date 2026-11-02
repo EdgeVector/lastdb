@@ -16,7 +16,7 @@ pub(super) struct QueryRun<'a, H: HostNode> {
     /// The binding of the record walk that continues a sample which a run of
     /// deleted records ended early (`rules::sample_resumes`).
     pub(super) sample: Option<String>,
-    /// An unfiltered read of a format 7 home walks its records (`walk.rs`).
+    /// An unfiltered read of a home walks its records (`walk.rs`).
     pub(super) walk: bool,
 }
 

@@ -194,7 +194,7 @@ def main():
                          "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
                          "All opening samples retained. "
                          "Content verification reads files before timing: filesystem pages are not cold. "
-                         "This isolates logical-record-cold reads on a fixed physical layout, not device latency."}
+                         "This isolates record-cold reads on a fixed physical layout, not device latency."}
     save(args.output / "benchmark.json", manifest)
     seed_output = args.output / "seed"
     seed_output.mkdir()

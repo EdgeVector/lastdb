@@ -69,7 +69,7 @@ impl RecordStore {
         Ok((rows, deletes))
     }
 
-    /// The count mutations of the field history of format 7 records: `deltas`
+    /// The count mutations of the field history of records: `deltas`
     /// maps the storage key of a record to the change of its entry count.
     pub(crate) async fn record_history_count_mutations(
         &self,
@@ -90,7 +90,7 @@ impl RecordStore {
         Ok(mutations)
     }
 
-    /// The history entry count of each format 7 record, zero when it has none.
+    /// The history entry count of each record, zero when it has none.
     pub(crate) async fn record_history_counts(
         &self,
         records: &[&str],

@@ -22,7 +22,7 @@ pub(super) async fn execute_status_route(
     let wants_forensics = query_flag(&req.target, "recent") || query_flag(&req.target, "forensics");
     if wants_forensics {
         // Diagnostic callers need the current ring, not the minute-old sampler
-        // copy. This bounded in-memory snapshot does not fetch logical records.
+        // copy. This bounded in-memory snapshot does not fetch records.
         let mut current = host.request_telemetry.snapshot();
         current.persist_lanes = std::mem::take(&mut snapshot.request_ops.persist_lanes);
         snapshot.request_ops = current;

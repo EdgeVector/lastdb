@@ -13,14 +13,14 @@ records have the envelope forms of the primary (compressed and raw). Then:
 After each step the key list of each seed schema (GET /api/list, the
 `lastdb list` pages) must hold each live key of the model and no key that
 the model does not know. The open must keep the reads, the key lists, and
-the logical record bytes and record count of each seed schema equal to the
+the record bytes and record count of each seed schema equal to the
 step before it. Only the proof writes the seed schemas, so a change there
 comes from the open.
 
-Every new home is format 7 (the record model): one stored record value per
+Every new home uses the record model: one stored record value per
 key. A sampler reads the size of the node folder during the writes, the
 merges, and the open. The proof fails when the v2 data is above 2.0x of the
-logical record bytes that the node reports (GET /api/db/schemas, the
+record bytes that the node reports (GET /api/db/schemas, the
 `lastdb db schemas` walk), when the node reports under 16 MiB of logical
 records, because a smaller home does not test the limit, or when the sampler
 cannot read the node folder.
@@ -218,7 +218,7 @@ class Case:
 
     def compare(self, name, logical, reads, listed):
         """A phase without writes must keep the reads, the key lists, and the
-        logical records of each seed schema of the phase before it."""
+        records of each seed schema of the phase before it."""
         before = self.phases[-1]
         if reads["digest"] != before["reads"]["digest"]:
             self.failures.append(f"{name}: the reads differ from the reads before it")
@@ -370,7 +370,7 @@ class Case:
         raise ProofError(f"{schema}: the key list did not end after {LIST_PAGES} pages")
 
     def gate(self, name, window, start, end):
-        """The highest v2 size over the logical record bytes, sample by sample.
+        """The highest v2 size over the record bytes, sample by sample.
         In a write window the logical bytes go from `start` to `end` with the
         share of acknowledged mutations."""
         if min(start, end) < MINIMUM_LOGICAL:
@@ -388,7 +388,7 @@ class Case:
             self.failures.append(f"{name}: the sampler took no sample")
         elif worst["ratio"] > LIMIT:
             self.failures.append(f"{name}: the v2 data reached {worst['ratio']:.2f}x of the "
-                                 f"logical record bytes; the limit is {LIMIT}x")
+                                 f"record bytes; the limit is {LIMIT}x")
         return worst
 
 
@@ -401,16 +401,16 @@ def series(window):
 
 def summary(report, candidate):
     lines = ["## Disk v2 node proof (V3)", "",
-             f"Candidate `{candidate}` on a new format 7 home.", "",
-             f"Limit: the v2 node folder at or under {LIMIT}x of the logical record bytes "
-             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of logical records.", ""]
+             f"Candidate `{candidate}` on a new home.", "",
+             f"Limit: the v2 node folder at or under {LIMIT}x of the record bytes "
+             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of records.", ""]
     verdict = "FAIL" if report["failures"] else "PASS"
     counts = report["seed"]
     lines += [f"### {report['case']}: {verdict}", "",
               f"Engine settings of {report['settings_name']}. Mutations: "
               f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
               f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
-              "| Phase | Logical records | Node folder at end | Peak v2 / logical | Samples "
+              "| Phase | Records | Node folder at end | Peak v2 / logical | Samples "
               "(torn) | Keys read | Keys listed |",
               "|---|---|---|---|---|---|---|"]
     for phase in report["phases"]:

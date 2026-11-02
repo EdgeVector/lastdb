@@ -193,12 +193,12 @@ pub fn record_requested_keys(keys: u64) {
     update(|receipt| receipt.requested_keys = receipt.requested_keys.saturating_add(keys));
 }
 
-/// Record logical warm hits at the embedding logical-record boundary.
+/// Record logical warm hits at the embedding record boundary.
 pub fn record_logical_warm_hits(records: u64) {
     update(|receipt| receipt.logical_warm_hits = receipt.logical_warm_hits.saturating_add(records));
 }
 
-/// Record logical warm misses at the embedding logical-record boundary.
+/// Record logical warm misses at the embedding record boundary.
 pub fn record_logical_warm_misses(records: u64) {
     update(|receipt| {
         receipt.logical_warm_misses = receipt.logical_warm_misses.saturating_add(records)

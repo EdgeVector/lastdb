@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise field history through the actual CLI and a fresh CI daemon.
 
-Every new home is format 7: a history entry keeps its own copy of an old field
+Every new home uses the record model: a history entry keeps its own copy of an old field
 value at a record history key (`rh:`). The proof counts those rows through the
 inventory to show that an expiry and a purge remove the copies, not only hide
 them. It uses the existing owned-node launcher and runs no test runner or

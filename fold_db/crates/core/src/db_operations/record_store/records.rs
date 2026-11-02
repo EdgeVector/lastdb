@@ -1,4 +1,4 @@
-//! Records of a format 7 home: one stored value at each primary key.
+//! Records of a home: one stored value at each primary key.
 //!
 //! The mutation manager merges the fields of a record (decision D1). This
 //! file reads the records by key and puts the changed ones, with their

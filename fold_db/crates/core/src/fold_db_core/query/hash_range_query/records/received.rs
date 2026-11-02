@@ -1,4 +1,4 @@
-//! The record read of a format 7 home while it receives data from other users.
+//! The record read of a home while it receives data from other users.
 //!
 //! Each active sender's records live in its own `from:{sender}` scope. A read
 //! merges the own scope and the received scopes by key, in that order: at each
@@ -68,7 +68,7 @@ impl HashRangeQueryProcessor {
             }
             Some(_) => {
                 return Err(SchemaError::InvalidData(
-                    "a format 7 home reads records only by key, by one hash, or by page".into(),
+                    "records are read only by key, by one hash, or by page".into(),
                 ))
             }
         };

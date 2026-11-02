@@ -1,5 +1,5 @@
 //! The row commit: one native batch of rows, deletes, guarded deletes, and the
-//! release of the conflict rows of a format 7 home.
+//! release of the conflict rows of a home.
 //!
 //! The retention janitor, the queue repairs, the blob queue repair and the
 //! field history expiry write through [`RecordStore::commit_rows`]. It runs inside

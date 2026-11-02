@@ -1,4 +1,4 @@
-//! Decoded records of a format 7 home: one entry for each record key
+//! Decoded records of a home: one entry for each record key
 //! (decision D2).
 //!
 //! A record enters after a read finds it on disk, or after a flush puts its

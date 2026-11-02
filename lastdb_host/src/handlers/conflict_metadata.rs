@@ -13,7 +13,7 @@ use super::resolve_schema_name;
 mod rules;
 pub use rules::SelectedConflictRequest;
 
-/// A format 7 home keeps its conflicts with each record: the reply names the
+/// A home keeps its conflicts with each record: the reply names the
 /// kept losing values of each selected field, read by key.
 pub async fn selected_key_conflict_metadata<H: HostNode>(
     host: &H,

@@ -1,4 +1,4 @@
-//! The read of a format 7 home: records, not field keys.
+//! The read of a home: records, not field keys.
 //!
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,

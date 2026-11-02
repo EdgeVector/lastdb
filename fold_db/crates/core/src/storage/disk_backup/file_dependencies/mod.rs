@@ -1,7 +1,7 @@
 //! The file dependencies of record values and their bounded, exact-root
 //! coverage proof.
 //!
-//! A format 7 record names its files in its field values. The restore proof
+//! A record names its files in its field values. The restore proof
 //! and the byte backup derive each dependency from the value and copy and open
 //! its CAS body. The `fdep` directory rows of a format 6 record are gone; the
 //! key law refuses their family.

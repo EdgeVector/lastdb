@@ -200,7 +200,7 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
 /// Serialize a status snapshot for `/api/status` with the additive
 /// `capabilities` and `contract` siblings. Existing field names/types are
 /// preserved (wire freeze). `capabilities` stays an object; it is empty since
-/// the format 7 record model dropped the aggregate write.
+/// the record model dropped the aggregate write.
 pub fn status_value_with_contract(snapshot: &StatusSnapshot) -> Result<Value, String> {
     let mut value = serde_json::to_value(snapshot).map_err(|e| format!("status serialize: {e}"))?;
     let capabilities = json!({});

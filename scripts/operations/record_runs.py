@@ -1,4 +1,4 @@
-"""Reads past a run of deleted records in a format 7 home, and a schema drop.
+"""Reads past a run of deleted records in a home, and a schema drop.
 
 One hash holds more deleted records between two live records than one
 request may examine (8,192 keys). A range page that meets the run ends early

@@ -67,7 +67,7 @@ async fn execute(
     let ctx = &scoped;
     request.location.schema = handlers::resolve_schema_name(host, &request.location.schema)?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
-    // A format 7 home keeps copies of old values at record history keys.
+    // A home keeps copies of old values at record history keys.
     records::execute(host, ctx, request).await
 }
 

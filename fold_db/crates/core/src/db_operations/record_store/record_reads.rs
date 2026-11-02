@@ -1,4 +1,4 @@
-//! Record reads of a format 7 home: by key, or by one walk of the record
+//! Record reads of a home: by key, or by one walk of the record
 //! space of a schema. A range under one hash reads its keys in pages
 //! (`record_spans.rs`). An unfiltered page walks in record key order, one
 //! bounded page at a time (`record_walk.rs`).
@@ -87,7 +87,7 @@ impl RecordStore {
             }
             Some(_) => {
                 return Err(SchemaError::InvalidData(
-                    "a format 7 home reads records only by key, by one hash, or by page".into(),
+                    "records are read only by key, by one hash, or by page".into(),
                 ))
             }
         };

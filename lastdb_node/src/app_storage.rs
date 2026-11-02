@@ -20,9 +20,7 @@
 //! declared schema/key layouts (never a collection scan) to recover
 //! `unresolved_schema_bytes` into owner buckets.
 //!
-//! A format 7 write meters no schema yet: the per-schema `live_bytes` come
-//! only from a snapshot that an older home persisted. A fresh home reports no
-//! owner rows.
+//! A write meters no schema yet, so a home reports no owner rows.
 
 use chrono::{DateTime, Utc};
 use fold_db::db_operations::MeterTrustState;

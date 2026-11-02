@@ -129,7 +129,7 @@ def home_file_lines(report):
              "These observations are not one atomic snapshot; background merges can change files between them.",
              "Family totals count directory entries. Global unique-inode totals remove hardlink duplicates observed within this home.",
              "Unique-inode allocation does not measure unique filesystem blocks, links outside the home, or device traffic.",
-             "File lengths remain separate from encrypted native files and precompression logical-record bytes. No logical/native subtraction is performed.", "",
+             "File lengths remain separate from encrypted native files and precompression record bytes. No logical/native subtraction is performed.", "",
              "| Checkpoint | Span ms | File entries | Entry length MiB | Entry allocated MiB | Unique-inode length MiB | Unique-inode allocated MiB | Hardlink duplicate entries |",
              "|---|---:|---:|---:|---:|---:|---:|---:|"]
     for checkpoint in report["checkpoints"]:
