@@ -12,9 +12,9 @@ from node import home_format_line, save
 
 def compare(output, manifest):
     recipe = manifest["recipe"]
-    if (recipe.get("disk_budget") is not True or recipe.get("disk_format") != 2
+    if (recipe.get("disk_budget") is not True
             or recipe.get("search_enabled") is not False or recipe.get("pairs") != 1):
-        raise ValueError("The disk budget requires one v2 pair with Search off")
+        raise ValueError("The disk budget requires one pair with Search off")
     values = {label: {} for label in ("baseline", "candidate")}
     for run in manifest["runs"]:
         if not run["complete"]:

@@ -261,7 +261,7 @@ def main():
     write_json(args.output / "probe.json", {
         "schema": "lastdb.nightly.probe.v1", "complete": True, "target": manifest["target"],
         "source_git_oid": args.source, "version": args.version, "bundle_sha256": digest(args.bundle),
-        "api_version": version["api_version"], "capabilities": version["capabilities"], "disk_format": 2,
+        "api_version": version["api_version"], "capabilities": version["capabilities"],
         "min_supported_api_version": version.get("min_supported_api_version"),
         "current_outbox_format_version": version.get("current_outbox_format_version"),
         "records": 8, "daemon_stopped": True, "home_removed": True,

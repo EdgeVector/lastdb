@@ -76,7 +76,7 @@ def trace(node, output):
 
 def measure(binary, revision, output, mode):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_DISK_FORMAT": "2"})
+    node = Node(binary, revision, output)
     work, error, metric = None, None, None
     try:
         node.start()

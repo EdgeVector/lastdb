@@ -111,7 +111,7 @@ def audit_samples(output):
 
 def measure(binary, revision, output, template, whole, physical):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_DISK_FORMAT": "2"})
+    node = Node(binary, revision, output)
     work, error, samples, root = None, None, None, None
     try:
         # The template's daemon is stopped; node owns its separate destination root.
@@ -198,8 +198,7 @@ def main():
     save(args.output / "benchmark.json", manifest)
     seed_output = args.output / "seed"
     seed_output.mkdir()
-    template = Node(binaries["baseline"], revisions["baseline"], seed_output,
-                    environment={"LASTDB_DISK_FORMAT": "2"})
+    template = Node(binaries["baseline"], revisions["baseline"], seed_output)
     samples, comparison = {}, None
     try:
         whole, physical = prepare_seed(template, seed_output)

@@ -177,7 +177,6 @@ async fn restore(
                 return Err("V2 accepted commit digest differs".into());
             }
         }
-        require_format_v2(&accepted)?;
         RestoreSession::begin(
             &selection.destination.ok_or("V2 restore requires --into")?,
             accepted,
@@ -187,7 +186,6 @@ async fn restore(
     if session.accepted().job().stream.scope.account_id != scope.account_id {
         return Err("V2 restore account differs".into());
     }
-    require_format_v2(session.accepted())?;
     let keys =
         RecoveryKeys::from_scope_phrase(phrase, &scope.account_id).map_err(|e| e.to_string())?;
     eprintln!("V2 restore session: {}", session.path().display());
@@ -235,20 +233,6 @@ async fn accepted(
             .ok_or_else(|| "V2 stream has no accepted backup".into()),
         HeadReadResult::Error { error } => Err(error.to_string()),
     }
-}
-
-/// A backup of a disk format v1 pack home has a client descriptor. A v1 record
-/// backup has a null descriptor; the restore refuses its version 2 root after
-/// the root download (`byte_cloud_restore::closure`).
-fn require_format_v2(accepted: &AcceptedBackup) -> Result<(), String> {
-    if accepted.descriptor().as_value().is_null() {
-        return Ok(());
-    }
-    Err(
-        "V2 restore refuses a backup of a disk format v1 home; this program restores only \
-         disk format v2"
-            .into(),
-    )
 }
 
 fn id(value: String) -> Result<Id, String> {

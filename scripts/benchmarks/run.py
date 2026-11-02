@@ -96,11 +96,11 @@ def recipe_for(args):
         if args.disk_budget_only:
             recipe["growth"] = {**recipe["growth"],
                                 "delete_target_bytes": 10 * 2**20}
-            recipe.update(disk_budget=True, disk_format=2, search_enabled=False, pairs=1,
-                          writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
+            recipe.update(disk_budget=True, search_enabled=False, pairs=1,
+                          writes="durable batches; flush at each checkpoint; default automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
                           logical="GET /api/db/schemas total_logical_bytes; the stored record values "
-                                  "of the format 7 home")
+                                  "of the home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
     recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
