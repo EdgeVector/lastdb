@@ -114,7 +114,19 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/field-history`. Status, inventory, restore, and share replies
 /// use the field-value, verify-ref, and record-count names.
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 20;
+/// `21` (2026-11-01) gives a query record one `metadata` block,
+/// `{source_file_name, metadata?}` or null, in place of the per-field
+/// metadata map. A query record carries `has_conflicts` and
+/// `conflicted_fields`; `author_pub_key`, `field_key_id`, and `writer_pubkey`
+/// are removed. Query pages and counts remove `unresolved_rows` and
+/// `tombstoned_rows`. Mutation replies remove `touched_group_ids` and the
+/// `gate_wait` and `publish` stages. Share slices remove `field_key_id`,
+/// `writer_pubkey`, and `signature`. Restore replies rename `verified_rows` to
+/// `verified_records` and the `tips` proof stage to `records`. The local
+/// watch reply renames `tip_seq` to `last_seq`. The delete ledger removes its
+/// always-zero counters. No request changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 21;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
