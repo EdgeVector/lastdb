@@ -67,7 +67,6 @@ pub mod resolver_pack_consumer;
 mod resolver_pack_vocabulary;
 pub mod resolver_runtime;
 pub mod schema_config;
-pub mod schema_embedding_artifact;
 pub mod schema_expansion_commit;
 pub mod schema_mutation_gate;
 pub mod schema_org_seeds;
@@ -133,12 +132,6 @@ pub use resolver_runtime::{NativeResolverState, ResolverRuntime, RuntimeTelemetr
 pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
 pub use schema_core_resolver::{
     resolve as resolve_schema, verdict_from_output, ResolveVerdict, Unresolvable,
-};
-pub use schema_embedding_artifact::{
-    artifact_sha256_hex as schema_embedding_artifact_sha256_hex,
-    latest_compatible_manifest_pointer_key, ArtifactEnv, EmbeddingVectorRecord,
-    SchemaEmbeddingArtifactCounts, SchemaEmbeddingArtifactManifest,
-    SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION,
 };
 pub use schema_mutation_gate::{
     catalog_size_difficulty_bits, log_schema_mutation_gate_result,
