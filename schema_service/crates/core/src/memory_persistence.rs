@@ -255,15 +255,6 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
             .cloned())
     }
 
-    async fn save_declared_field_definitions(
-        &self,
-        record: &DeclaredFieldRecord,
-        fields: &[(String, CanonicalField)],
-        expected: Option<&DeclaredFieldRecord>,
-    ) -> FoldDbResult<()> {
-        self.commit_declaration_definitions(record, fields, expected, None)
-    }
-
     async fn save_declared_field_definitions_if_vocabulary(
         &self,
         record: &DeclaredFieldRecord,
