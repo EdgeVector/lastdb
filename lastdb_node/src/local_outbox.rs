@@ -115,18 +115,11 @@ impl LocalOutbox {
         seq
     }
 
-    /// Current tip (next seq that will be assigned). `0` means never written.
-    pub fn tip_seq(&self) -> u64 {
-        let mut guard = self.inner.lock().expect("local outbox mutex");
-        Self::prune_locked(&mut guard, Instant::now());
-        guard.next_seq.saturating_sub(1)
-    }
-
     /// Events with `seq > after_seq`, filtered by schema, one HashRange hash,
     /// and an optional inclusive-start/exclusive-end range.
     ///
     /// A zero timeout returns the current events without a wait. A cursor behind
-    /// the retained ring sets `gap`. `tip_seq` stays the node tip, so a filtered
+    /// the retained ring sets `gap`. `last_seq` stays the last node seq, so a filtered
     /// client can advance across unrelated writes.
     pub fn poll_after_schemas_hash_range(
         &self,
@@ -175,13 +168,13 @@ impl LocalOutbox {
     /// Build the poll response for `after_seq` from the retained events.
     fn snapshot_locked(inner: &Inner, after_seq: u64, filter: &WatchFilter<'_>) -> LocalWatchPoll {
         let oldest = inner.events.front().map(|e| e.seq);
-        let tip = inner.next_seq.saturating_sub(1);
+        let last = inner.next_seq.saturating_sub(1);
         // after_seq=0 means "give me retained history" — never a gap.
         // Gap only when the client cursor is strictly behind the oldest retained seq.
         let gap = after_seq > 0
             && match oldest {
                 Some(o) => o > after_seq + 1,
-                None => tip > after_seq,
+                None => last > after_seq,
             };
         let events = inner
             .events
@@ -191,7 +184,7 @@ impl LocalOutbox {
             .collect();
         LocalWatchPoll {
             after_seq,
-            tip_seq: tip,
+            last_seq: last,
             gap,
             events,
         }
@@ -226,7 +219,8 @@ impl WatchFilter<'_> {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LocalWatchPoll {
     pub after_seq: u64,
-    pub tip_seq: u64,
+    /// The last seq the node assigned. `0` means never written.
+    pub last_seq: u64,
     /// Client's cursor fell behind the retained ring — re-read product tables.
     pub gap: bool,
     pub events: Vec<LocalWatchEvent>,

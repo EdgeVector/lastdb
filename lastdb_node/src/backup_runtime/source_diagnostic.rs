@@ -115,8 +115,6 @@ const REASONS: &[&str] = &[
     "metadata record format",
     "metadata record key",
     "metadata references an absent record",
-    "metadata tip identity",
-    "metadata tip identity exceeds release bound",
     "metadata-only file dependency is uncertified",
     "field key bundle requires non-empty field key and domain",
     "field key bundle wrap is not encrypted",

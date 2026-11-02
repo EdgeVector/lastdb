@@ -24,14 +24,10 @@ pub const RECORD_DELETE_LEDGER_PREFIX: &str = "dellog:";
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
-/// Live `Delete` tip converge (`purge::converge_delete_tips`).
+/// Live `Delete` converge. It counts its records in `records_converged`.
 ///
-/// Deliberately NOT [`LEDGER_VERB_DELETE`]. Converge removes tip (`mk:`) rows
-/// and their `tv:` chains and reclaims **no record body** — byte reclaim is the
-/// separate janitor pass (`design-lastdb-delete-converge-then-reclaim`). A
-/// consumer that sums `records_deleted` over `delete` rows to answer "what
-/// removed this body" must not be handed rows that never removed one, so the
-/// converge lane gets its own verb rather than a `delete` row with a zero.
+/// Deliberately NOT [`LEDGER_VERB_DELETE`]: converge reclaims no record body,
+/// so the converge lane gets its own verb.
 pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
 
 /// One audit row per hard-delete batch. Version 2 joins the native erase
@@ -57,28 +53,9 @@ pub struct RecordDeleteLedgerEntry {
     /// module docs for why the key itself is not stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_fingerprint: Option<String>,
-    /// `record:` bodies removed.
-    pub records_deleted: u64,
     /// `history:` rows removed (purge only).
     #[serde(default)]
     pub history_rows_deleted: u64,
-    /// Purge only: Search-plane invalidations committed for the record(s).
-    ///
-    /// Historically this counted in-process `emb:` / `graveyard:emb:` rows.
-    /// After native index removal, Mini no longer stores those rows; the value
-    /// is the number of purged keys (one Search tombstone each) filled in at
-    /// ledger commit. Meaningful only on a `committed: true` row.
-    #[serde(default)]
-    pub embedding_rows_deleted: u64,
-    /// Total storage keys in the delete batch — bodies plus their locators,
-    /// schema-index rows and (purge) history rows. The number that actually
-    /// hit the store, as opposed to the logical record count.
-    #[serde(default)]
-    pub storage_keys_deleted: u64,
-    /// Live `mk:` tips removed by the same native snapshot batch. Historical
-    /// version-1 rows with `committed: false` describe an attempted operation.
-    #[serde(default)]
-    pub tips_removed: u64,
     /// Delete-converge only: records in the batch that had durable residue to
     /// converge. Keys already converged, or never persisted, are dropped
     /// before the row is written and are not counted here.
@@ -108,11 +85,7 @@ impl RecordDeleteLedgerEntry {
             committed: true,
             schema: None,
             key_fingerprint: None,
-            records_deleted: 0,
             history_rows_deleted: 0,
-            embedding_rows_deleted: 0,
-            storage_keys_deleted: 0,
-            tips_removed: 0,
             records_converged: 0,
             file_pointer_records_purged: 0,
         }

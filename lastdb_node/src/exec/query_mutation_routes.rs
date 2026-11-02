@@ -129,7 +129,7 @@ pub(super) async fn execute_mutation_route(
 /// keys (cursor fell behind the short TTL ring). Optional `schema` filters are
 /// repeated and comma-separated; an exact `hash` filter narrows a watcher to
 /// one HashRange partition. When filters are present, unrelated writes do not
-/// wake a blocking waiter, but `tip_seq` still advances to the node tip. The
+/// wake a blocking waiter, but `last_seq` still advances to the last node seq. The
 /// optional `start` and `end` bounds use inclusive-start/exclusive-end order.
 pub(super) fn execute_local_watch_route(
     req: &UdsRequest,
@@ -183,6 +183,6 @@ pub(super) fn execute_local_watch_route(
         range_end.as_deref(),
     );
     render(Ok(serde_json::to_value(poll).unwrap_or_else(|_| {
-        serde_json::json!({"after_seq": after_seq, "tip_seq": 0, "gap": false, "events": []})
+        serde_json::json!({"after_seq": after_seq, "last_seq": 0, "gap": false, "events": []})
     })), ctx)
 }

@@ -165,7 +165,7 @@ impl fmt::Display for SchemaError {
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
-            Self::MissingSelectedRecord => write!(f, "selected tip has no readable record body"),
+            Self::MissingSelectedRecord => write!(f, "selected record has no readable body"),
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
             Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),

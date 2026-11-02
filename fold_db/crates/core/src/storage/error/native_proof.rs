@@ -17,7 +17,7 @@ pub enum NativeProofStage {
     Blobs,
     Directories,
     NativeCas,
-    Tips,
+    Records,
     FinalBinding,
 }
 
@@ -36,7 +36,7 @@ impl fmt::Display for NativeProofStage {
             Self::Blobs => "blobs",
             Self::Directories => "directories",
             Self::NativeCas => "native_cas",
-            Self::Tips => "tips",
+            Self::Records => "records",
             Self::FinalBinding => "final_binding",
         })
     }

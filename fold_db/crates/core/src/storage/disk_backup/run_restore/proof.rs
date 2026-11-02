@@ -80,7 +80,7 @@ fn verify_once(
         ranges::verify(main, account_key, version, key_heads),
     )?;
     let proved = phase(Stage::Blobs, blobs::verify(&proof))?;
-    phase(Stage::Tips, records::verify_tips(&proof))?;
+    phase(Stage::Records, records::verify_records(&proof))?;
     Ok(proved)
 }
 

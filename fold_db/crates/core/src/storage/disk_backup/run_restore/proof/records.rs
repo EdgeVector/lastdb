@@ -18,7 +18,7 @@ const MAX_HISTORY_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4 * 1024;
 /// Prove every record and record history entry of the `records` collection.
 /// A row that is not a record must still pass the current key law.
 /// A retired prefix fails that law. Other rows name no file.
-pub(super) fn verify_tips(proof: &Proof<'_>) -> StorageResult<()> {
+pub(super) fn verify_records(proof: &Proof<'_>) -> StorageResult<()> {
     let mut read = super::rows::read(proof.main, proof.key_heads)?;
     let mut rows = Rows::new(proof.main, read.as_mut(), "records")?;
     while let Some((key, body)) = rows.next()? {

@@ -43,7 +43,7 @@ Response (envelope-wrapped as usual):
 ```json
 {
   "after_seq": 12,
-  "tip_seq": 15,
+  "last_seq": 15,
   "gap": false,
   "events": [
     {
@@ -62,7 +62,7 @@ Response (envelope-wrapped as usual):
 
 `schema` accepts repeated or comma-separated values. `hash` accepts one exact
 HashRange hash. `start` is inclusive and `end` is exclusive. The node wakes the
-request only for matching events. The response still includes `tip_seq`, so the
+request only for matching events. The response still includes `last_seq`, so the
 client can advance its cursor across unrelated writes.
 
 ## Concurrency: watchers are capped, and the cap is visible
