@@ -216,11 +216,4 @@ impl DbOperations {
         }
         Ok(Some(schema))
     }
-
-    pub async fn get_schema_drop_receipt(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<crate::db_operations::schema_store::SchemaDropReceipt>, SchemaError> {
-        self.schemas().get_schema_drop_receipt(schema_name).await
-    }
 }
