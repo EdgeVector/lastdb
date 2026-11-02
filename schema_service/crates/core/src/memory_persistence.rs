@@ -105,15 +105,6 @@ impl InMemorySchemaPersistence {
 
 #[async_trait]
 impl ExternalSchemaPersistence for InMemorySchemaPersistence {
-    async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        self.save_schema_definitions(std::slice::from_ref(schema), &[])
-            .await
-    }
-
-    async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        self.save_schema_definitions(schemas, &[]).await
-    }
-
     async fn save_schema_definitions(
         &self,
         schemas: &[Schema],
@@ -132,15 +123,6 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
         Ok(self.read()?.schemas.clone())
-    }
-
-    async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
-        self.save_canonical_fields(&[(name.to_owned(), field.clone())])
-            .await
-    }
-
-    async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        self.save_schema_definitions(&[], fields).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {

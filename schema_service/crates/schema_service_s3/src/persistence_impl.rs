@@ -5,15 +5,6 @@ use schema_service_core::CanonicalVocabularyWrite;
 
 #[async_trait]
 impl ExternalSchemaPersistence for S3BlobPersistence {
-    async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        self.commit_schema_definitions(std::slice::from_ref(schema), &[], None)
-            .await
-    }
-
-    async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        self.commit_schema_definitions(schemas, &[], None).await
-    }
-
     async fn save_schema_definitions(
         &self,
         schemas: &[Schema],
@@ -33,15 +24,6 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
         Ok(self.load_definition_set().await?.schemas)
-    }
-
-    async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
-        self.save_canonical_fields(&[(name.to_owned(), field.clone())])
-            .await
-    }
-
-    async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        self.commit_schema_definitions(&[], fields, None).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
