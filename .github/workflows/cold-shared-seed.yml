@@ -10,11 +10,11 @@ on:
       baseline:
         description: Full baseline commit SHA (also builds the generated seed)
         type: string
-        default: '88305fb503296f04eb19c43cb43ca0ffbeec2a6e'
+        required: true
       candidate:
         description: Full candidate commit SHA, compatible with the seed's disk format
         type: string
-        default: '9d43fd6782bdd9681f25c1407c752fad576c1000'
+        required: true
 
 permissions:
   contents: read
@@ -29,8 +29,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      BASELINE_SHA: ${{ inputs.baseline || '88305fb503296f04eb19c43cb43ca0ffbeec2a6e' }}
-      CANDIDATE_SHA: ${{ inputs.candidate || '9d43fd6782bdd9681f25c1407c752fad576c1000' }}
+      # A pull request compares its base with its merge commit.
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.sha }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
     steps:
