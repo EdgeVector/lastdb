@@ -16,11 +16,8 @@ mod metadata;
 #[path = "reader/open.rs"]
 mod open;
 pub(super) use metadata::MetadataMemo;
-#[path = "reader/probes.rs"]
-mod probes;
 #[path = "reader/stream.rs"]
 pub(super) mod stream;
-pub(super) use probes::Selected;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
