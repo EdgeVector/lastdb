@@ -224,7 +224,7 @@ def main():
                 "binaries": {label: {"revision": revisions[label], "sha256": file_hash(binary)}
                              for label, binary in binaries.items()},
                 "scope": "One stopped generated seed; four alternating pairs of independent byte-identical "
-                         "clones. Both formats must be v2. One bounded boot metadata append is recorded; "
+                         "clones. Both formats must be v2. At most one bounded boot metadata append is recorded; "
                          "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
                          "All opening samples retained. "
                          "Content verification reads files before timing: filesystem pages are not cold. "
@@ -248,17 +248,22 @@ def main():
         roots = [r["root"] for r in manifest["runs"]]
         if any(root != roots[0] for root in roots) or inventory(template.home) != whole:
             raise RuntimeError("Runs did not hold one shared root, or the stopped seed was modified")
-        seed_live = json.loads((seed_output / "observed-stable.json").read_text())[-1]
-        # One clean header commit on shutdown, one re-arm header commit on boot.
-        expected_root = {name: seed_live[name] + 2 for name in ("generation", "frontier")}
-        if roots[0] != expected_root:
-            raise RuntimeError("The shared root includes unexpected shutdown/startup publications")
-        manifest["expected_boot_root"] = expected_root
-        boot_sizes = [list(json.loads((args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())[0]["bytes"]
+        boot_sizes = [sum(entry["bytes"] for entry in json.loads(
+                          (args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())
                       for r in manifest["runs"]]
         if len(set(boot_sizes)) != 1:
             raise RuntimeError("The versions appended different sizes of boot metadata")
         manifest["boot_append_bytes"] = boot_sizes[0]
+        # The last settle open observed the live root of the stopped seed. An older
+        # program writes one clean header commit on shutdown and one re-arm header
+        # commit on boot (the bounded boot append); format 8 writes neither.
+        opens = json.loads((seed_output / "settle.json").read_text())["opens"]
+        settled = json.loads((seed_output / f"settle-{opens - 1}.json").read_text())[-1]
+        publications = 2 if boot_sizes[0] else 0
+        expected_root = {name: settled[name] + publications for name in ("generation", "frontier")}
+        if roots[0] != expected_root:
+            raise RuntimeError("The shared root includes unexpected shutdown/startup publications")
+        manifest["expected_boot_root"] = expected_root
         comparison = retain_comparison(args.output, manifest, samples)
     finally:
         template.close()
