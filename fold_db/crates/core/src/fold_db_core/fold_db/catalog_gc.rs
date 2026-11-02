@@ -194,13 +194,13 @@ impl FoldDB {
             drop_prefixed_rows_for_instance(self.db_ops().records(), main.as_ref(), instance)
                 .await?;
         if let Some(batch) = search_changes.filter(|batch| !batch.changes.is_empty()) {
-            self.publish_catalog_unshare_search(batch).await?;
+            self.publish_catalog_unshare_search(batch)?;
         }
         Ok(reclaim)
     }
 
     /// Search sees removal only after the complete catalog cleanup is durable.
-    async fn publish_catalog_unshare_search(
+    fn publish_catalog_unshare_search(
         &self,
         batch: IndexChangeBatch,
     ) -> Result<(), SchemaError> {
