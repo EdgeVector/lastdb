@@ -13,7 +13,7 @@ use crate::storage::{KvStore, StorageError, TypedKvStore};
 
 pub(crate) mod native;
 
-const TIP_KEY: &str = "tip";
+const LAST_SEQ_KEY: &str = "last_seq";
 const EVENT_PREFIX: &str = "event:";
 const EVENT_END: &str = "event;";
 const APPEND_EVENTS: usize = 1_024;
@@ -45,7 +45,7 @@ pub struct ChangeFeedPage {
 pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
     native: Arc<crate::storage::disk_pack::PackRuntime>,
-    tip: Arc<Mutex<u64>>,
+    last_seq: Arc<Mutex<u64>>,
     subscribers: broadcast::Sender<ChangeFeedEvent>,
 }
 
@@ -55,12 +55,12 @@ impl ChangeFeedStore {
         native: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
-        let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
+        let last_seq = store.get_item::<u64>(LAST_SEQ_KEY).await?.unwrap_or(0);
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             store,
             native,
-            tip: Arc::new(Mutex::new(tip)),
+            last_seq: Arc::new(Mutex::new(last_seq)),
             subscribers,
         })
     }
@@ -79,10 +79,10 @@ impl ChangeFeedStore {
     }
 
     /// Preserve caller order in bounded chunks. Each native chunk acquires the
-    /// writer before the tip and publishes subscribers only after durability.
+    /// writer before the last sequence and publishes subscribers only after durability.
     pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
         if events.is_empty() {
-            return Ok(*self.tip.lock().await);
+            return Ok(*self.last_seq.lock().await);
         }
         let mut chunk = Vec::new();
         let mut bytes = 0usize;
@@ -122,8 +122,8 @@ impl ChangeFeedStore {
                 gap: false,
             });
         }
-        let tip = *self.tip.lock().await;
-        let oldest = tip.saturating_sub(MAX_EVENTS).saturating_add(1).max(1);
+        let last_seq = *self.last_seq.lock().await;
+        let oldest = last_seq.saturating_sub(MAX_EVENTS).saturating_add(1).max(1);
         let gap = after > 0 && after.saturating_add(1) < oldest;
         let effective_after = if gap { oldest.saturating_sub(1) } else { after };
         let start = event_key(effective_after.saturating_add(1));
@@ -137,8 +137,8 @@ impl ChangeFeedStore {
         Ok(ChangeFeedPage { events, gap })
     }
 
-    pub async fn tip(&self) -> u64 {
-        *self.tip.lock().await
+    pub async fn last_seq(&self) -> u64 {
+        *self.last_seq.lock().await
     }
 }
 

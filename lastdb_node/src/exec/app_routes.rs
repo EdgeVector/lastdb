@@ -103,10 +103,15 @@ pub(super) async fn execute_app_changes_route(
     let mut changes = page.events;
     // Advance past every examined event, including those the caller cannot see.
     let examined_cursor = changes.last().map_or(after, |event| event.seq);
-    let tip = host.db.db_ops().change_feed().tip().await;
+    let last_seq = host.db.db_ops().change_feed().last_seq().await;
     changes.retain(|event| change_visible_to_caller(host, ctx, event, target.as_deref()));
     render(
-        Ok(change_rules::reply(changes, examined_cursor, tip, page.gap)),
+        Ok(change_rules::reply(
+            changes,
+            examined_cursor,
+            last_seq,
+            page.gap,
+        )),
         ctx,
     )
 }

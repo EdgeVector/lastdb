@@ -48,7 +48,7 @@ impl AppChangesRequest {
 pub(super) fn reply(
     events: Vec<ChangeFeedEvent>,
     examined_cursor: u64,
-    tip: u64,
+    last_seq: u64,
     gap: bool,
 ) -> Value {
     let changes = events
@@ -69,7 +69,7 @@ pub(super) fn reply(
     let mut response = serde_json::json!({
         "changes": [],
         "next_cursor": encode_change_cursor(examined_cursor),
-        "has_more": examined_cursor < tip,
+        "has_more": examined_cursor < last_seq,
         "gap": gap,
     });
     // Move the complete array instead of serializing a second copy of its values.

@@ -108,12 +108,12 @@ impl ChangeFeedStore {
         captured: Option<Captured>,
     ) -> Result<u64, SchemaError> {
         // Native preparation has one FIFO owner. The private prefix contains
-        // earlier accepted tips; ordinary readers still see the durable tip.
-        let tip = self.prepared_tip().await?;
-        let first = tip
+        // earlier accepted sequences; ordinary readers still see the durable one.
+        let last_seq = self.prepared_last_seq().await?;
+        let first = last_seq
             .checked_add(1)
             .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
-        let end = tip
+        let end = last_seq
             .checked_add(events.len() as u64)
             .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
         let mut ready = Vec::with_capacity(events.len());
@@ -143,7 +143,7 @@ impl ChangeFeedStore {
             }
         }
         rows.push((
-            TIP_KEY.as_bytes().to_vec(),
+            LAST_SEQ_KEY.as_bytes().to_vec(),
             serde_json::to_vec(&end).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
         ));
         self.store.inner().batch_put(rows).await?;
@@ -155,10 +155,10 @@ impl ChangeFeedStore {
             // second writer after an acknowledged event reaches retention.
             self.store.inner().batch_delete(expired).await?;
         }
-        self.stage_prepared_tip(end)?;
+        self.stage_prepared_last_seq(end)?;
         let store = self.clone();
         let deliver = async move {
-            *store.tip.lock().await = end;
+            *store.last_seq.lock().await = end;
             for event in ready {
                 if let Some(captured) = &captured {
                     captured
@@ -175,22 +175,25 @@ impl ChangeFeedStore {
         Ok(end)
     }
 
-    async fn prepared_tip(&self) -> Result<u64, SchemaError> {
-        let cache = Arc::as_ptr(&self.tip) as usize;
-        match transaction::publication::get::<u64>(Some(Arc::clone(&self.native)), cache, TIP_KEY)?
-        {
-            Some(tip) => Ok(*tip),
-            None => Ok(*self.tip.lock().await),
+    async fn prepared_last_seq(&self) -> Result<u64, SchemaError> {
+        let cache = Arc::as_ptr(&self.last_seq) as usize;
+        match transaction::publication::get::<u64>(
+            Some(Arc::clone(&self.native)),
+            cache,
+            LAST_SEQ_KEY,
+        )? {
+            Some(last_seq) => Ok(*last_seq),
+            None => Ok(*self.last_seq.lock().await),
         }
     }
 
-    fn stage_prepared_tip(&self, end: u64) -> Result<(), StorageError> {
+    fn stage_prepared_last_seq(&self, end: u64) -> Result<(), StorageError> {
         // The existing private metadata prefix covers earlier queued calls and
-        // repeated stages in this call. The fallback is the durable memory tip.
+        // repeated stages in this call. The fallback is the durable last sequence.
         transaction::publication::publish(
             Some(Arc::clone(&self.native)),
-            Arc::as_ptr(&self.tip) as usize,
-            TIP_KEY.into(),
+            Arc::as_ptr(&self.last_seq) as usize,
+            LAST_SEQ_KEY.into(),
             end,
             || Ok(()),
         )
