@@ -1,4 +1,4 @@
-name: Record history compiler layouts
+name: Field history compiler layouts
 
 on:
   workflow_dispatch:

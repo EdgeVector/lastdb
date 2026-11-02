@@ -1,4 +1,4 @@
-name: Record history memory attribution
+name: Field history memory attribution
 
 on:
   workflow_dispatch:
