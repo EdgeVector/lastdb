@@ -91,6 +91,8 @@ jobs:
         working-directory: candidate
         run: |
           set -euo pipefail
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           rustup show active-toolchain
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"

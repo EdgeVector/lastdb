@@ -2,7 +2,7 @@
 //! The underlying SchemaStore remains the physical schema-record boundary.
 
 use super::core::DbOperations;
-use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
+use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;
 
@@ -51,13 +51,6 @@ impl DbOperations {
         state: &SchemaState,
     ) -> Result<(), SchemaError> {
         self.schemas().store_schema_state(schema_name, state).await
-    }
-
-    pub async fn get_schema_name_claim(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<SchemaNameClaim>, SchemaError> {
-        self.schemas().get_schema_name_claim(schema_name).await
     }
 
     pub async fn set_schema_name_claim_retired(

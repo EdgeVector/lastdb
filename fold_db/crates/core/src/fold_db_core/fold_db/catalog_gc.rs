@@ -200,10 +200,7 @@ impl FoldDB {
     }
 
     /// Search sees removal only after the complete catalog cleanup is durable.
-    fn publish_catalog_unshare_search(
-        &self,
-        batch: IndexChangeBatch,
-    ) -> Result<(), SchemaError> {
+    fn publish_catalog_unshare_search(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
         let runtime = self.db_ops().namespaced_store().disk_pack_runtime();
         let manager = std::sync::Arc::clone(&self.mutation_manager);
         crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
