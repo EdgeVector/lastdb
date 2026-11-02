@@ -92,7 +92,7 @@ So blocking watchers are admitted through `lastdb_node::watch_gate::WatchGate`:
 
 This bounds the failure mode; it does not remove the block. The complete fix is
 to park the waiter off the worker and re-dispatch on wake, which needs an async
-connection path end to end (`uds_http::serve_connection` is sync,
+connection path end to end (`uds_http::receive_connection` is sync,
 thread-per-request). Card:
 `lastdb-long-poll-watchers-pin-uds-workers-invisible-to-qos`.
 

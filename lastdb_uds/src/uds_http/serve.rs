@@ -110,7 +110,7 @@ pub fn write_response<W: Write>(w: &mut W, resp: &UdsResponse) -> io::Result<()>
 /// log or to another local listener. Each variant maps to the status that best
 /// describes the framing failure; the broken-transport variants (`Empty`, `Io`,
 /// `UnexpectedEof`) still map to a `400` for completeness, though
-/// [`serve_connection`] does not bother writing a response when the peer has
+/// [`receive_connection`] does not write a response when the peer has
 /// already hung up.
 pub fn error_response(err: &UdsHttpError) -> UdsResponse {
     let (status, reason): (u16, &'static str) = match err {
@@ -129,47 +129,6 @@ pub fn error_response(err: &UdsHttpError) -> UdsResponse {
     };
     // The body is the reason phrase only — fixed text, no caller bytes (I4).
     UdsResponse::new(status, reason, reason.as_bytes().to_vec())
-}
-
-/// Read one request off an accepted control-socket stream, run it through
-/// `handler` under the connection's [`AccessContext`], and write the response
-/// back — the connective glue between the request parser, the posture
-/// mapping ([`uds_access_context`]), and a request handler.
-///
-/// `owner_user_id` is the node owner the same-user peer runs as; `socket_kind`
-/// is the socket the connection was accepted on (owner vs per-app); `transport` /
-/// `verification` are the posture the accept loop
-/// ([`super::uds::UdsConnVerdict::access_posture`]) attached to this connection.
-/// On a successful parse, `handler` is called with the parsed request and the
-/// stamped context and its [`UdsResponse`] is written back. On a parse failure
-/// the content-free [`error_response`] is written instead — except when the peer
-/// hung up before sending anything ([`UdsHttpError::Empty`]) or the transport
-/// itself failed ([`UdsHttpError::Io`]), where there is nothing to answer and
-/// the connection is simply closed.
-///
-/// One request per connection: the stream is read once, answered once
-/// (`Connection: close`), and dropped by the caller. `handler` maps
-/// `(&UdsRequest, &AccessContext)` to a response from the daemon.
-pub fn serve_connection<H>(
-    stream: &mut std::os::unix::net::UnixStream,
-    owner_user_id: &str,
-    socket_kind: SocketKind,
-    transport: CallerTransport,
-    verification: CallerVerification,
-    handler: H,
-) -> io::Result<()>
-where
-    H: FnOnce(&UdsRequest, &AccessContext) -> UdsResponse,
-{
-    serve_connection_with_timeout(
-        stream,
-        owner_user_id,
-        socket_kind,
-        transport,
-        verification,
-        UDS_CONN_BUDGET,
-        handler,
-    )
 }
 
 /// Aggregate per-connection wall-clock budget on the control socket (blocker
@@ -249,41 +208,4 @@ impl io::Write for DeadlineStream<'_> {
     fn flush(&mut self) -> io::Result<()> {
         (&*self.stream).flush()
     }
-}
-
-/// [`serve_connection`] with an explicit aggregate budget — split out so tests
-/// can drive the deadline path in milliseconds instead of waiting out the
-/// production constant.
-///
-/// The read phase has one aggregate deadline. [`DeadlineStream`] re-arms
-/// the remaining budget before every receive, so a peer cannot extend that
-/// phase by sending bytes slowly (blocker **B4**). The handler runs outside
-/// this budget. The response write gets a fresh budget after the handler.
-/// A read timeout maps to [`UdsHttpError::Io`] and closes the connection
-/// without a response.
-fn serve_connection_with_timeout<H>(
-    stream: &mut std::os::unix::net::UnixStream,
-    owner_user_id: &str,
-    socket_kind: SocketKind,
-    transport: CallerTransport,
-    verification: CallerVerification,
-    budget: std::time::Duration,
-    handler: H,
-) -> io::Result<()>
-where
-    H: FnOnce(&UdsRequest, &AccessContext) -> UdsResponse,
-{
-    let Some((request, context)) = connection::receive_with_budget(
-        stream,
-        owner_user_id,
-        socket_kind,
-        transport,
-        verification,
-        budget,
-    )?
-    else {
-        return Ok(());
-    };
-    let response = handler(&request, &context);
-    connection::finish_with_budget(stream, &response, budget)
 }

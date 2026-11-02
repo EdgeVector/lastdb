@@ -40,7 +40,7 @@
 //!
 //! This is the cheap half of the fix. The complete fix is to park the waiter
 //! off the worker and re-dispatch on wake, which needs an async connection
-//! path end to end (`uds_http::serve_connection` is sync, thread-per-request).
+//! path end to end (`uds_http::receive_connection` is sync, thread-per-request).
 //! Ship the cap first so the failure mode is bounded and legible; the park is
 //! its own change.
 
