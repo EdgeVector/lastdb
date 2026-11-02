@@ -153,8 +153,6 @@ pub(super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
 pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
     serde_json::json!({
         "prepare": stages.prepare_us,
-        "gate_wait": stages.gate_wait_us,
-        "publish": stages.publish_us,
         "ack": stages.ack_us,
     })
 }
@@ -166,7 +164,6 @@ pub(super) fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
         "operations": operations_json(&receipt.operations),
         "durability": receipt.durability.as_str(),
         "resident_stages_us": stages_json(&receipt.stages),
-        "touched_group_ids": receipt.touched_group_ids,
     })
 }
 

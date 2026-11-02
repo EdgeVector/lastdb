@@ -53,7 +53,6 @@ impl MutationManager {
             operations,
             durability: Self::commit_durability(force_durable),
             stages,
-            touched_group_ids: Vec::new(),
         })
     }
 

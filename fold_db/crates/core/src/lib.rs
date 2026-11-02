@@ -36,7 +36,6 @@ pub use resident::{PersistLaneMetrics, PersistLanePressure};
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;
-pub mod durable_flush;
 mod env_number;
 pub mod error;
 pub mod fold_db_core;

@@ -118,7 +118,6 @@ impl MutationManager {
             ..
         } = state;
         let total_time = start_time.elapsed();
-        stages.gate_wait_us = 0;
         stages.ack_us = crate::request_phases::duration_us(total_time);
 
         // Combine already-seen ids with newly processed mutation ids
@@ -151,7 +150,6 @@ impl MutationManager {
             // admission can also choose disk-first when it cannot retain bytes.
             durability: Self::commit_durability(force_durable),
             stages,
-            touched_group_ids: Vec::new(),
         }
     }
 

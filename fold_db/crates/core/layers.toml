@@ -35,7 +35,6 @@ doc = "The core side of the data model. content_limit and schema::types re-expor
 modules = [
   "access",
   "content_limit",
-  "durable_flush",
   "error",
   "records",
   "schema::interpreter",
