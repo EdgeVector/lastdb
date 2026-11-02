@@ -71,7 +71,6 @@ pub mod schema_expansion_commit;
 pub mod schema_mutation_gate;
 pub mod schema_org_seeds;
 pub mod schema_resolver_abi;
-pub mod schema_resolver_enforce_gate;
 pub mod shared_surface;
 pub mod snapshot;
 pub mod state;
@@ -142,11 +141,6 @@ pub use schema_mutation_gate::{
     HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE,
     HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
     HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
-};
-pub use schema_resolver_enforce_gate::{
-    schema_resolver_enforce_gate_failures, schema_resolver_enforce_gate_pass,
-    SchemaResolverEnforceGateReport, DEFAULT_ENFORCE_MIN_FIELD_COVERAGE,
-    DEFAULT_ENFORCE_MIN_MATCH_PRECISION, DEFAULT_ENFORCE_MIN_REQUIRED_FIELD_COVERAGE,
 };
 pub use shared_surface::{
     classify_legacy_schema_caller, classify_registration, include_in_shared_only_projection,
