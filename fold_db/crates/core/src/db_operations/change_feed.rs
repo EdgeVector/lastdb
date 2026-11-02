@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 use tracing::Instrument;
 
 use crate::schema::SchemaError;
@@ -47,7 +47,6 @@ pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
     native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
     tip: Arc<Mutex<u64>>,
-    subscribers: broadcast::Sender<ChangeFeedEvent>,
 }
 
 impl ChangeFeedStore {
@@ -57,22 +56,11 @@ impl ChangeFeedStore {
     ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
         let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
-        let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             store,
             native,
             tip: Arc::new(Mutex::new(tip)),
-            subscribers,
         })
-    }
-
-    /// Subscribe to committed feed events from this node process.
-    ///
-    /// The durable feed remains the replay source. This receiver is the
-    /// low-latency path for live watches, so a watcher can sleep without
-    /// polling the change-feed namespace.
-    pub fn subscribe(&self) -> broadcast::Receiver<ChangeFeedEvent> {
-        self.subscribers.subscribe()
     }
 
     pub async fn append(&self, event: ChangeFeedEvent) -> Result<u64, SchemaError> {
@@ -80,7 +68,7 @@ impl ChangeFeedStore {
     }
 
     /// Preserve caller order in bounded chunks. Each native chunk acquires the
-    /// writer before the tip and publishes subscribers only after durability.
+    /// writer before the tip and advances the tip only after durability.
     pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
         if events.is_empty() {
             return Ok(*self.tip.lock().await);
