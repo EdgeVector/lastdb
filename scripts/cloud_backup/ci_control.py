@@ -17,6 +17,8 @@ ERROR_CODES = frozenset((
     "stream_authority_conflict", "job_closed", "identity_conflict", "predecessor_conflict",
     "resource_limit", "quota_exceeded", "missing_dependency", "integrity_mismatch",
     "recovery_key_mismatch", "source_unavailable", "provider_pending", "outcome_unknown", "retry_later"))
+# A protocol error field is a static dotted name, for example `ci.github.artifact`.
+FIELD = re.compile(r"[a-z][a-z0-9_]{0,31}(?:\.[a-z0-9_]{1,31}){0,5}")
 
 
 def decimal(value):
@@ -96,8 +98,12 @@ class Control:
                 raise OperationError("ci_control_http_" + str(response.status)) from None
             code = value.get("code") if isinstance(value, dict) else None
             if isinstance(code, str) and code in ERROR_CODES:
-                # Protocol codes are fixed public names; never print the raw field or reply.
-                raise OperationError("ci_control_service_" + code)
+                # Protocol codes and fields are static public names. Keep a field
+                # only in that fixed form; never print any other part of the reply.
+                field = value.get("field")
+                if not (isinstance(field, str) and FIELD.fullmatch(field)):
+                    field = None
+                raise OperationError("ci_control_service_" + code, service_field=field)
             require(response.status == 200, "ci_control_http_" + str(response.status))
             require(isinstance(value, dict) and type(value.get("version")) is int
                     and value["version"] == 2 and "code" not in value, "ci_control_response")

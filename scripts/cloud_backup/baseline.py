@@ -38,7 +38,7 @@ from node import OwnedNode
 from ownership import run_identity
 from recover import Operation
 from restore_receipts import restored
-from support import ACCOUNT, FILE_BYTES, OperationError, require, save_json
+from support import ACCOUNT, FILE_BYTES, OperationError, failure, require, save_json
 
 # No mutation log inside this run: the one snapshot stays the stream head.
 LOG_INTERVAL = 604800
@@ -254,7 +254,7 @@ def main():
         operation.prepare()
         operation.execute()
     except OperationError as error:
-        operation.summary["failure"] = str(error)
+        operation.summary.update(failure(error))
     except BaseException:
         # Product replies can contain file keys or grants. Never print exceptions.
         operation.summary["failure"] = "unexpected_operation_error"

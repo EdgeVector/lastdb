@@ -13,7 +13,7 @@ from ci_control import Control
 from ownership import run_identity
 from recover import Operation
 from retirement import Retirement
-from support import OperationError, require
+from support import OperationError, failure, require
 
 
 class Preflight(Operation):
@@ -74,7 +74,7 @@ def main():
         operation.prepare()
         operation.execute()
     except OperationError as error:
-        operation.summary["failure"] = str(error)
+        operation.summary.update(failure(error))
     except BaseException:
         operation.summary["failure"] = "unexpected_ci_preflight_error"
     finally:

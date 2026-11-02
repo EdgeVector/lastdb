@@ -20,7 +20,7 @@ from ci_control import Control
 from ownership_history import History
 from startup_proof import runner_path, save as save_startup
 from support import (OperationError, baseline_from_environment, child_environment,
-                     private_directory, require)
+                     failure, private_directory, require)
 
 
 def summary(value):
@@ -94,7 +94,7 @@ def main():
                           artifact_url=record["artifact_url"], artifact_sha256=record["artifact_sha256"],
                           artifact_expires_at=record["artifact_expires_at"])
     except OperationError as error:
-        result["failure"] = str(error)
+        result.update(failure(error))
     except BaseException:
         result["failure"] = "unexpected_ci_registration_error"
     finally:

@@ -18,6 +18,19 @@ FILE_BYTES = 8 * CHUNK
 class OperationError(Exception):
     """An error code that contains no product output or credential."""
 
+    def __init__(self, code, service_field=None):
+        super().__init__(code)
+        # The fixed protocol field a service refusal names, such as `ci.policy`.
+        self.service_field = service_field
+
+
+def failure(error):
+    """The public failure fields of one error; the code stays the compared value."""
+    value = {"failure": str(error)}
+    if error.service_field is not None:
+        value["service_field"] = error.service_field
+    return value
+
 
 def require(condition, code):
     if not condition:
