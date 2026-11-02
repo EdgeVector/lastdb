@@ -4,7 +4,6 @@
 //! - [`local`] — native local construction and at-rest encryption
 //! - [`boot`] — boot decryption error context
 //!
-//! [`create_fold_db`] uses the default local options.
 //! [`create_fold_db_with_options`] names offline-maintenance and Search inputs.
 
 mod boot;
@@ -39,17 +38,7 @@ pub struct FoldDbOptions {
 /// before calling this factory — passing a freshly-generated keypair on every
 /// boot would produce signatures that do not match the node's public key.
 ///
-/// For offline maintenance or an explicit Search inbox, use
-/// [`create_fold_db_with_options`].
-pub async fn create_fold_db(
-    config: &DatabaseConfig,
-    e2e_keys: &E2eKeys,
-    signer: Arc<Ed25519KeyPair>,
-) -> FoldDbResult<Arc<FoldDB>> {
-    create_fold_db_with_options(config, e2e_keys, signer, FoldDbOptions::default()).await
-}
-
-/// Open the native local engine with explicit local options.
+/// `options` names offline maintenance and an explicit Search inbox.
 pub async fn create_fold_db_with_options(
     config: &DatabaseConfig,
     e2e_keys: &E2eKeys,
