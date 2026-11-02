@@ -64,8 +64,8 @@ pub struct SchemaNameClaim {
 ///   resets it.
 ///
 /// What a policy deletes depends on the layout. The sweep removes a record with
-/// the sweep verb (the default is changing from purge to delete; see
-/// `docs/app-manifest-retention.md`), and an app cannot read it back.
+/// the sweep verb (the default is changing from purge to delete), and an app
+/// cannot read it back.
 ///
 /// - Range: every record whose range key is older than the TTL, at the next
 ///   sweep, **including records written before the policy existed**.

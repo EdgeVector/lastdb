@@ -1,6 +1,5 @@
 //! Signed declarative configuration for `native_component_cover@1`.
 //!
-//! Machine-readable baseline: `docs/resolver_config_v1.schema.json`.
 //! Empirical thresholds draw from the embedding-beam component-cover eval
 //! ([[local-schema-field-embedding-component-cover-2026-07-06]]).
 

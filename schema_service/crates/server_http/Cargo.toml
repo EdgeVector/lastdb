@@ -35,7 +35,7 @@ clap = { workspace = true }
 tokio = { workspace = true }
 
 # Tracing + OpenTelemetry stack for the W3C ingress middleware
-# (Phase 2 / B3). See `docs/observability/ingress-middleware-notes.md`.
+# (Phase 2 / B3).
 tracing = { workspace = true }
 tracing-actix-web = { workspace = true }
 tracing-opentelemetry = { workspace = true }

@@ -3,8 +3,7 @@
 //! The shell reads [`MAX_FIELD_VALUE_BYTES_ENV`] once, parses it, and passes
 //! the usize to [`set_max_field_value_bytes`]. This module does not read the
 //! environment. The status reports the installed limit. No write path reads
-//! it. A local write uses the record cap. See
-//! `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`.
+//! it. A local write uses the record cap.
 //!
 //! ## Configuration
 //!

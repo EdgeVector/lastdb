@@ -22,7 +22,7 @@ pub trait CryptoProvider: Send + Sync {
 /// E2E content key; this adapter neither reads a key file nor mints a key.
 ///
 /// The key is zeroized when the provider is dropped (at-rest threat model
-/// Gap G3, `docs/security/at-rest-threat-model.md`).
+/// Gap G3).
 #[derive(zeroize::ZeroizeOnDrop)]
 pub struct LocalCryptoProvider {
     key: [u8; 32],

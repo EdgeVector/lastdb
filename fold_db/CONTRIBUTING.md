@@ -51,7 +51,6 @@ fold_db/
 ├── crates/
 │   ├── core/           # fold_db library (storage, schema, sync, …)
 │   └── observability/  # shared tracing/Sentry helpers
-├── docs/               # library design + operator notes
 ├── CLAUDE.md           # agent command cheatsheet
 └── README.md           # library overview
 ```

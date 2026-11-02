@@ -2,7 +2,7 @@
 //!
 //! Schema Service is the authority for every schema identity. App-private
 //! schemas are still registered; this module adds governance for contracts
-//! that are intentionally shared (see `docs/shared_surface_schema_service.md`).
+//! that are intentionally shared.
 //!
 //! This module defines:
 //! - the explicit publish/attach request shape and validation;

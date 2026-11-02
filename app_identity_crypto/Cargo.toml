@@ -18,8 +18,7 @@ json-canon = "0.1"
 # ECDSA P-256 (ES256) — used only to verify exemem-root-signed DevCerts.
 # The root key lives in AWS KMS, which does not support Ed25519 SIGN_VERIFY,
 # so DevCerts are ES256 even though every other envelope in this crate is
-# Ed25519. See `dev_cert` module docs and
-# `schema_service/docs/app_identity_envelope_notes.md`.
+# Ed25519. See the `dev_cert` module docs.
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 [lints]
 workspace = true

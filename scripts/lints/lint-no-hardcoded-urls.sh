@@ -54,12 +54,6 @@ ALLOW_PATHS=(
     './.claude/worktrees/'
     './docs/dogfood/'
     './snapshots/'
-    # Frozen run reports: a proof records what was actually hit during a soak
-    # or dogfood run, so the literal gateway URL is the evidence and must not
-    # be rewritten to an env name. (Added 2026-08-16: proofs/schema-pow-dev-soak.md
-    # landed 2026-08-10 without an allowlist entry and has been failing this
-    # lint — and therefore CI step 1 and the pre-commit hook — ever since.)
-    './proofs/'
     # OpenAPI spec: its `servers:` block deliberately documents the live
     # gateway URLs for API consumers. (Newly in scope 2026-07-12 when this
     # lint moved from the fold_db_node subtree to repo-wide.)

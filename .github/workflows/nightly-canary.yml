@@ -3,7 +3,7 @@
 # (vX.Y.(N+1)-canary.YYYYMMDD from the latest homebrew-lastdb stable, pushed
 # with GH_PAT) and that fires release.yml, which publishes a public prerelease
 # on EdgeVector/homebrew-lastdb. It overlaps the last-stack canary chain, which
-# owns canaries and stable releases (docs/RELEASING.md). The "commits since the
+# owns canaries and stable releases. The "commits since the
 # last v* tag" guard also reads stale tags: GitHub fold tags stop at v0.23.3
 # while homebrew-lastdb is at v0.23.9, so every day would look like new work.
 #

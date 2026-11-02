@@ -4,7 +4,7 @@ name: Cloud backup recovery
 # policy across restart, a changed snapshot interval, and source-free recovery.
 # The manual `baseline` mode cuts the fixed baseline: once on format 8, later
 # only for an approved cloud contract change. A local format change must keep
-# the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
+# the baseline restorable (scripts/cloud_backup/baseline_inputs.py).
 # A baseline run also points the two protected inputs at the new baseline.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.
@@ -15,7 +15,6 @@ on:
       - '.github/workflows/cloud-backup-build.yml'
       - '.github/workflows/cloud-backup-cleanup.yml'
       - 'scripts/cloud_backup/**'
-      - 'docs/cloud-backup-recovery-ci.md'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
       - 'lastdb_host/**'

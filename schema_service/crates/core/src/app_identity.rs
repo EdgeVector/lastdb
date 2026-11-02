@@ -15,8 +15,7 @@
 //!
 //! The **DevCert** is `ES256` (ECDSA P-256), because the exemem root key
 //! lives in AWS KMS and KMS has no Ed25519 SIGN_VERIFY (see
-//! [`app_identity_crypto::dev_cert`] and
-//! `schema_service/docs/app_identity_envelope_notes.md`). The
+//! [`app_identity_crypto::dev_cert`]). The
 //! **X-Signature** envelope is `Ed25519`, signed by the developer's own
 //! key. Verification therefore uses two crate entry points:
 //! [`verify_dev_cert`] for the cert and [`verify_envelope`] for the

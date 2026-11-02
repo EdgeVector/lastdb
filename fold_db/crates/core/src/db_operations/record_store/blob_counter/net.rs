@@ -9,7 +9,7 @@
 //! "the bucket is empty").
 //!
 //! The net is the generic one of the time queue (`TimeQueue::net_slices`,
-//! `mend_slices`; see `time_queue/net.rs` and `docs/lastdb-time-queue.md`). It
+//! `mend_slices`; see `time_queue/net.rs`). It
 //! needs no scan: it probes the slices that can hold a live entry, by arithmetic,
 //! and registers again each bucket that holds a live key and has no directory
 //! row. The slices of the blob queue are a few. An entry has the time of its

@@ -2,7 +2,7 @@
 //! whose dwell has passed.
 //!
 //! The blob counter (`fold_db::db_operations::RecordStore::blob_dwell_step`)
-//! keeps a time-bucketed queue of the blobs at zero (`docs/lastdb-time-queue.md`).
+//! keeps a time-bucketed queue of the blobs at zero (`time_queue`).
 //! Each sampler tick starts at most one pass. A pass keeps the reader of the
 //! queue (its cursors over the buckets) from one pass to the next, and deletes
 //! the due blobs in chunks. A chunk takes the native write gate for its own

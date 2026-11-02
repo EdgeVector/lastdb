@@ -13,7 +13,7 @@ const CONTENT_KEY_INFO: &[u8] = b"fold:content-key";
 ///
 /// The key is zeroized when the struct (or any clone of it) is dropped, so
 /// the derived key bytes do not linger in freed memory (at-rest threat model
-/// Gap G3, `docs/security/at-rest-threat-model.md`). The by-value accessors
+/// Gap G3). The by-value accessors
 /// below still hand out short-lived stack copies — those are consumed
 /// immediately into another zeroizing holder and are out of scope here.
 #[derive(Clone, Zeroize, zeroize::ZeroizeOnDrop)]

@@ -224,8 +224,6 @@ observability::redact_id!(...) (correlatable hash). Example:
 For an intentional exception (e.g. a test feeding the FMT layer a raw value
 to verify deny-list redaction), add an inline comment containing
 \`lint:redaction-ok <reason>\` on the same line.
-
-See docs/observability/redaction-lint.md for guidance.
 EOF
     exit 1
 fi

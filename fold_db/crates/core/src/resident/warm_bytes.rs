@@ -1,4 +1,4 @@
-//! Warm set byte limit (design: docs/lastdb-warm-set-byte-limit-design.md, D2 and D4).
+//! Warm set byte limit (design decisions D2 and D4).
 //!
 //! The byte limit is the only warm set limit. There is no record count (D3).
 

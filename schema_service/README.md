@@ -7,19 +7,12 @@ the global transform registry. App and agent writes resolve to catalog
 identities before durable storage; local field names are bridged by edge
 adapters, not stored as a second on-disk language.
 
-See [direct_schema_registration.md](docs/direct_schema_registration.md) for the
-one-language storage model, and
-[shared_surface_schema_service.md](docs/shared_surface_schema_service.md) for
-publish/attach governance.
-
 Canonical field names use full concept and property names. New fields cannot
-use the audited app abbreviations such as `bge_*` and `rle_*`. See the
-[field-name policy](docs/canonical_field_names.md) for the direct checks and
-the migration rules for existing identities.
+use the audited app abbreviations such as `bge_*` and `rle_*`. The direct
+checks are in `crates/core/src/field_name_policy.rs`.
 
 **Distribution:** shared apps add publish/attach metadata and distribution
-verification on top of catalog identities - see
-[schema_registration_distribution_gate.md](docs/schema_registration_distribution_gate.md).
+verification on top of catalog identities.
 
 ## Status
 
@@ -157,8 +150,8 @@ cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
 > `build --recompute-embeddings` (feature `recompute-embeddings`) or feed a
 > snapshot that already has embeddings. Local dogfood:
 > `publish --local-out-dir ./serve --dry-run` then `python3 -m http.server`.
-> Mini resolves live. Its timeout config is documented in
-> [docs/mini_schema_resolver_config.md](docs/mini_schema_resolver_config.md).
+> Mini resolves live. Its timeout config is in
+> `lastdb_node/src/schema_resolver_host.rs`.
 
 `schema_resolver_pack_publish` is the local-machine release publisher for
 Schema Resolver Packs. It runs on Tom's provisioned machine, not Forgejo CI,
@@ -406,11 +399,10 @@ schema_service/scripts/schema_pow_prod_terminal_proof.sh \
 
 The harness targets only the canonical production URL from
 `folddb_profile/environments.json`. It runs the real client positive path and
-missing, invalid, and expired negative controls, then replaces
-`proofs/schema-pow-prod-terminal-proof.md` with a `PASS` report only when the
-attestation also proves enforcement, production scope, quota/alarm evidence,
-canary promotion, and rollback readiness. The checked-in report remains
-`BLOCKED` until that live proof genuinely succeeds.
+missing, invalid, and expired negative controls, then writes a `PASS` report
+to `schema_service/target/` (outside Git) only when the attestation also
+proves enforcement, production scope, quota/alarm evidence, canary promotion,
+and rollback readiness.
 
 The canary promotion gate consumes those evidence files without copying their
 payloads into its output:
@@ -452,16 +444,6 @@ Remaining warnings (e.g. missing `4XX` responses on read-only or verify
 endpoints) are intentional: those handlers can only fail at the `5XX`
 transport layer, which `#/components/responses/InternalError` already
 covers.
-
-## Design docs
-
-In-repo design notes live under [`docs/`](./docs). Notable in-flight designs:
-
-- [`docs/registry_api_split_design.md`](./docs/registry_api_split_design.md) —
-  the `index` / `resolve` / `publish` API split (North Star
-  `schema-service-local-first-schema-sync`): replicate registry *knowledge*
-  for local dedup, protect registry *mutation* behind DevCert / node-key+PoW.
-  The contract the endpoint-implementation cards target.
 
 ## Pre-PR checklist
 

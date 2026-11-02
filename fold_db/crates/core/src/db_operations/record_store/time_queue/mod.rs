@@ -1,7 +1,7 @@
 //! A time-bucketed queue: entries that become due at a time, and a reader that
 //! never has to pass the deleted keys of a long history.
 //!
-//! The contract, in short (the full text is `docs/lastdb-time-queue.md`):
+//! The contract, in short:
 //!
 //! - **Layout.** An entry lives in the bucket of its expiry: the hash is one
 //!   slice of time, and the range is the expiry and the id. A small directory

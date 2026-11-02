@@ -43,9 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the JSON sink (defaults to `~/.lastdb/observability.jsonl`).
     //
     // Held for the binary lifetime — dropping it would stop the
-    // tracing-appender worker mid-flush. See
-    // `docs/observability/init-wiring-notes.md` for the rationale and
-    // the deferred Lambda binary path (handled by the cohort B5 sweep).
+    // tracing-appender worker mid-flush.
     let _obs_guard = observability::init_node("schema_service", env!("CARGO_PKG_VERSION"))?;
 
     let Cli { port, hydrate_from } = Cli::parse();
