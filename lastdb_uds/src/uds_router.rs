@@ -82,15 +82,15 @@ const API_VERSION_PATH: &str = "/api/version";
 /// 12 adds owner-directed alternate changes, named key lists/counts, and signed declaration revisions.
 /// `14` (2026-10-31) removes one owner-only schema map repair route.
 /// Other requests are unchanged; `MIN_SUPPORTED_API_VERSION` stays `1`.
-/// `15` (2026-10-31) removes the owner-only routes that serve only an older
-/// home: the drain, the unresolved-count read, the key repair,
+/// `15` (2026-10-31) removes the owner-only routes that no current home
+/// serves: the drain, the unresolved-count read, the key repair,
 /// `POST /api/db/alternate-keys`, `POST /api/db/repair-hashrange-key-fields`,
 /// `POST /api/db/clear-history`, `POST /api/storage/schema`,
 /// `GET /api/storage/schemas`, `POST /api/aggregate/repair`,
 /// `POST /api/aggregate/finalize`, the history read and the record read.
 /// `POST /api/storage/liveness/explain` accepts only the `blob` class.
-/// `POST /api/mutation` no longer accepts the `aggregate_set` key (a format 7
-/// home already refused it), and the `atomic_aggregate_set_v1` and
+/// `POST /api/mutation` no longer accepts the `aggregate_set` key (the home
+/// already refused it), and the `atomic_aggregate_set_v1` and
 /// `alternate_key_changes_v1` capabilities are gone. No other app-socket
 /// request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// `16` (2026-11-01) removes the `independent_fields` key from the schema
@@ -101,10 +101,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// storage reports `GET /api/db/schemas` and `GET /api/storage/app`.
 /// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// `18` (2026-11-01) removes `unattributable_plane_bytes` from the owner-only
-/// `GET /api/storage/app` reply. It counted bookkeeping a format 7 home does
+/// `GET /api/storage/app` reply. It counted bookkeeping that the home does
 /// not have, so it was always zero. No request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-/// `19` (2026-11-01) removes reply keys that a format 7 home always left
+/// `19` (2026-11-01) removes reply keys that the home always left
 /// empty: the empty value id on query field metadata, `integrity` on
 /// `/api/status`, the warm count on native disk status, the value byte count
 /// and the tracked count on warm byte stats, and the empty value id on a
@@ -122,22 +122,27 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `tombstoned_rows`. Mutation replies remove `touched_group_ids` and the
 /// `gate_wait` and `publish` stages. Share slices remove `field_key_id`,
 /// `writer_pubkey`, and `signature`. Restore replies rename `verified_rows` to
-/// `verified_records` and the `tips` proof stage to `records`. The local
-/// watch reply renames `tip_seq` to `last_seq`. The delete ledger removes its
+/// `verified_records`, and the record proof stage is `records`. The local
+/// watch reply names its sequence `last_seq`. The delete ledger removes its
 /// always-zero counters, `version`, and the always-true `committed`, and
 /// renames `records_converged` to `records_erased`. `GET /api/db/inventory`
 /// removes `attribution` and writes nothing. `GET /api/storage/home` removes
 /// `inclusive_app_attribution`, which summed field key counters that no write
-/// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`,
-/// `core_warm_tip_only_paths`, `core_warm_field_keys`, `core_warm_dirty`, and
+/// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`, the
+/// partial-record path count, `core_warm_field_keys`, `core_warm_dirty`, and
 /// the always-zero dirty and current byte keys of `core_model`. `/api/status`
-/// removes `resident_tip_only_keys`, `resident_dirty_keys`, the unserved
-/// `resident_key_budget`, the constant notes `resident_graph_bounds` and
-/// `logical_key_memory_limit`, and the purge stat `purge_records_deleted`. `POST /api/admin/shed` removes
-/// `groups_evicted`, `effective_warm_bytes`, and `target_warm_bytes`, renames
-/// `logical_records_purged` to `records_purged`, and its `native_memory`
-/// block reports `records` and `held_records` in place of the logical record
-/// counts, without the always-zero unflushed count and `complete_key_bytes`.
+/// removes the partial-record key count, `resident_dirty_keys`, the unserved
+/// `resident_key_budget`, the constant notes `resident_graph_bounds` and the
+/// key memory limit, and the purge stat `purge_records_deleted`; its
+/// `memory_budget.core_warm` removes `held_bytes`, `dirty_bytes`, and
+/// `dirty_limit_bytes`. `POST /api/admin/shed` removes `groups_evicted`,
+/// `effective_warm_bytes`, and `target_warm_bytes`, and names its purge count
+/// `records_purged`. Its `native_memory` block reports `records` and
+/// `held_records` in place of the previous record counts, without the
+/// always-zero unflushed count and `complete_key_bytes`; `native_memory.warm`
+/// removes `path_bytes`, `slot_bytes`, `link_bytes`, `held_bytes`,
+/// `dirty_bytes`, and `dirty_limit_bytes`. A read that cannot resolve a
+/// selected record reports the `MissingSelectedRecord` error identity.
 /// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 pub const API_VERSION: u32 = 21;
 

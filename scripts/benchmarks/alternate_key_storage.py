@@ -78,7 +78,7 @@ def verify(node, model, deleted):
 
 def checkpoint(node, model, deleted, output, name):
     verified = verify(node, model, deleted)
-    # Qualification uses caller-owned records, independent of records, tips, or compression.
+    # Qualification uses caller-owned records, independent of stored records or compression.
     require(verified["source_bytes"] >= 16 * 1024 * 1024, "source corpus is below 16 MiB")
     report = node.call("/api/db/schemas")[0]["schema_storage"]
     receipt = cleanup.request_and_wait(node)
@@ -163,7 +163,7 @@ def report(args, pairs, audits):
             lines.append(f"| {pair} | {phase} | {facts['records']} | {facts['source_bytes'] / 2**20:.2f} | "
                          f"{bsize / 2**20:.2f} | {nsize / 2**20:.2f} | {(nsize / bsize - 1) * 100:+.1f}% |")
     lines += ["", "The native record report is retained separately. It counts each serialized record body once,",
-              "including provenance; it excludes alternate entries and field tips. It is not the fixed input size.",
+              "including provenance; it excludes alternate entries. It is not the fixed input size.",
               "The existing disk ratio gates retain their thresholds.", "", "### Original disk-proof seed audit", "",
               "This audit uses the original 3,000-base seed and declares no alternate keys.",
               "Its record-volume qualification is reported separately from data correctness.", "",
