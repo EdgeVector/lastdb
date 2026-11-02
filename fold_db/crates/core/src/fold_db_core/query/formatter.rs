@@ -3,25 +3,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Metadata associated with a field value
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldMetadata {
+/// The metadata of one record (decision D7): the source file name and the
+/// metadata map of the last write that carried them. A field has no metadata
+/// of its own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RecordMetadata {
     pub source_file_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub field_key_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writer_pubkey: Option<String>,
 }
 
 /// The selected fields of one record, keyed by `KeyValue` in [`QueryRecords`].
-/// The `fields` map stores field_name -> value.
-/// The `metadata` map stores field_name -> the record metadata (decision D7).
+/// The `fields` map stores field_name -> value. `metadata` is the one
+/// metadata block of the record, or `None` when the record has none.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub fields: HashMap<String, Value>,
-    pub metadata: HashMap<String, FieldMetadata>,
+    pub metadata: Option<RecordMetadata>,
 }
 
 /// The reply of one record query: the selected fields of each record, by

@@ -112,7 +112,7 @@ Apps depend on one or both surfaces:
 - `GET /api/system/auto-identity` (owner identity)
 - `GET /api/version` (node version + `api_version` handshake)
 
-**Request/response grammar**: deny_unknown_fields, discriminated errors, row envelope with `{key, keyValue, fields, metadata, authorPubKey}`
+**Request/response grammar**: deny_unknown_fields, discriminated errors, row envelope with `{key, keyValue, fields, metadata}`
 
 **Schema declaration**: `lastdb app check --sync` or programmatic `/api/apps/declare-schema`
 

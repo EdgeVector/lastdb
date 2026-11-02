@@ -71,7 +71,7 @@ await fold.mutate('fbrain/Concept', {                          // capability aut
 });
 const { rows } = await fold.query('fbrain/Concept', { fields: ['id', 'title'] });
 for (const row of rows) {
-  console.log(row.key, row.fields, row.authorPubKey); // full envelope per row
+  console.log(row.key, row.fields, row.metadata); // full envelope per row
 }
 ```
 
@@ -459,11 +459,10 @@ Each `QueryRow` carries:
 | `key` | the row's storage key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
 | `keyValue` | the row's **structured** `{hash, range}` key — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` only when the key has neither a hash nor a range |
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
-| `metadata` | write metadata keyed by field name. In a format 7 home each entry holds the record's `source_file_name` and `metadata`. There is no `field_key_id` or `writer_pubkey` |
-| `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null`; always `null` from a format 7 home |
+| `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
 This is the exact shape `lastdbd`'s `/api/query` builds
-(`{key, fields, metadata, author_pub_key}` per result key, under `results`);
+(`{key, fields, metadata, has_conflicts}` per result key, under `results`);
 the SDK surfaces those fields faithfully and invents none. A body without a
 `results` array, or a row without an object `key` and `fields`, throws
 `UnexpectedResponseError`.
@@ -534,8 +533,8 @@ for (const hit of hits) {
 }
 ```
 
-Each hit is a full `QueryRow` envelope (`key` + `fields` + `metadata` +
-`authorPubKey`, exactly as `query()` returns) plus three search-only fields:
+Each hit is a full `QueryRow` envelope (`key` + `fields` + `metadata`,
+exactly as `query()` returns) plus three search-only fields:
 
 | Field | Meaning |
 |---|---|
@@ -712,9 +711,9 @@ interface QueryRow {
   key: string                          // rendered key string (Display form; ambiguous with ':' ranges)
   keyValue: KeyValue | null            // structured row address — pass back as MutationOp.key
   fields: Record<string, JsonValue>    // the flattened field map
-  metadata: JsonValue                  // per-field write metadata (writer_pubkey, …)
-  authorPubKey: string | null          // who authored the row
+  metadata: RecordMetadata | null      // the one metadata block of the record
 }
+interface RecordMetadata { source_file_name: string | null; metadata?: Record<string, string> }
 
 interface SearchOptions {
   k?: number                           // top-N hits (node defaults + clamps)

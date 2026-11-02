@@ -87,7 +87,7 @@ a primary-field condition, a captured empty field map, nullable absence, a numer
 A separate value-order case omits its sort field from the projection.
 An additional request verifies the API offset and limit after the condition stage.
 Four additional requests use duplicate projection names for ordinary and conditional reads, with `include_tombstones` off and on.
-These operational controls compare exact values and field metadata. They do not add timed cases or process restarts.
+These operational controls compare exact values and record metadata. They do not add timed cases or process restarts.
 No condition request uses a cursor or an unkeyed selector.
 Missing numeric values pass the numeric filter. Concrete null and string values fail it.
 Equal numeric scores use ascending range keys as their tie order.
@@ -95,14 +95,12 @@ Equal numeric scores use ascending range keys as their tie order.
 Each case has 32 warm requests per run after a complete condition reference read.
 Each case also has one request after its own process restart, with schema preload off.
 The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
-Every returned value and each field's record, field key, writer, and source metadata must match the same-home reference.
+Every returned value and the record metadata block must match the same-home reference.
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
-The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary primary-field metadata contract.
-The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
-Every record retains exactly `key`, `fields`, `metadata`, and `author_pub_key`.
-The key retains both hash and range coordinates. The author names a writer from the original projected metadata map.
-The author is null when no field names a writer or the selected writer is empty.
-The check does not impose a new order on the original metadata map. Absent or empty writer coverage requires actual returned metadata.
+The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary record metadata contract.
+The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields.
+Every record retains exactly `key`, `fields`, `metadata`, and `has_conflicts` (plus `conflicted_fields` on a conflicted record).
+The key retains both hash and range coordinates. `metadata` is one block for the record, or `null`.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.
 It matches the exact request IDs and client name. Every warm cell requires 32 matches; every fresh-process cell requires one.

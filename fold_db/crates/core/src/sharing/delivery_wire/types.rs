@@ -8,7 +8,7 @@ pub struct LastDbSlicePayload {
     pub version: String,
     pub provenance: SliceProvenance,
     pub schemas: Vec<SliceSchema>,
-    pub field_keys: Vec<SignedFieldKey>,
+    pub field_keys: Vec<SliceFieldKey>,
     pub records: Vec<ContentAddressedValue>,
     /// First-class binary content-addressed files (photos, PDFs, …).
     ///
@@ -34,18 +34,14 @@ pub struct SliceSchema {
     pub fields: Vec<String>,
 }
 
+/// One delivered field of one record: where it lives and the content address
+/// of its value in `records`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedFieldKey {
+pub struct SliceFieldKey {
     pub schema_name: String,
     pub record_key: String,
     pub field_name: String,
     pub value_ref: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub field_key_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writer_pubkey: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

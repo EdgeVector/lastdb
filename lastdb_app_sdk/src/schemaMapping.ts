@@ -9,9 +9,6 @@ import {
   ResolveResult,
   SchemaResolverResult,
 } from './types.js';
-import {
-  isObject,
-} from './responseParsers.js';
 
 export interface ResolvedSchema {
   appSchemaName: string;
@@ -161,16 +158,5 @@ export function mapQueryRow(
   return {
     ...row,
     fields: mapFieldRecord(row.fields, nodeToAppFields),
-    metadata: mapFieldKeyedJson(row.metadata, nodeToAppFields),
   };
-}
-
-export function mapFieldKeyedJson(
-  value: JsonValue,
-  fields: Record<string, string>,
-): JsonValue {
-  if (!isObject(value)) {
-    return value;
-  }
-  return mapFieldRecord(value, fields);
 }

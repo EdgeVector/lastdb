@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 #[derive(Default)]
 pub(super) struct SliceBuilder {
     pub(super) schemas: Vec<SliceSchema>,
-    pub(super) field_keys: Vec<SignedFieldKey>,
+    pub(super) field_keys: Vec<SliceFieldKey>,
     pub(super) records_by_ref: BTreeMap<String, ContentAddressedValue>,
     pub(super) blobs_by_ref: BTreeMap<String, ContentAddressedBlob>,
     pub(super) seen_schema: BTreeSet<String>,
@@ -59,19 +59,15 @@ impl SliceBuilder {
                 let Some(value) = record.fields.get(field_name) else {
                     continue;
                 };
-                let metadata = record.metadata.get(field_name);
                 let value =
                     normalize_file_field_value(db, value, blob_resolver, &mut self.blobs_by_ref)
                         .await?;
                 let record = content_addressed_value(value)?;
-                self.field_keys.push(SignedFieldKey {
+                self.field_keys.push(SliceFieldKey {
                     schema_name: leg.schema_name.clone(),
                     record_key: record_key.clone(),
                     field_name: field_name.clone(),
                     value_ref: record.value_ref.clone(),
-                    field_key_id: metadata.and_then(|metadata| metadata.field_key_id.clone()),
-                    writer_pubkey: metadata.and_then(|metadata| metadata.writer_pubkey.clone()),
-                    signature: None,
                 });
                 self.records_by_ref
                     .entry(record.value_ref.clone())

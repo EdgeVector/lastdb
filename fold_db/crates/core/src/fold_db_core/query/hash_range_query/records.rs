@@ -2,11 +2,9 @@
 //!
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,
-//! then the projection returns the selected fields of each record. A record
-//! has no record or field key, so each returned field carries the record
-//! metadata (decision D7) and no record, field key or writer ID. While the node
-//! receives data from other users, the read merges the received scopes by key
-//! (`records/received.rs`).
+//! then the projection returns the selected fields of each record and its
+//! one metadata block (decision D7). While the node receives data from other
+//! users, the read merges the received scopes by key (`records/received.rs`).
 
 mod received;
 mod received_range;
@@ -18,7 +16,7 @@ use super::condition_rules::{
 use super::*;
 use crate::db_operations::record_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
 use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
-use crate::fold_db_core::query::{FieldMetadata, QueryRecords, Record};
+use crate::fold_db_core::query::{QueryRecords, Record, RecordMetadata};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::SAMPLE_PEEK_CAP;
 use crate::schema::types::key_comparison::KeyComparisonContext;
@@ -325,54 +323,44 @@ fn project(selected: &[String], rows: &[KeyedRecord]) -> FieldMap {
     out
 }
 
-/// One field of a record. The metadata belongs to the record (D7).
+/// The value of one field of a record, for the conditions and the value
+/// order.
 fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
     let value = record.fields.get(field)?;
-    let meta = record.meta.as_ref();
     Some(FieldValue {
         value: value.clone(),
-        source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
-        metadata: meta
-            .filter(|meta| !meta.metadata.is_empty())
-            .map(|meta| meta.metadata.clone().into_iter().collect()),
-        field_key_id: None,
-        writer_pubkey: None,
-        written_at: record.stamps.get(field).map(|stamp| stamp.written_at),
     })
 }
 
-/// The reply rows: the selected fields of each record and the metadata of
-/// each returned field. A row with none of the selected fields is not a row.
+/// The reply rows: the selected fields of each record and its one metadata
+/// block (D7). A row with none of the selected fields is not a row.
 fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
     let mut out = QueryRecords::with_capacity(rows.len());
     for (key, record) in rows {
-        let mut row = Record {
-            fields: HashMap::new(),
-            metadata: HashMap::new(),
-        };
-        for field in selected {
-            let Some(value) = record.fields.get(field) else {
-                continue;
-            };
-            row.fields.insert(field.clone(), value.clone());
-            row.metadata.insert(field.clone(), field_metadata(&record));
+        let fields: HashMap<String, serde_json::Value> = selected
+            .iter()
+            .filter_map(|field| {
+                let value = record.fields.get(field)?;
+                Some((field.clone(), value.clone()))
+            })
+            .collect();
+        if fields.is_empty() {
+            continue;
         }
-        if !row.fields.is_empty() {
-            out.insert(key, row);
-        }
+        let metadata = record_metadata(&record);
+        out.insert(key, Record { fields, metadata });
     }
     out
 }
 
-/// The metadata of one returned field: the record metadata (D7).
-fn field_metadata(record: &StoredRecord) -> FieldMetadata {
-    let meta = record.meta.as_ref();
-    FieldMetadata {
-        source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
-        metadata: meta
-            .filter(|meta| !meta.metadata.is_empty())
-            .map(|meta| meta.metadata.clone().into_iter().collect()),
-        field_key_id: None,
-        writer_pubkey: None,
-    }
+/// The one metadata block of a record (D7), or `None` when it has none.
+fn record_metadata(record: &StoredRecord) -> Option<RecordMetadata> {
+    let meta = record
+        .meta
+        .as_ref()
+        .filter(|meta| meta.source_file_name.is_some() || !meta.metadata.is_empty())?;
+    Some(RecordMetadata {
+        source_file_name: meta.source_file_name.clone(),
+        metadata: (!meta.metadata.is_empty()).then(|| meta.metadata.clone().into_iter().collect()),
+    })
 }

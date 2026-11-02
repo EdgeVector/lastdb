@@ -7,11 +7,11 @@ use serde::Deserialize;
 /// Which query reply shape the current task should build.
 pub enum QueryResponseFormat {
     #[default]
-    /// Rows include the full field metadata.
+    /// Rows include the record metadata.
     Full,
-    /// Rows keep a field key id per field, then fold that into one conflict flag.
+    /// Rows keep the keys, the fields and the conflict flag, without metadata.
     Values,
-    /// Return a count for the keyed scope and do not build row metadata.
+    /// Return a count for the keyed scope and do not build rows.
     Count,
 }
 
@@ -27,37 +27,5 @@ impl QueryResponseFormat {
 
     pub(super) fn current() -> Self {
         FORMAT.try_with(|format| *format).unwrap_or_default()
-    }
-}
-
-/// Keep one conservative row conflict flag after the field metadata leaves the reply.
-pub(super) fn compact_rows(rows: &mut [serde_json::Value], coverage: &str) {
-    use serde_json::Value;
-    for row in rows {
-        let Some(row) = row.as_object_mut() else {
-            continue;
-        };
-        let metadata = row.remove("metadata");
-        let flags = metadata
-            .as_ref()
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|fields| fields.values())
-            .filter_map(|field| field.get("has_conflicts"));
-        let mut flag = if coverage == "known" {
-            Value::Bool(false)
-        } else {
-            Value::String("unknown".into())
-        };
-        for value in flags {
-            if value == &Value::Bool(true) {
-                flag = Value::Bool(true);
-                break;
-            }
-            if value.as_str() == Some("unknown") {
-                flag = Value::String("unknown".into());
-            }
-        }
-        row.insert("has_conflicts".into(), flag);
     }
 }

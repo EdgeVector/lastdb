@@ -41,8 +41,6 @@ fields included in this slice.
 - `record_key`
 - `field_name`
 - `value_ref`
-- optional original field key UUID/version, writer pubkey, and field key
-  signature when available
 
 `payload.records[]` carries the JSON value for each referenced record. Each record is
 content-addressed as `sha256:<hex>` over the canonical JSON value bytes.

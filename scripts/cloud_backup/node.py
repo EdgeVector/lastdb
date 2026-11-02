@@ -198,13 +198,11 @@ class OwnedNode:
             if expected.get("deleted") is True:
                 require(item["status"] == 200 and result["ok"] is True
                         and result["returned_count"] == 0 and result["results"] == []
-                        and not result.get("has_more", False)
-                        and result.get("unresolved_rows", 0) == 0, "deleted_key_stays_absent")
+                        and not result.get("has_more", False), "deleted_key_stays_absent")
                 continue
             require(item["status"] == 200 and result["ok"] is True
                     and result["returned_count"] == 1 and len(result["results"]) == 1
-                    and not result.get("has_more", False)
-                    and result.get("unresolved_rows", 0) == 0, "keyed_record_complete")
+                    and not result.get("has_more", False), "keyed_record_complete")
             fields = result["results"][0]["fields"]
             require(result["results"][0]["key"] == {"hash": expected["id"], "range": None},
                     "keyed_record_identity")

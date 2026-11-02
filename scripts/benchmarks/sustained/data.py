@@ -73,7 +73,7 @@ def range_request(first, count=32):
 def validate_read(result, expected_ids=None, body_bytes=BODY_BYTES, ordered=False):
     """Check membership and body integrity; concurrent versions may differ."""
     rows = result.get("results", [])
-    if result.get("returned_count") != len(rows) or result.get("unresolved_rows", 0):
+    if result.get("returned_count") != len(rows):
         raise IntegrityError("A generated query returned an incomplete result")
     found = {}
     for row in rows:
@@ -142,7 +142,7 @@ def canary_query():
 
 def validate_canary(result):
     rows = result.get("results", [])
-    if result.get("returned_count") != 1 or len(rows) != 1 or result.get("unresolved_rows", 0):
+    if result.get("returned_count") != 1 or len(rows) != 1:
         raise IntegrityError("The durable canary is missing or incomplete")
     row = rows[0]
     try:

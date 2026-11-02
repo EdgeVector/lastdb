@@ -20,8 +20,7 @@ export type RowFields = Record<string, JsonValue>;
 /**
  * A result row — fields keyed by name. Kept as the flattened convenience
  * shape (`QueryRow.fields` is the same data); `query()` also returns the full
- * {@link QueryRow} envelope so the row `key`, `authorPubKey`, and `metadata`
- * are reachable.
+ * {@link QueryRow} envelope so the row `key` and `metadata` are reachable.
  */
 export type Row = RowFields;
 
@@ -92,14 +91,26 @@ export type MutationConvergence = 'sync' | 'async';
 export type MutationDurability = 'queued' | 'durable';
 
 /**
+ * The one metadata block of a record (decision D7): the source file name and
+ * the metadata map of the last write that carried them. A field has no
+ * metadata of its own.
+ */
+export interface RecordMetadata {
+  /** The source file name of the record, or `null` when it has none. */
+  source_file_name: string | null;
+  /** The metadata map of the record (for example `file_blob_ref`), when set. */
+  metadata?: Record<string, string>;
+}
+
+/**
  * The full per-row envelope the node returns for `/api/query`. The node's
  * `results` array carries one object per result key shaped
- * `{ key, fields, metadata, author_pub_key }` — see `lastdb_host`
- * `handlers::query::rows::format_rows` (the `/api/query` row builder).
+ * `{ key, fields, metadata, has_conflicts }` — see `lastdb_host`
+ * `handlers::query::response::format_rows` (the `/api/query` row builder).
  *
  * A real app needs `key` to update/delete a specific row, and typically
- * `authorPubKey` + `metadata` for provenance — flattening to bare `fields`
- * (the pre-gap-#3 behavior) threw these away.
+ * `metadata` for provenance — flattening to bare `fields` (the pre-gap-#3
+ * behavior) threw these away.
  */
 export interface QueryRow {
   /**
@@ -123,16 +134,10 @@ export interface QueryRow {
   /** The row's field values, keyed by field name. */
   fields: RowFields;
   /**
-   * Per-field write metadata as the node stores it (writer pubkey, timestamps,
-   * etc.), keyed by field name. Shape is node-defined; left as opaque JSON so
-   * the SDK never invents fields. `null`/absent when the node carries none.
+   * The one metadata block of the record, or `null` when the record has none
+   * or the reply carries no metadata (`response_format: "values"`).
    */
-  metadata: JsonValue;
-  /**
-   * The pubkey that authored the row (the first non-empty `writer_pubkey`
-   * across the row's field metadata), or `null` when the node reports none.
-   */
-  authorPubKey: string | null;
+  metadata: RecordMetadata | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,8 +484,8 @@ export interface QueryResult {
   schema: string;
   rowCount: number;
   /**
-   * The result rows as full envelopes (`key` + `fields` + `metadata` +
-   * `authorPubKey`). Use `rows[i].key` to address a specific row for a
+   * The result rows as full envelopes (`key` + `fields` + `metadata`).
+   * Use `rows[i].key` to address a specific row for a
    * follow-up update/delete; `rows[i].fields` is the flattened field map.
    */
   rows: QueryRow[];
@@ -555,8 +560,8 @@ export interface SearchOptions {
 
 /**
  * One ranked hit from {@link LastDbClient.search}. It is a full
- * {@link QueryRow} envelope (`key`, `fields`, `metadata`, `authorPubKey` — the
- * same shape `query()` returns) plus the search-only attribution fields the
+ * {@link QueryRow} envelope (`key`, `fields`, `metadata` — the same shape
+ * `query()` returns) plus the search-only attribution fields the
  * node adds to each hit:
  *
  * - `score` — the relevance score the node attached (cosine similarity), or

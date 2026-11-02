@@ -29,7 +29,7 @@ class PrefixRecords:
         for key, reply in zip(self.keys.values(), replies):
             value, note = reply["response"], expected[key]
             require(reply["status"] == 200 and value["ok"] is True
-                    and value.get("unresolved_rows", 0) == 0 and not value.get("has_more", False)
+                    and not value.get("has_more", False)
                     and value.get("next_cursor") is None and isinstance(value["results"], list)
                     and value["returned_count"] == len(value["results"]) == int(note is not None),
                     "complete_temporary_keyed_read")

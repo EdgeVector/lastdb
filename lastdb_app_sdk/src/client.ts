@@ -892,8 +892,8 @@ export class LastDbClient {
    * `403 {reason: "capability_required"}` (mapped to {@link PermissionDeniedError})
    * rather than handing back the owner's whole-index search.
    *
-   * Each hit is a full {@link QueryRow} envelope (`key`, `fields`, `metadata`,
-   * `authorPubKey`) plus the relevance `score` and the `schemaName` /
+   * Each hit is a full {@link QueryRow} envelope (`key`, `fields`, `metadata`)
+   * plus the relevance `score` and the `schemaName` /
    * `schemaDisplayName` the hit came from.
    */
   async search(query: string, opts: SearchOptions = {}): Promise<SearchResult> {

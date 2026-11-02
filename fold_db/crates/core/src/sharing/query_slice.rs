@@ -14,7 +14,7 @@ use crate::schema::types::operations::{FieldPredicate, Query, QueryOrderBy};
 use crate::sharing::delivery_wire::{
     blob_ref_from_value, content_addressed_blob_with_access, content_addressed_value,
     file_blob_access_from_value, validate_blob_refs, ContentAddressedBlob, ContentAddressedValue,
-    FileBlobAccess, LastDbSlicePayload, SignedFieldKey, SliceProvenance, SliceSchema,
+    FileBlobAccess, LastDbSlicePayload, SliceFieldKey, SliceProvenance, SliceSchema,
     LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use serde_json::Value;

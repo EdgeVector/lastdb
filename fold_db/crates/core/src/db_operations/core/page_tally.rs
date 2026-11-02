@@ -1,48 +1,21 @@
 use crate::schema::types::KeyValue;
 use std::cell::{Cell, RefCell};
 
-/// What one query dropped between "the key list counts this row" and "the
-/// caller was handed this row".
-///
-/// The integrity counters include internal candidate work. Only drops that
-/// remain unfilled consume output page slots — see `page_payload` /
-/// `cursor_payload` in `lastdb_host`.
-///
-/// A format 7 read takes each row from its stored record, and no read path
-/// counts an unresolved or a tombstoned row: `unresolved` and `tombstoned`
-/// stay zero. The `/api/query` reply keeps `unresolved_rows` and
-/// `tombstoned_rows` for its readers.
+/// How the page keys of one query read: the count of keys it emitted in
+/// verified API form and in storage form. The `/api/query` reply turns them
+/// into its `key_form` flag.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct QueryRowDrops {
-    /// Counted rows whose record could not be read. Always zero today.
-    pub unresolved: u64,
-    /// Counted rows whose record is deleted. Always zero today.
-    pub tombstoned: u64,
-    /// Internal candidate drops already covered by a resolver's refill loop.
-    /// These remain in the integrity counters but consume no output page slot.
-    pub refilled: u64,
+pub struct PageKeyForms {
     /// Page keys this query emitted in **verified API form** — a caller can
-    /// point-read them back. NOT a drop: see the key-form note below.
+    /// point-read them back.
     pub keys_api_form: u64,
     /// Page keys this query emitted in **storage form** — under a blinding
     /// codec that is a one-way partition token, so a keyed read at it resolves
-    /// nothing. NOT a drop: see the key-form note below.
+    /// nothing.
     pub keys_opaque_form: u64,
 }
 
-impl QueryRowDrops {
-    /// Page slots consumed but not delivered.
-    ///
-    /// Internal refills already account for their rejected candidates. Adding
-    /// those drops again would make an exhausted range claim another page.
-    /// Key-form counters classify delivered rows and never consume a slot.
-    #[must_use]
-    pub fn total(self) -> u64 {
-        self.unresolved
-            .saturating_add(self.tombstoned)
-            .saturating_sub(self.refilled)
-    }
-
+impl PageKeyForms {
     /// How to read the `key.hash` values this query emitted.
     ///
     /// `None` when the query emitted no page keys at all (a keyed fast-path
@@ -95,8 +68,8 @@ impl KeyForm {
 }
 
 tokio::task_local! {
-    /// Per-query tally of rows the key list counted and the caller never
-    /// received, plus the key form of each emitted page key.
+    /// Per-query tally of the key form of each emitted page key and, for a
+    /// caller that continues a short page, where the page ended.
     ///
     /// A node-lifetime counter would be shared, so a before/after delta around
     /// one query would pick up the counts of every other query running
@@ -104,21 +77,21 @@ tokio::task_local! {
     /// `.await` chain with no `tokio::spawn` between the handler and the
     /// record read, so the tally follows the one request that installed it.
     ///
-    /// **One task-local carrying both counters, deliberately.** Two nested
+    /// **One task-local carrying both parts, deliberately.** Two nested
     /// `scope()` calls wrap the read future in one more layer of generic future
     /// type, and that layer propagates through the whole `.await` chain: it blew
     /// rustc's type-layout recursion limit in `lastdb_node`'s integration tests
     /// ("queries overflow the depth limit… query depth increased by 130 when
     /// computing layout of {async fn body of watch_target()}") while every
-    /// `-p` build of the touched crates stayed green. A second counter is not
+    /// `-p` build of the touched crates stayed green. A second part is not
     /// worth a second scope.
-    static QUERY_ROW_DROPS: QueryTally;
+    static QUERY_TALLY: QueryTally;
 }
 
-/// The per-query tally: the row drops and, for a caller that continues a
-/// short page, where the page ended.
+/// The per-query tally: the page key forms and, for a caller that continues
+/// a short page, where the page ended.
 struct QueryTally {
-    drops: Cell<QueryRowDrops>,
+    forms: Cell<PageKeyForms>,
     end: RefCell<PageEnd>,
     /// The caller continues a page that ends early (`with_query_page_tally`).
     resumable: bool,
@@ -127,14 +100,14 @@ struct QueryTally {
 impl QueryTally {
     fn new(resumable: bool) -> Self {
         Self {
-            drops: Cell::new(QueryRowDrops::default()),
+            forms: Cell::new(PageKeyForms::default()),
             end: RefCell::new(PageEnd::default()),
             resumable,
         }
     }
 }
 
-/// Where one page ended, for the caller that builds its cursor. NOT a drop.
+/// Where one page ended, for the caller that builds its cursor.
 ///
 /// One request may examine at most 10,000 keys, and a deleted record is a key.
 /// A run of deleted records longer than that would make a page that must pass
@@ -161,32 +134,23 @@ pub enum PageResume {
     Record(String),
 }
 
-/// Bump one field of the per-query tally, if one is installed.
-pub(super) fn note_row_drop(bump: impl Fn(&mut QueryRowDrops)) {
-    let _ = QUERY_ROW_DROPS.try_with(|tally| {
-        let mut drops = tally.drops.get();
-        bump(&mut drops);
-        tally.drops.set(drops);
-    });
-}
-
 /// True when the caller installed a tally that continues a page that ends
 /// early. Another caller (a count, a condition pass, a background job) needs
 /// the complete set, so a read that cannot finish in one request fails.
 pub fn page_can_resume() -> bool {
-    QUERY_ROW_DROPS
+    QUERY_TALLY
         .try_with(|tally| tally.resumable)
         .unwrap_or(false)
 }
 
 /// Note where a page that ended early goes on, if a tally is installed.
 pub fn note_page_resume(resume: PageResume) {
-    let _ = QUERY_ROW_DROPS.try_with(|tally| tally.end.borrow_mut().resume = Some(resume));
+    let _ = QUERY_TALLY.try_with(|tally| tally.end.borrow_mut().resume = Some(resume));
 }
 
 /// Note the record key position of each row of a record walk page.
 pub fn note_walk_positions(rows: Vec<(KeyValue, String)>) {
-    let _ = QUERY_ROW_DROPS.try_with(|tally| tally.end.borrow_mut().walk = rows);
+    let _ = QUERY_TALLY.try_with(|tally| tally.end.borrow_mut().walk = rows);
 }
 
 /// Note how many page keys a query emitted in each key form, if a tally is
@@ -195,59 +159,40 @@ pub fn note_walk_positions(rows: Vec<(KeyValue, String)>) {
 /// Called at the logical primary boundary. Keyed reads retain caller keys;
 /// administrative inspection emits only verified API coordinates.
 pub fn note_page_key_forms(api_form: u64, opaque_form: u64) {
-    note_row_drop(|drops| {
-        drops.keys_api_form = drops.keys_api_form.saturating_add(api_form);
-        drops.keys_opaque_form = drops.keys_opaque_form.saturating_add(opaque_form);
+    let _ = QUERY_TALLY.try_with(|tally| {
+        let mut forms = tally.forms.get();
+        forms.keys_api_form = forms.keys_api_form.saturating_add(api_form);
+        forms.keys_opaque_form = forms.keys_opaque_form.saturating_add(opaque_form);
+        tally.forms.set(forms);
     });
 }
 
-/// Keep integrity counters for candidate resolution without charging output
-/// slots that its caller refills before returning a page. Wrap only candidate
-/// work; later projected field reads retain their ordinary drop accounting.
-/// Nested wrappers subtract only drops not already covered by an inner refill.
-pub async fn with_refilled_query_row_drops<F>(fut: F) -> F::Output
-where
-    F: std::future::Future,
-{
-    let before = QUERY_ROW_DROPS
-        .try_with(|tally| tally.drops.get().total())
-        .unwrap_or(0);
-    let result = fut.await;
-    note_row_drop(|drops| {
-        drops.refilled = drops
-            .refilled
-            .saturating_add(drops.total().saturating_sub(before));
-    });
-    result
-}
-
-/// Run `fut` with a fresh per-query row-drop tally.
+/// Run `fut` with a fresh per-query tally.
 ///
-/// Returns the future's output plus the rows *this* query dropped after the
-/// key list had counted them, and the key form of its page keys.
-pub async fn with_query_row_drop_tally<F>(fut: F) -> (F::Output, QueryRowDrops)
+/// Returns the future's output plus the key form of its page keys.
+pub async fn with_query_tally<F>(fut: F) -> (F::Output, PageKeyForms)
 where
     F: std::future::Future,
 {
-    QUERY_ROW_DROPS
+    QUERY_TALLY
         .scope(QueryTally::new(false), async move {
             let out = fut.await;
-            (out, QUERY_ROW_DROPS.with(|tally| tally.drops.get()))
+            (out, QUERY_TALLY.with(|tally| tally.forms.get()))
         })
         .await
 }
 
-/// [`with_query_row_drop_tally`] for a caller that continues a page that
-/// ends early: also returns where the page ended ([`PageEnd`]).
-pub async fn with_query_page_tally<F>(fut: F) -> (F::Output, QueryRowDrops, PageEnd)
+/// [`with_query_tally`] for a caller that continues a page that ends early:
+/// also returns where the page ended ([`PageEnd`]).
+pub async fn with_query_page_tally<F>(fut: F) -> (F::Output, PageKeyForms, PageEnd)
 where
     F: std::future::Future,
 {
-    QUERY_ROW_DROPS
+    QUERY_TALLY
         .scope(QueryTally::new(true), async move {
             let out = fut.await;
-            let (drops, end) = QUERY_ROW_DROPS.with(|tally| (tally.drops.get(), tally.end.take()));
-            (out, drops, end)
+            let (forms, end) = QUERY_TALLY.with(|tally| (tally.forms.get(), tally.end.take()));
+            (out, forms, end)
         })
         .await
 }

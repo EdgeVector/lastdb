@@ -62,8 +62,8 @@ pub use crate::storage::field_key_store::{FieldKeyBundle, FieldKeyStore};
 pub use conflict_metadata::RecordConflictState;
 pub use core::{
     note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
-    with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, DbOperations,
-    KeyForm, PageEnd, PageResume, QueryRowDrops,
+    with_query_page_tally, with_query_tally, DbOperations, KeyForm, PageEnd, PageKeyForms,
+    PageResume,
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;

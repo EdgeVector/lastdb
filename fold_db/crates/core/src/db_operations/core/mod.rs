@@ -12,12 +12,11 @@ use crate::storage::traits::*;
 use std::sync::Arc;
 
 mod open;
-mod row_drops;
+mod page_tally;
 
-pub use row_drops::{
+pub use page_tally::{
     note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
-    with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, KeyForm,
-    PageEnd, PageResume, QueryRowDrops,
+    with_query_page_tally, with_query_tally, KeyForm, PageEnd, PageKeyForms, PageResume,
 };
 
 /// Database operations with pluggable storage backend

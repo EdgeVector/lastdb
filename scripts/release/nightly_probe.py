@@ -194,7 +194,7 @@ def read(node, updated, ranged=False):
                  if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
     result = node.call("/api/query", {"schema_name": SCHEMA, "fields": FIELDS, "limit": 8, "filter": condition})
     records = result.get("results", [])
-    if result.get("returned_count") != 8 or len(records) != 8 or result.get("unresolved_rows", 0):
+    if result.get("returned_count") != 8 or len(records) != 8:
         raise RuntimeError("The packaged daemon returned an incomplete query")
     found = []
     for record in records:

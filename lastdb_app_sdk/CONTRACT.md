@@ -79,7 +79,7 @@ await app.search(query, { k, target });                    // node-scoped associ
   pass-through; pass-through never authorizes an unregistered schema.
 - **Field mapping is applied only at the data-path boundary.** `query` /
   `queryAll` map requested field names app→node before the request and reverse
-  row `fields` plus field-keyed `metadata` node→app on read. `mutate` maps
+  row `fields` node→app on read. `mutate` maps
   `fields_and_values` app→node before write. The field map must be one-to-one
   for reverse mapping to be unambiguous.
 - **`mutate`** writes one row; `key` (`{hash, range}`) addresses it, and a
@@ -105,8 +105,8 @@ await app.search(query, { k, target });                    // node-scoped associ
   unique keys than `total_count`, it throws `QueryPaginationError` instead of
   returning a silently incomplete result.
 - **Row envelope**: every row carries `key` + `keyValue` + `fields` +
-  `metadata` + `authorPubKey` — the app-scoped write metadata a real app needs
-  for provenance, not just bare field values.
+  `metadata` — the one metadata block of the record that a real app needs for
+  provenance, not just bare field values.
 - **`search`** is node-authoritative: hits come only from schemas in the app's
   `S(A)`; the optional `target` can only *narrow*, never widen.
 

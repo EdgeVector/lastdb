@@ -43,8 +43,8 @@ def query_body(schema, key, fields, tombstones):
 def rows(document):
     result = document.get('results')
     require(document.get('ok') is True and isinstance(result, list), 'query_not_ok')
-    expected = dict(returned_count=len(result), unresolved_rows=0, tombstoned_rows=0,
-                    limit=2, offset=0, has_more=False, next_cursor=None)
+    expected = dict(returned_count=len(result), limit=2, offset=0, has_more=False,
+                    next_cursor=None)
     require(all(k in document and document[k] == v for k, v in expected.items()),
             'query_incomplete')
     require('key_form' in document and (document['key_form'] is None if not result
