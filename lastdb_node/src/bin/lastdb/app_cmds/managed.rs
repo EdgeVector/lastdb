@@ -123,7 +123,7 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
             },
         ) {
             Ok(receipt) => {
-                results.push(json!({"app": app, "state": "current", "receipt": receipt}))
+                results.push(json!({"app": app, "state": "current", "receipt": receipt}));
             }
             Err(error) => {
                 failed = true;
