@@ -1,7 +1,7 @@
 //! Split bounded framing from handler work without changing access posture.
 use super::*;
 
-/// Parse one request with the same deadline and context gates as serve_connection.
+/// Parse one request with the connection deadline and the context gates.
 /// Malformed requests receive their original content-free response here.
 pub fn receive_connection(
     stream: &mut std::os::unix::net::UnixStream,

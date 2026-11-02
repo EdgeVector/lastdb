@@ -349,6 +349,6 @@ mod body;
 mod serve;
 
 pub use serve::{
-    error_response, finish_connection, receive_connection, serve_connection, write_busy_and_close,
-    write_response, UdsResponse, BUSY_ERROR_QUEUE_FULL,
+    error_response, finish_connection, receive_connection, write_busy_and_close, write_response,
+    UdsResponse, BUSY_ERROR_QUEUE_FULL,
 };

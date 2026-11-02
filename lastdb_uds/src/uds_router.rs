@@ -1,6 +1,6 @@
 //! Request router for the LastDB Mini Unix-domain sockets.
 //!
-//! [`super::uds_http::serve_connection`] reads a request off an accepted
+//! [`super::uds_http::receive_connection`] reads a request off an accepted
 //! stream. This module classifies its `(method, target)` into a [`ControlRoute`].
 //! It answers state-free routes and passes data routes to the daemon's executor.
 //!
