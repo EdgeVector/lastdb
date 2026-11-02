@@ -256,8 +256,7 @@ pub struct SchemaServiceState {
     pub declared_fields: Arc<RwLock<crate::declared_fields::DeclaredFieldRegistry>>,
     pub(crate) declared_field_writes: Arc<tokio::sync::Mutex<()>>,
     /// App-identity verification config (trusted exemem root pubkeys,
-    /// deployment env, revoked dev pubkeys). Set once at startup via
-    /// [`SchemaServiceState::configure_app_identity`]; defaults to empty
+    /// deployment env, revoked dev pubkeys). The default is empty
     /// (enforcement inactive — see `app_identity` module docs).
     pub app_identity: Arc<RwLock<crate::app_identity::AppIdentityConfig>>,
     /// Low-cardinality schema matching counters for operators. Labels are
