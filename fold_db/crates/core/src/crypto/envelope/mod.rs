@@ -12,7 +12,7 @@ use rand::RngCore;
 /// Retained verbatim for backward compatibility — every value already
 /// sealed at rest is a v1 envelope, and v1 stays readable forever (see
 /// the at-rest threat model §5.2 "migration"). New seals at a single
-/// static key keep emitting v1; v2 is opt-in via [`encrypt_envelope_v2`].
+/// static key keep emitting v1.
 pub const ENVELOPE_VERSION: u8 = 0x01;
 
 /// Version 2 envelope: **AES-256-GCM-SIV** (nonce-misuse-resistant), with
@@ -29,8 +29,7 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 ///   is only realized when the caller actually supplies that storage
 ///   context as `aad`. The account-key `CryptoProvider` seam is
 ///   context-free and writes v1 envelopes, so it does not enforce location
-///   binding. The v2 codec remains available to callers that supply a key,
-///   key id and storage context explicitly.
+///   binding. A v2 envelope still decrypts with the key and the same context.
 /// - **Nonce-misuse resistance** — v2 uses AES-GCM-SIV rather than plain
 ///   AES-GCM. With a random 96-bit nonce under a single long-lived DEK,
 ///   plain GCM hits the birthday bound (~2^-32 reuse at 2^32 seals), and
@@ -38,10 +37,7 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 ///   SIV degrades gracefully instead: a repeated (nonce, key, aad, msg)
 ///   only reveals that two plaintexts were equal — no key/forgery loss —
 ///   so v2 needs no per-DEK write ceiling. v2 is new (nothing seals at it
-///   yet), so adopting the misuse-resistant AEAD now is free.
-///
-/// This codec is the foundation; nothing seals at v2 until the keyring
-/// slice wires per-purpose DEKs behind it.
+///   yet).
 pub const ENVELOPE_VERSION_V2: u8 = 0x02;
 
 /// Size constants for the envelope format
@@ -152,66 +148,6 @@ pub fn decrypt_envelope(key: &[u8; 32], envelope: &[u8]) -> CryptoResult<Vec<u8>
         .map_err(|e| CryptoError::DecryptionFailed(format!("AES-GCM decrypt: {e}")))
 }
 
-/// Encrypt plaintext as a version-2 envelope: AES-256-GCM-SIV
-/// (nonce-misuse-resistant) with a 4-byte `key_id` recorded in the clear
-/// and `aad` bound as associated data.
-///
-/// Returns:
-/// ```text
-/// [version: 1B = 0x02] [key_id: 4B] [nonce: 12B] [ciphertext+tag: variable]
-/// ```
-///
-/// The `key_id` rides in the clear (so a keyring can resolve the DEK via
-/// [`peek_envelope`] before decrypting) but is *authenticated*: the
-/// envelope header `[version][key_id]` is prepended to `aad` and the
-/// whole thing is bound as the AEAD associated data. So flipping the
-/// version (a v2→v1 downgrade) or the key_id is caught by the tag check
-/// even if the same key is somehow selected.
-///
-/// `aad` (the storage context — namespace + storage key) is NOT stored in
-/// the envelope; the decryptor must supply byte-identical context or the
-/// tag check fails, which is what binds the ciphertext to its location.
-/// Use the empty slice when there is no context to bind.
-///
-/// v2 uses AES-256-GCM-SIV rather than plain AES-GCM precisely so the
-/// random 96-bit nonce carries no per-DEK write ceiling: under SIV a
-/// nonce collision is non-catastrophic (it only reveals plaintext
-/// equality, never the auth key), where under plain GCM it would be a
-/// forgery break (see [`ENVELOPE_VERSION_V2`]).
-pub fn encrypt_envelope_v2(
-    key: &[u8; 32],
-    key_id: KeyId,
-    plaintext: &[u8],
-    aad: &[u8],
-) -> CryptoResult<Vec<u8>> {
-    let cipher = Aes256GcmSiv::new_from_slice(key)
-        .map_err(|e| CryptoError::EncryptionFailed(format!("Invalid key: {e}")))?;
-
-    let mut nonce_bytes = [0u8; NONCE_SIZE];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = SivNonce::from_slice(&nonce_bytes);
-
-    let full_aad = v2_associated_data(key_id, aad);
-    let ciphertext = cipher
-        .encrypt(
-            nonce,
-            Payload {
-                msg: plaintext,
-                aad: &full_aad,
-            },
-        )
-        .map_err(|e| CryptoError::EncryptionFailed(format!("AES-GCM-SIV encrypt: {e}")))?;
-
-    // Build envelope: version || key_id || nonce || ciphertext+tag
-    let mut envelope = Vec::with_capacity(MIN_ENVELOPE_SIZE_V2 - TAG_SIZE + ciphertext.len());
-    envelope.push(ENVELOPE_VERSION_V2);
-    envelope.extend_from_slice(key_id.as_bytes());
-    envelope.extend_from_slice(&nonce_bytes);
-    envelope.extend_from_slice(&ciphertext);
-
-    Ok(envelope)
-}
-
 /// The associated data bound by a v2 envelope: the header
 /// `[version:0x02][key_id:4]` followed by the caller's storage context.
 /// Binding the header makes the version and key_id tamper-evident under
@@ -225,7 +161,7 @@ fn v2_associated_data(key_id: KeyId, context: &[u8]) -> Vec<u8> {
     aad
 }
 
-/// Decrypt a version-2 envelope produced by [`encrypt_envelope_v2`].
+/// Decrypt a version-2 envelope.
 ///
 /// `aad` must be byte-identical to what was supplied at seal time
 /// (the storage context); otherwise the GCM tag check fails with

@@ -22,7 +22,7 @@ pub use at_rest::{
 pub use e2e::E2eKeys;
 pub use envelope::{
     decrypt_envelope, decrypt_envelope_v2, decrypt_envelope_with_context, encrypt_envelope,
-    encrypt_envelope_v2, peek_envelope, EnvelopeHeader, KeyId,
+    peek_envelope, EnvelopeHeader, KeyId,
 };
 pub use error::{CryptoError, CryptoResult};
 pub use provider::{CryptoProvider, LocalCryptoProvider};
