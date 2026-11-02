@@ -60,7 +60,6 @@ pub(crate) async fn execute_catalog_schema_sync(
         app_id = %audit.app_id,
         schema = %audit.schema,
         outcome = %audit.outcome,
-        mapper_count = audit.mapper_count,
         "canonical app schema sync completed"
     );
 

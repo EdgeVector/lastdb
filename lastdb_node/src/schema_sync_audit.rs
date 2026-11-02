@@ -23,7 +23,6 @@ pub struct SchemaSyncAuditEvent {
     pub outcome: String,
     pub catalog_hashes: Vec<String>,
     pub predecessor_hashes: Vec<String>,
-    pub mapper_count: usize,
     pub bind_eligible: bool,
     pub error: Option<String>,
 }
@@ -49,7 +48,6 @@ impl SchemaSyncAuditEvent {
             outcome: "rejected".to_string(),
             catalog_hashes: Vec::new(),
             predecessor_hashes: Vec::new(),
-            mapper_count: 0,
             bind_eligible: false,
             error: None,
         }

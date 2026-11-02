@@ -19,7 +19,6 @@ impl DirectDeclareResolution {
     pub(crate) fn stamp_audit(&self, event: &mut SchemaSyncAuditEvent) {
         event.outcome = self.outcome().to_string();
         event.catalog_hashes = vec![self.runtime_schema.clone()];
-        event.mapper_count = 0;
         event.predecessor_hashes.clear();
         event.bind_eligible = true;
     }

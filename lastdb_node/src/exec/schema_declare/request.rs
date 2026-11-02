@@ -12,11 +12,9 @@ use super::*;
 /// `intent` defaults to `catalog_sync` (described below). `check` is the
 /// read-only plan: see [`execute_catalog_schema_check`].
 ///
-/// Every declaration owns its values. A definition that maps a field to
-/// another schema is refused. Schema Service supplies the exact canonical
-/// definition. It never supplies a second schema's field key addresses.
-/// Existing data requires an explicit conversion before any incompatible
-/// declaration.
+/// Every declaration owns its values. Schema Service supplies the exact
+/// canonical definition. Existing data requires an explicit conversion before
+/// any incompatible declaration.
 ///
 /// Served on the owner data socket AND the full-surface setup socket so Mini
 /// first-run init can load exact catalog identities without storing a local
@@ -55,10 +53,7 @@ pub async fn execute_apps_declare_schema_route(
             )
         }
     };
-    let mut declare = match facts
-        .refuse_value_mappers()
-        .and_then(|()| normalize_direct_declare_proposal("app_id", &body.app_id, body.schema))
-    {
+    let mut declare = match normalize_direct_declare_proposal("app_id", &body.app_id, body.schema) {
         Ok(declare) => declare,
         Err(e) => {
             return reject_schema_sync_request(
@@ -100,9 +95,7 @@ pub(crate) async fn execute_declare_schema_route(
             )
         }
     };
-    let declare = match DeclareRequestFacts::from_body(&req.body)
-        .refuse_value_mappers()
-        .and_then(|()| normalize_direct_declare_proposal("namespace", &body.namespace, body.schema))
+    let declare = match normalize_direct_declare_proposal("namespace", &body.namespace, body.schema)
     {
         Ok(declare) => declare,
         Err(e) => {
