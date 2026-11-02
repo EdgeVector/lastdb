@@ -42,24 +42,6 @@ use schema_types::Schema;
 pub trait ExternalSchemaPersistence: Send + Sync {
     // ============== Schemas ==============
 
-    /// Persist a single schema. Schemas are keyed by `schema.name`
-    /// (which is the content-hash identity).
-    ///
-    /// Must be idempotent: a second call with the same schema must
-    /// succeed as a no-op.
-    async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()>;
-
-    /// Persist many schemas at once. Backends whose `save_schema` is a
-    /// read-modify-write of one shared blob (the S3 backend) should
-    /// override this to apply the whole batch in a single RMW cycle
-    /// instead of N; the default just loops the single-item form.
-    async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        for schema in schemas {
-            self.save_schema(schema).await?;
-        }
-        Ok(())
-    }
-
     /// Commit schemas and their admitted canonical definitions atomically.
     /// A failed commit must expose neither side. Backends must validate field
     /// conflicts inside the same transaction/conditional write as the schemas.
@@ -89,21 +71,6 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>>;
 
     // ============== Canonical fields ==============
-
-    /// Persist a single canonical field entry keyed by `name`.
-    ///
-    /// Must be idempotent.
-    async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()>;
-
-    /// Persist many canonical fields at once. Same batching contract as
-    /// [`Self::save_schemas`]: blob-RMW backends should override this to
-    /// do one RMW for the whole batch.
-    async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        for (name, field) in fields {
-            self.save_canonical_field(name, field).await?;
-        }
-        Ok(())
-    }
 
     /// Load every canonical field from storage.
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>>;
