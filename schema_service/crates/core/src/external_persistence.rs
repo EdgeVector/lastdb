@@ -282,15 +282,6 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     // A declaration and its canonical definitions share one backend commit.
     // No default may silently split publication into independent writes.
 
-    /// Commit a declaration and its canonical vocabulary atomically. Check
-    /// `expected` inside the commit to reject a concurrent handle/update race.
-    async fn save_declared_field_definitions(
-        &self,
-        record: &DeclaredFieldRecord,
-        fields: &[(String, CanonicalField)],
-        expected: Option<&DeclaredFieldRecord>,
-    ) -> FoldDbResult<()>;
-
     /// Check both the declaration precondition and the admission snapshot
     /// inside one atomic commit. No unguarded fallback is permitted.
     async fn save_declared_field_definitions_if_vocabulary(
