@@ -111,8 +111,7 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            schema_err @ (SchemaError::FieldValueTooLarge { .. }
-            | SchemaError::RecordTooLarge { .. }) => Self::new(
+            schema_err @ SchemaError::RecordTooLarge { .. } => Self::new(
                 413,
                 schema_err
                     .field_value_too_large_body()
