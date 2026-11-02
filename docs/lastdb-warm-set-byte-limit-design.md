@@ -56,7 +56,6 @@ Code: `fold_db/crates/core/src/resident/warm_bytes.rs`.
 - `LASTDB_CORE_WARM_BYTES` sets the limit. The default is 256 MiB (D2).
 - The daemon refuses to start on a value that does not parse, or on zero.
 - The byte limit is the only warm set limit. There is no record count limit (D3).
-- The status field `warm_record_limit` stays on the wire for installed clients and reads 0.
 
 ## Admission and purge
 

@@ -36,7 +36,7 @@ This rule supersedes the local build commands and coordination rules below.
 - Product PRs require `benchmark-complete`: valid measurements and verified artifact uploads.
 - Documentation-only PRs skip measurements. Main pushes and nightly runs keep their benchmark recipes.
 - Slowdowns are advisory. Build failures, incomplete measurements, and failed uploads block the completion check.
-- Any settled database checkpoint above 1.5× the total record bytes (report field `logical_record_bytes`) blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining record data.
+- Any settled database checkpoint above 1.5× the total record bytes (report field `stored_record_bytes`) blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining record data.
 - While CI waits, do not substitute a local build or benchmark.
 
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,

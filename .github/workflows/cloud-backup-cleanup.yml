@@ -87,7 +87,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          # The kept-snapshot format check reads commit ancestry on main only.
+          # The kept-snapshot format check reads commit ancestry on main and
+          # fetches the one backup profile file of the kept source.
           fetch-depth: 0
           filter: tree:0
       - uses: actions/download-artifact@v8

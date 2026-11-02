@@ -364,7 +364,7 @@ The ratio is retained disk bytes divided by record bytes:
 - Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
   The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: the stored value bytes of the live records (`total_record_bytes`).
-  Tombstones stay out. The report keeps the field name `logical_record_bytes` for this value.
+  Tombstones stay out. The report names this value `stored_record_bytes`.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - The required maximum ratio includes every settled checkpoint in the single candidate run.

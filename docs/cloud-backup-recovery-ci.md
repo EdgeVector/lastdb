@@ -237,7 +237,7 @@ gh workflow run cloud-backup-recovery.yml -R EdgeVector/lastdb --ref main -f mod
 The mode uses the same protected environment, build, package, admission, and start claim as the normal operation.
 `baseline.py` then starts a fresh home of the current format with the fixed CI identity.
 The recovery phrase supplies the identity seed, and the daemon must report the fixed CI account.
-The home receives the `CloudCiBaselineF7` Hash schema, 16 records, and one 8 MiB file.
+The home receives the `CloudCiBaseline` Hash schema, 16 records, and one 8 MiB file.
 Automatic backup uploads exactly one snapshot to the claimed stream. No mutation log enters that stream.
 The source stops cleanly. The snapshot restores to an absent folder, and two boots read every record and the complete file.
 Only then does the step write `ci-baseline.json`. The workflow uploads it as `cloud-ci-baseline-<run_id>-<run_attempt>`.
@@ -408,12 +408,12 @@ It checks the restored native inventory before the first boot, then checks all b
 The helper accesses only a fresh private DEV restore. `kept_pass.py` calls it after a complete cleanup request.
 Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
-The client restores only home format 8. `scripts/cloud_backup/kept_recovery.py` names the first main source of that format.
-A kept stream from an older main source holds a snapshot of an older home format, which this client does not restore.
+A client restores only a snapshot of its own backup profile (`RECORD_PROFILE` in `run_admission.rs`).
 The job reads the full main commit history without file contents and checks the ancestry of the kept owner source.
-For an older source, the controller records the kept stream and its source, and attempts no restore.
-The service still keeps that stream. A later successful format 8 CI stream replaces it under the normal retention rules.
-A kept source outside the main history fails CI. `kept_pass.py` computes this check from the validated kept record.
+`scripts/cloud_backup/kept_recovery.py` then fetches that one file at the kept source and compares the two profiles.
+For another profile, the controller records the kept stream, its source, and both profiles, and attempts no restore.
+The service still keeps that stream. A later successful CI stream of the current format replaces it under the normal retention rules.
+A kept source outside the main history, or a failed profile read, fails CI. `kept_pass.py` computes this check from the validated kept record.
 
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.

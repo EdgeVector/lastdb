@@ -212,9 +212,6 @@ This read does not wake the flush worker.
 | `core_model.body_reserved_*` | Current and retained charged write-body owners, including captured older values. |
 | `core_memory` | Bounded definition memory, with hits, misses, refused admissions, and byte charges. |
 
-The fields `warm_record_limit`, `core_warm_paths`, `core_warm_field_keys`, `core_warm_dirty`
-and the path-only count stay on the wire for installed clients. They read 0.
-
 A queued reply alone does not establish a memory-only ACK.
 Sample the accepted and completed sequences and the pending batches immediately after the reply.
 Explicit durable requests wait for disk.
