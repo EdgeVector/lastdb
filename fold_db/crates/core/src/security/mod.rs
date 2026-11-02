@@ -26,23 +26,11 @@ pub enum SecurityError {
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
 
-    #[error("Signature verification failed: {0}")]
-    SignatureVerificationFailed(String),
-
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(String),
 
     #[error("Invalid signature: {0}")]
     InvalidSignature(String),
-
-    #[error("Key not found: {0}")]
-    KeyNotFound(String),
-
-    #[error("Serialization error: {0}")]
-    SerializationError(String),
-
-    #[error("Deserialization error: {0}")]
-    DeserializationError(String),
 }
 
 pub type SecurityResult<T> = Result<T, SecurityError>;
