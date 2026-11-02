@@ -14,19 +14,16 @@ pub struct HostError {
     /// Owner-visible diagnostic. Non-owners do not receive this text.
     pub message: String,
     structured_body: Option<Value>,
-    /// Seconds for the `Retry-After` header, when a retry later can work.
-    retry_after_secs: Option<u64>,
 }
 
 impl HostError {
     #[must_use]
-    /// Build an error with this status and message and no structured body or retry delay.
+    /// Build an error with this status and message and no structured body.
     pub fn new(status: u16, message: impl Into<String>) -> Self {
         Self {
             status,
             message: message.into(),
             structured_body: None,
-            retry_after_secs: None,
         }
     }
 
@@ -41,15 +38,7 @@ impl HostError {
             status,
             message: message.into(),
             structured_body: Some(body),
-            retry_after_secs: None,
         }
-    }
-
-    /// Add a `Retry-After` header of `secs` seconds to the response.
-    #[must_use]
-    pub fn with_retry_after(mut self, secs: u64) -> Self {
-        self.retry_after_secs = Some(secs);
-        self
     }
 
     /// A `500` — always rendered content-free, so its message never leaks
@@ -213,13 +202,9 @@ pub fn render(result: Result<Value, HostError>, ctx: &AccessContext) -> UdsRespo
                     e.message
                 );
             }
-            let response = match e.structured_body.as_ref() {
+            match e.structured_body.as_ref() {
                 Some(body) => owner_json_or_content_free(e.status, body, ctx),
                 None => owner_or_content_free(e.status, &e.message, ctx),
-            };
-            match e.retry_after_secs {
-                Some(secs) => response.with_header("Retry-After", secs.to_string()),
-                None => response,
             }
         }
     }
