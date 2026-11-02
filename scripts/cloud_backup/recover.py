@@ -24,7 +24,7 @@ from programs import Programs
 from restore_receipts import restored
 from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
-                     dev_endpoint, private_directory, require, save_json)
+                     dev_endpoint, failure, private_directory, require, save_json)
 from support import read_json
 
 
@@ -190,6 +190,8 @@ class Operation:
         value = {"result": self.summary["result"],
                  "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
                  "source": self.args.source, "primary_access": False}
+        if "service_field" in self.summary:
+            value["service_field"] = self.summary["service_field"]
         if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
             value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
         if self.summary["schema"] == "lastdb.cloud-ci-preflight.v2":
@@ -244,7 +246,7 @@ def main():
         operation.prepare()
         operation.execute()
     except OperationError as error:
-        operation.summary["failure"] = str(error)
+        operation.summary.update(failure(error))
     except BaseException:
         # Product replies can contain file keys or grants. Never print exceptions.
         operation.summary["failure"] = "unexpected_operation_error"

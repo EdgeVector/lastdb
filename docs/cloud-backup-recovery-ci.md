@@ -197,6 +197,10 @@ The non-secret repository variable `LASTDB_CLOUD_DEV_BASELINE_SCOPE` contains on
 It gives the public metadata operation an independent baseline exclusion without a cloud credential or expected record contents.
 The protected main operation requires those fields to equal its secret baseline before cloud access.
 
+A DEV service refusal has two static protocol names: a code and a field, for example `integrity_mismatch` and `ci.policy`.
+The client records the code as `failure` (`ci_control_service_<code>`), and retry decisions compare only that value.
+It records the field as `service_field` only when the field has the fixed dotted-name form. It prints no other part of the reply.
+
 The baseline JSON contains these fields:
 
 ```text
@@ -266,6 +270,8 @@ After a successful move, an operator updates the two protected inputs:
 5. Run the normal recovery on main.
 
 Update both inputs before the next normal recovery.
+A normal recovery that still names the replaced baseline fails at its start claim.
+Its summary shows `failure` `ci_control_service_integrity_mismatch` and `service_field` `ci.policy`.
 The daily check does not count a baseline-mode run as a recovery result.
 
 ## Limits and cleanup

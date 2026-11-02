@@ -14,7 +14,7 @@ from kept_recovery import client_profile, legacy_format, recover as recover_kept
 from recover import Operation
 from retirement import Retirement
 from retirement_status import Status
-from support import OperationError, canonical_uuid, require
+from support import OperationError, canonical_uuid, failure, require
 
 
 class KeptPass(Operation):
@@ -84,7 +84,7 @@ def main():
         operation.prepare()
         operation.execute()
     except OperationError as error:
-        operation.summary["failure"] = str(error)
+        operation.summary.update(failure(error))
     except BaseException:
         operation.summary["failure"] = "unexpected_ci_kept_error"
     finally:

@@ -19,7 +19,7 @@ from recover import step_summary
 from retirement import Retirement
 from retirement_observation import Observation
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
-                     private_directory, require, save_json)
+                     failure, private_directory, require, save_json)
 
 SCHEMA = "lastdb.cloud-ci-cleanup.v1"
 RECOVERY_RUNS = "actions/workflows/cloud-backup-recovery.yml/runs?branch=main&per_page=1&status="
@@ -135,7 +135,7 @@ class Pass:
                 stream.write("kept_request=" + (self.kept_request or "") + "\n")
         # Only these validated public fields enter the Actions log.
         print(json.dumps({name: self.summary.get(name) for name in (
-            "result", "stage", "failure", "phase", "create_deferred", "retirement",
+            "result", "stage", "failure", "service_field", "phase", "create_deferred", "retirement",
             "retirement_diagnostics", "backup_service_requests", "primary_access")}, sort_keys=True))
 
 
@@ -158,7 +158,7 @@ def main():
         operation.prepare()
         operation.execute()
     except OperationError as error:
-        operation.summary["failure"] = str(error)
+        operation.summary.update(failure(error))
     except BaseException:
         operation.summary["failure"] = "unexpected_ci_cleanup_error"
     finally:
