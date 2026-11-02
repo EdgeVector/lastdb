@@ -17,7 +17,6 @@ pub mod record_store;
 /// Molecule key bundles are storage key material; the store lives in
 /// `storage`. This path stays for existing callers.
 pub use crate::storage::molecule_key_store;
-mod public_key_operations;
 pub mod public_key_store;
 mod schema_operations;
 pub mod schema_store;

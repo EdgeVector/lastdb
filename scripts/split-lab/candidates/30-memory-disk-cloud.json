@@ -144,7 +144,6 @@
     "db_operations/mod.rs",
     "db_operations/molecule_key_store.rs",
     "db_operations/molecule_key_store/",
-    "db_operations/public_key_operations.rs",
     "db_operations/public_key_store.rs",
     "db_operations/schema_operations.rs",
     "db_operations/schema_operations/",

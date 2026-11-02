@@ -1,6 +1,3 @@
-/// The sole ID for the single public key used for signing validation.
-pub const SINGLE_PUBLIC_KEY_ID: &str = "SYSTEM_WIDE_PUBLIC_KEY";
-
 /// Production budget for best-effort mutation background task drains.
 ///
 /// Canonicalization row `mutation-background-task-timeout`: this constant is the
