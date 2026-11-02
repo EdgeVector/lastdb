@@ -21,7 +21,6 @@ mod lifecycle;
 mod local_file_blobs;
 mod maintenance_admission;
 
-mod provenance;
 mod record_conflicts;
 mod schema_drop;
 

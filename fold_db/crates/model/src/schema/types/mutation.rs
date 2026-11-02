@@ -30,12 +30,8 @@ pub struct Mutation {
     /// Per-key metadata is part of the signed mutation, not the record UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    /// Writer identity and verifiability info. Additive during the
-    /// `projects/field-key-provenance-dag` migration: `None` on mutations
-    /// constructed before provenance wire-through; `Some(Provenance::User{..})`
-    /// once a signature is available at construction. Kept alongside
-    /// `pub_key` (not in place of) until the full wire-through lands and
-    /// a follow-up PR removes `pub_key`.
+    /// Writer signature of a signed import. A record names no writer
+    /// (decision D7), so a record write refuses a mutation that carries one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
     /// The `written_at` the original author SIGNED, carried alongside
