@@ -3,7 +3,6 @@ mod files;
 mod node;
 mod proof;
 mod replay;
-mod snapshot_identity;
 
 use super::byte_backup::RunBackupProfile;
 use crate::storage::disk_pack::run_node;
@@ -15,7 +14,6 @@ use std::path::Path;
 
 pub use node::{validate_restored_node, RunNodeGuard};
 pub use replay::{verify_replayed, MutationReplay};
-pub use snapshot_identity::{inspect_snapshot_identity, prepare_snapshot_identity};
 
 pub struct RunRestoreFile {
     pub path: String,
@@ -52,21 +50,6 @@ impl RunRestoreGuard {
 
     pub fn check_binding(&self) -> StorageResult<()> {
         self.native.check_binding()
-    }
-
-    /// Match the authenticated client claim to the actual restored native cut.
-    /// This never loads a private signer or enrolls the recorded devices.
-    pub fn verify_logical_inclusion(
-        &mut self,
-        inclusion: &crate::storage::disk_pack::logical_capture::SnapshotInclusion,
-    ) -> StorageResult<()> {
-        self.check_binding()?;
-        crate::storage::disk_pack::logical_capture::verify_snapshot_inclusion(
-            &mut self.native.main,
-            &self.native.profile,
-            inclusion,
-        )?;
-        self.check_binding()
     }
 
     pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
