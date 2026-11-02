@@ -23,11 +23,17 @@ def main():
     if not any(package["name"] == "lastdb_node" for package in packages):
         raise ValueError("CodeQL dependency preparation did not identify LastDB")
     # Vendored path packages must also rebuild, even outside the workspace members.
+    # cargo clean ignores a package-id url and version. The package name is the clean key.
     command = ["cargo", "clean", "--profile", "dev", "--locked"]
+    seen = set()
     for package in packages:
-        command.extend(("--package", package["id"]))
+        name = package["name"]
+        if name in seen:
+            continue
+        seen.add(name)
+        command.extend(("--package", name))
     subprocess.run(command, check=True, timeout=120)
-    print(f"Removed outputs for {len(packages)} local packages; external dependencies remain")
+    print(f"Removed outputs for {len(seen)} local packages; external dependencies remain")
 
 
 if __name__ == "__main__":
