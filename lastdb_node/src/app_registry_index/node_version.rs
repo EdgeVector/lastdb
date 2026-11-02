@@ -68,6 +68,50 @@ fn sibling_lastdbd_version() -> Option<String> {
 }
 
 fn socket_api_version_build(socket: &Path) -> Option<String> {
+    socket_version(socket)?
+        .get("build")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// Read the node's build and exact contract versions from one socket request.
+/// Falls back to the paired daemon build and this release's contract constants.
+#[must_use]
+pub fn running_node(socket: &Path) -> (String, &'static str, super::ContractVersions) {
+    let mut versions = super::ContractVersions {
+        api_version: crate::version::CURRENT_API_VERSION,
+        min_supported_api_version: crate::version::MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    };
+    if let Some(value) = socket_version(socket) {
+        let api = value
+            .get("api_version")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        let outbox = value
+            .get("current_outbox_format_version")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        if let (Some(build), Some(api), Some(outbox)) =
+            (value.get("build").and_then(Value::as_str), api, outbox)
+        {
+            versions.api_version = api;
+            versions.outbox_format_version = outbox;
+            return (build.to_string(), "socket", versions);
+        }
+    }
+    let build = sibling_lastdbd_version();
+    (
+        build
+            .clone()
+            .unwrap_or_else(|| crate::ops::crash_attribution::build_version().to_string()),
+        if build.is_some() { "lastdbd" } else { "cli" },
+        versions,
+    )
+}
+
+fn socket_version(socket: &Path) -> Option<Value> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     let mut stream = UnixStream::connect(socket).ok()?;
@@ -89,9 +133,5 @@ fn socket_api_version_build(socket: &Path) -> Option<String> {
     let start = body.find('{')?;
     let end = body.rfind('}')?;
     let payload: Value = serde_json::from_str(&body[start..=end]).ok()?;
-    payload
-        .get("build")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .filter(|b| !b.is_empty())
+    Some(payload)
 }

@@ -176,6 +176,7 @@ pub fn resolve_local(
     let source_url = resolve_source_url(path);
 
     Ok(Resolution {
+        list_entry: None,
         app_id: app_id.to_string(),
         channel: if is_dev {
             "dev".to_string()

@@ -22,9 +22,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// The request-grammar version this node speaks. **The client↔node
 /// compatibility handshake.**
 ///
-/// Bump it when the socket grammar changes in a way a client can observe: a new
-/// key a route accepts, a key a route stops accepting, a removed route, or a
-/// changed value grammar. The `contract-diff` CI check reads this number
+/// Bump it when an app-socket route breaks: a removed route, a required request
+/// or response field changing type or meaning, or tighter validation. Optional
+/// additions, new routes, bug fixes, new builds, and owner-only changes do not
+/// raise it. The `contract-diff` CI check reads this number
 /// (through `lastdb_node::version::CURRENT_API_VERSION`) and fails a breaking
 /// route change that does not raise it.
 ///

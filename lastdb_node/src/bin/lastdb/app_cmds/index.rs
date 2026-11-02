@@ -18,10 +18,17 @@ pub(crate) fn app_index_command(home: &Path, cmd: AppIndexCommand) -> Result<(),
             json,
         } => app_index_verify(&index, sig, trust_key.as_deref(), json),
         AppIndexCommand::TrustKey => {
-            println!(
-                "{}",
-                lastdb_node::app_registry_index::RELEASE_INDEX_PUBKEY_B64
-            );
+            use lastdb_node::app_registry_index::{
+                REGISTRY_LIST_PUBKEY_B64, RELEASE_INDEX_PUBKEY_B64,
+            };
+            for (name, value) in [
+                ("S3 interface lists", REGISTRY_LIST_PUBKEY_B64),
+                ("legacy GitHub indexes", RELEASE_INDEX_PUBKEY_B64),
+            ] {
+                let key = app_identity_crypto::verifying_key_from_base64(value)
+                    .map_err(|e| e.to_string())?;
+                println!("{name}: {} {value}", app_identity_crypto::key_id(&key));
+            }
             Ok(())
         }
     }

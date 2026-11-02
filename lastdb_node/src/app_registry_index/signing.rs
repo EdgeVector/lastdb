@@ -199,6 +199,19 @@ pub fn resolve_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, TrustSourc
     Ok((key, TrustSource::Pinned))
 }
 
+/// Resolve the KMS list key, keeping the legacy index key for old-file verification.
+///
+/// # Errors
+/// A malformed explicit key or corrupt pinned public key.
+pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, TrustSource), String> {
+    if flag.is_some() || std::env::var(TRUST_KEY_ENV).is_ok_and(|v| !v.trim().is_empty()) {
+        return resolve_trust_key(flag);
+    }
+    verifying_key_from_base64(super::REGISTRY_LIST_PUBKEY_B64)
+        .map(|key| (key, TrustSource::Pinned))
+        .map_err(|e| e.to_string())
+}
+
 fn parse_trust_key(raw: &str, what: &str) -> Result<VerifyingKey, String> {
     let raw = raw.trim();
     let text = if Path::new(raw).is_file() {
