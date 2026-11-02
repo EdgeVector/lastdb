@@ -19,9 +19,9 @@
 #      (brain/kanban init path).
 #   4. Native search retired-route contract on the SHIPPED Mini binary —
 #      release builds have no owner-wide native-index search route. Assert HTTP
-#      404 Not Found — not empty 200/ok:true and not the retired fold #968
-#      semantic-off 503 stub. Full semantic coverage rides the Search app plane
-#      and the separate non-shipping smoke lane.
+#      404 with the retired JSON body — not empty 200/ok:true and not the
+#      retired fold #968 semantic-off 503 stub. Full semantic coverage rides
+#      the Search app plane and the separate non-shipping smoke lane.
 #   5. Restart persistence — kill the daemon, reboot the same home, re-query.
 #
 # It NEVER touches the primary brain, `~/.lastdb`, `~/.folddb`, or `$HOME`; it
@@ -155,19 +155,25 @@ assert_apps_declare_catalog_sync_payload() {
 }
 
 # assert_native_index_search_retired_response <http-code> <body-file> — Mini no
-# longer exposes owner-wide `/api/native-index/search`; clients use the Search
-# app plane or scoped app-vector routes instead.
+# longer exposes owner-wide `/api/native-index/search`. The handler returns
+# HTTP 404 and {"ok":false,"retired":true,"message":"native-index search route
+# removed; use LastSeek"}. Release run 41491941857 got that body and failed
+# because this check looked for the words "not found".
 assert_native_index_search_retired_response() {
   local code body_file
   code="$1"
   body_file="$2"
   if [ "$code" != "404" ]; then
-    printf 'native-index search expected HTTP 404 Not Found after route retirement, got %s (body: %s)\n' \
+    printf 'native-index search expected HTTP 404 after route retirement, got %s (body: %s)\n' \
       "${code:-transport-error}" "$(head -c 400 "$body_file" 2>/dev/null || true)" >&2
     return 1
   fi
-  if ! grep -qi 'not found' "$body_file"; then
-    printf '404 body missing Not Found marker (body: %s)\n' \
+  if ! jq -e '
+    .ok == false
+    and .retired == true
+    and .message == "native-index search route removed; use LastSeek"
+  ' "$body_file" >/dev/null; then
+    printf '404 body is not the retired LastSeek response (body: %s)\n' \
       "$(head -c 400 "$body_file" 2>/dev/null || true)" >&2
     return 1
   fi
@@ -562,7 +568,7 @@ jq -e '
 # available for the assertion. This keeps guarding against empty 200 + ok:true
 # and also rejects the stale semantic-off 503 `search_plane_required` stub.
 
-log "checking native-index search route is retired with 404 Not Found (default Mini)"
+log "checking native-index search route is retired with HTTP 404 and the LastSeek body"
 SEARCH_CODE="$(
   curl --unix-socket "$SOCKET" -sS -o "$REPORT_DIR/native-search.body" -w '%{http_code}' \
     --max-time 30 \
@@ -629,7 +635,7 @@ jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.record_i
   printf -- '- `lastdbd` booted on a pristine throwaway home with zero config: no prompt, `identity.key` auto-generated, owner socket up, `/health` ok, `lastdb status` sees it.\n'
   printf -- '- Data round-trip over the socket: `/api/schemas/declare` -> `mutation` -> `query` returned the record.\n'
   printf -- '- First-run app path: `/api/apps/declare-schema` catalog sync + mutation/query by canonical name (brain/kanban init).\n'
-  printf -- '- Owner-wide native-index search is retired: `GET /api/native-index/search?q=...` returned HTTP 404 Not Found; clients use the Search app plane or scoped app-vector routes.\n'
+  printf -- '- Owner-wide native-index search is retired: `GET /api/native-index/search?q=...` returned HTTP 404 with the LastSeek body; clients use the Search app plane or scoped app-vector routes.\n'
   printf -- '- The record survived a daemon restart on the same home.\n'
 } > "$REPORT_DIR/report.md"
 
