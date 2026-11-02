@@ -77,10 +77,6 @@ pub const OBS_SENTRY_ENVIRONMENT_ENV: &str = "OBS_SENTRY_ENVIRONMENT";
 /// the real crate/app version. Read once at [`build_error_layer`] time.
 pub const OBS_SENTRY_RELEASE_ENV: &str = "OBS_SENTRY_RELEASE";
 
-/// Legacy name retained for source compatibility. The client ignores it and
-/// transmits no stable install identifier.
-pub const OBS_SENTRY_INSTALL_ID_ENV: &str = "OBS_SENTRY_INSTALL_ID";
-
 /// RAII guard returned by [`build_error_layer`].
 ///
 /// Wraps the [`sentry::ClientInitGuard`] that the SDK hands back from
