@@ -90,7 +90,7 @@ impl DbOperations {
     pub async fn from_namespaced_store(
         store: Arc<dyn NamespacedStore>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_field_keys_mode(store, None, None, true).await
+        Self::from_namespaced_store_with_content_and_field_keys(store, None, None).await
     }
 
     /// Production constructor with a node key for durable field-key wraps.
@@ -104,25 +104,9 @@ impl DbOperations {
         content_key: Option<[u8; 32]>,
         field_key_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_field_keys_mode(
-            store,
-            content_key,
-            field_key_wrap_key,
-            true,
-        )
-        .await
-    }
-
-    async fn from_namespaced_store_with_content_and_field_keys_mode(
-        store: Arc<dyn NamespacedStore>,
-        content_key: Option<[u8; 32]>,
-        field_key_wrap_key: Option<[u8; 32]>,
-        admit_meter_trust: bool,
-    ) -> Result<Self, crate::storage::StorageError> {
         let runtime = store.disk_pack_runtime().ok_or_else(|| {
             crate::storage::StorageError::ConfigurationError(
-                "LastDB logical operations require native packed storage; old engines are unsupported"
-                    .into(),
+                "LastDB logical operations require the native run store".into(),
             )
         })?;
         let persist_metrics = runtime.persist_metrics();
@@ -169,7 +153,6 @@ impl DbOperations {
             RecordNamespaces::new(main_kv, keep_small_kv),
             content_key,
             &field_keys,
-            admit_meter_trust,
             content_key.or(field_key_wrap_key),
         )
         .await?;
@@ -197,7 +180,6 @@ impl DbOperations {
         namespaces: RecordNamespaces,
         content_key: Option<[u8; 32]>,
         field_keys: &FieldKeyStore,
-        admit_meter_trust: bool,
         proof_key: Option<[u8; 32]>,
     ) -> Result<RecordStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
@@ -214,19 +196,17 @@ impl DbOperations {
         // hydrate leaves every domain incomplete (reports stay incomplete,
         // meter-dependent deletion stays closed) and the node boots. Tom's
         // decision: decision-2026-09-25-lastdb-node-stays-upgradeable-soft-hard-cap.
-        if admit_meter_trust {
-            if let Err(e) = record_store.hydrate_keep_small().await {
-                record_store
-                    .note_keep_small_hydrate_failure(&e.to_string())
-                    .await;
-                tracing::warn!(
-                    target: "fold_node::database",
-                    error = %e,
-                    "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
-                     (reports stay incomplete and meter-dependent deletion stays closed until \
-                     a new complete meter snapshot is available)"
-                );
-            }
+        if let Err(e) = record_store.hydrate_keep_small().await {
+            record_store
+                .note_keep_small_hydrate_failure(&e.to_string())
+                .await;
+            tracing::warn!(
+                target: "fold_node::database",
+                error = %e,
+                "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
+                 (reports stay incomplete and meter-dependent deletion stays closed until \
+                 a new complete meter snapshot is available)"
+            );
         }
         Ok(record_store)
     }
