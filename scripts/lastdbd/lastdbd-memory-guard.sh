@@ -66,17 +66,6 @@ command_for_pid() {
   "$PS_BIN" -p "$1" -o command= 2>/dev/null | sed -n '1p' || true
 }
 
-comm_for_pid() {
-  "$PS_BIN" -p "$1" -o comm= 2>/dev/null | sed -n '1p' || true
-}
-
-is_lastdbd_pid() {
-  local pid="$1"
-  local comm
-  comm="$(comm_for_pid "$pid")"
-  [ "${comm##*/}" = "lastdbd" ]
-}
-
 launchd_primary_pid() {
   local service out
   service="$(target_service)"
