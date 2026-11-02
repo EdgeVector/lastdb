@@ -31,6 +31,8 @@ pub struct InstallLink {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstallPlan {
+    #[serde(default, skip_deserializing)]
+    pub uses: Vec<String>,
     #[serde(default)]
     pub prepare: Vec<InstallStep>,
     #[serde(default)]
@@ -61,8 +63,18 @@ impl InstallPlan {
         if value["app_id"].as_str() != Some(app) {
             return Err("source manifest app_id differs from signed listing".into());
         }
-        let plan: Self = serde_json::from_value(value["install"].clone())
+        let mut plan: Self = serde_json::from_value(value["install"].clone())
             .map_err(|e| format!("app needs an install manifest: {e}"))?;
+        if value["install"].get("uses").is_some() {
+            return Err("uses belongs at the top of the app manifest".into());
+        }
+        plan.uses = serde_json::from_value(
+            value
+                .get("uses")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([])),
+        )
+        .map_err(|_| "manifest uses must be an array of strings")?;
         plan.validate()?;
         Ok(plan)
     }
