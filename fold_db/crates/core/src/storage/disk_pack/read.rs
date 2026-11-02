@@ -190,7 +190,7 @@ pub struct PackReadScope {
 }
 
 impl PackReadScope {
-    /// Capture a native root when this store uses packs. Legacy stores return None.
+    /// Capture a native root when this store states a native runtime.
     pub async fn for_store(store: &Arc<dyn NamespacedStore>) -> StorageResult<Option<Self>> {
         let Some(runtime) = store.disk_pack_runtime() else {
             return Ok(None);

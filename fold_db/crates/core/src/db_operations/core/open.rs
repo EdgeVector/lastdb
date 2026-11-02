@@ -52,13 +52,11 @@ impl CoreNamespaces {
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
-        // The keep-small snapshot gets its own plane (2026-09-21). The snapshot
-        // (a small header plus shards) is rewritten on each debounce tick, so
-        // the old bytes are dead when the next put lands. Under the LastStore
-        // segment engine (removed with disk format v1, decision D1) that value in
-        // `metadata` grew one shared hash group to 39 GB and looped the
-        // primary. In disk format v2 the plane is part of the main run home,
-        // so the V2 byte backup, when on, copies it with the other run files.
+        // The keep-small snapshot has its own collection. The snapshot (a small
+        // header plus shards) is rewritten on each debounce tick, so the old
+        // bytes are dead when the next put lands. The collection is part of the
+        // main run home, so the V2 byte backup, when on, copies it with the
+        // other run files.
         let keep_small_kv = store
             .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
             .await?;

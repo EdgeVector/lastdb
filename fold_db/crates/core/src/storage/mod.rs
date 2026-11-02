@@ -9,16 +9,16 @@
 //! EncryptingNamespacedStore (local CAS records only)
 //!         │
 //!         ▼
-//! disk_pack::PackNamespacedStore (native node home: format v2 run files.
-//!         An older home is refused.)
+//! disk_pack::PackNamespacedStore (native node home: sorted run files.
+//!         Open refuses a home of another format.)
 //! ```
 //!
 //! Cloud multi-device export is **not** a KvStore decorator. No store-level
 //! capture exists; `crate::fold_db_core::admission` holds only the mutation
-//! admission gate. Backup V2 is a separate module, and the disk home opens format v2 run files.
+//! admission gate. Backup V2 is a separate module, and the disk home opens its run files.
 //!
-//! Normal logical constructors use the native packed engine and refuse older
-//! nonempty formats without migration.
+//! Normal constructors use the native packed engine. They refuse a nonempty
+//! home of another format.
 
 pub mod config;
 /// The account-key proof record of a node home. It lives with the store it

@@ -268,7 +268,7 @@ impl<'de> Deserialize<'de> for MutationType {
             "delete" => Ok(Self::Delete),
             "purge" => Ok(Self::Purge),
             _ => Err(serde::de::Error::custom(
-                "unknown mutation type, expected create, update, or delete (purge is a legacy must-exist alias)",
+                "unknown mutation type, expected create, update, or delete (purge is a must-exist alias)",
             )),
         }
     }

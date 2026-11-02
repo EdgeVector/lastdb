@@ -79,12 +79,8 @@ impl KeepSmallSnapshot {
 
 /// The LastStore collection that holds [`KEEP_SMALL_SNAPSHOT_KEY`].
 ///
-/// Its own plane since 2026-09-21, when the snapshot's former home
-/// (`metadata`, one hash group, no automatic compaction) reached 39 GB of
-/// superseded copies and looped the primary. Node-local, rebuildable
-/// bookkeeping: capture-skipped, backup-excluded, compact-allowlisted and
-/// swept by the residual self-compactor. The key name is unchanged so the
-/// capture-skip exact-key contract for the legacy row still applies.
+/// Node-local, rebuildable bookkeeping: capture-skipped, backup-excluded,
+/// compact-allowlisted and swept by the residual self-compactor.
 pub const KEEP_SMALL_SNAPSHOT_COLLECTION: &str = "keep_small";
 
 /// In-process incremental projection. Point-read cheap; updated on the write path.

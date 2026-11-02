@@ -3,8 +3,7 @@
 //!
 //! A record names its files in its field values. The restore proof
 //! and the byte backup derive each dependency from the value and copy and open
-//! its CAS body. The `fdep` directory rows of a format 6 record are gone; the
-//! key law refuses their family.
+//! its CAS body. A record has no separate file dependency row.
 
 mod budget_json;
 mod native;

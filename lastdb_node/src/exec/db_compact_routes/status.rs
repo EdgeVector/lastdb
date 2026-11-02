@@ -10,11 +10,7 @@ pub(in crate::exec) async fn execute(
         return error_response(403, "the native status route is owner-only", ctx);
     }
     let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() else {
-        return error_response(
-            400,
-            "native disk status is unavailable on a legacy home",
-            ctx,
-        );
+        return error_response(400, "native disk status needs a native disk runtime", ctx);
     };
     let retry_cache = host.db.db_ops().metadata().retry_cache_status();
     let mut status = serde_json::json!({

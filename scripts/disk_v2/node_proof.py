@@ -172,12 +172,9 @@ class Case:
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
             raise ProofError(f"a new home has the node marker {marker!r}, not the format 8 marker")
-        for name in ("disk-pack", "laststore-layout-v1"):
-            if (self.data / name).exists():
-                raise ProofError(f"a new v2 home has the v1 entry {name}")
         for name in ("disk-run", "disk-cas"):
             if not (self.data / name).is_dir():
-                raise ProofError(f"a new v2 home lacks {name}")
+                raise ProofError(f"a new home lacks {name}")
 
     def write_v2(self):
         before = self.phases[-1]["logical"]["bytes"]

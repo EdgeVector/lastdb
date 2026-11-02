@@ -39,11 +39,11 @@ pub struct Mutation {
     /// canonical bytes include `written_at`, so the field layer must stamp
     /// the SIGNED value — not a local clock — for the imported signature to
     /// stay verifiable at rest. `None` (with `provenance: Some`) keeps the
-    /// legacy attribution-only import.
+    /// attribution-only import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
     /// Original UUID from a MutationIntent envelope, including an empty
-    /// legacy UUID. Suppressed history uses it without changing replay LWW.
+    /// UUID. Suppressed history uses it without changing replay LWW.
     /// API input cannot forge this internal import marker.
     #[serde(skip)]
     pub replayed_source_mutation_uuid: Option<String>,
@@ -56,7 +56,7 @@ pub struct Mutation {
     /// not part of [`Self::content_hash`].
     #[serde(skip)]
     pub origin_device: String,
-    /// Durable per-device logical author counter. Legacy mutations use zero.
+    /// Durable per-device logical author counter. A mutation without one uses zero.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub logical_counter: u64,
     /// Device key that signed the mutation author clock. This is separate from

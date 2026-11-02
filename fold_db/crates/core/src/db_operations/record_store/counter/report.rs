@@ -1,6 +1,5 @@
 //! What `lastdb status` shows of the reference checks: the summary of the
-//! verifier. The object keeps its `/api/status` name, `verify_refs`. The
-//! planner totals of the record counters went with format 6.
+//! verifier. The object keeps its `/api/status` name, `verify_refs`.
 
 use serde::{Deserialize, Serialize};
 

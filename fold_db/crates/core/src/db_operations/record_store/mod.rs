@@ -112,8 +112,7 @@ pub struct RecordStore {
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     /// Owner namespace factory for physical-plane maintenance.
     ///
-    /// Legacy constructors leave this unset. Production construction and the
-    /// drain tests attach it explicitly.
+    /// Both constructions attach it with `with_namespaced_store`.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
     /// The account key that seals a local CAS file blob (see
     /// `file_blob_seal.rs`). Record rows do not use it: a record row is plain

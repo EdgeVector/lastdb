@@ -1,6 +1,6 @@
 //! The file dependencies of the records of a home.
 //!
-//! A record has no separate body row and no `fdep` directory row. Each field
+//! A record has no separate body row and no file dependency row. Each field
 //! value that holds a file pointer names its blobs. The proof copies and opens
 //! each blob from the authenticated CAS run. A field history entry (`rh:`)
 //! holds a copy of one old value, and the proof checks the blobs of that copy

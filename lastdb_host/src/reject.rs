@@ -176,7 +176,7 @@ pub enum WireKey {
     FieldsAndValues,
     /// `key_value` — the `{hash, range}` selector a mutation addresses.
     KeyValue,
-    /// `mutation_type` — `create` / `update` / `delete` (`purge` = legacy must-exist alias).
+    /// `mutation_type` — `create` / `update` / `delete` (`purge` = must-exist alias).
     MutationType,
 }
 
@@ -193,7 +193,7 @@ pub enum WireKey {
 const MUTATION_BODY_EXAMPLE: &str = concat!(
     r#"{"type":"mutation","schema":"<Schema>","fields_and_values":{"<field>":"<value>"},"#,
     r#""key_value":{"hash":"<key>","range":null},"mutation_type":"create"}"#,
-    "   # mutation_type: create, update, delete  (purge = legacy must-exist alias)",
+    "   # mutation_type: create, update, delete  (purge = must-exist alias)",
 );
 
 impl WireKey {
