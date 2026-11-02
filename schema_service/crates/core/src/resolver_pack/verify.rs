@@ -4,10 +4,6 @@ pub fn artifact_sha256_hex(bytes: &[u8]) -> String {
     schema_types::hex::sha256_hex(bytes)
 }
 
-pub fn parse_manifest(bytes: &[u8]) -> Result<ResolverPackManifest, serde_json::Error> {
-    serde_json::from_slice(bytes)
-}
-
 pub fn parse_schema_snapshot_artifact(
     bytes: &[u8],
 ) -> Result<SchemaSnapshotArtifact, serde_json::Error> {
