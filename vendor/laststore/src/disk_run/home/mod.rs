@@ -52,7 +52,6 @@ mod publication;
 mod range;
 mod read;
 mod read_only;
-mod read_owner;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
 pub use cleanup_checkpoint::MAX_CAS_DELETE_CHECKPOINT_BYTES;
@@ -65,7 +64,6 @@ pub use diagnostic::{
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{CopiedRunBody, ProbedValue, ReadBudget, ReadProbe, RunRead, RunReadCosts, RunRoot};
-pub use read_owner::RunReadOwner;
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
