@@ -2,7 +2,7 @@
 //!
 //! These pure types are shared by the native evaluator and pack consumer.
 //! Executable WASM host code was removed in pack format_version 2; local
-//! resolution is implemented by `native_schema_resolver`.
+//! resolution is implemented by `schema_core_resolver`.
 
 use serde::{Deserialize, Serialize};
 

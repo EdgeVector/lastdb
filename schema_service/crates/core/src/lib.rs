@@ -58,7 +58,6 @@ pub mod memory_persistence;
 /// Same-product multi-key membership rebuild (background job class).
 pub mod multi_key_reindex;
 pub mod name_validator;
-pub mod native_schema_resolver;
 pub mod near_miss;
 pub mod registry_index;
 pub mod resolver_config;
@@ -109,7 +108,6 @@ pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedd
 pub use external_persistence::ExternalSchemaPersistence;
 pub use ids::IdGen;
 pub use memory_persistence::InMemorySchemaPersistence;
-pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeResolverInput};
 pub use near_miss::{NearMissDecision, NearMissRecord};
 pub use registry_index::{
     RegistryIndexEntry, RegistryIndexEnvelope, RegistryIndexReply, RegistryIndexSignature,
