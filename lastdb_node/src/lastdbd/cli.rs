@@ -15,8 +15,7 @@ use lastdb_node::service_home;
     version = env!("FOLDDB_BUILD_VERSION")
 )]
 pub(crate) struct Cli {
-    /// Node home directory (default: LASTDB_HOME / FOLDDB_HOME / ~/.lastdb;
-    /// an existing ~/.folddb is honored in place).
+    /// Node home directory (default: LASTDB_HOME / service-home / ~/.lastdb).
     #[arg(long)]
     pub(crate) data_dir: Option<PathBuf>,
 
@@ -72,7 +71,7 @@ pub(crate) enum Command {
 pub(crate) enum ServiceHomeCommand {
     /// Persist the home directory service starts should use.
     Set {
-        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.folddb.
+        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.lastdb.
         home: PathBuf,
     },
     /// Show the persisted service home, if one is configured.

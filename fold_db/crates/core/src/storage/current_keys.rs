@@ -17,8 +17,6 @@ pub(crate) mod families;
 /// - `rcf`, `rcm`: the kept conflict rows of a record and its conflict marker.
 ///   `crq`, `crb`: the retention queue of those rows and its bucket directory.
 /// - `bref`: the blob counters and the blob dwell queue (`bref:`).
-///   `cas_blob`: the blob dwell deletes a `cas_blob:{blob}` row of the `main`
-///   namespace with the counter.
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
@@ -39,7 +37,6 @@ const CURRENT_FAMILIES: &[&str] = &[
     "crq",
     "crb",
     "bref",
-    "cas_blob",
     "dellog",
     "layout",
     "keep_small",
@@ -56,18 +53,7 @@ pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
     let family = bare.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,
-        "ak" | "rk"
-            | "rh"
-            | "rcf"
-            | "rcm"
-            | "ahk"
-            | "ahp"
-            | "ahq"
-            | "ahb"
-            | "bref"
-            | "crq"
-            | "crb"
-            | "cas_blob"
+        "ak" | "rk" | "rh" | "rcf" | "rcm" | "ahk" | "ahp" | "ahq" | "ahb" | "bref" | "crq" | "crb"
     ))
 }
 

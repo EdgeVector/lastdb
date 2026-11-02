@@ -110,7 +110,7 @@ class Node:
         environment = {name: value for name, value in os.environ.items()
                        if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))}
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-                           LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home),
+                           LASTDB_HOME=str(self.home),
                            RUST_MIN_STACK="16777216")
         environment.update(self.environment)
         if self.native_timing:

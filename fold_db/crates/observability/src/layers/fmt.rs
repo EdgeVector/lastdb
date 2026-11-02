@@ -129,7 +129,7 @@ pub(crate) fn build_fmt_writer(target: FmtTarget) -> Result<(NonBlocking, FmtGua
 fn build_rolling_appender(path: &Path) -> Result<RollingFileAppender, ObsError> {
     let (dir, prefix, suffix) = split_log_path(path);
     // Ensure the log directory exists; `default_node_log_path` already creates
-    // it for the FOLDDB_HOME / ~/.folddb branches, but the OBS_FILE_PATH branch
+    // it for the node-home branch, but the OBS_FILE_PATH branch
     // hands us the caller's path verbatim, and the rolling appender errors if
     // its directory is missing.
     std::fs::create_dir_all(&dir)?;

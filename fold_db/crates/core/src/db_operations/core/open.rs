@@ -1,7 +1,6 @@
 use super::super::attribution_ledger::AttributionLedger;
 use super::super::change_feed::ChangeFeedStore;
 use super::super::db_catalog_store::DbCatalogStore;
-use super::super::lineage_index::LineageIndex;
 use super::super::metadata_store::MetadataStore;
 use super::super::public_key_store::PublicKeyStore;
 use super::super::record_store::RecordStore;
@@ -23,8 +22,6 @@ struct CoreNamespaces {
     public_keys_kv: Arc<dyn KvStore>,
     idempotency_kv: Arc<dyn KvStore>,
     superseded_by_kv: Arc<dyn KvStore>,
-    lineage_forward_kv: Arc<dyn KvStore>,
-    lineage_reverse_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
     attribution_ledger_kv: Arc<dyn KvStore>,
     keep_small_kv: Arc<dyn KvStore>,
@@ -56,13 +53,6 @@ impl CoreNamespaces {
         let public_keys_kv = store.open_namespace("public_keys").await?;
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
-        // `lineage_forward` / `lineage_reverse` back the derived-field-key
-        // lineage index; rebuildable from replay (project 2). Both namespaces
-        // are in the main run home, which the V2 byte backup copies when on.
-        // No production writers exist until
-        // `projects/view-compute-as-mutations` wires them in.
-        let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
-        let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). The snapshot
@@ -85,8 +75,6 @@ impl CoreNamespaces {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            lineage_forward_kv,
-            lineage_reverse_kv,
             change_feed_kv,
             attribution_ledger_kv,
             keep_small_kv,
@@ -102,7 +90,7 @@ impl DbOperations {
     pub async fn from_namespaced_store(
         store: Arc<dyn NamespacedStore>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_field_keys_mode(store, None, None, true).await
+        Self::from_namespaced_store_with_content_and_field_keys(store, None, None).await
     }
 
     /// Production constructor with a node key for durable field-key wraps.
@@ -116,25 +104,9 @@ impl DbOperations {
         content_key: Option<[u8; 32]>,
         field_key_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_field_keys_mode(
-            store,
-            content_key,
-            field_key_wrap_key,
-            true,
-        )
-        .await
-    }
-
-    async fn from_namespaced_store_with_content_and_field_keys_mode(
-        store: Arc<dyn NamespacedStore>,
-        content_key: Option<[u8; 32]>,
-        field_key_wrap_key: Option<[u8; 32]>,
-        admit_meter_trust: bool,
-    ) -> Result<Self, crate::storage::StorageError> {
         let runtime = store.disk_pack_runtime().ok_or_else(|| {
             crate::storage::StorageError::ConfigurationError(
-                "LastDB logical operations require native packed storage; old engines are unsupported"
-                    .into(),
+                "LastDB logical operations require the native run store".into(),
             )
         })?;
         let persist_metrics = runtime.persist_metrics();
@@ -148,8 +120,6 @@ impl DbOperations {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            lineage_forward_kv,
-            lineage_reverse_kv,
             change_feed_kv,
             attribution_ledger_kv,
             keep_small_kv,
@@ -183,15 +153,13 @@ impl DbOperations {
             RecordNamespaces::new(main_kv, keep_small_kv),
             content_key,
             &field_keys,
-            admit_meter_trust,
             content_key.or(field_key_wrap_key),
         )
         .await?;
         let public_key_store = PublicKeyStore::new(public_keys_typed);
         let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
         let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
-        let change_feed = ChangeFeedStore::new(change_feed_kv, store.disk_pack_runtime()).await?;
-        let lineage_index = LineageIndex::new(lineage_forward_kv, lineage_reverse_kv);
+        let change_feed = ChangeFeedStore::new(change_feed_kv, Arc::clone(&runtime)).await?;
 
         Ok(Self {
             store,
@@ -203,7 +171,6 @@ impl DbOperations {
             metadata_store,
             attribution_ledger,
             change_feed,
-            lineage_index,
             persist_metrics,
         })
     }
@@ -213,7 +180,6 @@ impl DbOperations {
         namespaces: RecordNamespaces,
         content_key: Option<[u8; 32]>,
         field_keys: &FieldKeyStore,
-        admit_meter_trust: bool,
         proof_key: Option<[u8; 32]>,
     ) -> Result<RecordStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
@@ -230,19 +196,17 @@ impl DbOperations {
         // hydrate leaves every domain incomplete (reports stay incomplete,
         // meter-dependent deletion stays closed) and the node boots. Tom's
         // decision: decision-2026-09-25-lastdb-node-stays-upgradeable-soft-hard-cap.
-        if admit_meter_trust {
-            if let Err(e) = record_store.hydrate_keep_small().await {
-                record_store
-                    .note_keep_small_hydrate_failure(&e.to_string())
-                    .await;
-                tracing::warn!(
-                    target: "fold_node::database",
-                    error = %e,
-                    "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
-                     (reports stay incomplete and meter-dependent deletion stays closed until \
-                     a new complete meter snapshot is available)"
-                );
-            }
+        if let Err(e) = record_store.hydrate_keep_small().await {
+            record_store
+                .note_keep_small_hydrate_failure(&e.to_string())
+                .await;
+            tracing::warn!(
+                target: "fold_node::database",
+                error = %e,
+                "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
+                 (reports stay incomplete and meter-dependent deletion stays closed until \
+                 a new complete meter snapshot is available)"
+            );
         }
         Ok(record_store)
     }

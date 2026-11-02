@@ -38,7 +38,7 @@ impl MutationManager {
             .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
 
-        self.reject_derived_and_blocked(&mutations)?;
+        self.reject_blocked_mutation_targets(&mutations)?;
 
         // The native transaction gate covers every condition and its complete
         // publication.
@@ -76,30 +76,6 @@ impl MutationManager {
             "DEBUG: MutationManager::write_mutations_batch_async started for {} mutations",
             batch_len
         );
-    }
-
-    /// Phase -1: reject historical derived writes and blocked targets, then
-    /// record the purge-barrier phase as zero.
-    fn reject_derived_and_blocked(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
-        // Phase -1: Reject historical derived writes before anything else
-        // touches them. No live writer is allowed to mint
-        // `Provenance::Derived`; keeping the check here prevents forged or
-        // stale derived writes from polluting records. User mutations
-        // (`Provenance::User` or `None`) are untouched.
-        for mutation in mutations {
-            validate_derived_provenance(mutation)?;
-        }
-
-        self.reject_blocked_mutation_targets(mutations)?;
-
-        // No write waits on a schema-wide purge barrier: a purge merges into
-        // its record in the native request. Recording the phase as ~0 keeps
-        // request-ops comparable.
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::PurgeBarrier,
-            std::time::Duration::ZERO,
-        );
-        Ok(())
     }
 
     /// Stamp the final stage timings, log the phase totals, and build the

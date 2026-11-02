@@ -18,14 +18,13 @@ from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 from disk_budget import DiskBudgetWorkload, require_search_off
 
 
-def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0):
+def measure(binary, revision, recipe, output, workers):
     node, error = None, None
     started = time.monotonic()
     try:
-        program = seed or (binary, revision, workers)
         environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
-        node = Node(program[0], program[1], output,
-                    native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
+        node = Node(binary, revision, output,
+                    native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=workers,
                     environment=environment)
         node.start()
         # Every program creates a record home; the report shows the format of each label.
@@ -39,8 +38,7 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
         elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:
-            target = (binary, revision, workers) if seed else None
-            Workload(node, recipe, output, target, minimum_retired).run()
+            Workload(node, recipe, output).run()
     except BaseException as failure:
         error = f"{type(failure).__name__}: {failure}"
     finally:
@@ -105,9 +103,6 @@ def recipe_for(args):
                                   "of the format 7 home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
-    if args.seed_with_baseline:
-        recipe["seed_with_baseline"] = True
-        recipe["minimum_retired"] = args.minimum_retired
     recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
     return recipe
 
@@ -123,27 +118,20 @@ def main():
     parser.add_argument("--native-timing", action="store_true")
     parser.add_argument("--growth-only", action="store_true")
     parser.add_argument("--disk-budget-only", action="store_true")
-    parser.add_argument("--seed-with-baseline", action="store_true",
-                        help="Measure a real upgrade of an owned home created by the baseline daemon")
-    parser.add_argument("--minimum-retired", type=int, default=0)
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if (args.native_timing or args.growth_only or args.disk_budget_only or args.seed_with_baseline
+    if (args.native_timing or args.growth_only or args.disk_budget_only
             or args.baseline_workers or args.candidate_workers) and (
             os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
-        parser.error("Diagnostic, growth, upgrade, and worker measurements require a GitHub-hosted Actions runner")
-    if args.disk_budget_only and (args.growth_only or args.native_timing or args.seed_with_baseline):
+        parser.error("Diagnostic, growth, and worker measurements require a GitHub-hosted Actions runner")
+    if args.disk_budget_only and (args.growth_only or args.native_timing):
         parser.error("Disk budget requires its own generated v2 workload")
     if args.disk_budget_only and args.pairs not in (None, 1):
         parser.error("The disk budget uses one baseline/candidate pair")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
-    if args.seed_with_baseline and args.growth_only:
-        parser.error("The upgrade measurement uses the ordinary request workload")
-    if not 0 <= args.minimum_retired <= 1_000_000 or (args.minimum_retired and not args.seed_with_baseline):
-        parser.error("A bounded legacy retirement requirement needs --seed-with-baseline")
     if not re.fullmatch(r"[0-9a-f]{40}", args.driver_revision):
         parser.error("The driver revision must be a complete commit SHA")
     signal.signal(signal.SIGTERM, interrupted)
@@ -181,15 +169,10 @@ def main():
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
             print(json.dumps({"pair": pair, "version": label, "profile": args.profile}), flush=True)
-            baseline = binaries["baseline"]
-            seed = ((Path(baseline["path"]), baseline["revision"], recipe["uds_workers"]["baseline"])
-                    if args.seed_with_baseline else None)
             entry = {"pair": pair, "label": label, "directory": output.name,
-                     "seed_revision": baseline["revision"] if seed else binaries[label]["revision"],
                      "uds_workers": recipe["uds_workers"][label],
                      **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output,
-                               recipe["uds_workers"][label], seed,
-                               args.minimum_retired if label == "candidate" else 0)}
+                               recipe["uds_workers"][label])}
             manifest["runs"].append(entry)
             save(manifest_path, manifest)
             if not entry["complete"]:

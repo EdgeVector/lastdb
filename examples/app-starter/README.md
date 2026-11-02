@@ -39,7 +39,7 @@ npm run e2e            # builds lastdbd (lastdb_node Mini) from main, boots an e
 ```
 
 `npm run e2e` is the reproducible "does it actually work" proof: it never
-touches your real node or port 9001. It pins `LASTDB_HOME`, `FOLDDB_HOME`, and
+touches your real node or port 9001. It pins `LASTDB_HOME` and
 the SDK capability store to a temp directory, starts a throwaway socket-only
 `lastdbd`, declares `app-starter/Note`, runs the app against that socket,
 and tears everything down. Expected tail:
@@ -88,7 +88,6 @@ testing, point the app at the socket for the node you started.
 ```bash
 # from the fold workspace root, with the binary you built above:
 export LASTDB_HOME="$(mktemp -d)"
-export FOLDDB_HOME="$LASTDB_HOME"
 target/debug/lastdbd --data-dir "$LASTDB_HOME"
 # (or target/release/lastdbd if you built --release)
 ```

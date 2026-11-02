@@ -11,7 +11,6 @@ use super::plan::BlobEvent;
 use super::queue::BlobQueue;
 use super::{blob_counter_key_of_id, blob_id, BlobCounter, BlobRead};
 use crate::db_operations::record_store::RecordStore;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
 use serde::Deserialize;
@@ -90,7 +89,7 @@ impl RecordStore {
             let read = state.get(entry.id.as_str()).unwrap_or(&absent);
             match fate(entry, read) {
                 Fate::Delete(counter) => {
-                    main.extend(delete_mutations(entry, &counter));
+                    main.extend(delete_mutations(entry));
                     rows.push(counter.blob.into_bytes());
                     step.deleted += 1;
                 }
@@ -181,14 +180,10 @@ fn fate(entry: &DwellEntry, read: &BlobRead) -> Fate {
     Fate::Delete(counter.clone())
 }
 
-/// Counter, queue entry and the resident copy of the blob row. The caller
-/// deletes the `cas_blobs` row.
-fn delete_mutations(entry: &DwellEntry, counter: &BlobCounter) -> Vec<KvMutation> {
-    vec![
+/// Counter and queue entry. The caller deletes the `cas_blobs` row.
+fn delete_mutations(entry: &DwellEntry) -> [KvMutation; 2] {
+    [
         KvMutation::delete(blob_counter_key_of_id(&entry.id).into_bytes()),
         KvMutation::delete(entry.key.clone()),
-        KvMutation::delete(
-            build_storage_key(None, &format!("cas_blob:{}", counter.blob)).into_bytes(),
-        ),
     ]
 }

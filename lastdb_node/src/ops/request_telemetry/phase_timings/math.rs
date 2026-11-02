@@ -9,7 +9,7 @@ impl PhaseTimings {
     }
 
     /// Flat fold over all [`PHASE_COUNT`] fields, INCLUDING pre-service waits
-    /// AND `hydrate_us`, which its four `hydrate_*` children partition. On a
+    /// AND `hydrate_us`, which its three `hydrate_*` children partition. On a
     /// post-0.23.4 query row that parent is therefore counted twice, so this
     /// sum is ~2x the real phase cost.
     ///
@@ -32,7 +32,7 @@ impl PhaseTimings {
     ///
     /// `hydrate_us` is the node's one declared PARENT: it is charged over the
     /// whole materialization span while `hydrate_records` / `hydrate_format` /
-    /// `hydrate_sort` / `hydrate_filter` partition that same span exactly
+    /// `hydrate_sort` partition that same span exactly
     /// (an invariant of the phase recorder). Every other phase surface
     /// in this node treats its buckets as disjoint — `apply` and `persist`
     /// are residuals for precisely this reason — so summing the parent beside
@@ -66,8 +66,7 @@ impl PhaseTimings {
         let hydrate_children = self
             .hydrate_records_us
             .saturating_add(self.hydrate_format_us)
-            .saturating_add(self.hydrate_sort_us)
-            .saturating_add(self.hydrate_filter_us);
+            .saturating_add(self.hydrate_sort_us);
         if hydrate_children == 0 {
             0
         } else {
@@ -96,7 +95,7 @@ impl PhaseTimings {
     /// else. Four of the ten rendered rows read `over=` for that reason.
     ///
     /// Built on `disjoint_us`, not `total_us`, for the same reason one step
-    /// down: `hydrate_us` lies inside the wall clock but so do the four
+    /// down: `hydrate_us` lies inside the wall clock but so do the three
     /// children that partition it, and counting the span twice made the
     /// residual too negative by a whole `hydrate`. With the queue-wait fix
     /// shipped and this one not, the primary printed `over=` at 96-100% on

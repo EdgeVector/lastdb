@@ -57,11 +57,7 @@ pub(super) fn admit(
             return Err(BackupError::Identity);
         }
         if intent.begin.job.commit_id == *id {
-            return if intent.released
-                && matches!(
-                    action,
-                    LocalSnapshotAction::Prepare | LocalSnapshotAction::Plan
-                ) {
+            return if intent.released && matches!(action, LocalSnapshotAction::Prepare) {
                 Err(BackupError::Invalid)
             } else {
                 Ok(intent)

@@ -1,7 +1,6 @@
 use super::attribution_ledger::AttributionLedger;
 use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
-use super::lineage_index::LineageIndex;
 use super::metadata_store::MetadataStore;
 use super::public_key_store::PublicKeyStore;
 use super::record_store::RecordStore;
@@ -48,9 +47,6 @@ pub struct DbOperations {
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
-    /// Forward and reverse lineage namespaces. Shutdown flushes them.
-    /// No caller writes or reads the index.
-    lineage_index: LineageIndex,
 
     /// Background purge counters shared with the native runtime.
     persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
@@ -148,7 +144,6 @@ impl DbOperations {
         self.public_key_store.flush().await?;
         self.metadata_store.flush().await?;
         self.attribution_ledger.flush().await?;
-        self.lineage_index.flush().await?;
         Ok(())
     }
 }

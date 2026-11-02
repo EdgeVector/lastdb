@@ -1,5 +1,5 @@
 //! Read-only physical and account proof for an inactive disk V2 node.
-use super::{files, invalid, map, proof, RunBackupProfile, RunRestoreFile, StorageResult};
+use super::{files, invalid, proof, RunBackupProfile, RunRestoreFile, StorageResult};
 use crate::storage::disk_backup::byte_backup::RunBackupHome;
 use crate::storage::disk_pack::{run_node, NODE_MARKER};
 use laststore::disk_run::home::RunRead;
@@ -16,32 +16,9 @@ pub struct RunNodeGuard {
     pub(super) cas: RunRead,
     pub(super) profile: RunBackupProfile,
     pub(super) files: Vec<RunRestoreFile>,
-    identity_control: bool,
 }
 
 impl RunNodeGuard {
-    pub(super) fn into_identity_writer(
-        self,
-    ) -> StorageResult<(crate::storage::disk_pack::physical::V2Home, File, File)> {
-        self.check_binding()?;
-        let main = self
-            .main
-            .into_existing_writer(&self.root.join(run_node::RUN_DIR))
-            .map_err(map)?;
-        let cas = self
-            .cas
-            .into_existing_writer(&self.root.join(run_node::CAS_DIR))
-            .map_err(map)?;
-        Ok((
-            crate::storage::disk_pack::physical::V2Home::new(
-                std::sync::Arc::new(main),
-                std::sync::Arc::new(cas),
-            ),
-            self.directory,
-            self.marker,
-        ))
-    }
-
     pub fn check_binding(&self) -> StorageResult<()> {
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
@@ -63,32 +40,12 @@ impl RunNodeGuard {
             &self.profile.main,
         )?;
         check_home(&self.root, run_node::CAS_DIR, &self.cas, &self.profile.cas)?;
-        self.check_root_members()
+        files::require_root_members(&self.root)
     }
 
     pub(super) fn open(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_inner(root, key, false)
-    }
-
-    pub(super) fn open_identity(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_inner(root, key, true)
-    }
-
-    fn check_root_members(&self) -> StorageResult<()> {
-        if self.identity_control {
-            files::require_identity_root_members(&self.root)
-        } else {
-            files::require_root_members(&self.root)
-        }
-    }
-
-    fn open_inner(root: &Path, key: &[u8; 32], identity_control: bool) -> StorageResult<Self> {
         let directory = files::directory(root)?;
-        if identity_control {
-            files::require_identity_root_members(root)?;
-        } else {
-            files::require_root_members(root)?;
-        }
+        files::require_root_members(root)?;
         let marker = files::regular(&root.join(NODE_MARKER), true)?;
         marker
             .try_lock()
@@ -103,7 +60,7 @@ impl RunNodeGuard {
         let (mut main, mut cas) =
             super::open_paired_runs(root, key, "paired run metadata exceeds memory admission")?;
         reserve_pair(&mut main, &mut cas)?;
-        let profile = files::backup_profile(root, version, &main, &cas, false)?;
+        let profile = files::backup_profile(root, version, &main, &cas)?;
         let mut entries = vec![RunRestoreFile {
             path: NODE_MARKER.into(),
             bytes: profile.node_marker()?.len() as u64,
@@ -123,19 +80,15 @@ impl RunNodeGuard {
             cas,
             profile,
             files: entries,
-            identity_control,
         };
         guard.check_binding()?;
         Ok(guard)
     }
 }
 
-/// Only a disk format v2 node validates. This path performs no scratch,
-/// record, directory, or source-file writes.
+/// Validate a restored node. This path performs no scratch, record,
+/// directory, or source-file writes.
 pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunNodeGuard> {
-    if !files::is_run_marker(root)? {
-        return Err(invalid("restored node is not disk format v2"));
-    }
     RunNodeGuard::open(root, key)
 }
 
@@ -172,11 +125,6 @@ fn reserve_pair(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {
         .and_then(|bytes| bytes.checked_add(inventories))
         .and_then(|bytes| {
             bytes.checked_add(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
-        })
-        .and_then(|bytes| {
-            bytes.checked_add(
-                crate::storage::disk_pack::logical_capture::SNAPSHOT_INCLUSION_WORK_BYTES,
-            )
         })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
     super::reserve_paired_metadata(main, cas, shared)

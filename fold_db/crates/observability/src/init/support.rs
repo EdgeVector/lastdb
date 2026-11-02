@@ -169,15 +169,10 @@ impl SpanProcessor for ResourceProbe {
 ///    creation. The caller chose the path; the caller is responsible.
 /// 2. `<node-home>/observability.jsonl` — the directory is created if absent.
 ///    The node home is resolved by [`folddb_profile::paths::folddb_home`], the
-///    SAME honor-both resolver the data dir uses, so the log writer and the
-///    data dir always agree:
-///    `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing
-///    `~/.folddb` ▸ new `~/.lastdb`. On a brand-new install (no env override,
-///    neither home present) this lands logs under `~/.lastdb` — NOT a stray
-///    `~/.folddb`. An existing `~/.folddb` install keeps writing there (zero
-///    movement). `~`-prefixed env values are expanded against `$HOME` by
-///    `folddb_home`, so a literal `~/.folddb` never leaks a `<cwd>/~/`
-///    directory.
+///    SAME resolver the data dir uses, so the log writer and the data dir
+///    always agree: `LASTDB_HOME` ▸ `~/.lastdb`. `~`-prefixed env values are
+///    expanded against `$HOME` by `folddb_home`, so a literal `~/.lastdb`
+///    never leaks a `<cwd>/~/` directory.
 ///
 /// Delegating to `folddb_home` is the single-source-of-truth that keeps this
 /// writer from re-diverging from the data dir / the `folddb logs` reader
@@ -191,8 +186,8 @@ pub(super) fn default_node_log_path() -> Result<PathBuf, ObsError> {
             io::ErrorKind::NotFound,
             format!(
                 "could not resolve node home for the observability log path \
-                 ({e}); set OBS_FILE_PATH, LASTDB_HOME, or FOLDDB_HOME to \
-                 choose a log path explicitly",
+                 ({e}); set OBS_FILE_PATH or LASTDB_HOME to choose a log \
+                 path explicitly",
             ),
         ))
     })?;

@@ -40,5 +40,5 @@ pub mod traits;
 pub use config::{DatabaseConfig, StorageEngine};
 pub use error::StorageError;
 
-pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};
+pub use encrypting_namespaced_store::EncryptingNamespacedStore;
 pub use traits::{KvMutation, KvStore, NamespacedStore, PartitionedScan, TypedKvStore};

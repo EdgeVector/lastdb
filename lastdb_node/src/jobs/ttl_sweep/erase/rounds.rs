@@ -61,10 +61,10 @@ async fn erase_page(
         let started = Instant::now();
         let admitted = crate::maintenance_write_gate::run(
             host,
-            WriterWatch::measure(run_with_phases(erase_batch(host, backlog, chunk, verb))),
+            WriterWatch::measure(erase_batch(host, backlog, chunk, verb)),
         )
         .await;
-        let Some(((outcome, phases, _counts), blocked, scopes)) = admitted else {
+        let Some((outcome, blocked, scopes)) = admitted else {
             // Count this unaccepted batch as outstanding before the pass ends.
             backlog.shrink_after_limit(taken);
             return true;
@@ -75,7 +75,7 @@ async fn erase_page(
                 totals.erased += done.erased;
                 totals.dropped += done.dropped;
                 totals.missing += done.missing;
-                log_batch(&backlog.schema_name, &done, started.elapsed(), &phases);
+                log_batch(&backlog.schema_name, &done, started.elapsed());
             }
             Err(error) if taken > 1 && is_size_limit_error(&error) => {
                 backlog.shrink_after_limit(taken);

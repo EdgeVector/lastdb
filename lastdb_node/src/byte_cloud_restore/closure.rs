@@ -4,14 +4,10 @@ use super::{
     VerifiedNativeContext,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
-use fold_db::storage::disk_pack::byte_backup::{
-    ClientRoot, CLIENT_VERSION, CODEC_ENVELOPE_MAX_BYTES, LEGACY_CLIENT_VERSION,
-};
+use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
 
-/// Only a backup of a disk format v2 home restores. Such a backup has a null
-/// client descriptor and a version 3 or 5 root with a run profile. A disk format v1
-/// home wrote a pack descriptor, or a null descriptor with a version 1 or 2
-/// record root; both return `Unsupported` before the strict root decode.
+/// The root is a mutation log root or a snapshot client root with a run
+/// profile. Each strict decode admits only its own version.
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupClient,
@@ -29,9 +25,6 @@ pub(super) async fn restore(
         .map_err(|_| RestoreError::Invalid("client mutation log root"))?;
         drop(inventory);
         return super::logs::restore(session, client, keys, root).await;
-    }
-    if !matches!(version, CLIENT_VERSION | LEGACY_CLIENT_VERSION) {
-        return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
     }
     let accepted = session.accepted();
     let root = ClientRoot::decode(&bytes, keys.content_key(), &accepted.begin)
@@ -58,9 +51,6 @@ pub(super) async fn load(
     client: &ByteBackupClient,
 ) -> Result<(Inventory, Vec<u8>)> {
     let accepted = session.accepted();
-    if !accepted.descriptor().as_value().is_null() {
-        return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
-    }
     let inventory = Inventory::load(session, client).await?;
     let grant = download::one(
         session,

@@ -207,8 +207,7 @@ impl lastdb_host::HostNode for Host {
 }
 
 /// Resolve the node home for `lastdbd`: an explicit `--data-dir` wins, then
-/// `LASTDB_HOME` / `FOLDDB_HOME`, then a persisted `lastdbd service-home`, then
-/// the shared honor-both default (`~/.lastdb` → `~/.folddb` → fresh `~/.lastdb`).
+/// `LASTDB_HOME`, then a persisted `lastdbd service-home`, then `~/.lastdb`.
 pub fn resolve_home(data_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     match data_dir {
         Some(dir) => folddb_profile::paths::expand_tilde_path(dir),

@@ -16,7 +16,6 @@ mod diagnostics;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
-pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
 mod namespace_delete;
@@ -133,16 +132,12 @@ impl PackNamespacedStore {
     /// Open a node store with the node encryption key. An absent or empty
     /// home becomes a new v2 home, and a v2 creation that stopped before its
     /// node marker is created again. A v2 home needs the key: its run home
-    /// keys derive from it. Any other home is refused: this program opens
-    /// only disk format v2.
+    /// keys derive from it. The node marker check admits only format 8.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
-        if run_node::is_run_node(path)? {
-            return Self::open_run(path, node_key);
-        }
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);
         }
-        Err(run_node::not_v2(path))
+        Self::open_run(path, node_key)
     }
 
     /// Open an existing v2 node home for an offline tool. The home must be
@@ -170,9 +165,6 @@ impl PackNamespacedStore {
                  stop it",
                 path.display()
             )));
-        }
-        if !run_node::is_run_node(path)? {
-            return Err(run_node::not_v2(path));
         }
         Self::open_run_with_merges(path, Some(node_key), resume_merges)
     }

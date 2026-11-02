@@ -1,7 +1,7 @@
 //! Host delivery of [`IndexChangeBatch`] to the first-party Search app.
 //!
 //! Writes one JSON file per batch under:
-//!   `{LASTDB_HOME|FOLDDB_HOME}/apps/search/inbox/{uuid}.json`
+//!   `{LASTDB_HOME}/apps/search/inbox/{uuid}.json`
 //! or `LASTDB_SEARCH_INBOX` when set.
 //!
 //! LastSeek drains this optional inbox into its regenerable local store.
@@ -31,16 +31,14 @@ fn search_inbox_override_from_env() -> Option<PathBuf> {
 /// Resolve the Search app inbox directory for host delivery.
 ///
 /// Environment-driven: for the daemon and CLI entry points, where the node home
-/// is only known through `LASTDB_HOME` / `FOLDDB_HOME`. Callers that already
+/// is only known through `LASTDB_HOME`. Callers that already
 /// hold the home path must use [`resolve_search_inbox_dir_for_home`] instead —
 /// it does not depend on process-global state.
 pub fn resolve_search_inbox_dir() -> Option<PathBuf> {
     if let Some(explicit) = search_inbox_override_from_env() {
         return Some(explicit);
     }
-    let home = std::env::var("LASTDB_HOME")
-        .or_else(|_| std::env::var("FOLDDB_HOME"))
-        .ok()?;
+    let home = std::env::var("LASTDB_HOME").ok()?;
     let home = home.trim();
     if home.is_empty() {
         return None;

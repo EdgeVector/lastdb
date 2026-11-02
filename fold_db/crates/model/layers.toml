@@ -28,7 +28,6 @@ modules = [
   "record_space",
   "record_value",
   "schema",
-  "tombstone",
 ]
 
 [[layer]]

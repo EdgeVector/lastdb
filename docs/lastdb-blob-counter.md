@@ -214,7 +214,7 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    native write gate, takes the blob gates, and reads each counter again. The cursor
    moves only after the chunk's batch is accepted. A step that fails leaves it where
    it was;
-4. in one batch, deletes the blob row (and any resident `cas_blob:` copy), the
+4. in one batch, deletes the blob row, the
    counter and the queue entry of every blob that is still at exactly zero with the
    same `zero_since`. A stale queue entry (the counter is gone, has references, is
    `suspect`, or has another `zero_since`) is deleted alone. An entry whose counter
