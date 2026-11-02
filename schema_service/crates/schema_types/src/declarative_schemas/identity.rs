@@ -190,30 +190,13 @@ where
     format!("{:x}", hasher.finalize())
 }
 
-/// The app-namespaced canonical name for a schema. One implementation, so the
-/// node and the service cannot disagree about what a schema is called.
-///
-/// - `owner_app_id == Some("fbrain")`, `name == "Concept"` -> `"fbrain/Concept"`.
-/// - `owner_app_id == None` (or empty) -> the bare `name` (legacy behavior —
-///   schemas without an owning app keep their un-namespaced name).
-///
-/// Inverse of [`parse_canonical_name`]. See app_identity v3.1, Lane B2a.
-#[must_use]
-pub fn canonical_name_parts(owner_app_id: Option<&str>, name: &str) -> String {
-    match owner_app_id.filter(|s| !s.is_empty()) {
-        Some(app_id) => format!("{app_id}/{name}"),
-        None => name.to_string(),
-    }
-}
-
 /// Split a canonical name into `(owner_app_id, name)`.
 ///
 /// - `"fbrain/Concept"` -> `(Some("fbrain"), "Concept")`.
 /// - `"Concept"` (no slash) -> `(None, "Concept")` — a legacy, un-namespaced name.
 ///
 /// Splits on the **first** `/` only, so a schema name that itself contains
-/// slashes stays intact in the returned `name`. Inverse of
-/// [`canonical_name_parts`].
+/// slashes stays intact in the returned `name`.
 #[must_use]
 pub fn parse_canonical_name(canonical: &str) -> (Option<String>, &str) {
     match canonical.split_once('/') {
@@ -285,14 +268,6 @@ impl DeclarativeSchemaDefinition {
         }
         self.compute_identity_hash();
         IdentityRecompute::Recomputed
-    }
-
-    /// The app-namespaced canonical name for this schema.
-    ///
-    /// Thin accessor glue over [`canonical_name_parts`].
-    #[must_use]
-    pub fn canonical_name(&self) -> String {
-        canonical_name_parts(self.owner_app_id.as_deref(), &self.name)
     }
 
     /// Split a canonical name into `(owner_app_id, name)`.

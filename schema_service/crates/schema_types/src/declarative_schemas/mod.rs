@@ -15,7 +15,7 @@ mod metadata;
 mod validation;
 
 pub use identity::{
-    canonical_name_parts, compute_identity_hash_parts, parse_canonical_name,
+    compute_identity_hash_parts, parse_canonical_name,
     refuses_identity_downgrade, IdentityRecompute, IDENTITY_HASH_ALGO_VERSION,
     LEGACY_IDENTITY_HASH_ALGO_VERSION,
 };
