@@ -52,7 +52,6 @@
  ```
 "#
 )]
-
 // Vendored-fork note: upstream v4.9.0 predates the
 // mismatched_lifetime_syntaxes lint; allow it so strict workspace lanes
 // (-D warnings) never trip on unmodified upstream code.
@@ -60,23 +59,15 @@
 #![allow(mismatched_lifetime_syntaxes)]
 
 mod common;
-#[cfg(feature = "image-models")]
-mod image_embedding;
 mod models;
 pub mod output;
 mod pooling;
-mod reranking;
-mod sparse_text_embedding;
 mod text_embedding;
 
 pub use ort::execution_providers::ExecutionProviderDispatch;
 
-pub use crate::common::{
-    get_cache_dir, read_file_to_bytes, Embedding, Error, SparseEmbedding, TokenizerFiles,
-};
-pub use crate::models::{
-    model_info::ModelInfo, model_info::RerankerModelInfo, quantization::QuantizationMode,
-};
+pub use crate::common::{get_cache_dir, read_file_to_bytes, Embedding, Error, TokenizerFiles};
+pub use crate::models::{model_info::ModelInfo, quantization::QuantizationMode};
 pub use crate::output::{EmbeddingOutput, OutputKey, OutputPrecedence, SingleBatchOutput};
 pub use crate::pooling::Pooling;
 
@@ -84,25 +75,4 @@ pub use crate::pooling::Pooling;
 pub use crate::models::text_embedding::EmbeddingModel;
 pub use crate::text_embedding::{
     InitOptions, InitOptionsUserDefined, TextEmbedding, UserDefinedEmbeddingModel,
-};
-
-// For Sparse Text Embedding
-pub use crate::models::sparse::SparseModel;
-pub use crate::sparse_text_embedding::{
-    SparseInitOptions, SparseTextEmbedding, UserDefinedSparseModel,
-};
-
-// For Image Embedding (gated: the `image` crate and its codec tree only
-// compile when a consumer opts into image embeddings)
-#[cfg(feature = "image-models")]
-pub use crate::image_embedding::{
-    ImageEmbedding, ImageInitOptions, ImageInitOptionsUserDefined, UserDefinedImageEmbeddingModel,
-};
-pub use crate::models::image_embedding::ImageEmbeddingModel;
-
-// For Reranking
-pub use crate::models::reranking::RerankerModel;
-pub use crate::reranking::{
-    OnnxSource, RerankInitOptions, RerankInitOptionsUserDefined, RerankResult, TextRerank,
-    UserDefinedRerankingModel,
 };

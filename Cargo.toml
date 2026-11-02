@@ -102,13 +102,11 @@ exclude = [
     "vendor/fastembed-4.9.0-no-image",
 ]
 
-# Vendored fastembed 4.9.0 with the `image` dependency feature-gated
-# (image-models, off by default). The schema Lambda must not compile the
-# image codec tree (North Star north-star-schema-lambda-fast-deployment
-# criterion 8); upstream only gained this gate in fastembed 5.4.0, and a
-# 5.x bump moves ONNX Runtime 1.20→1.28 which risks non-identical
-# embedding floats. The vendored fork keeps TextEmbedding byte-identical:
-# only Cargo.toml and lib.rs module gating differ from the v4.9.0 tag.
+# Vendored fastembed 4.9.0. The fork keeps text embeddings for schema
+# service seed generation and drops image, rerank, and sparse modules.
+# TextEmbedding stays on the v4.9.0 ONNX Runtime so embedding floats stay
+# the same. A 5.x bump moves ONNX Runtime 1.20 to 1.28. The Mini daemon
+# does not link this crate.
 [patch.crates-io]
 fastembed = { path = "vendor/fastembed-4.9.0-no-image" }
 

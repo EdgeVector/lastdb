@@ -11,11 +11,6 @@ pub fn get_cache_dir() -> String {
     std::env::var("FASTEMBED_CACHE_DIR").unwrap_or(DEFAULT_CACHE_DIR.into())
 }
 
-pub struct SparseEmbedding {
-    pub indices: Vec<usize>,
-    pub values: Vec<f32>,
-}
-
 /// Type alias for the embedding vector
 pub type Embedding = Vec<f32>;
 
