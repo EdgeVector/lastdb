@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
-use lastdb_node::cloud::{CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE};
+use lastdb_node::cloud::{SavedCredentials, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 
 #[path = "recovery_home/files.rs"]
@@ -18,12 +18,6 @@ use super::CloudCommand;
 use files::{open_directory, read_private_file, FreshHome};
 
 const API_KEY_LIMIT: u64 = 4096;
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct Credentials {
-    api_url: String,
-    api_key: String,
-}
 
 pub(super) fn handles(action: &CloudCommand) -> bool {
     matches!(
@@ -108,10 +102,11 @@ fn run(
         return Err("saved cloud URL does not match the selected compiled environment".into());
     }
     let api_key = read_api_key()?;
-    if api_key.is_empty() || api_key != credentials.api_key {
+    if api_key.is_empty() || api_key.as_str() != credentials.api_key.as_str() {
         return Err("stdin API key does not match the source cloud credentials".into());
     }
-    let bytes = serde_json::to_vec_pretty(&credentials)
+    let bytes = credentials
+        .to_json_pretty()
         .map_err(|_| "cannot encode recovery credentials")?;
     let mut target = target.create()?;
     target.write(IDENTITY_KEY_FILE, &seed)?;
@@ -121,12 +116,12 @@ fn run(
     print_receipt(environment, json)
 }
 
-fn read_credentials(source: &std::fs::File) -> Result<Credentials, String> {
+fn read_credentials(source: &std::fs::File) -> Result<SavedCredentials, String> {
     if !files::entry_present(source, CLOUD_SYNC_PAUSED_FILE)? {
         return Err("source requires saved paused cloud credentials".into());
     }
-    let bytes = read_private_file(source, CLOUD_SYNC_PAUSED_FILE, 65_536)?;
-    serde_json::from_slice(&bytes).map_err(|_| "invalid source cloud credentials".into())
+    let bytes = zeroize::Zeroizing::new(read_private_file(source, CLOUD_SYNC_PAUSED_FILE, 65_536)?);
+    SavedCredentials::parse(&bytes).map_err(|_| "invalid source cloud credentials".into())
 }
 
 fn read_api_key() -> Result<String, String> {

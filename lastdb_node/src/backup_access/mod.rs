@@ -1,8 +1,16 @@
 //! Protected backup credentials and account identity. No legacy cloud activation.
-mod credentials;
-pub(crate) use credentials::auth_for_recovery;
-
+use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::AccountId;
+use std::path::Path;
+
+/// Shared credential read; the caller chooses its separately versioned protocol.
+/// `crate::cloud::load_saved_credentials` keeps the private owner-file checks.
+pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
+    let mut credentials = crate::cloud::load_saved_credentials(home)?
+        .ok_or("native backup needs existing account credentials")?;
+    let api_key = std::mem::take(&mut *credentials.api_key);
+    Ok(AuthClient::new(credentials.api_url, api_key))
+}
 
 pub fn account_from_phrase(phrase: &str) -> Result<AccountId, String> {
     let seed = zeroize::Zeroizing::new(

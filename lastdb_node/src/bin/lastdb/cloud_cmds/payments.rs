@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{environment_for_exemem_api_url, exemem_api_url_for, Environment};
-use lastdb_node::cloud::CLOUD_SYNC_PAUSED_FILE;
+use lastdb_node::cloud::{SavedCredentials, CLOUD_SYNC_PAUSED_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use serde::Deserialize;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use super::recovery_home::files;
 use super::CloudPaymentCommand;
@@ -16,19 +16,6 @@ use super::CloudPaymentCommand;
 const RESPONSE_LIMIT: usize = 65_536;
 const REQUEST_FAILED: &str =
     "Payment request failed. No payment was confirmed; check status before retry.";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Credentials {
-    api_url: String,
-    api_key: String,
-}
-
-impl Drop for Credentials {
-    fn drop(&mut self) {
-        self.api_key.zeroize();
-    }
-}
 
 struct Account {
     api_key: Zeroizing<String>,
@@ -83,8 +70,8 @@ fn account(home: &Path) -> Result<Account, String> {
         CLOUD_SYNC_PAUSED_FILE,
         RESPONSE_LIMIT as u64,
     )?);
-    let mut credentials: Credentials =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid saved cloud credentials")?;
+    let credentials =
+        SavedCredentials::parse(&bytes).map_err(|_| "invalid saved cloud credentials")?;
     let environment = environment_for_exemem_api_url(&credentials.api_url)
         .filter(|env| credentials.api_url == exemem_api_url_for(*env))
         .ok_or("payments requires a saved compiled Exemem endpoint")?;
@@ -97,7 +84,7 @@ fn account(home: &Path) -> Result<Account, String> {
         return Err("invalid saved native account API key".into());
     }
     Ok(Account {
-        api_key: Zeroizing::new(std::mem::take(&mut credentials.api_key)),
+        api_key: credentials.api_key,
         user_hash,
         environment,
     })

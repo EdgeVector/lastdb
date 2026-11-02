@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
 
-pub(super) fn bytes(path: &Path, max: u64) -> Result<Vec<u8>> {
+pub(super) fn bounded_bytes(path: &Path, max: u64) -> Result<Vec<u8>> {
     if !fs::symlink_metadata(path)?.is_file() {
         return Err(RestoreError::Invalid("object file"));
     }

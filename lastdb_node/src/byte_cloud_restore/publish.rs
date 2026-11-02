@@ -1,5 +1,6 @@
+//! Install the identity and publish the verified restored home with its receipt.
 use super::{
-    session, NativeInventory, RecoveryKeys, RestoreError, RestoreReport, Result,
+    report, NativeInventory, RecoveryKeys, RestoreError, RestoreReport, Result,
     VerifiedNativeContext,
 };
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,7 @@ pub(super) fn published_context(
         Ok(meta) if !meta.is_dir() => return Err(RestoreError::Invalid("published destination")),
         Ok(_) => {}
     }
-    let receipt: Receipt = session::read_json(&destination.join(session.receipt_name), 64 * 1024)?;
+    let receipt: Receipt = report::read_json(&destination.join(session.receipt_name), 64 * 1024)?;
     if receipt.version != session.receipt_version
         || receipt.session_id != session.session_id
         || receipt.report.commit_sha256 != session.commit_sha256.as_str()
@@ -43,7 +44,7 @@ pub(super) fn published_context(
             .ok_or(RestoreError::Invalid("destination parent"))?,
     )?
     .sync_all()?;
-    session::atomic_json(&session.root.join("result.json"), &receipt.report)?;
+    report::atomic_json(&session.root.join("result.json"), &receipt.report)?;
     Ok(Some(receipt.report))
 }
 
@@ -85,7 +86,7 @@ fn publish_context(
         verified_external_files: inventory.dependencies,
         destination: session.destination.to_path_buf(),
     };
-    session::atomic_json(
+    report::atomic_json(
         &home.join(session.receipt_name),
         &Receipt {
             version: session.receipt_version,
@@ -110,7 +111,7 @@ fn publish_context(
             .ok_or(RestoreError::Invalid("destination parent"))?,
     )?
     .sync_all()?;
-    session::atomic_json(&session.root.join("result.json"), &report)?;
+    report::atomic_json(&session.root.join("result.json"), &report)?;
     Ok(report)
 }
 
@@ -120,7 +121,7 @@ fn install_identity(home: &Path, keys: &RecoveryKeys) -> Result<()> {
         if !fs::symlink_metadata(&path)?.is_file() {
             return Err(RestoreError::Invalid("restore identity"));
         }
-        let mut file = session::owner_file(&path, false)?;
+        let mut file = report::owner_file(&path, false)?;
         let mut seed = zeroize::Zeroizing::new(Vec::new());
         Read::by_ref(&mut file).take(33).read_to_end(&mut seed)?;
         if seed.len() > 32 || !keys.seed.starts_with(&seed) {

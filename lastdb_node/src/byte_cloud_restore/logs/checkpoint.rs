@@ -30,7 +30,7 @@ pub(super) async fn download(
             inventory.use_receipt(&expected.receipt_id)?;
             let path = download::fetch(session, client, &grant, true).await?;
             let page = MutationLogPage::decode(
-                &crate::native_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
+                &crate::byte_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
                 keys.content_key(),
                 &session.accepted().begin,
             )

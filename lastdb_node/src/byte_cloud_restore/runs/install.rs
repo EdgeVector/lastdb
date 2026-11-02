@@ -64,11 +64,7 @@ pub(super) fn verify(
         if entry.path != file.path || entry.bytes != file.bytes {
             return Err(RestoreError::Invalid("run exact native inventory"));
         }
-        crate::native_cloud_restore::verify_file(
-            &data.join(&file.path),
-            &entry.sha256,
-            file.bytes,
-        )?;
+        crate::byte_cloud_restore::verify_file(&data.join(&file.path), &entry.sha256, file.bytes)?;
     }
     Ok(proof)
 }

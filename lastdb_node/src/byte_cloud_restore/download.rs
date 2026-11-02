@@ -62,7 +62,7 @@ pub(super) async fn fetch(
     };
     let path = session.root.join("cache").join(name);
     if cache && path.try_exists()? {
-        crate::native_cloud_restore::verify_file(&path, &grant.sha256, grant.bytes.get())?;
+        crate::byte_cloud_restore::verify_file(&path, &grant.sha256, grant.bytes.get())?;
         return Ok(path);
     }
     let temporary = session.root.join("cache/download.pending");
@@ -71,7 +71,7 @@ pub(super) async fn fetch(
         session.remove_spool_file(&path)?;
     }
     session.reserve_spool(grant.bytes.get())?;
-    crate::native_cloud_restore::check_capacity(&session.root, grant.bytes.get())?;
+    crate::byte_cloud_restore::check_capacity(&session.root, grant.bytes.get())?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

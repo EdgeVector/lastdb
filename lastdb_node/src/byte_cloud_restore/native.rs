@@ -63,14 +63,14 @@ fn prepare(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
     let path = root.join(entry.path.as_str());
     create_parents(root, entry.path.as_str())?;
     if path.try_exists()? {
-        crate::native_cloud_restore::verify_file(
+        crate::byte_cloud_restore::verify_file(
             &path,
             &entry.native_sha256,
             entry.native_bytes.get(),
         )?;
         return Ok(false);
     }
-    crate::native_cloud_restore::check_capacity(&session.root, entry.native_bytes.get())?;
+    crate::byte_cloud_restore::check_capacity(&session.root, entry.native_bytes.get())?;
     let pending = pending(session, entry.path.as_str());
     local::writable_file(&pending, true)?;
     Ok(true)
@@ -109,7 +109,7 @@ fn copy_object(
         let mut offset = 0u64;
         for extent in &entry.extents {
             if extent.receipt_id == *id {
-                crate::native_cloud_restore::check_capacity(&session.root, extent.length.get())?;
+                crate::byte_cloud_restore::check_capacity(&session.root, extent.length.get())?;
                 let mut output = OpenOptions::new()
                     .write(true)
                     .custom_flags(libc::O_NOFOLLOW)
@@ -140,7 +140,7 @@ fn install(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
     let path = root.join(entry.path.as_str());
     if !path.try_exists()? {
         let pending = pending(session, entry.path.as_str());
-        crate::native_cloud_restore::verify_file(
+        crate::byte_cloud_restore::verify_file(
             &pending,
             &entry.native_sha256,
             entry.native_bytes.get(),

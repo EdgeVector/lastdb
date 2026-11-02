@@ -123,13 +123,7 @@ impl PreparedHome {
             name,
             65_536,
         )?);
-        #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Credentials {
-            api_url: String,
-            api_key: String,
-        }
-        let credentials: Credentials = serde_json::from_slice(&bytes)
+        let credentials = lastdb_node::cloud::SavedCredentials::parse(&bytes)
             .map_err(|_| "invalid saved native credentials; registration may have committed")?;
         if credentials.api_url != api_url || credentials.api_key.is_empty() {
             return Err("saved native credentials do not match the compiled DEV endpoint".into());

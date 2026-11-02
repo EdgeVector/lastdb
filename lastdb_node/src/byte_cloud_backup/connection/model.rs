@@ -18,19 +18,6 @@ impl Drop for SensitiveConnectionRequest {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Credentials {
-    pub api_url: String,
-    pub api_key: String,
-}
-
-impl Drop for Credentials {
-    fn drop(&mut self) {
-        self.api_key.zeroize();
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ManualConnectionRecord {
