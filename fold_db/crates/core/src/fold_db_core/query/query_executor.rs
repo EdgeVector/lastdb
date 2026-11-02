@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use super::QueryRecords;
 
-use super::hash_range_query::{
-    FieldQueryOptions, HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds,
-};
+use super::hash_range_query::{FieldQueryOptions, HashRangeQueryProcessor};
 
 mod alternate;
 mod count;
@@ -40,37 +38,6 @@ impl QueryExecutor {
             schema_manager,
             hash_range_processor,
         }
-    }
-
-    /// Start a live watch for one HashRange partition.
-    pub fn watch_hash_range(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-        bounds: Option<HashRangeWatchBounds>,
-    ) -> HashRangeWatch {
-        self.hash_range_processor.watch(schema, hash, bounds)
-    }
-
-    /// Start a watch without range bounds.
-    pub fn watch_partition(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-    ) -> HashRangeWatch {
-        self.hash_range_processor.watch_partition(schema, hash)
-    }
-
-    /// Start a watch with inclusive-start/exclusive-end range bounds.
-    pub fn watch_range(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-        start: Option<String>,
-        end: Option<String>,
-    ) -> HashRangeWatch {
-        self.hash_range_processor
-            .watch_range(schema, hash, start, end)
     }
 
     /// Query multiple fields from a schema (legacy -- no access control)
