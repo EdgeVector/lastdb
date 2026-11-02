@@ -12,7 +12,7 @@
 //! Every node home is v2: a node that opens an absent or empty home creates
 //! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
 //! one on request. Both need the node encryption key. Every new home is
-//! format 8, and any other home is refused (see `not_v2`). The run homes are
+//! format 8; the node marker check admits no other home. The run homes are
 //! complete before the marker appears, so a crash during creation leaves the
 //! creation intent without a marker. The runtime opens only after the marker,
 //! so that home holds no application records: the next open removes the
@@ -38,15 +38,6 @@ const INTENT: &str = "laststore-run-initializing";
 const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
-
-/// True for a home with the format 8 node marker.
-pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
-    match std::fs::read(path.join(NODE_MARKER)) {
-        Ok(bytes) => Ok(super::run_admission::profile(&bytes).is_some()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
-    }
-}
 
 /// True when `path` is absent or empty: a new node home, which is v2.
 pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
@@ -131,14 +122,6 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-/// The refusal for a node home without the format 8 node marker.
-pub(super) fn not_v2(path: &Path) -> StorageError {
-    StorageError::InvalidOperation(format!(
-        "{} is not a supported node home; this release opens only format 8 (the record model)",
-        path.display()
-    ))
-}
-
 pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
@@ -161,7 +144,7 @@ impl PackNamespacedStore {
             ))
         })?;
         // Another creator can finish between the caller's check and the lock.
-        if !is_run_node(path)? {
+        if !path.join(NODE_MARKER).try_exists()? {
             if creation_stopped(path)? {
                 clear_stopped_creation(path)?;
             } else if std::fs::read_dir(path)?.next().is_some() {

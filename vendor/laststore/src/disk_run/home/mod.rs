@@ -84,10 +84,8 @@ use uuid::Uuid;
 
 /// File name of the clear home descriptor. Its presence selects format v2.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-/// `LDRHOME3`: values in their tagged stored form. An `LDRHOME2` home stored
-/// values as given; no user data is in one, and this program refuses it.
+/// `LDRHOME3`: values in their tagged stored form.
 const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME3";
-const UNTAGGED_MAGIC: &[u8; 8] = b"LDRHOME2";
 const DESCRIPTOR_BYTES: usize = 64;
 
 /// Largest value that a commit accepts: its stored form adds one tag byte.
@@ -333,13 +331,6 @@ fn read_descriptor_file(path: &Path) -> Result<Uuid> {
     let mut bytes = [0u8; DESCRIPTOR_BYTES];
     file.read_exact(&mut bytes)?;
     let crc = u32::from_le_bytes(bytes[60..].try_into().expect("4 bytes"));
-    if &bytes[..8] == UNTAGGED_MAGIC {
-        return Err(Error::Config(
-            "disk run home: this home stores untagged values from an earlier v2 build; \
-             create a new home"
-                .into(),
-        ));
-    }
     if &bytes[..8] != DESCRIPTOR_MAGIC
         || bytes[8..12] != 1u32.to_le_bytes()
         || crc != crc32fast::hash(&bytes[..60])
