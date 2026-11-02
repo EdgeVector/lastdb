@@ -6,13 +6,15 @@ use super::{
     model::{ObjectRecord, Segment, State},
     protocol, Inner, StorageError, StorageResult,
 };
-use cloud_backup_plan::{PlanError, PlanFile, PlannedObject};
+use cloud_backup_plan::{Chunk, PlanError, PlanFile, PlanState, PlannedObject, Range, Step};
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Object, Version,
 };
 use cloud_backup_protocol::{Id, RelativePath};
 use laststore::disk_run::home::SnapshotFile;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 
 pub(super) mod metadata;
 
@@ -39,21 +41,107 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
         })
         .collect::<StorageResult<Vec<_>>>()?;
     let scope = state.begin.job.stream.scope.clone();
-    let totals = cloud_backup_plan::plan(
-        &files,
-        &scope,
-        |file| inner.file_reader(&inventory[file.id].path),
-        |index, planned| {
-            state.metadata_pack_objects += u64::from(planned.pack);
-            state.multi_file_pack_objects += u64::from(planned.pack && planned.segments.len() > 1);
-            let object = record(inner, state, index, &files, planned)?;
-            save(inner, state, index, object)
-        },
-    )?;
+    let totals = drive(inner, state, &files, inventory, &scope)?;
     metadata::finish(inner, state, key, totals.objects)?;
     state.ready = true;
     state.validate()?;
     inner.store.write("job.json", state)
+}
+
+fn drive(
+    inner: &Inner,
+    state: &mut State,
+    files: &[PlanFile],
+    inventory: &[SnapshotFile],
+    scope: &cloud_backup_protocol::CloudScope,
+) -> StorageResult<cloud_backup_plan::PlanTotals> {
+    let mut plan = PlanState::start(files, scope);
+    let mut source = None;
+    let mut buffer = [0u8; cloud_backup_plan::READ_BYTES as usize];
+    let mut pending = None;
+    loop {
+        let step = match pending.take() {
+            Some((file, offset, len)) => plan.step(Some(Chunk {
+                file,
+                offset,
+                bytes: &buffer[..len],
+            }))?,
+            None => plan.step(None)?,
+        };
+        match step {
+            Step::Done(totals) => return Ok(totals),
+            Step::Need(range) => {
+                let len = read_range(&mut source, inner, inventory, &range, &mut buffer)?;
+                pending = Some((range.file, range.offset, len));
+            }
+            Step::Save { index, object } => {
+                let request_id =
+                    Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?;
+                state.metadata_pack_objects += u64::from(object.pack);
+                state.multi_file_pack_objects +=
+                    u64::from(object.pack && object.segments.len() > 1);
+                let record = record(inner, state, index, files, object, request_id)?;
+                save(inner, state, index, record)?;
+            }
+        }
+    }
+}
+
+struct OpenFile {
+    id: usize,
+    reader: File,
+    pos: u64,
+}
+
+fn read_range(
+    open: &mut Option<OpenFile>,
+    inner: &Inner,
+    inventory: &[SnapshotFile],
+    range: &Range,
+    buffer: &mut [u8],
+) -> StorageResult<usize> {
+    if range.bytes > buffer.len() as u64 {
+        return Err(invalid("byte plan range"));
+    }
+    let want = range.bytes as usize;
+    if open.as_ref().is_none_or(|source| source.id != range.file) {
+        let path = &inventory
+            .get(range.file)
+            .ok_or_else(|| invalid("byte plan range"))?
+            .path;
+        *open = Some(OpenFile {
+            id: range.file,
+            reader: inner.file_reader(path)?,
+            pos: 0,
+        });
+    }
+    let Some(source) = open.as_mut() else {
+        return Err(invalid("byte plan range"));
+    };
+    if source.pos != range.offset {
+        source.reader.seek(SeekFrom::Start(range.offset))?;
+        source.pos = range.offset;
+    }
+    let read = if range.exact {
+        source.reader.read_exact(&mut buffer[..want])?;
+        want
+    } else {
+        read_upto(&mut source.reader, &mut buffer[..want])?
+    };
+    source.pos += read as u64;
+    Ok(read)
+}
+
+fn read_upto(reader: &mut impl Read, buffer: &mut [u8]) -> StorageResult<usize> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        let count = reader.read(&mut buffer[filled..])?;
+        if count == 0 {
+            break;
+        }
+        filled += count;
+    }
+    Ok(filled)
 }
 
 /// Both planners use one relative UTF-8 path.
@@ -74,6 +162,7 @@ fn record(
     index: u64,
     files: &[PlanFile],
     planned: PlannedObject,
+    request_id: Id,
 ) -> StorageResult<ObjectRecord> {
     let segments = planned
         .segments
@@ -85,7 +174,7 @@ fn record(
         })
         .collect();
     Ok(ObjectRecord {
-        input: input(inner, state, index, planned.object)?,
+        input: input(inner, state, index, planned.object, request_id)?,
         segments,
         native_files: planned
             .native_files
@@ -102,6 +191,7 @@ pub(super) fn input(
     state: &State,
     index: u64,
     object: Object,
+    request_id: Id,
 ) -> StorageResult<TransferInput> {
     if index >= super::model::MAX_OBJECTS {
         return Err(invalid("byte source object count bound"));
@@ -116,7 +206,7 @@ pub(super) fn input(
     }
     let input = TransferInput {
         version: Version::V2,
-        request_id: Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?,
+        request_id,
         job: state.begin.job.clone(),
         object,
     };
@@ -159,7 +249,6 @@ impl From<PlanError> for StorageError {
             PlanError::SourceLength => invalid("byte native source length changed"),
             PlanError::ExtentBound => invalid("byte native file extent metadata bound"),
             PlanError::Protocol(error) => protocol(error),
-            PlanError::Io(error) => Self::from(error),
         }
     }
 }

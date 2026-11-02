@@ -111,6 +111,7 @@ fn freeze(
         capture.store.write_raw(&name, &bytes)?;
         bytes
     };
+    let request_id = cloud_backup_protocol::Id::try_from(uuid::Uuid::new_v4().to_string())?;
     let input = planner::input(
         capture,
         index,
@@ -119,6 +120,7 @@ fn freeze(
             bytes: DecimalU64::new(encrypted.len() as u64),
             destination: Some(cloud_backup_protocol::v2::Destination::R2),
         },
+        request_id,
     )?;
     let record = ObjectRecord {
         input,

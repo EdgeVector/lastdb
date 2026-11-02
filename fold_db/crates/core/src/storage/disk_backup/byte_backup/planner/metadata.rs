@@ -112,6 +112,8 @@ pub(in crate::storage::disk_backup::byte_backup) fn freeze(
         inner.store.write_raw(&name, &bytes)?;
         bytes
     };
+    let request_id =
+        cloud_backup_protocol::Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?;
     let input = input(
         inner,
         state,
@@ -121,6 +123,7 @@ pub(in crate::storage::disk_backup::byte_backup) fn freeze(
             bytes: DecimalU64::new(encrypted.len() as u64),
             destination: Some(cloud_backup_protocol::v2::Destination::R2),
         },
+        request_id,
     )?;
     let record = ObjectRecord {
         input,
