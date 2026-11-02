@@ -25,8 +25,7 @@ Module paths use `::` and start below `crate`; the crate root (lib.rs) is
 `crate`. Each layer name is unique, each module may appear once, and each
 listed module must exist. A file that no layer owns fails the check.
 
-The resolver is static and approximate (copied from the split-lab
-measurement tool): it parses `use` trees and inline `crate::` / `super::` /
+The resolver is static and approximate: it parses `use` trees and inline `crate::` / `super::` /
 `self::` paths, bare `child::Item` paths, follows `pub use` re-exports and
 falls back to the unique definition of a name under the module. It does not
 run cargo, so it does not see macro expansion or method calls through a type.
