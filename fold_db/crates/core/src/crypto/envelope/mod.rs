@@ -20,9 +20,9 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 /// `[version:1][key_id:4][nonce:12][ciphertext+tag]`.
 ///
 /// Three properties v1 lacks (threat model §5.2):
-/// - **`key_id`** makes "which key sealed this?" a *lookup* (via
-///   [`peek_envelope`]) instead of trial decryption — the precondition
-///   for a caller-managed key map and cheap key rotation (Gap G5).
+/// - **`key_id`** puts "which key sealed this?" in the clear bytes. That is
+///   the precondition for a caller-managed key map and cheap key rotation
+///   (Gap G5).
 /// - **AAD** *can* bind each ciphertext to its location (namespace + storage
 ///   key), so that a ciphertext cannot be swapped to another slot within
 ///   the store and still decrypt. This is a capability of the codec — it
@@ -73,18 +73,6 @@ impl KeyId {
     pub const fn as_bytes(&self) -> &[u8; KEY_ID_SIZE] {
         &self.0
     }
-}
-
-/// The parsed, undecrypted header of an at-rest envelope. Lets a keyring
-/// answer "which DEK do I need to open this?" by reading the leading
-/// bytes alone — no key, no decryption.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EnvelopeHeader {
-    /// Format version byte (`0x01` or `0x02`).
-    pub version: u8,
-    /// The sealing key id — `Some` for v2, `None` for v1 (v1 predates
-    /// key ids and is implicitly the single static key).
-    pub key_id: Option<KeyId>,
 }
 
 /// Encrypt plaintext using AES-256-GCM with a random nonce.
@@ -213,47 +201,12 @@ pub fn decrypt_envelope_v2(key: &[u8; 32], envelope: &[u8], aad: &[u8]) -> Crypt
         .map_err(|e| CryptoError::DecryptionFailed(format!("AES-GCM-SIV decrypt: {e}")))
 }
 
-/// Read an envelope's header without a key or any decryption: the
-/// version byte, and for v2 the `key_id`. This is what lets the keyring
-/// resolve "which DEK opens this?" by lookup rather than trial
-/// decryption (threat model §5.2).
-///
-/// Returns [`CryptoError::InvalidFormat`] for an empty/truncated buffer
-/// and [`CryptoError::UnsupportedVersion`] for an unknown version byte.
-pub fn peek_envelope(envelope: &[u8]) -> CryptoResult<EnvelopeHeader> {
-    let version = *envelope
-        .first()
-        .ok_or_else(|| CryptoError::InvalidFormat("empty envelope".to_string()))?;
-    match version {
-        ENVELOPE_VERSION => Ok(EnvelopeHeader {
-            version,
-            key_id: None,
-        }),
-        ENVELOPE_VERSION_V2 => {
-            if envelope.len() < VERSION_SIZE + KEY_ID_SIZE {
-                return Err(CryptoError::InvalidFormat(format!(
-                    "v2 envelope too short to carry a key_id: {} bytes",
-                    envelope.len()
-                )));
-            }
-            let mut id = [0u8; KEY_ID_SIZE];
-            id.copy_from_slice(&envelope[VERSION_SIZE..VERSION_SIZE + KEY_ID_SIZE]);
-            Ok(EnvelopeHeader {
-                version,
-                key_id: Some(KeyId::from_bytes(id)),
-            })
-        }
-        other => Err(CryptoError::UnsupportedVersion(other)),
-    }
-}
-
 /// Version-dispatching decrypt for callers that hold a mixed stream of
 /// v1 and v2 envelopes (the migration window at the KvStore seam, Gap
 /// G1). v1 envelopes decrypt with empty AAD — they predate the binding,
 /// so `aad` is ignored for them; v2 envelopes are bound to `aad`.
 ///
-/// The caller still chooses the *key* (a real keyring resolves it from
-/// [`peek_envelope`]'s `key_id`); this helper only routes on version so
+/// The caller still chooses the key. This helper only routes on version so
 /// the seam does not hand-parse the version byte at every call site.
 pub fn decrypt_envelope_with_context(
     key: &[u8; 32],

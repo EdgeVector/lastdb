@@ -21,8 +21,7 @@ pub use at_rest::{
 };
 pub use e2e::E2eKeys;
 pub use envelope::{
-    decrypt_envelope, decrypt_envelope_v2, decrypt_envelope_with_context, encrypt_envelope,
-    peek_envelope, EnvelopeHeader, KeyId,
+    decrypt_envelope, decrypt_envelope_v2, decrypt_envelope_with_context, encrypt_envelope, KeyId,
 };
 pub use error::{CryptoError, CryptoResult};
 pub use provider::{CryptoProvider, LocalCryptoProvider};
