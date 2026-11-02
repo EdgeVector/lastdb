@@ -19,11 +19,10 @@ use crate::resolver_config::{
     ResolverConfig, NATIVE_COMPONENT_COVER_ALGORITHM_ID, NATIVE_COMPONENT_COVER_ALGORITHM_VERSION,
 };
 use crate::resolver_pack::{
-    artifact_sha256_hex, latest_compatible_manifest_pointer_key, parse_embedding_artifact,
-    parse_manifest, parse_resolver_config, parse_schema_snapshot_artifact,
-    resolver_pack_artifact_key, verify_resolver_pack_manifest, EmbeddingArtifact,
-    ResolverPackArtifactKind, ResolverPackManifest, ResolverPackVerifyError,
-    SchemaSnapshotArtifact, TrustedResolverPackKey, RESOLVER_PACK_FORMAT_VERSION,
+    latest_compatible_manifest_pointer_key, parse_embedding_artifact, parse_manifest,
+    parse_resolver_config, parse_schema_snapshot_artifact, resolver_pack_artifact_key,
+    verify_resolver_pack_manifest, EmbeddingArtifact, ResolverPackArtifactKind,
+    ResolverPackManifest, ResolverPackVerifyError, SchemaSnapshotArtifact, TrustedResolverPackKey,
     SUPPORTED_RESOLVER_CONTRACT_VERSION,
 };
 mod config;
