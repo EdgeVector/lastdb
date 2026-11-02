@@ -20,6 +20,10 @@ pub fn install() -> Result<(), String> {
             .replace('>', "&gt;")
     };
     let user_home = escape(&home.display().to_string());
+    let apps_off = std::env::var("LAST_STACK_APPS_OFF").unwrap_or_else(|_| "0".into());
+    if apps_off != "0" && apps_off != "1" {
+        return Err("LAST_STACK_APPS_OFF must be 0 or 1".into());
+    }
     let data = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -27,7 +31,7 @@ pub fn install() -> Result<(), String> {
 <key>Label</key><string>{label}</string>
 <key>ProgramArguments</key><array><string>{user_home}/.local/bin/lastdb</string><string>app</string><string>upgrade</string><string>--all</string></array>
 <key>StartInterval</key><integer>60</integer>
-<key>EnvironmentVariables</key><dict><key>PATH</key><string>{user_home}/.local/bin:{user_home}/.bun/bin:{user_home}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>LASTDB_APP_REGISTRY_POLL</key><string>1</string><key>LAST_STACK_APPS_OFF</key><string>1</string></dict>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>{user_home}/.local/bin:{user_home}/.bun/bin:{user_home}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>LASTDB_APP_REGISTRY_POLL</key><string>1</string><key>LAST_STACK_APPS_OFF</key><string>{apps_off}</string></dict>
 <key>StandardOutPath</key><string>{user_home}/.local/state/lastdb-app-registry/upgrade.log</string>
 <key>StandardErrorPath</key><string>{user_home}/.local/state/lastdb-app-registry/upgrade.err</string>
 </dict></plist>
