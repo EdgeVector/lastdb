@@ -29,12 +29,6 @@ const DIRECTORY_LISTING_BYTES_MAX: usize = 64 * 1024 * 1024;
 /// Public metric name. This changes only with a wire-contract change.
 pub const HOME_STORAGE_METRIC: &str = "lastdb_home_storage_v1";
 
-/// Public metric name for logical data counted once per reaching app.
-pub const HOME_STORAGE_APP_ATTRIBUTION_METRIC: &str = "lastdb_home_inclusive_app_logical_bytes_v1";
-
-/// `10_000` basis points means `1.0x`.
-const ONE_X_BASIS_POINTS: u64 = 10_000;
-
 /// One mutually exclusive top-level class below the configured LastDB home.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,11 +67,9 @@ pub struct HomeStorageTotals {
     pub allocated_bytes: u64,
 }
 
-mod attribution;
 mod paths;
 mod reconcile;
 mod report;
 
-pub use attribution::*;
 pub use reconcile::*;
 pub use report::*;

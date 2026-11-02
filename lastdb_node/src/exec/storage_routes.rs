@@ -95,64 +95,6 @@ pub(super) async fn execute_home_storage_route(ctx: &AccessContext, host: &Host)
     ))
 }
 
-/// Build the logical app ledger from the in-memory schema catalog and
-/// write-path field key counters. This reads no record, tip, or filesystem plane.
-pub(super) fn collect_home_app_attribution(
-    host: &Host,
-) -> crate::home_storage::HomeStorageInclusiveAppAttribution {
-    use crate::home_storage::{
-        build_inclusive_app_attribution, AppLogicalBinding, AppLogicalFieldKey,
-    };
-
-    let meters = host.db.db_ops().records().keep_small();
-    let counters_complete = meters.field_key_counters_complete();
-    let schema_manager = host.db.schema_manager();
-    let mut unresolved = Vec::new();
-    let entries = if let Ok(entries) = schema_manager.get_schema_list_entries_with_states() {
-        entries
-    } else {
-        unresolved.push("schema_catalog_unavailable".to_string());
-        Vec::new()
-    };
-    let mut bindings = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let Ok(Some(schema)) = schema_manager.get_schema_metadata(&entry.name) else {
-            unresolved.push(format!("schema_metadata_unavailable:{}", entry.name));
-            continue;
-        };
-        let mut field_key_ids: Vec<String> = schema
-            .runtime_fields
-            .values()
-            .filter_map(|field| field.common().field_key_id().cloned())
-            .collect();
-        field_key_ids.sort_unstable();
-        field_key_ids.dedup();
-        let field_keys = field_key_ids
-            .into_iter()
-            .map(|field_key_id| {
-                let logical_bytes = meters.field_key_counter(&field_key_id).map(|counter| {
-                    counter
-                        .logical_value_bytes()
-                        .saturating_add(counter.structure_bytes())
-                });
-                AppLogicalFieldKey {
-                    field_key_id,
-                    logical_bytes,
-                }
-            })
-            .collect();
-        bindings.push(AppLogicalBinding {
-            schema_binding: schema.name.clone(),
-            app_id: schema
-                .owner_app_id
-                .clone()
-                .filter(|owner| !owner.trim().is_empty()),
-            field_keys,
-        });
-    }
-    build_inclusive_app_attribution(&bindings, counters_complete, unresolved, chrono::Utc::now())
-}
-
 /// `POST /api/storage/home/reconcile` — one bounded filesystem page.
 ///
 /// The durable checkpoint contains the remaining path queue. Each request
@@ -213,9 +155,7 @@ pub(super) async fn execute_home_storage_reconcile_route(
         _ => HomeStorageReconcileCheckpoint::start(chrono::Utc::now()),
     };
     let visited = reconcile_page(&host.home, &mut checkpoint, work_budget);
-    let report = checkpoint
-        .report(chrono::Utc::now())
-        .with_inclusive_app_attribution(collect_home_app_attribution(host));
+    let report = checkpoint.report(chrono::Utc::now());
 
     if let Err(error) = metadata
         .put_typed_durable(HOME_STORAGE_RECONCILE_KEY, &checkpoint)

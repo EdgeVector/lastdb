@@ -70,11 +70,7 @@ use crate::storage::{
 use std::{
     collections::HashSet,
     hash::{DefaultHasher, Hash, Hasher},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
+    sync::Arc,
 };
 
 use super::keep_small::{
@@ -148,18 +144,8 @@ pub struct RecordStore {
     keep_small: Arc<KeepSmallMeters>,
     /// Metadata namespace used to persist [`KeepSmallMeters`] across reopen.
     keep_small_persist: Option<Arc<TypedKvStore<dyn KvStore>>>,
-    /// Debounce clock for the keep-small projection: when the last durable
-    /// write landed. `None` until the first write, so a fresh store persists
-    /// once immediately and a reopen always sees a snapshot.
-    keep_small_last_persist: Arc<std::sync::Mutex<Option<Instant>>>,
-    /// Meters have changed since the last durable write. Set by every
-    /// debounced call, cleared by the write that lands them.
-    keep_small_dirty: Arc<AtomicBool>,
-    /// Set by [`RecordStore::flush_keep_small_for_clean_stop`]; a metered write
-    /// that lands afterwards persists at once with `clean_stop = false`.
-    keep_small_clean_stop_written: Arc<AtomicBool>,
     /// Serialize whole-snapshot writes so an older export cannot land after a
-    /// newer export under concurrent field key commits.
+    /// newer export.
     keep_small_persist_lock: Arc<tokio::sync::Mutex<()>>,
     /// Totals, the last queue reading and recent faults of the blob counters.
     blob_events: Arc<blob_counter::BlobEvents>,

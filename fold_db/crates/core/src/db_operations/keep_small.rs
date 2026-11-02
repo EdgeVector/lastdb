@@ -51,27 +51,6 @@ impl KeepSmallSnapshot {
                 take_bucket(&mut buckets, &name).trust = Some(domain);
             }
         }
-        for (field_key, counter) in self.field_keys.drain() {
-            let owner = schema_owner_for_field_key(&field_key, &self.field_key_schema);
-            if emit(&owner) {
-                take_bucket(&mut buckets, &owner)
-                    .field_keys
-                    .insert(field_key, counter);
-            }
-        }
-        let field_key_schema = std::mem::take(&mut self.field_key_schema);
-        for (field_key, schema) in field_key_schema {
-            let owner = if schema.is_empty() {
-                KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string()
-            } else {
-                schema.clone()
-            };
-            if emit(&owner) {
-                take_bucket(&mut buckets, &owner)
-                    .field_key_schema
-                    .insert(field_key, schema);
-            }
-        }
         if let Some(set) = only_schemas {
             for name in set {
                 buckets.entry(name.clone()).or_default();
@@ -95,8 +74,6 @@ impl KeepSmallSnapshot {
         if let (Some(name), Some(trust)) = (schema_name, shard.trust) {
             self.trust.schemas.insert(name, trust);
         }
-        self.field_keys.extend(shard.field_keys);
-        self.field_key_schema.extend(shard.field_key_schema);
     }
 }
 
@@ -114,18 +91,9 @@ pub const KEEP_SMALL_SNAPSHOT_COLLECTION: &str = "keep_small";
 #[derive(Debug)]
 pub struct KeepSmallMeters {
     schemas: Mutex<HashMap<String, SchemaMeter>>,
-    field_keys: Mutex<HashMap<String, FieldKeyStorageCounter>>,
-    field_key_counters_complete: AtomicBool,
     // No per-key state. A per-key map here held one entry for each key of
     // the home, outside the warm set limit (measured 2026-10-20: about 2.6 KB
     // for each new record).
-    /// field key uuid → owning schema, learned when a schema install seeds the
-    /// field key counter ([`Self::ensure_field_key_counter`]).
-    ///
-    /// A field key belongs to exactly one field of one schema. This map is the
-    /// only thing that carries that fact to the meters: a persist puts each
-    /// field key counter in the shard of its owning schema.
-    field_key_schema: Mutex<HashMap<String, String>>,
     /// Set when boot looked for the durable snapshot and did not find it.
     ///
     /// A miss is not the same as a measured zero. On a home that already holds
@@ -143,9 +111,7 @@ pub struct KeepSmallMeters {
     /// (`clean_stop == Some(false)`): metered writes landed after the last
     /// debounced persist and the process stopped without the shutdown flush
     /// (2026-09-21 design — the debounce accepts that staleness, the report
-    /// must not call it exact). Cleared only by
-    /// [`Self::install_field_key_counter_bootstrap`], the same repair a
-    /// hydrate miss takes.
+    /// must not call it exact). Cleared only by [`Self::mark_empty_home_absent`].
     stale_after_unclean_stop: AtomicBool,
     trust: Mutex<MeterTrustPayload>,
     /// Schemas whose durable shard is behind the live projection.
@@ -156,9 +122,6 @@ impl Default for KeepSmallMeters {
     fn default() -> Self {
         Self {
             schemas: Mutex::new(HashMap::new()),
-            field_keys: Mutex::new(HashMap::new()),
-            field_key_counters_complete: AtomicBool::new(true),
-            field_key_schema: Mutex::new(HashMap::new()),
             hydrate_missed: AtomicBool::new(false),
             stale_after_unclean_stop: AtomicBool::new(false),
             trust: Mutex::new(MeterTrustPayload::trusted()),
@@ -167,7 +130,6 @@ impl Default for KeepSmallMeters {
     }
 }
 
-mod field_keys;
 mod schemas;
 mod snapshot_io;
 mod trust;

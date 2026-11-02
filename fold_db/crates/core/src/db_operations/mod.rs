@@ -36,11 +36,10 @@ pub use delete_ledger::{
     LEDGER_VERB_PURGE, RECORD_DELETE_LEDGER_PREFIX,
 };
 pub use keep_small::{
-    keep_small_schema_shard_key, FieldKeyStorageCounter, KeepSmallMeters, KeepSmallSchemaShard,
-    KeepSmallSnapshot, MeterDomainTrust, MeterTrustPayload, MeterTrustState, SchemaMeter,
+    keep_small_schema_shard_key, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,
+    MeterDomainTrust, MeterTrustPayload, MeterTrustState, SchemaMeter,
     KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
-    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA,
-    KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
+    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, LIVE_BUDGET_BYTES,
 };
 pub use record_store::{
     BlobCounterReport, BlobCounterView, BlobRecountReport, ConflictRetentionReport, DwellCursor,

@@ -3,15 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    pub(super) fn mark_schema_dirty(&self, schema: Option<&str>) {
-        let name = schema
-            .filter(|s| !s.is_empty())
-            .unwrap_or(KEEP_SMALL_UNATTRIBUTED_SCHEMA);
-        if let Ok(mut dirty) = self.dirty_schemas.lock() {
-            dirty.insert(name.to_string());
-        }
-    }
-
     /// Take the schema names whose shards a persist must rewrite.
     #[must_use]
     pub fn take_dirty_schemas(&self) -> HashSet<String> {
@@ -30,7 +21,6 @@ impl KeepSmallMeters {
             .unwrap_or_default();
         if let Ok(mut dirty) = self.dirty_schemas.lock() {
             dirty.extend(names);
-            dirty.insert(KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string());
         }
     }
 

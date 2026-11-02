@@ -1,92 +1,19 @@
 use super::*;
 
 impl RecordStore {
-    /// Mark the meters dirty and point-put them if the debounce interval has
-    /// elapsed, so a later boot sees roughly the same live totals.
-    ///
-    /// Called when a schema install seeds its field key counters. A persist
-    /// writes the small header plus shards for schemas that changed since the
-    /// last durable write. A skipped write leaves the dirty flag set;
-    /// [`Self::flush_keep_small`] still lands it. See
-    /// [`KEEP_SMALL_PERSIST_INTERVAL`].
-    pub async fn persist_keep_small(&self) -> Result<(), crate::schema::SchemaError> {
-        if self.keep_small_persist.is_none() {
-            return Ok(());
-        }
-        self.keep_small_dirty.store(true, Ordering::Relaxed);
-        // A metered write after the clean-stop flush would leave a durable
-        // `clean_stop = true` that no longer covers it. Persist it now, with
-        // `false`, so the next boot reads "unclean" (a safe under-claim)
-        // rather than "clean" (a false exact report).
-        if self
-            .keep_small_clean_stop_written
-            .swap(false, Ordering::Relaxed)
-        {
-            return self.write_keep_small().await;
-        }
-        if !self.claim_keep_small_persist_slot() {
-            return Ok(());
-        }
-        self.write_keep_small().await
-    }
-
-    /// The shutdown flush: lands the last debounce interval and stamps the
-    /// snapshot `clean_stop = true`, so the next boot hydrates it as exact
-    /// without a bootstrap. Call it after every metered writer has stopped.
-    ///
-    /// Always writes, dirty or not: the stamp is the verdict, and a clean
-    /// stop whose meters happened to be unchanged since the last debounce
-    /// tick must still leave a `true` behind. A metered write that lands
-    /// after this flush (a lane that did not drain) persists immediately with
-    /// `false` via [`Self::persist_keep_small`], so the durable row can only
-    /// under-claim, never over-claim.
+    /// The shutdown flush: stamps the snapshot `clean_stop = true`, so the
+    /// next boot hydrates it as exact without a bootstrap. Call it after every
+    /// writer has stopped. Always writes: the stamp is the verdict.
     pub async fn flush_keep_small_for_clean_stop(&self) -> Result<(), crate::schema::SchemaError> {
-        self.keep_small_clean_stop_written
-            .store(true, Ordering::Relaxed);
-        self.flush_keep_small_inner(true).await
-    }
-
-    pub(super) async fn flush_keep_small_inner(
-        &self,
-        clean_stop: bool,
-    ) -> Result<(), crate::schema::SchemaError> {
         let Some(store) = self.keep_small_persist.as_ref() else {
             return Ok(());
         };
         let _persist_guard = self.keep_small_persist_lock.lock().await;
-        let wrote_snapshot = clean_stop || self.keep_small_dirty.load(Ordering::Relaxed);
-        if wrote_snapshot {
-            if let Ok(mut last) = self.keep_small_last_persist.lock() {
-                *last = Some(Instant::now());
-            }
-            self.write_keep_small_with_clean_stop_locked(clean_stop)
-                .await?;
-        }
+        self.write_keep_small_with_clean_stop_locked(true).await?;
         store.inner().flush().await.map_err(|e| {
             crate::schema::SchemaError::InvalidData(format!("flush keep-small: {e}"))
         })?;
         Ok(())
-    }
-
-    /// Take the right to write the projection, stamping the clock under the
-    /// same lock so concurrent writers cannot all decide they are due.
-    pub(super) fn claim_keep_small_persist_slot(&self) -> bool {
-        let interval = keep_small_persist_interval();
-        let Ok(mut last) = self.keep_small_last_persist.lock() else {
-            // Poisoned clock: persist rather than silently stop metering.
-            return true;
-        };
-        let due = last.is_none_or(|t| t.elapsed() >= interval);
-        if due {
-            *last = Some(Instant::now());
-        }
-        due
-    }
-
-    /// Unconditional durable write of the projection, stamped as a runtime
-    /// write (`clean_stop = false`).
-    pub(super) async fn write_keep_small(&self) -> Result<(), crate::schema::SchemaError> {
-        self.write_keep_small_with_clean_stop(false).await
     }
 
     /// Unconditional durable write of the projection with an explicit
@@ -107,14 +34,10 @@ impl RecordStore {
         &self,
         clean_stop: bool,
     ) -> Result<(), crate::schema::SchemaError> {
-        // Clear before the put: a concurrent meter update during the write
-        // should re-arm the flag rather than be swallowed by clearing after.
-        self.keep_small_dirty.store(false, Ordering::Relaxed);
         let mut snapshot = self.keep_small.export();
         snapshot.clean_stop = Some(clean_stop);
         if !clean_stop && snapshot.trust.global.state.is_complete() {
             snapshot.trust.global = MeterDomainTrust::incomplete("dirty_snapshot");
-            snapshot.trust.field_keys = MeterDomainTrust::incomplete("dirty_snapshot");
             for domain in snapshot.trust.schemas.values_mut() {
                 *domain = MeterDomainTrust::incomplete("dirty_snapshot");
             }
@@ -122,8 +45,7 @@ impl RecordStore {
         let dirty = self.keep_small.take_dirty_schemas();
         self.write_keep_small_header_and_shards(&snapshot, Some(&dirty))
             .await?;
-        // The debounced caller does not flush here. A caller that needs an
-        // acknowledgment-grade counter calls `flush_keep_small` next.
+        // The caller flushes.
         Ok(())
     }
 
@@ -141,19 +63,6 @@ impl RecordStore {
                 crate::schema::SchemaError::InvalidData(format!("hydrate keep-small shards: {e}"))
             })?;
         for (_key, shard) in shards {
-            snapshot.merge_shard(shard);
-        }
-        if let Some(shard) = store
-            .get_item::<KeepSmallSchemaShard>(
-                crate::db_operations::KEEP_SMALL_UNATTRIBUTED_SHARD_KEY,
-            )
-            .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "hydrate keep-small unattributed shard: {e}"
-                ))
-            })?
-        {
             snapshot.merge_shard(shard);
         }
         Ok(())

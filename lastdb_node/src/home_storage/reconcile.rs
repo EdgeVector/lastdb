@@ -1,6 +1,5 @@
 use super::*;
 
-use super::attribution::*;
 use super::paths::*;
 
 /// One durable work item. Directory names share one encoded parent, which
@@ -90,7 +89,6 @@ impl HomeStorageReconcileCheckpoint {
             overaccounted_apparent_bytes: 0,
             unknown_path_bytes: 0,
             unresolved_scopes: unresolved,
-            inclusive_app_attribution: HomeStorageInclusiveAppAttribution::default(),
         }
         .validated_for_read()
     }

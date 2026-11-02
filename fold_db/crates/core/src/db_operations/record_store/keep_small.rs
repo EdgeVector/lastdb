@@ -1,4 +1,4 @@
-//! Keep-small projection: hydrate, debounced persist, and snapshot repair.
+//! Keep-small projection: hydrate, the boot re-arm and the shutdown flush.
 
 use super::*;
 
@@ -7,35 +7,6 @@ use super::*;
 /// be the one that cannot be loaded. See
 /// [`RecordStore::note_keep_small_hydrate_failure`].
 pub(super) const KEEP_SMALL_DISTRUST_KEY: &str = "keep_small:hydrate_distrust";
-
-/// Minimum wall time between durable writes of the keep-small projection.
-///
-/// The live projection is one in-memory map. The durable form is a small
-/// header plus one shard per dirty schema, so a persist does not rewrite
-/// unchanged schemas. A schema install calls
-/// [`RecordStore::persist_keep_small`]. When every format 6 record and field key
-/// put called it, a whole-map blob at this cadence filled the `keep_small`
-/// plane at ~1.2 MB/s on the primary (36 MB every 30 s).
-///
-/// The projection is a gauge, not correctness state (see
-/// [`RecordStore::hydrate_keep_small`]: a missing key is simply a fresh home),
-/// so trading up to this much staleness after an unclean stop is safe.
-/// Override with `LASTDB_KEEP_SMALL_PERSIST_SECS` (0 = write inline, the
-/// pre-debounce behavior).
-///
-/// Ordinary writes keep this debounce. Hard erases stage final aggregate
-/// state with their native snapshot batch; shutdown writes the clean stamp.
-pub(super) const KEEP_SMALL_PERSIST_INTERVAL: Duration = Duration::from_secs(30);
-
-/// Env override for [`KEEP_SMALL_PERSIST_INTERVAL`], in whole seconds.
-pub(super) const KEEP_SMALL_PERSIST_INTERVAL_ENV: &str = "LASTDB_KEEP_SMALL_PERSIST_SECS";
-
-/// Resolve the debounce interval from the environment, falling back to
-/// [`KEEP_SMALL_PERSIST_INTERVAL`] when unset or unparseable.
-pub(super) fn keep_small_persist_interval() -> Duration {
-    env_flag::var_parsed::<u64>(KEEP_SMALL_PERSIST_INTERVAL_ENV)
-        .map_or(KEEP_SMALL_PERSIST_INTERVAL, Duration::from_secs)
-}
 
 mod persist;
 

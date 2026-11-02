@@ -17,8 +17,6 @@ impl KeepSmallMeters {
         if let Ok(mut trust) = self.trust.lock() {
             trust.mark_incomplete(cause);
         }
-        self.field_key_counters_complete
-            .store(false, Ordering::Relaxed);
     }
 
     /// Record the exact empty-home exception for a missing snapshot.
@@ -29,8 +27,6 @@ impl KeepSmallMeters {
         self.hydrate_missed.store(false, Ordering::Relaxed);
         self.stale_after_unclean_stop
             .store(false, Ordering::Relaxed);
-        self.field_key_counters_complete
-            .store(true, Ordering::Relaxed);
     }
 
     /// The global trust state, independent of the process exit flag.
@@ -41,26 +37,20 @@ impl KeepSmallMeters {
             .map_or(MeterTrustState::Incomplete, |trust| trust.global.state)
     }
 
-    /// True when the global, schema, and field key domains have exact evidence.
+    /// True when the global and schema domains have exact evidence.
     #[must_use]
     pub fn all_counter_domains_complete(&self) -> bool {
         let Ok(trust) = self.trust.lock() else {
             return false;
         };
-        if trust.global.state == MeterTrustState::Absent
-            && trust.field_keys.state == MeterTrustState::Absent
-            && trust.schemas.is_empty()
-            && self.field_key_counters_complete.load(Ordering::Relaxed)
-        {
+        if trust.global.state == MeterTrustState::Absent && trust.schemas.is_empty() {
             return true;
         }
         trust.global.state.is_complete()
-            && trust.field_keys.state.is_complete()
             && trust
                 .schemas
                 .values()
                 .all(|domain| domain.state.is_complete())
-            && self.field_key_counters_complete.load(Ordering::Relaxed)
     }
 
     /// Record that the hydrated snapshot predates writes the store took
@@ -78,16 +68,14 @@ impl KeepSmallMeters {
         self.stale_after_unclean_stop.load(Ordering::Relaxed)
     }
 
-    /// Why [`Self::field_key_counters_complete`] is false, as a stable wire
-    /// token for the storage reports, or `None` when it is true.
+    /// Why the meters are not exact, as a stable wire token for the storage
+    /// reports, or `None` when they are.
     #[must_use]
     pub fn incomplete_reason(&self) -> Option<&'static str> {
         if self.hydrate_missed() {
             Some("hydrate_missed")
         } else if self.stale_after_unclean_stop() {
             Some("stale_after_unclean_stop")
-        } else if !self.field_key_counters_complete.load(Ordering::Relaxed) {
-            Some("field_key_counters_not_bootstrapped")
         } else {
             None
         }

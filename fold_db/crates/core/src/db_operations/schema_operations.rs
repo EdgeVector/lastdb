@@ -3,31 +3,8 @@
 
 use super::core::DbOperations;
 use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
-use field_key_ref_edges::FieldKeyRefEdge;
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;
-
-mod field_key_ref_edges;
-
-fn schema_field_key_ref_edges(schema_name: &str, schema: &Schema) -> Vec<FieldKeyRefEdge> {
-    let mut fields: Vec<_> = schema
-        .field_key_ids
-        .as_ref()
-        .into_iter()
-        .flat_map(|field_keys| field_keys.iter())
-        .map(|(field, field_key)| FieldKeyRefEdge::schema_field(schema_name, field, field_key))
-        .collect();
-    fields.extend(schema.alternate_keys.keys().map(|name| FieldKeyRefEdge {
-        field_key_id: lastdb_model::field_key_id::alternate_field_key_id(schema, name),
-        source: format!(
-            "alternate:{}",
-            serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
-        ),
-        edge_type: "schema-alternate-key".to_owned(),
-    }));
-    fields.sort_by(|left, right| left.source.cmp(&right.source));
-    fields
-}
 
 impl DbOperations {
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
@@ -65,16 +42,7 @@ impl DbOperations {
         self.field_keys()
             .establish_schema_for_publication(schema, old.as_ref())
             .await?;
-        self.schemas().store_schema(schema_name, schema).await?;
-        for edge in &schema_field_key_ref_edges(schema_name, schema) {
-            self.records()
-                .keep_small()
-                .ensure_field_key_counter(&edge.field_key_id, schema_name);
-        }
-        // Debounced persist only. `store_schema` runs on every schema put and
-        // a per-write flush here was one of the 2026-09-21 flush-storm sites.
-        let _ = self.records().persist_keep_small().await;
-        Ok(())
+        self.schemas().store_schema(schema_name, schema).await
     }
 
     pub async fn store_schema_state(
