@@ -119,25 +119,11 @@ pub struct RecordStore {
     /// `file_blob_seal.rs`). Record rows do not use it: a record row is plain
     /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
-    /// Durable bundle resolver. `None` keeps legacy/test construction intact.
+    /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
     field_keys: Option<crate::db_operations::FieldKeyStore>,
-    /// per-field-key commit guards: the SHORT critical section that makes
-    /// (read `moc:` → build items → commit batch) atomic for one field key.
-    ///
-    /// The field key order log is a **dense** sequence — `mord:{M}:{seq}` with
-    /// `moc:{M}` as its length — so the base is read at persist time and
-    /// re-stamped in the same batch. Two writers interleaved between that read
-    /// and that put would stamp the same seq and the second would clobber the
-    /// first, silently: both `mk:` records survive, and only `SampleN`, which
-    /// walks the log, sees the hole. The field key header (`version`,
-    /// `updated_at`) rides the same batch and is field-key-wide state too, so it
-    /// is covered by the same guard rather than a second one.
-    ///
-    /// This is deliberately NOT the write gate. The long-held gate is
-    /// `MutationManager::acquire_field_key_write_locks`, now per-`(field key,
-    /// hash, range)`; this one is taken *inside* the durable put and released
-    /// as soon as the batch lands. Lock order is always key-then-field-key, so
-    /// the two cannot deadlock.
+    /// Per-field-key guards. Schema delete and schema share take the guards
+    /// of every field key of a schema in sorted order, so the two cannot
+    /// interleave on one field key or deadlock.
     field_key_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
     /// Incremental live-budget / churn meters. Point-read cheap.
@@ -158,7 +144,7 @@ pub struct RecordStore {
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
-    /// tip decision treats a write from any other non-empty device as a write
+    /// field merge treats a write from any other non-empty device as a write
     /// from a peer. See [`RecordStore::local_origin_device`].
     local_origin_device: Arc<std::sync::RwLock<String>>,
     /// Fixed target gates for blob source transitions and reclaim.

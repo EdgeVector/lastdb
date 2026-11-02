@@ -23,7 +23,7 @@ pub struct OpAggregate {
     ///
     /// For mutations / mutation batches / file-blob writes this is the best
     /// cheap proxy for "how many bytes did this caller ask the node to
-    /// absorb" — not net disk growth (tips/indexes/history amplify), but the
+    /// absorb" — not net disk growth (alternate entries and history amplify), but the
     /// ranking that answers "who is stuffing the node" when time and count
     /// alone cannot. Zero-hide on the ranking table when every key is 0, so
     /// a quiet window stays byte-identical to pre-field output.

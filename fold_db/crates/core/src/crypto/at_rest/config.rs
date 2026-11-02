@@ -32,8 +32,8 @@ pub const AT_REST_MAX_INFLATED_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 /// halves of one invariant: **nothing sealed compressed may be un-inflatable.**
 /// Before 2026-09-06 the ceiling bound only the open side. `compress_for_seal`
 /// had a lower bound and no upper bound, so the KV seam
-/// (`LASTDB_KV_AT_REST_COMPRESS=1`, which then wrapped `records`, `tips`, `indexes`,
-/// `metadata`, `change_feed`, `cas_blobs`, the order log and the locators)
+/// (`LASTDB_KV_AT_REST_COMPRESS=1`, which then wrapped the record, metadata,
+/// change feed and CAS blob collections, the order log and the locators)
 /// could seal a value larger than the ceiling and then refuse to read it back
 /// forever. Measured on Tom's primary that day: personal-log compaction failed
 /// nine times in one day with `at-rest inflated payload exceeds 67108864

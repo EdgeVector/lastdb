@@ -12,8 +12,7 @@
 //!   keeps them until the end of their window.
 //! - Retention: a Hash or Single schema with a policy ages each live record by
 //!   its write time (the newest stamp) and drops the age rows of a deleted
-//!   record. The age rows of the field key path come from the tip clocks after
-//!   the commit; a record holds its own stamps, so the rows go in this batch.
+//!   record. A record holds its own stamps, so the rows go in this batch.
 //! - Share copies: a personal write to a schema with an active share rule
 //!   puts each changed record in the scope of each rule too
 //!   (`share:{recipient}:{opaque}`). The copy is the whole record after the

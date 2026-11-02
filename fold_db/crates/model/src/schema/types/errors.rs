@@ -13,10 +13,8 @@ pub enum SchemaError {
     WriteResourceLimit {
         detail: String,
     },
-    /// A selected tip names a record that this read cannot resolve.
+    /// A read selected a record that it cannot resolve.
     /// This is a store failure, not an absent key or an optional field.
-    // Preserve the serialized error identity for existing diagnostic consumers.
-    #[serde(rename = "MissingLocalRecord")]
     MissingSelectedRecord,
     /// Storage or decode failed after a read selected the stored record.
     StorageRead {

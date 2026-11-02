@@ -8,9 +8,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 impl SchemaStore {
-    /// The caller holds the native write scope across the tip-clock reads and
-    /// these writes. Existing age rows are corrected to the actual tip clocks,
-    /// including arrival-time ages recorded by older programs.
+    /// The caller holds the native write scope across the record reads and
+    /// these writes. Existing age rows are corrected to the record write times.
     pub(crate) async fn backfill_retention_rows(
         &self,
         name: &str,

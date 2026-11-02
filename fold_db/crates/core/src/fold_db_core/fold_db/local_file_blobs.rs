@@ -43,7 +43,7 @@ impl FoldDB {
     ///   reference. The account key stays private inside the record store.
     /// - The pointer carries no `name` or `media_type` unless the caller passes
     ///   them. Without them, identical bytes in one schema give the same record,
-    ///   so a second record that holds the pointer adds one tip and no record.
+    ///   so a second record that holds the pointer adds one reference and no file blob.
     /// - The native request commits the row and upload counter before returning.
     ///   The explicit store flush also remains before returning the pointer.
     /// - A repeat put of bytes that are already stored does not append a second

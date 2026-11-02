@@ -38,7 +38,6 @@ pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 /// The stamp of one field write. The field order is the merge order: write
 /// time, then the logical counter, then the device ID, then the mutation ID.
-/// This is the order of a tip without the record ID.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "StampWire", into = "StampWire")]
 pub struct FieldStamp {

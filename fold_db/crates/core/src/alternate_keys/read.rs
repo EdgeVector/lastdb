@@ -1,4 +1,4 @@
-//! One-hash selection of typed key-to-primary entries. No payload tips live here.
+//! One-hash selection of typed key-to-primary entries. No field values live here.
 //! An org database keeps its entries under its own storage scope prefix.
 
 use super::*;

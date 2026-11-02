@@ -1,4 +1,4 @@
-//! Field key, tip, liveness and delete-barrier locks.
+//! Write scopes, field key guards and blob liveness locks.
 
 use super::*;
 use futures::{future::BoxFuture, FutureExt};
@@ -33,8 +33,8 @@ impl RecordStore {
         crate::storage::disk_pack::transaction::background_scope(runtime, work).boxed()
     }
 
-    /// Guard the short (read `moc:` → build items → commit) section for one
-    /// field key. See [`RecordStore::field_key_commit_locks`].
+    /// Take the guard of one field key. See
+    /// [`RecordStore::field_key_commit_locks`].
     pub(crate) async fn lock_field_key_commit(
         &self,
         field_key_id: &str,

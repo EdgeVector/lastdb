@@ -114,8 +114,9 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Record the original clocks of the current tips, not replay arrival time.
-    /// The caller holds the native write scope across the tip reads and writes.
+    /// Record the original write times of the current records, not replay
+    /// arrival time. The caller holds the native write scope across the record
+    /// reads and writes.
     pub(crate) async fn record_schema_retention_write_ages(
         &self,
         schema_name: &str,

@@ -8,7 +8,7 @@
 //! The storage layer refuses earlier physical layouts. A native home also needs
 //! the logical identity marker `typed-ranges` before it can serve. Home
 //! creation writes it. A record row is plain JSON, and the block encryption of
-//! each run file protects it at rest. Tips and control values have no outer
+//! each run file protects it at rest. Control values have no outer
 //! envelope. Startup never rewrites a home.
 
 use super::RecordStore;

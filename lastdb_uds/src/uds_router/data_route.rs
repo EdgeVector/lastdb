@@ -76,7 +76,7 @@ pub enum DataRoute {
     /// every identity owned by one app, from the node catalog.
     ///
     /// ACK is catalog absence: `GET /api/schema/{name}` misses. Product
-    /// tips and records stay until a later janitor. This is not
+    /// records stay until a later janitor. This is not
     /// `RetireSchemaNameClaim` (name resolution only) and not a product-row
     /// Delete.
     ///
@@ -231,8 +231,8 @@ pub enum DataRoute {
     /// Reads the catalog, not the data.
     DbVerifyRefsScopes,
     /// `GET /api/db/schemas` — record-only per-schema logical storage.
-    /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
-    /// order-log / tip-format walks) but still a heavy admin scan.
+    /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
+    /// order-log walks) but still a heavy admin scan.
     DbSchemas,
     /// `POST /api/storage/liveness/explain` — point-read the counter of one
     /// file blob, and its dwell queue state.

@@ -55,7 +55,7 @@ pub mod field_name_policy;
 pub mod ids;
 mod lock_helpers;
 pub mod memory_persistence;
-/// Same-product multi-key tip regeneration (background reindex job class).
+/// Same-product multi-key membership rebuild (background job class).
 pub mod multi_key_reindex;
 pub mod name_validator;
 pub mod native_schema_resolver;

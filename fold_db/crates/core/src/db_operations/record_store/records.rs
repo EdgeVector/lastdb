@@ -3,7 +3,7 @@
 //! The mutation manager merges the fields of a record (decision D1). This
 //! file reads the records by key and puts the changed ones, with their
 //! alternate entry changes and their file blob counter changes, in one batch
-//! of the native request. A record write creates no record, tip or record counter.
+//! of the native request.
 //! Its field history entries hold copies of old values (`field_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A

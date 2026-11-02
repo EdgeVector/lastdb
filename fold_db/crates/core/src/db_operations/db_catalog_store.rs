@@ -143,8 +143,8 @@ pub fn referenced_instance_ids(entries: &[DbCatalogEntry]) -> std::collections::
         .collect()
 }
 
-/// Remove one current database scope. The blob counters that the scope's record
-/// counters and tips held go down in the same batch as the rows that held them.
+/// Remove one current database scope. The blob counters that the scope's
+/// records held go down in the same batch as the rows that held them.
 pub async fn drop_prefixed_rows_for_instance(
     records: &super::RecordStore,
     main: &dyn crate::storage::traits::KvStore,

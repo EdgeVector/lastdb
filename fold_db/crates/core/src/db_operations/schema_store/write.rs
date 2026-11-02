@@ -118,7 +118,7 @@ impl SchemaStore {
     ///
     /// Point Deletes of the `schemas` row, the `schema_states` row, the
     /// name-claim row, and the retention keys for this identity. Product
-    /// tips and records are left for a later janitor. Returns whether a
+    /// records are left for a later janitor. Returns whether a
     /// catalog body was present before the Deletes. A miss still runs the
     /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {

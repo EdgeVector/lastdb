@@ -130,7 +130,7 @@ pub struct ResidentCommitStages {
 pub struct ResidentCommitReceipt {
     /// One accepted input mutation identity per caller input, in caller order.
     /// Idempotent repeats retain their submitted identity. This list does not
-    /// claim which identity currently owns a tip or which erase removed bytes.
+    /// claim which identity currently owns a field value or which erase removed bytes.
     pub mutation_ids: Vec<String>,
     /// The one committed revision for the primary record and every exact
     /// projection in this batch.
