@@ -92,6 +92,15 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
     if manifest.get("outbox_format_version").is_some() {
         payload["outbox_format_version"] = json!(versions.outbox_format_version);
     }
+    if let Some(audience) = manifest.get("audience") {
+        if !audience
+            .as_str()
+            .is_some_and(|v| v == "public" || v == "private")
+        {
+            return Err("manifest audience must be public or private".into());
+        }
+        payload["audience"] = audience.clone();
+    }
     let key = signing_key(home, input.key_file.clone())?;
     let signature = sign(&key, &canonicalize(&payload).map_err(|e| e.to_string())?);
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));

@@ -120,12 +120,15 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
             }
             continue;
         }
-        if let std::collections::hash_map::Entry::Vacant(entry) = rows.entry(channel.to_string()) {
-            entry.insert(resolutions(home, &input.source, channel)?);
+        let mut source = input.source.clone();
+        source.index = source.index.or_else(|| Some(current.index.clone()));
+        let cache_key = format!("{}|{channel}", source.index.as_deref().unwrap_or_default());
+        if let std::collections::hash_map::Entry::Vacant(entry) = rows.entry(cache_key.clone()) {
+            entry.insert(resolutions(home, &source, channel)?);
         }
         std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
         let Some(row) = rows
-            .get(channel)
+            .get(&cache_key)
             .and_then(|v| v.iter().find(|r| r.app_id == app))
         else {
             if !polling {

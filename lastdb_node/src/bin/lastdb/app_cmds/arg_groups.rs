@@ -23,6 +23,7 @@ pub(crate) struct ReleasePublishInput<'a> {
 
 /// Where `install` / `upgrade` resolve an app from: the live registry service
 /// (`env`, `schema_url`) or the signed public index.
+#[derive(Clone)]
 pub(crate) struct RegistrySource {
     pub(crate) env: Option<String>,
     pub(crate) schema_url: Option<String>,
