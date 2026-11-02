@@ -70,6 +70,15 @@ pub fn install(
 ) -> Result<ManagedReceipt, String> {
     let root = app_root(&resolution.app_id)?;
     let _lock = lock(&root)?;
+    if !options.accept_install
+        && fs::read_to_string(root.join("rejected-source"))
+            .is_ok_and(|sha| sha.trim() == resolution.sha)
+    {
+        return Err(
+            "source held after rollback; a newer source or explicit install consent is required"
+                .into(),
+        );
+    }
     let prior = if root.join("current").symlink_metadata().is_ok() {
         Some(receipt(&root.join("current"))?)
     } else {
@@ -80,12 +89,7 @@ pub fn install(
         .is_some_and(|r| r.sha == resolution.sha && r.inactive == options.inactive)
     {
         let current = prior.ok_or("missing current receipt")?;
-        if let Err(error) = verify_active(&root, home, &current) {
-            restore_previous(&root, home)?;
-            return Err(format!(
-                "current app failed its health check; restored previous version: {error}"
-            ));
-        }
+        verify_or_restore(&root, home, &current)?;
         return Ok(current);
     }
     let version = root.join("versions").join(format!(
@@ -108,6 +112,9 @@ pub fn install(
             let activation = activate(&root, &version, home, &new);
             prune(&root)?;
             activation?;
+            if root.join("rejected-source").exists() {
+                fs::remove_file(root.join("rejected-source")).map_err(|e| e.to_string())?;
+            }
             Ok(new)
         }
         Err(error) => Err(error),
@@ -201,6 +208,19 @@ pub fn verify_active(root: &Path, home: &Path, current: &ManagedReceipt) -> Resu
     Ok(())
 }
 
+/// The updater restores a healthy prior version and remembers the rejected source.
+/// Read-only status keeps using `verify_active` and never changes the install.
+pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
+    if let Err(error) = verify_active(root, home, current) {
+        restore_previous(root, home)?;
+        fs::write(root.join("rejected-source"), &current.sha).map_err(|e| e.to_string())?;
+        return Err(format!(
+            "current app failed its health check; restored previous version and held source: {error}"
+        ));
+    }
+    Ok(())
+}
+
 pub fn verify_state(root: &Path, current: &ManagedReceipt) -> Result<(), String> {
     let source = root.join("current/source");
     let plan = InstallPlan::load(&source, &current.app_id)?;
@@ -281,7 +301,10 @@ pub fn activate(
 pub fn rollback(app: &str, home: &Path) -> Result<ManagedReceipt, String> {
     let root = app_root(app)?;
     let _lock = lock(&root)?;
-    restore_previous(&root, home)
+    let rejected = receipt(&root.join("current"))?;
+    let restored = restore_previous(&root, home)?;
+    fs::write(root.join("rejected-source"), rejected.sha).map_err(|e| e.to_string())?;
+    Ok(restored)
 }
 
 fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> {

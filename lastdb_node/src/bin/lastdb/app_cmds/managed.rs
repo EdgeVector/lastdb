@@ -114,7 +114,7 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
                 .and_then(|t| t.elapsed().ok())
                 .is_some_and(|d| d.as_secs() < 3600)
         {
-            if let Err(error) = host::verify_active(&host::app_root(&app)?, home, &current) {
+            if let Err(error) = host::verify_or_restore(&host::app_root(&app)?, home, &current) {
                 failed = true;
                 results.push(json!({"app": app, "state": "red", "error": error}));
             }
