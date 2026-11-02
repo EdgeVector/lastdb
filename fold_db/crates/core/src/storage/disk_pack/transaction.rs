@@ -5,8 +5,6 @@ mod accounting;
 pub(crate) mod blocked;
 mod effects;
 mod empty;
-mod record_layout;
-pub(super) use record_layout::require_record_layout;
 pub(crate) mod publication;
 mod request;
 mod warm_records;

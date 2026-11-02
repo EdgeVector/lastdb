@@ -75,7 +75,6 @@ where
         return Ok(result);
     }
     let operations = pending.freeze_operations();
-    super::require_record_layout(&operations)?;
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
     // A merge can publish an equivalent physical root during logical
