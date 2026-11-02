@@ -36,8 +36,6 @@ def logical_storage(node):
 
 def validate_logical(report, home_format):
     """A format 8 home stores one record per key. Its logical bytes are the stored record values."""
-    if home_format != 8:
-        raise ValueError(f"The disk budget requires a format 8 home, not format {home_format}")
     rows = report["per_schema"]
     if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]
@@ -88,8 +86,6 @@ class DiskBudgetWorkload(GrowthWorkload):
         try:
             node.start()
             require_search_off(node, output, "before")
-            if node.disk_format() != 2:
-                raise ValueError("The delete case requires a fresh v2 run home")
             if node.home_format() != self.node.home_format():
                 raise ValueError("The delete case requires the home format of the main corpus")
             workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)

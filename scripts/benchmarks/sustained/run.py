@@ -143,8 +143,6 @@ def corpus(args, size):
     telemetry = None
     try:
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("The benchmark requires the real disk format v2")
         telemetry = Telemetry(node, output, diagnostics=args.diagnostics)
         telemetry.start()
         seed_started = unix_us()

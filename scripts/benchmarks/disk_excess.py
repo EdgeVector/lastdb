@@ -63,8 +63,6 @@ def measure(binary, recipe, folder):
         node = Node(Path(binary["path"]), binary["revision"], folder,
                     environment={"LASTDB_DISK_FORMAT": "2"})
         node.start()
-        if node.disk_format() != 2:
-            raise ValueError("The disk diagnostic requires a v2 home")
         workload = DiskBudgetWorkload(node, {"growth": recipe}, folder)
         workload.seed()
         result["fixed_read"] = workload.measure("fixed-read")

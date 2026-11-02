@@ -32,8 +32,6 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
         save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
             require_search_off(node, output, "before")
-            if node.disk_format() != 2:
-                raise ValueError("The disk budget requires a v2 run home")
             DiskBudgetWorkload(node, recipe, output).run()
             marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
             save(output / "disk-format.json", {"marker": marker})

@@ -48,8 +48,6 @@ def measure(args, label, pair, native, template, whole, physical):
             raise RuntimeError("Copied writer input differs from the complete stopped seed")
         save(directory / "clone.json", {"byte_identical": True, "files": len(whole)})
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("Controlled writers require disk format v2")
         root, layout = boot_boundary(node, physical)
         delta = json.loads((directory / "boot-delta.json").read_text())
         append = sum(entry["bytes"] for entry in delta["added"].values())

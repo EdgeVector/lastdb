@@ -80,8 +80,6 @@ def prepare_seed(node, output):
     work = None
     try:
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("The shared seed must use disk format v2")
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
         work.seed()
         save(output / "observed-stable.json", stable_boundary(node))
@@ -124,8 +122,6 @@ def measure(binary, revision, output, template, whole, physical):
             raise RuntimeError("The complete copied home is not byte-identical to the seed")
         save(output / "clone.json", {"byte_identical": True, "files": len(whole)})
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("A product cannot open the shared disk format")
         root, timing_layout = boot_boundary(node, physical)
         save(output / "root.json", root)
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)

@@ -14,10 +14,12 @@ import time
 from disk_usage import usage
 
 
-# The exact marker of a format 8 (record model) home, a v2 disk home that stores one record per
-# key. The daemon writes it when it creates the home. Every program creates format 8 and opens
-# no older home.
-RECORD_NODE_MARKER = "format=8\nhome=disk-run\ncas=disk-cas\n"
+def marker_format(marker):
+    """The `format=` number of a home marker text, or None for no marker."""
+    if marker is None:
+        return None
+    first = marker.split("\n", 1)[0]
+    return int(first[len("format="):]) if first.startswith("format=") else None
 
 
 def save(path, value):
@@ -198,13 +200,8 @@ class Node:
         return path.read_text() if path.exists() else None
 
     def home_format(self):
-        """8 for a format 8 home, or None for an unknown marker or before the home exists."""
-        return 8 if self.marker() == RECORD_NODE_MARKER else None
-
-    def disk_format(self):
-        """2 for a format 8 home (a v2 disk home), 1 for any other marker; the marker exists after the first start."""
-        marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
-        return 2 if marker == RECORD_NODE_MARKER else 1
+        """The `format=` number of the home marker, or None before the daemon creates the home."""
+        return marker_format(self.marker())
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]

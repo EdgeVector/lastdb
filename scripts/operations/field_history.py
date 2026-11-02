@@ -17,7 +17,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
-from node import Node, RECORD_NODE_MARKER  # noqa: E402
+from node import Node, marker_format  # noqa: E402
 
 
 def require(value, message):
@@ -356,7 +356,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker == RECORD_NODE_MARKER, "the new home is not format 8: " + repr(marker))
+        require(marker_format(marker) == 8, "the new home is not format 8: " + repr(marker))
         exercise(node, args.cli.resolve())
     finally:
         node.close()

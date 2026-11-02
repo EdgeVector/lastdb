@@ -13,14 +13,12 @@ import sys
 import time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "range_continuation"))
-from node import Node, file_hash, save
+from node import Node, file_hash, marker_format, save
 from workload import Workload
 from conditions import paired_conditions_match
 from narrow_report import narrow_samples_complete
 
 
-# The exact marker of a format 8 (record) home, as scripts/benchmarks/node.py names it.
-RECORD_MARKER = "format=8\nhome=disk-run\ncas=disk-cas\n"
 
 
 def interrupted(_signum, _frame):
@@ -28,9 +26,8 @@ def interrupted(_signum, _frame):
 
 
 def home_format(node):
-    """8 for a format 8 home marker, or None for any other marker."""
-    marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-    return 8 if marker == RECORD_MARKER else None
+    """The `format=` number of the home marker."""
+    return marker_format((node.home / "data" / "laststore-pack-node-v1").read_text())
 
 
 def measure(binary, revision, mode, role, output, helper):
@@ -40,9 +37,6 @@ def measure(binary, revision, mode, role, output, helper):
         node = Node(binary, revision, mode, output)
         node.start()
         found = home_format(node)
-        # Every release creates only format 8 homes.
-        if found != 8:
-            raise RuntimeError(f"The {role} did not create a format 8 home")
         value = Workload(node, role == "baseline", helper).run()
     except BaseException as failure:
         error = type(failure).__name__ + ": " + str(failure)

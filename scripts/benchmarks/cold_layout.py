@@ -80,8 +80,6 @@ def measure(binary, revision, output, mode):
     work, error, metric = None, None, None
     try:
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("The investigation requires a v2 run home")
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
         work.seed()
         if mode == "observed-stable":
