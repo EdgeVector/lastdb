@@ -171,6 +171,11 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
     } = install;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
+        if !json {
+            eprintln!(
+                "Apps run with your user permissions. Registry signatures do not sandbox them."
+            );
+        }
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));
         let mut outcomes = Vec::new();
         for app_id in &app_ids {

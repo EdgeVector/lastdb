@@ -6,7 +6,7 @@ use super::*;
 pub(crate) enum AppLifecycleCommand {
     /// Generate the developer Ed25519 signing key used to publish apps.
     DevInit {
-        /// Key file path (default: <home>/dev-signing.key).
+        /// Key path or lastsecrets://slug (default: <home>/dev-signing.key).
         #[arg(long)]
         key_file: Option<PathBuf>,
     },
@@ -89,7 +89,7 @@ pub(crate) enum AppLifecycleCommand {
         /// Developer API key (default: $EXEMEM_DEV_API_KEY).
         #[arg(long)]
         api_key: Option<String>,
-        /// Registry HTTP API base URL (default: $LASTDB_APP_REGISTRY_URL, then --env).
+        /// Registry HTTP API base URL (default: $LASTDB_APP_REGISTRY_URL).
         #[arg(long)]
         registry_url: Option<String>,
         /// Signed-list channel. Default: stable.

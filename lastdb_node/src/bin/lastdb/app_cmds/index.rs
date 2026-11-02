@@ -94,36 +94,46 @@ fn app_index_verify(
 ) -> Result<(), String> {
     use lastdb_node::app_registry_index as registry_index;
     let sig = sig.unwrap_or_else(|| default_sig_path(index));
-    let (trust, trust_source) = registry_index::resolve_trust_key(trust_key)?;
-    warn_trust_override(&trust_source);
     let bytes =
         std::fs::read(index).map_err(|e| format!("failed to read {}: {e}", index.display()))?;
     let sig_bytes =
         std::fs::read(&sig).map_err(|e| format!("failed to read {}: {e}", sig.display()))?;
-    let parsed = registry_index::load_verified_index(&trust, &bytes, &sig_bytes)?;
-    let rows: usize = parsed.apps.iter().map(|a| a.compat.len()).sum();
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "verified": true,
-                "index": index,
-                "channel": parsed.channel,
-                "generated_at": parsed.generated_at,
-                "apps": parsed.apps.len(),
-                "rows": rows,
-            }))
-            .unwrap_or_default()
-        );
+    let detached: registry_index::IndexSignature =
+        serde_json::from_slice(&sig_bytes).map_err(|e| e.to_string())?;
+    let kms_key =
+        app_identity_crypto::verifying_key_from_base64(registry_index::REGISTRY_LIST_PUBKEY_B64)
+            .map_err(|e| e.to_string())?;
+    let (trust, trust_source) = if detached.key_id == app_identity_crypto::key_id(&kms_key) {
+        registry_index::resolve_list_trust_key(trust_key)?
     } else {
-        println!(
-            "verified {}: channel {} · {} apps · {} rows · generated {}",
-            index.display(),
-            parsed.channel,
-            parsed.apps.len(),
-            rows,
-            parsed.generated_at
-        );
+        registry_index::resolve_trust_key(trust_key)?
+    };
+    warn_trust_override(&trust_source);
+    registry_index::verify_index_bytes(&trust, &bytes, &detached)?;
+    let document: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let summary = if document.get("list_version").is_some() {
+        let parsed: registry_index::InterfaceList =
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        let parsed = registry_index::InterfaceList::load(
+            &bytes,
+            &sig_bytes,
+            &trust,
+            &parsed.channel,
+            parsed.api_version,
+        )?;
+        serde_json::json!({"verified": true, "index": index, "channel": parsed.channel,
+            "generated_at": parsed.generated_at, "apps": parsed.apps.len(), "api_version": parsed.api_version,
+            "seq": parsed.seq, "key_id": detached.key_id})
+    } else {
+        let parsed = registry_index::load_verified_index(&trust, &bytes, &sig_bytes)?;
+        let rows: usize = parsed.apps.iter().map(|a| a.compat.len()).sum();
+        serde_json::json!({"verified": true, "index": index, "channel": parsed.channel,
+            "generated_at": parsed.generated_at, "apps": parsed.apps.len(), "rows": rows, "key_id": detached.key_id})
+    };
+    if json {
+        print_pretty_json(&summary);
+    } else {
+        println!("verified {}: {}", index.display(), summary);
     }
     Ok(())
 }

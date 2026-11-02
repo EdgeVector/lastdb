@@ -1,108 +1,104 @@
-# LastDB app registry — the static signed index
+# LastDB app registry: signed interface lists
 
-The index is the anonymous read surface of the app registry. A fresh
-install reads one static file and one signature. It needs no account and no
-live service. Decision: brain
-`decision-2026-09-19-app-registry-is-the-release-unit`.
+The separate registry checks an Exemem account, a public GitHub commit and the
+publisher's Ed25519 signature. DynamoDB holds mutable listings. A projector
+signs one list per channel and exact API version with AWS KMS and writes it to
+S3. Install reads S3 anonymously, without calling the registry Lambda,
+DynamoDB, Exemem or Schema Service.
 
-## Files
+## Publish
 
-One file per channel, next to a detached signature:
+Run the app, then publish from its clean git checkout. The command derives
+source from the origin remote and sha from HEAD. It reads the running node's
+build, api_version and current_outbox_format_version in one socket call.
+The build is a label; API equality decides compatibility. A manifest with
+outbox_format_version also records the node's current outbox integer.
+HTTP-only apps omit it. These values cannot be typed as publish overrides.
+
+The manifest supplies app_id and version. Optional description remains
+owner-only metadata. The command signs RFC 8785 JCS of app_id, channel,
+app_version, api_version, lastdb_build, source, sha, and the optional
+outbox_format_version. Absent fields are omitted rather than null.
+
+Create a person key with `lastdb app dev-init --key-file lastsecrets://SLUG`.
+Use the same locator with publish. The private key travels to LastSecrets on
+stdin and is read only at use; it never enters the registry or GitHub. Existing
+0600 developer key files remain supported.
+
+Pass the registry HTTP base with --registry-url or LASTDB_APP_REGISTRY_URL.
+Provide the account key in EXEMEM_DEV_API_KEY, resolved from LastSecrets at
+use. The channel defaults to stable. A listed response means the S3 object
+written by that publish contains the app. A failed projection returns an error.
+
+## Download and trust
+
+The list base is --index, then LASTDB_REGISTRY_INDEX, then production S3.
+Public bases live in folddb_profile/environments.json under registry_index.
+Paths are:
 
 ```
-registry/stable.json        registry/stable.json.sig
-registry/next.json          registry/next.json.sig
-registry/index-signing.pub  (the verifying key, for a cross-check)
+<base>/<channel>/api/<api_version>.json
+<base>/<channel>/api/<api_version>.json.sig
 ```
 
-Public location: the Homebrew tap repo, served raw by GitHub
-(`https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry`).
-`lastdb` reads that location unless `--index` or `$LASTDB_REGISTRY_INDEX`
-names another URL base or a directory.
+The node's integer selects the path. The client uses the owner socket first,
+then the paired daemon build, then its own release. A typed --lastdb-version
+is refused on this path. Explicit directories and file:// bases are supported.
+Network bases require HTTPS, carry no authorization header, and have a 30-second
+timeout. Lists are capped at 2 MiB and 500 apps.
 
-## Index grammar (`index_version` 1)
+The detached signature names alg ed25519, the SHA256 of the raw public key,
+the lowercase SHA256 hex of the exact list bytes, and the base64 signature.
+KMS signs the ASCII hex digest with ED25519_SHA_512 and message type RAW.
+The pinned KMS public key sits beside the historical GitHub index public key.
+`lastdb app index trust-key` prints both IDs and their purposes. Explicit trust
+overrides remain visible. The index verify command understands both grammars;
+interface-list verification includes every publisher signature.
 
-```json
-{
-  "index_version": 1,
-  "channel": "stable",
-  "generated_at": "2026-09-20T10:17:00Z",
-  "apps": [
-    {
-      "app_id": "brain",
-      "source": "https://github.com/EdgeVector/brain.git",
-      "description": "…",
-      "compat": [
-        {
-          "app_version": "0.9.1",
-          "sha": "1f2d2f46a7eb65ad6898bd2b75ec9eb2f40e6aeb",
-          "lastdb_version": "0.23.3-2068-g51fca83b2",
-          "lastdb_api_version": 1,
-          "proved_at": "2026-09-20T10:17:00Z",
-          "proof_run": "llms-txt-install-smoke/20260920T1017Z"
-        }
-      ]
-    }
-  ]
-}
-```
+Lists with list_version 1 contain channel, api_version, generated_at, seq
+and apps. Every entry must match the list's channel and API version, name a
+unique app ID and a full 40-hex public GitHub commit, and verify its publisher
+signature. One bad entry rejects the download. An outbox mismatch skips that
+entry after authentication; it does not invalidate other apps.
 
-A **compat row** is a proved pair: this app commit was proved with this
-node build by this proof run. `lastdb_version` is the node build string
-(`lastdbd --version`, `GET /api/version` `build`). The same string names the
-canary binary and the brew bottle built from the same commit.
+## Stored lists and sequence rules
 
-There is no minimum-version rule. Install picks the newest row whose
-`lastdb_version` equals the running node's build string. No row means no
-install, with the remedy in the error (`brew upgrade lastdb`, or wait for the
-next proved set).
+The default cache is ~/.local/state/lastdb-app-registry/CHANNEL/api/API.json
+(or under XDG_STATE_HOME). It retains exact signed bytes, signature and digest.
+Explicit index bases get separate namespaces under sources/, so dev and
+alternate hosts cannot change production rollback state.
 
-## Signature
+Updates hold a per-file process lock and atomically replace a synced file.
+A lower sequence keeps the stored list. Equal sequence and digest is a no-op.
+Equal sequence with another digest rejects the download. A higher sequence is
+saved before resolve returns. Failed downloads and invalid signatures or lists
+leave the verified stored list in place. Without a stored list the operation
+fails. Lists at least seven days old produce a generation-time notice.
 
-`<channel>.json.sig`:
+S3 publishes the signature before conditionally replacing the list. A reader
+can observe a mismatched pair during publication or after a failed write.
+That download is rejected. A mismatched pair is never used as a valid list.
 
-```json
-{
-  "alg": "ed25519",
-  "key_id": "<sha256 hex of the 32-byte public key>",
-  "payload_sha256": "<sha256 hex of the exact index bytes>",
-  "sig": "<base64 Ed25519 signature over the ASCII payload_sha256>"
-}
-```
+## Install and follow
 
-The reader hashes the bytes it downloaded, compares, then verifies the
-signature. Any mismatch refuses the whole file. The verifying key is pinned in
-the `lastdb` binary (`lastdb app index trust-key` prints it). `--trust-key`
-or `$LASTDB_REGISTRY_TRUST_KEY` overrides it for a test index; the override is
-printed on stderr.
+`lastdb app resolve APP --json` returns the selected list entry. Missing apps
+produce the phrase `was proved with lastdb`; host-track treats it as a hold.
+There is no minimum API range or exact build-string match on this path.
+The API integer stays unchanged for optional additions and owner-only changes;
+an app-socket break raises it in the breaking change.
 
-## Commands
+Install clones source into HOME/apps/APP/source, checks out sha, requires
+HEAD to equal it, and writes lastdb-app-install.json. The receipt includes
+the listing, index URL and verifying key ID. Failed new installs are cleaned up.
+Upgrade stages a checkout before swapping and restores the prior directory
+on a failed swap. An unchanged commit stays in place. The list is the whole
+compatibility decision; this path does not apply manifest version ranges.
+Local --dev --from installs remain separate.
 
-```bash
-lastdb app list [--channel stable|next] [--index <url-or-dir>]
-lastdb app info <app> [--channel …]
-lastdb app resolve <app> [--channel …] [--lastdb-version <build>] [--json]
-lastdb app install <app>… [--channel …] [--dir <path>] [--force]
-lastdb app upgrade <app>… [--channel …]
-lastdb app index sign --index <file> [--key-file <key>]
-lastdb app index verify --index <file> [--trust-key <b64|file>]
-lastdb app index trust-key
-```
+Apps run with the user's permissions. Signatures do not sandbox code. Source
+apps may need their normal dependency installation before lastdb app run.
+Withdraw stops future selection and leaves installed copies alone.
 
-`install` clones `source`, checks out `sha`, verifies `HEAD`, and writes
-`lastdb-app-install.json` with the row and its `proof_run`. `upgrade`
-reinstalls only when the resolved commit differs from the installed one.
-
-The `--env` / `--schema-url` flags keep the legacy live-service path for
-`list`, `info`, `install`, and `upgrade` (one app).
-
-## Who writes the index
-
-- The nightly canary lane writes proved rows to `next` after the isolated
-  llms-txt smoke passes on the candidate set (last-stack
-  `last-stack-registry-index`).
-- One human command promotes a proved node build to `stable`: brew gets the
-  node, the index gets the rows. Stable stays a human action until five clean
-  manual promotes.
-
-Use the normal signed registry commands with real release records. Keep the build, format, lint, secret, and release checks.
+Install defaults to stable. Host-track follows next and stays enabled. The
+shared reader switch waits for a real S3 next resolve of the expected commit.
+Retiring the old Mac signer remains a separate decision.

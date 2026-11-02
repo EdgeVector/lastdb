@@ -16,7 +16,7 @@ pub(crate) enum AppCatalogCommand {
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,
-        /// Index location: URL base or directory (default: the public tap,
+        /// Index location: S3 HTTPS base or directory (default: production S3,
         /// or $LASTDB_REGISTRY_INDEX).
         #[arg(long)]
         index: Option<String>,
@@ -46,8 +46,7 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         trust_key: Option<String>,
     },
-    /// Resolve the one proved row for an app on this node: the newest compat
-    /// row whose `lastdb_version` names the running node build. Anonymous.
+    /// Resolve a publisher-signed app for this node's exact API version. Anonymous.
     Resolve {
         app_id: String,
         /// Index channel (`stable` | `next`). Default: stable.
@@ -59,8 +58,7 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Node build string to resolve for (default: the running node, then
-        /// this binary).
+        /// Retired override. Refused: compatibility comes from the running node.
         #[arg(long)]
         lastdb_version: Option<String>,
         #[arg(long)]
@@ -69,8 +67,8 @@ pub(crate) enum AppCatalogCommand {
     /// Sign, verify, or show a static index file.
     #[command(subcommand)]
     Index(AppIndexCommand),
-    /// Install one or more apps by proof: the newest compat row on the signed
-    /// index proved with the running node. Legacy service path with
+    /// Install apps from the signed list for this node's exact API version.
+    /// Legacy service path with
     /// `--env` / `--schema-url` (one app).
     Install {
         /// App ids (`brain kanban situations`).
@@ -91,7 +89,7 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Node build string to resolve for (default: the running node).
+        /// Retired override. Refused: compatibility comes from the running node.
         #[arg(long)]
         lastdb_version: Option<String>,
         /// Install directory (default: <home>/apps/<app_id>). One app only.
@@ -116,7 +114,7 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         dev: bool,
     },
-    /// Upgrade installed apps to the newest proved row for the running node.
+    /// Upgrade installed apps from the list for the running node API.
     /// Legacy service path with `--env` / `--schema-url` (one app).
     Upgrade {
         /// App ids (`brain kanban situations`).
@@ -137,7 +135,7 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Node build string to resolve for (default: the running node).
+        /// Retired override. Refused: compatibility comes from the running node.
         #[arg(long)]
         lastdb_version: Option<String>,
         /// Install directory (default: <home>/apps/<app_id>). One app only.

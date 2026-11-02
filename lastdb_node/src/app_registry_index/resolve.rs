@@ -194,11 +194,15 @@ pub async fn resolve(
         proved_at: entry.published_at,
         proof_run: String::new(),
         index: location.describe_interface(channel, versions.api_version),
-        trust: match trust_source {
-            TrustSource::Pinned => "pinned".to_string(),
-            TrustSource::Flag => "flag".to_string(),
-            TrustSource::Env => format!("env:{TRUST_KEY_ENV}"),
-        },
+        trust: format!(
+            "{}:{}",
+            match trust_source {
+                TrustSource::Pinned => "pinned".to_string(),
+                TrustSource::Flag => "flag".to_string(),
+                TrustSource::Env => format!("env:{TRUST_KEY_ENV}"),
+            },
+            app_identity_crypto::key_id(trust)
+        ),
     })
 }
 
