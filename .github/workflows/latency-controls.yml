@@ -73,11 +73,12 @@ jobs:
           swap-storage: false
       - name: Require space after any tool cleanup
         run: python3 controller/scripts/benchmarks/controls/run.py --disk-phase build --require-space
-      - name: Select the pinned product Rust toolchain
+      - name: Install and select the pinned product Rust toolchain
         working-directory: product
         run: |
           set -euo pipefail
-          rustup show active-toolchain
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
       - name: Cache dependency downloads without compiled programs or targets
