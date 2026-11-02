@@ -25,6 +25,13 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_BUILD_JOBS: "4"
   CARGO_TERM_COLOR: always
+  # actions/checkout@v5 runs `git init` under a temporary HOME. Git 2.56 on
+  # the runner then prints the implicit master-branch hint. A global git
+  # config cannot reach that init. These keys name main for it. Checkout
+  # still selects the requested revision after init.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
 
 jobs:
   build_test:
