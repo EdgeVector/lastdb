@@ -95,10 +95,8 @@ def describe(samples, elapsed):
 
 
 class Workload:
-    def __init__(self, node, recipe, output, upgrade_target=None, minimum_retired=0):
+    def __init__(self, node, recipe, output):
         self.node, self.recipe, self.output = node, recipe, output
-        self.upgrade_target, self.minimum_retired = upgrade_target, minimum_retired
-        self.cleanup_progress = []
         self.metrics, self.next_insert = {}, recipe["records"]
         self.raw = gzip.open(output / "samples.jsonl.gz", "wt")
 
@@ -116,16 +114,7 @@ class Workload:
         if result.get("durable") is not True:
             raise RuntimeError("The generated seed lacks a durable flush")
         # Reopen the same owned home. No seeded logical record remains warm.
-        if self.upgrade_target:
-            save(self.output / "seed-native-status.json", self.node.call("/api/db/native-status")[0])
-            save(self.output / "seed-version.json", json.loads((self.output / "version.json").read_text()))
         self.node.stop()
-        if self.upgrade_target:
-            save(self.output / "seed-shutdown.json", json.loads((self.output / "shutdown.json").read_text()))
-            save(self.output / "upgrade-source.json", {
-                "seed_revision": self.node.revision, "records": self.recipe["records"],
-                "target_revision": self.upgrade_target[1], "generated_data_only": True})
-            self.node.binary, self.node.revision, self.node.workers = self.upgrade_target
         self.node.start()
         result, _, _ = self.node.call("/api/admin/shed", {})
         boundary = result["shed"]
@@ -260,10 +249,6 @@ class Workload:
             self.raw.write(json.dumps({"case": name, **row}) + "\n")
         self.raw.flush()
         save(self.output / "metrics.json", self.metrics)
-        if self.upgrade_target:
-            native, _, _ = self.node.call("/api/db/native-status")
-            self.cleanup_progress.append({"case": name, "retry_cache": native.get("retry_cache")})
-            save(self.output / "retry-cache-upgrade.json", self.cleanup_progress)
         print(json.dumps({"case": name, **metric}), flush=True)
         if metric["errors"] or len(rows) != samples:
             errors = [r["error"] for r in rows if "error" in r]
@@ -299,40 +284,5 @@ class Workload:
             save(self.output / "native-status.json", native)
             if native["native_disk"].get("writer_failed") is not False:
                 raise RuntimeError("The final native writer is unhealthy")
-            if self.upgrade_target:
-                self.verify_upgrade(native)
         finally:
             self.raw.close()
-
-    def verify_upgrade(self, native):
-        # Read every known original and inserted key after the upgrade workload.
-        for first in range(0, self.next_insert, 64):
-            numbers = list(range(first, min(first + 64, self.next_insert)))
-            result, _, _ = self.node.call("/api/query", read_request(numbers))
-            validate_read(result, numbers)
-            for record in result["results"]:
-                number = int(record["key"]["range"].removeprefix("key-"))
-                if number < self.recipe["records"] - 256 and record["fields"] != fields(number, "seed"):
-                    raise RuntimeError("The upgrade changed an untouched product record")
-        cache = native.get("retry_cache", {})
-        if self.minimum_retired and (
-                cache.get("legacy_complete") is not True or cache.get("legacy_pending") is not False
-                or (cache.get("legacy_retired") or 0) < self.minimum_retired):
-            raise RuntimeError("The upgrade did not finish its old-receipt cleanup")
-        body = write_request([self.next_insert], "upgrade-retry", True)
-        first, _, _ = self.node.call("/api/mutations/batch", body)
-        repeated, _, _ = self.node.call("/api/mutations/batch", body)
-        self.validate_write(first, 1)
-        self.validate_write(repeated, 1)
-        ids = first.get("mutation_ids")
-        if not ids or not repeated.get("mutation_ids"):
-            raise RuntimeError("A repeated request lacks its mutation receipt")
-        record, _, _ = self.node.call("/api/query", read_request([self.next_insert]))
-        validate_read(record, [self.next_insert])
-        if record["results"][0]["fields"] != fields(self.next_insert, "upgrade-retry"):
-            raise RuntimeError("The unchanged retry changed its product record")
-        save(self.output / "upgrade-complete.json", {
-            "known_keys_read": self.next_insert, "unchanged_seed_keys": self.recipe["records"] - 256,
-            "repeat_value_unchanged": True, "receipt_ids": [ids, repeated["mutation_ids"]],
-            "receipt_identity": "Each HTTP request receives a new signed author clock",
-            "retry_cache": cache})

@@ -30,9 +30,6 @@ on:
       search_queue:
         type: boolean
         default: true
-      legacy_cache_upgrade:
-        type: boolean
-        default: false
       ttl_active:
         type: boolean
         default: false
@@ -173,31 +170,6 @@ jobs:
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT"
 
-      - name: Measure an actual upgrade with old retry records
-        if: matrix.lane == 'speed' && inputs.legacy_cache_upgrade
-        id: legacy-upgrade
-        env:
-          CANDIDATE_SHA: ${{ inputs.candidate }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          DRIVER_SHA: ${{ inputs.driver }}
-        run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/run.py \
-              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
-              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
-              --baseline-revision "$BASELINE_SHA" \
-              --candidate-revision "$CANDIDATE_SHA" \
-              --driver-revision "$DRIVER_SHA" \
-              --profile standard --pairs 1 --seed-with-baseline --minimum-retired 10000 \
-              --output "$BENCH_OUTPUT/legacy-cache-upgrade"
-
-      - name: Repeat the upgrade comparison only when an advisory limit is crossed
-        if: matrix.lane == 'speed' && inputs.legacy_cache_upgrade
-        id: legacy-confirmation
-        run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT/legacy-cache-upgrade"
-
       - name: Measure disk and memory growth in fresh generated homes
         if: matrix.lane == 'growth'
         id: growth
@@ -311,16 +283,6 @@ jobs:
         run: |
           python3 driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" \
             --job-status "$MEASUREMENT_OUTCOME" --confirmation-status "$CONFIRMATION_OUTCOME"
-
-      - name: Publish the old retry-record upgrade measurement
-        if: always() && matrix.lane == 'speed' && inputs.legacy_cache_upgrade
-        env:
-          UPGRADE_OUTCOME: ${{ steps.legacy-upgrade.outcome }}
-          CONFIRMATION_OUTCOME: ${{ steps.legacy-confirmation.outcome }}
-        run: |
-          python3 driver/scripts/benchmarks/report.py \
-            --output "$BENCH_OUTPUT/legacy-cache-upgrade" --job-status "$UPGRADE_OUTCOME" \
-            --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Publish separate native diagnostic summary
         if: always() && matrix.lane == 'speed' && inputs.investigation

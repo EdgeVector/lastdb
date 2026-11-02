@@ -37,8 +37,6 @@ def main():
                         f"--{label}-workers", str(manifest["recipe"]["uds_workers"][label])])
     if args.kind == "growth":
         command.append("--growth-only")
-    if manifest["recipe"].get("seed_with_baseline"):
-        command.extend(["--seed-with-baseline", "--minimum-retired", str(manifest["recipe"]["minimum_retired"])])
     if manifest["recipe"]["native_timing"]:
         command.append("--native-timing")
     subprocess.run(command, check=True)
