@@ -44,21 +44,6 @@ pub(super) fn directory(path: &Path) -> StorageResult<File> {
 }
 
 pub(super) fn regular(path: &Path, write: bool) -> StorageResult<File> {
-    private_file(path, write, false)
-}
-
-/// Source snapshots hardlink these immutable selectors. Targets remain unlinked.
-pub(super) fn captured_selector(path: &Path) -> StorageResult<File> {
-    if !matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("CURRENT" | RUN_HOME_MARKER)
-    ) {
-        return Err(invalid("captured source selector name differs"));
-    }
-    private_file(path, false, true)
-}
-
-fn private_file(path: &Path, write: bool, captured: bool) -> StorageResult<File> {
     let file = OpenOptions::new()
         .read(true)
         .write(write)
@@ -68,7 +53,7 @@ fn private_file(path: &Path, write: bool, captured: bool) -> StorageResult<File>
     if !meta.is_file()
         || meta.uid() != unsafe { libc::geteuid() }
         || meta.mode() & 0o077 != 0
-        || (!captured && meta.nlink() != 1)
+        || meta.nlink() != 1
     {
         return Err(invalid("run restore private file"));
     }
@@ -88,19 +73,13 @@ pub(super) fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
 }
 
 pub(super) fn node_marker(root: &Path) -> StorageResult<()> {
-    if !is_run_marker(root)? {
+    if profile_version(root)?.is_none() {
         return Err(invalid("run restore node marker differs"));
     }
     Ok(())
 }
 
-pub(super) fn is_run_marker(root: &Path) -> StorageResult<bool> {
-    Ok(profile_version(root)?.is_some())
-}
-
 pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
-    // The non-run branch belongs to the unchanged V1 validator. Apply the
-    // stricter V2 ownership rules only after exact format selection.
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -114,14 +93,6 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
-    root_members(root, false)
-}
-
-pub(super) fn require_identity_root_members(root: &Path) -> StorageResult<()> {
-    root_members(root, true)
-}
-
-fn root_members(root: &Path, identity: bool) -> StorageResult<()> {
     let mut names = BTreeSet::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -129,16 +100,15 @@ fn root_members(root: &Path, identity: bool) -> StorageResult<()> {
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore name"))?;
-        if !(matches!(
+        if !matches!(
             name.as_str(),
             "laststore-pack-node-v1" | "disk-run" | "disk-cas"
-        ) || (identity && name == "logical-device-capture-v1"))
-            || !names.insert(name)
+        ) || !names.insert(name)
         {
             return Err(invalid("run restore wrapper closure"));
         }
     }
-    if names.len() != if identity { 4 } else { 3 } {
+    if names.len() != 3 {
         return Err(invalid("run restore wrapper closure"));
     }
     Ok(())
@@ -254,60 +224,33 @@ fn require_home_members(path: &Path) -> StorageResult<()> {
 }
 
 fn hash(path: &Path, expected: &Digest) -> StorageResult<u64> {
-    let (digest, bytes) = inspect(path, false)?;
+    let (digest, bytes) = inspect(path)?;
     if digest != *expected {
         return Err(invalid("run restore file digest differs"));
     }
     Ok(bytes)
 }
 
-pub(super) fn profile_home(
-    root: &Path,
-    name: &str,
-    reader: &RunRead,
-) -> StorageResult<RunBackupHome> {
-    profile(root, name, reader, false)
-}
-
-pub(super) fn source_profile_home(
-    root: &Path,
-    name: &str,
-    reader: &RunRead,
-) -> StorageResult<RunBackupHome> {
-    profile(root, name, reader, true)
-}
-
-/// Build one paired profile and validate it. `captured` selects the source home.
+/// Build one paired profile and validate it.
 pub(super) fn backup_profile(
     root: &Path,
     version: u16,
     main: &RunRead,
     cas: &RunRead,
-    captured: bool,
 ) -> StorageResult<RunBackupProfile> {
-    let home = if captured {
-        source_profile_home
-    } else {
-        profile_home
-    };
     let profile = RunBackupProfile {
         version,
-        main: home(root, run_node::RUN_DIR, main)?,
-        cas: home(root, run_node::CAS_DIR, cas)?,
+        main: profile(root, run_node::RUN_DIR, main)?,
+        cas: profile(root, run_node::CAS_DIR, cas)?,
     };
     profile.validate()?;
     Ok(profile)
 }
 
-fn profile(
-    root: &Path,
-    name: &str,
-    reader: &RunRead,
-    captured: bool,
-) -> StorageResult<RunBackupHome> {
+fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResult<RunBackupHome> {
     let path = root.join(name);
-    let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER), captured)?;
-    let (current_sha256, current_bytes) = inspect(&path.join("CURRENT"), captured)?;
+    let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
+    let (current_sha256, current_bytes) = inspect(&path.join("CURRENT"))?;
     let mut files = 2u64;
     let mut bytes = descriptor_bytes
         .checked_add(current_bytes)
@@ -332,12 +275,8 @@ fn profile(
     })
 }
 
-fn inspect(path: &Path, captured: bool) -> StorageResult<(Digest, u64)> {
-    let mut file = if captured {
-        captured_selector(path)?
-    } else {
-        regular(path, false)?
-    };
+fn inspect(path: &Path) -> StorageResult<(Digest, u64)> {
+    let mut file = regular(path, false)?;
     let before = file.metadata()?;
     let mut hasher = Sha256::new();
     let mut buffer =

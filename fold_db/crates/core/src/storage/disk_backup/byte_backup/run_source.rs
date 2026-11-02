@@ -2,9 +2,6 @@
 use super::{
     invalid, protocol, Inner, PackRuntime, RunBackupHome, RunBackupProfile, StorageResult,
 };
-use crate::storage::disk_pack::logical_capture::{
-    SnapshotInclusion, SNAPSHOT_INCLUSION_WORK_BYTES,
-};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
 use laststore::disk_run::home::{CapturedRunHome, ReadBudget, RunRead, SnapshotFile};
 use sha2::{Digest as _, Sha256};
@@ -32,7 +29,6 @@ impl RunSource {
             .checked_mul(resources.concurrent_streams as u64)
             .and_then(|n| n.checked_mul(3))
             .and_then(|n| n.checked_add(super::CODEC_PLAINTEXT_MAX_BYTES * 3))
-            .and_then(|n| n.checked_add(SNAPSHOT_INCLUSION_WORK_BYTES))
             .ok_or_else(|| invalid("run capture workspace size overflow"))?;
         let maximum = resources
             .working_memory_bytes
@@ -154,8 +150,7 @@ impl RunSource {
         let retained = self
             .retained_bytes()
             .saturating_add(self.main.reader_bytes())
-            .saturating_add(self.cas.reader_bytes())
-            .saturating_add(SNAPSHOT_INCLUSION_WORK_BYTES);
+            .saturating_add(self.cas.reader_bytes());
         if retained > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes {
             return Err(invalid("run paired read allowance"));
         }
@@ -172,37 +167,6 @@ impl RunSource {
         cas.reserve_metadata(retained)
             .map_err(crate::storage::disk_pack::map)?;
         Ok((main, cas))
-    }
-    /// Open the paired readers and keep the main reader. The cas reader closes first.
-    pub(super) fn read_main(&self) -> StorageResult<RunRead> {
-        let (main, cas) = self.reads(crate::storage::disk_pack::budget())?;
-        drop(cas);
-        Ok(main)
-    }
-    pub fn logical_inclusion(
-        &self,
-        profile: &RunBackupProfile,
-    ) -> StorageResult<SnapshotInclusion> {
-        let mut main = self.read_main()?;
-        self.runtime.snapshot_inclusion(&mut main, profile)
-    }
-    pub fn verify_logical_inclusion(&self, expected: &SnapshotInclusion) -> StorageResult<()> {
-        let profile = self.profile()?;
-        let mut main = self.read_main()?;
-        crate::storage::disk_pack::logical_capture::verify_snapshot_inclusion(
-            &mut main, &profile, expected,
-        )
-    }
-    pub fn snapshot_adoption_plan(
-        &self,
-        local: &SnapshotInclusion,
-        candidate: &super::SnapshotAdoptionCandidate,
-    ) -> StorageResult<super::SnapshotAdoptionPlan> {
-        let profile = self.profile()?;
-        let mut main = self.read_main()?;
-        crate::storage::disk_pack::logical_capture::snapshot_adoption_plan(
-            &mut main, &profile, local, candidate,
-        )
     }
     fn retained_bytes(&self) -> u64 {
         self.main.retained_bytes()

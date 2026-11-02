@@ -50,20 +50,16 @@ Core keeps the public `ByteBackupCapture` operations.
 The disk V2 implementation uses captured file segments, not a stored-record conversion.
 Core owns the new `RunBackupProfile` and its validation.
 The shared cloud protocol receives no new native metadata type.
-Run profile 1 selects the earlier UTF-8 key order within disk V2.
-Run profile 2 selects typed ranges within the same physical disk V2 format.
-The client checks the node marker against that selected profile.
-Neither profile adds a cloud format field or changes a stored file.
+Run profile 6 is the format 8 home, the only profile.
+The client checks the node marker against that profile.
+The profile adds no cloud format field and changes no stored file.
 
 `RunBackupProfile` contains one main-home binding and one CAS-home binding.
 Each binding contains its home ID, generation, frontier, descriptor hash, CURRENT hash, file count, and byte count.
 The encrypted client root binds this profile to the common native-root summary and recovery descriptor.
 The native file pages contain the original destination paths and exact receipt extents.
 They use the existing `ClientNativeFile` shape.
-Versions 3 and 5 permit native files with a null cloud descriptor and no stored-record profile.
-Version 5 adds the encrypted [snapshot inclusion map](snapshot-inclusion-map-v1.md).
-It records the producer and imported-device positions from the exact retained file cut.
-Version 3 has no certified inclusion map.
+Version 6 permits native files with a null cloud descriptor and no stored-record profile.
 
 The only installed native paths are:
 
@@ -77,7 +73,7 @@ The descriptor must identify the supported LDRHOME3 format.
 Both home identities and complete referenced run sets must match the captured profile.
 The common native-root summary uses the main identity, generation, and frontier.
 Its CURRENT hash binds the main CURRENT. Its home digest binds both home bindings.
-Both metadata versions require this exact relationship and the supported native feature set.
+The metadata requires this exact relationship and the supported native feature set.
 It does not weaken the older native-root validator.
 
 ## Resume and release

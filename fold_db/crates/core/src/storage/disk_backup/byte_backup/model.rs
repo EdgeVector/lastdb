@@ -7,6 +7,8 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{Digest, NativeRoot, RecoveryDescriptor, RelativePath};
 use serde::{Deserialize, Serialize};
 
+/// The shape version of a saved capture record.
+pub(super) const STATE_FORMAT: u16 = 4;
 pub(super) const MAX_OBJECTS: u64 = (cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES
     * cloud_backup_protocol::v2::limits::MAX_PAGES) as u64;
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,9 +17,6 @@ pub(super) struct State {
     pub format: u16,
     pub begin: Begin,
     pub reference_id: uuid::Uuid,
-    /// Always empty: a run capture keeps no CURRENT copy. A saved job record
-    /// still names the field.
-    pub current_bytes: Vec<u8>,
     pub native_root: NativeRoot,
     pub key_sha256: Digest,
     pub ready: bool,
@@ -36,8 +35,6 @@ pub(super) struct State {
     pub run: Option<super::RunBackupProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub journal_anchor: Option<super::super::mutation_log::LogAnchor>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub logical_inclusion: Option<crate::storage::disk_pack::logical_capture::SnapshotInclusion>,
 }
 impl State {
     pub fn validate(&self) -> StorageResult<()> {
@@ -47,9 +44,6 @@ impl State {
             return Err(invalid("byte source stored profile phase"));
         };
         run.validate_root(&self.native_root)?;
-        if let Some(inclusion) = &self.logical_inclusion {
-            inclusion.validate_for(&self.native_root)?;
-        }
         if let Some(anchor) = &self.journal_anchor {
             anchor.position()?;
             if anchor.main_home != run.main.home_id
@@ -60,11 +54,8 @@ impl State {
                 return Err(invalid("snapshot mutation log anchor differs"));
             }
         }
-        if !matches!(
-            (self.format, &self.logical_inclusion),
-            (2, None) | (3, Some(_))
-        ) || self.reference_id.is_nil()
-            || !self.current_bytes.is_empty()
+        if self.format != STATE_FORMAT
+            || self.reference_id.is_nil()
             || self.objects > MAX_OBJECTS
             || self.verified > self.objects
             || self.multi_file_pack_objects > self.metadata_pack_objects

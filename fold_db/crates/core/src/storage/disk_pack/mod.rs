@@ -16,7 +16,6 @@ mod diagnostics;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
-pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
 mod namespace_delete;

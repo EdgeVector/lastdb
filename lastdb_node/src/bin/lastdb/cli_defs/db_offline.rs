@@ -4,11 +4,6 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
-    /// Preserve this stopped device's identity in an inactive foreign snapshot.
-    /// The prepared destination cannot start a daemon or replace the source.
-    SnapshotIdentityPrepare(crate::db_cmds::db_snapshot_identity_cmds::SnapshotIdentityArgs),
-    /// Verify an inactive snapshot's prepared identity and import bases.
-    SnapshotIdentityInspect(crate::db_cmds::db_snapshot_identity_cmds::SnapshotIdentityArgs),
     /// Repair the blob counters and the retention queue. OFFLINE: it refuses a
     /// home that a daemon serves.
     ///
