@@ -108,7 +108,6 @@ They do not change stored data, so this spike leaves them in the engine.
 | `Atom::new` | `Utc::now()` for `created_at` | [atom_def.rs:91](../../fold_db/crates/core/src/atom/atom_def.rs#L91) |
 | `MoleculeHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](../../fold_db/crates/core/src/atom/molecule_hash_range/construct.rs#L17), [:40](../../fold_db/crates/core/src/atom/molecule_hash_range/construct.rs#L40) |
 | `MoleculeHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](../../fold_db/crates/core/src/atom/molecule_hash_range/ops.rs#L67), [:122](../../fold_db/crates/core/src/atom/molecule_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
-| `PublicKeyInfo::new` | `Utc::now()` for `created_at` | [security/types.rs:34](../../fold_db/crates/core/src/security/types.rs#L34) |
 | `Ed25519KeyPair::generate` | `OsRng` | [security/keys.rs:19](../../fold_db/crates/core/src/security/keys.rs#L19) |
 
 One write reads the clock three times:
@@ -303,7 +302,6 @@ pub struct FoldDbOptions {
 | `Atom::new(schema, content)` | `Atom::new(schema, content, created_at)` |
 | `MoleculeHashRange::new(schema, field)` | `MoleculeHashRange::new(schema, field, at)` |
 | `set_atom_uuid_from_values(...)` sets `updated_at` from the clock | the same method gets `at` |
-| `PublicKeyInfo::new(...)` | `PublicKeyInfo::new(..., created_at)` |
 | `Ed25519KeyPair::generate()` | `Ed25519KeyPair::generate(&mut rng)`; the host supplies `OsRng` |
 | `planner::build(inner, state, key)` | `plan_objects(&inventory, &policy) -> Vec<PlannedObject>` in the model, and a shell step in the engine that lists files and writes `job.json` |
 
