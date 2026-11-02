@@ -29,6 +29,7 @@ fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), 
         "USER",
         "LOGNAME",
         "SSH_AUTH_SOCK",
+        "LASTDB_APPS_ROOT",
         "LANG",
     ] {
         if let Some(value) = std::env::var_os(key) {
