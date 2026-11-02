@@ -51,6 +51,8 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
     // No write path reads it. The structured field keeps its `max_field_value_bytes`
     // name: the private diagnostics log allowlists it by that name.
     // Docs: fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md
+    // Read the env once here and pass the usize in. Core does not read it.
+    install_field_value_limit();
     tracing::info!(
         max_field_value_bytes = fold_db::content_limit::max_field_value_bytes(),
         default = fold_db::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES,
@@ -158,6 +160,13 @@ fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
     if let Some(errno) = tuning.transparent_huge_pages_errno {
         tracing::warn!(target: "lastdbd::allocator", errno, "could not configure Linux huge page policy");
     }
+}
+
+/// Parse `LASTDB_MAX_FIELD_VALUE_BYTES` once and pass the usize into core.
+fn install_field_value_limit() {
+    let raw = std::env::var(fold_db::content_limit::MAX_FIELD_VALUE_BYTES_ENV).ok();
+    let limit = fold_db::content_limit::parse_max_field_value_bytes(raw);
+    fold_db::content_limit::set_max_field_value_bytes(limit);
 }
 
 fn init_core_warm_bytes() -> Result<(), String> {

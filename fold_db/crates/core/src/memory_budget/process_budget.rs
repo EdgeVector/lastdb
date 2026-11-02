@@ -189,8 +189,7 @@ impl ProcessMemoryBudget {
 
 pub(super) const MIB: u64 = 1024 * 1024;
 
-/// Process-wide budget, resolved once. Same idiom as
-/// [`crate::content_limit::max_field_value_bytes`]: one env read, one answer, so the
+/// Process-wide budget, resolved once: one env read, one answer, so the
 /// boot log and every runtime consumer quote the same number.
 pub fn process_memory_budget() -> &'static ProcessMemoryBudget {
     static BUDGET: OnceLock<ProcessMemoryBudget> = OnceLock::new();
