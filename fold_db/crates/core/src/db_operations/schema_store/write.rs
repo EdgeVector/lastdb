@@ -176,15 +176,4 @@ impl SchemaStore {
         self.flush().await?;
         Ok(existed)
     }
-
-    /// Point-get the janitor receipt for one dropped identity.
-    pub async fn get_schema_drop_receipt(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<SchemaDropReceipt>, SchemaError> {
-        Ok(self
-            .schema_states_store
-            .get_item(&schema_drop_receipt_key(schema_name))
-            .await?)
-    }
 }

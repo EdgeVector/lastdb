@@ -1,4 +1,4 @@
-//! Notifications share their product snapshot; subscribers see only durable events.
+//! Captured notifications record only durable events from the product snapshot.
 
 use super::*;
 use crate::schema::types::{Mutation, MutationType};
@@ -164,7 +164,6 @@ impl ChangeFeedStore {
                         .expect("committed notification capture")
                         .insert(event.mutation_id.clone());
                 }
-                let _ = store.subscribers.send(event);
             }
             Ok::<_, StorageError>(())
         };
