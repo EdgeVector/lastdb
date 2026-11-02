@@ -66,7 +66,7 @@ An admission refusal preserves the previous readable root. Output owners attempt
 ## Home fence
 
 Every node home is a format 4 home: disk format v2 with typed ranges.
-Its `laststore-pack-node-v1` marker holds `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n`, beside the `disk-run` and `disk-cas` run homes.
+Its `laststore-pack-node-v1` marker holds `format=8\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
 The run homes are complete before the marker appears.
 Startup refuses a home in any other format. It does not convert the files.
 

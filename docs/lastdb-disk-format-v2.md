@@ -33,14 +33,14 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 
 | Component | Current writer | Current reader |
 | --- | --- | --- |
-| Node marker | `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n` | The same exact marker only; a format 3 marker is refused |
+| Node marker | `format=8\nhome=disk-run\ncas=disk-cas\n` | The same exact marker only |
 | Home descriptor | 64 bytes; magic `LDRHOME3`; descriptor version 1; home UUID; CRC32 | The same descriptor; `LDRHOME2` is refused |
 | `CURRENT` payload | Magic `LDRCUR2\0` inside one encrypted frame | `LDRCUR2\0`, or `LDRCUR1\0` without a base; the latter opens as tiered runs |
 | Run footer | 64 bytes; magic `LDRUN\x01\0\0`; version 1; run UUID; top-block position; counts; CRC32 | The same footer, with counts checked against the authenticated top block |
 | Encryption frame | Magic `LSF1`; version 2; raw or zstd flag; authenticated header; ciphertext; 16-byte tag | Version 2 with known flags only |
 | Stored value | Tag 0 for original bytes; tag 1 for compact JSON | Tags 0 and 1 only |
 | Logical key format | `typed-ranges` in the row `layout:keys` | `typed-ranges` only |
-| Client backup profile | Profile 2 | Profile 2 only, with the exact native identities, hashes, totals, and required features; profile 1 is refused |
+| Client backup profile | Profile 6 | Profile 6 only, with the exact native identities, hashes, totals, and required features |
 
 The marker is an exact byte contract. Its filename alone does not prove compatibility.
 A missing delete replay cutoff record means cutoff 0.
