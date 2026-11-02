@@ -328,10 +328,14 @@ SOCKET="$HOME_DIR/data/folddb.sock"
 log "throwaway home: $HOME_DIR (socket $SOCKET)"
 
 log "booting lastdbd on the pristine home (zero config, no prompts)"
+# A release binary defaults to the prod schema service. A fresh home has no
+# developer cert, so declare returns 401 cert_required (Release run
+# 41485157480). DEV registration is open. This gate uses that service.
 (
   cd "$WORK_ROOT"
   env \
     HOME="$HOME_DIR" \
+    EXEMEM_ENV=dev \
     FOLDDB_DISABLE_KEYCHAIN=1 \
     RUST_LOG="${RUST_LOG:-info}" \
     "$LASTDBD" --data-dir "$HOME_DIR" </dev/null
