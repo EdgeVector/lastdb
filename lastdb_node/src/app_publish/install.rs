@@ -200,7 +200,7 @@ pub fn run_installed_app(
 
     let checkout_path = install_dir.join("source");
     let manifest_path = checkout_path.join("lastdb-app.json");
-    let manifest = load_manifest(&manifest_path)?;
+    let manifest = super::manifest::load_runtime_manifest(&manifest_path)?;
     if manifest.app_id != app_id {
         return Err(format!(
             "source manifest mismatch: requested app '{app_id}', manifest is for '{}'",

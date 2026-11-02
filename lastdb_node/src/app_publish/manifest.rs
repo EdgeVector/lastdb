@@ -110,6 +110,15 @@ pub struct AppRunConfig {
 }
 
 pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
+    load_manifest_inner(path, true)
+}
+
+/// Source runners need no schema registration or declaration.
+pub(super) fn load_runtime_manifest(path: &Path) -> Result<AppManifest, String> {
+    load_manifest_inner(path, false)
+}
+
+fn load_manifest_inner(path: &Path, require_schemas: bool) -> Result<AppManifest, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read manifest {}: {e}", path.display()))?;
     let manifest: AppManifest = serde_json::from_str(&raw)
@@ -128,7 +137,7 @@ pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
         }
     }
 
-    if manifest.schemas.is_empty() {
+    if require_schemas && manifest.schemas.is_empty() {
         return Err(
             "manifest declares no schemas — a LastDB app manifest must list the schemas it uses"
                 .into(),

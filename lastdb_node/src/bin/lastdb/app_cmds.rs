@@ -29,16 +29,6 @@ pub(crate) use self::registry::*;
 #[path = "app_cmds/local_install.rs"]
 mod local_install;
 pub(crate) use self::local_install::*;
-#[path = "app_cmds/release.rs"]
-mod release;
-pub(crate) use self::release::*;
-#[path = "app_cmds/release_dispatch.rs"]
-mod release_dispatch;
-use self::release_dispatch::app_release_command;
-#[path = "app_cmds/release_registry.rs"]
-mod release_registry;
-pub(crate) use self::release_registry::*;
-
 /// Print `value` as pretty JSON on stdout (an empty string if it cannot be
 /// serialized, as every `--json` path here always did).
 pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
@@ -107,7 +97,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             app_run(&home, app_id, dir, args)
         }
         AppCommand::Catalog(action) => app_catalog_command(&home, action),
-        AppCommand::Release(action) => app_release_command(&home, action),
     }
 }
 
