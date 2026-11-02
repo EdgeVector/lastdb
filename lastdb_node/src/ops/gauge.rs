@@ -57,10 +57,6 @@ impl Availability {
         Self::Unavailable(UnavailableReason::FieldNotServed)
     }
 
-    pub const fn is_measured(self) -> bool {
-        matches!(self, Self::Measured(_))
-    }
-
     /// Wire number when measured; `None` when unavailable (so serde can omit
     /// or emit null instead of lying with `0`).
     pub const fn as_wire_u64(self) -> Option<u64> {
