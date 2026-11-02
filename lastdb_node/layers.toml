@@ -20,7 +20,6 @@ name = "leaf"
 doc = "Parts that use only other leaf parts: storage homes, outboxes and queues, the backup runtime and its phase, seals, logs, and versions."
 modules = [
   "allocator",
-  "app_release_host",
   "backup_runtime",
   "byte_cloud_log",
   "change_feed_queue",
