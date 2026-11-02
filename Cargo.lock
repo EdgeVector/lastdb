@@ -4461,22 +4461,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schema_core_baseline"
-version = "0.1.0"
-dependencies = [
- "app_identity_crypto",
- "base64 0.22.1",
- "chrono",
- "p256",
- "schema_service_core",
- "schema_service_server_shared",
- "schema_types",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "schema_core_resolver"
 version = "0.1.0"
 dependencies = [
