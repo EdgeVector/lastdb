@@ -2,22 +2,12 @@ use std::sync::Arc;
 
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
-use crate::storage::StorageError;
 
 use super::FoldDB;
 use crate::fold_db_core::mutation_manager::MutationManager;
 use crate::fold_db_core::query::QueryExecutor;
 
 impl FoldDB {
-    /// Retrieves or generates and persists the node identifier.
-    pub async fn get_node_id(&self) -> Result<String, StorageError> {
-        self.db_ops
-            .metadata()
-            .get_node_id()
-            .await
-            .map_err(|e| StorageError::BackendError(e.to_string()))
-    }
-
     /// Returns a reference to the database operations Arc
     pub fn db_ops(&self) -> &Arc<DbOperations> {
         &self.db_ops

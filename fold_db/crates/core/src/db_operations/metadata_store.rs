@@ -4,14 +4,12 @@
 //! External callers reach these via `DbOperations::metadata()`.
 //!
 //! Responsibilities:
-//! - Node-level metadata (e.g. `node_id`)
 //! - Idempotency cache for mutations
 
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use uuid::Uuid;
 
 mod idempotency;
 
@@ -42,32 +40,6 @@ impl MetadataStore {
     pub(crate) async fn flush(&self) -> Result<(), SchemaError> {
         self.metadata_store.inner().flush().await?;
         self.idempotency_store.inner().flush().await?;
-        Ok(())
-    }
-
-    // ===== Node-id =====
-
-    /// Retrieves or generates and persists the node identifier.
-    pub async fn get_node_id(&self) -> Result<String, SchemaError> {
-        match self.metadata_store.get_item::<String>("node_id").await {
-            Ok(Some(id)) if !id.is_empty() => {
-                return Ok(id);
-            }
-            Ok(Some(_) | None) => {}
-            Err(e) => return Err(e.into()),
-        }
-
-        let new_id = Uuid::new_v4().to_string();
-        self.set_node_id(&new_id).await?;
-        Ok(new_id)
-    }
-
-    /// Sets the node identifier
-    pub async fn set_node_id(&self, node_id: &str) -> Result<(), SchemaError> {
-        self.metadata_store
-            .put_item("node_id", &node_id.to_string())
-            .await?;
-        self.metadata_store.inner().flush().await?;
         Ok(())
     }
 
