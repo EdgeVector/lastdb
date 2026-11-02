@@ -9,7 +9,7 @@ import re
 import shutil
 
 from cold_layout import stable_boundary
-from cold_shared_seed import boot_boundary, inventory, physical_state
+from cold_shared_seed import boot_boundary, inventory, physical_state, settle_seed
 from mixed_layout_support import CASE, RECIPE, audit, observe, precondition, warm
 from mixed_native_stages import collect, summary_lines
 from node import Node, file_hash, save
@@ -28,6 +28,7 @@ def seed_template(node, output):
         save(output / "observed-stable.json", stable)
     finally:
         node.stop()
+    save(output / "settle.json", {"opens": settle_seed(node)})
     whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
     save(output / "inventory.json", whole)
     save(output / "physical-inventory.json", physical)
@@ -125,6 +126,8 @@ def summaries(output, manifest):
               "Native arms enable numeric clocks throughout their history and disable log rotation.",
               "Native timings are intrusive diagnostics and must not replace ordinary timing results.",
               "Writes can legitimately change layout. Observations are not atomic and can miss short merges.",
+              "A read that races an unfinished write to its record can read disk; "
+              "each run's audit.json counts these reads.",
               "OS pages are warmed by verification; new mutation IDs and physical output are not identical."]
     lines.extend(summary_lines(output, manifest))
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:

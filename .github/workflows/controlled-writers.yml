@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/benchmarks/controlled_writers.py'
+      - 'scripts/benchmarks/cold_shared_seed.py'
       - '.github/workflows/controlled-writers.yml'
       - 'fold_db/crates/core/src/db_operations/schema_store/read_snapshot.rs'
       - 'fold_db/crates/core/src/storage/disk_pack/read/memory.rs'
