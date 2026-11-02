@@ -62,7 +62,6 @@ pub mod near_miss;
 pub mod registry_index;
 pub mod resolver_config;
 pub mod resolver_pack;
-pub mod resolver_pack_consumer;
 mod resolver_pack_vocabulary;
 pub mod schema_config;
 pub mod schema_expansion_commit;
@@ -116,12 +115,6 @@ pub use registry_index::{
 pub use resolver_config::{
     AlgorithmSelector, ResolverConfig, ResolverConfigError, NATIVE_COMPONENT_COVER_ALGORITHM_ID,
     NATIVE_COMPONENT_COVER_ALGORITHM_VERSION, RESOLVER_CONFIG_FORMAT_VERSION,
-};
-pub use resolver_pack_consumer::{
-    validate_bootstrap_base_url, ImportedResolverPackEmbeddings, LoadedResolverPack,
-    ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError, ResolverPackCache,
-    ResolverPackFallbackReason, ResolverPackFetchError, ResolverPackLoadOutcome,
-    ResolverPackLoadSource, ResolverPackObjectStore, ResolverPackTelemetrySnapshot,
 };
 pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
 pub use schema_core_resolver::{
