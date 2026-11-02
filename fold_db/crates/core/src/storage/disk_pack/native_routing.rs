@@ -8,7 +8,7 @@
 
 mod key_routing;
 
-use crate::mini_cutover::classify_main_key;
+use crate::main_key_placement::classify_main_key;
 use crate::storage::error::{StorageError, StorageResult};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use key_routing::*;

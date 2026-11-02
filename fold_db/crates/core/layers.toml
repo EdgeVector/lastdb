@@ -19,12 +19,12 @@
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: the clock, env parsing, process and cutover probes, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
+doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, the collection rule of a main key, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
 modules = [
   "clock",
   "crypto",
   "env_number",
-  "mini_cutover",
+  "main_key_placement",
   "process_cpu",
   "security",
 ]
