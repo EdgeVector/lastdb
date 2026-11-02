@@ -136,8 +136,8 @@ pub use schema_core_resolver::{
 };
 pub use schema_embedding_artifact::{
     artifact_sha256_hex as schema_embedding_artifact_sha256_hex,
-    latest_compatible_manifest_pointer_key, ArtifactEnv, EmbeddingVectorRecord, PublishObject,
-    PublishPlan, PutPrecondition, SchemaEmbeddingArtifactCounts, SchemaEmbeddingArtifactManifest,
+    latest_compatible_manifest_pointer_key, ArtifactEnv, EmbeddingVectorRecord,
+    SchemaEmbeddingArtifactCounts, SchemaEmbeddingArtifactManifest,
     SCHEMA_EMBEDDING_ARTIFACT_FORMAT_VERSION,
 };
 pub use schema_mutation_gate::{
