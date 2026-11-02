@@ -81,7 +81,7 @@ jobs:
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
       - name: Cache dependency downloads without compiled programs or targets
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
