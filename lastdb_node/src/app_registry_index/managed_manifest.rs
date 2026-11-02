@@ -110,7 +110,7 @@ impl InstallPlan {
     pub fn consent_hash(&self) -> Result<String, String> {
         use sha2::{Digest, Sha256};
         let value = serde_json::to_value(self).map_err(|e| e.to_string())?;
-        let bytes = app_identity_crypto::jcs::canonicalize(&value).map_err(|e| e.to_string())?;
+        let bytes = app_identity_crypto::canonicalize(&value).map_err(|e| e.to_string())?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
 }
