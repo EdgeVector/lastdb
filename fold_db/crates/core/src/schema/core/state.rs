@@ -214,14 +214,6 @@ impl SchemaCore {
         Ok(changed)
     }
 
-    /// True when this schema no longer answers `descriptive_name` resolution.
-    ///
-    /// # Errors
-    /// [`SchemaError::InvalidData`] when the in-memory set lock is poisoned.
-    pub fn name_claim_retired(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        Ok(lock_set(&self.retired_name_claims, "retired_name_claims")?.contains(schema_name))
-    }
-
     /// Every schema name whose claim on its `descriptive_name` is retired.
     ///
     /// # Errors
