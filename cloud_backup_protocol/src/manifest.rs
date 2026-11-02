@@ -4,11 +4,6 @@ use crate::limits::*;
 use crate::{bytes_sha256, DecimalU64, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
 
-/// Counted receipts add bit 512; older supported native backups remain valid.
-pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0x3fd;
-/// Feature bits a native root must include. Validation rejects a root that omits any of them.
-pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
-
 /// Service-visible summary. Exact CURRENT and home bytes remain authoritative
 /// for directory roots, codecs, logical markers and all native format details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,32 +11,16 @@ pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
 pub struct NativeRoot {
     /// Id of the backed-up home.
     pub home_id: Id,
-    /// Digest of the home. An all-zero digest is rejected.
+    /// Digest of the home.
     pub home_digest: Digest,
     /// SHA-256 of the home's CURRENT list.
     pub current_sha256: Digest,
-    /// Home generation. Zero is rejected.
+    /// Home generation.
     pub generation: DecimalU64,
-    /// Native frontier. `u64::MAX` is rejected.
+    /// Native frontier.
     pub frontier: DecimalU64,
-    /// Feature bits this root requires. They must be a subset of the supported bits and include the required bits.
+    /// Feature bits of the run home that wrote this root.
     pub required_features: DecimalU64,
-}
-
-impl NativeRoot {
-    /// Reject a zero generation, a max frontier, an all-zero home digest, or feature bits outside the supported and required masks.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        let features = self.required_features.get();
-        if self.generation.get() == 0
-            || self.frontier.get() == u64::MAX
-            || features & !NATIVE_SUPPORTED_FEATURES_V1 != 0
-            || features & NATIVE_REQUIRED_FEATURES_V1 != NATIVE_REQUIRED_FEATURES_V1
-            || self.home_digest.as_str().bytes().all(|byte| byte == b'0')
-        {
-            return Err(ProtocolError::invalid("native_root"));
-        }
-        Ok(())
-    }
 }
 
 /// The complete inventory must also verify bounds against the selected receipt.

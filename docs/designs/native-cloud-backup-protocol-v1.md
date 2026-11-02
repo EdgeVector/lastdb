@@ -140,7 +140,7 @@ NativeRoot is a service-visible summary:
 home identity and digest, full CURRENT digest, native generation, frontier, and required native features.
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
-The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
+A format 8 home writes the feature mask 0xb0 (176) and uses codecs 0x0101. No reader checks the mask against a fixed set.
 The logical marker `layout:v3:keys` requires direct ASCII value `7;typed-ranges=v1`: a format 4 home with typed ranges.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
