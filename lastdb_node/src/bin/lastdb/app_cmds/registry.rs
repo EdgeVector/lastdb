@@ -152,7 +152,13 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
         return app_install_local(home, &install);
     }
 
+    if install.dir.is_none() && install.source.env.is_none() && install.source.schema_url.is_none()
+    {
+        return super::managed::install(home, &install);
+    }
     let AppInstall {
+        accept_install: _,
+        inactive: _,
         app_ids,
         source:
             RegistrySource {
@@ -238,7 +244,13 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
 }
 
 pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String> {
+    if upgrade.dir.is_none() && upgrade.source.env.is_none() && upgrade.source.schema_url.is_none()
+    {
+        return super::managed::upgrade(home, &upgrade);
+    }
     let AppUpgrade {
+        all: _,
+        accept_install: _,
         app_ids,
         source:
             RegistrySource {
@@ -327,9 +339,16 @@ pub(crate) fn app_run(
     dir: Option<PathBuf>,
     args: Vec<String>,
 ) -> Result<(), String> {
-    let install_dir = dir.unwrap_or_else(|| home.join("apps").join(&app_id));
+    let install_dir = dir.unwrap_or_else(|| {
+        let managed = registry_index::managed::app_root(&app_id)
+            .ok()
+            .map(|p| p.join("current"));
+        managed
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| home.join("apps").join(&app_id))
+    });
     let outcome = app_publish::run_installed_app(home, &app_id, &install_dir, &args)?;
-    println!(
+    eprintln!(
         "app run completed: {} (runtime={}, entrypoint={}, exit={})",
         outcome.app_id, outcome.runtime, outcome.entrypoint, outcome.exit_code
     );

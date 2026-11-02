@@ -25,22 +25,7 @@ pub(crate) struct DevPublishTarget {
 }
 
 impl DevPublishTarget {
-    /// Resolve in the order the commands always did: schema service, Exemem,
-    /// API key, signing key, crypto environment. The first failure wins.
-    pub(crate) fn resolve(
-        home: &Path,
-        env: Option<&str>,
-        schema_url: Option<String>,
-        api_url: Option<String>,
-        key_file: Option<PathBuf>,
-        api_key: Option<String>,
-    ) -> Result<Self, String> {
-        let schema_service = resolve_schema_service_url(schema_url, env)?;
-        Self::resolve_with_schema_service(schema_service, home, env, api_url, key_file, api_key)
-    }
-
-    /// As [`Self::resolve`] when the caller already resolved the schema
-    /// service URL (promote checks the catalog between the two steps).
+    /// Resolve credentials after promote has checked the schema catalog.
     pub(crate) fn resolve_with_schema_service(
         schema_service: String,
         home: &Path,

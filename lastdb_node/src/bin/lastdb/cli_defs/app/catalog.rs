@@ -98,6 +98,12 @@ pub(crate) enum AppCatalogCommand {
         /// Legacy: allow installing sandbox records.
         #[arg(long)]
         allow_sandbox: bool,
+        /// Approve the pinned source install steps and command links.
+        #[arg(long)]
+        accept_install: bool,
+        /// Install code without running probes or service hooks.
+        #[arg(long)]
+        inactive: bool,
         /// Replace an existing install directory.
         #[arg(long)]
         force: bool,
@@ -118,8 +124,14 @@ pub(crate) enum AppCatalogCommand {
     /// Legacy service path with `--env` / `--schema-url` (one app).
     Upgrade {
         /// App ids (`brain kanban situations`).
-        #[arg(required = true)]
+        #[arg(required_unless_present = "all")]
         app_ids: Vec<String>,
+        /// Upgrade every registry-managed app on its saved channel.
+        #[arg(long, conflicts_with = "app_ids")]
+        all: bool,
+        /// Approve changed install instructions.
+        #[arg(long)]
+        accept_install: bool,
         /// Legacy: upgrade from the live registry service for this environment.
         #[arg(long)]
         env: Option<String>,

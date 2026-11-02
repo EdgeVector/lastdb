@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "app_cmds/arg_groups.rs"]
 mod arg_groups;
+#[path = "app_cmds/managed.rs"]
+mod managed;
 pub(crate) use self::arg_groups::*;
 #[path = "app_cmds/check.rs"]
 mod check;
@@ -27,16 +29,6 @@ pub(crate) use self::registry::*;
 #[path = "app_cmds/local_install.rs"]
 mod local_install;
 pub(crate) use self::local_install::*;
-#[path = "app_cmds/release.rs"]
-mod release;
-pub(crate) use self::release::*;
-#[path = "app_cmds/release_dispatch.rs"]
-mod release_dispatch;
-use self::release_dispatch::app_release_command;
-#[path = "app_cmds/release_registry.rs"]
-mod release_registry;
-pub(crate) use self::release_registry::*;
-
 /// Print `value` as pretty JSON on stdout (an empty string if it cannot be
 /// serialized, as every `--json` path here always did).
 pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
@@ -46,12 +38,31 @@ pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
     );
 }
 
+pub(crate) fn crypto_env_for(env: Option<&str>) -> Result<app_identity_crypto::Env, String> {
+    match env {
+        Some("dev") | None => Ok(app_identity_crypto::Env::Dev),
+        Some("prod") => Ok(app_identity_crypto::Env::Prod),
+        Some(other) => Err(format!("unknown --env '{other}' (expected dev or prod)")),
+    }
+}
+
+pub(crate) fn block_on_app<T>(
+    fut: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
+    runtime.block_on(fut)
+}
+
 /// `lastdb app ...`: resolve the home, then hand each subcommand to its
 /// handler in `check`, `publish`, `registry` or `release`. Release and dev
 /// status subcommands go through [`app_release_command`].
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
+        AppCommand::Managed(command) => managed::command(&home, command),
         AppCommand::Lifecycle(AppLifecycleCommand::DevInit { key_file }) => {
             app_dev_init(&home, key_file)
         }
@@ -104,7 +115,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             app_run(&home, app_id, dir, args)
         }
         AppCommand::Catalog(action) => app_catalog_command(&home, action),
-        AppCommand::Release(action) => app_release_command(&home, action),
     }
 }
 
@@ -135,6 +145,8 @@ fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), Str
 
 fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
     let AppCatalogCommand::Install {
+        accept_install,
+        inactive,
         app_ids,
         env,
         schema_url,
@@ -156,6 +168,8 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     app_install(
         home,
         AppInstall {
+            accept_install,
+            inactive,
             app_ids,
             source: RegistrySource {
                 env,
@@ -178,6 +192,8 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
 
 fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
     let AppCatalogCommand::Upgrade {
+        all,
+        accept_install,
         app_ids,
         env,
         schema_url,
@@ -195,6 +211,8 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     app_upgrade(
         home,
         AppUpgrade {
+            all,
+            accept_install,
             app_ids,
             source: RegistrySource {
                 env,

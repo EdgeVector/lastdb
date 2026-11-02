@@ -9,6 +9,8 @@ use super::{DEFAULT_INDEX_BASE_URL, HTTP_TIMEOUT, INDEX_LOCATION_ENV};
 /// Where a channel's index files live.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexLocation {
+    /// A private list base fetched from LastSecrets only at the point of use.
+    Secret(String),
     /// `<base>/<channel>.json` over HTTP(S).
     Url(String),
     /// `<dir>/<channel>.json` on the local filesystem.
@@ -23,6 +25,7 @@ impl IndexLocation {
     pub fn describe_interface(&self, channel: &str, api: u32) -> String {
         let path = format!("{channel}/api/{api}.json");
         match self {
+            Self::Secret(locator) => format!("{locator}/{path}"),
             Self::Url(base) => format!("{base}/{path}"),
             Self::Dir(dir) => dir.join(path).display().to_string(),
             Self::Local { path, rev } => format!("{}@{rev}", path.display()),
@@ -41,6 +44,12 @@ impl IndexLocation {
         validate_channel(channel)?;
         let address = self.describe_interface(channel, api);
         match self {
+            Self::Secret(locator) => {
+                let base = private_base(locator)?;
+                Box::pin(Self::Url(base).fetch_interface(channel, api))
+                    .await
+                    .map_err(|_| "private registry list download failed".to_string())
+            }
             Self::Dir(_) => {
                 let bytes = std::fs::read(&address).map_err(|e| format!("{address}: {e}"))?;
                 let sig = std::fs::read(format!("{address}.sig"))
@@ -81,6 +90,9 @@ impl IndexLocation {
     #[must_use]
     pub fn from_raw(raw: &str) -> Self {
         let raw = raw.trim().trim_end_matches('/');
+        if raw.starts_with("lastsecrets://") {
+            return Self::Secret(raw.to_string());
+        }
         if let Some(path) = raw.strip_prefix("file://") {
             return Self::Dir(PathBuf::from(path));
         }
@@ -94,6 +106,7 @@ impl IndexLocation {
     #[must_use]
     pub fn describe(&self, channel: &str) -> String {
         match self {
+            Self::Secret(locator) => format!("{locator}/{channel}.json"),
             Self::Url(base) => format!("{base}/{channel}.json"),
             Self::Dir(dir) => dir.join(format!("{channel}.json")).display().to_string(),
             Self::Local { path, rev } => format!("{}@{}", path.display(), rev),
@@ -107,6 +120,7 @@ impl IndexLocation {
     pub async fn fetch(&self, channel: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
         validate_channel(channel)?;
         match self {
+            Self::Secret(_) => Err("private indexes use exact-interface lists".into()),
             Self::Dir(dir) => {
                 let index_path = dir.join(format!("{channel}.json"));
                 let sig_path = dir.join(format!("{channel}.json.sig"));
@@ -172,4 +186,37 @@ pub fn validate_channel(channel: &str) -> Result<(), String> {
             "invalid channel '{channel}' (expected stable or next)"
         ))
     }
+}
+
+fn private_base(locator: &str) -> Result<String, String> {
+    let slug = locator
+        .strip_prefix("lastsecrets://")
+        .ok_or("invalid private registry locator")?;
+    if slug.is_empty()
+        || !slug
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
+    {
+        return Err("invalid private registry locator".into());
+    }
+    let result = std::process::Command::new("lastsecrets")
+        .args(["get", slug])
+        .output()
+        .map_err(|_| "private registry lookup failed")?;
+    if !result.status.success() {
+        return Err("private registry lookup failed".into());
+    }
+    let value = String::from_utf8(result.stdout).map_err(|_| "invalid private registry base")?;
+    let base = value.trim().trim_end_matches('/');
+    let url = reqwest::Url::parse(base).map_err(|_| "invalid private registry base")?;
+    if base.len() > 2048
+        || url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("invalid private registry base".into());
+    }
+    Ok(base.to_string())
 }

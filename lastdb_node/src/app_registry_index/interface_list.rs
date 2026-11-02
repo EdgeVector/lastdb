@@ -25,6 +25,8 @@ pub struct ListEntry {
     pub publisher_sig: String,
     pub status: String,
     pub published_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
 }
 
 impl ListEntry {
@@ -38,6 +40,9 @@ impl ListEntry {
         });
         if let Some(version) = self.outbox_format_version {
             fields["outbox_format_version"] = json!(version);
+        }
+        if let Some(audience) = &self.audience {
+            fields["audience"] = json!(audience);
         }
         fields
     }
@@ -120,6 +125,10 @@ impl InterfaceList {
                 || !valid_source(&entry.source)
                 || entry.outbox_format_version == Some(0)
                 || entry.publisher_account.is_empty()
+                || entry
+                    .audience
+                    .as_deref()
+                    .is_some_and(|v| v != "public" && v != "private")
             {
                 return Err("registry list has an invalid or duplicate app entry".into());
             }
