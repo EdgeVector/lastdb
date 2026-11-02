@@ -40,7 +40,7 @@ Queries select `key_name` and a hash, exact key, prefix, or range. A cursor rema
 The response `key` remains the primary mutation key. The `matched_key` contains the alternate coordinates.
 Writes maintain all declared keys in the same native transaction as the field values.
 
-Fresh homes use format 7. This program opens only format 7.
+Fresh homes use format 8. This program opens only format 8.
 An older home moves by a one-time copy into a fresh home.
 No command upgrades an older home in place.
 

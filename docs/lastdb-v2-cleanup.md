@@ -44,9 +44,10 @@ as required, rather than an empty or completed request.
 
 ## Scope
 
-Cleanup removes old versions and tombstones that normal record and blob rules
-already delete. The record counter remains the only authority for record deletion.
-This operation does not delete a live CAS record because it appears unused.
+Cleanup removes old run entries and run delete markers that normal record
+and blob rules already delete. A delete, a purge or a TTL sweep decides the end of a record.
+The blob counter decides the end of a file blob.
+This operation does not delete a live CAS entry because it appears unused.
 Recovery of a failed final CAS delete is a separate operation.
 
 Backup hardlinks and saved remote backups retain bytes independently. Cleanup

@@ -1,49 +1,27 @@
 # Counter safety during restore
 
-> **Model note (2026-11-01).** This page was written for the field key model. Since home
-> format 7 (the record model) a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
-> page differs.
-
-Normal writes change records and counts in one native batch.
-Restore must preserve that rule before cleanup can delete data.
-The local mutation replay and its raw lifecycle entries are removed.
+A normal write changes a record, its blob counters, and its queue entries in one
+native batch. A restore must keep that rule before cleanup can delete data.
 
 ## Restore
 
-A snapshot restore requires an inactive native target.
-A serving process refuses it before any data change.
-This preserves the immutable replay floor and the logical memory state.
-The restore publishes its blocked state under the existing preparation gate.
-It releases that gate so the disk owner can flush each bounded batch.
-Normal writes and cleanup refuse the blocked state.
-Reads refuse an unverified root.
-The restore keeps its existing bounded durable batches.
+A V2 restore installs the files of a home into an inactive native target. A
+serving process refuses a restore before any data change. The restore proof
+(`storage/disk_backup/run_restore/proof.rs`) reads the two authenticated roots,
+main and CAS, and holds them for the whole proof. It opens no live home. The
+stages, in order:
 
-A logical snapshot restore flushes a pending marker before it clears or replaces records.
-The marker stays after failure or cancellation.
-Startup refuses an interrupted logical restore, even if the remaining counts agree.
-Matching counts cannot establish that every snapshot namespace arrived.
-Repeat the complete restore to finish it.
+- Account: the backup profile must be 6, the key format entry `layout:keys`
+  must be `typed-ranges`, and the delete replay cutoff must be valid.
+- Schemas: the typed schema and range profiles, and the field keys in the
+  `field_keys` namespace.
+- Blobs: each key of the `blob_counts` collection passes the current key law.
+- Records: each file pointer in a record or in a field history entry (`rh:`)
+  names a blob that the CAS root holds. The proof copies and opens each blob.
 
-Native file restore marks its inactive target for counter validation.
-The first logical open validates that target before it starts cleanup workers.
-An invalid target remains blocked.
-Startup refuses an unreadable marker, a marker link, or a marker that exceeds its byte limit.
-Keep an incomplete restore under a program that supports this validation marker.
+The restore reply counts the proved records in `verified_records`.
 
-Validation discovers scopes from raw keys and reads their values through the correct encryption reader.
-It refuses a restored record that does not read back through that reader.
-It checks record references, body/counter pairs, field key counts, bindings, retained conflicts, and file holds.
-It counts file references across every restored scope before it compares the global file counts.
-The logical namespace reader also checks that each referenced file exists.
-It changes no count.
-The pending marker goes only after complete validation and a durable barrier.
-
-The existing verifier has bounded totals.
-If records, field keys, or retained-record identities exceed those totals, restore refuses incomplete validation.
-A zero-fault partial result cannot authorize cleanup.
-Missing or malformed field key count fields remain unknown.
-
-Normal writes need one memory flag check for this restore guard.
-They do not recount other keys.
-The complete validation runs only for a restore target.
+The blob counters come back with the records that they count. The proof checks
+their keys. It does not recount the references. To compare the counters with the
+references, run `lastdb db verify-refs` on the started home, or
+`lastdb db recount` on a stopped home (`docs/lastdb-blob-counter.md`).

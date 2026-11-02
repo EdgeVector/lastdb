@@ -220,14 +220,12 @@ A baseline update uses the manual baseline mode, and only for an exception that 
 
 ## Baseline move
 
-The fixed baseline is cut once on home format 7.
-The change from format 6 to format 7 is a one-time break: the format 7 client refuses the older baseline.
-The cloud backup contract (snapshot, mutation log, and CAS files) stays fixed, and the local format adapts to it.
-A later local format change must still restore a snapshot that an earlier release wrote.
-When the local layout differs, the client converts it inside backup and restore.
-Tom set this rule on 2026-11-01 (brain `decision-2026-11-01-lastdb-cloud-backup-has-its-own-format`).
+The fixed baseline is cut once on home format 8 (backup profile 6).
+The cloud backup contract (snapshot, mutation log, and CAS files) and the object names stay V2.
+A snapshot is a byte copy of the local files, so a format 8 client restores only a format 8 snapshot.
+The move to format 8 cuts one new baseline through the manual baseline mode (Tom, 2026-11-01).
 
-CAUTION: A failed fixed-baseline restore after a local format change is a defect of that change. Fix the change. Do not move the baseline.
+CAUTION: A failed fixed-baseline restore after a change that keeps home format 8 is a defect of that change. Fix the change. Do not move the baseline.
 
 The baseline move is only for an exception that Tom approves, for example a change of the cloud contract.
 The manual `baseline` mode makes the new fixed baseline. It does not run the normal recovery.
@@ -410,11 +408,11 @@ It checks the restored native inventory before the first boot, then checks all b
 The helper accesses only a fresh private DEV restore. `kept_pass.py` calls it after a complete cleanup request.
 Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
-The client restores only home format 7. The first such main source is `2cdc5531c1f056891ff17e16fbe25b52a5c4a201` (#929).
-A kept stream from an older main source holds a format 4 to 6 snapshot, which this client refuses by design.
+The client restores only home format 8. `scripts/cloud_backup/kept_recovery.py` names the first main source of that format.
+A kept stream from an older main source holds a snapshot of an older home format, which this client does not restore.
 The job reads the full main commit history without file contents and checks the ancestry of the kept owner source.
 For an older source, the controller records the kept stream and its source, and attempts no restore.
-The service still keeps that stream. A later successful format 7 CI stream replaces it under the normal retention rules.
+The service still keeps that stream. A later successful format 8 CI stream replaces it under the normal retention rules.
 A kept source outside the main history fails CI. `kept_pass.py` computes this check from the validated kept record.
 
 The PR readback checks at most two recent successful pushes and two successful manual runs.

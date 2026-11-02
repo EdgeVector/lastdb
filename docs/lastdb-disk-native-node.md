@@ -1,31 +1,25 @@
 # Native disk node path
 
-Current source: main `2f4ba44bd`, reviewed 2026-10-26.
+This page describes the native disk path of a format 8 home.
 The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
 The [disk format v2 engine](../vendor/laststore/README.md) describes the run files and the background merge.
 The [V2 compatibility contract](lastdb-disk-format-v2.md) records the accepted file versions, encryption, limits, and crash rules.
 
 Disk format v2 is the sole native LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
-An empty home initializes directly. Startup refuses any other format before logical namespace access and performs no conversion.
-Since decision D1 (2026-10-26), the program does not open, convert, or restore a disk format v1 home.
-The disk format v1 removal deleted the separate owner command `lastdb-native-transfer` on 2026-10-26.
+An empty home initializes directly. Startup gives the generic failure for any other format before logical namespace access. It performs no conversion.
 Legacy Cloud Sync is removed. No configuration can activate it.
-The V2 byte backup has a separate, disabled-by-default gate; its source availability does not establish production cloud readiness.
-
-The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.
-The [logical warm-set plan](lastdb-logical-warm-set-plan.md) records the current component boundaries.
-The primary and its archive do not participate in these checks.
+The V2 byte backup has a separate gate that defaults off. Its source availability does not establish production cloud readiness.
 
 ## Memory and write acknowledgements
 
-The core model owns current schemas, keys, confirmed absence, and fetched records (home format 7).
+The core model owns current schema definitions and fetched records.
 A fetch adds the full record at one key. Alternate entries stay on disk.
-Records and confirmed absence use the same warm byte budget, source controls, and whole-record purge.
+Records use one warm byte budget, the same source controls, and a whole-record purge.
 Private write preparation retains complete changes until disk commit.
-The commit then publishes clean logical records. Older calls retain their earlier values and memory charges until release.
-The recency list selects clean logical records for purge. It does not hold a second set of values.
-The warm set defaults to a 256 MiB byte limit. The former 10,000-record cap is retired.
+The commit then publishes clean records. Older calls retain their earlier values and memory charges until release.
+The recency list selects clean records for purge. It does not hold a second set of values.
+The warm set has a byte limit, 256 MiB by default. It has no record count limit.
 Separate allowances cover definitions, private writes, and temporary work.
 Those allowances do not define a whole-process memory maximum.
 
@@ -35,10 +29,8 @@ Logical requests carry no placement log across task
 scopes and blocking calls. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
-The retained dirty-record fields remain zero for compatibility.
-The warm set keeps decoded records only. The path, tip-only, field key and record counts remain zero for compatibility.
-Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
-Its tip-only count and warm lookup counters also come from the core.
+The warm set keeps decoded records only. Status fields of the retired path memory stay on the wire for installed clients and read 0.
+Normal status uses the core counts for its record count, holds, and purge total. Its warm lookup counters also come from the core.
 Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
 The separate background purge counters describe queued work, without another value store.
 
@@ -64,10 +56,10 @@ An admission refusal preserves the previous readable root. Output owners attempt
 
 ## Home fence
 
-Every node home is a format 4 home: disk format v2 with typed ranges.
-Its `laststore-pack-node-v1` marker holds `format=8\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
+Every node home is a format 8 home: disk format v2 with typed ranges and one record per key.
+Its node marker file `laststore-pack-node-v1` holds `format=8\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
 The run homes are complete before the marker appears.
-Startup refuses a home in any other format. It does not convert the files.
+Startup gives the generic failure for a home with any other marker. It does not convert the files.
 
 ## One read boundary
 
@@ -83,20 +75,19 @@ A miss uses the captured disk root and can admit the fetched record into the cor
 An incomplete dependency receipt permits body reuse but requires a normal current record read.
 Read errors do not become confirmed absence.
 
-A format 7 home has no separate field-key rows, so no schema key preload runs.
-`LASTDB_SCHEMA_PRELOAD_SCHEMAS` sets only a status flag. A range read reads the record keys under one hash.
+A range read reads the record keys under one hash.
 The warm set can remain partial. A partial set of records cannot prove range completeness.
 The current flat and compound key forms share one physical prefix union; they are not selectable older layouts.
 
 ## One complete mutation
 
-One native transaction collects its physical records and covered typed effects before publication.
+One native transaction collects its disk entries and covered typed effects before publication.
 The write gate selects the current comparison state for conditional writes.
-Logical values and confirmed absence become visible together with their key-membership changes.
+Records become visible together with their alternate entry changes.
 Purge operations use the same boundary.
 
 All requests remain private until disk commit, including raw, administrative, and replay operations.
-The commit updates key membership, invalidates changed sources, and installs covered clean values under one read boundary.
+The commit updates the alternate entries, invalidates changed sources, and installs covered clean records under one read boundary.
 An uncovered change clears affected core records before success.
 This queue is disk output and resource lifetime state, rather than an alternate source for ordinary reads.
 
@@ -114,12 +105,4 @@ Legacy Cloud Sync is removed. A local capture does not prove deployed cloud tran
 Sources: [request completion](../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs),
 [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs),
 [clean publication](../fold_db/crates/core/src/storage/disk_pack/view.rs),
-and [backup capture](../fold_db/crates/core/src/storage/disk_pack/byte_backup/capture.rs).
-
-## Historical receipts
-
-The [October 15 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-native-node-20261015/report.md) records the earlier development path and its debug comparison.
-That step required explicit engine activation. Its controls and measurements describe only its recorded source.
-The [7110c7f5 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-summary.json) measures a later historical candidate.
-Both receipts describe disk format v1, which is removed.
-Neither receipt establishes current performance, primary behavior, or upgrade readiness.
+and [backup capture](../fold_db/crates/core/src/storage/disk_backup/byte_backup/capture.rs).

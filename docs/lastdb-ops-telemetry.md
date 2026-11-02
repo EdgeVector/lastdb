@@ -37,7 +37,7 @@ not amplify the load being measured. Durable history is the sampler's job and
 is bounded by design: its default sink is a JSONL log under the node home
 (`logs/self-metrics.jsonl`), and setting `LASTDB_SELF_METRICS_TO_DB=1` on the
 daemon additionally persists per-minute *aggregate deltas* as
-`lastdb_telemetry/RequestOpsRollup` rows — never per-request samples. See
+`lastdb_telemetry/RequestOpsRollup` records — never per-request samples. See
 [Durable request-ops rollups](#durable-request-ops-rollups---since) below.
 
 For the app/verb latency dashboard, run:
@@ -66,8 +66,8 @@ It also ranks **request body bytes by caller** (`Top by request body bytes`):
 for each `(client, kind, schema)` key the node sums the HTTP request body sizes
 it already records on every sample. That is the cheap answer to "who is stuffing
 the node" — write volume by caller — complementary to the wall-time
-ranking. It is **not** net disk growth (tips, indexes, and history amplify
-beyond the request body). The table is omitted when every work key has a zero
+ranking. It is **not** net disk growth (alternate entries, field history and
+blob counters add bytes beyond the request body). The table is omitted when every work key has a zero
 body sum. Compact `lastdb ops --by-app` appends `body_sum=` / `body_max=` on
 app/verb rows that recorded any body bytes.
 
@@ -75,7 +75,7 @@ app/verb rows that recorded any body bytes.
 
 The in-memory ring and aggregate table reset on daemon restart. For history
 that survives restarts, the self-metrics sampler (60s cadence) writes bounded
-`lastdb_telemetry/RequestOpsRollup` rows when the daemon runs with
+`lastdb_telemetry/RequestOpsRollup` records when the daemon runs with
 `LASTDB_SELF_METRICS_TO_DB=1`. This is opt-in and off by default; without it
 the sampler only appends to the JSONL log. Read the durable window with:
 
@@ -83,10 +83,10 @@ the sampler only appends to the JSONL log. Read the durable window with:
 lastdb ops --since 6h
 ```
 
-`--since` queries the rollup rows in the window and merges them into the same
+`--since` queries the rollup records in the window and merges them into the same
 offender tables the live view uses.
 
-Each row is one `(client, kind, schema)` bucket for one sample interval and
+Each rollup record is one `(client, kind, schema)` bucket for one sample interval and
 carries interval **deltas** for `count`, `sum_ms`, `error_count`,
 `sum_body_bytes` (write volume), the per-phase mutation timing sums
 (`sum_queue_wait_us`, `sum_admission_wait_us`, `sum_parse_us`,
@@ -98,7 +98,7 @@ stay delta-able and merge by addition.
 
 Compatibility is append-only in both directions, except for the removed
 `sum_cold_shard_loads` field: the sampler upgrades the
-rollup schema in place when it sees missing fields, and rows written before a
+rollup schema in place when it sees missing fields, and records written before a
 field shipped read back as 0 — for phase fields that means "no phases
 reported", not a measurement of zero.
 
@@ -108,9 +108,9 @@ store that registered the field keeps it until a missing field starts the next
 upgrade. The sampler does not write the field, and `--since` does not read it.
 
 Known limitation: the sampler's delta baselines are kept for the life of the
-process and never pruned. If an aggregate bucket is evicted from the bounded
+process and never pruned. If an aggregate bucket is removed from the bounded
 in-memory table and later recreated, its cumulative counters restart at zero
-while the stale baseline persists, so that bucket under-reports in rollup rows
+while the stale baseline persists, so that bucket under-reports in rollup records
 until its counters pass the old baseline.
 
 ## Request phases (slow-write triage)
@@ -201,26 +201,28 @@ This read does not wake the flush worker.
 
 | Field | Meaning |
 | --- | --- |
-| `warm_records`, `warm_record_limit` | Current logical path count and its cap, which defaults to 10,000. |
-| `core_warm_held`, `core_warm_dirty` | Logical paths held by calls or protected until flush. |
-| `core_warm_hits`, `core_warm_misses`, `core_warm_purged` | Logical core lookup and purge counters. |
+| `warm_records`, `core_warm_records` | Current count of decoded records in the warm set. |
+| `core_warm_bytes` | The byte charge, the byte limit, the peak, and the purge totals of the warm set. |
+| `core_warm_held` | Records held by running calls. |
+| `core_warm_hits`, `core_warm_misses`, `core_warm_purged` | Core lookup and purge counters. |
 | `accepted_sequence`, `completed_sequence` | Accepted write frontier and completed disk frontier. |
 | `accepted_batches` | Accepted batches that still await complete disk publication. |
 | `writer_failed` | Native writer failure state. A failed writer cannot acknowledge another accepted view. |
 | `core_model.metadata_*` | Current, retained, used, peak, and limit bytes for core model metadata. |
 | `core_model.body_reserved_*` | Current and retained charged write-body owners, including captured older values. |
 | `core_memory` | Bounded definition memory, with hits, misses, refused admissions, and byte charges. |
-| `schema_keys` | Complete selected-schema key sets, their bytes, readiness, loads, and selection counters. |
+
+The fields `warm_record_limit`, `core_warm_paths`, `core_warm_field_keys`, `core_warm_dirty`
+and the path-only count stay on the wire for installed clients. They read 0.
 
 A queued reply alone does not establish a memory-only ACK.
-Sample the accepted and completed sequences, pending batches, and dirty paths immediately after the reply.
+Sample the accepted and completed sequences and the pending batches immediately after the reply.
 Explicit durable requests wait for disk.
 A queued request can also wait for disk when its reservation or typed coverage is insufficient.
-The [cutover receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
 `lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
-The logical key line reports the logical record count. It has no count limit; the warm set byte limit bounds it.
-The background purge counters describe queued purge tasks; they do not establish completion of all native logical writes.
+The `Logical keys:` line reports the count of warm records. It has no count limit; the warm set byte limit bounds it.
+The background purge counters describe queued purge tasks; they do not establish completion of all native writes.
 The direct native accepted/completed frontiers describe that completion.
 
 `status.resident` retains historical wire fields for existing readers.
@@ -229,7 +231,7 @@ A zero historical graph budget does not mean native memory is unbounded.
 The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
 The warm set byte limit (`LASTDB_CORE_WARM_BYTES`) is the one conservative process-reserve input.
-It does not size a native serving graph or a second logical cache.
+It does not size a second cache.
 `LASTDB_RESIDENT_MAX_DEFERRED_BYTES` controls the deferred write-body allowance.
-The native metadata, complete-key, and logical path limits remain separate.
+The native metadata limit stays separate.
 None of these counters defines a whole-process memory maximum.

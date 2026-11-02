@@ -14,7 +14,7 @@ See [the multi-key schema guide](multi-key-schemas.md).
 | Durable homes | |
 |---|---|
 | **Canonical model (umbrella)** | `docs/lastdb-canonical-model.md` |
-| **Core logical memory and native disk** | `docs/lastdb-rehydrate.md` |
+| **Core memory and native disk** | `docs/lastdb-rehydrate.md` |
 | **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` |
 | **Record lifecycle (delete, purge, TTL, file blobs)** | `docs/lastdb-canonical-model.md` §1 · `docs/lastdb-ttl-sweep.md` · `docs/lastdb-blob-counter.md` |
 | This file | `docs/lastdb-agent-access-model.md` |
@@ -78,7 +78,7 @@ You do **not** need the full engine lecture for day-to-day CRUD. Minimum:
 
 A Card with title+body+column is **one stored record**. The node does not join separate field values at read time.
 
-Deeper: `docs/lastdb-canonical-model.md` (the record, the write path, delete and TTL), `docs/lastdb-rehydrate.md` (memory and disk, written for the field key model).
+Deeper: `docs/lastdb-canonical-model.md` (the record, the write path, delete and TTL), `docs/lastdb-rehydrate.md` (the memory and disk routes).
 
 ### Shape rules
 
@@ -211,7 +211,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 | What | Where |
 |------|--------|
 | **Canonical model (schema → record → file blob and named keys)** | `docs/lastdb-canonical-model.md` |
-| **rehydrate (resident-first miss path, field key model)** | `docs/lastdb-rehydrate.md` |
+| **Memory and disk routes (warm set, fetch, flush)** | `docs/lastdb-rehydrate.md` |
 | **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` |
 | **Delete, purge, TTL, file blobs** | `docs/lastdb-canonical-model.md` §1 · `docs/lastdb-blob-counter.md` |
 | **TTL sweep and manifest retention** | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
