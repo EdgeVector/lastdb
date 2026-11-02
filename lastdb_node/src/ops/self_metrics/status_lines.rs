@@ -256,8 +256,8 @@ fn watchers_line(snapshot: &StatusSnapshot) -> String {
     )
 }
 
-/// The value limit applies to one field value of a peer record
-/// (`peer_import/records/admission.rs`). The JSON fields and the env var keep
+/// The status line reports the configured peer field value limit.
+/// No write path reads it. The JSON fields and the env var keep
 /// their `max_field_value` names for their readers.
 fn limits_line(snapshot: &StatusSnapshot) -> String {
     format!(

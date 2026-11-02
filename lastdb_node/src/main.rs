@@ -47,8 +47,8 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
         queue_capacity = worker_pool.queue_capacity(),
         "uds worker pool enabled (LASTDB_UDS_WORKERS / LASTDB_UDS_QUEUE)"
     );
-    // Peer write fence: the size of one field value in a peer record
-    // (default 256 KiB). The structured field keeps its `max_field_value_bytes`
+    // Status reports the configured peer field value limit (default 256 KiB).
+    // No write path reads it. The structured field keeps its `max_field_value_bytes`
     // name: the private diagnostics log allowlists it by that name.
     // Docs: fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md
     tracing::info!(

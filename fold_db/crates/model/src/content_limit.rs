@@ -1,12 +1,10 @@
 //! The fixed numbers and text of the field value size limit.
 //!
 //! These are data. Core resolves the effective limit for a process from the
-//! environment and logs the write outcome (`fold_db::content_limit`).
+//! environment (`fold_db::content_limit`). The status reports that limit.
 //!
 //! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
 //! writes. See `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`.
-
-use serde_json::Value;
 
 /// Product default hard limit (256 KiB). Prefer core's
 /// `max_field_value_bytes` at runtime so env overrides apply.
@@ -38,24 +36,3 @@ pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, 
     encoded value must fit the 64 KiB record cap. Move a large field to a file blob (CAS) and \
     keep its pointer in the record, or write a list that grows as one record per entry in a \
     HashRange schema (hash = partition, range = entry key).";
-
-/// Serialized byte length of field value JSON (`Value::to_string`).
-#[must_use]
-pub fn field_value_byte_len(content: &Value) -> usize {
-    content.to_string().len()
-}
-
-/// Fraction of the **effective** limit above which an accepted write is
-/// reported as running out of headroom.
-///
-/// A single-row list index that is rewritten in full on every mutation grows
-/// monotonically, so it does not fail until the write that crosses the ceiling
-/// — and that write is a half-commit, not a clean refusal. Reporting at 80%
-/// turns "it wedged" into "it will wedge", with bytes remaining, while there is
-/// still room to bound the document.
-pub const HEADROOM_ALARM_FRACTION: f64 = 0.8;
-
-/// A fraction outside `(0.5, 1.0)` is either constant noise or never fires.
-/// Enforced at compile time rather than in a test — both operands are constants,
-/// so a runtime assertion could never fail anyway.
-const _: () = assert!(HEADROOM_ALARM_FRACTION > 0.5 && HEADROOM_ALARM_FRACTION < 1.0);

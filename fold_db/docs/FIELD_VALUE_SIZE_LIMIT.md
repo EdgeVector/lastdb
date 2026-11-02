@@ -23,18 +23,16 @@ Only the final record of the request must fit. The store checks it after the las
 
 ## Peer field value limit
 
-`GET /api/status` also reports `limits.max_field_value_bytes`. The `Limits:` line of
-`lastdb status` prints it as `max_peer_field_value`. This limit applies to one field
-value of a peer record, not to a local write.
+`GET /api/status` reports `limits.max_field_value_bytes`. The `Limits:` line of
+`lastdb status` prints it as `max_peer_field_value`. No write path reads this
+limit. A local write uses the record cap above.
 
 | | |
 |--|--|
-| **What is limited** | One field value of a peer record (the JSON of one schema field) |
-| **How measured** | `serde_json::Value::to_string().len()`, before encryption |
+| **What the status shows** | The configured peer field value limit |
 | **Default** | **256 KiB** (`262_144` bytes) |
 | **Setting** | `LASTDB_MAX_FIELD_VALUE_BYTES` |
 | **Range** | 1 KiB to 1 MiB. A value outside the range clamps to the nearest end |
-| **Error** | `SchemaError::FieldValueTooLarge` → HTTP **413** `{ "error": "field_value_too_large", size, limit, hint, … }` |
 
 Units: plain integer bytes, or a `k`/`kb`/`kib` or `m`/`mb`/`mib` suffix (any case).
 An invalid value selects the 256 KiB default. The node reads the setting once at

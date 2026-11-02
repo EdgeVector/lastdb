@@ -123,10 +123,6 @@ The three values differ for one mutation.
 A replay of the same mutation gives a new `created_at` on a record with the same content UUID.
 The [warm set spike](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/docs/lastdb-core-model-warm-spike.md) (at the base commit, since removed) had to handle that case.
 
-`create_record` also reads a process global.
-It calls `enforce_field_value_limit`, which reads `max_field_value_bytes()`.
-That function returns a `OnceLock` value from `LASTDB_MAX_FIELD_VALUE_BYTES`.
-
 ### Problem 2: a decision and its effects in one function
 
 The backup planner is in
