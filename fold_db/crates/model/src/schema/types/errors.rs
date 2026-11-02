@@ -235,5 +235,3 @@ impl fmt::Display for SchemaError {
 impl std::error::Error for SchemaError {}
 
 mod responses;
-
-mod storage;
