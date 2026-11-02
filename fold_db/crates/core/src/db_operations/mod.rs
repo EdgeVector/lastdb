@@ -11,7 +11,6 @@ pub mod delete_ledger;
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
 pub mod keep_small;
-pub mod lineage_index;
 pub mod metadata_store;
 pub mod record_store;
 /// Field key bundles are storage key material; the store lives in
@@ -65,7 +64,6 @@ pub use core::{
     with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, DbOperations,
     KeyForm, PageEnd, PageResume, QueryRowDrops,
 };
-pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;
 pub use public_key_store::PublicKeyStore;
 pub use schema_operations::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
