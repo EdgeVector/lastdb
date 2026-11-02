@@ -52,7 +52,7 @@ class OwnedNode:
         # The setup route below is local. Unexpected catalog requests cannot reach a service.
         self.environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
                             "HOME": str(self.root / "os-home"), "TMPDIR": str(self.root / "tmp"),
-                            "LASTDB_HOME": str(self.home), "FOLDDB_HOME": str(self.home),
+                            "LASTDB_HOME": str(self.home),
                             "LASTDB_ISOLATED_COPY": "1", "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
                             "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev", "RUST_MIN_STACK": "16777216",
                             "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",

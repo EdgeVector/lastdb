@@ -13,7 +13,7 @@
 //!
 //! ## What it records
 //!
-//! Two files under `$FOLDDB_HOME`:
+//! Two files under `$LASTDB_HOME`:
 //!
 //! - `sessions.jsonl` — append-only ledger, one [`SessionRecord`] per line. The
 //!   newest line is the current session. A graceful shutdown first records

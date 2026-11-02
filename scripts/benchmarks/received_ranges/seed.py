@@ -63,7 +63,7 @@ class Seed:
             if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))
             and name not in ("GH_TOKEN", "GITHUB_TOKEN")}
         environment.update(self.node.settings, LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-            LASTDB_HOME=str(self.node.home), FOLDDB_HOME=str(self.node.home), RUST_MIN_STACK="16777216")
+            LASTDB_HOME=str(self.node.home), RUST_MIN_STACK="16777216")
         log_path = self.node.output / "seed.log"
         with log_path.open("ab") as log:
             result = subprocess.run([str(self.helper), str(self.node.home), str(path)], env=environment,

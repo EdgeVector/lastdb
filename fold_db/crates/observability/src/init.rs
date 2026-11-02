@@ -14,7 +14,7 @@
 //!
 //! | helper                  | FMT target               | RELOAD | RING | Sentry |
 //! |-------------------------|--------------------------|--------|------|--------|
-//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (honor-both: `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb` ▸ new `~/.lastdb`) | yes | yes | env-gated |
+//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (`LASTDB_HOME` ▸ `~/.lastdb`) | yes | yes | env-gated |
 //! | [`init_lambda`]         | stdout                   | yes    | no   | env-gated |
 //!
 //! ## Single-init invariant
@@ -172,9 +172,8 @@ impl Drop for ObsGuard {
 ///
 /// Layers (always wired): redacting JSON FMT writing to the node log file
 /// resolved by [`default_node_log_path`] (`OBS_FILE_PATH` ▸
-/// `<node-home>/observability.jsonl`, where the node home is the honor-both
-/// `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb`
-/// ▸ new `~/.lastdb` — the same dir the data lives in) +
+/// `<node-home>/observability.jsonl`, where the node home is `LASTDB_HOME` ▸
+/// `~/.lastdb` — the same dir the data lives in) +
 /// RELOAD + RING + a `tracing-opentelemetry` layer riding a no-op
 /// [`opentelemetry_sdk::trace::TracerProvider`] that stamps W3C `trace_id` /
 /// `span_id` onto every span.

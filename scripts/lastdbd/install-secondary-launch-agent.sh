@@ -200,7 +200,6 @@ export OBS_SENTRY_DSN="\$dsn"
 export OBS_SENTRY_ENVIRONMENT=$(shell_quote "$environment")
 export OBS_SENTRY_INSTALL_ID=$(shell_quote "$install_id")
 export LASTDB_HOME=$(shell_quote "$home_dir")
-export FOLDDB_HOME="\$LASTDB_HOME"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
 
 exec $(shell_quote "$lastdbd_bin") --data-dir "\$LASTDB_HOME"

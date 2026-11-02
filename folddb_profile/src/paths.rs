@@ -1,10 +1,7 @@
-//! LastDB / FoldDB node-home path resolution + tilde expansion.
+//! LastDB node-home path resolution + tilde expansion.
 //!
-//! A single resolver controls where all instance-specific state lives. As of
-//! the FoldDB→LastDB rename (Phase 1) the resolution is **non-destructive and
-//! honor-both**: new installs land in `~/.lastdb`, while existing installs keep
-//! reading their `~/.folddb` (or whatever `FOLDDB_HOME`/`LASTDB_HOME` points
-//! at) in place with ZERO data movement. See [`folddb_home`].
+//! A single resolver controls where all instance-specific state lives:
+//! `LASTDB_HOME` when it is set, else `~/.lastdb`. See [`folddb_home`].
 //!
 //! This family used to live in `fold_db_node::utils::paths`; the node-home
 //! resolution + tilde-expansion helpers moved here so the profile loader (and
@@ -15,87 +12,30 @@
 
 use std::path::{Path, PathBuf};
 
-/// Directory name for a fresh (new-install) node home.
+/// Directory name of the default node home.
 pub const LASTDB_DIR: &str = ".lastdb";
-/// Directory name for a legacy node home (pre-rename installs).
-pub const FOLDDB_DIR: &str = ".folddb";
-/// Canonical node-home override.
+/// Node-home override.
 pub const LASTDB_HOME_ENV: &str = "LASTDB_HOME";
-/// Legacy node-home override; still honored after [`LASTDB_HOME_ENV`].
-pub const FOLDDB_HOME_ENV: &str = "FOLDDB_HOME";
 
-/// Resolve the node-home directory.
+/// Resolve the node-home directory: the `LASTDB_HOME` environment variable
+/// when it is set, else `~/.lastdb` (created on demand by the caller). This
+/// resolver never moves or copies data.
 ///
-/// Priority (the FoldDB→LastDB honor-both resolution order — explicitly
-/// non-destructive: this resolver NEVER moves or copies anyone's data, it only
-/// *chooses which existing directory to read*, or names the one to create):
-/// 1. `LASTDB_HOME` environment variable (if set) — the new canonical override.
-/// 2. `FOLDDB_HOME` environment variable (if set) — the legacy override, still
-///    honored so existing launch-agents / scripts / `run.sh` keep working.
-/// 3. `~/.lastdb` *if it already exists* — a node already migrated to the new
-///    home keeps using it.
-/// 4. `~/.folddb` *if it already exists* — an EXISTING (pre-rename) install,
-///    including Tom's live `:9001` brain, keeps reading its data in place. No
-///    move, no copy.
-/// 5. `~/.lastdb` (created on demand) — a brand-new install with neither legacy
-///    nor new home present gets the new default.
+/// The env value goes through [`expand_tilde`] so a literal `~/.lastdb`
+/// (e.g. from a launch-agent plist or a script that wrote the value without
+/// shell expansion) doesn't reach `create_dir_all` with the literal `~`
+/// intact, which would create a stray `<cwd>/~/` directory.
 ///
-/// Net effect: NEW installs use `~/.lastdb`; EXISTING installs keep reading
-/// `~/.folddb` with zero movement; an explicit `LASTDB_HOME`/`FOLDDB_HOME`
-/// override wins over both. Migrating an existing home to `~/.lastdb` is an
-/// explicit, opt-in operation a user performs deliberately — never automatic.
-///
-/// Env-var values are routed through [`expand_tilde`] so a literal `~/.folddb`
-/// (e.g. from a launch-agent plist, Tauri env-injection, or a script that wrote
-/// the value without shell expansion) doesn't reach `create_dir_all` / sled
-/// with the literal `~` intact — that's the failure mode that left 596 MB of
-/// live sled state under `/Users/example/~/.folddb/data/db` on Tom's machine
-/// and a stray `./~/` directory in fbrain's cwd during the 2026-05-27 dogfood.
-///
-/// Returns an error if either: (a) an env override is set to a `~`-prefixed
+/// Returns an error if either: (a) `LASTDB_HOME` is set to a `~`-prefixed
 /// value but `HOME` is unresolvable (per [`expand_tilde`] — no silent fall back
-/// to a literal-`~` path), or (b) no env override is set AND the home directory
-/// cannot be determined.
+/// to a literal-`~` path), or (b) `LASTDB_HOME` is not set AND the home
+/// directory cannot be determined.
 pub fn folddb_home() -> Result<PathBuf, String> {
-    // 1. New canonical override.
     if let Ok(home) = std::env::var(LASTDB_HOME_ENV) {
         return expand_tilde(&home);
     }
-    // 2. Legacy override (kept working).
-    if let Ok(home) = std::env::var(FOLDDB_HOME_ENV) {
-        return expand_tilde(&home);
-    }
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
-    Ok(resolve_default_node_home(&home, Path::is_dir))
-}
-
-/// Pure resolution of the *default* node home (steps 3–5 of [`folddb_home`])
-/// from an explicit `$HOME` and an injectable directory-existence predicate.
-///
-/// Factored out so the resolution ORDER can be unit-tested deterministically
-/// WITHOUT mutating the process-global `HOME` env var (which would race every
-/// other test that calls `folddb_home()` in parallel). Env-override handling
-/// (steps 1–2) stays in [`folddb_home`] since it reads process env directly.
-///
-/// Order: an existing `~/.lastdb` wins (already-migrated); else an existing
-/// `~/.folddb` is read in place (existing install — zero movement); else a new
-/// `~/.lastdb` (brand-new install). `dir_exists` is the "is this an existing
-/// directory?" test (`Path::is_dir` in production).
-fn resolve_default_node_home(home: &Path, dir_exists: impl Fn(&Path) -> bool) -> PathBuf {
-    let lastdb = home.join(LASTDB_DIR);
-    // 3. An already-migrated new home wins.
-    if dir_exists(&lastdb) {
-        return lastdb;
-    }
-    // 4. An existing legacy home is read in place (zero movement) — this is the
-    //    path Tom's live :9001 brain takes.
-    let folddb = home.join(FOLDDB_DIR);
-    if dir_exists(&folddb) {
-        return folddb;
-    }
-    // 5. Brand-new install: default to the new home (created on demand by the
-    //    caller's create_dir_all).
-    lastdb
+    Ok(home.join(LASTDB_DIR))
 }
 
 /// Expand a leading `~` or `~/` to the current user's home directory.

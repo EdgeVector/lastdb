@@ -34,7 +34,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::layers::ring::RingHandle;
 
-/// Sub-directory under `$FOLDDB_HOME` where crash reports are written.
+/// Sub-directory under `$LASTDB_HOME` where crash reports are written.
 pub const CRASH_REPORTS_DIR: &str = "crash-reports";
 
 /// Maximum number of crash-report files to retain. Pruned at startup
@@ -44,7 +44,7 @@ pub const MAX_CRASH_REPORTS: usize = 20;
 /// Marker file recording the wall-clock of the most recent clean start, used
 /// by [`scan_and_warn_previous_crashes`] to decide which reports are "new"
 /// (written since the last time the operator saw a startup). Lives alongside
-/// the reports so a single `FOLDDB_HOME` scopes both.
+/// the reports so a single `LASTDB_HOME` scopes both.
 const LAST_START_MARKER: &str = ".last-clean-start";
 
 /// Callback invoked (best-effort) right after a crash report is written to
@@ -58,7 +58,7 @@ pub type OnReportWritten = Arc<dyn Fn(&Path) + Send + Sync + 'static>;
 /// Immutable, bounded context captured once when the report hook is installed.
 #[derive(Clone)]
 pub struct CrashContext {
-    /// Directory crash reports are written to (`$FOLDDB_HOME/crash-reports`).
+    /// Directory crash reports are written to (`$LASTDB_HOME/crash-reports`).
     dir: PathBuf,
     /// Numeric package version, or the fixed `unknown` marker.
     version: Arc<str>,

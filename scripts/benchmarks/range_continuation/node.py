@@ -118,7 +118,7 @@ class Node:
                        if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))
                        and name not in ("GH_TOKEN", "GITHUB_TOKEN")}
         environment.update(self.settings, LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-            LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home), RUST_MIN_STACK="16777216")
+            LASTDB_HOME=str(self.home), RUST_MIN_STACK="16777216")
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen([str(self.binary), "--data-dir", str(self.home),
             "--socket-path", str(self.socket), "--full-socket-path", str(self.root / "f.sock")],

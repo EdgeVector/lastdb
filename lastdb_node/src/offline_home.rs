@@ -1,8 +1,7 @@
 //! Primary-home guards and key loading for the current storage recovery proof.
 //!
-//! Each binary used to carry its own copy of the primary-home guard. Two copies
-//! checked only `~/.lastdb` and let the legacy `~/.folddb` home through. One
-//! definition keeps every tool on the same list of protected homes.
+//! One definition of the primary-home guard keeps every tool on the same
+//! protected home.
 
 use std::fs::OpenOptions;
 use std::os::unix::net::UnixStream;
@@ -15,16 +14,13 @@ use serde::Serialize;
 
 use crate::session_ledger::{read_last_record, read_shutdown_flush_receipt};
 
-/// Directory names under `$HOME` that hold a live primary or legacy primary home.
-pub const PRIMARY_HOME_DIR_NAMES: [&str; 2] = [".lastdb", ".folddb"];
-
 fn user_home() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| "HOME unset".to_string())
 }
 
-/// Refuse `path` when it is, or lies under, a primary or legacy primary home.
+/// Refuse `path` when it is, or lies under, the primary home `~/.lastdb`.
 ///
 /// A path that does not exist yet is resolved through its nearest existing
 /// ancestor, so a missing path under a primary home is still refused.
@@ -34,14 +30,12 @@ pub fn refuse_primary(path: &Path) -> Result<(), String> {
 
 fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     let abs = canonicalize_lenient(path);
-    for name in PRIMARY_HOME_DIR_NAMES {
-        let primary_abs = canonicalize_lenient(&user_home.join(name));
-        if abs == primary_abs || abs.starts_with(&primary_abs) {
-            return Err(format!(
-                "refusing primary/legacy path {} — use a CoW copy first",
-                abs.display()
-            ));
-        }
+    let primary_abs = canonicalize_lenient(&user_home.join(folddb_profile::paths::LASTDB_DIR));
+    if abs.starts_with(&primary_abs) {
+        return Err(format!(
+            "refusing primary path {} — use a CoW copy first",
+            abs.display()
+        ));
     }
     Ok(())
 }

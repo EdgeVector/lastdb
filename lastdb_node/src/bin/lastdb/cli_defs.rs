@@ -58,7 +58,7 @@ pub(super) fn admin_scan_client_timeout() -> Duration {
     version = env!("FOLDDB_BUILD_VERSION")
 )]
 pub(super) struct Cli {
-    /// Node home directory (default: LASTDB_HOME / FOLDDB_HOME / service-home / ~/.lastdb).
+    /// Node home directory (default: LASTDB_HOME / service-home / ~/.lastdb).
     #[arg(long)]
     pub(super) data_dir: Option<PathBuf>,
 
