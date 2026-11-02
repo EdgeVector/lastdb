@@ -7,17 +7,17 @@ schema that has a retention policy. The age rule is in
 two verbs, what each verb leaves on disk, the guard for rewritten keys, the batch size, the
 pacing, the knobs and the status.
 
-Every home is format 7. A home stores one record for each key (`rk:`). A TTL erase changes that
-record into a tombstone. It does not remove the record row.
+A format 8 home stores one record for each key (`rk:`). A TTL erase changes that record into a
+tombstone. It does not remove the record.
 
-The default verb is `purge`. It also releases the field history and the kept conflict rows of
+The default verb is `purge`. It also releases the field history and the kept conflict records of
 the record. `delete` keeps them until their own windows end.
 The owner can raise the home-wide [replay cutoff](delete-replay-cutoff.md) on a stopped home.
 
 ## Schema shape that a TTL needs
 
 A TTL deletes records for good. The sweep finds the expired keys without a scan only when the schema
-has the right shape (`docs/app-manifest-retention.md`). A format 7 home has only Hash and HashRange
+has the right shape (`docs/app-manifest-retention.md`). A format 8 home has only Hash and HashRange
 schemas.
 
 - A HashRange schema needs a range key that starts with 20 digits of unix seconds, zero-padded.
@@ -91,8 +91,8 @@ A page holds at most 64 keys, and fewer for a wide schema (Batch size and the re
    nothing, so `delete` has no such retry.
 9. A listing error or a batch error ends that schema for this pass. The sweep logs it once with
    the schema name, counts it, and goes on with the other schemas. A pass in which no schema
-   succeeded counts as failed. After three failed passes in a row the sweep waits before each next
-   pass: 5 minutes, then 10, 20 and 40 minutes, and 1 hour at most for every pass after that. It
+   succeeded counts as failed. After three failed passes one after the other, the sweep waits
+   before each next pass: 5 minutes, then 10, 20 and 40 minutes, and 1 hour at most for every pass after that. It
    writes one `ttl sweep waits before the next pass` line at the start of each wait. The `Local
    retention:` line shows `failures`, and a `sweep_waits:` line shows `next_attempt_unix_secs`
    while the wait lasts. A pass in which one schema succeeded ends the wait and resets the count.
@@ -102,8 +102,8 @@ A page holds at most 64 keys, and fewer for a wide schema (Batch size and the re
 
 | `LASTDB_TTL_SWEEP_VERB` | Meaning |
 |---|---|
-| `purge` (default) | The hard-erasure verb. It changes the record into a tombstone, releases every field history entry of the record, and deletes its kept conflict rows. It refuses a key that is already gone. |
-| `delete` | The ordinary delete a client uses. It changes the record into a tombstone. A field with a history policy keeps the old value as a history entry. The kept conflict rows stay until their window ends. |
+| `purge` (default) | The hard-erasure verb. It changes the record into a tombstone, releases every field history entry of the record, and deletes its kept conflict records. It refuses a key that is already gone. |
+| `delete` | The ordinary delete a client uses. It changes the record into a tombstone. A field with a history policy keeps the old value as a history entry. The kept conflict records stay until their window ends. |
 
 Any other value logs one warning at the first sampler tick and uses `purge`. The delete ledger
 (`lastdb db delete-ledger`) names the caller of each erase: `ttl-sweep-purge` or `ttl-sweep-delete`.
@@ -116,7 +116,7 @@ Both verbs do these steps in the same batch as the tombstone:
   hour by default; `docs/lastdb-blob-counter.md`).
 - They remove the age entries of the record from the retention index.
 - They apply the same delete floor to the share copies of the record.
-- They write one hard-delete audit row (`dellog`) for each verb, caller and schema group.
+- They write one hard-delete audit entry (`dellog`) for each verb, caller and schema group.
 
 Neither verb writes a delete barrier or a delete marker. The tombstone holds the delete floor.
 
@@ -129,9 +129,9 @@ purge with `purge its field history (field-history purge) before the record`
 ## Why `purge` is the default
 
 A TTL is a promise that the expired data goes. `purge` keeps that promise in one batch: the
-record values, the field history and the kept conflict rows go together. `delete` keeps the old
-values in field history for each field with a history policy, and keeps the conflict rows until
-their retention window ends. A TTL schema with a history policy then keeps expired values on disk
+record values, the field history and the kept conflict records go together. `delete` keeps the
+old values in field history for each field with a history policy, and keeps the conflict records
+until their retention window ends. A TTL schema with a history policy then keeps expired values on disk
 after the sweep.
 
 Both verbs leave the same tombstone, and both stop an older write from bringing the key back
@@ -145,7 +145,7 @@ Both verbs leave the same tombstone, and both stop an older write from bringing 
   delete.
 - No sweep removes a tombstone. A schema drop removes the records of the schema, tombstones
   included.
-- `delete` only: the field history entries and the kept conflict rows, until their own windows end.
+- `delete` only: the field history entries and the kept conflict records, until their own windows end.
 
 The default remains `purge`. No timer infers a maximum offline time for a device.
 The owner selects the home-wide replay cutoff (`layout:delete-replay-cutoff`) explicitly.
@@ -162,7 +162,7 @@ The sweep sends the cutoff of the batch with each erase of a Hash key. The erase
 native write scope and reads the record:
 
 - A record written at or after the cutoff (its newest field stamp) is spared. The erase changes
-  nothing for that key and writes no audit row for it. The other keys of the batch go on.
+  nothing for that key and writes no audit entry for it. The other keys of the batch go on.
 - An expired record becomes a tombstone with its floor at the cutoff: a local write of this device
   at the cutoff time. A write with a later stamp from any device stays.
 
@@ -182,8 +182,8 @@ One erase request stages all its chunks of 64 keys in one native batch. A batch 
 The sweep cuts its batch to the smaller of the pace (`LASTDB_TTL_SWEEP_BATCH`, default 16) and the
 key count that the estimate in `fold_db_core/purge/budget.rs` allows for the schema. For F fields,
 the estimate counts 4 operations and 12 reads for each key and field in a `purge`, 5 and 13 in a
-`delete`, and `F + 8` of each for every chunk. The estimate keeps the per-field cost of the format 6
-erase. A format 7 erase writes one record for each key, so the estimate is conservative.
+`delete`, and `F + 8` of each for every chunk. The estimate charges a cost for each field. A
+format 8 erase writes one record for each key, so the estimate is conservative.
 
 | Schema | `purge` | `delete` |
 |---|---|---|
@@ -215,7 +215,7 @@ A sticky writer watch retains the duty share for sparse writers.
 When no other writer remains, the rest returns to its configured minimum.
 The watch persists between passes. A long rest ends early after the quiet period.
 
-Private janitor, dwell, and drain batches can share the bounded collection window.
+Private janitor and dwell batches can share the bounded collection window.
 They still return after durability. Their ordinary measured cost includes the gate and shared flush holds.
 See `docs/lastdb-eager-durable-queue.md` and `docs/lastdb-time-queue.md`.
 
@@ -223,8 +223,8 @@ A stop waits for the batch in flight. It cannot cancel it.
 
 ## Measured cost
 
-This page keeps no format 7 measurement. The benchmark workflow measures TTL purge batches during
-its write window on every measured run: see the active TTL cases in `scripts/benchmarks/README.md`.
+This page keeps no measurement. The benchmark workflow measures TTL purge batches during its
+write window on every measured run: see the active TTL cases in `scripts/benchmarks/README.md`.
 The result is in `ttl-active/` inside the CI artifact, with a separate CI summary.
 
 ## Knobs
@@ -256,7 +256,7 @@ key counts and `took_ms`.
 | `passes` | The passes in which a schema succeeded, for the life of the process. |
 | `rows_reaped` | The keys that the sweep sent to an erase, spared keys included. |
 | `last_sweep_unix_secs` | The end of the last pass in which a schema succeeded, or `never`. |
-| `failures` | The failed passes in a row. |
+| `failures` | The failed passes since the last pass in which a schema succeeded. |
 | `in_flight` | A pass runs now. |
 | `settled` | The last pass sent no key and finished its backlog. A new pass sets it to false while it runs. |
 

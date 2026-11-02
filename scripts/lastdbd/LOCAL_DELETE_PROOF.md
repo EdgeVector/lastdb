@@ -26,7 +26,7 @@ A successful result contains these checks:
 - One record from each schema receives a durable Delete receipt.
 - Both deleted keys remain absent with `include_tombstones` false and true.
 - Both retained controls preserve their exact keys and fields in both modes.
-- Every query returns a complete page, with zero unresolved rows and zero tombstone rows.
+- Every query returns a complete page: `has_more` is false, `next_cursor` is null, and the page reports its key form.
 - Two distinct cold daemon processes repeat all checks after graceful exits.
 - All three owned daemon processes exit. The exact owned database directory is removed.
 
@@ -35,16 +35,6 @@ The default limits are 180 seconds, 2 GiB per child, and a 2 GiB free disk reser
 The command suppresses raw daemon output and the recovery phrase.
 The command never reads production credentials or changes a shared daemon.
 
-This proof checks local logical erasure and restart durability.
+This proof checks local erasure and restart durability.
 It does not certify record reclamation, disk byte return, cloud publication, or cloud recovery.
 Use the small cloud proof next. Use the full production restore for the final recovery check.
-
-## Offline supervisor tests
-
-```sh
-python3 -m unittest discover \
-  -s scripts/lastdbd/tests -p test_prove_local_deletes.py
-```
-
-The process fixture tests supervisor behavior and failure reports.
-They do not replace the proof against the real installed daemon.

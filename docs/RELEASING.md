@@ -63,18 +63,14 @@ Workflow: [`.github/workflows/nightly-canary.yml`](../.github/workflows/nightly-
 Promote a green canary to stable brew:
 
 ```bash
-# same commit as the canary tip (or current main once green)
+# same commit as the canary head (or current main once green)
 git tag -a v0.22.8 -m "v0.22.8" <sha>
 git push github v0.22.8
 ```
 
-**Upgrade-decrypt gate: removed (2026-10-26).** The 0.23 line was a hard
-break from the public `0.22.9` sled homes (Tom 2026-07-24), and `release.yml`
-had skipped the gate since then. The skipped step and
-`scripts/release/validate-mini-upgrade-decrypt.sh` are gone. **No in-place
-upgrade path from 0.22.x sled is promised.** Fresh-install gate remains
-required. The program also refuses a disk format v1 home (decision D1,
-2026-10-26), so no in-place upgrade path from disk format v1 exists either.
+**No in-place upgrade of an older home.** A release opens only a format 8
+home. Copy the records of an older home into a fresh home. The fresh-install
+gate remains required.
 
 **Semantic-search release posture:** Homebrew LastDB Mini ships the default
 `lastdb` and `lastdbd` binaries fastembed/ONNX-free. Shadow-pack/FastEmbed

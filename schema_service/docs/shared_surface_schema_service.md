@@ -164,15 +164,15 @@ Rust types and validation live in
 | --- | --- |
 | `SharedSurfacePublishAttachRequest` | Explicit publish/attach body (`local_schema_id` + `surface`) |
 | `validate_shared_surface_request` / `validate_surface_metadata` | Reject missing/invalid sharing intent |
-| `RegistrationClass` + `classify_registration` | Classify one row: shared / private_legacy_bootstrap / system_owned / unknown |
+| `RegistrationClass` + `classify_registration` | Classify one registration: shared / private_legacy_bootstrap / system_owned / unknown |
 | `include_in_shared_only_projection` | Shared-only resolver rule (excludes private, unknown, superseded) |
 | `observe_legacy_schema_caller` | Observe-mode metric on legacy `POST /v1/schemas` |
 
-`include_in_shared_only_projection` decides one row.
+`include_in_shared_only_projection` decides one registration.
 `project_snapshot_shared_only` filters a snapshot.
-Attachment metadata is not persisted on schema rows yet.
+Attachment metadata is not persisted on schema registrations yet.
 Until it is, projection includes system-owned seeds only and private
-legacy bootstrap rows stay out of resolver packs.
+legacy bootstrap registrations stay out of resolver packs.
 
 **Resolver-pack source dataset (PR 1):**
 

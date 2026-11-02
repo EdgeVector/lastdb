@@ -1,17 +1,13 @@
-# Field history sidecar
+# Field history
 
-> **Model note (2026-11-01).** This page was written for the field key model:
-> schema → field → field key → record → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
-> page differs.
+A record holds the current value of each field. Optional field history keeps
+copies of old field values. Each history entry holds its own copy of one old
+field value and the stamp of that value. A file blob that the copy names holds
+one blob reference while the entry lives.
 
-LastDB keeps the current tip in each field key. Optional history records retain
-the records that earlier tips used. Each history record owns one record reference
-and the file references held only by its old tip metadata.
-
-The sidecar does not copy a field key, an unchanged field, or a record body.
-History reads use the known schema, field, and key. They do not change normal
-queries or provide a complete record at a past time.
+History does not copy the whole record or an unchanged field. History reads use
+the known schema, field, and key. They do not change normal queries or provide a
+complete record at a past time.
 
 ## Field policy
 
@@ -21,16 +17,16 @@ The default is `off`.
 
 | Mode | Result |
 | --- | --- |
-| `off` | Future changes create no ordinary history. |
+| `off` | Future changes create no history. |
 | `keep` | Retain each replaced value until an explicit purge. |
 | `ttl` | Retain each replaced value for the configured positive number of seconds. |
 
-The TTL starts when the value leaves the current tip. It does not expire a
-current value. A policy change affects future entries only. Existing entries
-keep their original expiry.
+The TTL starts when the value leaves the record. It does not expire a current
+value. A policy change affects future entries only. Existing entries keep their
+original expiry.
 
-A policy that enables history writes the home row `layout:field-history`
-with the value `on`. A later change to `off` does not remove the row.
+A policy that enables history writes the home entry `layout:field-history`
+with the value `on`. A later change to `off` does not remove that entry.
 
 ```sh
 lastdb history Notes body policy
@@ -52,30 +48,31 @@ lastdb history Notes body --key-hash note-one restore <entry-id> --expected-muta
 lastdb history Notes body --key-hash note-one restore <entry-id> --absent
 ```
 
-Add `--key-range` for a key with a range. The commands return JSON.
-The list response contains entries, a continuation cursor, and the current
-record and mutation identities. The default page holds at most 32 entries.
-The maximum page holds 100 entries. Entry order has no time guarantee.
+Add `--key-range` for a key with a range. The commands use the owner route
+`POST /api/field-history` and return JSON. The list response contains the
+current value, the entries, and a continuation cursor. The default page holds at
+most 32 entries. The maximum page holds 100 entries. Entry order has no time
+guarantee.
 
-Restore creates a normal new mutation. It retains the old file metadata.
-The mutation checks the expected current write identity or an absent field
-inside the normal conditional write path. A concurrent change returns a
-conflict and writes nothing. The write updates the related field keys.
+Restore creates a normal new mutation with the copied value.
+The mutation checks the expected current mutation or an absent field inside the
+normal conditional write path. A concurrent change returns a conflict and writes
+nothing.
 
-An expired entry is unavailable even while disk cleanup waits.
+An expired entry is unavailable, also before the expiry worker deletes it.
 Only the owner socket exposes the history API. Current database access
 controls the restore. History does not grant another app access.
 
 ## Delete and purge
 
-An ordinary delete archives the current value under its field policy.
-It keeps earlier ordinary history and the normal delete barrier.
-Conflict records keep their separate delete and retention rules.
+A `delete` copies the current value of each field with a history policy into a
+history entry. It keeps the earlier history. The tombstone of the record holds
+the delete floor. Kept conflict records keep their separate retention rules.
 
-A key purge releases the current and historical references of its selected
-paths. A large purge uses the existing bounded directory drain.
-Schema removal releases paths that lose their final binding. Another schema
-or database can still hold a shared record.
+A `purge` of a key releases every history entry of the record in its own batch.
+One purge releases at most 1,024 history entries of one record. A record with
+more refuses the purge until its field history is purged. A schema drop releases
+the history entries of the schema (`docs/lastdb-schema-drop.md`).
 
 To remove history while the current value stays:
 
@@ -88,60 +85,54 @@ Repeat with the returned cursor until `complete` is true.
 Each call changes one bounded page. A page can contain no live entries and
 still return a cursor after deleted keys.
 
-Purge does not remove another scope's references, revoke prior backups, or
-change the existing replay rules.
+Purge does not remove the history of another scope, revoke earlier backups, or
+change the replay rules.
 
-## Atomic reference changes
+## Keys and one batch
 
-The final tip decision, archive entry, file holds, expiry queue entry, and
-reference counters join one native request batch.
-A capture failure fails the write. A crash keeps the complete batch or none.
-A repeated transition adds no reference and resets no expiry.
+| Entry | Key |
+| --- | --- |
+| History entry | `rh:{S}:{sha256(record key)}:{field identity}:{id}` |
+| Field policy | `ahp:{field identity}` |
+| Entry count of one record | `ahk:{sha256(record key)}` |
+| Expiry queue and its directory | `ahq`, `ahb` (a time-bucketed queue with one-hour slices, `docs/lastdb-time-queue.md`) |
 
-Record references equal current tips plus counted conflict records plus
-ordinary history records. Each history record also counts once in its
-field key header. Expiry and purge release references through the same planner.
-A record leaves only after its final reference goes.
+A storage scope prefix comes before each key. `S` is the record space of the
+schema. The `id` is a hex SHA-256.
 
-The sidecar uses tagged `history\0` records and the existing slot directory.
-It uses separate `ahq` and `ahb` queue families for expiry.
-The queue and directory hold pointers, with no record reference.
-An `ahk:` record counts the history entries for one field key.
-The count joins each capture or release batch.
-Purge checks these counts in one batch, even after delete removes every tip.
-The expiry worker keeps bounded cursors and stops with the database.
-Before the first activation attempt, the worker waits without a timer or storage reads.
-A keep or TTL policy attempt wakes it.
-A reopened history home starts expiry at boot.
-The format check prevents expiry before activation is visible.
+The record write, the history entry, its blob counter changes, its expiry queue
+entry, and the entry count of the record join one native batch. A failure fails
+the write. A crash keeps the complete batch or none. A repeated change adds no
+reference and resets no expiry. Expiry and purge release blob references through
+the same planner. A purge reads the entry counts in one batch, also after a
+delete changed the record into a tombstone.
+
+The expiry worker keeps bounded cursors and stops with the database. It waits,
+with no timer and no storage reads, until a `keep` or `ttl` policy wakes it. A
+home with `layout:field-history` set to `on` starts expiry at boot.
 
 ## Backup and size
 
-Complete database backups include the sidecar, policies, expiry queue, records,
-and file dependencies. Restore preserves expiry times. It does not grant
-another TTL period. Backup metadata checks include archived tip file references.
+A V2 backup holds the complete home, with the history entries, the policies, and
+the expiry queue. Restore keeps the expiry times. It does not grant another TTL
+period.
 
-History stays local to the transitions that this node observes.
-Mutation sync does not promise the same history on each device.
-History starts after the policy is enabled; it cannot recover removed records.
+History stays local to the changes that this node observes. Another device does
+not get the same history. History starts after the policy is enabled. It cannot
+recover values that were replaced before.
 
 History consumes disk space. A `keep` policy has no automatic size cap.
-The normal storage limit rejects a batch that cannot retain required history.
+The normal storage limit rejects a batch that cannot keep the required history.
 It does not silently remove that history.
 
-The reference verifier and offline recount include ordinary record and file
-references. Existing conflict queue diagnostics remain specific to conflicts.
+The offline recount counts the file blob references of the history entries
+(`docs/lastdb-blob-counter.md`).
 
 ## Product proof
 
-`Field history product proof` builds the CLI and daemon in GitHub Actions.
-It uses a fresh generated home and exercises the public commands and owner API.
-The required check `ci-required` calls this proof.
-A pull request that does not change the product still reports success, and the long proof does not run.
-The run summary and uploaded artifacts contain the result and source revision.
-The primary remains unchanged.
-
-The proof checks the public commands.
-It does not drive generation activation, a tombstone with a visible generation, or a spared compliance purge.
-The format marker has no owner read.
-A restart after `Off` still serves the kept entries. It does not read the marker bytes.
+The workflow `.github/workflows/field-history.yml` builds the CLI and daemon in
+GitHub Actions. It uses a fresh generated home and runs the public commands and
+the owner route. The required check `ci-required` calls this proof. A pull
+request that does not change the product still reports success, and the long
+proof does not run. The run summary and uploaded artifacts contain the result
+and the source revision. The primary stays unchanged.

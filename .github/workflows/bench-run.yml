@@ -196,7 +196,7 @@ jobs:
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
 
-      - name: Measure v2 disk size against logical record or record bytes
+      - name: Measure v2 disk size against record bytes
         if: matrix.lane == 'disk'
         id: disk-budget
         env:

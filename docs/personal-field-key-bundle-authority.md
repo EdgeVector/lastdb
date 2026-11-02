@@ -1,41 +1,24 @@
 # Personal field key authority
 
-> **Model note (2026-11-01).** Since home format 7 (the record model) a schema has no separate field-key rows. Key bundles (`fkb:{id}` in the `field_keys` namespace) exist for
-> the record space, the field IDs and the alternate IDs of a schema. The
-> [canonical model](lastdb-canonical-model.md) wins where this page differs.
+A format 8 home keeps one key bundle for each field key of a schema: the record space, the field IDs and the alternate key IDs.
+A bundle lives in the `field_keys` namespace. Its metadata entry is `fkb:{field_key_id}`.
+Each access domain gets one encrypted wrap entry, `fkw:{field_key_id}:{domain hash}`.
+The [canonical model](lastdb-canonical-model.md) wins where this page differs.
 
-Personal queries, counts, and mutation batches load existing field key bundles for each touched schema before they use field keys.
-The exact schema metadata supplies the field key UUIDs.
-This step reads bundle metadata and the node wrap. It does not fetch record values.
+Schema publication establishes the complete key contract of the schema before its native publication.
+The plaintext bundle stays only in the process cache. A catalog share adds a wrap. It never encrypts the field key data again.
 
-A missing bundle retains the legacy node key path.
-A present bundle supplies the primary keys, with the existing legacy read fallback.
+Personal queries, counts, and mutation batches load the existing key bundles of each touched schema before they use field keys.
+The exact schema metadata supplies the field key identities.
+Two batch reads resolve all uncached bundles of one schema: the metadata entries, then the node wraps.
+This step does not fetch record values.
+
 Corrupt metadata or a missing node wrap refuses the operation.
-Personal writes do not create bundles or change record body encryption.
-Named database writes retain the existing bundle creation path.
+Personal writes do not create bundles or change record encryption.
+Named database writes keep the bundle creation path of the schema.
 
-Personal batches load their addressed schemas before preconditions, prior-tip reads, and key plans.
+Personal batches load their addressed schemas before preconditions, record reads, and key plans.
 The schema supplies its own field keys and named alternate keys.
-Namespaces, access checks, count semantics, and warm set record rules retain their existing authority.
+Namespaces, access checks, count rules, and warm set record rules keep their own authority.
 
-The source omission is established. A real cold personal query on accepted 857 returned zero for an expected document.
-The document's physical key format and the cause of that observed zero remain unproved until an actual read with the changed source.
-The change does not migrate data or repair duplicate slots.
-
-Normal Delete uses the exact finite physical key list from the point reader.
-The list includes both readable field key UUID spellings and the existing node-key fallback.
-Each barrier retains the original mutation time, counter, device, and mutation UUID.
-A newer tip at any candidate prevents a logical memory tombstone for that field.
-Readers check each exact barrier before they select the first visible candidate. They keep the existing candidate order.
-
-Delete convergence removes only the exact tips that their barriers block.
-It uses each exact tip entry for history and reference edges.
-It traces retained candidates under the same locks and keeps any shared history or exact reference edge.
-It removes protected history keys before the existing path derives history backrefs.
-The existing removal path retains its generation-delete and reference-count order.
-It writes the normal physical field key header after the source deletes.
-
-A physical header supplies only its version and update time for removal metadata.
-If it is absent, the existing canonical header can supply those fields only when both UUID spellings name the same 32-byte identity.
-The header read retains the exact storage prefix. A missing physical and canonical header refuses the operation.
-Header metadata does not supply mutation time or device authority.
+Code: `fold_db/crates/core/src/storage/field_key_store.rs` and its `batch_load.rs` and `establish.rs`.

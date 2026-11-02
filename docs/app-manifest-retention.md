@@ -39,12 +39,12 @@ A TTL is **not** limited to records written after the declare. The sweep runs
 every 60 seconds (`LASTDB_TTL_SWEEP=0` turns it off). How a pass erases, the
 verbs and the knobs are in [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md).
 
+LastDB supports only Hash and HashRange schemas.
+
 | Layout | What expires | Records written before the declare |
 |---|---|---|
-| Range | Every record whose range key starts with 20 digits of unix seconds older than the TTL, whichever name wrote it. | **Deleted at the next sweep.** |
 | HashRange | In each registered hash, every record whose range key is older than the TTL. | A later write or an explicit backfill registers the hash. |
 | Hash | A record whose last write is older than the TTL. A rewrite resets the age. | An explicit backfill adds the original write age. |
-| Legacy Single | Only records tracked after the policy starts. | Not supported by the current logical-layout backfill. |
 
 A range key that does not begin with 20 digits is never expired.
 
@@ -62,18 +62,17 @@ A repeated page cannot replace a newer age with an older one.
 Each returned cursor follows a durable page; a restart can safely repeat the command.
 New writes retain their normal tracking path.
 A concurrent schema change requires a new complete pass.
-The command does not declare completion for other database scopes or retired key layouts.
+The command does not declare completion for other database scopes.
 
-**A rewrite resets the age of a Hash or Single record.** The sweep re-reads the
+**A rewrite resets the age of a Hash record.** The sweep re-reads the
 age of its keys before each batch and drops a key that a client rewrote since
 the pass listed it. The erase then spares a record written at or after the
 cutoff, so a rewrite that was acked and not yet indexed is
 spared too. The limits are in
 [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (What a pass does, The write-time
 guard). For a schema with a manifest `retention`, a write through either installed
-name is tracked (see "Both installed names share one policy"). A Range or
-HashRange record is never kept alive by a rewrite: its age is the time in its
-range key.
+name is tracked (see "Both installed names share one policy"). A HashRange
+record is never kept alive by a rewrite: its age is the time in its range key.
 
 ## Guards at declare time
 
@@ -91,7 +90,7 @@ The declare refuses a TTL, before it binds the schema, when:
    schemas with different lifecycles different shapes. You can still set a
    policy on purpose with `lastdb schema-retention set`.
 2. **Existing records may expire** (`existing_records_may_expire`). A new TTL on
-   a Range or HashRange schema that already holds data needs confirmation:
+   a HashRange schema that already holds data needs confirmation:
    `lastdb app check --sync --confirm-expire-existing` for one run, or
    `retention.confirm_expire_existing: true` in the manifest. A value kept in
    the manifest confirms every later change as well, so prefer the flag. A
@@ -141,10 +140,10 @@ would refuse is printed as `REFUSED` and the command fails. `--sync`,
   the policy: the manifest TTL keeps running. The check says so and names the
   command that removes it: `lastdb schema-retention clear --schema <name>`.
 
-Every change to a policy writes a durable audit row to
+Every change to a policy writes a durable audit line to
 `<home>/logs/retention-audit.jsonl`: who asked, when, the source, and the
-policy before and after. The row is written BEFORE the change (`status:
-"applying"`). If it cannot be written, the policy does not change. A second row
+policy before and after. The line is written BEFORE the change (`status:
+"applying"`). If it cannot be written, the policy does not change. A second line
 with the same `event_id` closes it (`"applied"` or `"failed"`). This covers a
 manifest apply, a move to a new anchor, and `schema-retention set` and `clear`.
 
@@ -152,7 +151,7 @@ manifest apply, a move to a new anchor, and `schema-retention set` and `clear`.
 
 An app schema has two installed names that share records: the manifest name
 (`myapp/DayLog`) and the catalog schema, named by its identity hash. The
-retention state (policy, age index, HashRange partition registry) is kept under
+retention state (policy, age index, HashRange hash registry) is kept under
 one anchor name, the catalog schema. A declare with `retention` records the
 manifest name as an alias of the catalog schema, so a write through either name
 is tracked and expired under the same policy. `lastdb schema-retention get` on
@@ -191,8 +190,7 @@ An operator policy wins over the manifest policy. The node keeps the manifest
 TTL beside it. `lastdb schema-retention clear` removes the operator policy and
 the manifest policy is back in force at once. **When the manifest TTL is
 shorter, that clear needs `--confirm-expire-existing`**: records between the two
-TTLs expire for good (a Range schema's at the next sweep). Without it the clear
-is refused, and the output says `existing_records_may_expire`. If a manifest
+TTLs expire for good. Without it the clear is refused, and the output says `existing_records_may_expire`. If a manifest
 policy is in force when you clear, it is removed, and the next declare applies
 it again. A clear that leaves no policy also removes the manifest-name aliases
 that pointed at it.
@@ -202,7 +200,7 @@ read error is never treated as "no policy".
 
 ## What the app author must do
 
-- **Range and HashRange.** Begin every range key with the entry time as unix
+- **HashRange.** Begin every range key with the entry time as unix
   seconds, zero-padded to 20 digits, for example `00000000001791863226-0007`.
   The range field must hold a string. A manifest does not contain the key
   values, so `lastdb app check` can warn only when `field_types` makes the
@@ -210,10 +208,10 @@ read error is never treated as "no policy".
 - **HashRange hash.** Use a day slice or a coarser one. The node keeps one
   registry entry for each hash it has seen, and every sweep queries all of
   them. A finer slice makes each sweep slower.
-- **Hash and Single.** Nothing. A record expires by the time since its last
-  write, and a rewrite resets the age.
-- **One record for each entry.** A rewrite of a Range or HashRange record does
-  not reset its age. Never edit an entry to keep it alive.
+- **Hash.** Nothing. A record expires by the time since its last write, and a
+  rewrite resets the age.
+- **One record for each entry.** A rewrite of a HashRange record does not reset
+  its age. Never edit an entry to keep it alive.
 - **Different shapes for different lifecycles.** A log with a TTL and a ledger
   with none must not have the same fields and key.
 
@@ -224,20 +222,16 @@ read error is never treated as "no policy".
   `lastdb app check --manifest ... --sync` with the same manifest. A device
   that did not declare it expires nothing by itself.
 - **The sweep verb.** `purge` is the default. `delete` is opt-in with
-  `LASTDB_TTL_SWEEP_VERB=delete`. `delete` leaves two `rdel:v2:` barrier rows
-  for each field of each key, about 3,170 B for each key and field, and nothing
-  prunes them. What each verb erases and leaves is in
-  [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (Verbs, Records that stay).
-  Both verbs release the kept conflict records of the key they erase: the
-  database layer keeps a conflict until its key goes or its retention window
-  ends, and the app owns the shape of its data.
+  `LASTDB_TTL_SWEEP_VERB=delete`. `delete` keeps the field history and the kept
+  conflict records of the key until their own windows end. What each verb erases
+  and leaves is in [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (Verbs, What
+  stays after a TTL erase).
 - A TTL erase syncs to the peers as an erase of that key, whichever verb runs,
   and **a peer that never declared the TTL still applies it**. A peer that never
   held the record skips it without an error.
-- An erase is ordered by write clock like any other write, and the sweep stamps
-  it at the time of the sweep. A peer rewrite with an older author clock can
-  lose to that stamp, on both verbs. Without the barrier (`purge`) an older write
-  that arrives later can also bring the key back. See Last writer wins in
+- An erase is ordered by write clock like any other write. The tombstone holds
+  the delete floor at the cutoff of the sweep. A peer write with a stamp at or
+  below that floor loses, on both verbs. See What stays after a TTL erase in
   [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md).
 - A synced device that is not told about a manifest still loses the expired
   records, because the erase arrives from the device that has the TTL.
@@ -251,36 +245,15 @@ read error is never treated as "no policy".
 
 ## Downgrade
 
-An older build does not know the manifest-name aliases that a manifest
-`retention` creates. By reading its code:
-
-- It keys the retention tracking by the exact name a write used. It stops
-  tracking Hash and Single writes, and HashRange partitions, that are written
-  through the manifest name, because the policy sits under the catalog name.
-  The records written after the downgrade through the manifest name are never
-  expired.
-- `schema-retention clear --schema <manifest name>` clears nothing there: the
-  policy is not under that name.
-- A replay on the older build (a restore, or a peer sync that needs the schema
-  catalog) reads every row of the schema-states plane and fails on an alias row
-  with "unreadable replay schema authority value".
-
-The safe procedure: before you downgrade, run
-`lastdb schema-retention clear --schema <manifest name>` for every schema whose
-manifest declared a `retention`, and clear an operator policy that sits over a
-manifest policy a second time, with `--confirm-expire-existing` when it asks.
-Check that `lastdb schema-retention get` reads `unset` for each. A clear that
-leaves no policy also removes the alias rows, so no row remains that the older
-build cannot read. Then downgrade. After it, declare the manifests again on the
-new build to bring the TTLs back.
+A program older than format 8 does not open a format 8 home. No downgrade path
+exists.
 
 ## Cost
 
 The sweep paces itself. It erases one batch of keys (16 by default), then rests
 so that it spends a share of wall time (25 percent by default, and at least
 25 ms). The rest is at most 10 minutes. A batch holds the local mutation
-admission while it runs, and a `purge` batch also holds the purge barrier of the
-swept schema, so writes to that schema wait for the batch. How long a batch takes
+admission while it runs, so local writes wait for the batch. How long a batch takes
 depends on the verb and on the size of the schema. The measured numbers and the
 knobs (`LASTDB_TTL_SWEEP_BATCH`, `LASTDB_TTL_SWEEP_DUTY_PCT`,
 `LASTDB_TTL_SWEEP_MIN_PAUSE_MS`) are in

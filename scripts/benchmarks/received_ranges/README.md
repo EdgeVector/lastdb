@@ -48,8 +48,8 @@ Only dependency downloads use the cache.
 
 ## Home format
 
-Every release creates only format 7 homes, which store one record per key.
-The run fails unless the home marker of each run is format 7.
+A current release creates only format 8 homes, which store one record per key.
+The run reads the `format=` number from the home marker of each run.
 The summary names the home format of each run.
 
 ## Range operations and latency
@@ -64,7 +64,7 @@ An unexpected error or an incomplete candidate operation fails the workflow.
 
 Both variants receive a complete known-key prefill immediately before the latency sample, after the broad walks.
 The latency comparison uses 32 identical 128-key intervals with 64-record pages.
-Two matched pairs use typed range keys and fresh format 7 homes.
+Two matched pairs use typed range keys and fresh format 8 homes.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.
@@ -76,9 +76,9 @@ A latency increase remains advisory. Incomplete measurements fail.
 The existing `benchmark-complete` gate remains unchanged.
 
 Candidate discovery retains at most four source pages within one query.
-Each retained page contains at most 256 tips, with their keys and metadata.
+Each retained page contains at most 256 records, with their keys and metadata.
 A refill reuses future keys and reads only the missing part of a short page.
-Covered candidate tips use the existing body reader without a second tip read.
+A covered candidate record uses the existing record reader without a second read.
 The covered interval also proves absent keys. Unknown intervals use the exact reader.
 Additional sources retain the ordinary bounded read path.
 Four concurrent source reads and the merged page add a fixed amount of temporary memory.
@@ -135,7 +135,7 @@ The workflow downloads the artifact and checks its SHA256 before runner cleanup.
 No separate routine report or `artifact.json` is created.
 Only source scripts and this durable method enter Git.
 
-Each run permits 1,200 seconds, 10,000 request rows, 1 GiB raw receipts, and 512 MiB compressed receipts.
+Each run permits 1,200 seconds, 10,000 request entries, 1 GiB raw receipts, and 512 MiB compressed receipts.
 A response permits 4 MiB. A seed helper invocation permits 600 seconds and 50,000 mutations.
 The input permits 128 MiB and 1,024 batches, each at most 1 MiB and 128 mutations.
 Exact-home cleanup permits 50,000 entries, depth 12, and 4 GiB after the owned process stops.

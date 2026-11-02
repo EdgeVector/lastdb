@@ -1,4 +1,4 @@
-name: Record history allocation call paths
+name: Field history allocation call paths
 
 on:
   workflow_dispatch:

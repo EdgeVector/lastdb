@@ -9,15 +9,14 @@ knowledge required.
 The app itself is ~40 lines ([`src/index.ts`](src/index.ts)): the whole
 lifecycle is **connect → request consent → mutate → query**, using the existing
 runtime SDK [`@lastdb/app-sdk`](../../lastdb_app_sdk/). This
-directory adds the packaging that's otherwise missing: a one-command run, an
-example schema, and a scripted end-to-end run against an ephemeral node.
+directory adds the packaging that's otherwise missing: a build script and an
+example schema.
 
 ```
 examples/app-starter/
 ├── src/index.ts            # the app: connect -> consent -> mutate -> query
 ├── schemas/Note.schema.json # the app-starter/Note schema you register
-├── e2e/roundtrip.mjs       # scripted run against an ephemeral node
-├── package.json            # path-deps @lastdb/app-sdk; `npm run dev` / `e2e`
+├── package.json            # path-deps @lastdb/app-sdk; `npm run dev`
 └── tsconfig.json
 ```
 
@@ -27,30 +26,11 @@ churns — no vendored snapshot to drift.
 
 ---
 
-## TL;DR (the whole loop, one command)
+## The whole loop
 
-From this directory, with `cargo`, `node` (≥18), and `npm` on PATH:
-
-```bash
-npm install            # path-installs @lastdb/app-sdk
-npm run e2e            # builds lastdbd (lastdb_node Mini) from main, boots an ephemeral
-                       # socket-only node, declares the schema, runs the app,
-                       # and asserts the round-trip. ~5-10 min first run.
-```
-
-`npm run e2e` is the reproducible "does it actually work" proof: it never
-touches your real node or port 9001. It pins `LASTDB_HOME` and
-the SDK capability store to a temp directory, starts a throwaway socket-only
-`lastdbd`, declares `app-starter/Note`, runs the app against that socket,
-and tears everything down. Expected tail:
-
-```
-[e2e] RUN PASSED: the starter created a row and read it back through the SDK.
-[e2e] DONE — e2e passed.
-```
-
-The four manual steps below are the same flow, broken out so you understand each
-piece and can point the app at your own node.
+You need `cargo`, `node` (≥18), and `npm` on PATH. The four steps below start
+a node, link the SDK, declare the schema, and run the app. Use a throwaway
+`LASTDB_HOME` for a trial; do not point the app at your real node.
 
 ---
 
@@ -71,8 +51,6 @@ cd ../..                          # fold workspace root
 cargo build -p lastdb_node --bin lastdbd
 ```
 
-`npm run e2e` builds this binary for you.
-
 ---
 
 ## Step 1 — get a node serving `/api/*`
@@ -81,9 +59,9 @@ Pick the transport that matches your node. **They differ — read this.**
 
 ### Option A: a local/test node — Unix socket
 
-For a local node, connect with the node's Unix socket. The e2e creates a
-throwaway `LASTDB_HOME` and uses `<LASTDB_HOME>/data/folddb.sock`; for manual
-testing, point the app at the socket for the node you started.
+For a local node, connect with the node's Unix socket. Start the node in a
+throwaway `LASTDB_HOME`. The node binds `<LASTDB_HOME>/data/folddb.sock`.
+Point the app at the socket of the node you started.
 
 ```bash
 # from the fold workspace root, with the binary you built above:
@@ -96,8 +74,8 @@ Point the app at that socket:
 
 ```bash
 export APP_STARTER_SOCKET_PATH="$LASTDB_HOME/data/folddb.sock"
-# Owner hash: lastdbd self-inits identity at boot. `npm run e2e` reads it from
-# GET /api/system/auto-identity and exports APP_STARTER_USER_HASH.
+# Owner hash: lastdbd self-inits identity at boot. Read it from
+# GET /api/system/auto-identity and export it as APP_STARTER_USER_HASH.
 ```
 
 Socket-local runs are owner-local and skip the production consent flow.
@@ -157,7 +135,7 @@ node will isolate and serve them.
 ### 3a. On a local/test node — declare the schema
 
 ```bash
-# The e2e posts this over the owner Unix socket:
+# Post this over the owner Unix socket:
 POST /api/schemas/declare
 {
   "namespace": "app-starter",
@@ -165,8 +143,7 @@ POST /api/schemas/declare
 }
 ```
 
-That loads `app-starter/Note` directly into the throwaway node. The scripted e2e
-does this for you before it runs the app.
+That loads `app-starter/Note` directly into the throwaway node.
 
 ### 3b. For a real / shared node — enroll as a developer and publish
 
@@ -215,7 +192,7 @@ Expected output (local socket node):
 connected to unix:/path/to/<session>.sock as app 'app-starter'
 mutate: accepted create for app-starter/Note
 query: app-starter/Note returned 1 row(s):
-  key=note-1 fields={"id":"note-1","text":"hello from app-starter @ ..."} author=...
+  key=note-1 fields={"id":"note-1","text":"hello from app-starter @ ..."} metadata=null
 round-trip complete: created a row and read it back through the SDK.
 ```
 
@@ -228,8 +205,8 @@ add fields and schemas, page large reads with `query({ limit, offset })` or
 
 ## Where to take it next
 
-- **Update/delete a row:** pass the `keyValue` from a queried row back as
-  `MutationOp.key` to address that exact row.
+- **Update/delete a record:** pass the `keyValue` from a queried record back as
+  `MutationOp.key` to address that exact record.
 - **More schemas:** add JSON files under `schemas/`, register each, and the
   app's namespace covers them all.
 - **Production:** publish via `folddb push` and let the owner grant consent —

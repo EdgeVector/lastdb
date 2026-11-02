@@ -6,17 +6,16 @@
 
 ## Question
 
-Can a **query** define a real LastDB data slice (many schemas × fields × rows,
-with **content-addressed photo/file bytes in the slice**) that packages as
+Can a **query** define a real LastDB data slice (many schemas × fields × records,
+with **the photo and file blob bytes in the slice**) that packages as
 `lastdb.slice.v1`, moves to another database, imports, and re-queries
 successfully — including loading the photo bytes on the recipient?
 
 ## What we ran
 
-```bash
-cargo nextest run -p fold_db -- query_defined_multi_schema_slice_roundtrips
-# PASS
-```
+The spike ran the library round trip `query_defined_multi_schema_slice_roundtrips`
+on 2026-07-14, and it passed. Tom retired all tests on 2026-10-09, so that
+round trip no longer exists.
 
 ## First-class files (landed in this spike)
 

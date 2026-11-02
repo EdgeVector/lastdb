@@ -1,7 +1,7 @@
 # LastDB canonical model — schema → record → file blob and named keys
 
 > **CANONICAL.** Ratified 2026-07-27. Rewritten 2026-11-01 for the record model
-> (home format 7, decisions D1–D7, Tom, 2026-10-31). If another doc or a code
+> (home format 8, decisions D1–D7, Tom, 2026-10-31). If another doc or a code
 > comment disagrees with this one, this one wins; fix the other.
 
 **Audience:** anyone designing an app against LastDB (Mini `lastdbd` or
@@ -45,7 +45,8 @@ Schema (catalog: fields, primary key, named alternate keys)
 Record space: `S = base64url(SHA-256(frame("lastdb:record-space:v1", schema)))`. A scoped
 key gets its `{scope}:` prefix in front.
 
-Every home is format 7. Separate field-key rows and tips do not exist (decision D6).
+Every home is format 8 (node marker `format=8`). A key has one stored record. No
+other stored value holds the fields of that key (decision D6).
 
 ### Schema
 
@@ -128,9 +129,9 @@ file blob waits for a dwell of one hour (`LASTDB_BLOB_DWELL_SECS`), then goes
 
 A read returns the fields, the record metadata and the **primary key**. Use the
 primary key for a later mutation. An alternate read also returns the matched key.
-A reply has no field key id and no writer id. Each row carries one
-`metadata` block for its record (`source_file_name` and the `metadata` map),
-or `null` when the record has none.
+A reply has no field key id and no writer id. Each record in a reply carries one
+`metadata` block (`source_file_name` and the `metadata` map), or `null` when the
+record has none. It also carries `has_conflicts` and `conflicted_fields`.
 The node does not assemble a record from separate field values: the record is
 stored whole.
 
@@ -145,9 +146,9 @@ One native write request:
 4. computes the alternate entries from the old and the new fields: it puts the new
    entries and deletes only old entries that still name this record;
 5. changes the file blob counters by the net change of the file blob references;
-6. puts the records, the alternate entries, field history rows, counter changes, share
-   copies, delete audit rows, TTL ages, idempotency entries and HashRange partitions in
-   **one batch**.
+6. puts the records, the alternate entries, field history entries, blob counter changes,
+   share copies, delete audit entries, TTL ages, idempotency entries and the TTL hash
+   list of a HashRange schema in **one batch**.
 
 The ack follows the durable disk commit (section 5).
 
@@ -158,8 +159,8 @@ keeps the delete floor, so an older replayed write cannot bring the record back.
 No separate delete barrier exists. The owner can raise the home-wide
 [replay cutoff](delete-replay-cutoff.md) on a stopped home.
 In the same batch the delete removes the alternate entries, lowers the file blob
-counters, removes the TTL age rows, copies the floor to share copies and writes a
-delete audit row (`dellog`). A delete of an absent record writes nothing.
+counters, removes the TTL age entries, copies the floor to share copies and writes a
+delete audit entry (`dellog`). A delete of an absent record writes nothing.
 
 | Way | Leaves a tombstone | Releases history and conflict records | Use |
 |---|---|---|---|
@@ -178,7 +179,8 @@ delete audit row (`dellog`). A delete of an absent record writes nothing.
   `docs/lastdb-ttl-sweep.md` and `docs/app-manifest-retention.md`.
 - A schema drop blocks the schema first, then releases its records (`rk:`), field history
   (`rh:`), alternate entries (`ak:`), conflict records and file blob references in batches,
-  then removes the schema. A write during the drop gets a refusal.
+  then removes the schema. A write during the drop gets a refusal
+  (`docs/lastdb-schema-drop.md`).
 
 ### Field history
 
@@ -194,7 +196,7 @@ The route is `/api/field-history` (a code name) and the CLI is `lastdb history`.
 ### Kept conflicting writes
 
 When a peer import finds that two devices wrote one field of one record, the losing
-value is kept as a **conflict record** (`rcf:` row, with an `rcm:` marker on the record)
+value is kept as a **conflict record** (`rcf:` entry, with an `rcm:` marker on the record)
 for 30 days (`LASTDB_CONFLICT_RETENTION_SECS`). A conflict record names the schema, the
 primary key, the field, the losing and the winning mutation. It holds no file blob
 reference. The retention janitor releases a conflict record at the end of its window.
@@ -325,16 +327,17 @@ See the [byte-limit design](lastdb-warm-set-byte-limit-design.md) and [current n
 
 ### Engine and format
 
-Normal startup opens the disk format v2 engine with a format 7 home.
-A new home is format 7. This release opens no older home: copy the records of an older
-home into a fresh home. No automatic conversion or boot migration runs.
+Normal startup opens the disk format v2 engine with a format 8 home.
+A new home is format 8. The program opens only a format 8 home. Any other node marker
+gets the generic failure. No automatic conversion or boot migration runs.
 
 See [the engine README](../vendor/laststore/README.md) for the run files, commit, merge, and reopen rules.
 
 ### Backup and peer sync
 
-The V2 byte backup copies the encrypted run files of a format 7 home. A restore needs no
-source home.
+The V2 byte backup copies the encrypted run files of a format 8 home (backup profile 6).
+The cloud contract stays V2. A restore needs no source home. A format 8 program restores
+only a profile 6 snapshot.
 A peer event carries, for each record, only the fields and metadata whose stamp names
 the request, and a delete floor. The peer import merges the delete floor, then each field
 by stamp, then the metadata, so the import order does not change the result. A peer
@@ -368,5 +371,5 @@ another person's node) still replicates data to that node.
 | Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
+| Schema drop | `docs/lastdb-schema-drop.md` |
 | Record model design and decisions D1–D7 | brain `design-lastdb-record-model-20261031` |
-| Field key model (retired in format 7) | `docs/lastdb-verify-ref.md` · `docs/lastdb-field-key-counters.md` · `docs/lastdb-field-key-drain.md` · `docs/design-lastdb-counter-lifecycle.md` |

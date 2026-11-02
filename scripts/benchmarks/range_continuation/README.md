@@ -22,7 +22,7 @@ The daemon version must contain its selected source revision.
 
 Each variant receives 16,384 records with four fields and 1 KiB generated bodies.
 Create mutations use batches of 128. Complete known-key reads use batches of 256.
-Two matched pairs run on format 7 homes: blinded hash keys and typed range keys.
+Two matched pairs run on format 8 homes: blinded hash keys and typed range keys.
 Pair order reverses in the second pair.
 Automatic maintenance is off for both variants; the warm budget uses the product default.
 
@@ -133,7 +133,7 @@ The artifact file manifest gives each retained file's hash and size.
 Only useful source scripts and this method enter Git.
 Generated evidence follows the shared 10-file/100,000-byte policy; this PR adds no raw evidence file.
 
-Each owned run permits 1,200 seconds, 10,000 request rows, 1 GiB raw receipts, 512 MiB compressed receipts, and 4 MiB per response.
+Each owned run permits 1,200 seconds, 10,000 request entries, 1 GiB raw receipts, 512 MiB compressed receipts, and 4 MiB per response.
 Exact-home cleanup permits 50,000 entries, depth 12, and 4 GiB of files after the owned daemon stops.
 The whole measurement step permits 55 minutes; the workflow permits 90 minutes.
 Raw evidence remains until upload verification; automatic runner cleanup occurs after the job.

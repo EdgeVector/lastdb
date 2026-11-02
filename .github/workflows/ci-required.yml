@@ -248,7 +248,7 @@ jobs:
         run: python3 scripts/lints/lint-secrets.py
 
   field_history:
-    name: Record history product proof
+    name: Field history product proof
     permissions:
       contents: read
     uses: ./.github/workflows/field-history.yml

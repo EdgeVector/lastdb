@@ -70,8 +70,8 @@ Use CI for the build and the proof. No primary copy. Keep every other test targe
 
 ### Scoped extension: record home product proofs (Tom, 2026-10-30/31)
 
-Tom approved the record model plan (#911, item 9: "Proof in CI. A fresh format 7 home
-on a synthetic seed: product operations, latency comparisons and `benchmark-complete`").
+Tom approved the record model plan (#911, item 9): a proof in CI on a fresh home with a
+synthetic seed, with product operations, latency comparisons and `benchmark-complete`.
 The workspace rule of 2026-10-29/30 also asks for CI product operations before merge.
 The proofs run the public CLI and daemon on fresh generated homes.
 This authorizes only:

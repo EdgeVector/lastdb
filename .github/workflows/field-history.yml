@@ -1,4 +1,4 @@
-name: Record history product proof
+name: Field history product proof
 
 # ci-required calls this workflow. A product diff runs the fresh-home proof.
 # Any other pull request or main push skips that build and still reports success.
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   select:
-    name: Select record history proof
+    name: Select field history proof
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -68,7 +68,7 @@ jobs:
           echo "Field history proof selected: $run"
 
   history:
-    name: Fresh-home record history lifecycle
+    name: Fresh-home field history lifecycle
     needs: select
     if: needs.select.outputs.run == 'true'
     runs-on: ubuntu-24.04
@@ -121,7 +121,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   report:
-    name: Record history proof result
+    name: Field history proof result
     needs:
       - select
       - history

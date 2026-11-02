@@ -60,7 +60,7 @@ consent.
 ### 3. Data path — the app's own namespace
 
 ```ts
-await app.mutate(schema, { mutationType, fields, key });   // write one row
+await app.mutate(schema, { mutationType, fields, key });   // write one record
 await app.list(schema, { limit, cursor });                  // keys-only membership page
 await app.query(schema, { fields, limit, offset });        // read (paginated)
 await app.queryAll(schema, { fields });                    // drain past the page cap
@@ -79,12 +79,12 @@ await app.search(query, { k, target });                    // node-scoped associ
   pass-through; pass-through never authorizes an unregistered schema.
 - **Field mapping is applied only at the data-path boundary.** `query` /
   `queryAll` map requested field names app→node before the request and reverse
-  row `fields` node→app on read. `mutate` maps
+  record `fields` node→app on read. `mutate` maps
   `fields_and_values` app→node before write. The field map must be one-to-one
   for reverse mapping to be unambiguous.
-- **`mutate`** writes one row; `key` (`{hash, range}`) addresses it, and a
+- **`mutate`** writes one record; `key` (`{hash, range}`) addresses it, and a
   `QueryRow.keyValue` from a prior read can be passed straight back to
-  update/delete that exact row. An optional `expected` **CAS precondition**
+  update/delete that exact record. An optional `expected` **CAS precondition**
   (`{type:"absent",field}` | `{type:"value",field,value}`) is forwarded verbatim
   under the node's `expected` key; a failed precondition returns
   `409 {error:"cas_conflict"}`, mapped to `CasConflictError`.
@@ -99,14 +99,16 @@ await app.search(query, { k, target });                    // node-scoped associ
 - **`list`** returns only live record keys plus an opaque cursor. Drain while
   `has_more` is true, then point-read the members whose fields you need. It is
   not implemented as unfiltered `queryAll({allowFullScan:true})`.
-- **`queryAll`** dedupes rows by record key across pages and guards the
+- **`queryAll`** dedupes records by record key across pages and guards the
   node's unstable offset pagination path. If a later page contains no new keys
-  while the node still reports more rows, or a completed drain collects fewer
+  while the node still reports more records, or a completed drain collects fewer
   unique keys than `total_count`, it throws `QueryPaginationError` instead of
   returning a silently incomplete result.
-- **Row envelope**: every row carries `key` + `keyValue` + `fields` +
-  `metadata` — the one metadata block of the record that a real app needs for
-  provenance, not just bare field values.
+- **Record envelope**: every record carries `key` + `keyValue` + `fields` +
+  `metadata`. `metadata` is the one metadata block of the record,
+  `{source_file_name, metadata?}` or `null`; a field has no metadata of its own.
+  The node also sends `has_conflicts` (`true`, `false` or `"unknown"`) and,
+  when it is `true`, `conflicted_fields`.
 - **`search`** is node-authoritative: hits come only from schemas in the app's
   `S(A)`; the optional `target` can only *narrow*, never widen.
 

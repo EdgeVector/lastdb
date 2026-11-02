@@ -1,9 +1,9 @@
 # LastDB storage layout
 
 The logical path is schema → record → file blob, plus alternate entries.
-Every home is format 7 (the record model). A schema owns its records and their values.
+Every home is format 8 (the record model). A schema owns its records and their values.
 Canonical field identity supplies reusable definitions and types.
-Separate field-key rows and tips do not exist.
+A key has one stored record. No other stored value holds the fields of that key.
 
 ## Records and alternate keys
 
@@ -37,8 +37,9 @@ A database catalog can explicitly reference an existing schema on the same node.
 Equal field definitions in different schemas do not create that reference.
 
 Native backups retain encrypted bytes and their format metadata.
-This release opens only a format 7 home.
-Copy the records of an older home into a fresh home instead of an in-place conversion.
+Backup profile 6 describes a format 8 home. The cloud contract stays V2.
+This release opens only a format 8 home. Any other home gets the generic failure.
+A move from an older home is one manual copy into a fresh home. No in-place conversion exists.
 
 Keep the primary unchanged during source and CI work.
 Use [the multi-key schema guide](multi-key-schemas.md) for the data boundary.

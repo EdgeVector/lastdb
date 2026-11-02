@@ -19,7 +19,7 @@ governance concern; registration itself applies to every schema.
 | `system_owned` | SystemSeed / StarterSeed / `is_system_schema` | Yes |
 | `unknown` | Unowned user schema, or offer-without-metadata | No |
 
-Superseded rows are always excluded from the projection.
+Superseded registrations are always excluded from the projection.
 
 ## Known callers (code inventory)
 
@@ -62,7 +62,7 @@ include_in_shared_only_projection(schema, is_system(schema), &attachment)
    or registers a novel schema through Schema Service before load/write.
 2. fbrain/fkanban bootstrap both prove registration before binding a schema.
 3. No product caller accepts `local_mint` as a durable schema identity.
-4. Shared-only projection contains zero `private_legacy_bootstrap` rows.
+4. Shared-only projection contains zero `private_legacy_bootstrap` registrations.
 5. Legacy caller metrics show no unexpected `unowned_registration` spikes
    before enforcement is enabled.
 

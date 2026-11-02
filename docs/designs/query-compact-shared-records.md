@@ -15,7 +15,7 @@ It creates no probe record. An unavailable native count fails the request.
 An expected count mismatch returns 409. The count keeps the normal read budget.
 
 A record batch resolves each distinct identity once within its captured namespace.
-It retains the result order and absent slots. Each selected tip still receives
+It retains the result order and absent slots. Each selected record still receives
 its own metadata and logical path admission. A shared record does not authorize
 another namespace or another logical path.
 
