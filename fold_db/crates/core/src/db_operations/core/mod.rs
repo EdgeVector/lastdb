@@ -23,7 +23,7 @@ pub use page_tally::{
 ///
 /// All persistence is encapsulated in domain store structs whose
 /// namespace fields are private. External callers reach them through
-/// `schemas()`, `records()`, `public_keys()`, and `metadata()`.
+/// `schemas()`, `records()`, and `metadata()`.
 #[derive(Clone)]
 pub struct DbOperations {
     /// Primary namespace backend used to open side stores that are not one of
@@ -79,11 +79,6 @@ impl DbOperations {
         &self,
     ) -> crate::storage::error::StorageResult<crate::storage::disk_pack::PackReadScope> {
         crate::storage::disk_pack::PackReadScope::for_store(&self.store).await
-    }
-
-    /// Access the system public-key domain store.
-    pub fn public_keys(&self) -> &PublicKeyStore {
-        &self.public_key_store
     }
 
     /// Access the metadata / idempotency / process-results domain store.
