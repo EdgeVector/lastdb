@@ -76,16 +76,26 @@ def summary_commitment(path, generation, point):
     return new.get("secret_sha256")
 
 
-def gh(arguments, data=None):
-    completed = subprocess.run(["gh"] + arguments, input=data, stdout=subprocess.PIPE,
+def gh(arguments):
+    """Run one gh call that carries no secret, and keep gh's refusal text."""
+    completed = subprocess.run(["gh"] + arguments, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, timeout=60, check=False)
     if completed.returncode != 0:
-        # gh's own message names the HTTP refusal. The secret went on stdin only.
+        # gh's own message names the HTTP refusal.
         lines = completed.stderr.decode("utf-8", "replace").strip().splitlines()
         print(json.dumps({"gh": arguments[:2], "gh_error": lines[-1][:300] if lines else ""}),
               file=sys.stderr)
         raise OperationError("baseline_inputs_gh_" + "_".join(arguments[:2]))
     return completed.stdout
+
+
+def set_secret(repo, value):
+    """Write the secret on stdin. No gh output from this call reaches the log."""
+    completed = subprocess.run(["gh", "secret", "set", SECRET, "--env", ENVIRONMENT, "--repo", repo],
+                               input=value, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=60, check=False)
+    # The fixed code names this call; check the token's `repo` scope first.
+    require(completed.returncode == 0, "baseline_inputs_gh_secret_set")
 
 
 def main():
@@ -123,8 +133,7 @@ def main():
         started = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(seconds=120)
         # Secret first: until the variable follows, the pair refuses as
         # `protected_baseline_matches_public_scope` before any cloud access.
-        gh(["secret", "set", SECRET, "--env", ENVIRONMENT, "--repo", args.repo],
-           baseline_data.encode(secret))
+        set_secret(args.repo, baseline_data.encode(secret))
         del secret
         gh(["variable", "set", VARIABLE, "--repo", args.repo, "--body", scope_text])
         saved = gh(["variable", "get", VARIABLE, "--repo", args.repo]).decode().strip()
