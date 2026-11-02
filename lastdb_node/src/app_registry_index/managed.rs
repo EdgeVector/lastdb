@@ -70,20 +70,23 @@ pub fn install(
 ) -> Result<ManagedReceipt, String> {
     let root = app_root(&resolution.app_id)?;
     let _lock = lock(&root)?;
-    if !options.accept_install
-        && fs::read_to_string(root.join("rejected-source"))
-            .is_ok_and(|sha| sha.trim() == resolution.sha)
-    {
-        return Err(
-            "source held after rollback; a newer source or explicit install consent is required"
-                .into(),
-        );
-    }
     let prior = if root.join("current").symlink_metadata().is_ok() {
         Some(receipt(&root.join("current"))?)
     } else {
         None
     };
+    if !options.accept_install
+        && fs::read_to_string(root.join("rejected-source"))
+            .is_ok_and(|sha| sha.trim() == resolution.sha)
+    {
+        if let Some(current) = &prior {
+            verify_or_restore(&root, home, current)?;
+        }
+        return Err(
+            "source held after rollback; a newer source or explicit install consent is required"
+                .into(),
+        );
+    }
     if prior
         .as_ref()
         .is_some_and(|r| r.sha == resolution.sha && r.inactive == options.inactive)
@@ -209,7 +212,7 @@ pub fn verify_active(root: &Path, home: &Path, current: &ManagedReceipt) -> Resu
 }
 
 /// The updater restores a healthy prior version and remembers the rejected source.
-/// Read-only status keeps using `verify_active` and never changes the install.
+/// Caller holds the app install lock. Read-only status uses `verify_active`.
 pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
     if let Err(error) = verify_active(root, home, current) {
         restore_previous(root, home)?;
@@ -313,6 +316,11 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
         return Err("rollback target is outside app versions".into());
     }
     let prior = receipt(&target)?;
+    if fs::read_to_string(root.join("rejected-source")).is_ok_and(|sha| sha.trim() == prior.sha) {
+        return Err(
+            "previous source is held after rollback; explicit install consent is required".into(),
+        );
+    }
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     let (_, _, node) = super::running_node(&socket);
     if prior.listing.api_version != node.api_version
