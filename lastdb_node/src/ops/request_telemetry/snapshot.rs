@@ -54,9 +54,6 @@ pub struct RequestTelemetrySnapshot {
     /// `lastdb ops` can name the schema that occupied the shared budget.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub persist_lanes: Vec<PersistLaneOpRow>,
-    /// Bounded, approximate distinct keys from returned field results.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key_use: Option<KeyUseSnapshot>,
 }
 
 /// One persist lane's reservation / refusal counters for `lastdb ops`.
@@ -112,7 +109,6 @@ impl RequestTelemetrySnapshot {
             sample_count: self.sample_count,
             ring_capacity: self.ring_capacity,
             persist_lanes: self.persist_lanes.clone(),
-            key_use: None,
         }
     }
 }
@@ -173,7 +169,6 @@ impl Default for RequestTelemetrySnapshot {
             sample_count: 0,
             ring_capacity: DEFAULT_RING_CAP,
             persist_lanes: Vec::new(),
-            key_use: None,
         }
     }
 }

@@ -51,12 +51,10 @@ use std::time::Duration;
 
 mod counter;
 mod phase;
-mod tip_sketch;
 mod totals;
 
 pub use counter::{RequestCounter, RequestCounts};
 pub use phase::RequestPhase;
-pub use tip_sketch::TipKeySketch;
 pub use totals::RequestPhaseTotals;
 
 /// Everything one request accumulates: the phase clock and the work counts.
@@ -74,7 +72,6 @@ pub use totals::RequestPhaseTotals;
 struct RequestMetrics {
     phases: RequestPhaseTotals,
     counts: RequestCounts,
-    tip_keys: TipKeySketch,
 }
 
 tokio::task_local! {
@@ -96,22 +93,11 @@ pub async fn run_with_phases<F>(f: F) -> (F::Output, RequestPhaseTotals, Request
 where
     F: Future,
 {
-    let (output, phases, counts, _) = run_with_phases_and_keys(f).await;
-    (output, phases, counts)
-}
-
-/// Return the request's distinct-tip sketch beside its existing metrics.
-pub async fn run_with_phases_and_keys<F>(
-    f: F,
-) -> (F::Output, RequestPhaseTotals, RequestCounts, TipKeySketch)
-where
-    F: Future,
-{
     REQUEST_METRICS
         .scope(RefCell::new(RequestMetrics::default()), async move {
             let output = f.await;
             let metrics = REQUEST_METRICS.with(|cell| cell.borrow().clone());
-            (output, metrics.phases, metrics.counts, metrics.tip_keys)
+            (output, metrics.phases, metrics.counts)
         })
         .await
 }

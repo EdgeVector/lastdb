@@ -76,9 +76,6 @@ pub fn snapshot_lines_with_schema_labels(
     }
 
     lines.extend(app_verb_table_lines(snap));
-
-    // `key_use` stays in the JSON for its readers. The record model keeps it
-    // empty, so the text output has no table for it.
     lines.extend(top_total_time_lines(snap, labels));
     lines.extend(body_volume_lines(snap, labels));
     lines.extend(idle_wait_lines(snap));

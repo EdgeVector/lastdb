@@ -79,11 +79,10 @@ where
     // apply/persist/flush lifted from fold_db core's timing breakdown) add
     // into this request's totals. Non-mutation routes add nothing, so their
     // samples keep an absent phase set by construction.
-    let (resp, phase_totals, work_counts, tip_keys) =
-        Box::pin(fold_db::request_phases::run_with_phases_and_keys(
-            fold_db::user_context::run_with_user(&user_hash, work),
-        ))
-        .await;
+    let (resp, phase_totals, work_counts) = Box::pin(fold_db::request_phases::run_with_phases(
+        fold_db::user_context::run_with_user(&user_hash, work),
+    ))
+    .await;
 
     // Skip recording the status probe itself when it is the ops dashboard
     // poll — still record it, but keep schema empty. Always record so
@@ -123,8 +122,7 @@ where
         peer_comm,
     };
     write_diagnostics::finish(write_clock, &sample);
-    host.request_telemetry
-        .record_with_tip_keys(sample, &tip_keys);
+    host.request_telemetry.record(sample);
     resp
 }
 

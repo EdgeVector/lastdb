@@ -7,7 +7,6 @@ pub(super) struct Inner {
     pub(super) top_n: usize,
     pub(super) aggregates: HashMap<String, OpAggregate>,
     pub(super) sample_count: u64,
-    pub(super) key_use: KeyUseWindow,
 }
 
 impl Inner {
@@ -18,7 +17,6 @@ impl Inner {
             top_n: top_n.max(1),
             aggregates: HashMap::new(),
             sample_count: 0,
-            key_use: KeyUseWindow::default(),
         }
     }
 
@@ -169,7 +167,6 @@ impl Inner {
             sample_count: self.sample_count,
             ring_capacity: self.ring_cap,
             persist_lanes: Vec::new(),
-            key_use: self.key_use.snapshot(unix_millis()),
         }
     }
 
@@ -265,17 +262,6 @@ impl Runtime {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .record(sample);
-    }
-
-    pub fn record_with_tip_keys(&self, sample: OpSample, keys: &TipKeySketch) {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        inner
-            .key_use
-            .record(sample.ts_ms, &sample.client, sample.schema.as_deref(), keys);
-        inner.record(sample);
     }
 
     pub fn snapshot(&self) -> RequestTelemetrySnapshot {
