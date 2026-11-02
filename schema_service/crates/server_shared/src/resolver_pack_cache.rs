@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use schema_service_core::resolver_pack::ResolverPackArtifactKind;
-use schema_service_core::{ResolverBootstrapConfig, ResolverPackCache};
+use schema_service_core::ResolverPackCache;
 
 /// Filesystem cache for resolver pack artifacts and last-known-good files.
 #[derive(Debug, Clone)]
@@ -19,11 +19,6 @@ pub struct FsResolverPackCache {
 impl FsResolverPackCache {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
-    }
-
-    /// Open the identity directory `bootstrap` already computed.
-    pub fn from_bootstrap(bootstrap: &ResolverBootstrapConfig) -> Self {
-        Self::new(bootstrap.cache_identity_dir())
     }
 
     pub fn root(&self) -> &Path {

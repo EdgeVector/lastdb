@@ -69,19 +69,6 @@ impl ResolverBootstrapConfig {
         validate_bootstrap_base_url(&self.base_url)
     }
 
-    /// Cache root the shell opens. Scoped by format, contract, algorithm,
-    /// and embedder identity.
-    pub fn cache_identity_dir(&self) -> PathBuf {
-        let embedder_digest = artifact_sha256_hex(self.expected_embedder_id.as_bytes());
-        self.cache_dir
-            .join(format!("format-v{RESOLVER_PACK_FORMAT_VERSION}"))
-            .join(format!("contract-v{SUPPORTED_RESOLVER_CONTRACT_VERSION}"))
-            .join(format!(
-                "native_component_cover-v{NATIVE_COMPONENT_COVER_ALGORITHM_VERSION}"
-            ))
-            .join(format!("embedder-sha256-{embedder_digest}"))
-    }
-
     pub fn to_consumer_config(&self) -> ResolverPackConsumerConfig {
         ResolverPackConsumerConfig {
             enabled: self.enabled,
