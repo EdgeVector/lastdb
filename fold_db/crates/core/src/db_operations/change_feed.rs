@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex};
-use tracing::Instrument;
 
 use crate::schema::SchemaError;
 use crate::storage::{KvStore, StorageError, TypedKvStore};
@@ -45,7 +44,7 @@ pub struct ChangeFeedPage {
 #[derive(Clone)]
 pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
-    native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    native: Arc<crate::storage::disk_pack::PackRuntime>,
     tip: Arc<Mutex<u64>>,
     subscribers: broadcast::Sender<ChangeFeedEvent>,
 }
@@ -53,7 +52,7 @@ pub struct ChangeFeedStore {
 impl ChangeFeedStore {
     pub(crate) async fn new(
         store: Arc<dyn KvStore>,
-        native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        native: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
         let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
@@ -110,30 +109,6 @@ impl ChangeFeedStore {
             end = self.append_chunk(chunk).await?;
         }
         Ok(end)
-    }
-
-    fn prune(&self, first: u64, end: u64) {
-        if end <= MAX_EVENTS || first > end {
-            return;
-        }
-        let store = Arc::clone(&self.store);
-        let mut first = first.saturating_sub(MAX_EVENTS).max(1);
-        let end = end - MAX_EVENTS;
-        // Best-effort retention stays outside the tip lock. A crash retains
-        // surplus events; it never removes a newly acknowledged event.
-        tokio::spawn(
-            async move {
-                while first <= end {
-                    let last = first.saturating_add(APPEND_EVENTS as u64 - 1).min(end);
-                    let keys = (first..=last)
-                        .map(|sequence| event_key(sequence).into_bytes())
-                        .collect();
-                    let _ = store.inner().batch_delete(keys).await;
-                    first = last + 1;
-                }
-            }
-            .in_current_span(),
-        );
     }
 
     pub async fn list_after(
