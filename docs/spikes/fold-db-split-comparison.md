@@ -37,7 +37,7 @@ Each trial keeps the same behavior, locks, batches, and stored formats.
 
 FIG. 1 — The target. The LastDB and LastStore line separates meaning from bytes.
 Above it, one owner holds each concept, and each owner has a pure model module.
-The owners give rows to one commit plan. `#nnn` marks a trial PR.
+The owners give entries to one commit plan. `#nnn` marks a trial PR.
 
 ## Method
 
@@ -58,7 +58,9 @@ The tool also counts these signals:
 CAUTION: The counts are a lower bound. The tool does not see macro expansion or method calls.
 A split with fewer units also has fewer places for a violation. Read each count with the unit count.
 
-Commands:
+Commands (run at the base commit; later changes removed the candidate files,
+see [40-store-substrate.json](https://github.com/EdgeVector/lastdb/blob/ae0b7936dcf2b6d7dc7007ede64c3a15207240a5/scripts/split-lab/candidates/40-store-substrate.json) and
+[20-canonical-levels.json](https://github.com/EdgeVector/lastdb/blob/ae0b7936dcf2b6d7dc7007ede64c3a15207240a5/scripts/split-lab/candidates/20-canonical-levels.json) at that commit):
 
 ```bash
 python3 scripts/split-lab/split_measure.py \
@@ -115,7 +117,7 @@ Units: `primitives`, a pure `model`, `engine`, and `transport`.
   The model files (10.1k lines) give only 22 of the violations.
 - **Did not work:** the store files (99.4k lines) give the rest.
   `RecordStore` has 130 inherent impl blocks. Most of them are field key code.
-  One function, `commit_tip_changes`, writes tips, record counters, blob counters, and the maintenance rows in one batch.
+  One commit function wrote the record versions, record counters, blob counters, and the maintenance entries in one batch.
   The warm set crosses every level. No position for it works.
 - **Field:** in the code, field is a type level only. It has no codec and no store of its own.
 - **Verdict:** use the levels as the module order for owners and model types, not as crates now.
@@ -133,7 +135,7 @@ Units: `primitives`, a pure `model`, `engine`, and `transport`.
 
 ### 40 store substrate: meaning above, keys and bytes below
 
-- **Worked:** the bottom line holds for homes, commit, rows, cleanup, CAS delete, the backup planner, and encryption.
+- **Worked:** the bottom line holds for homes, commit, stored entries, cleanup, CAS delete, the backup planner, and encryption.
   `storage/disk_pack` divides into 62% store and 38% meaning.
   `db_operations` is about 99% meaning.
 - **Did not work:** six points cross the line.
@@ -172,8 +174,9 @@ Each agent found the same structure without the others.
    Any file can change any field through `self`.
    So the module tree shows a structure that the state does not have.
    A split by files cannot cross these objects.
-2. **The commit knot.** `RecordStore::commit_tip_changes` writes one batch for many concepts.
-   The batch must stay one batch, because the record counter is the only authority that lets a record body go.
+2. **The commit knot.** One `RecordStore` commit function writes one batch for many concepts.
+   At the base commit, the batch had to stay one batch, because the record counter was the only authority that let a record body go.
+   Format 8 stores one record per key and has no record counter.
 3. **The runtime knot.** `PackRuntime::install_committed` publishes the disk root, the schema keys, and the warm set under one view lock.
 4. **Values that fetch their own data.** `FieldVariant` has async read methods that call `DbOperations` and `disk_pack::logical_paths`.
 5. **Errors with two meanings.** `SchemaError` is the error type of most of the store (148 references from `db_operations`).
@@ -198,7 +201,7 @@ Each trial is a draft PR. Auto-merge is off. Each trial took one PR, and CI pass
 - **Behavior:** the lock order stays view, then call receipt, then core.
   Under the view write lock, the publication order is the same.
 - **Measure (candidate 40):** violation refs 84 → 63. Files with violations 24 → 21.
-- **Remains:** `logical_capture`, the key-format links, the `file_dependencies` names, and 15 database `impl PackRuntime` blocks.
+- **Remains:** the logical capture module (removed after this spike), the key-format links, the `file_dependencies` names, and 15 database `impl PackRuntime` blocks.
   The estimate is 4 to 6 more PRs.
 - **Review point:** the database finds its own state through an `as_any` downcast.
   A wrong implementation causes a panic at run time, not a compile error.
@@ -207,7 +210,7 @@ Each trial is a draft PR. Auto-merge is off. Each trial took one PR, and CI pass
 ### Trial 2: the field key drain gets its own owner (#842)
 
 - **Change:** the new `FieldKeyDrain` owns the drain state. `RecordStore` holds the owner and never reads its state.
-  The drain rows reach the one-batch commit as `TipChangeSet` values.
+  The drain entries reach the one-batch commit as change set values.
   The wake signal goes through a new hook, `RecordStore::notify_after_commit`.
 - **Measure:** `impl RecordStore` blocks 130 → 124. Foreign impls (candidate 60) 133 → 127.
 - **Result:** most drain methods used no drain state. They were on `RecordStore` only to reach the store.
@@ -261,7 +264,7 @@ Each row is one PR or a small group of PRs. No PR changes a stored format.
 |---|---|---|
 | A. First seams | Review and merge #844, #843, and #842, one at a time | 3 |
 | A. Leaves | `lastdb_primitives`; the backup transport crate; delete the unused `fold_db` dependency of `generate_schema_org_classifications` | 3 |
-| B. Store line | `logical_capture` out of the store runtime; key formats; `file_dependencies` names; a database handle for the `impl PackRuntime` blocks | 4–6 |
+| B. Store line | key formats; `file_dependencies` names; a database handle for the `impl PackRuntime` blocks (the logical capture module is removed) | 4–6 |
 | B. Store crate | Extract `lastdb_store`; a CI job builds it alone | 2 |
 | C. Owners | The commit planner takes plan values | 2–3 |
 | C. Owners | Retention, blob counter, counter verify, keep-small, history | about 5 |

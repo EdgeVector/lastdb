@@ -12,11 +12,11 @@ Design: brain `design-lastdb-status-gauge-contract` (PR-5)
      "version": 1,
      "gauges": [
        {
-         "path": "integrity.unresolved_record_distinct",
-         "unit": "edges",
-         "unit_noun": "edge(s)",
-         "window": "process_lifetime",
-         "window_qualifier": "this process",
+         "path": "qos.total_permits",
+         "unit": "permit(s)",
+         "unit_noun": "permit(s)",
+         "window": "instant",
+         "window_qualifier": "now",
          "availability": "measured"
        }
      ]

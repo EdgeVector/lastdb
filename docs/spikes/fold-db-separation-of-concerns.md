@@ -104,10 +104,10 @@ They do not change stored data, so this spike leaves them in the engine.
 
 | Constructor or method | Effect | Location |
 |---|---|---|
-| `Mutation::new` | `Uuid::new_v4()` for `uuid` | [mutation.rs:146](../../fold_db/crates/core/src/schema/types/mutation.rs#L146) |
-| `Record::new` | `Utc::now()` for `created_at` | [record_def.rs:91](../../fold_db/crates/core/src/record/record_def.rs#L91) |
-| `FieldKeyHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](../../fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L17), [:40](../../fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L40) |
-| `FieldKeyHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](../../fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L67), [:122](../../fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
+| `Mutation::new` | `Uuid::new_v4()` for `uuid` | [mutation.rs:146](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/schema/types/mutation.rs#L146) |
+| `Record::new` | `Utc::now()` for `created_at` | [record_def.rs:91](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/record_def.rs#L91) |
+| `FieldKeyHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L17), [:40](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L40) |
+| `FieldKeyHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L67), [:122](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
 | `PublicKeyInfo::new` | `Utc::now()` for `created_at` | [security/types.rs:34](../../fold_db/crates/core/src/security/types.rs#L34) |
 | `Ed25519KeyPair::generate` | `OsRng` | [security/keys.rs:19](../../fold_db/crates/core/src/security/keys.rs#L19) |
 
@@ -122,7 +122,7 @@ One write reads the clock three times:
 
 The three values differ for one mutation.
 A replay of the same mutation gives a new `created_at` on a record with the same content UUID.
-The [warm set spike](../lastdb-core-model-warm-spike.md) has to handle that case.
+The [warm set spike](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/docs/lastdb-core-model-warm-spike.md) (at the base commit, since removed) had to handle that case.
 
 `create_record` also reads a process global.
 It calls `enforce_field_value_limit`, which reads `max_field_value_bytes()`.
@@ -131,7 +131,7 @@ That function returns a `OnceLock` value from `LASTDB_MAX_FIELD_VALUE_BYTES`.
 ### Problem 2: a decision and its effects in one function
 
 The backup planner is in
-[planner.rs](../../fold_db/crates/core/src/storage/disk_pack/byte_backup/planner.rs).
+[planner.rs](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/storage/disk_pack/byte_backup/planner.rs).
 
 - `build` (line 19) lists the files on disk (`inner.files()`) and writes `job.json` two times.
 - `input` (line 100) reads a frozen plan from disk.
@@ -182,7 +182,7 @@ Three budgets live in `OnceLock` statics:
 | Function | Static | Location |
 |---|---|---|
 | `process_memory_budget()` | `BUDGET` | [process_budget.rs:196](../../fold_db/crates/core/src/memory_budget/process_budget.rs#L196) |
-| `max_field_value_bytes()` | `EFFECTIVE_LIMIT` | [size_limit.rs:55](../../fold_db/crates/core/src/record/size_limit.rs#L55) |
+| `max_field_value_bytes()` | `EFFECTIVE_LIMIT` | [size_limit.rs:55](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/size_limit.rs#L55) |
 | `core_warm_bytes()` | `CORE_WARM_BYTES_IN_FORCE` | [warm_bytes.rs:17](../../fold_db/crates/core/src/resident/warm_bytes.rs#L17) |
 
 The first read sets each value for the life of the process.
@@ -361,7 +361,7 @@ The engine list is a subset of the `schema_service_core` list:
 |---|---|---|
 | 5a | Move the fetch code out of `schema::types::field` (`variant::read*`, `filter_utils::fetch*`) into the engine query layer. | `schema` has no reference to `storage`, `db_operations`, or `fold_db_core`. |
 | 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `record::file_pointer` gets the cipher suite constant from the model. `record::history_event_memo` moves to the engine. | `record` and `crypto` have no engine reference. |
-| 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs`, `TipCommit`). | The pack rule runs on a file list without a store. |
+| 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs` and its commit type). | The pack rule runs on a file list without a store. |
 | 5d | Create `lastdb_model` with `record`, `schema::types`, the mutation type, key values, `canonical`, `kind_partition`, `json_order`, and the codecs. Its manifest has `uuid` without `v4`, `chrono` without `clock` and `now`, and no `tokio`, `reqwest`, or `laststore`. Its `clippy.toml` uses the full `schema_service_core` list. | A CI job runs `cargo check -p lastdb_model` alone, and the job passes. |
 | 5e | `lastdb_host` uses `lastdb_model` for its 33 `schema::types` references. | |
 
@@ -465,6 +465,5 @@ rg -o --no-filename 'crate::[a-z_]+' schema | sort | uniq -c | sort -rn
 | `db_operations/search_index/queue_policy.rs:13` | `CLI_ENABLED` | `AtomicBool` |
 | `storage/disk_pack/cloud_work.rs:6` | `ACTIVE` | `AtomicBool` |
 | `storage/disk_pack/transaction/blocked.rs:30` | `WRITE_SCOPES` | `AtomicU64` |
-| `fold_db_core/mutation_manager/logical_capture/collector.rs:23` | `CANDIDATES` | thread-local `Mutex` |
 
 A pattern search found this list. Step 2d checks it again before the move.
