@@ -4,20 +4,6 @@ use super::traits::{KvStore, NamespacedStore};
 use crate::crypto::CryptoProvider;
 use std::sync::Arc;
 
-/// Published or derived catalog collections. This list classifies legacy
-/// backup/replay metadata; it does not select storage encryption.
-pub const CATALOG_NAMESPACES: &[&str] = &[
-    "schemas",
-    // Database/schema -> universal instance references. Catalog metadata only;
-    // never field key/field value.
-    "db_catalog",
-    "field_keys",
-    "schema_states",
-    "schema_superseded_by",
-    "public_keys",
-    "idempotency",
-];
-
 /// Only local CAS blob records receive a storage-level encryption envelope.
 /// Record rows are plain JSON on a v2 home; the run-file block encryption
 /// protects them. Tips, counters, catalogs, and other control records pass
