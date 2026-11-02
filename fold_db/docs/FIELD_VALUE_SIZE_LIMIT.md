@@ -68,5 +68,5 @@ budget, well under the 64 KiB cap.
 
 - `fold_db/crates/model/src/record_value.rs` (`MAX_RECORD_BYTES`)
 - `fold_db/crates/core/src/db_operations/record_store/record_cap.rs`
-- `fold_db/crates/model/src/content_limit.rs` (`RECORD_TOO_LARGE_HINT`, `FIELD_VALUE_TOO_LARGE_HINT`)
+- `fold_db/crates/model/src/content_limit.rs` (`RECORD_TOO_LARGE_HINT`)
 - `fold_db/crates/core/src/content_limit.rs` (`max_field_value_bytes`)

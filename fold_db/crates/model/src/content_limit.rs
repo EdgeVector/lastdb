@@ -22,13 +22,6 @@ pub const MIN_MAX_FIELD_VALUE_BYTES: usize = 1024;
 /// The model only names it; core reads it.
 pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
 
-/// Guidance for a rejected write, by the shape of the data. The `413` body
-/// `hint` and the error message both carry this text.
-pub const FIELD_VALUE_TOO_LARGE_HINT: &str = "For a list or log that grows, write one record \
-    per entry in a HashRange schema (hash = partition, range = entry key). For large opaque \
-    bytes, store a file blob (CAS) and keep a pointer in the record; many small fields may be \
-    packed into one record up to the limit.";
-
 /// Guidance for a record of a home above its 64 KiB cap
 /// (`record_value::MAX_RECORD_BYTES`). The `413` body `hint` and the error
 /// message both carry this text.

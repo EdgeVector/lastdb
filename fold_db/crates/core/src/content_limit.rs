@@ -16,8 +16,8 @@ use std::sync::OnceLock;
 
 /// The fixed numbers and text are model data; this module resolves the limit.
 pub use lastdb_model::content_limit::{
-    ABSOLUTE_MAX_FIELD_VALUE_BYTES, DEFAULT_MAX_FIELD_VALUE_BYTES, FIELD_VALUE_TOO_LARGE_HINT,
-    MAX_FIELD_VALUE_BYTES_ENV, MIN_MAX_FIELD_VALUE_BYTES,
+    ABSOLUTE_MAX_FIELD_VALUE_BYTES, DEFAULT_MAX_FIELD_VALUE_BYTES, MAX_FIELD_VALUE_BYTES_ENV,
+    MIN_MAX_FIELD_VALUE_BYTES,
 };
 
 static EFFECTIVE_LIMIT: OnceLock<usize> = OnceLock::new();
