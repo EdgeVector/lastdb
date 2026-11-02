@@ -24,6 +24,15 @@ mod gen {
     include!(concat!(env!("OUT_DIR"), "/environments_generated.rs"));
 }
 
+/// Anonymous S3 base for the registry's signed interface lists.
+#[must_use]
+pub const fn registry_index_url_for(env: Environment) -> &'static str {
+    match env {
+        Environment::Dev => gen::DEV_REGISTRY_INDEX,
+        Environment::Prod => gen::PROD_REGISTRY_INDEX,
+    }
+}
+
 use std::sync::OnceLock;
 
 /// Service environment — dev or prod.

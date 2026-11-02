@@ -38,7 +38,7 @@ pub const DEFAULT_CHANNEL: &str = "stable";
 
 /// Public list base. Fetch `<base>/<channel>/api/<api_version>.json` and `.sig`.
 pub const DEFAULT_INDEX_BASE_URL: &str =
-    "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists";
+    folddb_profile::endpoints::registry_index_url_for(folddb_profile::endpoints::Environment::Prod);
 
 /// Registry KMS Ed25519 public key. The private half never leaves AWS KMS.
 pub const REGISTRY_LIST_PUBKEY_B64: &str = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=";

@@ -110,16 +110,7 @@ pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<
     let url = input
         .registry_url
         .or_else(|| std::env::var("LASTDB_APP_REGISTRY_URL").ok())
-        .unwrap_or_else(|| {
-            folddb_profile::endpoints::app_registry_url_for(
-                if input.environment.as_deref() == Some("dev") {
-                    folddb_profile::endpoints::Environment::Dev
-                } else {
-                    folddb_profile::endpoints::Environment::Prod
-                },
-            )
-            .to_string()
-        });
+        .ok_or("publish requires --registry-url or LASTDB_APP_REGISTRY_URL")?;
     if !url.starts_with("https://") {
         return Err("registry URL must use HTTPS".into());
     }
