@@ -32,7 +32,7 @@ use fold_db::schema::types::declarative_schemas::SchemaSource;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::DataRoute;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
