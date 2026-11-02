@@ -54,7 +54,10 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
-        run: rustup show active-toolchain
+        run: |
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
+          rustup show active-toolchain
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
