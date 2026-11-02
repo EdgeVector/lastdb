@@ -9,7 +9,6 @@ use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
 
 static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
-use fold_db::request_phases::{run_with_phases, RequestPhaseTotals};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
@@ -217,10 +216,9 @@ async fn still_expired(
     }
 }
 
-/// One line per batch with the erase phases, for the operator who asks where a
-/// batch spent its time. Phase times are in milliseconds. A batch that dropped
-/// keys at the re-check is logged at info.
-fn log_batch(schema_name: &str, batch: &Batch, took: Duration, phases: &RequestPhaseTotals) {
+/// One line per batch, for the operator who asks where a batch spent its time.
+/// A batch that dropped keys at the re-check is logged at info.
+fn log_batch(schema_name: &str, batch: &Batch, took: Duration) {
     let Batch {
         erased,
         dropped,
@@ -242,13 +240,6 @@ fn log_batch(schema_name: &str, batch: &Batch, took: Duration, phases: &RequestP
         dropped,
         missing,
         took_ms = took.as_millis() as u64,
-        materialize_ms = phases.purge_materialize_us / 1000,
-        trace_ms = phases.purge_trace_us / 1000,
-        guard_ms = phases.purge_retention_guard_us / 1000,
-        delete_ms = phases.purge_delete_us / 1000,
-        finalize_ms = phases.purge_finalize_us / 1000,
-        other_commit_ms = phases.purge_commit_us / 1000,
-        barrier_wait_ms = phases.purge_barrier_us / 1000,
         "ttl sweep batch erased"
     );
 }

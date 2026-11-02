@@ -48,7 +48,7 @@ phase_timings! {
     /// The model half of mutation phase observability: once the mutation path
     /// reports them, these fields answer *where inside the node* a slow request
     /// spent its time — waiting in the socket queue, waiting at the QoS
-    /// admission gate, queueing at a write gate (`lock_wait`), or doing parse /
+    /// admission gate, queueing at a write gate (`field_key_gate`), or doing parse /
     /// schema-resolve / validate / cas-precondition / apply /
     /// persist / flush / index-wait / change-record / response-envelope work.
     /// This struct is the shared vocabulary; the recording sites land separately.
@@ -87,82 +87,18 @@ phase_timings! {
         schema_resolve_us => "schema_resolve",
         /// Mutation validation.
         validate_us => "validate",
-        /// Mutation: time blocked acquiring the per-`(schema, key)` CAS mutex
-        /// before any pipeline step runs. Queueing behind same-key writers, not
-        /// work — the remedy is the caller's key layout. A batch carrying no CAS
-        /// expectation takes no per-key mutex and reports zero here.
-        ///
-        /// Series note for rollup readers: before the `purge_barrier_us` split
-        /// this number also carried the per-schema purge barrier, so a
-        /// `lock_wait` drop at that upgrade boundary is the split, not a
-        /// regression cured.
-        lock_wait_us => "lock_wait",
-        /// Mutation, purge side: time blocked before an EXCLUSIVE acquisition of
-        /// the per-schema guarded-purge barrier.
-        ///
-        /// Ordinary writes do not acquire this barrier and report zero here. A
-        /// large value identifies concurrent guarded purges with one schema name.
-        /// `purge_commit_us` measures the critical section after acquisition.
-        purge_barrier_us => "purge_barrier",
-        /// Mutation, purge side: the unlocked reachability trace that decides
-        /// whether there is anything to delete. A read, paid by this caller
-        /// alone; under the `Skip` policy a trace that finds nothing skips the
-        /// exclusive acquire entirely. Large here means a scan problem.
-        purge_plan_us => "purge_plan",
-        /// Mutation, purge side: the destructive snapshot→delete performed while
-        /// holding the per-schema purge barrier EXCLUSIVELY. Ordinary writes do
-        /// not wait for this work. Summed across the batch's chunks, this is the
-        /// total critical-section time, not the longest single section.
-        ///
-        /// Series note for rollup readers: rows written before 0.23.3 read back
-        /// as 0 here while carrying the same work inside the request's
-        /// unattributed remainder, so an `apply`/unphased drop at that boundary
-        /// is the split, not a regression cured.
-        purge_commit_us => "purge_commit",
-        /// Mutation, purge side: materializing every field key of the schema
-        /// before the trace and the guards read it. Sized by the schema
-        /// (`fields x field key cardinality`), not by the records being removed —
-        /// a one-record purge of a wide, high-cardinality schema pays the same as
-        /// a thousand-record one. Large here is a read-width problem, and the
-        /// unlocked probe already shows what narrowing it is worth.
-        purge_materialize_us => "purge_materialize",
-        /// Mutation, purge side: the reachability trace under the barrier —
-        /// legacy `history:` events per field plus the `tv:` chain walk per target
-        /// key. On a store with no legacy rows this is chain depth alone.
-        purge_trace_us => "purge_trace",
-        /// Mutation, purge side: the two preserve sets (retained chain records and
-        /// live record uuids) that keep a batch from deleting a live sibling. Both
-        /// `O(fields x records)`. A guard, so the fix is to make it cheaper, never
-        /// to drop it.
-        purge_retention_guard_us => "purge_retention_guard",
-        /// Mutation, purge side: the durable removal — per-field field-key
-        /// removal, file-pointer accounting reads, and the single `batch_delete`.
-        /// The only purge phase that should scale with RECORDS PURGED rather than
-        /// with schema size.
-        purge_delete_us => "purge_delete",
-        /// Mutation, purge side: schema re-store, schema-cache reload, flush and
-        /// delete-ledger commit inside the guarded purge critical section.
-        purge_finalize_us => "purge_finalize",
         /// Mutation: time blocked acquiring the Phase 3 per-`(field key, hash)`
         /// write gate, held across the rest of the write including the deferred
         /// durable persist.
-        ///
-        /// Reported apart from `lock_wait_us` since 0.23.2: the two gates sit at
-        /// opposite ends of the pipeline and have different remedies, and summing
-        /// them hid whether narrowing this one (fold #1104) helped. Series note
-        /// for rollup readers — before this split, this gate's time was included
-        /// in `lock_wait_us`, so a `lock_wait` drop at the upgrade boundary is
-        /// the split, not a regression cured.
         field_key_gate_us => "field_key_gate",
         /// Mutation: persisted-head reads verifying CAS expectations while the
-        /// batch holds those locks. Storage IO; split from `lock_wait_us`
-        /// because contention and read cost have opposite fixes.
+        /// batch holds those locks. Storage IO, not contention.
         cas_precondition_us => "cas_precondition",
         /// Query: the exact row count read from the key index ahead of the
         /// push-down. Large relative to `hydrate` means the partition is being
         /// counted more expensively than the page is being served.
         count_us => "count",
-        /// Query: row materialization end to end — the PARENT total that the four
+        /// Query: row materialization end to end — the PARENT total that the three
         /// `hydrate_*` fields below partition exactly. Kept so rollup rows written
         /// before 0.23.4 stay comparable with rows written after; read the
         /// sub-steps to decide what to fix.
@@ -178,9 +114,6 @@ phase_timings! {
         /// Query: the deterministic total-order sort that makes offset/limit
         /// pagination non-overlapping. `O(rows log rows)` JSON-keyed comparisons.
         hydrate_sort_us => "hydrate_sort",
-        /// Query: post-sort value-filter retain. Normally zero; non-zero means
-        /// rows were hydrated, formatted and sorted before being dropped.
-        hydrate_filter_us => "hydrate_filter",
         /// Query: per-field merge-conflict annotation of the formatted rows.
         annotate_us => "annotate",
         /// In-memory application of the write — the RESIDUAL left after every
@@ -234,26 +167,11 @@ phase_timings! {
         /// off-thread index/embedding work itself, which never blocks the
         /// request.
         index_wait_us => "index_wait",
-        /// Post-write process-local outbox recording only. Since 0.23.2 the
-        /// durable change-feed append below is `change_record_lock_wait_us` /
-        /// `change_record_write_us`; a drop here at the upgrade boundary is the
-        /// split, not a regression cured.
+        /// Post-write process-local outbox recording. The durable change-feed
+        /// append joins the native commit and reports no phase of its own.
         change_record_us => "change_record",
-        /// Mutation: time blocked acquiring the change-feed's single global `tip`
-        /// mutex — the one lock on the node not scoped to a schema, key, or
-        /// field key. Every successful mutation passes through it, so a large
-        /// value here is every writer on the node queueing behind every other
-        /// one, not a same-key or same-schema peer.
-        change_record_lock_wait_us => "change_record_lock_wait",
-        /// Mutation: the durable change-feed batch write (event + tip) done while
-        /// holding the mutex above. Storage IO, split from
-        /// `change_record_lock_wait_us` because contention and write cost have
-        /// different fixes.
-        change_record_write_us => "change_record_write",
         /// Final response envelope/error rendering after route work completes.
         response_envelope_us => "response_envelope",
-        /// Status route: sealed-chunk backup progress snapshot.
-        status_backup_us => "status_backup",
         /// Status route: durable backup marker evaluation.
         status_durability_us => "status_durability",
         /// Status route: recursive data-directory sizing.

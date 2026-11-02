@@ -3,13 +3,13 @@
 //! The request-ops telemetry (`lastdb_node::request_telemetry::PhaseTimings`)
 //! wants to know *where inside the node* a request spent its time. For a
 //! mutation that is QoS admission wait, parse, schema resolve, validate,
-//! write-gate `lock_wait`, `field_key_gate`, `cas_precondition`, apply,
+//! write-gate `field_key_gate`, `cas_precondition`, apply,
 //! persist, flush, cloud-sync capture,
 //! background index wait, change recording, and response envelope rendering.
 //! For a query it is admission wait, parse, schema resolve, the index
 //! `count`, row `hydrate`, and conflict `annotate`. For status it is the
 //! snapshot components that can otherwise hide synchronous ops-surface work:
-//! backup progress, durability marker evaluation, data-dir sizing,
+//! durability marker evaluation, data-dir sizing,
 //! and request-ops snapshot copying.
 //! Those phases are measured in three different
 //! crates (`lastdb_node` parses, `lastdb_host` resolves/validates/admits,
@@ -162,15 +162,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::Parse => &mut totals.parse_us,
             RequestPhase::SchemaResolve => &mut totals.schema_resolve_us,
             RequestPhase::Validate => &mut totals.validate_us,
-            RequestPhase::LockWait => &mut totals.lock_wait_us,
-            RequestPhase::PurgeBarrier => &mut totals.purge_barrier_us,
-            RequestPhase::PurgePlan => &mut totals.purge_plan_us,
-            RequestPhase::PurgeCommit => &mut totals.purge_commit_us,
-            RequestPhase::PurgeMaterialize => &mut totals.purge_materialize_us,
-            RequestPhase::PurgeTrace => &mut totals.purge_trace_us,
-            RequestPhase::PurgeRetentionGuard => &mut totals.purge_retention_guard_us,
-            RequestPhase::PurgeDelete => &mut totals.purge_delete_us,
-            RequestPhase::PurgeFinalize => &mut totals.purge_finalize_us,
             RequestPhase::FieldKeyGate => &mut totals.field_key_gate_us,
             RequestPhase::CasPrecondition => &mut totals.cas_precondition_us,
             RequestPhase::Count => &mut totals.count_us,
@@ -178,7 +169,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::HydrateRecords => &mut totals.hydrate_records_us,
             RequestPhase::HydrateFormat => &mut totals.hydrate_format_us,
             RequestPhase::HydrateSort => &mut totals.hydrate_sort_us,
-            RequestPhase::HydrateFilter => &mut totals.hydrate_filter_us,
             RequestPhase::Annotate => &mut totals.annotate_us,
             RequestPhase::Apply => &mut totals.apply_us,
             RequestPhase::ApplyMemory => &mut totals.apply_memory_us,
@@ -196,10 +186,7 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::Flush => &mut totals.flush_us,
             RequestPhase::IndexWait => &mut totals.index_wait_us,
             RequestPhase::ChangeRecord => &mut totals.change_record_us,
-            RequestPhase::ChangeRecordLockWait => &mut totals.change_record_lock_wait_us,
-            RequestPhase::ChangeRecordWrite => &mut totals.change_record_write_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,
-            RequestPhase::StatusBackup => &mut totals.status_backup_us,
             RequestPhase::StatusDurability => &mut totals.status_durability_us,
             RequestPhase::StatusDataDir => &mut totals.status_data_dir_us,
             RequestPhase::StatusRequestOps => &mut totals.status_request_ops_us,

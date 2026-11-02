@@ -245,9 +245,7 @@ A value that does not parse gives the default.
 ## Logs and status
 
 `RUST_LOG=lastdbd::ttl_sweep=debug` prints one `ttl sweep batch erased` line per batch with the
-key counts and `took_ms`. The line also keeps the phase fields of the older erase
-(`materialize_ms`, `trace_ms`, `guard_ms`, `delete_ms`, `finalize_ms`, `other_commit_ms`,
-`barrier_wait_ms`). The format 7 erase does not measure those phases, so use `took_ms`.
+key counts and `took_ms`.
 
 `lastdb status` prints the `Local retention:` line:
 
