@@ -41,6 +41,8 @@ jobs:
         if: matrix.language == 'rust'
         id: rust-target
         run: |
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           rustup show active-toolchain
           target="$RUNNER_TEMP/codeql-rust-target"
           echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
