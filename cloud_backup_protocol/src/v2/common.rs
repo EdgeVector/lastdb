@@ -102,11 +102,6 @@ impl ClientDescriptor {
     pub fn as_value(&self) -> &Value {
         &self.0
     }
-    #[must_use]
-    /// Take the raw JSON.
-    pub fn into_value(self) -> Value {
-        self.0
-    }
     /// Client-only typed interpretation; the transport does not call this method.
     pub fn parse<T: DeserializeOwned>(&self) -> Result<T, ProtocolError> {
         self.validate()?;
