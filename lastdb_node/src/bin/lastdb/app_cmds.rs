@@ -38,6 +38,24 @@ pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
     );
 }
 
+pub(crate) fn crypto_env_for(env: Option<&str>) -> Result<app_identity_crypto::Env, String> {
+    match env {
+        Some("dev") | None => Ok(app_identity_crypto::Env::Dev),
+        Some("prod") => Ok(app_identity_crypto::Env::Prod),
+        Some(other) => Err(format!("unknown --env '{other}' (expected dev or prod)")),
+    }
+}
+
+pub(crate) fn block_on_app<T>(
+    fut: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
+    runtime.block_on(fut)
+}
+
 /// `lastdb app ...`: resolve the home, then hand each subcommand to its
 /// handler in `check`, `publish`, `registry` or `release`. Release and dev
 /// status subcommands go through [`app_release_command`].
