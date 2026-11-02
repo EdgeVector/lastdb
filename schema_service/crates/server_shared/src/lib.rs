@@ -15,7 +15,6 @@
 mod blocking_runtime;
 mod clock;
 mod ids;
-mod resolver_pack_cache;
 mod schema_config;
 
 #[cfg(any(feature = "fastembed", feature = "fastembed-layer"))]
@@ -28,7 +27,6 @@ pub use clock::SystemClock;
 #[cfg(any(feature = "fastembed", feature = "fastembed-layer"))]
 pub use fastembed_adapter::FoldDbFastEmbedder;
 pub use ids::SystemIds;
-pub use resolver_pack_cache::FsResolverPackCache;
 pub use schema_config::SchemaConfigEnv;
 pub use schema_service_core::Embedder;
 pub use schema_service_core::{builtin_schemas, state, types};

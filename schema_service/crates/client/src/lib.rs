@@ -13,21 +13,14 @@
 //! Retries: connect errors, timeouts, and 5xx responses retry up to 3 times
 //! with exponential backoff (250ms, 1s, 4s). 4xx responses and JSON
 //! deserialization failures fail fast on the first attempt.
-//!
-//! Resolver-pack fetch: [`resolver_pack_http::HttpResolverPackStore`] implements
-//! the core [`schema_service_core::ResolverPackObjectStore`] over HTTPS (or
-//! localhost HTTP for isolated tooling). This is separate from
-//! [`LiveSchemaResolver`], which always resolves through the live service.
 
 pub mod live_resolver;
-pub mod resolver_pack_http;
 
 pub use live_resolver::{
     match_live_result, DisagreementClass, FacadePath, FacadeProposal, FacadeResolveItem,
     LiveSchemaResolver, LocalShadowSummary, SharedSurfaceAttachmentRecord,
     SharedSurfacePublishOutcome, SharedSurfacePublishRequest, SharedSurfacePublishResult,
 };
-pub use resolver_pack_http::{join_object_url, HttpResolverPackStore};
 pub use schema_service_core::{field_context_text, proposal_field_id};
 
 use app_identity_crypto::{
