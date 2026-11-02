@@ -42,8 +42,6 @@ import {
   existsSync,
 } from 'node:fs';
 
-import { CapabilityNotFoundError } from './errors.js';
-
 /**
  * Options for a {@link CapabilityStore.load}. `expectedNode` is the canonical
  * target string of the connection asking for the capability (the transport's
@@ -502,22 +500,4 @@ export function defaultCapabilityStore(
   keychainService: string = DEFAULT_KEYCHAIN_SERVICE,
 ): CapabilityStore {
   return new KeychainWithFileFallbackStore(undefined, keychainService);
-}
-
-/**
- * Convenience: load a capability or throw {@link CapabilityNotFoundError}.
- * Used where a missing capability is a hard error (vs. `load` which returns
- * `null`). `appId` is for the error message only; `key` is the node-scoped
- * store key from {@link capabilityStoreKey}.
- */
-export async function loadCapabilityOrThrow(
-  store: CapabilityStore,
-  key: string,
-  options: LoadOptions & { appId?: string } = {},
-): Promise<string> {
-  const cap = await store.load(key, options);
-  if (cap === null) {
-    throw new CapabilityNotFoundError(options.appId ?? key);
-  }
-  return cap;
 }

@@ -52,7 +52,6 @@ export {
   FileCapabilityStore,
   KeychainUnavailableError,
   KeychainWithFileFallbackStore,
-  loadCapabilityOrThrow,
   MacKeychainStore,
 } from './capabilityStore.js';
 export type {
