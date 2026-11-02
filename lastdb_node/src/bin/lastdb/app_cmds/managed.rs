@@ -104,11 +104,8 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
     for app in names {
         let current = installed(&app)?;
         let channel = input.source.channel.as_deref().unwrap_or(&current.channel);
-        if !rows.contains_key(channel) {
-            rows.insert(
-                channel.to_string(),
-                resolutions(home, &input.source, channel)?,
-            );
+        if let std::collections::hash_map::Entry::Vacant(entry) = rows.entry(channel.to_string()) {
+            entry.insert(resolutions(home, &input.source, channel)?);
         }
         let Some(row) = rows
             .get(channel)
