@@ -17,7 +17,7 @@ use std::sync::Arc;
 pub struct SchemaDropReceipt {
     pub identity: String,
     pub owner_app: Option<String>,
-    #[serde(default, alias = "field_molecule_uuids")]
+    #[serde(default)]
     pub field_key_ids: Vec<String>,
     pub dropped_at_unix_ms: u64,
 }

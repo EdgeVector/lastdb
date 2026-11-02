@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldCommon {
-    // Stored JSON key.
-    #[serde(default, alias = "molecule_uuid")]
+    #[serde(default)]
     pub field_key_id: Option<String>,
     #[serde(default = "default_writable")]
     pub writable: bool,

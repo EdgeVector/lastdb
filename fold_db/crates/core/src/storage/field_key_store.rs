@@ -60,8 +60,6 @@ enum ConflictKeyIdentity {
 #[serde(deny_unknown_fields)]
 struct BundleMetadata {
     version: u8,
-    // Stored JSON key.
-    #[serde(alias = "molecule_uuid")]
     field_key_id: String,
     range_profile: schema_types::field_range_profile::FieldRangeProfile,
     key_authority: KeyAuthority,
@@ -71,8 +69,6 @@ struct BundleMetadata {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct BundleWrap {
     version: u8,
-    // Stored JSON key.
-    #[serde(alias = "molecule_uuid")]
     field_key_id: String,
     domain: String,
     sealed_bundle: String,

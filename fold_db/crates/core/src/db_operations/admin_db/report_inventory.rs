@@ -60,9 +60,9 @@ pub struct DbInventory {
     pub main_total_keys: u64,
     pub main_total_bytes: u64,
     /// The live records of each schema (`record_count`, `record_bytes`).
-    #[serde(default, alias = "per_schema_atoms")]
+    #[serde(default)]
     pub per_schema_records: Vec<SchemaStorage>,
-    #[serde(default, alias = "per_schema_atoms_total_bytes")]
+    #[serde(default)]
     pub per_schema_records_total_bytes: u64,
     /// The range reads this inventory made. A read that used its key budget in a
     /// run of deleted keys went on above the last key it examined (`skips`). A

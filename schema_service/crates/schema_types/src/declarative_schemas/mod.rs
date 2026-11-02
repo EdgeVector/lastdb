@@ -87,11 +87,7 @@ pub struct DeclarativeSchemaDefinition {
     pub hash: Option<String>,
     /// Field key UUIDs for each field (persisted for data continuity after mutations)
     /// Maps field_name -> field_key_id. Synced from runtime_fields before persistence.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        default,
-        alias = "field_molecule_uuids"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub field_key_ids: Option<HashMap<String, String>>,
     /// Classification tags for each field (e.g. "word", "name:person", "date", "number")
     /// Maps field_name -> list of classification strings

@@ -145,16 +145,14 @@ pub struct SchemaMeter {
 /// storage reports and the attribution ledger still read them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FieldKeyStorageCounter {
-    #[serde(alias = "molecule_uuid")]
     pub field_key_id: String,
     pub active_slot_count: u64,
-    #[serde(alias = "active_atom_value_bytes")]
     pub active_value_bytes: u64,
     #[serde(default)]
     pub active_blob_reference_bytes: u64,
     #[serde(default)]
     pub tip_index_bytes: u64,
-    #[serde(default, alias = "molecule_metadata_bytes")]
+    #[serde(default)]
     pub field_key_metadata_bytes: u64,
     #[serde(default)]
     pub retained_history_bytes: u64,

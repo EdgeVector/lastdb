@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 /// One active source that binds a field key.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FieldKeyRefEdge {
-    #[serde(alias = "molecule_uuid")]
     pub field_key_id: String,
     pub source: String,
     pub edge_type: String,

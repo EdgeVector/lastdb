@@ -23,11 +23,7 @@ struct DeclarativeSchemaDefinitionHelper {
     fields: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transform_fields: Option<HashMap<String, String>>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        default,
-        alias = "field_molecule_uuids"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     field_key_ids: Option<HashMap<String, String>>,
     #[serde(default)]
     field_classifications: HashMap<String, Vec<String>>,
