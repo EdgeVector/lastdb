@@ -59,9 +59,7 @@ mod write_preparation;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};
-pub use fold_db_core::{
-    FoldDB, HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent,
-};
+pub use fold_db_core::FoldDB;
 
 // Re-export schema types
 pub use schema::types::operations::MutationType;

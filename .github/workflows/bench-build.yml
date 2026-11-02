@@ -96,6 +96,8 @@ jobs:
         working-directory: candidate
         run: |
           set -euo pipefail
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           rustup show active-toolchain
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
@@ -105,7 +107,7 @@ jobs:
         run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
 
       - name: Cache dependency downloads only
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
@@ -149,7 +151,7 @@ jobs:
       - name: Save the accepted candidate for future baselines
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
@@ -157,7 +159,7 @@ jobs:
       - name: Restore the exact baseline program
         id: baseline-build
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
@@ -175,7 +177,7 @@ jobs:
         id: baseline-retry
         if: steps.baseline-ready.outputs.ready == 'true'
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
@@ -196,7 +198,7 @@ jobs:
       - name: Save the exact baseline program on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}

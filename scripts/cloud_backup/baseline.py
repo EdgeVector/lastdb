@@ -3,10 +3,9 @@
 
 A snapshot is a byte copy of the local home files, so a client restores only a
 snapshot of its own home format. The baseline is cut once for each home format
-that Tom approves (format 8:
-decision-2026-11-01-lastdb-remove-atom-molecule-protein-names-format-8). The
-cloud contract does not change. A failed restore after a change that keeps the
-home format is a defect of that change, not a reason to move the baseline.
+that Tom approves (format 8: Tom, 2026-11-01). The cloud contract does not
+change. A failed restore after a change that keeps the home format is a
+defect of that change, not a reason to move the baseline.
 
 This manual mode starts a fresh home of the current
 format with the fixed CI identity. It writes the 16 known records and one

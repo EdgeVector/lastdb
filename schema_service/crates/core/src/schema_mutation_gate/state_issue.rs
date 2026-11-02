@@ -3,12 +3,6 @@
 use super::*;
 
 impl SchemaServiceState {
-    pub fn configure_schema_mutation_gate(&self, config: SchemaMutationGateConfig) {
-        if let Ok(mut slot) = self.schema_mutation_gate_config.write() {
-            *slot = config;
-        }
-    }
-
     pub fn schema_mutation_gate_config(&self) -> SchemaMutationGateConfig {
         self.schema_mutation_gate_config
             .read()

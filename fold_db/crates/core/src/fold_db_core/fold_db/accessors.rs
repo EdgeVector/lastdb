@@ -2,23 +2,12 @@ use std::sync::Arc;
 
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
-use crate::storage::StorageError;
 
 use super::FoldDB;
 use crate::fold_db_core::mutation_manager::MutationManager;
 use crate::fold_db_core::query::QueryExecutor;
-use crate::fold_db_core::query::{HashRangeWatch, HashRangeWatchBounds};
 
 impl FoldDB {
-    /// Retrieves or generates and persists the node identifier.
-    pub async fn get_node_id(&self) -> Result<String, StorageError> {
-        self.db_ops
-            .metadata()
-            .get_node_id()
-            .await
-            .map_err(|e| StorageError::BackendError(e.to_string()))
-    }
-
     /// Returns a reference to the database operations Arc
     pub fn db_ops(&self) -> &Arc<DbOperations> {
         &self.db_ops
@@ -27,36 +16,6 @@ impl FoldDB {
     /// Returns a reference to the query executor
     pub fn query_executor(&self) -> &QueryExecutor {
         &self.query_executor
-    }
-
-    /// Start a live watch for one HashRange partition.
-    pub fn watch_hash_range(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-        bounds: Option<HashRangeWatchBounds>,
-    ) -> HashRangeWatch {
-        self.query_executor.watch_hash_range(schema, hash, bounds)
-    }
-
-    /// Start a watch without range bounds.
-    pub fn watch_partition(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-    ) -> HashRangeWatch {
-        self.query_executor.watch_partition(schema, hash)
-    }
-
-    /// Start a watch with inclusive-start/exclusive-end range bounds.
-    pub fn watch_range(
-        &self,
-        schema: impl Into<String>,
-        hash: impl Into<String>,
-        start: Option<String>,
-        end: Option<String>,
-    ) -> HashRangeWatch {
-        self.query_executor.watch_range(schema, hash, start, end)
     }
 
     /// Returns a reference to the pending task tracker

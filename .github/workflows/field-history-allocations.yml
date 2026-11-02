@@ -34,7 +34,7 @@ jobs:
           ref: 18bc31a40ea5253563aececc1a30fd030da0949b
           path: candidate
           persist-credentials: false
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index

@@ -108,7 +108,6 @@ They do not change stored data, so this spike leaves them in the engine.
 | `Record::new` | `Utc::now()` for `created_at` | [record_def.rs:91](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/record_def.rs#L91) |
 | `FieldKeyHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L17), [:40](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L40) |
 | `FieldKeyHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L67), [:122](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
-| `PublicKeyInfo::new` | `Utc::now()` for `created_at` | [security/types.rs:34](../../fold_db/crates/core/src/security/types.rs#L34) |
 | `Ed25519KeyPair::generate` | `OsRng` | [security/keys.rs:19](../../fold_db/crates/core/src/security/keys.rs#L19) |
 
 One write reads the clock three times:
@@ -303,7 +302,6 @@ pub struct FoldDbOptions {
 | `Record::new(schema, content)` | `Record::new(schema, content, created_at)` |
 | `FieldKeyHashRange::new(schema, field)` | `FieldKeyHashRange::new(schema, field, at)` |
 | `set_value_id_from_values(...)` sets `updated_at` from the clock | the same method gets `at` |
-| `PublicKeyInfo::new(...)` | `PublicKeyInfo::new(..., created_at)` |
 | `Ed25519KeyPair::generate()` | `Ed25519KeyPair::generate(&mut rng)`; the host supplies `OsRng` |
 | `planner::build(inner, state, key)` | `plan_objects(&inventory, &policy) -> Vec<PlannedObject>` in the model, and a shell step in the engine that lists files and writes `job.json` |
 

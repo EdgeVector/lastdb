@@ -14,11 +14,9 @@
 
 pub mod keys;
 pub mod signing;
-pub mod types;
 
 pub use keys::*;
 pub use signing::*;
-pub use types::PublicKeyInfo;
 
 use thiserror::Error;
 

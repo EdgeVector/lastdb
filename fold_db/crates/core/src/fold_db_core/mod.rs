@@ -27,7 +27,6 @@ pub mod mutation_manager;
 pub mod purge;
 
 pub use query::QueryExecutor;
-pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent};
 
 pub use conflict_janitor::BackgroundConflictJanitorTask;
 pub use conflict_janitor_policy::{
