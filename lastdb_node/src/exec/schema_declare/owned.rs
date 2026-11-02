@@ -22,7 +22,7 @@ const BREAKING_CHANGE: &str = "this declaration changes an existing field, the k
 /// How a repeat declaration relates to the installed schema.
 enum Installed {
     /// The same definition, or one that adds fields. It loads in place: the
-    /// existing fields keep their molecules and old records read a new field
+    /// existing fields keep their field keys and old records read a new field
     /// as absent.
     Load(Schema),
     /// An older app declares a subset of the installed fields with equal
@@ -139,7 +139,7 @@ fn owned_schema(
         return Err("Schema Service returned a different field or primary-key definition; refusing an implicit app conversion".into());
     }
     let mut schema = requested.clone();
-    // Only definition metadata crosses this boundary. No service molecule ID,
+    // Only definition metadata crosses this boundary. No service field key ID,
     // predecessor, transform, or alternate layout owns local values.
     schema.field_types = definition.field_types;
     schema.field_hashes = definition.field_hashes;
@@ -148,7 +148,7 @@ fn owned_schema(
     schema.field_classifications = definition.field_classifications;
     schema.field_data_classifications = definition.field_data_classifications;
     schema.field_interest_categories = definition.field_interest_categories;
-    schema.field_molecule_uuids = installed.and_then(|schema| schema.field_molecule_uuids.clone());
+    schema.field_key_ids = installed.and_then(|schema| schema.field_key_ids.clone());
     if let Some(installed) = installed {
         schema.name = installed.name.clone();
     }
@@ -230,7 +230,7 @@ pub(super) async fn load(
         // Alternate declarations are node-owned. Older services can supply
         // the same canonical field definitions.
         definition.alternate_keys.clear();
-        definition.field_molecule_uuids = None;
+        definition.field_key_ids = None;
         client
             .add_schema_with_match_source(
                 &definition,

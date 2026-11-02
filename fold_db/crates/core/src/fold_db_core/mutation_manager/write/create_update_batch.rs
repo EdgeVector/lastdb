@@ -38,7 +38,7 @@ impl MutationManager {
             .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
 
-        self.reject_derived_and_blocked(&mutations)?;
+        self.reject_blocked_mutation_targets(&mutations)?;
 
         // The native transaction gate covers every condition and its complete
         // publication.
@@ -46,16 +46,9 @@ impl MutationManager {
 
         let start_time = std::time::Instant::now();
         let state = BatchState::new(force_durable);
-        let runtime = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .ok_or_else(|| {
-                SchemaError::InvalidData("logical writes require native disk storage".into())
-            })?;
         self.write_native_batch(
             super::native::NativeRequest {
-                runtime,
+                runtime: self.db_ops.namespaced_store().disk_pack_runtime(),
                 mutations,
                 storage_prefix,
                 author_clock: author_clock_barrier,
@@ -78,30 +71,6 @@ impl MutationManager {
         );
     }
 
-    /// Phase -1: reject historical derived writes and blocked targets, then
-    /// record the purge-barrier phase as zero.
-    fn reject_derived_and_blocked(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
-        // Phase -1: Reject historical derived writes before anything else
-        // touches them. No live writer is allowed to mint
-        // `Provenance::Derived`; keeping the check here prevents forged or
-        // stale derived writes from polluting records. User mutations
-        // (`Provenance::User` or `None`) are untouched.
-        for mutation in mutations {
-            validate_derived_provenance(mutation)?;
-        }
-
-        self.reject_blocked_mutation_targets(mutations)?;
-
-        // No write waits on a schema-wide purge barrier: a purge merges into
-        // its record in the native request. Recording the phase as ~0 keeps
-        // request-ops comparable.
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::PurgeBarrier,
-            std::time::Duration::ZERO,
-        );
-        Ok(())
-    }
-
     /// Stamp the final stage timings, log the phase totals, and build the
     /// receipt that merges already-seen ids with the newly written ones.
     pub(super) fn build_commit_receipt(
@@ -118,7 +87,6 @@ impl MutationManager {
             ..
         } = state;
         let total_time = start_time.elapsed();
-        stages.gate_wait_us = 0;
         stages.ack_us = crate::request_phases::duration_us(total_time);
 
         // Combine already-seen ids with newly processed mutation ids
@@ -151,7 +119,6 @@ impl MutationManager {
             // admission can also choose disk-first when it cannot retain bytes.
             durability: Self::commit_durability(force_durable),
             stages,
-            touched_group_ids: Vec::new(),
         }
     }
 

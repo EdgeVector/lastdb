@@ -33,38 +33,6 @@ pub(super) fn slots(manifest: &Manifest, maximum: u64) -> Result<Vec<ReadSlot>> 
 }
 
 impl RunRead {
-    /// A new bounded call at this same held CURRENT, without another open or
-    /// cleanup. The owner lock stays held across both calls.
-    pub fn fork(&self, budget: ReadBudget) -> Self {
-        Self {
-            bounded_streams: self.bounded_streams,
-            shared_metadata_bytes: self
-                .shared_metadata_bytes
-                .max(self.retained_bytes())
-                .saturating_add(
-                    (self.runs.len()
-                        * std::mem::size_of::<(
-                            Arc<super::manifest::RunFile>,
-                            Option<crate::disk_run::RunReader>,
-                        )>()) as u64,
-                ),
-            manifest: Arc::clone(&self.manifest),
-            runs: self
-                .manifest
-                .newest_first()
-                .map(|run| (Arc::clone(run), None))
-                .collect(),
-            key: self.key,
-            budget,
-            costs: RunReadCosts::default(),
-            metadata: super::super::reader::MetadataMemo::new(if self.bounded_streams {
-                0
-            } else {
-                budget.bytes
-            }),
-            _owner_lock: Arc::clone(&self._owner_lock),
-        }
-    }
     /// Fork the exact held root with preallocation-bounded backup reads enabled.
     pub fn fork_bounded(&self, budget: ReadBudget) -> Result<Self> {
         let retained = self.shared_metadata_bytes.max(self.retained_bytes());

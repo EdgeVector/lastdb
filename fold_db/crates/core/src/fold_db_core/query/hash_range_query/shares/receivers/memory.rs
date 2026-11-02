@@ -21,7 +21,7 @@ pub(super) async fn controls(
 ) -> StorageResult<Arc<CoreMemoryValue<ReceiverControls>>> {
     let runtime = ops.namespaced_store().disk_pack_runtime();
     let owner = std::ptr::from_ref(&RECEIVER_MEMORY) as usize;
-    if let Some(controls) = core_memory_get(runtime.clone(), owner, MEMORY_NAME)? {
+    if let Some(controls) = core_memory_get(&runtime, owner, MEMORY_NAME)? {
         return Ok(controls);
     }
     let subscriptions = crate::sharing::store::list_share_subscriptions_in_ops(ops)
@@ -47,7 +47,7 @@ pub(super) async fn controls(
     // that was absent when this complete control state was captured refreshes it.
     let sources = vec![CoreMemorySource::collection("share_subscriptions")];
     core_memory_insert(
-        runtime,
+        &runtime,
         owner,
         MEMORY_NAME.to_owned(),
         ReceiverControls { senders },

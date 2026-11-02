@@ -1,7 +1,7 @@
 //! A node home in disk format v2: the node marker and two run homes.
 //!
 //! ```text
-//! <node>/laststore-pack-node-v1   format 7: the record model
+//! <node>/laststore-pack-node-v1   format 8: the record model
 //! <node>/disk-run/                the run home for every collection except CAS
 //! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
 //! ```
@@ -12,14 +12,13 @@
 //! Every node home is v2: a node that opens an absent or empty home creates
 //! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
 //! one on request. Both need the node encryption key. Every new home is
-//! format 7. Admission refuses a format 4, 5 or 6 home by name, and any other
-//! home is refused (see `not_v2`). The run homes are complete before the
-//! marker appears, so a crash during creation leaves the creation intent
-//! without a marker. The runtime opens only after the marker, so that home
-//! holds no application records: the next open removes the partial run homes
-//! and creates the home again. A lock on
-//! the node folder serializes creators, and a creator holds it until its
-//! runtime is open, so the partial state of a live creator is never removed.
+//! format 8; the node marker check admits no other home. The run homes are
+//! complete before the marker appears, so a crash during creation leaves the
+//! creation intent without a marker. The runtime opens only after the marker,
+//! so that home holds no application records: the next open removes the
+//! partial run homes and creates the home again. A lock on the node folder
+//! serializes creators, and a creator holds it until its runtime is open, so
+//! the partial state of a live creator is never removed.
 //!
 //! A new home commits its key-format and account proofs before the node
 //! marker appears. Its intent remains until logical construction checks them.
@@ -39,16 +38,6 @@ const INTENT: &str = "laststore-run-initializing";
 const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
-
-/// True for a typed run home of format 4 to 7. Admission then opens only
-/// format 7, so an older home gets a refusal that names its format.
-pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
-    match std::fs::read(path.join(NODE_MARKER)) {
-        Ok(bytes) => Ok(super::run_admission::profile(&bytes).is_some()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
-    }
-}
 
 /// True when `path` is absent or empty: a new node home, which is v2.
 pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
@@ -133,16 +122,6 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-/// The refusal for a node home that is not a typed run home, such as a
-/// format 3 home or a disk format v1 home. This program has no reader and no
-/// converter for another format.
-pub(super) fn not_v2(path: &Path) -> StorageError {
-    StorageError::InvalidOperation(format!(
-        "{} is not a supported node home; this release opens only format 7 (the record model)",
-        path.display()
-    ))
-}
-
 pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
@@ -165,7 +144,7 @@ impl PackNamespacedStore {
             ))
         })?;
         // Another creator can finish between the caller's check and the lock.
-        if !is_run_node(path)? {
+        if !path.join(NODE_MARKER).try_exists()? {
             if creation_stopped(path)? {
                 clear_stopped_creation(path)?;
             } else if std::fs::read_dir(path)?.next().is_some() {
@@ -205,7 +184,7 @@ impl PackNamespacedStore {
         resume_merges: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        let version = super::run_admission::admit(path, node_key)?;
+        super::run_admission::admit(path, node_key)?;
         let open = if resume_merges {
             RunHome::open
         } else {
@@ -222,8 +201,7 @@ impl PackNamespacedStore {
         let policy = space::policy_from_env()?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
-        let records = version == super::run_admission::RECORD_PROFILE;
-        let store = Self::assemble(v2, root, initializing, records, policy);
+        let store = Self::assemble(v2, root, initializing, policy);
         if resume_merges {
             store.runtime.resume_merges();
         }

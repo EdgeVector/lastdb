@@ -41,11 +41,7 @@ pub(super) async fn run(mut inputs: Inputs, pause: &AtomicBool) -> Result<LocalS
     if capture.begin()? != inputs.intent.begin {
         return Err(BackupError::Identity);
     }
-    let mut report = report(&capture, &inputs)?;
-    if let Some(candidate) = &inputs.candidate {
-        report.adoption_plan = Some(capture.snapshot_adoption_plan(candidate)?);
-    }
-    Ok(report)
+    report(&capture, &inputs)
 }
 
 fn report(capture: &ByteBackupCapture, inputs: &Inputs) -> Result<LocalSnapshotReport> {
@@ -66,9 +62,8 @@ fn report(capture: &ByteBackupCapture, inputs: &Inputs) -> Result<LocalSnapshotR
         return Err(BackupError::Invalid);
     }
     let root = ClientRoot::decode(&encrypted, &inputs.source.key, &inputs.intent.begin)?;
-    let inclusion = capture.logical_inclusion()?;
     let profile = capture.run_profile()?;
-    if root.logical_inclusion != inclusion || root.run.as_ref() != Some(&profile) {
+    if root.run.as_ref() != Some(&profile) {
         return Err(BackupError::Identity);
     }
     Ok(LocalSnapshotReport {
@@ -80,8 +75,6 @@ fn report(capture: &ByteBackupCapture, inputs: &Inputs) -> Result<LocalSnapshotR
         root_ciphertext_bytes: Some(object.input.object.bytes.get()),
         native_root: Some(root.native_root),
         run_profile: Some(profile),
-        logical_inclusion: inclusion,
-        adoption_plan: None,
     })
 }
 
@@ -95,7 +88,5 @@ fn released(id: &Id) -> LocalSnapshotReport {
         root_ciphertext_bytes: None,
         native_root: None,
         run_profile: None,
-        logical_inclusion: None,
-        adoption_plan: None,
     }
 }

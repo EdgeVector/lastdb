@@ -25,33 +25,30 @@ pub(crate) fn core_memory_sources(namespace: &str, key: &[u8]) -> Vec<CoreMemory
 }
 
 pub(crate) fn core_memory_get<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     owner: usize,
     name: &str,
 ) -> StorageResult<Option<Arc<CoreMemoryValue<T>>>> {
-    if let Some(value) = read_snapshot_get(runtime.clone(), owner, name)? {
+    if let Some(value) = read_snapshot_get(runtime, owner, name)? {
         return Ok(Some(value));
     }
-    if !read_snapshot_active(runtime.clone()) {
+    if !read_snapshot_active(runtime) {
         return Ok(None);
     }
-    let Some(runtime) = runtime else {
-        return Ok(None);
-    };
-    let Some(context) = super::ReadContext::captured(&runtime) else {
+    let Some(context) = super::ReadContext::captured(runtime) else {
         return Ok(None);
     };
     if context.hidden_prefix {
         return Ok(None);
     }
-    let Some(mut current) = lock_current_core(&runtime, context.revision)? else {
+    let Some(mut current) = lock_current_core(runtime, context.revision)? else {
         return Ok(None);
     };
     let value = current.core.memory_get(owner, name);
     drop(current);
     value
         .map(|value| {
-            super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name.to_owned(), value)
+            super::snapshots::read_snapshot_insert_arc(runtime, owner, name.to_owned(), value)
         })
         .transpose()
 }
@@ -60,18 +57,15 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
 /// exact dependencies changed in this request or its captured accepted prefix.
 /// This never exposes a dirty record or admits a new shared cache entry.
 pub(crate) fn core_memory_get_for_write<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     owner: usize,
     name: &str,
     sources: &[CoreMemorySource],
 ) -> StorageResult<Option<Arc<CoreMemoryValue<T>>>> {
-    let Some(runtime) = runtime else {
+    let Some(pending) = transaction::PendingBatch::current(runtime) else {
         return Ok(None);
     };
-    let Some(pending) = transaction::PendingBatch::current(&runtime) else {
-        return Ok(None);
-    };
-    let Some(context) = super::ReadContext::captured(&runtime) else {
+    let Some(context) = super::ReadContext::captured(runtime) else {
         return Ok(None);
     };
     context.require_prepared_view(&pending)?;
@@ -93,33 +87,32 @@ pub(crate) fn core_memory_get_for_write<T: Any + Send + Sync>(
             return Ok(None);
         }
     }
-    let Some(mut current) = lock_current_core(&runtime, context.revision)? else {
+    let Some(mut current) = lock_current_core(runtime, context.revision)? else {
         return Ok(None);
     };
     Ok(current.core.memory_get(owner, name))
 }
 
 pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     owner: usize,
     name: String,
     value: T,
     sources: Vec<CoreMemorySource>,
     bytes: usize,
 ) -> StorageResult<Arc<CoreMemoryValue<T>>> {
-    if let Some(held) = read_snapshot_get(runtime.clone(), owner, &name)? {
+    if let Some(held) = read_snapshot_get(runtime, owner, &name)? {
         return Ok(held);
     }
-    if !read_snapshot_active(runtime.clone()) {
+    if !read_snapshot_active(runtime) {
         return Ok(CoreWarmSet::memory_uncached(value));
     }
-    let runtime = runtime.ok_or_else(lock_error)?;
-    let context = super::ReadContext::captured(&runtime).ok_or_else(lock_error)?;
+    let context = super::ReadContext::captured(runtime).ok_or_else(lock_error)?;
     if context.hidden_prefix {
         let value = CoreWarmSet::memory_uncached(value);
-        return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
+        return super::snapshots::read_snapshot_insert_arc(runtime, owner, name, value);
     }
-    let value = if let Some(mut current) = lock_current_core(&runtime, context.revision)? {
+    let value = if let Some(mut current) = lock_current_core(runtime, context.revision)? {
         // A concurrent reader may finish the same slow path first.
         current.core.memory_get(owner, &name).unwrap_or_else(|| {
             current
@@ -129,7 +122,7 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
     } else {
         CoreWarmSet::memory_uncached(value)
     };
-    super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value)
+    super::snapshots::read_snapshot_insert_arc(runtime, owner, name, value)
 }
 
 fn lock_error() -> StorageError {

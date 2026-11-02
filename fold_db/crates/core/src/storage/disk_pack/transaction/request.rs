@@ -3,7 +3,7 @@
 use super::*;
 
 pub(crate) async fn request_scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
@@ -14,7 +14,7 @@ where
 
 /// Return after the complete private background commit reaches disk.
 pub(crate) async fn background_scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
@@ -24,16 +24,13 @@ where
 }
 
 async fn scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
     background: bool,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
 {
-    let Some(runtime) = runtime else {
-        return future.await;
-    };
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
@@ -75,7 +72,6 @@ where
         return Ok(result);
     }
     let operations = pending.freeze_operations();
-    super::require_record_layout(&operations)?;
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
     // A merge can publish an equivalent physical root during logical
@@ -142,12 +138,12 @@ impl BatchShape {
                 (&mut shape.alternate_puts, &mut shape.alternate_deletes)
             } else if key.starts_with("rh:") {
                 (&mut shape.history_puts, &mut shape.history_deletes)
-            } else if key.starts_with("bref:v3:c:") {
+            } else if key.starts_with("bref:c:") {
                 (
                     &mut shape.blob_counter_puts,
                     &mut shape.blob_counter_deletes,
                 )
-            } else if key.starts_with("bref:v3:q:") || key.starts_with("bref:v3:d\0") {
+            } else if key.starts_with("bref:q:") || key.starts_with("bref:d\0") {
                 (&mut shape.blob_queue_puts, &mut shape.blob_queue_deletes)
             } else {
                 continue;

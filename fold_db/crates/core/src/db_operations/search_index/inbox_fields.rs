@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::atom::file_pointer::LASTDB_FILE_KEY;
 use crate::schema::types::Schema;
+use lastdb_model::file_pointer::LASTDB_FILE_KEY;
 
 /// The file value fields that a Search inbox batch keeps.
 const SEARCH_FILE_FIELDS: [&str; 2] = ["name", "media_type"];

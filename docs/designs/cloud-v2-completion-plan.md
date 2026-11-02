@@ -9,7 +9,7 @@ CI supplies the exact executable packages. Real DEV operations supply recovery p
 
 LastDB owns the local format, consistent capture, file selection, keys, and restore rules.
 The cloud owns account access, byte transfers, verified receipts, storage limits, and accepted backups.
-The service does not decode database files, schemas, atoms, molecules, or recovery keys.
+The service does not decode database files, schemas, records, field keys, or recovery keys.
 Disk V2 and the cloud protocol have separate versions.
 A new disk format requires a client adapter change only when the byte contract remains sufficient.
 

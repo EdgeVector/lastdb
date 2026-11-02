@@ -1,6 +1,6 @@
 //! Who else shares the records a manifest TTL would delete.
 //!
-//! The sweep reads and deletes through the anchor schema. The anchor's molecules
+//! The sweep reads and deletes through the anchor schema. The anchor's field keys
 //! are shared with every schema bound to it, so a TTL on one name deletes the
 //! records of all of them. This is the guard that runs before an alias or a
 //! policy is written.
@@ -56,7 +56,7 @@ impl SchemaStore {
     /// `binding` is the manifest name that declares the TTL. It and the anchor
     /// are the two names of one manifest entry, so they are not reported.
     /// Another schema counts as bound to the anchor when a retention alias
-    /// points at it (or at a schema bound to it), or when it holds a molecule
+    /// points at it (or at a schema bound to it), or when it holds a field key
     /// the anchor holds. A schema the anchor was expanded from is the same
     /// app's earlier version and is not reported, unless another app owns it.
     ///
@@ -134,14 +134,14 @@ impl SchemaStore {
     }
 }
 
-fn molecules_of<'a>(
+fn field_keys_of<'a>(
     schemas: &'a HashMap<String, Schema>,
     names: &BTreeSet<String>,
 ) -> HashSet<&'a str> {
     names
         .iter()
         .filter_map(|name| schemas.get(name))
-        .filter_map(|schema| schema.field_molecule_uuids.as_ref())
+        .filter_map(|schema| schema.field_key_ids.as_ref())
         .flat_map(|map| map.values())
         .map(String::as_str)
         .filter(|uuid| !uuid.is_empty())
@@ -153,7 +153,7 @@ fn molecules_of<'a>(
 struct Reach {
     /// The anchor and the schemas it was expanded from.
     chain: BTreeSet<String>,
-    /// Other schemas bound to the chain, by retention alias or by a molecule
+    /// Other schemas bound to the chain, by retention alias or by a field key
     /// that the chain holds, transitively. Neither `binding` nor the chain.
     shared: BTreeSet<String>,
 }
@@ -168,7 +168,7 @@ fn compute_reach(
     // The anchor and the schemas it was expanded from: the same data's history.
     let mut chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
     chain.extend(predecessors.iter().cloned());
-    let molecules = molecules_of(schemas, &chain);
+    let field_keys = field_keys_of(schemas, &chain);
     let mut reach = chain.clone();
     reach.insert(binding.to_string());
     let mut shared: BTreeSet<String> = BTreeSet::new();
@@ -182,9 +182,9 @@ fn compute_reach(
             let aliased = aliases
                 .iter()
                 .any(|(alias, target)| alias == name && in_reach(target));
-            let overlaps = schema.field_molecule_uuids.as_ref().is_some_and(|map| {
+            let overlaps = schema.field_key_ids.as_ref().is_some_and(|map| {
                 map.values()
-                    .any(|uuid| !uuid.is_empty() && molecules.contains(uuid.as_str()))
+                    .any(|uuid| !uuid.is_empty() && field_keys.contains(uuid.as_str()))
             });
             if aliased || overlaps {
                 added.push(name.clone());

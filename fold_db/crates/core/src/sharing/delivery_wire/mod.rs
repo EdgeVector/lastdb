@@ -1,12 +1,12 @@
 //! Versioned portable wire format for consent-gated delivery.
 //!
 //! The payload is intentionally plain JSON after decryption: a non-LastDB
-//! consumer can parse schemas, signed molecules, content-addressed atoms, and
+//! consumer can parse schemas, signed field keys, content-addressed records, and
 //! first-class binary blobs without linking Rust code. Encryption uses
 //! standard JWE JSON serialization (`alg=dir`, `enc=A256GCM`) so decryptors
 //! can use off-the-shelf JOSE tooling.
 //!
-//! **Files vs field values:** structured field values live in `atoms[]` (JSON
+//! **Files vs field values:** structured field values live in `records[]` (JSON
 //! CAS). Binary file bytes live in `blobs[]` (raw content CAS, base64 on the
 //! JSON wire). File fields on records point at blobs via `$lastdb_file`
 //! values ([`lastdb_file_pointer_with_access_and_thumbnail`]) — they do
@@ -32,11 +32,11 @@ pub const LASTDB_SLICE_MEDIA_TYPE: &str = "application/vnd.lastdb.slice+json;v=1
 /// full kanban board. Receivers without this claim keep the legacy path.
 pub const JWE_ZIP_GZIP: &str = "gzip";
 
-/// JSON object key for a portable file pointer stored as an atom value.
-/// Canonical home is `crate::atom::file_pointer`; re-exported here for the
+/// JSON object key for a portable file pointer stored as a record value.
+/// Canonical home is `lastdb_model::file_pointer`; re-exported here for the
 /// wire-format callers that have always imported it from delivery_wire.
-pub use crate::atom::file_pointer::{
-    blob_ref_from_atom_value, FILE_BLOB_CIPHER_SUITE, LASTDB_FILE_KEY,
+pub use lastdb_model::file_pointer::{
+    blob_ref_from_value, FILE_BLOB_CIPHER_SUITE, LASTDB_FILE_KEY,
 };
 /// Optional key for a reference-only generated thumbnail/poster inside a file pointer.
 pub const LASTDB_FILE_THUMBNAIL_KEY: &str = "thumbnail";

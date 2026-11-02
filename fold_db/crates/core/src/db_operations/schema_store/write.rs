@@ -29,7 +29,7 @@ impl SchemaStore {
         schema: &Schema,
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.store_schema_native(schema_name, schema).boxed(),
         )
         .await
@@ -76,7 +76,7 @@ impl SchemaStore {
         state: &SchemaState,
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.store_schema_state_native(schema_name, state).boxed(),
         )
         .await
@@ -118,12 +118,12 @@ impl SchemaStore {
     ///
     /// Point Deletes of the `schemas` row, the `schema_states` row, the
     /// name-claim row, and the retention keys for this identity. Product
-    /// tips and atoms are left for a later janitor. Returns whether a
+    /// records are left for a later janitor. Returns whether a
     /// catalog body was present before the Deletes. A miss still runs the
     /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.drop_schema_native(schema_name).boxed(),
         )
         .await
@@ -133,18 +133,18 @@ impl SchemaStore {
         let existing = self.get_schema(schema_name).await?;
         let existed = existing.is_some();
         if let Some(mut schema) = existing {
-            let mut field_molecule_uuids: Vec<String> = schema
-                .field_molecule_uuids
+            let mut field_key_ids: Vec<String> = schema
+                .field_key_ids
                 .take()
                 .unwrap_or_default()
                 .into_values()
                 .collect();
-            field_molecule_uuids.sort();
-            field_molecule_uuids.dedup();
+            field_key_ids.sort();
+            field_key_ids.dedup();
             let receipt = SchemaDropReceipt {
                 identity: schema_name.to_string(),
                 owner_app: schema.owner_app_id.clone(),
-                field_molecule_uuids,
+                field_key_ids,
                 dropped_at_unix_ms: crate::clock::unix_millis(),
             };
             self.schema_states_store

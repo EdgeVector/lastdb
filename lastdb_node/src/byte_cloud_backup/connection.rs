@@ -216,12 +216,7 @@ pub(super) fn identity_seed(home: &std::path::Path) -> Result<Zeroizing<[u8; 32]
 }
 
 fn identity(host: &crate::host::Host) -> Result<(AccountId, Id)> {
-    let runtime = host
-        .db
-        .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
-        .ok_or(BackupError::Source)?;
+    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
     Ok((
         AccountId::try_from(host.user_hash.clone())?,
         Id::try_from(runtime.native_home_id().to_string())?,

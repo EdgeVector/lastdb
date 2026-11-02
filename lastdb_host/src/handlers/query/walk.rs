@@ -1,4 +1,4 @@
-//! An unfiltered ascending read of a format 7 home: one page of the record
+//! An unfiltered ascending read of a home: one page of the record
 //! walk (`fold_db` `record_store/record_walk.rs`).
 //!
 //! The walk follows record key order, not page order. A record key starts
@@ -76,7 +76,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             (None, None) => KeyWindow::offset(offset, probe),
         };
         let _permit = acquire_read_permit(host, Lane::for_read_rows(probe)).await?;
-        let (rows, drops, end) =
+        let (rows, flags, end) =
             execute_query_rows_windowed(host, query, Some(window), ctx).await?;
         let positions: HashMap<KeyValue, String> = end.walk.into_iter().collect();
         let placed = rows
@@ -88,15 +88,12 @@ impl<H: HostNode> QueryRun<'_, H> {
             .collect::<Option<Vec<_>>>()
             .ok_or_else(|| HostError::internal("a record walk row has no record key position"))?;
         // The first `limit` rows in record key order make the page, and they
-        // keep page order. The rows past them are the probe. A row that
-        // dropped after the walk took it still used a slot, so it can hide
-        // the probe (as in `cursor_payload`). A dropped row after the last
-        // row the caller receives is read again.
+        // keep page order. The rows past them are the probe.
         let stopped = match end.resume {
             Some(PageResume::Record(at)) => Some(at),
             _ => None,
         };
-        let has_more = placed.len().saturating_add(drops.total()) > limit || stopped.is_some();
+        let has_more = placed.len() > limit || stopped.is_some();
         let mut ordered: Vec<&str> = placed.iter().map(|(at, _)| at.as_str()).collect();
         ordered.sort_unstable();
         let last_kept = limit
@@ -113,7 +110,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             .filter(|(at, _)| last_kept.as_ref().is_some_and(|last| at <= last))
             .map(|(_, row)| row)
             .collect();
-        let mut payload = page_payload(rows, None, limit, offset, has_more, drops);
+        let mut payload = page_payload(rows, None, limit, offset, has_more, flags);
         payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
         payload["page_order"] = Value::from(RECORD_KEY_ORDER);
         Ok(payload)

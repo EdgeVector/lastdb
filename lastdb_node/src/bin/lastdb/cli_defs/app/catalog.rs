@@ -26,25 +26,6 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Live storage grouped by owning app (`owner_app_id`), read from the
-    /// keep-small projection on the local node.
-    ///
-    /// Cheap: point reads of the write-path meters, not a store walk. Use
-    /// this instead of `lastdb db inventory` for the daily "who is using the
-    /// space" question. Reserved rows `system` (node-owned schemas) and
-    /// `unattributed` (bytes the projection cannot attribute yet) are listed
-    /// separately, and `complete` is false whenever `unattributed` is nonzero.
-    Storage {
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-        /// Run one bounded reconciliation page, then print the storage report.
-        #[arg(long)]
-        reconcile: bool,
-        /// Layouts visited by `--reconcile` (default 32, cap 256).
-        #[arg(long)]
-        page_size: Option<u64>,
-    },
     /// Show one app's row on the signed public index (default), or its live
     /// registry record when `--env` / `--schema-url` is given.
     Info {

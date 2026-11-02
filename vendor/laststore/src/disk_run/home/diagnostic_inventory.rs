@@ -233,23 +233,17 @@ fn add_record(report: &mut LogicalInventory, key: &[u8], bytes: Option<u64>) -> 
 fn collection_label(name: &[u8]) -> &'static str {
     const KNOWN: &[&str] = &[
         "__native_home",
-        "atoms",
-        "tips",
-        "molecule_ref_edges",
-        "indexes",
+        "blob_counts",
+        "records",
         "metadata",
         "schema_states",
         "schemas",
         "db_catalog",
-        "molecule_keys",
+        "field_keys",
         "public_keys",
         "idempotency",
         "schema_superseded_by",
-        "lineage_forward",
-        "lineage_reverse",
         "change_feed",
-        "attribution_ledger",
-        "keep_small",
         "cas_blobs",
     ];
     KNOWN

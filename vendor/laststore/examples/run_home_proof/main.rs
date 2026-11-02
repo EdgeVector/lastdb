@@ -19,7 +19,7 @@ mod gen;
 mod value_gen;
 mod values;
 
-use gen::{apply, batch, logical_bytes, overwrite_batch, tip_key, Model, TIP_SCHEMAS};
+use gen::{apply, batch, logical_bytes, overwrite_batch, record_key, Model, RECORD_SCHEMAS};
 use laststore::disk_run::home::{HomeMutation, RangeBounds, ReadBudget, RunHome, RunRead};
 use laststore::disk_run::{RunOptions, RunWriter};
 use std::fs;
@@ -200,7 +200,7 @@ pub(crate) fn check_all(home: &RunHome, model: &Model) -> Result<usize> {
         }
     }
     for absent in ["never-written", "zz\0absent"] {
-        if read.get("atoms", absent)?.is_some() {
+        if read.get("blob_counts", absent)?.is_some() {
             return Err("an absent key returned a value".into());
         }
     }
@@ -210,8 +210,8 @@ pub(crate) fn check_all(home: &RunHome, model: &Model) -> Result<usize> {
 fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
     let mut read = home.read(budget());
     let mut records = 0usize;
-    for schema in 0..TIP_SCHEMAS {
-        let prefix = tip_key(schema, 0);
+    for schema in 0..RECORD_SCHEMAS {
+        let prefix = record_key(schema, 0);
         let prefix = &prefix[..prefix.find('\0').expect("NUL") + 1];
         for (start, end) in [("", None), ("00001000", Some("00002000"))] {
             let bounds = RangeBounds {
@@ -219,7 +219,7 @@ fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
                 end: end.map(str::to_string),
             };
             let mut got = Vec::new();
-            let mut cursor = read.hash_range("tips", prefix, bounds)?;
+            let mut cursor = read.hash_range("records", prefix, bounds)?;
             loop {
                 let page = cursor.next_page(333)?;
                 got.extend(page.records);
@@ -229,9 +229,9 @@ fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
             }
             let lower = format!("{prefix}{start}");
             let expected: Vec<(String, Vec<u8>)> = model
-                .range(("tips".to_string(), lower)..)
+                .range(("records".to_string(), lower)..)
                 .take_while(|((c, k), _)| {
-                    c == "tips"
+                    c == "records"
                         && k.starts_with(prefix)
                         && (end.is_none() || *k < format!("{prefix}{}", end.unwrap_or_default()))
                 })
@@ -243,18 +243,18 @@ fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
             records += got.len();
         }
     }
-    let mut cursor = read.administrative_range("atoms", b"", &[0xff])?;
-    let atoms = cursor.next_page(usize::MAX)?;
-    let live_atoms = model
+    let mut cursor = read.administrative_range("blob_counts", b"", &[0xff])?;
+    let blob_counts = cursor.next_page(usize::MAX)?;
+    let live_blob_counts = model
         .iter()
-        .filter(|((c, _), v)| c == "atoms" && v.is_some())
+        .filter(|((c, _), v)| c == "blob_counts" && v.is_some())
         .count();
-    if !atoms.exhausted || atoms.records.len() != live_atoms {
-        return Err("administrative range over atoms differs".into());
+    if !blob_counts.exhausted || blob_counts.records.len() != live_blob_counts {
+        return Err("administrative range over blob counts differs".into());
     }
     Ok(format!(
-        "{} ranges, {records} records equal; administrative range {live_atoms} atoms equal",
-        TIP_SCHEMAS * 2
+        "{} ranges, {records} records equal; administrative range {live_blob_counts} blob counts equal",
+        RECORD_SCHEMAS * 2
     ))
 }
 
@@ -322,7 +322,7 @@ fn check_lock_and_key(dir: &Path, key: &[u8; 32]) -> Result<String> {
     let home = RunHome::open(dir, key)?;
     let refused = home
         .commit(vec![HomeMutation {
-            collection: "atoms".into(),
+            collection: "blob_counts".into(),
             key: "x".repeat(70 * 1024),
             body: Some(b"too long".to_vec()),
         }])

@@ -4,7 +4,7 @@
 //! what the schema stored in its record scope (`record_scope`, the personal
 //! scope for a catalog schema): the records and their tombstones
 //! (`rk:{S}:`), the field history entries (`rh:{S}:`), and the entries of each
-//! declared alternate key (`ak:{M}:`). Each family is one exact key prefix of
+//! declared alternate key (`ak:{F}:`). Each family is one exact key prefix of
 //! this schema, so the release reads only the keyed ranges of this schema and
 //! never a row of another schema.
 //!
@@ -33,21 +33,21 @@
 //! state inside the native write gate, so a write during the drop is refused.
 //!
 //! The alternate entries are the entries of the current alternate revision
-//! (`alternate_molecule_uuid`). The schema keeps no history of revisions, and
+//! (`alternate_field_key_id`). The schema keeps no history of revisions, and
 //! needs none: an installed schema cannot change its alternate keys. A refresh
 //! that changes them is refused (`schema/core/load/rules.rs`), and so is an
 //! owned declaration (`exec/schema_declare/owned.rs`). So the current revision
 //! is the only revision under which this install wrote entries. A new
 //! alternate-key change command must add a durable list of the revisions that
-//! the schema had, and this release must then read the `ak:{M}:` prefix of each.
+//! the schema had, and this release must then read the `ak:{F}:` prefix of each.
 
 use super::blob_counter::BlobDeltas;
 use super::{record_scope, RangeWalk, RecordStore};
-use crate::atom::molecule_uuid::{alternate_molecule_uuid, ALTERNATE_ENTRY_PREFIX};
-use crate::records::atom_history::RECORD_HISTORY_PREFIX;
+use crate::records::field_history::RECORD_HISTORY_PREFIX;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
+use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 
@@ -89,10 +89,10 @@ impl RecordStore {
         let records = build_storage_key(scope.as_deref(), &format!("{RECORD_PREFIX}{space}:"));
         out.records = self.release_family(&records, Family::Records).await?;
         for name in schema.alternate_keys.keys() {
-            let molecule = alternate_molecule_uuid(schema, name);
+            let field_key = alternate_field_key_id(schema, name);
             let alternates = build_storage_key(
                 scope.as_deref(),
-                &format!("{ALTERNATE_ENTRY_PREFIX}{molecule}:"),
+                &format!("{ALTERNATE_ENTRY_PREFIX}{field_key}:"),
             );
             out.alternates += self.release_family(&alternates, Family::Alternates).await?;
         }

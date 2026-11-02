@@ -9,10 +9,10 @@ fn varint(out: &mut Vec<u8>, mut v: u64) {
 }
 
 /// v1 OPE range: 8 hex characters per plaintext byte (`core/crypto/e2e.rs`).
-fn ope_v1(molecule: u32, range: &str) -> String {
+fn ope_v1(field_key: u32, range: &str) -> String {
     let mut out = String::with_capacity(range.len() * 8);
     for (i, b) in range.bytes().enumerate() {
-        let d = Sha256::digest([molecule.to_le_bytes(), (i as u32).to_le_bytes()].concat());
+        let d = Sha256::digest([field_key.to_le_bytes(), (i as u32).to_le_bytes()].concat());
         let word = (u32::from_be_bytes([d[0], d[1], d[2], d[3]]) & 0xFFFF_FF00) | u32::from(b);
         out.push_str(&format!("{word:08x}"));
     }
@@ -40,18 +40,18 @@ fn v2_key(item: &Item, ope_range: bool) -> Vec<u8> {
             key.push(b'h');
             (1, 32)
         }
-        Item::Tip {
-            molecule,
+        Item::Entry {
+            field_key,
             hash,
             range,
             ..
         } => {
-            key.extend_from_slice(&molecule.to_be_bytes());
+            key.extend_from_slice(&field_key.to_be_bytes());
             key.extend_from_slice(hash);
             let prefix = key.len();
             if let Some(range) = range {
                 if ope_range {
-                    key.extend_from_slice(ope_v1(*molecule, range).as_bytes());
+                    key.extend_from_slice(ope_v1(*field_key, range).as_bytes());
                 } else {
                     key.extend_from_slice(range.as_bytes());
                 }
@@ -97,16 +97,16 @@ fn v2_value(item: &Item) -> Vec<u8> {
         }
         Item::Counter { bytes, .. } => varint(&mut out, u64::from(*bytes)),
         Item::Extra { id } => out.extend_from_slice(id),
-        Item::Tip { atom, .. } => {
-            out.extend_from_slice(atom);
+        Item::Entry { value_id, .. } => {
+            out.extend_from_slice(value_id);
             varint(&mut out, 1);
         }
         Item::Idem { id } => {
             out.extend_from_slice(&id[..16]);
             varint(&mut out, 200);
         }
-        Item::Event { atom, .. } => {
-            out.extend_from_slice(atom);
+        Item::Event { value_id, .. } => {
+            out.extend_from_slice(value_id);
             varint(&mut out, 1_792_802_400);
         }
     }

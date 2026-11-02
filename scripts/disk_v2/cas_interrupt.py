@@ -60,7 +60,6 @@ def attempt(args, number):
     result = {"observed_completed_recovery": False}
     try:
         node.start()
-        require(node.disk_format() == 2, "operation did not create a v2 home")
         pointers = seed(node)
         result["interruption"] = interrupt(node)
         if node.process is not None:

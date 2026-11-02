@@ -13,11 +13,7 @@ pub(super) fn finish(
     let mut index = content;
     let mut pages = Vec::new();
     let mut page = ClientPage {
-        version: if state.format == 3 {
-            codec::CLIENT_VERSION
-        } else {
-            codec::LEGACY_CLIENT_VERSION
-        },
+        version: codec::CLIENT_VERSION,
         page_index: 0,
         begin_sha256: state.begin.input_sha256().map_err(protocol)?,
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
@@ -68,7 +64,6 @@ pub(super) fn finish(
         external_dependency_count: 0,
         pages,
         run: state.run.clone(),
-        logical_inclusion: state.logical_inclusion.clone(),
     };
     root.validate_for(&state.begin)?;
     freeze(inner, state, key, index, &codec::encode(&root)?)?;

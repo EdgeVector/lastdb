@@ -45,11 +45,9 @@ async fn delete_half(store: &PackNamespacedStore) -> Result<()> {
 async fn held_read(node: &Path, node_key: &[u8; 32]) -> Result<()> {
     let store = seed(node, node_key).await?;
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
-    let held = PackReadScope::for_store(&shared)
-        .await?
-        .ok_or("no held native read")?;
+    let held = PackReadScope::for_store(&shared).await?;
     delete_half(&store).await?;
-    let runtime = store.disk_pack_runtime().ok_or("no cleanup runtime")?;
+    let runtime = store.disk_pack_runtime();
     let request = runtime.request_native_cleanup(None).await?;
     if request.phase != NativeCleanupPhase::Pending || request.complete {
         return Err("offline cleanup request did not remain durably pending".into());
@@ -99,11 +97,11 @@ async fn held_read(node: &Path, node_key: &[u8; 32]) -> Result<()> {
 async fn resume(node: &Path, node_key: &[u8; 32]) -> Result<()> {
     let store = seed(node, node_key).await?;
     delete_half(&store).await?;
-    let runtime = store.disk_pack_runtime().ok_or("no cleanup runtime")?;
+    let runtime = store.disk_pack_runtime();
     let pending = runtime.request_native_cleanup(None).await?;
     drop((runtime, store));
     let store = super::reopen(node, node_key).await?;
-    let runtime = store.disk_pack_runtime().ok_or("no reopened runtime")?;
+    let runtime = store.disk_pack_runtime();
     let restored = runtime.status_cleanup();
     if restored.request_id != pending.request_id
         || restored.target != pending.target
@@ -118,7 +116,7 @@ async fn resume(node: &Path, node_key: &[u8; 32]) -> Result<()> {
     let boundary = completed.completed_through;
     drop((runtime, store));
     let store = super::reopen(node, node_key).await?;
-    let runtime = store.disk_pack_runtime().ok_or("no completed runtime")?;
+    let runtime = store.disk_pack_runtime();
     let repeat = runtime
         .request_native_cleanup(Some(uuid::Uuid::parse_str(&id)?))
         .await?;

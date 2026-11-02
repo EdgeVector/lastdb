@@ -23,7 +23,7 @@ pub struct OpAggregate {
     ///
     /// For mutations / mutation batches / file-blob writes this is the best
     /// cheap proxy for "how many bytes did this caller ask the node to
-    /// absorb" — not net disk growth (tips/indexes/history amplify), but the
+    /// absorb" — not net disk growth (alternate entries and history amplify), but the
     /// ranking that answers "who is stuffing the node" when time and count
     /// alone cannot. Zero-hide on the ranking table when every key is 0, so
     /// a quiet window stays byte-identical to pre-field output.
@@ -75,16 +75,16 @@ pub struct OpAggregate {
     /// no matter what fraction reported phases.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub phased_sum_ms: u64,
-    /// Total field molecules this key's requests handed to the durable store.
+    /// Total field keys this key's requests handed to the durable store.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_molecules_persisted: u64,
-    /// Total awaited durable molecule-store operations this key's requests
-    /// issued. Divide [`Self::sum_molecules_persisted`] by this for the
-    /// molecules-per-commit ratio — the contention-free way to see whether the
+    pub sum_field_keys_persisted: u64,
+    /// Total awaited durable field-key-store operations this key's requests
+    /// issued. Divide [`Self::sum_field_keys_persisted`] by this for the
+    /// field-keys-per-commit ratio — the contention-free way to see whether the
     /// batch commit path is being taken, and how often eligibility rejects a
-    /// molecule from it.
+    /// field key from it.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_molecule_store_commits: u64,
+    pub sum_field_key_store_commits: u64,
     /// Logical resident commits published across this window's requests.
     pub sum_resident_commits: u64,
     /// Operations those commits carried. Divide by
@@ -291,7 +291,6 @@ pub struct AppVerbAggregate {
     /// p95 over samples still present in the recent ring.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub p95_ms: Option<u64>,
-    #[serde(default)]
     pub recent_count: u64,
 }
 

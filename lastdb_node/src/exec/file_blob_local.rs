@@ -12,7 +12,7 @@ use super::*;
 use std::borrow::Cow;
 
 /// Optional pointer metadata. Without it, identical bytes in one schema give
-/// the same atom, so a second record that holds the pointer adds no atom.
+/// the same record, so a second record that holds the pointer adds no record.
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct LocalBlobMetadata {

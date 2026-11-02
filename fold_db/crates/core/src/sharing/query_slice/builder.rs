@@ -3,12 +3,12 @@
 use super::*;
 use std::collections::BTreeSet;
 
-/// Accumulates the schemas, molecules, atoms and blobs for the legs of one slice.
+/// Accumulates the schemas, field keys, records and blobs for the legs of one slice.
 #[derive(Default)]
 pub(super) struct SliceBuilder {
     pub(super) schemas: Vec<SliceSchema>,
-    pub(super) molecules: Vec<SignedMolecule>,
-    pub(super) atoms_by_ref: BTreeMap<String, ContentAddressedAtom>,
+    pub(super) field_keys: Vec<SliceFieldKey>,
+    pub(super) records_by_ref: BTreeMap<String, ContentAddressedValue>,
     pub(super) blobs_by_ref: BTreeMap<String, ContentAddressedBlob>,
     pub(super) seen_schema: BTreeSet<String>,
 }
@@ -59,23 +59,19 @@ impl SliceBuilder {
                 let Some(value) = record.fields.get(field_name) else {
                     continue;
                 };
-                let metadata = record.metadata.get(field_name);
-                let atom_value =
+                let value =
                     normalize_file_field_value(db, value, blob_resolver, &mut self.blobs_by_ref)
                         .await?;
-                let atom = content_addressed_atom(atom_value)?;
-                self.molecules.push(SignedMolecule {
+                let record = content_addressed_value(value)?;
+                self.field_keys.push(SliceFieldKey {
                     schema_name: leg.schema_name.clone(),
                     record_key: record_key.clone(),
                     field_name: field_name.clone(),
-                    atom_ref: atom.atom_ref.clone(),
-                    molecule_uuid: metadata.and_then(|metadata| metadata.molecule_uuid.clone()),
-                    writer_pubkey: metadata.and_then(|metadata| metadata.writer_pubkey.clone()),
-                    signature: None,
+                    value_ref: record.value_ref.clone(),
                 });
-                self.atoms_by_ref
-                    .entry(atom.atom_ref.clone())
-                    .or_insert(atom);
+                self.records_by_ref
+                    .entry(record.value_ref.clone())
+                    .or_insert(record);
             }
         }
 

@@ -109,7 +109,7 @@ impl Run {
         if held < SAMPLES_PER_KIND {
             self.report.samples.push(Sample {
                 kind: name.to_string(),
-                atom: subject.to_string(),
+                record: subject.to_string(),
                 detail,
             });
         }
@@ -136,7 +136,7 @@ struct Inner {
     progress: Option<VerifyProgress>,
 }
 
-/// The verifier state of one atom store.
+/// The verifier state of one record store.
 #[derive(Default)]
 pub(crate) struct VerifyState {
     inner: Mutex<Inner>,

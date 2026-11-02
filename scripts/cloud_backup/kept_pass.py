@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from ci_control import Control
-from kept_recovery import FORMAT_SEVEN_SOURCE, legacy_format, recover as recover_kept
+from kept_recovery import client_profile, legacy_format, recover as recover_kept, source_profile
 from recover import Operation
 from retirement import Retirement
 from retirement_status import Status
@@ -43,11 +43,12 @@ class KeptPass(Operation):
             kept = Retirement(control, self.baseline).confirm(validator, state)["kept_latest"]
             require(kept is not None, "ci_kept_latest_missing")
             if legacy_format(kept):
-                # This client opens only format 7. The service keeps the
-                # older kept stream; a refused restore would prove nothing.
+                # This client opens only its own home format. The service keeps
+                # the older kept stream; a refused restore would prove nothing.
                 self.summary["kept_latest"] = {
                     "stream_id": kept["stream_id"], "source": kept["owner"]["source"],
-                    "format_seven_source": FORMAT_SEVEN_SOURCE, "legacy_format": True,
+                    "source_profile": source_profile(kept["owner"]["source"]),
+                    "client_profile": client_profile(), "legacy_format": True,
                     "restore_attempted": False, "retained_by_service": True}
             else:
                 self.summary["stage"] = "kept-latest-recovery"

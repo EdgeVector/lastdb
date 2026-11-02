@@ -11,12 +11,12 @@
 //! - `admission` — the mutation admission fence (one shared gate per request)
 
 pub(crate) mod admission;
-mod atom_history;
 mod background_task;
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
 pub mod factory;
+mod field_history;
 pub mod fold_db;
 pub mod orchestration;
 pub mod pending_task_tracker;
@@ -33,6 +33,6 @@ pub use conflict_janitor_policy::{
     ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV, CONFLICT_JANITOR_MS_ENV,
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
-pub use mutation_manager::{MutationManager, PurgeStats};
+pub use mutation_manager::MutationManager;
 
 pub use fold_db::{CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB};

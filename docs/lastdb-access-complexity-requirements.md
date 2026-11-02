@@ -39,8 +39,6 @@ Let:
 - **Multi-get exact keys = O(K)**  
   K known `(hash, range)` pairs → K point gets, whatever partitions they span. This is the only bounded shape that is **not** confined to one hash. The batch must never cost more than reading the partitions it names; if it does, the caller is better off not using it, which defeats the operation.
 
-  The table above stated this from the start and the query planner did not implement it: `HashRangeKeys` was absent from `load_filtered_molecule`'s match until 2026-09-06, so it fell to the O(field) full read. The row loss was the worse half — the full path leaves range slots in storage form, and the in-memory apply has no codec, so an OPE-encoded home matched none of them and the batch returned FEWER rows than it was given, with no error. A bound in this table is a claim about a code path; a variant missing from the planner satisfies no bound at all.
-
 - **Field count is not an asymptotic parameter**  
   Schemas have a fixed, small field set. Projecting more fields changes a constant factor, not big‑O.
 
@@ -48,20 +46,6 @@ Let:
   Implementation detail. The **product requirement** for API/query planning is the table above — same way Dynamo is specified to clients.
 
 ---
-
-## Selected schema first query
-
-The selected [preload design](lastdb-schema-range-preload-design.md) adds an explicit lifecycle cost for selected HashRange schemas.
-Their first query waits for all required schema membership keys, including when that first query supplies an exact key.
-Concurrent queries share one load.
-The initial load grows with required schema keys; measure it separately from normal lookup and range costs.
-
-After readiness, exact queries keep their direct lookup route.
-Ranges seek within one named hash and examine the required candidates in memory.
-They do not enumerate unrelated hashes or reload schema membership for each call.
-This policy adds no public query without a key; unselected schemas keep their current keyed routes.
-The selected route is built in the native engine. The policy remains opt-in.
-The [native write report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) separates its product evidence from remaining runtime gaps.
 
 ## Forbidden: full scan
 

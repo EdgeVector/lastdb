@@ -9,7 +9,7 @@ const CONTENT_KEY_INFO: &[u8] = b"fold:content-key";
 
 /// Holds the E2E key derived from a single passkey/identity secret:
 /// `encryption_key`, the AES-256-GCM account content key. HashKey tokens use
-/// each molecule bundle's own blind key, not a key derived here.
+/// each field key bundle's own blind key, not a key derived here.
 ///
 /// The key is zeroized when the struct (or any clone of it) is dropped, so
 /// the derived key bytes do not linger in freed memory (at-rest threat model
@@ -60,23 +60,19 @@ impl E2eKeys {
     ///
     /// MAC input (exact bytes):
     /// ```text
-    /// hk|v1\0{molecule_uuid}\0{plaintext_hash}
+    /// hk|v1\0{field_key_id}\0{plaintext_hash}
     /// ```
     ///
     /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
     /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
-    /// `escape_segment` remains safe. `blind_key` is the molecule bundle's key.
+    /// `escape_segment` remains safe. `blind_key` is the field key bundle's key.
     ///
-    /// The pure function is model code: `lastdb_model::atom::molecule_key_codec::blind_hash_key`.
+    /// The pure function is model code: `lastdb_model::field_key_codec::blind_hash_key`.
     pub fn blind_hash_key(
         blind_key: &[u8; 32],
-        molecule_uuid: &str,
+        field_key_id: &str,
         plaintext_hash: &str,
     ) -> String {
-        lastdb_model::atom::molecule_key_codec::blind_hash_key(
-            blind_key,
-            molecule_uuid,
-            plaintext_hash,
-        )
+        lastdb_model::field_key_codec::blind_hash_key(blind_key, field_key_id, plaintext_hash)
     }
 }

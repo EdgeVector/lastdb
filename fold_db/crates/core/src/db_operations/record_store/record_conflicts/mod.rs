@@ -1,4 +1,4 @@
-//! Conflict records of a format 7 home.
+//! Conflict records of a home.
 //!
 //! The peer import that wrote these rows is gone. A stored row still decodes.
 //! The rows are:
@@ -13,9 +13,9 @@
 //!   of its rows by key to set `has_conflicts`, and a selected read goes from
 //!   a marker to its rows by key.
 //! - A queue entry and the directory row of its bucket in the retention queue
-//!   (`retention`), as for the conflict records of the molecule path. At the
+//!   (`retention`), as for the conflict records of the field key path. At the
 //!   end of the window the janitor deletes the row, and the marker when no
-//!   entry of it is left. A row holds no atom or file blob reference.
+//!   entry of it is left. A row holds no record or file blob reference.
 
 mod purge;
 mod read;
@@ -106,7 +106,7 @@ pub(crate) fn record_conflict_row_key(record: &str, field: &str, mutation: &str)
     Some(format!("{scope}{ROW_FAMILY}{space}:{digest}"))
 }
 
-/// True for the key of a conflict row of a format 7 home.
+/// True for the key of a conflict row of a home.
 pub(crate) fn is_record_conflict_row_key(key: &str) -> bool {
     crate::storage::current_keys::exact_scope(key)
         .ok()

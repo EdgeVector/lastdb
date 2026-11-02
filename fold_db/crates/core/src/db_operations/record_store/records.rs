@@ -1,10 +1,10 @@
-//! Records of a format 7 home: one stored value at each primary key.
+//! Records of a home: one stored value at each primary key.
 //!
 //! The mutation manager merges the fields of a record (decision D1). This
 //! file reads the records by key and puts the changed ones, with their
 //! alternate entry changes and their file blob counter changes, in one batch
-//! of the native request. A record write creates no atom, tip or atom counter.
-//! Its field history entries hold copies of old values (`atom_history/records.rs`).
+//! of the native request.
+//! Its field history entries hold copies of old values (`field_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A
 //! record that the read finds on disk, or that a flushed write puts, enters
@@ -39,7 +39,7 @@ pub(crate) struct RecordChange {
 }
 
 /// The storage scope of the records of a schema: the prefix that its fields
-/// carry in an org database, as the alternate entries of the molecule path
+/// carry in an org database, as the alternate entries of the field key path
 /// use. `None` is the personal database.
 pub(crate) fn record_scope(schema: &Schema) -> Option<String> {
     schema
@@ -64,7 +64,7 @@ impl RecordStore {
             .as_deref()
             .ok_or_else(|| SchemaError::InvalidData("a record key requires a hash".into()))?;
         let record = self
-            .key_codec_for_molecule(&space)?
+            .key_codec_for_field_key(&space)?
             .api_record_key(&space, hash, key.range.as_deref().unwrap_or_default())
             .map_err(|error| SchemaError::InvalidData(format!("invalid record key: {error}")))?;
         Ok(build_storage_key(scope, &record))
@@ -75,14 +75,14 @@ impl RecordStore {
     /// native request the read sees the request's earlier private writes.
     ///
     /// The memory lookup and every disk chunk read one revision: a caller
-    /// without a read scope gets one for this call (`atom_read_scope`), so a
+    /// without a read scope gets one for this call (`record_read_scope`), so a
     /// commit between two chunks cannot mix two revisions in one result. A
     /// caller with a scope keeps its own revision and read limit.
     pub(crate) async fn read_records(
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        self.atom_read_scope(self.read_records_scoped(keys).boxed())
+        self.record_read_scope(self.read_records_scoped(keys).boxed())
             .await
     }
 
@@ -90,16 +90,10 @@ impl RecordStore {
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        let mut warm = match &runtime {
-            Some(runtime) => runtime
-                .warm_records(keys)
-                .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?,
-            None => None,
-        };
+        let runtime = self.namespaced_store.disk_pack_runtime();
+        let mut warm = runtime
+            .warm_records(keys)
+            .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
         let mut out = match &mut warm {
             Some(read) => read.take_found(),
             None => vec![None; keys.len()],
@@ -134,7 +128,7 @@ impl RecordStore {
                 out[*at] = Some(record);
             }
         }
-        if let (Some(runtime), Some(read)) = (&runtime, &warm) {
+        if let Some(read) = &warm {
             runtime.admit_read_records(read, admitted);
         }
         Ok(out)
@@ -174,13 +168,9 @@ impl RecordStore {
         batch.extend(self.blob_counter_mutations(blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
         // The values enter the warm set after the flush puts the request on disk.
-        if let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-        {
-            runtime.stage_written_records(written);
-        }
+        self.namespaced_store
+            .disk_pack_runtime()
+            .stage_written_records(written);
         Ok(())
     }
 }

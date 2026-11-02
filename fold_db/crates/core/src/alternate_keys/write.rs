@@ -21,8 +21,8 @@ type EntryMoves<'a> = (BTreeMap<String, Vec<u8>>, Vec<Leave<'a>>);
 
 impl RecordStore {
     /// The entry changes between the old and the new field values at each
-    /// primary key. A format 7 record write already holds both values, so it
-    /// puts these changes in its own batch instead of reading the tips again.
+    /// primary key. A record write already holds both values, so it puts these
+    /// changes in its own batch instead of reading the record again.
     pub(crate) async fn alternate_entry_changes(
         &self,
         schema: &Schema,

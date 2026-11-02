@@ -140,16 +140,15 @@ NativeRoot is a service-visible summary:
 home identity and digest, full CURRENT digest, native generation, frontier, and required native features.
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
-The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
-The logical marker `layout:v3:keys` requires direct ASCII value `7;typed-ranges=v1`: a format 4 home with typed ranges.
+A format 8 home writes the feature mask 0xb0 (176) and uses codecs 0x0101. No reader checks the mask against a fixed set.
+The key format entry `layout:keys` requires the direct ASCII value `typed-ranges`.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
 File bytes retain their existing encryption.
-An atom row has no content seal. It is plain JSON inside an encrypted run-file block.
-Tip values and other control values remain readable in the stored backup bytes.
-Restore does not rewrite an earlier logical format.
-The native record transfer that converted formats `4` and `5` is removed with disk format v1.
-This program has no reader and no converter for another format, so restore refuses an older physical backup.
+A record has no content seal. It is plain JSON inside an encrypted run-file block.
+Alternate entries and other control values remain readable in the decrypted backup blocks.
+Restore does not rewrite a home format.
+This program has no reader and no converter for another format, so another physical backup gets the generic failure.
 Unsupported features cause refusal before destination publication.
 The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
 Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.
@@ -178,8 +177,8 @@ If backup capture lacks permission to copy required bytes, it refuses completion
 
 Preserve each stored source hash, length, encryption suite, and encrypted key reference.
 The dependency map key is the pair logical_pointer_sha256 and FileDependencyKind.
-The digest hashes canonical JSON bytes of the exact decrypted whole validated file-pointer atom value, including its outer $lastdb_file wrapper.
-It includes all optional pointer members and excludes the atom ID, atom metadata, and stored ciphertext.
+The digest hashes canonical JSON bytes of the exact decrypted whole validated file-pointer record value, including its outer $lastdb_file wrapper.
+It includes all optional pointer members and excludes the record ID, record metadata, and stored ciphertext.
 Main selects the parent blob_ref, dek, and cipher_suite.
 Thumbnail selects thumbnail with kind image. Poster selects thumbnail with kind video-poster.
 Both nested forms select their own blob_ref and access.dek / access.cipher_suite.
@@ -592,7 +591,6 @@ The former 16 MiB backup authentication and 32 MiB native-CAS allocation guards 
 The existing native record body bound remains `u32::MAX` bytes.
 External ciphertext still obeys the 64 MiB object, 512 extent, manifest page byte, and total backup limits.
 The normal local file API has no separate configured file size cap.
-The [file capture design](native-backup-file-capture-v1.md) records the exact disk, allocation, and dependency count rules.
 The native hold also requires native disk admission and visible retained-byte accounting.
 Backup capture cannot delete held files to satisfy a cap.
 

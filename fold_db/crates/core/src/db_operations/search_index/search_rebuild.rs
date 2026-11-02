@@ -7,7 +7,6 @@
 
 use super::inbox_fields::{inbox_value, searchable_fields};
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
-use crate::atom::is_tombstone_value;
 use crate::db_operations::record_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
@@ -91,12 +90,11 @@ async fn collect_schema_records(
             let fields: HashMap<String, Value> = record
                 .fields
                 .iter()
-                .filter(|&(name, value)| {
+                .filter(|&(name, _)| {
                     schema.runtime_fields.contains_key(name.as_str())
                         && searchable
                             .as_ref()
                             .is_none_or(|fields| fields.contains(name.as_str()))
-                        && !is_tombstone_value(value)
                 })
                 .map(|(name, value)| (name.clone(), inbox_value(value)))
                 .collect();

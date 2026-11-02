@@ -3,11 +3,11 @@
 
 /// Default minimum plaintext size to attempt compression on, in bytes.
 ///
-/// Measured on a real 1,455-atom sample drawn from this workspace's live
-/// brain + kanban records (2026-08-18): 94.7% of atoms are under 512 B and the
-/// median atom is 10 B, but the bytes are concentrated in a small tail of large
-/// bodies. Compressing at a 256 B floor touches ~7% of atoms and still returns
-/// **52.5% of sealed atom bytes**; dropping the floor to 128 B buys 0.6 more
+/// Measured on a real 1,455-record sample drawn from this workspace's live
+/// brain + kanbrecords (2026-08-18): 94.7% of records are under 512 B and the
+/// media record is 10 B, but the bytes are concentrated in a small tail of large
+/// bodies. Compressing at a 256 B floor touches ~7% of records and still returns
+/// **52.5% of sealed record bytes**; dropping the floor to 128 B buys 0.6 more
 /// points for 50% more compression calls on the write path. 256 is the knee.
 pub const AT_REST_COMPRESS_MIN_BYTES_DEFAULT: usize = 256;
 
@@ -17,7 +17,7 @@ pub const AT_REST_COMPRESS_MIN_BYTES_DEFAULT: usize = 256;
 /// have produced it and this is not an untrusted-input defence. It bounds the
 /// blast radius of a *corrupt* frame that still passes the tag (or a future
 /// caller sealing something unbounded) so a bad row cannot OOM the node. Real
-/// atoms are capped far below this by `LASTDB_MAX_ATOM_CONTENT_BYTES`
+/// records are capped far below this by `LASTDB_MAX_FIELD_VALUE_BYTES`
 /// (default 256 KiB, absolute max 1 MiB).
 ///
 /// **It is also the write-side ceiling** — see [`compress_for_seal`]. Both
@@ -32,8 +32,8 @@ pub const AT_REST_MAX_INFLATED_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 /// halves of one invariant: **nothing sealed compressed may be un-inflatable.**
 /// Before 2026-09-06 the ceiling bound only the open side. `compress_for_seal`
 /// had a lower bound and no upper bound, so the KV seam
-/// (`LASTDB_KV_AT_REST_COMPRESS=1`, which then wrapped `atoms`, `tips`, `indexes`,
-/// `metadata`, `change_feed`, `cas_blobs`, the order log and the locators)
+/// (`LASTDB_KV_AT_REST_COMPRESS=1`, which then wrapped the record, metadata,
+/// change feed and CAS blob collections, the order log and the locators)
 /// could seal a value larger than the ceiling and then refuse to read it back
 /// forever. Measured on Tom's primary that day: personal-log compaction failed
 /// nine times in one day with `at-rest inflated payload exceeds 67108864

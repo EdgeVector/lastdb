@@ -253,40 +253,30 @@ pub struct BlobCounterReport {
     pub underflows: u64,
     pub dangling_removals: u64,
     /// A reference raised a counter that did not exist, for a blob whose row is
-    /// gone. The write went through and the atom names a blob that is not there.
-    #[serde(default)]
+    /// gone. The write went through and the record names a blob that is not there.
     pub late_references: u64,
     /// A counter did not decode. The planner marked it `suspect`, or the dwell
     /// pass skipped it.
-    #[serde(default)]
     pub unreadable_counters: u64,
     /// Sweeps of the safety net of the queue since the node started.
-    #[serde(default)]
     pub net_sweeps: u64,
     /// Buckets that the safety net registered again: they held live entries and
     /// had no directory row. A count above zero means something wrote or deleted
     /// queue rows outside the queue.
-    #[serde(default)]
     pub buckets_repaired: u64,
     pub dwell_passes: u64,
     /// Passes in a row that ended with an error. The next pass waits longer.
-    #[serde(default)]
     pub pass_failures: u64,
-    #[serde(default)]
     pub last_error: Option<String>,
     /// Seconds until the next pass may start, after a pass that failed.
-    #[serde(default)]
     pub retry_in_secs: Option<u64>,
     /// Entries in the dwell queue, counted by its buckets with bounded reads,
     /// up to a cap (`queue_depth_capped`). `lastdb status` fills it.
-    #[serde(default)]
     pub queue_depth: u64,
     /// The queue holds at least `queue_depth` entries.
-    #[serde(default)]
     pub queue_depth_capped: bool,
     /// Buckets in the directory of the queue. `None` when the directory could
     /// not be read.
-    #[serde(default)]
     pub queue_buckets: Option<u64>,
     pub next_due_unix_ms: Option<u64>,
     pub last_pass_unix_ms: Option<u64>,

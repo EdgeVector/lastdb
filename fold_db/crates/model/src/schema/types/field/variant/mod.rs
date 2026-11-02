@@ -3,8 +3,8 @@
 //! One struct keyed by [`FieldKind`] (Single / Hash / Range / HashRange)
 //! holds the common field metadata.
 //!
-//! A field is a value. It never reads the store. A format 7 home reads
-//! records, not field molecules.
+//! A field is a value. It never reads the store. A home reads
+//! records, not field keys.
 
 mod kind;
 mod value;

@@ -32,7 +32,7 @@ use fold_db::schema::types::declarative_schemas::SchemaSource;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::DataRoute;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
@@ -155,11 +155,11 @@ macro_rules! heap_route_ctx_host {
 
 mod admin_routes;
 mod app_routes;
-mod atom_history;
 mod batch_mutation_routes;
 mod db_compact_routes;
 mod deferred_mutation;
 mod dispatch;
+mod field_history;
 mod introspection_routes;
 mod liveness_routes;
 mod mutation_notifications;
@@ -176,11 +176,11 @@ pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
 use admin_routes::*;
 use app_routes::*;
-use atom_history::*;
 use batch_mutation_routes::*;
 use db_compact_routes::*;
 pub use deferred_mutation::execute_deferred_mutation;
 pub use dispatch::*;
+use field_history::*;
 use introspection_routes::*;
 use liveness_routes::*;
 use query_filters::*;

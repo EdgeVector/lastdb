@@ -7,7 +7,6 @@ pub(super) struct Inner {
     pub(super) top_n: usize,
     pub(super) aggregates: HashMap<String, OpAggregate>,
     pub(super) sample_count: u64,
-    pub(super) key_use: KeyUseWindow,
 }
 
 impl Inner {
@@ -18,7 +17,6 @@ impl Inner {
             top_n: top_n.max(1),
             aggregates: HashMap::new(),
             sample_count: 0,
-            key_use: KeyUseWindow::default(),
         }
     }
 
@@ -50,8 +48,8 @@ impl Inner {
             phase_sums: PhaseTimings::default(),
             phase_count: 0,
             phased_sum_ms: 0,
-            sum_molecules_persisted: 0,
-            sum_molecule_store_commits: 0,
+            sum_field_keys_persisted: 0,
+            sum_field_key_store_commits: 0,
             sum_resident_commits: 0,
             sum_resident_operations: 0,
         });
@@ -61,12 +59,12 @@ impl Inner {
         agg.last_ts_ms = sample.ts_ms;
         agg.sum_body_bytes = agg.sum_body_bytes.saturating_add(sample.body_bytes);
         agg.max_body_bytes = agg.max_body_bytes.max(sample.body_bytes);
-        agg.sum_molecules_persisted = agg
-            .sum_molecules_persisted
-            .saturating_add(sample.molecules_persisted);
-        agg.sum_molecule_store_commits = agg
-            .sum_molecule_store_commits
-            .saturating_add(sample.molecule_store_commits);
+        agg.sum_field_keys_persisted = agg
+            .sum_field_keys_persisted
+            .saturating_add(sample.field_keys_persisted);
+        agg.sum_field_key_store_commits = agg
+            .sum_field_key_store_commits
+            .saturating_add(sample.field_key_store_commits);
         agg.sum_resident_commits = agg
             .sum_resident_commits
             .saturating_add(sample.resident_commits);
@@ -168,8 +166,6 @@ impl Inner {
             idle_wait,
             sample_count: self.sample_count,
             ring_capacity: self.ring_cap,
-            persist_lanes: Vec::new(),
-            key_use: self.key_use.snapshot(unix_millis()),
         }
     }
 
@@ -265,17 +261,6 @@ impl Runtime {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .record(sample);
-    }
-
-    pub fn record_with_tip_keys(&self, sample: OpSample, keys: &TipKeySketch) {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        inner
-            .key_use
-            .record(sample.ts_ms, &sample.client, sample.schema.as_deref(), keys);
-        inner.record(sample);
     }
 
     pub fn snapshot(&self) -> RequestTelemetrySnapshot {

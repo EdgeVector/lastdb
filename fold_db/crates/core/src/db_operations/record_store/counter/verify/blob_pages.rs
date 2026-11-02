@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 /// current shape.
 fn id_of_counter_key(key: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(key).ok()?;
-    let id = text.strip_prefix("bref:v3:c:")?.strip_suffix("\0c")?;
+    let id = text.strip_prefix(crate::storage::current_keys::families::BLOB_COUNTER_PREFIX)?;
     (id.len() == 64).then(|| id.to_string())
 }
 
@@ -38,7 +38,7 @@ impl RecordStore {
         (start, end, asked): Request,
     ) -> Result<BlobsPage, SchemaError> {
         let queue = self.blob_events.queue();
-        self.atom_read_scope(async {
+        self.record_read_scope(async {
             let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let counters: Vec<BlobRead> = rows
@@ -74,17 +74,12 @@ impl RecordStore {
             let missing: std::collections::HashSet<&str> = if referenced.is_empty() {
                 std::collections::HashSet::new()
             } else {
-                self.blob_rows_exist(&referenced)
-                    .await?
-                    .map(|rows| {
-                        referenced
-                            .iter()
-                            .zip(rows)
-                            .filter(|(_, row)| !*row)
-                            .map(|(blob, _)| blob.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default()
+                referenced
+                    .iter()
+                    .zip(self.blob_rows_exist(&referenced).await?)
+                    .filter(|(_, row)| !*row)
+                    .map(|(blob, _)| blob.as_str())
+                    .collect()
             };
             let mut entries = Vec::with_capacity(rows.len());
             for ((key, _), counter) in rows.iter().zip(counters) {
@@ -117,7 +112,7 @@ impl RecordStore {
         (start, end, asked): Request,
     ) -> Result<QueuePage, SchemaError> {
         let queue = self.blob_events.queue();
-        self.atom_read_scope(async {
+        self.record_read_scope(async {
             let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             // The buckets of the page against the directory, at the same root.

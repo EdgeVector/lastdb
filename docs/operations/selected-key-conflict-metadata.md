@@ -2,7 +2,7 @@
 
 `POST /api/conflicts/keys` reads the kept conflicts of selected record fields on the owner socket.
 It accepts one batch of exact personal record keys.
-A format 7 home keeps the conflicts of a record next to that record: one marker (`rcm:`) for each record and one row (`rcf:`) for each kept losing value.
+A format 8 home keeps the conflicts of a record next to that record: one marker (`rcm:`) for each record and one conflict record (`rcf:`) for each kept losing value.
 The reply returns each kept losing value of each selected field.
 It does not change the normal query conflict flags.
 
@@ -40,12 +40,12 @@ The read uses the existing serving mutation fence.
 The fence admission and the conflict reads share a ten-second deadline.
 Host QoS admission and schema resolution precede this deadline.
 The read sends no flush, cloud request, or mutation.
-It makes one read by key of the markers and one read by key of the rows that the markers name.
+It makes one read by key of the markers and one read by key of the conflict records that the markers name.
 A marker entry that expired at the retention clock is not returned.
-A row that the retention janitor released after the marker read is not returned.
-Each row must name its record, its field, and its losing mutation, or the read fails.
+A conflict record that the retention janitor released after the marker read is not returned.
+Each conflict record must name its record, its field, and its losing mutation, or the read fails.
 
-A missing serving fence, a deadline, a storage error, or an invalid marker or row returns `unknown` for each field of the request.
+A missing serving fence, a deadline, a storage error, or an invalid marker or conflict record returns `unknown` for each field of the request.
 A field with no kept losing value returns `clean`.
 A field with one or more kept losing values returns `conflict`.
 A consumer must refuse a write that requires clean conflict metadata when any result is unknown or conflicted.

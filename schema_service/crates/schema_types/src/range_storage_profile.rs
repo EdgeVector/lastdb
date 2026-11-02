@@ -1,7 +1,7 @@
 //! Versioned, reversible range order, independent of encryption.
 //!
-//! A profile describes one molecule, not each key. The molecule metadata row
-//! stores it when schema publication establishes the molecule.
+//! A profile describes one field key, not each key. The field key metadata row
+//! stores it when schema publication establishes the field key.
 
 use crate::{key_comparison::ordered_type, FieldValueType};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ impl RangeStorageProfile {
     }
 
     /// Decode only the selected format. Never guess a profile from key bytes.
-    /// Numeric/date outputs use canonical API text; atom values stay unchanged.
+    /// Numeric/date outputs use canonical API text; record values stay unchanged.
     pub fn decode_value(self, stored: &str) -> Result<String, String> {
         ordered_scalar::decode(self, stored)
     }

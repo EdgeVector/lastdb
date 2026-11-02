@@ -25,7 +25,7 @@ impl DeclarativeSchemaDefinition {
             fields,
             transform_fields,
             hash: None,
-            field_molecule_uuids: None,
+            field_key_ids: None,
             field_classifications: HashMap::new(),
             field_descriptions: HashMap::new(),
             field_data_classifications: HashMap::new(),

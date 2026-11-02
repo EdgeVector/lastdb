@@ -4,9 +4,7 @@
 //! uses a fresh random frame id, so a retried generation after a crash never
 //! reuses a nonce. The payload names the home, the generation, the frontier
 //! (complete commits), the runs of each tiered level (newest first), the runs
-//! of a base merge in progress with its cut, and the runs of the base. A
-//! CURRENT from before the base (`LDRCUR1`) still opens: all of its runs are
-//! tiered, and the next merges build the base.
+//! of a base merge in progress with its cut, and the runs of the base.
 
 use super::super::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
 use super::super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
@@ -21,7 +19,6 @@ use uuid::Uuid;
 mod bounded;
 mod reader;
 
-const MAGIC_V1: &[u8; 8] = b"LDRCUR1\0";
 const MAGIC: &[u8; 8] = b"LDRCUR2\0";
 pub(super) const CURRENT: &str = "CURRENT";
 pub(super) const RUNS: &str = "runs";
@@ -195,12 +192,7 @@ impl Manifest {
     }
 
     fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
-        let with_base = match bytes.get(..8) {
-            Some(magic) if magic == MAGIC.as_slice() => true,
-            Some(magic) if magic == MAGIC_V1.as_slice() => false,
-            _ => return Err(corrupt("bad CURRENT")),
-        };
-        if bytes.len() < 24 {
+        if bytes.get(..8) != Some(MAGIC.as_slice()) || bytes.len() < 24 {
             return Err(corrupt("bad CURRENT"));
         }
         let home_id = Uuid::from_slice(&bytes[8..24]).expect("16 bytes");
@@ -209,17 +201,15 @@ impl Manifest {
         let frontier = get_varint(bytes, &mut at)?;
         let mut levels = Vec::new();
         for _ in 0..get_len(bytes, &mut at, MAX_LEVELS)? {
-            levels.push(get_runs(bytes, &mut at, runs, with_base)?);
+            levels.push(get_runs(bytes, &mut at, runs)?);
         }
-        let (mut merging, mut merge_cut, mut base) = (Vec::new(), None, Vec::new());
-        if with_base {
-            merging = get_runs(bytes, &mut at, runs, true)?;
-            let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
-            if let Some(len) = cut.checked_sub(1) {
-                merge_cut = Some(get_slice(bytes, &mut at, len)?.to_vec());
-            }
-            base = get_runs(bytes, &mut at, runs, true)?;
-        }
+        let merging = get_runs(bytes, &mut at, runs)?;
+        let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
+        let merge_cut = match cut.checked_sub(1) {
+            Some(len) => Some(get_slice(bytes, &mut at, len)?.to_vec()),
+            None => None,
+        };
+        let base = get_runs(bytes, &mut at, runs)?;
         if at != bytes.len() || generation == 0 {
             return Err(corrupt("bad CURRENT"));
         }
@@ -285,26 +275,19 @@ fn put_runs(out: &mut Vec<u8>, runs: &[Arc<RunFile>]) {
     }
 }
 
-/// One list of runs. A CURRENT from before the base (`counts` false) holds
-/// no tombstone, record byte, or hidden byte counts; the record bytes then
-/// stand at the file size, and the hidden bytes are counted again.
-fn get_runs(bytes: &[u8], at: &mut usize, dir: &Path, counts: bool) -> Result<Vec<Arc<RunFile>>> {
+/// One list of runs with their counts.
+fn get_runs(bytes: &[u8], at: &mut usize, dir: &Path) -> Result<Vec<Arc<RunFile>>> {
     let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
     let mut runs = Vec::with_capacity(count);
     for _ in 0..count {
         let id = get_slice(bytes, at, 16)?;
         let run_id = Uuid::from_slice(id).expect("16 bytes");
         let records = get_varint(bytes, at)?;
-        let (tombstones, record_bytes, tombstone_bytes, file_bytes, hidden) = if counts {
-            let mut values = [0u64; 5];
-            for value in &mut values {
-                *value = get_varint(bytes, at)?;
-            }
-            (values[0], values[1], values[2], values[3], values[4])
-        } else {
-            let file_bytes = get_varint(bytes, at)?;
-            (0, file_bytes, 0, file_bytes, 0)
-        };
+        let mut values = [0u64; 5];
+        for value in &mut values {
+            *value = get_varint(bytes, at)?;
+        }
+        let [tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = values;
         let first_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
         let first_key = get_slice(bytes, at, first_len)?.to_vec();
         let last_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;

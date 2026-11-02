@@ -58,10 +58,6 @@ pub(super) async fn dispatch_search_app(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::AppStorage => heap_route_ctx_host!(execute_app_storage_route, ctx, host).await,
-        DataRoute::AppStorageReconcile => {
-            heap_route!(execute_app_storage_reconcile_route, req, ctx, host).await
-        }
         DataRoute::HomeStorage => heap_route_ctx_host!(execute_home_storage_route, ctx, host).await,
         DataRoute::HomeStorageReconcile => {
             heap_route!(execute_home_storage_reconcile_route, req, ctx, host).await
@@ -78,7 +74,7 @@ pub(super) async fn dispatch_search_app(
         DataRoute::NativeIndexKnn => {
             heap_route!(execute_native_index_knn_route, req, ctx, host).await
         }
-        DataRoute::AtomHistory => heap_route!(execute_atom_history_route, req, ctx, host).await,
+        DataRoute::FieldHistory => heap_route!(execute_field_history_route, req, ctx, host).await,
         // No upload-storage backend in the minimal daemon; blob routes are
         // structurally absent — content-free 404, exactly like an
         // unrecognized path (I4).

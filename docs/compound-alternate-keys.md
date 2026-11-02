@@ -40,10 +40,9 @@ Queries select `key_name` and a hash, exact key, prefix, or range. A cursor rema
 The response `key` remains the primary mutation key. The `matched_key` contains the alternate coordinates.
 Writes maintain all declared keys in the same native transaction as the field values.
 
-Fresh homes use format 6. Existing format 4 and 5 homes remain readable.
-A format 4 or 5 home refuses new compound declarations and owned HashRange declarations. No command upgrades it in place.
-Snapshot profiles 2, 3, and 4 retain format 4, 5, and 6 respectively.
-Existing simple alternate declarations remain valid in format 5, with unchanged declaration revisions.
+Fresh homes use format 8. This program opens only format 8.
+An older home moves by a one-time copy into a fresh home.
+No command upgrades an older home in place.
 
 A plain owned Hash can use the external hash supplied by a request when it declares exactly one field and no named alternate keys.
 Adding alternate keys still requires a declared primary field. No key field is inferred from a payload.

@@ -10,18 +10,18 @@
 //! North Star terminal criteria on `north-star-lastdb-status-gauge-contract`.
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::gauge::Gauge;
 use super::self_metrics::{
-    IntegrityHealth, LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot,
-    UdsPoolHealth, WatchersHealth,
+    LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot, UdsPoolHealth,
+    WatchersHealth,
 };
 
 /// One gauge declaration in the additive contract block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GaugeContractEntry {
-    /// Dotted path relative to the status object (e.g. `integrity.unresolved_atom_distinct`).
+    /// Dotted path relative to the status object (e.g. `resident.resident_key_count`).
     pub path: String,
     /// Closed-set unit id or Named noun (`rows`, `edges`, `hold(s)`, …).
     pub unit: String,
@@ -109,39 +109,14 @@ fn collect_sampler(out: &mut Vec<GaugeContractEntry>, s: &SamplerStatus) {
 }
 
 fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
-    push_gauge(
-        out,
-        "resident.resident_tip_only_keys",
-        &r.resident_tip_only_keys,
-    );
     push_gauge(out, "resident.warm_lookup_hits", &r.warm_lookup_hits);
     push_gauge(out, "resident.warm_lookup_misses", &r.warm_lookup_misses);
     push_gauge(out, "resident.resident_key_count", &r.resident_key_count);
     push_gauge(out, "resident.resident_held_keys", &r.resident_held_keys);
-    push_gauge(out, "resident.resident_dirty_keys", &r.resident_dirty_keys);
-    push_gauge(out, "resident.resident_key_budget", &r.resident_key_budget);
     push_gauge(
         out,
         "resident.resident_purged_keys",
         &r.resident_purged_keys,
-    );
-}
-
-fn collect_integrity(out: &mut Vec<GaugeContractEntry>, i: &IntegrityHealth) {
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_skips",
-        &i.unresolved_atom_skips,
-    );
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_distinct",
-        &i.unresolved_atom_distinct,
-    );
-    push_gauge(
-        out,
-        "integrity.unresolved_atom_rows",
-        &i.unresolved_atom_rows,
     );
 }
 
@@ -153,18 +128,18 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes",
-        &l.max_atom_content_bytes,
+        "limits.max_field_value_bytes",
+        &l.max_field_value_bytes,
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes_default",
-        &l.max_atom_content_bytes_default,
+        "limits.max_field_value_bytes_default",
+        &l.max_field_value_bytes_default,
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes_absolute_max",
-        &l.max_atom_content_bytes_absolute_max,
+        "limits.max_field_value_bytes_absolute_max",
+        &l.max_field_value_bytes_absolute_max,
     );
     push_gauge(out, "limits.max_record_bytes", &l.max_record_bytes);
 }
@@ -213,10 +188,7 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_watchers(&mut gauges, &snapshot.watchers);
     collect_limits(&mut gauges, &snapshot.limits);
     collect_resident(&mut gauges, &snapshot.resident);
-    collect_integrity(&mut gauges, &snapshot.integrity);
-    if snapshot.at_rest_compression.is_some() {
-        collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
-    }
+    collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
     StatusGaugeContract {
         version: StatusGaugeContract::VERSION,
         gauges,
@@ -224,18 +196,14 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
 }
 
 /// Serialize a status snapshot for `/api/status` with the additive
-/// `capabilities` and `contract` siblings. Existing field names/types are
-/// preserved (wire freeze). `capabilities` stays an object; it is empty since
-/// the format 7 record model dropped the aggregate write.
+/// `contract` sibling.
 pub fn status_value_with_contract(snapshot: &StatusSnapshot) -> Result<Value, String> {
     let mut value = serde_json::to_value(snapshot).map_err(|e| format!("status serialize: {e}"))?;
-    let capabilities = json!({});
     let contract = gauge_contract(snapshot);
     let contract_value =
         serde_json::to_value(&contract).map_err(|e| format!("contract serialize: {e}"))?;
     match value.as_object_mut() {
         Some(map) => {
-            map.insert("capabilities".to_string(), capabilities);
             map.insert("contract".to_string(), contract_value);
             Ok(value)
         }

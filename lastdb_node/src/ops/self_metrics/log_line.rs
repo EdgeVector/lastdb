@@ -1,7 +1,7 @@
 use super::*;
 
 /// Compact one-line vitals for the JSONL log (no request_ops ring — keep small).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(super) struct SelfMetricLogLine {
     pub(super) sampled_at: u64,
     pub(super) process_start_ts: u64,
@@ -10,8 +10,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) phys_footprint_bytes: Option<u64>,
     pub(super) phys_footprint_peak_bytes: Option<u64>,
     pub(super) memory_limit_bytes: Option<u64>,
-    pub(super) resident_graph_bytes: u64,
-    pub(super) resident_graph_budget_bytes: u64,
     pub(super) deferred_persist_bytes: u64,
     pub(super) deferred_persist_cap_bytes: u64,
     pub(super) charged_budget_bytes: u64,
@@ -21,44 +19,30 @@ pub(super) struct SelfMetricLogLine {
     pub(super) footprint_over_limit: bool,
     pub(super) runtime_degraded: bool,
     pub(super) implied_footprint_multiplier: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) malloc_bytes_in_use: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) malloc_bytes_held_free: Option<u64>,
-    #[serde(default)]
     pub(super) footprint_net_bytes: u64,
-    #[serde(default)]
     pub(super) footprint_sticky: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) footprint_delta_per_evicted_byte: Option<f64>,
-    #[serde(default)]
     pub(super) governor_state: String,
-    #[serde(default)]
     pub(super) governor_state_held_secs: u64,
-    #[serde(default)]
     pub(super) host_pressure: String,
-    #[serde(default)]
     pub(super) swap_used_bytes: u64,
-    #[serde(default)]
     pub(super) compressor_bytes: u64,
-    #[serde(default)]
     pub(super) purge_failed: bool,
-    #[serde(default)]
     pub(super) malloc_bytes_released_last_purge: u64,
-    #[serde(default)]
     pub(super) allocator_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) allocator_committed_bytes: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) allocator_reserved_bytes: Option<u64>,
-    #[serde(default)]
     pub(super) peak_request_bytes: u64,
-    #[serde(default)]
     pub(super) slowest_request_ms: u64,
     /// Warm set byte gauge, next to the footprint fields above.
-    #[serde(default)]
     pub(super) core_warm_used_bytes: u64,
-    #[serde(default)]
     pub(super) core_warm_limit_bytes: u64,
     pub(super) cpu_percent: Option<f64>,
     pub(super) home_bytes: Option<u64>,
@@ -84,8 +68,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             phys_footprint_bytes: s.phys_footprint_bytes,
             phys_footprint_peak_bytes: s.phys_footprint_peak_bytes,
             memory_limit_bytes: s.memory_limit_bytes,
-            resident_graph_bytes: s.memory_budget.resident_graph_bytes,
-            resident_graph_budget_bytes: s.memory_budget.resident_graph_budget_bytes,
             deferred_persist_bytes: s.memory_budget.deferred_persist_bytes,
             deferred_persist_cap_bytes: s.memory_budget.deferred_persist_cap_bytes,
             charged_budget_bytes: s.memory_budget.charged_budget_bytes,

@@ -1,4 +1,4 @@
-"""Reads past a run of deleted records in a format 7 home, and a schema drop.
+"""Reads past a run of deleted records in a home, and a schema drop.
 
 One hash holds more deleted records between two live records than one
 request may examine (8,192 keys). A range page that meets the run ends early
@@ -248,7 +248,7 @@ def ttl_resume(node):
         erased += keys
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordAged", reply.get("anchor")}
             and row["caller"] == "ttl-sweep-purge"]
-    converged = sum(row["records_converged"] for row in rows if row["committed"])
+    converged = sum(row["records_erased"] for row in rows)
     require(converged == len(erased), f"the TTL sweep audit rows name {converged} records, "
             f"not {len(erased)}: " + repr(rows))
 
@@ -280,7 +280,7 @@ def ledger(node):
 
 
 def drop_history(node, key, action):
-    return node.call("/api/atom-history", {
+    return node.call("/api/field-history", {
         "location": {"schema": "RecordDrop", "field": "value", "key": {"hash": key}},
         "action": action,
     })[0]

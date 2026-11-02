@@ -2,23 +2,23 @@
 
 use crate::schema::types::{Schema, SchemaError};
 
-/// Same-identity loads refresh metadata and retain the schema's owned molecules.
-/// No hydrated molecule enters the cache.
+/// Same-identity loads refresh metadata and retain the schema's owned field keys.
+/// No hydrated field key enters the cache.
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
     if schema.alternate_keys != stored.alternate_keys {
         return Err(SchemaError::InvalidData(
             "alternate declarations require the explicit alternate-key change command".into(),
         ));
     }
-    let mut molecules = schema.field_molecule_uuids.take().unwrap_or_default();
-    if let Some(stored_molecules) = stored.field_molecule_uuids.take() {
-        for (field, uuid) in stored_molecules {
-            molecules.entry(field).or_insert(uuid);
+    let mut field_keys = schema.field_key_ids.take().unwrap_or_default();
+    if let Some(stored_field_keys) = stored.field_key_ids.take() {
+        for (field, uuid) in stored_field_keys {
+            field_keys.entry(field).or_insert(uuid);
         }
     }
-    schema.field_molecule_uuids = (!molecules.is_empty()).then_some(molecules);
+    schema.field_key_ids = (!field_keys.is_empty()).then_some(field_keys);
     schema.populate_runtime_fields()?;
-    schema.sync_molecule_uuids();
+    schema.sync_field_key_ids();
     Ok(())
 }
 

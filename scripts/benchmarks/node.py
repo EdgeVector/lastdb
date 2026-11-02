@@ -14,10 +14,12 @@ import time
 from disk_usage import usage
 
 
-# The exact marker of a format 7 (record model) home, a v2 disk home that stores one record per
-# key. The daemon writes it when it creates the home. Every program creates format 7 and opens
-# no older home.
-RECORD_NODE_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+def marker_format(marker):
+    """The `format=` number of a home marker text, or None for no marker."""
+    if marker is None:
+        return None
+    first = marker.split("\n", 1)[0]
+    return int(first[len("format="):]) if first.startswith("format=") else None
 
 
 def save(path, value):
@@ -108,7 +110,7 @@ class Node:
         environment = {name: value for name, value in os.environ.items()
                        if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))}
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-                           LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home),
+                           LASTDB_HOME=str(self.home),
                            RUST_MIN_STACK="16777216")
         environment.update(self.environment)
         if self.native_timing:
@@ -198,13 +200,8 @@ class Node:
         return path.read_text() if path.exists() else None
 
     def home_format(self):
-        """7 for a format 7 home, or None for an unknown marker or before the home exists."""
-        return 7 if self.marker() == RECORD_NODE_MARKER else None
-
-    def disk_format(self):
-        """2 for a format 7 home (a v2 disk home), 1 for any other marker; the marker exists after the first start."""
-        marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
-        return 2 if marker == RECORD_NODE_MARKER else 1
+        """The `format=` number of the home marker, or None before the daemon creates the home."""
+        return marker_format(self.marker())
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]

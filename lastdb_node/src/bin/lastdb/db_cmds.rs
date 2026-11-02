@@ -1,15 +1,9 @@
 use super::*;
 
-#[path = "db_snapshot_identity_cmds.rs"]
-pub(crate) mod db_snapshot_identity_cmds;
-
 #[path = "db_cleanup_cmds.rs"]
 mod db_cleanup_cmds;
 pub(crate) use db_cleanup_cmds::*;
 
-#[path = "db_app_storage_cmds.rs"]
-mod db_app_storage_cmds;
-pub(crate) use db_app_storage_cmds::*;
 #[path = "db_blob_cmds.rs"]
 mod db_blob_cmds;
 pub(crate) use db_blob_cmds::*;
@@ -25,9 +19,6 @@ pub(crate) use db_put_blob_local_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;
-#[path = "db_report_util_cmds.rs"]
-mod db_report_util_cmds;
-pub(crate) use db_report_util_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -72,12 +63,6 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
-        DbOfflineCommand::SnapshotIdentityPrepare(args) => {
-            db_snapshot_identity_cmds::run(home, &args, true)
-        }
-        DbOfflineCommand::SnapshotIdentityInspect(args) => {
-            db_snapshot_identity_cmds::run(home, &args, false)
-        }
         DbOfflineCommand::Recount {
             execute,
             scopes,

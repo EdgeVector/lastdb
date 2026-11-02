@@ -45,7 +45,7 @@ def check_rows(reply, expected):
     rows = reply.get("results", [])
     require(len(rows) == len(expected), "measurement returned an incomplete record count")
     actual = {row["fields"]["record_id"]: row["fields"] for row in rows}
-    require(actual == expected, "measurement returned different logical records")
+    require(actual == expected, "measurement returned different records")
 
 
 def timed(node, label, pair, case, ordinal, path, body, records):
@@ -174,7 +174,7 @@ def summary(args, records):
               "Cold cases start with empty logical memory after reopen; OS file pages remain uncontrolled.",
               "The primary_read case follows alternate reads, so both releases can reuse primary-field memory.",
               "That row includes cross-key memory reuse after the same prior requests in both releases.",
-              "All arms verify durable writes, logical records, reopen, and owned-home cleanup.", ""]
+              "All arms verify durable writes, records, reopen, and owned-home cleanup.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,
                                       "cases": results, "calls": len(records), "errors": 0,

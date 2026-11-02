@@ -1,6 +1,6 @@
-//! Format 7 rows of the per-schema logical storage breakdown.
+//! Record rows of the per-schema logical storage breakdown.
 //!
-//! A format 7 home stores no atoms. Each record is one value at
+//! A home stores each record as one value at
 //! `rk:{S}:{esc(hash)}\0{range}`, where `S` is the record space of one schema
 //! (`record_space_uuid`). The logical size of a record is the length of that
 //! stored value: the encoded `StoredRecord` that the write path puts
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 type RecordTotals = HashMap<String, (u64, u64)>;
 
 impl RecordStore {
-    /// Add the live records of a format 7 home to `breakdown`, one row per
+    /// Add the live records of a home to `breakdown`, one row per
     /// schema.
     ///
     /// One paged walk reads the whole record plane under `storage_prefix`, so

@@ -40,10 +40,10 @@ impl FoldDB {
     /// Store `plaintext` in the local `cas_blobs` plane and return its pointer.
     ///
     /// - Identical bytes in one account give the same file key and ciphertext
-    ///   reference. The account key stays private inside the atom store.
+    ///   reference. The account key stays private inside the record store.
     /// - The pointer carries no `name` or `media_type` unless the caller passes
-    ///   them. Without them, identical bytes in one schema give the same atom,
-    ///   so a second record that holds the pointer adds one tip and no atom.
+    ///   them. Without them, identical bytes in one schema give the same record,
+    ///   so a second record that holds the pointer adds one reference and no file blob.
     /// - The native request commits the row and upload counter before returning.
     ///   The explicit store flush also remains before returning the pointer.
     /// - A repeat put of bytes that are already stored does not append a second
@@ -54,7 +54,7 @@ impl FoldDB {
     /// in the same native request as the row. The blob has no reference until the
     /// caller writes the pointer, so it stays for the dwell
     /// (`LASTDB_BLOB_DWELL_SECS`, one hour by default). The dwell pass deletes it
-    /// after that if no atom has named it.
+    /// after that if no record has named it.
     pub async fn put_local_file_blob(
         &self,
         plaintext: &[u8],

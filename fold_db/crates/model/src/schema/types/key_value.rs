@@ -38,10 +38,7 @@ impl KeyValue {
 
     /// Lossless round-trippable string encoding for storage keys.
     ///
-    /// `Display` cannot serve this purpose: it is content-addressable for
-    /// `atom::input_snapshot::hash_input_snapshot` (pinned forever by
-    /// `Provenance::Derived::encoding_version`), so the `"hash:range"`
-    /// layout can't grow extra disambiguators. But that layout is lossy:
+    /// `Display` cannot serve this purpose: its `"hash:range"` layout is lossy:
     /// `(Some("a"), Some("b"))`, `(None, Some("a:b"))`, and
     /// `(Some("a:b"), None)` all serialize to `"a:b"`, and any single-
     /// segment `Display` output is ambiguous between hash-only and

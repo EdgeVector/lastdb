@@ -40,7 +40,7 @@ CLEAN**, flipping that dimension **NO-GO → GO**. Confirmed against `origin/mai
   `/api/view/{name}`) all apply `schema_catalog_visible_to` /
   `view_definition_visible_to`. The new #1027 upload + smart-folder ingestion
   routes are write-plane (responses carry file paths/categories, no catalog
-  names); #1026 `list_atoms_by_schema` is a storage-layer keyed lookup not
+  names); #1026 `list_records_by_schema` is a storage-layer keyed lookup not
   exposed over any HTTP route; `GET /api/openapi.json` serializes the
   compile-time `ApiDoc`, never runtime schemas.
 - **No A1/A2/A3 regression across #1025–#1035.** Ingestion writes (incl. the

@@ -14,10 +14,10 @@ pub enum NativeProofStage {
     Scratch,
     Account,
     Schemas,
-    Atoms,
+    Blobs,
     Directories,
     NativeCas,
-    Tips,
+    Records,
     FinalBinding,
 }
 
@@ -33,10 +33,10 @@ impl fmt::Display for NativeProofStage {
             Self::Scratch => "scratch",
             Self::Account => "account",
             Self::Schemas => "schemas",
-            Self::Atoms => "atoms",
+            Self::Blobs => "blobs",
             Self::Directories => "directories",
             Self::NativeCas => "native_cas",
-            Self::Tips => "tips",
+            Self::Records => "records",
             Self::FinalBinding => "final_binding",
         })
     }
@@ -97,7 +97,7 @@ impl NativeProofCause {
             "native file source owner scope needs a read-only grant" => Self::UnsupportedFileScope,
             "legacy or incomplete file dependency is uncertified"
             | "metadata-only file dependency is uncertified"
-            | "live file metadata lacks certified atom pointer coverage"
+            | "live file metadata lacks certified record pointer coverage"
             | "native CAS per-file encryption suite is uncertified" => Self::UncertifiedFile,
             _ => Self::InvalidOperation,
         }

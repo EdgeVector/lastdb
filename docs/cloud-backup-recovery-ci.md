@@ -120,7 +120,7 @@ Two separate absent destinations restore the exact selected mutation-log checkpo
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
 
-The source also declares one bounded HashRange schema for the atom lifecycle check.
+The source also declares one bounded HashRange schema for the record lifecycle check.
 Two expired range keys and one live range key share the same field value and the original 8 MiB file.
 The initial snapshot retains all three keys while the TTL worker stays off.
 After the source restarts with TTL on, the ordinary TTL purge must erase the two expired keys.
@@ -220,14 +220,12 @@ A baseline update uses the manual baseline mode, and only for an exception that 
 
 ## Baseline move
 
-The fixed baseline is cut once on home format 7.
-The change from format 6 to format 7 is a one-time break: the format 7 client refuses the older baseline.
-The cloud backup contract (snapshot, mutation log, and CAS files) stays fixed, and the local format adapts to it.
-A later local format change must still restore a snapshot that an earlier release wrote.
-When the local layout differs, the client converts it inside backup and restore.
-Tom set this rule on 2026-11-01 (brain `decision-2026-11-01-lastdb-cloud-backup-has-its-own-format`).
+The fixed baseline is cut once on home format 8 (backup profile 6).
+The cloud backup contract (snapshot, mutation log, and CAS files) and the object names stay V2.
+A snapshot is a byte copy of the local files, so a format 8 client restores only a format 8 snapshot.
+The move to format 8 cuts one new baseline through the manual baseline mode (Tom, 2026-11-01).
 
-CAUTION: A failed fixed-baseline restore after a local format change is a defect of that change. Fix the change. Do not move the baseline.
+CAUTION: A failed fixed-baseline restore after a change that keeps home format 8 is a defect of that change. Fix the change. Do not move the baseline.
 
 The baseline move is only for an exception that Tom approves, for example a change of the cloud contract.
 The manual `baseline` mode makes the new fixed baseline. It does not run the normal recovery.
@@ -239,7 +237,7 @@ gh workflow run cloud-backup-recovery.yml -R EdgeVector/lastdb --ref main -f mod
 The mode uses the same protected environment, build, package, admission, and start claim as the normal operation.
 `baseline.py` then starts a fresh home of the current format with the fixed CI identity.
 The recovery phrase supplies the identity seed, and the daemon must report the fixed CI account.
-The home receives the `CloudCiBaselineF7` Hash schema, 16 records, and one 8 MiB file.
+The home receives the `CloudCiBaseline` Hash schema, 16 records, and one 8 MiB file.
 Automatic backup uploads exactly one snapshot to the claimed stream. No mutation log enters that stream.
 The source stops cleanly. The snapshot restores to an absent folder, and two boots read every record and the complete file.
 Only then does the step write `ci-baseline.json`. The workflow uploads it as `cloud-ci-baseline-<run_id>-<run_attempt>`.
@@ -410,12 +408,12 @@ It checks the restored native inventory before the first boot, then checks all b
 The helper accesses only a fresh private DEV restore. `kept_pass.py` calls it after a complete cleanup request.
 Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
-The client restores only home format 7. The first such main source is `2cdc5531c1f056891ff17e16fbe25b52a5c4a201` (#929).
-A kept stream from an older main source holds a format 4 to 6 snapshot, which this client refuses by design.
+A client restores only a snapshot of its own backup profile (`RECORD_PROFILE` in `run_admission.rs`).
 The job reads the full main commit history without file contents and checks the ancestry of the kept owner source.
-For an older source, the controller records the kept stream and its source, and attempts no restore.
-The service still keeps that stream. A later successful format 7 CI stream replaces it under the normal retention rules.
-A kept source outside the main history fails CI. `kept_pass.py` computes this check from the validated kept record.
+`scripts/cloud_backup/kept_recovery.py` then fetches that one file at the kept source and compares the two profiles.
+For another profile, the controller records the kept stream, its source, and both profiles, and attempts no restore.
+The service still keeps that stream. A later successful CI stream of the current format replaces it under the normal retention rules.
+A kept source outside the main history, or a failed profile read, fails CI. `kept_pass.py` computes this check from the validated kept record.
 
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.

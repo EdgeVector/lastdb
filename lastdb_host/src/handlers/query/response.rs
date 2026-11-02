@@ -3,28 +3,27 @@
 use fold_db::schema::types::{KeyValue, QueryCursor};
 use serde_json::Value;
 
-use super::rows::RowDrops;
+use super::rows::PageFlags;
 use crate::pagination::compute_has_more;
 
 /// The `has_more`-carrying page shape both sockets serve, before the envelope.
 ///
 /// `next_cursor` is always `null` for offset pages. Keyed query pages use
 /// [`cursor_payload`], whose continuation uses the same API-coordinate window.
-/// Integrity fields remain present for zero drops and unknown classifications.
-/// `RowDrops::total` counts unfilled slots separately from the reported integrity
-/// counters. Unknown key/conflict flags never establish a clean response.
+/// The page flags stay present for unknown classifications. Unknown key and
+/// conflict flags never establish a clean response.
 pub(in crate::handlers) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
     limit: usize,
     offset: usize,
     has_more: bool,
-    drops: RowDrops,
+    flags: PageFlags,
 ) -> Value {
     let returned_count = page.len();
     // Move the owned page directly into the response. json! serializes Value
     // expressions by reference and would copy every nested field value here.
-    // Integrity fields stay present even when zero, null, or unknown.
+    // The page flags stay present even when null or unknown.
     Value::Object(serde_json::Map::from_iter([
         ("results".into(), Value::Array(page)),
         (
@@ -36,15 +35,13 @@ pub(in crate::handlers) fn page_payload(
         ("offset".into(), Value::from(offset)),
         ("has_more".into(), Value::from(has_more)),
         ("next_cursor".into(), Value::Null),
-        ("unresolved_rows".into(), Value::from(drops.unresolved)),
-        ("tombstoned_rows".into(), Value::from(drops.tombstoned)),
         (
             "key_form".into(),
-            drops
+            flags
                 .key_form
                 .map_or(Value::Null, |form| Value::from(form.as_str())),
         ),
-        ("conflict_flags".into(), Value::from(drops.conflict_flags)),
+        ("conflict_flags".into(), Value::from(flags.conflict_flags)),
     ]))
 }
 
@@ -53,19 +50,14 @@ pub(in crate::handlers) fn cursor_payload(
     total_count: Option<usize>,
     limit: usize,
     offset: usize,
-    drops: RowDrops,
+    flags: PageFlags,
     resume: Option<KeyValue>,
     comparison: Option<String>,
 ) -> Value {
     // This shape over-fetches `limit + 1` and infers `has_more` from the extra
-    // row. A drop that still consumes an output slot can hide the probe row,
-    // so count those unfilled slots back in. Internal candidate refills retain
-    // their integrity counters but replace their missing rows before this
-    // boundary; those drops must not make an exhausted range claim more data.
-    // A page that a run of deleted records ended early (`resume`) has more
-    // keys after the last key it examined, and its cursor names that key.
-    let fetched = page.len().saturating_add(drops.total());
-    let has_more = fetched > limit || resume.is_some();
+    // row. A page that a run of deleted records ended early (`resume`) has
+    // more keys after the last key it examined, and its cursor names that key.
+    let has_more = page.len() > limit || resume.is_some();
     if page.len() > limit {
         page.truncate(limit);
     }
@@ -75,7 +67,7 @@ pub(in crate::handlers) fn cursor_payload(
     let next_cursor = resume
         .or_else(|| next_cursor_for(&page, has_more))
         .map(|key| QueryCursor::new(key, comparison));
-    let mut payload = page_payload(page, total_count, limit, offset, has_more, drops);
+    let mut payload = page_payload(page, total_count, limit, offset, has_more, flags);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
 }
@@ -86,35 +78,31 @@ pub(in crate::handlers) fn overfetched_offset_payload(
     total_count: usize,
     limit: usize,
     offset: usize,
-    drops: RowDrops,
+    flags: PageFlags,
 ) -> Value {
-    let fetched = page.len().saturating_add(drops.total());
-    let has_more = fetched > limit;
+    let has_more = page.len() > limit;
     if page.len() > limit {
         page.truncate(limit);
     }
-    page_payload(page, Some(total_count), limit, offset, has_more, drops)
+    page_payload(page, Some(total_count), limit, offset, has_more, flags)
 }
 
-/// Reconcile a bounded page with an independent key count. Unresolved and
-/// tombstoned records counted by the molecule still consume a page slot.
+/// Reconcile a bounded page with an independent key count.
 pub(in crate::handlers) fn counted_page_payload(
     page: Vec<Value>,
     total_count: usize,
     limit: usize,
     offset: usize,
-    drops: RowDrops,
+    flags: PageFlags,
 ) -> Value {
-    let consumed = offset
-        .saturating_add(page.len())
-        .saturating_add(drops.total());
+    let consumed = offset.saturating_add(page.len());
     page_payload(
         page,
         Some(total_count),
         limit,
         offset,
         consumed < total_count,
-        drops,
+        flags,
     )
 }
 
@@ -124,13 +112,13 @@ pub(in crate::handlers) fn materialized_page_payload(
     results: Vec<Value>,
     limit: usize,
     offset: usize,
-    drops: RowDrops,
+    flags: PageFlags,
     cap_may_truncate: bool,
 ) -> Value {
     let total_count = results.len();
     let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
     let has_more = compute_has_more(offset, page.len(), total_count, cap_may_truncate);
-    page_payload(page, Some(total_count), limit, offset, has_more, drops)
+    page_payload(page, Some(total_count), limit, offset, has_more, flags)
 }
 
 /// A sample that a run of deleted records ended before it was full. Its rows
@@ -144,7 +132,7 @@ pub(in crate::handlers) fn incomplete_sample_payload(
     results: Vec<Value>,
     limit: usize,
     offset: usize,
-    drops: RowDrops,
+    flags: PageFlags,
     stopped: &str,
     binding: Option<String>,
 ) -> Value {
@@ -152,7 +140,7 @@ pub(in crate::handlers) fn incomplete_sample_payload(
     let page: Vec<Value> = results.into_iter().skip(offset).take(limit).collect();
     let holds_last = offset.saturating_add(page.len()) >= found;
     let next_cursor = holds_last.then(|| QueryCursor::at_record(stopped, binding));
-    let mut payload = page_payload(page, None, limit, offset, true, drops);
+    let mut payload = page_payload(page, None, limit, offset, true, flags);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
 }
@@ -167,19 +155,17 @@ fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
 }
 
 /// Build `/api/query` row envelopes without clocks, host access, or telemetry.
-/// Keep the sort helper's value until ordering, but exclude its metadata before
-/// choosing the author. Conditions already selected the keys in the core.
+/// Keep the sort helper's value until ordering. Conditions already selected
+/// the keys in the core. A full row carries the one metadata block of its
+/// record (decision D7), or `null` when the record has none; a compact row
+/// carries no metadata.
 pub(in crate::handlers) fn format_rows(
     records: fold_db::fold_db_core::query::QueryRecords,
-    sort_helper: Option<&str>,
     compact: bool,
 ) -> Vec<Value> {
     records
         .into_iter()
-        .map(|(key, mut record)| {
-            if let Some(field) = sort_helper {
-                record.metadata.remove(field);
-            }
+        .map(|(key, record)| {
             let mut row = serde_json::Map::new();
             row.insert("key".into(), serde_json::json!(key));
             // These values already own their JSON. Serializing them through
@@ -188,32 +174,8 @@ pub(in crate::handlers) fn format_rows(
                 "fields".into(),
                 Value::Object(record.fields.into_iter().collect()),
             );
-            if compact {
-                // Conflict annotation only needs each projected field. Avoid
-                // serializing provenance that the caller did not request.
-                row.insert(
-                    "metadata".into(),
-                    Value::Object(
-                        record
-                            .metadata
-                            .into_iter()
-                            .map(|(field, metadata)| {
-                                (
-                                    field,
-                                    serde_json::json!({"molecule_uuid": metadata.molecule_uuid}),
-                                )
-                            })
-                            .collect(),
-                    ),
-                );
-            } else {
-                let author_pub_key = record
-                    .metadata
-                    .values()
-                    .find_map(|m| m.writer_pubkey.as_deref())
-                    .filter(|s| !s.is_empty());
+            if !compact {
                 row.insert("metadata".into(), serde_json::json!(record.metadata));
-                row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
             }
             Value::Object(row)
         })

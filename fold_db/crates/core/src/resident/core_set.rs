@@ -1,7 +1,7 @@
 //! Used records and typed definitions over the actual disk view.
 //!
 //! The caller holds the publication lock before it locks this set. Disk I/O
-//! never runs under the set lock. A format 7 home keeps one decoded record
+//! never runs under the set lock. A home keeps one decoded record
 //! for each used record key (decision D2); there are no field paths.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -35,18 +35,12 @@ impl std::fmt::Display for CoreCapacity {
 
 impl std::error::Error for CoreCapacity {}
 
-/// The path, tip, molecule and atom counts stay in the status reply. A
-/// format 7 home keeps no field paths, so they are always 0.
+/// Counts of the warm set for the status reply.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
-    pub(crate) paths: usize,
-    /// Decoded records of a format 7 home.
+    /// Decoded records in the warm set.
     pub(crate) records: usize,
-    pub(crate) tip_only_paths: usize,
-    pub(crate) molecules: usize,
-    pub(crate) atoms: usize,
     pub(crate) held: usize,
-    pub(crate) dirty: usize,
     pub(crate) hits: u64,
     pub(crate) misses: u64,
     pub(crate) purged: u64,
@@ -58,7 +52,7 @@ pub(crate) struct CoreWarmSet {
     memory: memory::CoreMemory,
     model: model::CoreModel,
     clock: u64,
-    // Decoded records of a format 7 home, in recency order.
+    // Decoded records of a home, in recency order.
     records: records::RecordTable,
     hits: u64,
     misses: u64,
@@ -69,13 +63,8 @@ pub(crate) struct CoreWarmSet {
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
         CoreWarmStats {
-            paths: 0,
             records: self.records.len(),
-            tip_only_paths: 0,
-            molecules: 0,
-            atoms: 0,
             held: self.records.held(),
-            dirty: 0,
             hits: self.hits,
             misses: self.misses,
             purged: self.purged,

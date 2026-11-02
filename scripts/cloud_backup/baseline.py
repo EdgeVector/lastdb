@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Make, upload and restore a new fixed CI baseline.
 
-The baseline is cut once on home format 7, the one-time 6 -> 7 cloud break.
-The cloud contract stays fixed after that: a later local format change must
-keep the baseline restorable, and a failed restore is a defect of that change.
-Use this mode again only for an exception that Tom approves, such as a cloud
-contract change (decision-2026-11-01-lastdb-cloud-backup-has-its-own-format).
+A snapshot is a byte copy of the local home files, so a client restores only a
+snapshot of its own home format. The baseline is cut once for each home format
+that Tom approves (format 8: Tom, 2026-11-01). The cloud contract does not
+change. A failed restore after a change that keeps the home format is a
+defect of that change, not a reason to move the baseline.
 
 This manual mode starts a fresh home of the current
 format with the fixed CI identity. It writes the 16 known records and one

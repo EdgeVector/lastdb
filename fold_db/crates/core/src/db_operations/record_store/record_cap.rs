@@ -2,7 +2,7 @@
 //!
 //! A record above `MAX_RECORD_BYTES` is refused with the typed
 //! `SchemaError::RecordTooLarge`, which the HTTP layer renders as the
-//! `413 atom_content_too_large` body. A request that writes one key in two
+//! `413 field_value_too_large` body. A request that writes one key in two
 //! groups stages the earlier record without the cap
 //! (`RecordChange::cap_deferred`): only the final record of the request must
 //! fit, and `require_records_fit` checks it after the last group.

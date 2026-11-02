@@ -6,7 +6,6 @@ use super::sampler_state::SamplerRuntimeState;
 
 /// The backlog signal of the last TTL sweep pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
 pub struct TtlPassReport {
     /// True when the pass erased or dropped every key that it listed, in every
     /// schema, and no schema failed.

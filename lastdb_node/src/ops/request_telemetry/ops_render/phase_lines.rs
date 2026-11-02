@@ -84,7 +84,7 @@ pub(crate) fn phase_table_lines(aggregates: &[OpAggregate], labels: &SchemaLabel
     ));
     lines.push("  Phase details:".to_string());
     for (i, a) in selected.iter().enumerate() {
-        // `sum_molecules_persisted` and `sum_molecule_store_commits` stay in
+        // `sum_field_keys_persisted` and `sum_field_key_store_commits` stay in
         // the JSON and the rollup rows for their readers. The record model
         // keeps both at zero, so the text output leaves them out.
         let mut tokens = phase_tokens(a.phase_sums);

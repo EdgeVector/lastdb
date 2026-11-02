@@ -33,14 +33,14 @@ pub(super) fn classify_path(relative: &Path) -> HomeStorageBucketKind {
         Some(b"candidate" | b"candidates" | b".candidates" | b".lastdb-staged") => {
             HomeStorageBucketKind::Candidate
         }
-        Some(name) if name.starts_with(b"laststore_atom_rewrite") => {
+        Some(name) if name.starts_with(b"laststore_record_rewrite") => {
             HomeStorageBucketKind::Recovery
         }
         Some(name)
             if name.starts_with(b"laststore_backup_")
                 || name == b"laststore_chunk_sha_memo.json"
                 || name == b"laststore_high_water.json"
-                || name == b"laststore_pending_purged_atom_retirements.json" =>
+                || name == b"laststore_pending_purged_record_retirements.json" =>
         {
             HomeStorageBucketKind::Backup
         }

@@ -12,8 +12,8 @@ Later callers wait behind the worker.
 Each caller waits for its own sequence to reach the completed durable boundary.
 Ordinary reads use the previous complete disk root until publication.
 Private preparation reads the accepted prefix in order.
-The change-feed sequence comes from that private prefix and the durable in-memory tip.
-The in-memory tip changes after the disk commit.
+The change-feed sequence comes from that private prefix and the durable in-memory head.
+The in-memory head changes after the disk commit.
 
 A commit writes one level-0 run file and installs its root as the readable state.
 A background merge thread merges run files. A merge root holds the same frontier, so it holds the same data.
@@ -31,9 +31,8 @@ Source: [run commit and merge](../fold_db/crates/core/src/storage/disk_pack/run_
 The memory publication follows request order inside one view lock.
 Each request first invalidates its changed sources, then installs its clean values.
 This order also protects a later write that cannot reserve warm memory.
-Read holds and private write reservations still prevent the purge of held paths.
-Unflushed warm-path marks and their full-path completion walk are removed.
-The existing dirty status fields remain zero for compatibility.
+Read holds and private write reservations prevent the purge of held records.
+The dirty status fields stay at zero, because no record waits in memory for a flush.
 
 The queue limits are 1024 requests, and 16,384 operations and 512 MiB in one accepted prefix.
 A refused extension leaves the earlier accepted prefix unchanged.

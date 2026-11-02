@@ -13,7 +13,6 @@ const STALE_UPLOAD_SECS: u64 = 300;
 /// coverage can under-report after a manual run but never over-report.
 /// Standalone coordinators remain separate and cannot be inferred from a missing local job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
 pub struct DurabilityHealth {
     pub observed: bool,
     pub automatic_enabled: bool,

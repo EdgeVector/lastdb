@@ -53,17 +53,11 @@ def selected(expected, spec):
 
 
 def validate_envelope(row):
-    if (set(row) != {"key", "fields", "metadata", "author_pub_key"}
+    if (set(row) - {"conflicted_fields"} != {"key", "fields", "metadata", "has_conflicts"}
             or set(row["key"]) != {"hash", "range"}):
         raise RuntimeError("A condition row changes its four-key envelope or complete key coordinates")
-    writers = {value["writer_pubkey"] for value in row["metadata"].values()
-               if value.get("writer_pubkey")}
-    # The product chooses a writer from its original randomized metadata map,
-    # then filters an empty selection. Do not impose a new author tie order.
-    if not writers or any(value.get("writer_pubkey") == "" for value in row["metadata"].values()):
-        writers.add(None)
-    if row["author_pub_key"] not in writers:
-        raise RuntimeError("A condition row changes the author selected from its projected metadata")
+    if row["metadata"] is not None and not isinstance(row["metadata"], dict):
+        raise RuntimeError("A condition row has a record metadata block that is not an object")
     if "body" in row["fields"]:
         numbers = row["fields"]["body"]["numbers"]
         if (set(numbers) != set(JSON_NUMBERS) or any(type(numbers[name]) is not type(value)
@@ -80,21 +74,18 @@ def validate(result, expected, spec, reference=None, *, conditioned=True):
     if (actual != wanted or result.get("returned_count") != len(wanted)
             or result.get("total_count") != (len(keys) if conditioned else None)
             or result.get("has_more") != (spec.get("offset", 0) + len(wanted) < len(keys))
-            or result.get("next_cursor") is not None
-            or result.get("unresolved_rows") != 0 or result.get("tombstoned_rows") != 0):
+            or result.get("next_cursor") is not None):
         raise RuntimeError("A keyed condition response differs in membership, order, count, or offset/limit")
     fields = spec["fields"] or FIELDS
     for key, row in zip(wanted, rows):
         validate_envelope(row)
         projected = {name: expected[key][name] for name in ["bucket", *fields] if name in expected[key]}
-        if row["fields"] != projected or set(row["metadata"]) != set(projected):
-            raise RuntimeError("A keyed condition response changes its exact projected fields or metadata fields")
+        if row["fields"] != projected:
+            raise RuntimeError("A keyed condition response changes its exact projected fields")
         if reference is None:
             marker = expected[key]["title"].split("-class-", 1)[0]
-            if any(row["metadata"][name].get("source_file_name") != marker for name in ("title", "body")):
+            if (row["metadata"] or {}).get("source_file_name") != marker:
                 raise RuntimeError("The condition metadata reference lacks the generated selected-source marker")
-        if reference is not None:
-            metadata = {name: reference[key]["metadata"][name] for name in projected}
-            if row["metadata"] != metadata:
-                raise RuntimeError("A keyed condition response changes atom, molecule, writer, or source metadata")
+        if reference is not None and row["metadata"] != reference[key]["metadata"]:
+            raise RuntimeError("A keyed condition response changes the record metadata")
     return rows

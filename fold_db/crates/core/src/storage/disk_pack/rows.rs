@@ -30,7 +30,7 @@ fn extend_bounded_rows(
 
 /// Exclusive upper bound for a walk of a whole collection.
 ///
-/// Product keys are ASCII prefixes (`atom:`, `mk:`, `aloc:`, …). Four `0xFF`
+/// Product keys are ASCII prefixes (`rk:`, `ak:`, `aloc:`, …). Four `0xFF`
 /// bytes sit past that keyspace without pretending an empty prefix has a
 /// string successor (it does not — see `FilterUtils::create_prefix_end`).
 /// `PackKvStore::range_rows` accepts it as the end of a range.

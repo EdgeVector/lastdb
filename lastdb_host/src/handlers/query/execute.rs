@@ -16,7 +16,7 @@ pub(super) struct QueryRun<'a, H: HostNode> {
     /// The binding of the record walk that continues a sample which a run of
     /// deleted records ended early (`rules::sample_resumes`).
     pub(super) sample: Option<String>,
-    /// An unfiltered read of a format 7 home walks its records (`walk.rs`).
+    /// An unfiltered read of a home walks its records (`walk.rs`).
     pub(super) walk: bool,
 }
 
@@ -54,12 +54,9 @@ impl<H: HostNode> QueryRun<'_, H> {
             return Err(HostError::new(400, "count replies require keyed live reads without conditions, value ordering, or continuation"));
         }
         let _permit = acquire_read_permit(self.host, Lane::Bulk).await?;
-        let (count, drops) = fold_db::db_operations::with_query_row_drop_tally(count_rows(
-            self.host, &query, self.ctx,
-        ))
-        .await;
-        let count =
-            count?.ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
+        let count = count_rows(self.host, &query, self.ctx)
+            .await?
+            .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
         if query
             .expected_total_count
             .is_some_and(|expected| expected != count)
@@ -69,8 +66,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 "expected_total_count differs from the exact keyed count",
             ));
         }
-        Ok(serde_json::json!({"total_count": count, "exact": true,
-            "unresolved_rows": drops.unresolved, "tombstoned_rows": drops.tombstoned}))
+        Ok(serde_json::json!({"total_count": count, "exact": true}))
     }
 
     /// A caller-supplied bare `Page` filter is already the requested bounded
@@ -89,25 +85,25 @@ impl<H: HostNode> QueryRun<'_, H> {
                 limit: INTERNAL_FETCH_CAP,
             });
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (rows, drops, _) = execute_query_rows_windowed(host, complete, None, ctx).await?;
+            let (rows, flags, _) = execute_query_rows_windowed(host, complete, None, ctx).await?;
             return Ok(Some(materialized_page_payload(
                 rows,
                 page_limit,
                 page_offset,
-                drops,
+                flags,
                 false,
             )));
         }
         if let Some(total) = count_rows(host, query, ctx).await? {
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (page, drops, _) =
+            let (page, flags, _) =
                 execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
             return Ok(Some(counted_page_payload(
                 page,
                 total,
                 page_limit,
                 page_offset,
-                drops,
+                flags,
             )));
         }
         Ok(None)
@@ -132,17 +128,17 @@ impl<H: HostNode> QueryRun<'_, H> {
         // below, which admits on `total` because it may hydrate that many rows.
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
-        let (page, drops, end) =
+        let (page, flags, end) =
             execute_query_rows_windowed(host, query, Some(window), ctx).await?;
         Ok(match (uses_cursor, total) {
-            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset, drops),
+            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset, flags),
             (_, total) => {
                 let resume = match end.resume {
                     Some(PageResume::Key(key)) => Some(key),
                     _ => None,
                 };
                 let comparison = self.comparison.clone();
-                cursor_payload(page, total, limit, offset, drops, resume, comparison)
+                cursor_payload(page, total, limit, offset, flags, resume, comparison)
             }
         })
     }
@@ -173,7 +169,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                     limit: INTERNAL_FETCH_CAP,
                 });
                 let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (all_results, drops, _) =
+                let (all_results, flags, _) =
                     execute_query_rows_windowed(host, query, None, ctx).await?;
                 // `total_count` is the counted set on every shape, so two limits
                 // seconds apart cannot disagree about how big the set is. If the
@@ -187,7 +183,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                     limit,
                     0,
                     has_more,
-                    drops,
+                    flags,
                 )));
             }
 
@@ -198,9 +194,9 @@ impl<H: HostNode> QueryRun<'_, H> {
                 limit,
             ));
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (page, drops, _) = execute_query_rows_windowed(host, query, None, ctx).await?;
+            let (page, flags, _) = execute_query_rows_windowed(host, query, None, ctx).await?;
             return Ok(Some(counted_page_payload(
-                page, total, limit, offset, drops,
+                page, total, limit, offset, flags,
             )));
         }
         Ok(None)
@@ -236,7 +232,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Interactive.
         let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
-        let (all_results, drops, end) = execute_query_rows_windowed(host, query, None, ctx).await?;
+        let (all_results, flags, end) = execute_query_rows_windowed(host, query, None, ctx).await?;
         // A sample that a run of deleted records ended early is not complete,
         // and its reply says so (`rules::sample_resumes`).
         if let Some(PageResume::Record(stopped)) = end.resume {
@@ -244,7 +240,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 all_results,
                 limit,
                 offset,
-                drops,
+                flags,
                 &stopped,
                 self.sample.clone(),
             ));
@@ -255,7 +251,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             all_results,
             limit,
             offset,
-            drops,
+            flags,
             cap_may_truncate,
         ))
     }

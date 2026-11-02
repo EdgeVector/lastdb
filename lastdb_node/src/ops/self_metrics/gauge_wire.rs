@@ -69,22 +69,10 @@ pub(super) fn serialize_gauge_wire<S: serde::Serializer>(
     }
 }
 
-pub(super) fn default_events_lifetime_gauge() -> Gauge {
-    Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME)
-}
-
 pub(super) fn deserialize_events_lifetime<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Gauge, D::Error> {
     crate::ops::gauge::serde_u64::deserialize_as(deserializer, Unit::Events, GAUGE_PROCESS_LIFETIME)
-}
-
-pub(super) fn default_keys_instant_gauge() -> Gauge {
-    Gauge::field_not_served(Unit::Keys, GAUGE_INSTANT)
-}
-
-pub(super) fn default_keys_lifetime_gauge() -> Gauge {
-    Gauge::field_not_served(Unit::Keys, GAUGE_PROCESS_LIFETIME)
 }
 
 pub(super) fn deserialize_keys_instant<'de, D: serde::Deserializer<'de>>(

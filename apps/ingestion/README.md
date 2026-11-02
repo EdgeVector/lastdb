@@ -16,7 +16,7 @@ node apps/ingestion/bin/ingestion-app.mjs ingest-file --path apps/ingestion/fixt
 `ingest-file` connects with `INGESTION_SOCKET_PATH`/`FOLDDB_SOCKET_PATH` for a
 dev-node UDS target, or `INGESTION_BASE_URL` for a production HTTP target. It
 writes `ingestion/Run`, `ingestion/ProgressEvent`, and `ingestion/IngestedFile`
-rows through SDK `mutate()` calls, then queries the result back through SDK
+records through SDK `mutate()` calls, then queries the result back through SDK
 `query()` to prove the app-owned record is readable.
 
 Production nodes use the SDK consent flow. If no stored capability exists, the

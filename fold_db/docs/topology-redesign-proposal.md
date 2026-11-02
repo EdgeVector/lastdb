@@ -20,7 +20,7 @@ The data comes from AI-parsed JSON. The AI determines types from actual values, 
 - `Any` nodes (the null-inference fallback) accept everything, creating permanent holes.
 - Legitimate values like `"42"` in a Number field are hard-rejected with no coercion.
 
-The storage layer (Sled/DynamoDB) stores serialized atoms as `Vec<u8>` — it doesn't care about types. Queries resolve atom content as `serde_json::Value` — they handle mixed types fine.
+The storage layer (Sled/DynamoDB) stores serialized records as `Vec<u8>` — it doesn't care about types. Queries resolve field value as `serde_json::Value` — they handle mixed types fine.
 
 ### Schema identity already uses field names
 

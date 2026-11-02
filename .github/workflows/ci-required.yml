@@ -4,7 +4,7 @@ name: CI required
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
 # this tree. Tests stay retired. The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
-# secret scan, builds, and the atom history product proof.
+# secret scan, builds, and the field history product proof.
 # No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
@@ -85,7 +85,7 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
       - name: lint no write-path syncing store
         run: bash scripts/ci/mini-gate-step.sh "lint no write-path syncing store" -- bash scripts/lints/lint-no-write-path-syncing-store.sh
-      - name: Atom counter writer-boundary lint
+      - name: Record counter writer-boundary lint
         run: bash scripts/ci/mini-gate-step.sh "Store writer-boundary lint" -- python3 scripts/lints/lint-store-writers.py
       - name: Model purity lint
         run: bash scripts/ci/mini-gate-step.sh "Model purity lint" -- bash scripts/ci/model-purity-lint.sh
@@ -247,11 +247,11 @@ jobs:
       - name: Scan tracked text files for secrets
         run: python3 scripts/lints/lint-secrets.py
 
-  atom_history:
-    name: Atom history product proof
+  field_history:
+    name: Field history product proof
     permissions:
       contents: read
-    uses: ./.github/workflows/atom-history.yml
+    uses: ./.github/workflows/field-history.yml
     with:
       base_sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -273,7 +273,7 @@ jobs:
       - full_workspace_check
       - diff_file_size
       - secret_scan
-      - atom_history
+      - field_history
       - record_home
     if: ${{ always() }}
     runs-on: ubuntu-24.04

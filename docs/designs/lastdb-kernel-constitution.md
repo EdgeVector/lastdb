@@ -22,7 +22,7 @@ lower bar is re-ratified here).
 | Track | Bar | Question it answers |
 |-------|-----|---------------------|
 | **Peel** (in-tree) | **A — API parity** | Can fbrain/fkanban-shaped clients still speak Mini routes? |
-| **Nano** (clean-room repo) | **B — model parity** | Do we still have schema-named field atoms + durable mutate/query? |
+| **Nano** (clean-room repo) | **B — model parity** | Do we still have schema-named field records + durable mutate/query? |
 | **LOC contest only** | **C** | Smallest durable schema+put/get — *not* the production rewrite target |
 
 This constitution targets **Bar B for the kernel test** (in-process `FoldDB`
@@ -42,11 +42,11 @@ The smallest honest LastDB. Without these, it is a generic KV or file store.
 | K0.3 | Approve / make schema Available | write path requires Available |
 | K0.4 | Create N records | `MutationType::Create` batch |
 | K0.5 | Point query by primary key | `HashRangeFilter::HashKey` |
-| K0.6 | List / multi-row read | unfiltered or multi-key query returns N |
+| K0.6 | List / multi-record read | unfiltered or multi-key query returns N |
 | K0.7 | Hard delete | `MutationType::Delete`; default reads hide leftover tombstones |
 | K0.8 | Shutdown + reopen same path | data + schema survive process boundary |
 
-**Rough module home today:** `storage`, `atom`, `schema` (declare),  
+**Rough module home today:** `storage`, `records` and the `lastdb_model` crate, `schema` (declare),
 `fold_db_core` (mutate/query), `db_operations` (write path).
 
 ### K1 — Brain (local app shape)
@@ -55,12 +55,12 @@ What fbrain/fkanban need from the **core** (not the socket).
 
 | # | Capability | Notes |
 |---|------------|--------|
-| K1.1 | Multi-field co-key query | one row → multiple fields aligned |
-| K1.2 | Update existing row | `MutationType::Update` |
+| K1.1 | Multi-field co-key query | one record → multiple fields aligned |
+| K1.2 | Update existing record | `MutationType::Update` |
 | K1.3 | Tombstone visibility opt-in | `include_tombstones` / history tools |
 | K1.4 | Schema identity hash | deterministic hash after declare/load |
-| K1.5 | Native text / embedding search | owner search; optional semantic feature |
-| K1.6 | Molecule / field history | heads + prior atoms for a key |
+| K1.5 | Search | LastSeek, outside LastDB. The native search route is removed |
+| K1.6 | Field history | old values of the fields of one record (policy on) |
 | K1.7 | CAS mutation (optional for brain, required for lastgit-shaped) | `CasExpectation` |
 
 **Covered by the kernel scenario today:** K1.1–K1.4.  
@@ -77,8 +77,7 @@ What ships as `lastdbd` over the owner Unix socket. Same JSON shapes as
 | `GET /api/schemas`, `GET /api/schema/{name}` | catalog |
 | `POST /api/mutation`, `POST /api/mutations/batch` | K0.4, K1.2 |
 | `POST /api/query` | K0.5–K0.6, K1.1 |
-| `GET /api/native-index/search` | K1.5 |
-| molecule history / atom content routes | K1.6 |
+| `POST /api/field-history` | K1.6 |
 | `GET /api/status`, `GET /api/system/auto-identity` | host, not kernel |
 | owner peer-cred + app consent floor | host security (keep) |
 | schema load from schema service | setup; mandatory for every schema identity; cached registered identities remain usable offline |
@@ -117,7 +116,7 @@ backup transport.
 3. Load a 3-field hash-keyed schema (`Note`: `slug`, `title`, `body`); set Available.
 4. Create three notes.
 5. Point-query one by hash key; assert title/body.
-6. List-style query; assert three rows.
+6. List-style query; assert three records.
 7. Multi-field query returns aligned title+body for one key (K1.1).
 8. Update one note’s body (K1.2); re-read.
 9. Delete one note (K0.7); default query misses it; schema still listed.

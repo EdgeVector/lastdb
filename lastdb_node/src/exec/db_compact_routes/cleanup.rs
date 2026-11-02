@@ -10,9 +10,7 @@ pub(in crate::exec) async fn execute(
     if !ctx.is_owner {
         return error_response(403, "native cleanup is owner-only", ctx);
     }
-    let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() else {
-        return error_response(400, "native cleanup requires a v2 home", ctx);
-    };
+    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
     if req.method == "GET" {
         return json_ok(&envelope(
             &serde_json::json!({"cleanup": runtime.status_cleanup()}),

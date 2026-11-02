@@ -1,4 +1,4 @@
-//! Alternate molecules select primary records. Canonical field reuse is independent.
+//! Alternate field keys select primary records. Canonical field reuse is independent.
 
 use crate::schema::types::field::build_storage_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
@@ -14,7 +14,7 @@ pub(crate) mod read;
 mod write;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
-pub(crate) const PREFIX: &str = crate::atom::molecule_uuid::ALTERNATE_ENTRY_PREFIX;
+pub(crate) const PREFIX: &str = lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,8 +26,8 @@ pub struct AlternateEntry {
 pub(crate) type RecordFields = BTreeMap<String, Value>;
 
 /// The stable identity of one named alternate in its exact declaration revision.
-/// The molecule key store names it too, so it lives in the molecule model.
-pub use crate::atom::molecule_uuid::alternate_molecule_uuid as molecule;
+/// The field key store names it too, so it lives in the field key model.
+pub use lastdb_model::field_key_id::alternate_field_key_id as field_key;
 
 pub(crate) fn derived(
     schema: &Schema,
@@ -92,19 +92,16 @@ pub(crate) fn storage_key(
     name: &str,
     key: &KeyValue,
 ) -> Result<String, SchemaError> {
-    let molecule = molecule(schema, name);
+    let field_key = field_key(schema, name);
     let encoded = records
-        .key_codec_for_molecule(&molecule)?
+        .key_codec_for_field_key(&field_key)?
         .api_hash_range_record_key(
-            &molecule,
+            &field_key,
             key.hash.as_deref().unwrap_or_default(),
             key.range.as_deref().unwrap_or_default(),
         )
         .map_err(|_| invalid("alternate key coordinate has an invalid type"))?;
-    Ok(format!(
-        "{PREFIX}{}",
-        encoded.strip_prefix("mk:").expect("typed molecule key")
-    ))
+    Ok(format!("{PREFIX}{encoded}"))
 }
 
 pub(crate) fn invalid(message: &str) -> SchemaError {

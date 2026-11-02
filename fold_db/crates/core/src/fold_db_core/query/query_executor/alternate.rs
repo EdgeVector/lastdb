@@ -168,9 +168,6 @@ impl QueryExecutor {
         if !projection.is_empty() {
             for record in values.values_mut() {
                 record.fields.retain(|field, _| projection.contains(field));
-                record
-                    .metadata
-                    .retain(|field, _| projection.contains(field));
             }
             values.retain(|_, record| !record.fields.is_empty());
         }

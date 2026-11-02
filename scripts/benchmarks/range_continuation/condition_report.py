@@ -21,7 +21,7 @@ def summarize(values, phase, label):
 
 def condition_summary(grouped, mode):
     lines = ["", "### Keyed conditions: " + mode, "",
-        "All values and per-field atom, molecule, writer, and source metadata match the same-home reference.",
+        "All values and per-field record, field key, writer, and source metadata match the same-home reference.",
         "The primary-only pass A reference uses the existing secondary reader. Conditions verify every generated condition key."]
     lines.extend(run_sources(grouped))
     labels = [cell["label"] for cell in grouped["baseline"][0]["conditions"]["cells"] if cell["phase"] == "warm"]
@@ -99,7 +99,7 @@ def phase_summary(grouped, phase, labels):
     count = 32 if phase == "warm" else 1
     for label in labels:
         columns = []
-        for name in ("duration_ms", "hydrate_atoms_us", "hydrate_format_us"):
+        for name in ("duration_ms", "hydrate_records_us", "hydrate_format_us"):
             roles = []
             for role in ("baseline", "candidate"):
                 values = grouped[role]
@@ -120,7 +120,7 @@ def phase_summary(grouped, phase, labels):
             columns.append(" ; ".join(roles))
         lines.append("| " + label + f" | {count}/{count} | " + " | ".join(columns) + " |")
     lines.extend(["", "Exact IDs match the current request ring after each cell, outside its latency and memory windows.",
-        "Core query is hydrate_atoms; format is hydrate_format. Missing phase fields remain unreported, not zero.",
+        "Core query is hydrate_records; format is hydrate_format. Missing phase fields remain unreported, not zero.",
         "Server duration excludes socket queue wait. Phase totals are separate observations and must not be added to a parent phase."])
     return lines
 

@@ -1,44 +1,17 @@
 use super::*;
 
-/// Retired graph wire fields; the native core has its own current counters.
-pub const RESIDENT_GRAPH_BOUNDS: &str = "retired graph fields; use core_model";
-
-/// What bounds `resident_key_count`. The path-count cap is retired; the warm
-/// set is limited by charged bytes (`memory_budget.core_warm.limit_bytes`).
-pub const LOGICAL_KEY_MEMORY_LIMIT: &str =
-    "no path-count limit; the warm set is limited by bytes (see Warm set bytes)";
-
-pub(super) fn logical_key_memory_limit_for(_budget: Option<u64>) -> String {
-    LOGICAL_KEY_MEMORY_LIMIT.to_string()
-}
-
 /// Cheap runtime view of the memory budget declared at boot.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+///
+/// The `Option` fields stay off the wire when the platform has no such gauge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryBudgetHealth {
-    pub resident_graph_bytes: u64,
-    pub resident_graph_budget_bytes: u64,
     pub deferred_persist_bytes: u64,
     pub deferred_persist_cap_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_fair_share_bytes: u64,
-    #[serde(default)]
-    pub deferred_heaviest_lane: String,
-    #[serde(default)]
-    pub deferred_heaviest_lane_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_refuse_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_refuse_entries: u64,
     pub charged_budget_bytes: u64,
-    #[serde(default)]
     pub projected_total_bytes: u64,
-    #[serde(default)]
     pub projection_tolerance_bytes: u64,
-    #[serde(default)]
     pub projection_diverged: bool,
-    #[serde(default)]
     pub footprint_over_limit: bool,
-    #[serde(default)]
     pub runtime_degraded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phys_footprint_bytes: Option<u64>,
@@ -48,16 +21,12 @@ pub struct MemoryBudgetHealth {
     pub malloc_bytes_in_use: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub malloc_bytes_held_free: Option<u64>,
-    #[serde(default)]
     pub footprint_net_bytes: u64,
     /// Lifetime warm bytes released by eviction steps.
-    #[serde(default)]
     pub warm_bytes_freed: u64,
-    #[serde(default)]
     pub footprint_sticky: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footprint_delta_per_evicted_byte: Option<f64>,
-    #[serde(default)]
     pub governor_state: String,
     /// Seconds `governor_state` has HELD its current value at sample time.
     ///
@@ -66,39 +35,22 @@ pub struct MemoryBudgetHealth {
     /// reading most likely to be taken as news is the one that masks the
     /// rest while it holds. 0 means the governor has not stamped a
     /// transition yet (a cold process), not that the state just changed.
-    #[serde(default)]
     pub governor_state_held_secs: u64,
     /// Latched host pressure: `high` or `clear`.
-    #[serde(default)]
     pub host_pressure: String,
-    #[serde(default)]
     pub swap_used_bytes: u64,
-    #[serde(default)]
     pub compressor_bytes: u64,
-    #[serde(default)]
     pub purge_failed: bool,
     /// Drop in allocator `committed` from the last `purge()`. Not the slack predicate.
-    #[serde(default)]
     pub malloc_bytes_released_last_purge: u64,
-    #[serde(default)]
     pub allocator_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allocator_committed_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allocator_reserved_bytes: Option<u64>,
-    #[serde(default)]
     pub peak_request_bytes: u64,
-    #[serde(default)]
     pub slowest_request_ms: u64,
-    /// What `resident_graph_budget_bytes` bounds. Empty on an older daemon payload.
-    #[serde(default)]
-    pub resident_graph_bounds: String,
-    /// What `resident.resident_key_count` / `resident_key_budget` bound.
-    /// Empty on an older daemon payload.
-    #[serde(default)]
-    pub logical_key_memory_limit: String,
     /// Warm set byte charge and limit from the native core.
-    #[serde(default)]
     pub core_warm: CoreWarmBytesHealth,
 }
 
@@ -109,34 +61,21 @@ pub struct CoreWarmBytesHealth {
     pub limit_bytes: u64,
     pub used_bytes: u64,
     pub peak_bytes: u64,
-    pub held_bytes: u64,
-    pub dirty_bytes: u64,
-    pub dirty_limit_bytes: u64,
-    pub tracked_atoms: u64,
-    #[serde(default)]
     pub purged_bytes: u64,
-    #[serde(default)]
     pub over_limit_admissions: u64,
 }
 
 impl CoreWarmBytesHealth {
-    /// One `lastdb status` line. `None` from a daemon that predates the gauge.
-    ///
-    /// `tracked_atoms` stays in the JSON for its readers. The record model
-    /// keeps it at zero, so the text line leaves it out.
+    /// One `lastdb status` line. `None` when the status has no warm set limit.
     pub(super) fn status_line(&self) -> Option<String> {
         if self.limit_bytes == 0 {
             return None;
         }
         Some(format!(
-            "Warm set bytes: used={} / limit={} peak={} held={} dirty={} / {} \
-             purged={} over_limit_admissions={}",
+            "Warm set bytes: used={} / limit={} peak={} purged={} over_limit_admissions={}",
             format_bytes(self.used_bytes),
             format_bytes(self.limit_bytes),
             format_bytes(self.peak_bytes),
-            format_bytes(self.held_bytes),
-            format_bytes(self.dirty_bytes),
-            format_bytes(self.dirty_limit_bytes),
             format_bytes(self.purged_bytes),
             self.over_limit_admissions,
         ))
@@ -149,10 +88,6 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
             limit_bytes: stats.limit_bytes as u64,
             used_bytes: stats.used_bytes as u64,
             peak_bytes: stats.peak_bytes as u64,
-            held_bytes: stats.held_bytes as u64,
-            dirty_bytes: stats.dirty_bytes as u64,
-            dirty_limit_bytes: stats.dirty_limit_bytes as u64,
-            tracked_atoms: stats.tracked_atoms as u64,
             purged_bytes: stats.purged_bytes,
             over_limit_admissions: stats.over_limit_admissions,
         }
@@ -170,10 +105,8 @@ pub(crate) struct MemoryBudgetAttribution {
 
 impl MemoryBudgetHealth {
     pub(crate) fn measured(
-        resident: &ResidentHealth,
         deferred_persist_bytes: u64,
         deferred_persist_cap_bytes: u64,
-        persist_lanes: &fold_db::resident::PersistLanePressure,
         phys_footprint_bytes: Option<u64>,
         runtime: Option<fold_db::memory_budget::RuntimeMemoryBudgetObservation>,
         attribution: MemoryBudgetAttribution,
@@ -182,15 +115,8 @@ impl MemoryBudgetHealth {
         let charged_budget_bytes = budget.charged_bytes;
         let governor = attribution.governor;
         Self {
-            resident_graph_bytes: resident.resident_bytes,
-            resident_graph_budget_bytes: resident.budget_bytes,
             deferred_persist_bytes,
             deferred_persist_cap_bytes,
-            deferred_lane_fair_share_bytes: persist_lanes.fair_share_bytes,
-            deferred_heaviest_lane: persist_lanes.heaviest_schema.clone(),
-            deferred_heaviest_lane_bytes: persist_lanes.heaviest_bytes,
-            deferred_lane_refuse_bytes: persist_lanes.refuse_bytes,
-            deferred_lane_refuse_entries: persist_lanes.refuse_entries,
             charged_budget_bytes,
             projected_total_bytes: budget.projected_total_bytes,
             projection_tolerance_bytes: runtime.map_or_else(
@@ -230,10 +156,6 @@ impl MemoryBudgetHealth {
             allocator_reserved_bytes: attribution.allocator.reserved_bytes,
             peak_request_bytes: attribution.peak_request_bytes,
             slowest_request_ms: attribution.slowest_request_ms,
-            resident_graph_bounds: RESIDENT_GRAPH_BOUNDS.to_string(),
-            logical_key_memory_limit: logical_key_memory_limit_for(
-                resident.resident_key_budget.as_wire_u64(),
-            ),
             core_warm: CoreWarmBytesHealth::default(),
         }
     }

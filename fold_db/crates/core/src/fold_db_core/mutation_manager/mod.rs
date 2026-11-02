@@ -15,11 +15,9 @@ mod cas_rules;
 pub(super) mod helpers;
 mod index;
 mod key_values;
-mod purge_locks;
 pub mod receipt;
 mod write;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -32,45 +30,6 @@ use crate::memory_budget::{
     DeferReservation, DeferredPersistGauge, RuntimeMemoryBudgetObservation,
 };
 use crate::schema::SchemaCore;
-
-/// Process-lifetime work totals for one schema's purges and deletes.
-///
-/// The status object keeps this shape. A delete or a purge merges into its
-/// record in the native request and records no pass here.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PurgeStats {
-    /// Completed erase passes over this schema.
-    pub purges: u64,
-    /// Records removed across those passes.
-    pub records_purged: u64,
-    /// Unix milliseconds at which the most recent pass finished.
-    /// Zero means no erase has run on this schema since process start.
-    pub last_purge_finished_unix_ms: u64,
-    /// Exact molecule slots removed by erase passes.
-    pub purge_target_slots: u64,
-    /// Atom bodies deleted because their count reached zero.
-    pub purge_atoms_deleted: u64,
-}
-
-/// Cumulative [`PurgeStats`] per schema name, since process start.
-///
-/// A separate type rather than a bare map on the manager so the accounting can
-/// be exercised without standing up a whole `MutationManager`, and so the one
-/// place that has to get the saturating arithmetic right is the one place that
-/// does it.
-#[derive(Debug, Default)]
-pub struct PurgeLedger {
-    by_schema: std::sync::Mutex<HashMap<String, PurgeStats>>,
-}
-
-impl PurgeLedger {
-    /// Every schema that has been purged since process start. Cumulative, so
-    /// consumers delta it themselves — matching the request-ops aggregates.
-    #[must_use]
-    pub fn snapshot(&self) -> HashMap<String, PurgeStats> {
-        self.by_schema.lock().expect("purge_stats poisoned").clone()
-    }
-}
 
 /// Manages mutation operations for the FoldDB system
 pub struct MutationManager {
@@ -89,7 +48,7 @@ pub struct MutationManager {
     ///
     /// The count cap above and this cap bound **different resources**, which is
     /// why #966's count-only window did not stop the balloon: 512 tasks each
-    /// holding a 512 KiB atom batch is 256 MiB of acked-but-unpersisted state,
+    /// holding a 512 KiB record batch is 256 MiB of acked-but-unpersisted state,
     /// and the same 512 tasks holding one small record each is under a
     /// megabyte. The 2026-07-29 restart loop was the first shape passing a cap
     /// written for the second (brain
@@ -103,9 +62,6 @@ pub struct MutationManager {
     /// before resident apply, so overload rejects without changing product
     /// state. The worker owns a pending-task guard until the row lands.
     author_clock_persist: Option<author_clock::AuthorClockPersistQueue>,
-    /// Per-schema purge accounting for the status and ops surfaces; see
-    /// [`PurgeStats`].
-    purge_stats: Arc<PurgeLedger>,
     /// Sync engine used by administrative capture status and direct callers.
     /// Bounded post-ack capture queue shared with the serving store wrapper.
     ///
@@ -144,17 +100,8 @@ impl MutationManager {
             defer_gauge,
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
-            purge_stats: Arc::new(PurgeLedger::default()),
             capture_router: std::sync::RwLock::new(None),
         }
-    }
-
-    /// Persist-lane occupancy and refusal counters for `lastdb status` / ops.
-    /// No write uses a persist lane: every verb commits in its native
-    /// request. The status object keeps the zero counters.
-    #[must_use]
-    pub fn persist_lane_pressure(&self) -> crate::resident::PersistLanePressure {
-        crate::resident::PersistLanePressure::default()
     }
 
     pub(crate) fn set_capture_router(

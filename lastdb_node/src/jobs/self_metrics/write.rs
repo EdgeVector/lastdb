@@ -32,10 +32,8 @@ pub(super) async fn write_snapshot(host: &Host, snapshot: &StatusSnapshot) -> Re
 /// bit-identical aggregate, which is what
 /// `sparse_and_dense_rollup_rows_merge_identically` pins.
 ///
-/// The cost is not identical. `prepare_atoms_and_key_values` creates one atom
-/// per *supplied* field, and the molecule apply loop then writes one tip per
-/// atom — so every zero written here is an atom plus an `mk:` tip (~555 B on
-/// the measured primary), kept until retention drops the row. For phase sums
+/// The cost is not identical. Every zero written here is a stored field value
+/// of the record, kept until retention drops the row. For phase sums
 /// that is most of the row: a request reports the phases it went through, and
 /// the ~11-18 it did not are not zeros, they are *unmeasured*.
 ///
@@ -81,7 +79,7 @@ pub(super) async fn write_request_ops_rollup(
         fields.insert("client".to_string(), json!(&aggregate.client));
         fields.insert("kind".to_string(), json!(aggregate.kind.as_str()));
         // A schema-less op (idle wait, `status`) previously persisted a JSON
-        // `null` here — a full atom and tip to say "no schema". The reader
+        // `null` here — a stored field value to say "no schema". The reader
         // maps absent, null and "" onto the same `None`.
         if let Some(schema) = aggregate.schema.as_deref().filter(|s| !s.is_empty()) {
             fields.insert("schema".to_string(), json!(schema));
@@ -104,7 +102,7 @@ pub(super) async fn write_request_ops_rollup(
         // above is pinned to PHASE_NAMES by test). This is where omission
         // pays most: a request reports a handful of the 24 phases, and the
         // rest were never measured — persisting them as 0 stores a
-        // measurement that was never taken, at one tip each.
+        // measurement that was never taken, at one field value each.
         for (name, value) in aggregate.phase_sums.named_us() {
             insert_if_nonzero(&mut fields, &format!("sum_{name}_us"), value);
         }
@@ -112,13 +110,13 @@ pub(super) async fn write_request_ops_rollup(
         insert_if_nonzero(&mut fields, "phased_sum_ms", aggregate.phased_sum_ms);
         insert_if_nonzero(
             &mut fields,
-            "sum_molecules_persisted",
-            aggregate.sum_molecules_persisted,
+            "sum_field_keys_persisted",
+            aggregate.sum_field_keys_persisted,
         );
         insert_if_nonzero(
             &mut fields,
-            "sum_molecule_store_commits",
-            aggregate.sum_molecule_store_commits,
+            "sum_field_key_store_commits",
+            aggregate.sum_field_key_store_commits,
         );
         insert_if_nonzero(
             &mut fields,

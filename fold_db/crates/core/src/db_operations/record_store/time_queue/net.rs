@@ -3,7 +3,7 @@
 //! A reader lists the directory and walks the buckets in it. An entry in a
 //! bucket without a directory row is never listed, so its work never runs: for
 //! the retention queue, a kept conflict record, its references and its loser
-//! atom stay for ever. A writer adds the entry and the row in one batch, and a
+//! record stay for ever. A writer adds the entry and the row in one batch, and a
 //! retirement deletes a row only while its token is unchanged, so no code of the
 //! queue makes such a bucket. The net is for the case that something else did:
 //! a delete that bypassed the queue, a partial restore, or an error in the

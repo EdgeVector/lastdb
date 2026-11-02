@@ -3,7 +3,6 @@ mod files;
 mod node;
 mod proof;
 mod replay;
-mod snapshot_identity;
 
 use super::byte_backup::RunBackupProfile;
 use crate::storage::disk_pack::run_node;
@@ -15,7 +14,6 @@ use std::path::Path;
 
 pub use node::{validate_restored_node, RunNodeGuard};
 pub use replay::{verify_replayed, MutationReplay};
-pub use snapshot_identity::{inspect_snapshot_identity, prepare_snapshot_identity};
 
 pub struct RunRestoreFile {
     pub path: String,
@@ -25,15 +23,15 @@ pub struct RunRestoreFile {
 /// Complete semantic proof retains the physical account guard until publication.
 pub struct RunRestoreGuard {
     native: RunNodeGuard,
-    atoms: u64,
+    records: u64,
 }
 
 impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
-    pub fn verified_atoms(&self) -> u64 {
-        self.atoms
+    pub fn verified_records(&self) -> u64 {
+        self.records
     }
 
     pub fn files(&self) -> impl Iterator<Item = &RunRestoreFile> {
@@ -54,21 +52,6 @@ impl RunRestoreGuard {
         self.native.check_binding()
     }
 
-    /// Match the authenticated client claim to the actual restored native cut.
-    /// This never loads a private signer or enrolls the recorded devices.
-    pub fn verify_logical_inclusion(
-        &mut self,
-        inclusion: &crate::storage::disk_pack::logical_capture::SnapshotInclusion,
-    ) -> StorageResult<()> {
-        self.check_binding()?;
-        crate::storage::disk_pack::logical_capture::verify_snapshot_inclusion(
-            &mut self.native.main,
-            &self.native.profile,
-            inclusion,
-        )?;
-        self.check_binding()
-    }
-
     pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
         if self.native.root != data_root {
             return Err(invalid("run restore publication root differs"));
@@ -78,7 +61,7 @@ impl RunRestoreGuard {
     }
 }
 
-/// Complete physical closure precedes account and logical record validation.
+/// Complete physical closure precedes account and record validation.
 pub fn verify(
     data_root: &Path,
     profile: &RunBackupProfile,
@@ -95,14 +78,14 @@ pub fn verify(
     if native.profile != *profile {
         return Err(invalid("run restore captured profile differs"));
     }
-    let atoms = verify_readers_for_profile(
+    let records = verify_readers_for_profile(
         &native.main,
         &native.cas,
         account_key,
         scratch_root,
         native.profile.version,
     )?;
-    let guard = RunRestoreGuard { native, atoms };
+    let guard = RunRestoreGuard { native, records };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }
@@ -183,9 +166,9 @@ fn reserve_paired_metadata(
 
 fn read_budget() -> ReadBudget {
     ReadBudget {
-        pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
+        pages: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_PAGES,
         blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-        bytes: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES,
+        bytes: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_READ_BYTES,
         keys: 10000,
     }
 }

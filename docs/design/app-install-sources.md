@@ -104,7 +104,7 @@ Apps depend on one or both surfaces:
 **Apps**: Brain, LastSecrets
 
 **Routes** (served by `lastdb_node`, implemented in `lastdb_host/src/route.rs`):
-- `POST /api/mutation` (write one row)
+- `POST /api/mutation` (write one record)
 - `POST /api/query` (read with filter)
 - `POST /api/queries/batch` (multi-read, PR #1527+)
 - `POST /api/app/search` (scoped search)
@@ -112,7 +112,7 @@ Apps depend on one or both surfaces:
 - `GET /api/system/auto-identity` (owner identity)
 - `GET /api/version` (node version + `api_version` handshake)
 
-**Request/response grammar**: deny_unknown_fields, discriminated errors, row envelope with `{key, keyValue, fields, metadata, authorPubKey}`
+**Request/response grammar**: deny_unknown_fields, discriminated errors, record envelope with `{key, keyValue, fields, metadata}` (`metadata` is `{source_file_name, metadata?}` or null)
 
 **Schema declaration**: `lastdb app check --sync` or programmatic `/api/apps/declare-schema`
 

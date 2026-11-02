@@ -73,7 +73,7 @@ def validate_bundle(folder, target, plan):
     if (proof.get("schema") != "lastdb.nightly.probe.v1" or proof.get("target") != target
             or proof.get("source_git_oid") != plan["source"] or proof.get("version") != plan["version"]
             or proof.get("bundle_sha256") != manifest["artifact"]["sha256"]
-            or proof.get("complete") is not True or proof.get("disk_format") != 2
+            or proof.get("complete") is not True
             or proof.get("records") != 8 or proof.get("daemon_stopped") is not True
             or proof.get("home_removed") is not True or type(proof.get("api_version")) is not int
             or proof["api_version"] <= 0

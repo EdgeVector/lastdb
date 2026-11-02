@@ -22,7 +22,7 @@
 //! Two lanes share a global concurrency budget:
 //! - **`Interactive`** — small/bounded reads and writes (fbrain get, fkanban
 //!   add). These acquire only the global budget.
-//! - **`Bulk`** — heavy operations (large write payloads, raw atom-content
+//! - **`Bulk`** — heavy operations (large write payloads, raw field-value
 //!   fetches, unbounded full scans). These acquire a *bulk* slot first, then the
 //!   global budget.
 //!
@@ -55,7 +55,7 @@ pub enum Lane {
     /// Small, bounded, latency-sensitive work (fbrain get, fkanban add). Holds a
     /// reserved share of the global budget that bulk work cannot consume.
     Interactive,
-    /// Heavy work (large write payloads, raw atom-content fetches, unbounded full
+    /// Heavy work (large write payloads, raw field-value fetches, unbounded full
     /// scans — e.g. lastgit pack blob read/write). Capped strictly below the
     /// global budget so it cannot monopolise the node.
     Bulk,

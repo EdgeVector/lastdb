@@ -25,11 +25,11 @@ pub(super) async fn send_with_missing_retry(
     host: &Host,
     schema_name: &str,
     mut keys: Vec<KeyValue>,
-    (verb, tip_cutoff_nanos): (SweepVerb, Option<u64>),
+    (verb, write_cutoff_nanos): (SweepVerb, Option<u64>),
 ) -> Result<(usize, usize), String> {
     let mut missing = 0;
     loop {
-        let error = match purge_keys(host, schema_name, &keys, verb, tip_cutoff_nanos).await {
+        let error = match purge_keys(host, schema_name, &keys, verb, write_cutoff_nanos).await {
             Ok(()) => return Ok((keys.len(), missing)),
             Err(error) => error,
         };
@@ -65,7 +65,7 @@ async fn purge_keys(
     schema_name: &str,
     keys: &[KeyValue],
     verb: SweepVerb,
-    tip_cutoff_nanos: Option<u64>,
+    write_cutoff_nanos: Option<u64>,
 ) -> Result<(), String> {
     if keys.is_empty() {
         return Ok(());
@@ -82,8 +82,8 @@ async fn purge_keys(
             );
             mutation.synchronous = verb.waits_for_lane().then_some(true);
             mutation = mutation.with_erase_caller(verb.caller());
-            if let Some(nanos) = tip_cutoff_nanos {
-                mutation = mutation.with_erase_tips_before_nanos(nanos);
+            if let Some(nanos) = write_cutoff_nanos {
+                mutation = mutation.with_erase_written_before_nanos(nanos);
             }
             mutation
         })

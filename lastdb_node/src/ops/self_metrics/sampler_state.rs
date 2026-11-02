@@ -17,13 +17,7 @@ pub struct SamplerStatus {
     /// and no error" reads as *healthy and durable* when the durable sink was
     /// never switched on. `lastdb ops --since` needs the distinction to tell a
     /// genuinely idle window from one whose rollups were never written.
-    ///
-    /// `Option`, not `bool`, and `serde(default)` so an older daemon that does
-    /// not send the field reads as `None` — *unknown* — rather than as a
-    /// confident `false`. A reader that turned "the daemon did not say" into
-    /// "the sink is off" would be making exactly the unearned assertion this
-    /// field exists to stop.
-    pub db_write_enabled: Option<bool>,
+    pub db_write_enabled: bool,
 }
 
 impl Default for SamplerStatus {
@@ -33,7 +27,8 @@ impl Default for SamplerStatus {
             last_error: None,
             sample_count: Gauge::field_not_served(Unit::Named("sample(s)"), GAUGE_PROCESS_LIFETIME),
             retention_max_samples: Gauge::field_not_served(Unit::Named("sample(s)"), GAUGE_INSTANT),
-            db_write_enabled: None,
+            // Overwritten by `snapshot()` from the live setting.
+            db_write_enabled: false,
         }
     }
 }
@@ -42,16 +37,11 @@ impl<'de> Deserialize<'de> for SamplerStatus {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
-            #[serde(default)]
             last_sample_at: Option<u64>,
-            #[serde(default)]
             last_error: Option<String>,
-            #[serde(default)]
             sample_count: Option<u64>,
-            #[serde(default)]
             retention_max_samples: Option<u64>,
-            #[serde(default)]
-            db_write_enabled: Option<bool>,
+            db_write_enabled: bool,
         }
         let raw = Raw::deserialize(deserializer)?;
         Ok(Self {
@@ -132,9 +122,7 @@ pub struct LocalRetentionHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_error: Option<String>,
     /// Schemas skipped for an error, summed over passes (process counter).
-    #[serde(default)]
     pub schema_failures: u64,
-    #[serde(default)]
     pub last_pass: super::ttl_pass::TtlPassReport,
     /// Set while the sweep waits after repeated failed passes: the unix second
     /// at which the next pass may start. `failures` counts the failed passes in
@@ -287,7 +275,7 @@ impl SamplerRuntimeState {
         // Read the sink setting here rather than storing it at tick time: it
         // is configuration, so it must be reportable before the first sample
         // and must not be stale if the daemon was started without the flag.
-        status.db_write_enabled = Some(self_metrics_db_write_enabled());
+        status.db_write_enabled = self_metrics_db_write_enabled();
         status
     }
 
@@ -302,7 +290,7 @@ impl SamplerRuntimeState {
             retention_max_samples: g_instant(cap as u64, Unit::Named("sample(s)")),
             // Overwritten by `snapshot()` from the live setting; stored state
             // never carries the sink flag so it cannot go stale here.
-            db_write_enabled: None,
+            db_write_enabled: false,
         };
     }
 
@@ -363,13 +351,13 @@ impl SamplerRuntimeState {
                     // them is the whole reading: a cumulative pair carried into
                     // an interval row would average this interval's write shape
                     // together with every interval before it.
-                    sum_molecules_persisted: aggregate
-                        .sum_molecules_persisted
-                        .saturating_sub(prev.sum_molecules_persisted),
-                    sum_molecule_store_commits: aggregate
-                        .sum_molecule_store_commits
-                        .saturating_sub(prev.sum_molecule_store_commits),
-                    // Same reasoning as the molecule pair above: the ratio
+                    sum_field_keys_persisted: aggregate
+                        .sum_field_keys_persisted
+                        .saturating_sub(prev.sum_field_keys_persisted),
+                    sum_field_key_store_commits: aggregate
+                        .sum_field_key_store_commits
+                        .saturating_sub(prev.sum_field_key_store_commits),
+                    // Same reasoning as the field key pair above: the ratio
                     // between these two IS the reading, so a cumulative pair
                     // carried into an interval row would average this
                     // interval's commit shape with every interval before it.

@@ -9,14 +9,13 @@ from support import OperationError, require
 class Lifecycle:
     def __init__(self, source, baseline):
         self.source, self.baseline = source, baseline
-        self.schema = "CloudAtomLifecycle" + source.source[:12]
+        self.schema = "CloudRecordLifecycle" + source.source[:12]
         key = baseline["records"][0]["id"]
         query = {"schema_name": baseline["schema"], "fields": ["file"], "filter": {"HashKey": key}, "limit": 2}
         reply = source.node.call("/api/queries/batch", {"queries": [query]})["results"][0]
         value = reply["response"]
         require(reply["status"] == 200 and value["ok"] is True and value["returned_count"] == 1
                 and len(value["results"]) == 1 and not value.get("has_more", False)
-                and value.get("unresolved_rows", 0) == 0
                 and value["results"][0]["key"] == {"hash": key, "range": None}, "lifecycle_shared_file")
         self.pointer = value["results"][0]["fields"]["file"]
         require(isinstance(self.pointer, dict) and "$lastdb_file" in self.pointer, "lifecycle_file_pointer")
@@ -52,7 +51,6 @@ class Lifecycle:
         require(len(result) == len(keys), "lifecycle_keyed_read_count")
         for reply in result:
             require(reply["status"] == 200 and reply["response"]["ok"] is True
-                    and reply["response"].get("unresolved_rows", 0) == 0
                     and not reply["response"].get("has_more", False), "lifecycle_complete_read")
         return list(zip(keys, (reply["response"] for reply in result)))
 
@@ -80,8 +78,8 @@ class Lifecycle:
             rows = self.replies(self.source.node)
             if all(reply["returned_count"] == 0 for _, reply in rows[:count]):
                 ledger = self.source.node.call("/api/db/delete-ledger")["delete_ledger"]["entries"]
-                removed = sum(entry["records_converged"] for entry in ledger
-                              if entry["schema"] == self.schema and entry["committed"]
+                removed = sum(entry["records_erased"] for entry in ledger
+                              if entry["schema"] == self.schema
                               and entry["caller"] == "ttl-sweep-purge" and entry["verb"] == "purge")
                 require(removed >= count, "ttl_native_committed_delete_evidence")
                 require(rows[-1][1]["returned_count"] == 1, "ttl_kept_live_key")

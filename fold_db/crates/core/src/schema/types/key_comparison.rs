@@ -1,8 +1,8 @@
 //! One captured schema/type/order contract for a complete range read.
 
 use super::{FieldValueType, KeyValue, Schema, SchemaError};
+use schema_types::field_range_profile::FieldRangeProfile;
 pub use schema_types::key_comparison::RangeKeyComparison;
-use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use sha2::{Digest, Sha256};
 use std::{
     cmp::Ordering,
@@ -21,7 +21,7 @@ pub struct KeyComparisonContext {
     identity: String,
     range: RangeKeyComparison,
     failure: OnceLock<String>,
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
 }
 
 impl KeyComparisonContext {
@@ -45,7 +45,7 @@ impl KeyComparisonContext {
         let range_comparison =
             RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
         let profile =
-            MoleculeRangeProfile::for_field_type(range.map(|_| &range_comparison.field_type))
+            FieldRangeProfile::for_field_type(range.map(|_| &range_comparison.field_type))
                 .map_err(SchemaError::InvalidData)?;
         let bytes = serde_json::to_vec(&(
             "lastdb-key-comparison-v1",
@@ -117,7 +117,7 @@ impl KeyComparisonContext {
         COMPARISON.try_with(|ctx| ctx.range.clone()).ok()
     }
 
-    /// Existing low-level molecule/maintenance callers retain explicit UTF-8 order.
+    /// Existing low-level field key/maintenance callers retain explicit UTF-8 order.
     /// Product schema reads install their captured context at the query boundary.
     #[must_use]
     pub fn compare_current_ranges(left: &str, right: &str) -> Ordering {

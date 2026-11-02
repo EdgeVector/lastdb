@@ -5,7 +5,7 @@
 //!
 //! ## Core Components
 //!
-//! * `atom` - Atomic data storage units that form the foundation of the database
+//! * `content_limit` - The maximum size of one field value
 //! * `db_operations` - Database operation handlers
 //! * `error` - Error types and handling
 //! * `fold_db_core` - Core database functionality
@@ -23,20 +23,16 @@
 //! and the operations that can be performed on it.
 
 pub mod access;
-/// Atom and molecule model types from `lastdb_model`, plus core clock stamps.
-pub mod atom;
+/// The maximum size of one field value. The check reads the environment.
+pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
-/// The stored record value of a format 7 home and its cap.
+/// The stored record value of a home and its cap.
 pub use lastdb_model::record_value;
 pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 
-/// Core logical memory, record retention, and background persist work.
-pub mod resident;
-pub use resident::{PersistLaneMetrics, PersistLanePressure};
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;
-pub mod durable_flush;
 mod env_number;
 pub mod error;
 pub mod fold_db_core;
@@ -51,6 +47,8 @@ pub mod read_receipts;
 /// On-disk record formats of the typed stores (model layer).
 pub(crate) mod records;
 pub mod request_phases;
+/// Core logical memory and record retention.
+pub mod resident;
 pub mod schema;
 pub mod security;
 pub mod sharing;

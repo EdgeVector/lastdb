@@ -1,6 +1,6 @@
 //! Native logical memory relief and measured process-memory reports.
 //!
-//! Pressure removes least-recently-used clean logical records and asks the
+//! Pressure removes least-recently-used clean records and asks the
 //! allocator to return free pages. Held and unflushed records stay protected.
 //! Definitions and complete keys retain their separate allowances. This does
 //! not turn the stage-one warm byte measurement into an admission limit.

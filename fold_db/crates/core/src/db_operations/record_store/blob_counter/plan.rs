@@ -44,7 +44,7 @@ pub(crate) enum BlobEvent {
     Underflow,
     /// A removal named a blob that has no counter.
     Dangling,
-    /// A reference made a counter for a blob whose row is gone: the atom names
+    /// A reference made a counter for a blob whose row is gone: the record names
     /// a blob that is not in the store.
     LateReference,
     /// The counter record did not decode. The counter is now `suspect`.

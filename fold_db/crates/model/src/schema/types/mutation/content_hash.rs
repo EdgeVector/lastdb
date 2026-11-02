@@ -12,7 +12,7 @@ impl Mutation {
     /// The domain, field count, and length prefixes preserve every boundary.
     /// Optional JSON fields preserve absence separately from an empty value.
     /// UUID and local acceptance/durability policy remain outside this hash;
-    /// the author signature binds UUID separately. Atom identity stays unchanged.
+    /// the author signature binds UUID separately. Record identity stays unchanged.
     #[must_use]
     pub fn content_hash(&self) -> String {
         let mut digest = Sha256::new();
@@ -40,7 +40,7 @@ impl Mutation {
         push_field(&mut digest, self.author_clock_writer_id.as_bytes());
         json_field(&mut digest, &self.imported_version);
         json_field(&mut digest, &self.aggregate_set);
-        if let Some(cutoff) = self.erase_tips_before_nanos {
+        if let Some(cutoff) = self.erase_written_before_nanos {
             push_field(&mut digest, b"lastdb-ttl-erase-cutoff-v1");
             digest.update(cutoff.to_be_bytes());
         }

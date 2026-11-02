@@ -12,8 +12,8 @@ impl QueryExecutor {
         &self,
         query: &Query,
     ) -> Result<Option<Schema>, SchemaError> {
-        // Reads and counts replace their molecules. Keep the registry clone
-        // free of hydrated molecule data that either path would discard.
+        // Reads and counts replace their field keys. Keep the registry clone
+        // free of hydrated field key data that either path would discard.
         let Some(schema) = self
             .schema_manager
             .get_schema_following_supersession_for_read(&query.schema_name)
@@ -26,12 +26,12 @@ impl QueryExecutor {
         crate::schema::require_logical_filter(query.filter.as_ref())?;
         crate::schema::require_logical_query_controls(query)?;
         self.db_ops
-            .molecule_keys()
+            .field_keys()
             .load_schema(&schema)
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!(
-                    "load molecule key bundles for schema '{}': {error}",
+                    "load field key bundles for schema '{}': {error}",
                     schema.name
                 ))
             })?;

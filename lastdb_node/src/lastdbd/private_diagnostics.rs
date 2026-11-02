@@ -63,7 +63,7 @@ impl Visit for Metrics {
     fn record_u64(&mut self, field: &Field, value: u64) {
         if matches!(
             field.name(),
-            "workers" | "queue_capacity" | "max_atom_content_bytes" | "default" | "absolute_max"
+            "workers" | "queue_capacity" | "max_field_value_bytes" | "default" | "absolute_max"
         ) {
             self.values.push((field.name(), value));
         }

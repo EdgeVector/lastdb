@@ -225,7 +225,7 @@ export function analyze(results) {
         ),
         steps: [
           "- Fix the ingestion **409 handling** in `schema_service`: a descriptive_name collision against an incompatible-`schema_type` seed must not hard-fail the document.",
-          "- Pick one (in preference order): allow cross-type expansion when molecule-read-safe; OR have canonicalization fall back to a new descriptive_name instead of a hard 409; OR choose persona-seed schema_types that match what the ingestion LLM naturally proposes.",
+          "- Pick one (in preference order): allow cross-type expansion when field-key-read-safe; OR have canonicalization fall back to a new descriptive_name instead of a hard 409; OR choose persona-seed schema_types that match what the ingestion LLM naturally proposes.",
         ],
         verifyMetric:
           "Assert the metric improved: the previously-rejected inputs above now ingest — the eval reports **0 `cross-schema_type` ERROR steps** for these descriptive_names.",

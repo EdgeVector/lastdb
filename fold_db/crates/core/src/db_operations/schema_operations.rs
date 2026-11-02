@@ -4,34 +4,7 @@
 use super::core::DbOperations;
 use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
 use futures::{future::BoxFuture, FutureExt};
-use molecule_ref_edges::MoleculeRefEdge;
 use std::collections::HashMap;
-
-mod attribution;
-mod attribution_reports;
-mod molecule_ref_edges;
-
-pub use attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
-
-fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<MoleculeRefEdge> {
-    let mut fields: Vec<_> = schema
-        .field_molecule_uuids
-        .as_ref()
-        .into_iter()
-        .flat_map(|molecules| molecules.iter())
-        .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
-        .collect();
-    fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
-        molecule_uuid: crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
-        source: format!(
-            "alternate:{}",
-            serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
-        ),
-        edge_type: "schema-alternate-key".to_owned(),
-    }));
-    fields.sort_by(|left, right| left.source.cmp(&right.source));
-    fields
-}
 
 impl DbOperations {
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
@@ -66,19 +39,10 @@ impl DbOperations {
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
-        self.molecule_keys()
+        self.field_keys()
             .establish_schema_for_publication(schema, old.as_ref())
             .await?;
-        self.schemas().store_schema(schema_name, schema).await?;
-        for edge in &schema_molecule_ref_edges(schema_name, schema) {
-            self.records()
-                .keep_small()
-                .ensure_molecule_counter(&edge.molecule_uuid, schema_name);
-        }
-        // Debounced persist only. `store_schema` runs on every schema put and
-        // a per-write flush here was one of the 2026-09-21 flush-storm sites.
-        let _ = self.records().persist_keep_small().await;
-        Ok(())
+        self.schemas().store_schema(schema_name, schema).await
     }
 
     pub async fn store_schema_state(

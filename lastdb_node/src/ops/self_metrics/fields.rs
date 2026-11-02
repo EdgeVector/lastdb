@@ -86,44 +86,31 @@ pub(crate) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_parse_us",
     "sum_schema_resolve_us",
     "sum_validate_us",
-    "sum_lock_wait_us",
-    "sum_purge_barrier_us",
-    "sum_purge_plan_us",
-    "sum_purge_commit_us",
-    "sum_purge_materialize_us",
-    "sum_purge_trace_us",
-    "sum_purge_retention_guard_us",
-    "sum_purge_delete_us",
-    "sum_purge_finalize_us",
-    "sum_molecule_gate_us",
+    "sum_field_key_gate_us",
     "sum_cas_precondition_us",
     "sum_count_us",
     "sum_hydrate_us",
-    "sum_hydrate_atoms_us",
+    "sum_hydrate_records_us",
     "sum_hydrate_format_us",
     "sum_hydrate_sort_us",
-    "sum_hydrate_filter_us",
     "sum_annotate_us",
     "sum_apply_us",
     "sum_apply_memory_us",
     "sum_schema_load_us",
     "sum_idempotency_check_us",
     "sum_grouping_us",
-    "sum_restore_molecules_us",
+    "sum_restore_field_keys_us",
     "sum_spawn_indexing_us",
     "sum_sync_uuids_us",
     "sum_schema_reload_us",
     "sum_persist_us",
-    "sum_persist_molecules_us",
+    "sum_persist_field_keys_us",
     "sum_persist_schema_us",
     "sum_persist_idempotency_us",
     "sum_flush_us",
     "sum_index_wait_us",
     "sum_change_record_us",
-    "sum_change_record_lock_wait_us",
-    "sum_change_record_write_us",
     "sum_response_envelope_us",
-    "sum_status_backup_us",
     "sum_status_durability_us",
     "sum_status_data_dir_us",
     "sum_status_request_ops_us",
@@ -135,8 +122,8 @@ pub(crate) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     // read back as 0, which suppresses the residual rather than inventing a
     // wrong one.
     "phased_sum_ms",
-    // Work COUNTS for the molecule persist path — the denominator
-    // `sum_persist_molecules_us` never had. Interval sums, additive migration
+    // Work COUNTS for the field key persist path — the denominator
+    // `sum_persist_field_keys_us` never had. Interval sums, additive migration
     // like every field above; rows written before them read back as 0, which
     // renders no ratio rather than a wrong one.
     //
@@ -144,10 +131,10 @@ pub(crate) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     // wall-clock phase moves with node state (measured 3.4x on the primary in
     // two hours with the code path unchanged), so only a durable count series
     // can attribute a write-path change to a release.
-    "sum_molecules_persisted",
-    "sum_molecule_store_commits",
+    "sum_field_keys_persisted",
+    "sum_field_key_store_commits",
     // Work COUNTS for the resident commit path, persisted for the same reason
-    // as the molecule pair: the ratio between them is the shape of the write,
+    // as the field key pair: the ratio between them is the shape of the write,
     // and only a durable count series can attribute a shape change to a
     // release. `sum_resident_operations / sum_resident_commits` is 1 for the
     // serial per-projection path and rises as batches carry whole logical

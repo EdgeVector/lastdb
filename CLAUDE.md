@@ -36,7 +36,7 @@ This rule supersedes the local build commands and coordination rules below.
 - Product PRs require `benchmark-complete`: valid measurements and verified artifact uploads.
 - Documentation-only PRs skip measurements. Main pushes and nightly runs keep their benchmark recipes.
 - Slowdowns are advisory. Build failures, incomplete measurements, and failed uploads block the completion check.
-- Any settled database checkpoint above 1.5× total logical record bytes (report field `logical_atom_bytes`) blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining logical data.
+- Any settled database checkpoint above 1.5× the total record bytes (report field `stored_record_bytes`) blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining record data.
 - While CI waits, do not substitute a local build or benchmark.
 
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
@@ -166,8 +166,8 @@ is not checked until you touch it.
 
 ## Current memory and disk boundary
 
-Normal startup and direct logical constructors use disk format v2 storage (`laststore::disk_run`).
-`CoreWarmSet` owns logical records, definitions, and complete selected keys.
+Normal startup and direct constructors use disk format v2 storage (`laststore::disk_run`).
+`CoreWarmSet` holds the used records (one decoded record for each record key) and the typed definitions.
 The private native queue retains prepared disk bytes until flush. Ordinary
 reads cannot use that queue. Native requests complete a durable run commit and
 their clean core memory publication before the ack. No collection timer delays them.
@@ -177,8 +177,8 @@ their clean core memory publication before the ack. No collection timer delays t
   `docs/lastdb-rehydrate.md` before a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
-- Empty homes initialize directly as format 6. Existing format 4 and 5 homes retain their records.
-  No command upgrades a format 4 or 5 home in place; copy its records into a fresh home.
+- Empty homes initialize as format 8 (marker `format=8`, backup profile 6). This program opens only format 8.
+  Copy records from an older home into a fresh home. No command upgrades an older home in place.
   Startup refuses a stored schema that does not own its values. Startup does not convert data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
@@ -199,6 +199,6 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` — size limits. A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_ATOM_CONTENT_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. The page also says which shape to use for growing lists and large bytes.
+- `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md` — size limits. A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. The page also says which shape to use for growing lists and large bytes.
 
 Per-crate command files: `fold_db/CLAUDE.md`, `schema_service/CLAUDE.md`.

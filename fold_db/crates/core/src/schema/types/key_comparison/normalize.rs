@@ -2,7 +2,7 @@
 
 use super::{KeyComparisonContext, KeyValue, SchemaError};
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
-use schema_types::molecule_range_profile::MoleculeRangeProfile;
+use schema_types::field_range_profile::FieldRangeProfile;
 
 impl KeyComparisonContext {
     pub fn canonical_range(&self, value: &str) -> Result<String, SchemaError> {
@@ -30,7 +30,7 @@ impl KeyComparisonContext {
 }
 
 pub(crate) fn canonical_window(
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
     window: Option<KeyWindow>,
 ) -> Result<Option<KeyWindow>, SchemaError> {
     match window {
@@ -43,7 +43,7 @@ pub(crate) fn canonical_window(
 }
 
 pub(crate) fn canonical_range(
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
     value: &str,
 ) -> Result<String, SchemaError> {
     profile
@@ -53,12 +53,12 @@ pub(crate) fn canonical_range(
 }
 
 pub(crate) fn canonical_key(
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
     key: &mut KeyValue,
 ) -> Result<(), SchemaError> {
     if let Some(range) = key.range.as_mut() {
         *range = canonical_range(profile, range)?;
-    } else if matches!(profile, MoleculeRangeProfile::TypedV1 { .. }) {
+    } else if matches!(profile, FieldRangeProfile::TypedV1 { .. }) {
         return Err(SchemaError::InvalidData(
             "a typed range key requires a range coordinate".into(),
         ));
@@ -67,7 +67,7 @@ pub(crate) fn canonical_key(
 }
 
 pub(crate) fn canonical_filter(
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
     mut filter: Option<HashRangeFilter>,
 ) -> Result<Option<HashRangeFilter>, SchemaError> {
     use HashRangeFilter::*;

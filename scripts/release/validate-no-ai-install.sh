@@ -4,7 +4,7 @@
 #
 # This is the lightweight release proof for a clean install that does not opt in
 # to local semantic search. It intentionally exercises the minimal `lastdbd`
-# daemon in a throwaway HOME/FOLDDB_HOME over the owner Unix socket, with
+# daemon in a throwaway HOME/LASTDB_HOME over the owner Unix socket, with
 # Anthropic/Ollama/FastEmbed/HuggingFace environment variables removed.
 #
 # Usage:
@@ -75,7 +75,7 @@ write_report() {
     printf -- '- **Report dir:** `%s`\n' "$REPORT_DIR"
     printf -- '- **Throwaway run root:** `%s`\n' "$RUN_ROOT"
     printf -- '- **Throwaway HOME:** `%s`\n' "$CLEAN_HOME"
-    printf -- '- **Throwaway LASTDB_HOME/FOLDDB_HOME:** `%s`\n\n' "$LASTDB_HOME_RUN"
+    printf -- '- **Throwaway LASTDB_HOME:** `%s`\n\n' "$LASTDB_HOME_RUN"
     printf '## Evidence\n\n'
     printf -- '- `cargo tree -p lastdb_node --edges normal --target all --locked` contains no FastEmbed/HuggingFace/ONNX/Ollama/Anthropic dependency names.\n'
     printf -- '- `cargo build --locked -p lastdb_node --bin lastdbd` succeeded in default feature mode.\n'
@@ -119,7 +119,6 @@ log "starting lastdbd with clean HOME and AI/provider env removed"
     -u HUGGINGFACE_HUB_CACHE \
     HOME="$CLEAN_HOME" \
     LASTDB_HOME="$LASTDB_HOME_RUN" \
-    FOLDDB_HOME="$LASTDB_HOME_RUN" \
     FOLDDB_DISABLE_KEYCHAIN=1 \
     RUST_LOG=info \
     "$DAEMON_BIN" --data-dir "$LASTDB_HOME_RUN"

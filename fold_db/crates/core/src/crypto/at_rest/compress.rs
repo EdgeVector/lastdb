@@ -18,7 +18,7 @@ use std::sync::atomic::Ordering;
 /// payloads. That misses the 20 percent `ENB_COMPRESS` budget, so those
 /// payloads are sealed verbatim.
 ///
-/// The same home stores atom-edge JSON that deflates to about 68 percent.
+/// The same home stores record-edge JSON that deflates to about 68 percent.
 /// A 60 percent cutoff leaves those edges verbatim, and the json-1k store
 /// then misses the 30 percent byte floor. On current main, a 70 percent
 /// cutoff leaves the JSON home at 61,974 bytes against an 88,528-byte ENC
@@ -37,7 +37,7 @@ const AT_REST_DEFLATE_MAX_PLAINTEXT_PERCENT: usize = 75;
 /// Raw-deflate `plaintext`, or `None` when the deflated body is not worth storing.
 ///
 /// Raw deflate (no zlib header, no adler32) because AES-GCM already
-/// authenticates the payload — a second checksum would cost 6 bytes per atom
+/// authenticates the payload — a second checksum would cost 6 bytes per record
 /// and prove nothing the tag does not already prove.
 ///
 /// The fast profile keeps the write cheap. The size gate then rejects a result

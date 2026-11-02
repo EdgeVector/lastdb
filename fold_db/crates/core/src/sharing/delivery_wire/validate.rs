@@ -1,49 +1,48 @@
 //! Validation of blob references, file-blob access and thumbnail metadata.
 
 use super::blob::decode_blob_bytes;
-use super::pointer::{file_blob_access_from_atom_value, file_thumbnail_ref_from_atom_value};
+use super::pointer::{file_blob_access_from_value, file_thumbnail_ref_from_value};
 use super::types::{ContentAddressedBlob, FileBlobAccess, FileThumbnailRef, LastDbSlicePayload};
 use super::{
-    blob_ref_from_atom_value, file_blob_cipher_suite_supported,
-    FILE_THUMBNAIL_MAX_ENCRYPTED_SIZE_BYTES, FILE_THUMBNAIL_TIER, LASTDB_FILE_KEY,
-    LASTDB_FILE_THUMBNAIL_KEY,
+    blob_ref_from_value, file_blob_cipher_suite_supported, FILE_THUMBNAIL_MAX_ENCRYPTED_SIZE_BYTES,
+    FILE_THUMBNAIL_TIER, LASTDB_FILE_KEY, LASTDB_FILE_THUMBNAIL_KEY,
 };
 use crate::error::FoldDbError;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Ensure every `$lastdb_file` atom has a matching `blobs[]` entry.
+/// Ensure every `$lastdb_file` record has a matching `blobs[]` entry.
 pub fn validate_blob_refs(payload: &LastDbSlicePayload) -> Result<(), FoldDbError> {
     let known: BTreeMap<&str, &ContentAddressedBlob> = payload
         .blobs
         .iter()
         .map(|b| (b.blob_ref.as_str(), b))
         .collect();
-    for atom in &payload.atoms {
-        if let Some(r) = blob_ref_from_atom_value(&atom.value) {
+    for record in &payload.records {
+        if let Some(r) = blob_ref_from_value(&record.value) {
             let Some(blob) = known.get(r) else {
                 return Err(FoldDbError::Other(format!(
-                    "atom {} references missing blob {r}",
-                    atom.atom_ref
+                    "record {} references missing blob {r}",
+                    record.value_ref
                 )));
             };
-            if let Some(pointer_access) = file_blob_access_from_atom_value(&atom.value)? {
+            if let Some(pointer_access) = file_blob_access_from_value(&record.value)? {
                 if blob.access.as_ref() != Some(&pointer_access) {
                     return Err(FoldDbError::Other(format!(
-                        "atom {} carries blob access metadata that does not match blob {r}",
-                        atom.atom_ref
+                        "record {} carries blob access metadata that does not match blob {r}",
+                        record.value_ref
                     )));
                 }
-                file_thumbnail_ref_from_atom_value(&atom.value)?;
-            } else if let Some(obj) = atom
+                file_thumbnail_ref_from_value(&record.value)?;
+            } else if let Some(obj) = record
                 .value
                 .get(LASTDB_FILE_KEY)
                 .and_then(serde_json::Value::as_object)
             {
                 if obj.contains_key(LASTDB_FILE_THUMBNAIL_KEY) {
                     return Err(FoldDbError::SecurityError(format!(
-                        "atom {} thumbnail reference requires parent file blob access metadata",
-                        atom.atom_ref
+                        "record {} thumbnail reference requires parent file blob access metadata",
+                        record.value_ref
                     )));
                 }
             }

@@ -54,7 +54,7 @@ fn load_schema_labels(
     }
 }
 
-/// Print the build identity, snapshot age, request-ops tables, and purge ledger.
+/// Print the build identity, snapshot age, and request-ops tables.
 fn print_ops_tables(
     snapshot: &lastdb_node::self_metrics::StatusSnapshot,
     schema_labels: &lastdb_node::request_telemetry::SchemaLabels,
@@ -96,17 +96,6 @@ fn print_ops_tables(
         ) {
             println!("{line}");
         }
-    }
-    // The purge ledger sits next to the phase tables. It shows acquisition
-    // count and critical-section cost without requiring source inspection.
-    println!();
-    let purge_lines = if args.by_app {
-        lastdb_node::self_metrics::purge_stats_lines(snapshot)
-    } else {
-        lastdb_node::self_metrics::purge_stats_table_lines(snapshot, schema_labels)
-    };
-    for line in purge_lines {
-        println!("{line}");
     }
 }
 
@@ -179,7 +168,7 @@ fn print_since_rollup(
             // An empty window and a broken writer look identical from the
             // read side. The primary spent 12 days reporting "no durable
             // rollups in that window yet" while the sampler's retention
-            // read was failing on a dangling atom every tick, so say which
+            // read was failing on a dangling record every tick, so say which
             // one this is rather than leaving the reader to assume idle.
             //
             // There are three ways to get zero rows, not two. The third —
@@ -202,14 +191,12 @@ fn print_since_rollup(
 
 /// Explain an empty `--since` window in terms of the sampler's actual state.
 ///
-/// Zero durable rollup rows has four causes, and only one of them means the
+/// Zero durable rollup rows has three causes, and only one of them means the
 /// node was quiet:
 ///
 /// 1. the sink is on but **failing** — writes are attempted and lost;
 /// 2. the durable sink is **off** (the default) — nothing was ever written;
-/// 3. the daemon did not report the sink at all (predates the field) —
-///    unknown, and it must say so rather than guess;
-/// 4. the sink is on and healthy — the window really was idle.
+/// 3. the sink is on and healthy — the window really was idle.
 ///
 /// Ordered so the strongest claim ("really had no rollups") is made only when
 /// every weaker explanation has been ruled out.
@@ -222,25 +209,15 @@ pub(crate) fn rollup_empty_reason(
             format!("    sampler last_error={err}"),
         ];
     }
-    match sampler.db_write_enabled {
-        Some(false) => vec![
+    if sampler.db_write_enabled {
+        vec!["    (sampler reports healthy — this window really had no rollups)".to_string()]
+    } else {
+        vec![
             "  ^ NOT an idle window: durable telemetry persistence is OFF.".to_string(),
             "    LASTDB_SELF_METRICS_TO_DB is unset on the daemon, so request-ops".to_string(),
             "    rollups are never written and `--since` has nothing to read. Live".to_string(),
             "    counters above are in-memory only and reset on restart.".to_string(),
-        ],
-        // The daemon predates the field. "It did not tell us" is not evidence
-        // of an idle window, so do not claim one — and do not claim the sink
-        // is off either, which would be just as unearned.
-        None => vec![
-            "  ^ UNKNOWN: this daemon does not report whether durable telemetry".to_string(),
-            "    persistence is enabled, so an empty window cannot be told apart".to_string(),
-            "    from a sink that was never switched on. Upgrade the daemon, or".to_string(),
-            "    check LASTDB_SELF_METRICS_TO_DB on it directly.".to_string(),
-        ],
-        Some(true) => {
-            vec!["    (sampler reports healthy — this window really had no rollups)".to_string()]
-        }
+        ]
     }
 }
 

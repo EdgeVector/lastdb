@@ -8,12 +8,12 @@ pub struct LastDbSlicePayload {
     pub version: String,
     pub provenance: SliceProvenance,
     pub schemas: Vec<SliceSchema>,
-    pub molecules: Vec<SignedMolecule>,
-    pub atoms: Vec<ContentAddressedAtom>,
+    pub field_keys: Vec<SliceFieldKey>,
+    pub records: Vec<ContentAddressedValue>,
     /// First-class binary content-addressed files (photos, PDFs, …).
     ///
     /// Empty when the slice has no file field. File-bearing fields in
-    /// `atoms[]` reference these via `$lastdb_file.blob_ref` (see
+    /// `records[]` reference these via `$lastdb_file.blob_ref` (see
     /// [`super::lastdb_file_pointer_with_access_and_thumbnail`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blobs: Vec<ContentAddressedBlob>,
@@ -34,23 +34,19 @@ pub struct SliceSchema {
     pub fields: Vec<String>,
 }
 
+/// One delivered field of one record: where it lives and the content address
+/// of its value in `records`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedMolecule {
+pub struct SliceFieldKey {
     pub schema_name: String,
     pub record_key: String,
     pub field_name: String,
-    pub atom_ref: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub molecule_uuid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writer_pubkey: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
+    pub value_ref: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContentAddressedAtom {
-    pub atom_ref: String,
+pub struct ContentAddressedValue {
+    pub value_ref: String,
     pub value: Value,
     pub content_sha256: String,
 }
@@ -65,7 +61,7 @@ pub struct ContentAddressedAtom {
 /// When [`Self::local_cipher_suite`] is set, `bytes_b64` holds the UTF-8
 /// `ENC:…` envelope of the file bytes sealed under the **file KDK** (per-blob
 /// DEK). The DEK itself is **not** stored in `cas_blobs`. At rest in the
-/// local store it lives in the `$lastdb_file` pointer of the atom row
+/// local store it lives in the `$lastdb_file` pointer of the record row
 /// (`FileBlobAccess.dek`), which the run-file block encryption protects. A
 /// delivery slice also carries it (`Self::access`). A Search inbox batch
 /// keeps only the pointer's `name` and `media_type`; inbox files written

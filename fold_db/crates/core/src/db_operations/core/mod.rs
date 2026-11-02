@@ -1,26 +1,21 @@
-use super::attribution_ledger::AttributionLedger;
 use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
-use super::lineage_index::LineageIndex;
 use super::metadata_store::MetadataStore;
 use super::public_key_store::PublicKeyStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
-use crate::storage::molecule_key_store::MoleculeKeyStore;
+use crate::storage::field_key_store::FieldKeyStore;
 use crate::storage::traits::*;
 use std::sync::Arc;
 
 mod open;
-mod row_drops;
-mod unresolved;
+mod page_tally;
 
-pub use row_drops::{
+pub use page_tally::{
     note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
-    with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, KeyForm,
-    PageEnd, PageResume, QueryRowDrops,
+    with_query_page_tally, with_query_tally, KeyForm, PageEnd, PageKeyForms, PageResume,
 };
-pub use unresolved::UnresolvedDamage;
 
 /// Database operations with pluggable storage backend
 ///
@@ -36,27 +31,19 @@ pub struct DbOperations {
     store: Arc<dyn NamespacedStore>,
     /// Schema / schema-state / superseded-by namespaces
     schema_store: SchemaStore,
-    /// Database/schema references into the node-universal molecule store.
+    /// Database/schema references into the node-universal field key store.
     db_catalog: DbCatalogStore,
-    /// Per-molecule key bundles and access-domain wraps.
-    molecule_keys: MoleculeKeyStore,
+    /// per-field-key key bundles and access-domain wraps.
+    field_keys: FieldKeyStore,
     /// Main namespace: records, alternate keys, field history, conflict rows.
     record_store: RecordStore,
     /// System-wide public key
     public_key_store: PublicKeyStore,
     /// Metadata + idempotency + process results
     metadata_store: MetadataStore,
-    /// Node-local, rebuildable proof rows for an isolated attribution migration.
-    attribution_ledger: AttributionLedger,
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
-    /// Forward and reverse lineage namespaces. Shutdown flushes them.
-    /// No caller writes or reads the index.
-    lineage_index: LineageIndex,
-
-    /// Background purge counters shared with the native runtime.
-    persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
 }
 
 impl DbOperations {
@@ -72,9 +59,9 @@ impl DbOperations {
         &self.db_catalog
     }
 
-    /// Access durable per-molecule key bundles and domain wraps.
-    pub fn molecule_keys(&self) -> &MoleculeKeyStore {
-        &self.molecule_keys
+    /// Access durable per-field-key key bundles and domain wraps.
+    pub fn field_keys(&self) -> &FieldKeyStore {
+        &self.field_keys
     }
 
     /// Access the durable node-local app change feed.
@@ -87,22 +74,11 @@ impl DbOperations {
         &self.record_store
     }
 
-    /// Access background purge counters, separate from logical record counts.
-    pub fn persist_metrics(&self) -> &Arc<crate::resident::PersistLaneMetrics> {
-        &self.persist_metrics
-    }
-
     /// Logical queries require one captured core state and matching disk root.
     pub async fn read_scope(
         &self,
     ) -> crate::storage::error::StorageResult<crate::storage::disk_pack::PackReadScope> {
-        crate::storage::disk_pack::PackReadScope::for_store(&self.store)
-            .await?
-            .ok_or_else(|| {
-                crate::storage::StorageError::ConfigurationError(
-                    "logical reads require native packed storage".into(),
-                )
-            })
+        crate::storage::disk_pack::PackReadScope::for_store(&self.store).await
     }
 
     /// Access the system public-key domain store.
@@ -115,23 +91,15 @@ impl DbOperations {
         &self.metadata_store
     }
 
-    /// Access copy-migration attribution proof rows.
-    pub fn attribution(&self) -> &AttributionLedger {
-        &self.attribution_ledger
-    }
-
     /// Borrow the primary namespaced store handle.
     pub fn namespaced_store(&self) -> Arc<dyn NamespacedStore> {
         Arc::clone(&self.store)
     }
 
-    /// Most operations that one complete batch holds on a native home. `None`
-    /// when no native home backs this store.
+    /// Most operations that one complete batch holds on the native home.
     #[must_use]
-    pub fn batch_operation_limit(&self) -> Option<usize> {
-        self.store
-            .disk_pack_runtime()
-            .map(|runtime| runtime.batch_operation_limit())
+    pub fn batch_operation_limit(&self) -> usize {
+        self.store.disk_pack_runtime().batch_operation_limit()
     }
 
     /// Open a side namespace on the primary storage backend.
@@ -146,12 +114,10 @@ impl DbOperations {
     pub async fn flush(&self) -> Result<(), SchemaError> {
         self.schema_store.flush().await?;
         self.db_catalog.flush().await?;
-        self.molecule_keys.flush().await?;
+        self.field_keys.flush().await?;
         self.record_store.flush().await?;
         self.public_key_store.flush().await?;
         self.metadata_store.flush().await?;
-        self.attribution_ledger.flush().await?;
-        self.lineage_index.flush().await?;
         Ok(())
     }
 }

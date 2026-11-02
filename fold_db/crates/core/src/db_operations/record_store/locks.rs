@@ -1,4 +1,4 @@
-//! Molecule, tip, liveness and delete-barrier locks.
+//! Write scopes, field key guards and blob liveness locks.
 
 use super::*;
 use futures::{future::BoxFuture, FutureExt};
@@ -11,11 +11,11 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::scope(runtime, work).boxed()
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store.disk_pack_runtime(),
+            work,
+        )
+        .boxed()
     }
 
     /// Run `work` inside one native write request scope of a background job.
@@ -26,39 +26,36 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::background_scope(runtime, work).boxed()
+        crate::storage::disk_pack::transaction::background_scope(
+            self.namespaced_store.disk_pack_runtime(),
+            work,
+        )
+        .boxed()
     }
 
-    /// Guard the short (read `moc:` → build items → commit) section for one
-    /// molecule. See [`RecordStore::molecule_commit_locks`].
-    pub(crate) async fn lock_molecule_commit(
+    /// Take the guard of one field key. See
+    /// [`RecordStore::field_key_commit_locks`].
+    pub(crate) async fn lock_field_key_commit(
         &self,
-        molecule_uuid: &str,
+        field_key_id: &str,
         storage_prefix: Option<&str>,
     ) -> tokio::sync::OwnedRwLockWriteGuard<()> {
-        self.molecule_commit_lock(molecule_uuid, storage_prefix)
+        self.field_key_commit_lock(field_key_id, storage_prefix)
             .write_owned()
             .await
     }
 
-    /// The map lock ends before the caller waits on the molecule lock.
-    fn molecule_commit_lock(
+    /// The map lock ends before the caller waits on the field key lock.
+    fn field_key_commit_lock(
         &self,
-        molecule_uuid: &str,
+        field_key_id: &str,
         storage_prefix: Option<&str>,
     ) -> Arc<tokio::sync::RwLock<()>> {
-        let lock_key = format!(
-            "{}\u{1f}{molecule_uuid}",
-            storage_prefix.unwrap_or_default()
-        );
+        let lock_key = format!("{}\u{1f}{field_key_id}", storage_prefix.unwrap_or_default());
         let mut map = self
-            .molecule_commit_locks
+            .field_key_commit_locks
             .lock()
-            .expect("molecule_commit_locks poisoned");
+            .expect("field_key_commit_locks poisoned");
         Arc::clone(map.entry(lock_key).or_default())
     }
 

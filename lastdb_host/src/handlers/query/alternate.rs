@@ -38,9 +38,7 @@ pub(super) async fn execute<H: HostNode>(
             .count_alternate_rows(&query, context)
             .await
             .map_err(HostError::from)?;
-        return Ok(
-            serde_json::json!({"total_count": count, "exact": true, "unresolved_rows": 0, "tombstoned_rows": 0}),
-        );
+        return Ok(serde_json::json!({"total_count": count, "exact": true}));
     }
     let limit = clamp_request_limit(limit);
     let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;
@@ -53,7 +51,7 @@ pub(super) async fn execute<H: HostNode>(
         .map_err(HostError::from)?;
     let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
     let mut rows = HashMap::new();
-    for row in format_rows(page.values, None, compact) {
+    for row in format_rows(page.values, compact) {
         let key: KeyValue = serde_json::from_value(row["key"].clone())
             .map_err(|_| HostError::internal("alternate response has an invalid primary key"))?;
         rows.insert(key, row);
@@ -61,18 +59,17 @@ pub(super) async fn execute<H: HostNode>(
     let mut results = Vec::with_capacity(page.entries.len());
     for entry in &page.entries {
         let mut row = rows.remove(&entry.primary).unwrap_or_else(|| {
-            serde_json::json!({
-                "key": entry.primary, "fields": {}, "metadata": {}, "author_pub_key": null,
-            })
+            let mut row = serde_json::json!({ "key": entry.primary, "fields": {} });
+            if !compact {
+                row["metadata"] = Value::Null;
+            }
+            row
         });
         row["matched_key"] = serde_json::to_value(&entry.matched)
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);
     }
     let conflict_flags = annotate_conflict_flags(host, &schema_name, &mut results).await;
-    if compact {
-        output::compact_rows(&mut results, conflict_flags);
-    }
     let next = if page.has_more {
         page.entries
             .last()
@@ -80,9 +77,11 @@ pub(super) async fn execute<H: HostNode>(
     } else {
         None
     };
-    let mut drops = RowDrops::default();
-    drops.conflict_flags = conflict_flags;
-    let mut payload = page_payload(results, None, limit, 0, page.has_more, drops);
+    let flags = PageFlags {
+        conflict_flags,
+        ..PageFlags::default()
+    };
+    let mut payload = page_payload(results, None, limit, 0, page.has_more, flags);
     payload["next_cursor"] =
         serde_json::to_value(next).map_err(|_| HostError::internal("invalid alternate cursor"))?;
     Ok(payload)

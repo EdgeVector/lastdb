@@ -58,17 +58,6 @@ pub(super) fn status(
     Ok(StatusRun::Serving)
 }
 
-pub(super) fn safe_status_plane_fields() -> (serde_json::Value, serde_json::Value) {
-    (
-        serde_json::Value::Null,
-        serde_json::json!({
-            "included": false,
-            "source": "lastdb db inventory",
-            "reason": "omitted from status to avoid a recursive collection-directory walk",
-        }),
-    )
-}
-
 /// Operator / machine view of the additive gauge contract (PR-5).
 ///
 /// Requires a running daemon so unit/window come from live typed gauges.
@@ -103,9 +92,8 @@ pub(super) fn status_contract(
 
 /// Machine-readable live status.
 ///
-/// This path must stay safe for health and recovery gates. Disk plane totals
-/// require a recursive collection-directory walk, so they belong to the
-/// explicit `lastdb db inventory` command instead of this status probe.
+/// This path must stay safe for health and recovery gates: it walks no
+/// directory. `lastdb db inventory` reports the disk totals.
 pub(super) fn status_json(
     home: &Path,
     socket: &Path,
@@ -121,24 +109,19 @@ pub(super) fn status_json(
     // The build the *process* reports, kept distinct from this CLI's own. A
     // machine reader — `lastdb-safe-upgrade` computing which hop to probe — must
     // key off the running build, not the installed file, or it validates an
-    // upgrade path the live node never takes. `null` means the daemon predates
-    // the field and its build is unknowable from here; it does NOT mean agreement.
-    let daemon_build = snapshot
-        .as_ref()
-        .map(|s| s.build.version.clone())
-        .filter(|v| !v.is_empty());
+    // upgrade path the live node never takes. `null` means no status reply; it
+    // does NOT mean agreement.
+    let daemon_build = snapshot.as_ref().map(|s| s.build.version.clone());
     let build_agreement = snapshot.as_ref().map(|s| {
         lastdb_node::self_metrics::BuildAgreement::classify(&s.build)
             .as_str()
             .to_string()
     });
-    let at_rest_compression = snapshot.as_ref().and_then(|s| s.at_rest_compression);
-    let (planes, plane_inventory) = safe_status_plane_fields();
+    let at_rest_compression = snapshot.as_ref().map(|s| s.at_rest_compression);
     let payload = serde_json::json!({
         "home": home.display().to_string(),
         "socket": socket.display().to_string(),
         "running": running,
-        "reachable": running,
         "daemon_status": lastdb_node::crash_attribution::daemon_status_line_with_health_error(
             home,
             running,
@@ -152,12 +135,9 @@ pub(super) fn status_json(
         "cli_build": lastdb_node::crash_attribution::build_version(),
         "build_agreement": build_agreement,
         "at_rest_compression": at_rest_compression,
-        "planes": planes,
-        "plane_inventory": plane_inventory,
         "notes": [
-            "planes is null by design — use `lastdb db inventory` for disk plane totals",
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
-             null daemon_build = daemon predates the field, build unknowable — not agreement",
+             null daemon_build = no status reply, build unknown — not agreement",
         ],
     });
     println!(
@@ -180,18 +160,16 @@ pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
     run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The node marker of a format 7 home (the record model, the only format this
+/// The node marker of a format 8 home (the record model, the only format this
 /// release opens) names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
-    (marker.as_slice()
-        == b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n")
-        .then(|| {
-            "Layout: format 7 record homes (disk-run for records, one record per key; \
-             disk-cas for CAS files; typed range keys; one sorted run file per commit, \
-             merged in the background)"
-                .to_string()
-        })
+    (marker.as_slice() == b"format=8\nhome=disk-run\ncas=disk-cas\n").then(|| {
+        "Layout: format 8 record homes (disk-run for records, one record per key; \
+         disk-cas for CAS files; typed range keys; one sorted run file per commit, \
+         merged in the background)"
+            .to_string()
+    })
 }
 
 #[path = "status_ops_cmds/ops_rollup.rs"]

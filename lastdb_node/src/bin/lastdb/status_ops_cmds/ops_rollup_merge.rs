@@ -55,11 +55,11 @@ pub(super) fn aggregate_from_row(row: &serde_json::Value) -> Option<(String, OpA
         // the wall clock for their phased population was never recorded, and
         // a residual derived from `sum_ms` would be wrong, not approximate.
         phased_sum_ms: field_u64(fields, "phased_sum_ms").unwrap_or(0),
-        // Absent on rows written before the molecule work counters shipped;
+        // Absent on rows written before the field key work counters shipped;
         // both read 0 there. The record model also keeps both at 0, and the
         // text output no longer renders them.
-        sum_molecules_persisted: field_u64(fields, "sum_molecules_persisted").unwrap_or(0),
-        sum_molecule_store_commits: field_u64(fields, "sum_molecule_store_commits").unwrap_or(0),
+        sum_field_keys_persisted: field_u64(fields, "sum_field_keys_persisted").unwrap_or(0),
+        sum_field_key_store_commits: field_u64(fields, "sum_field_key_store_commits").unwrap_or(0),
         // Same additive migration: rows written before the resident commit
         // counters shipped read 0 here, which renders no ratio rather than a
         // wrong one.
@@ -83,12 +83,12 @@ pub(super) fn merge_aggregate(agg: &mut OpAggregate, other: &OpAggregate) {
     agg.phase_sums.accumulate(other.phase_sums);
     agg.phase_count = agg.phase_count.saturating_add(other.phase_count);
     agg.phased_sum_ms = agg.phased_sum_ms.saturating_add(other.phased_sum_ms);
-    agg.sum_molecules_persisted = agg
-        .sum_molecules_persisted
-        .saturating_add(other.sum_molecules_persisted);
-    agg.sum_molecule_store_commits = agg
-        .sum_molecule_store_commits
-        .saturating_add(other.sum_molecule_store_commits);
+    agg.sum_field_keys_persisted = agg
+        .sum_field_keys_persisted
+        .saturating_add(other.sum_field_keys_persisted);
+    agg.sum_field_key_store_commits = agg
+        .sum_field_key_store_commits
+        .saturating_add(other.sum_field_key_store_commits);
     agg.sum_resident_commits = agg
         .sum_resident_commits
         .saturating_add(other.sum_resident_commits);

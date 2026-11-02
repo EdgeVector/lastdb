@@ -1,14 +1,14 @@
 //! The key format marker of a node home.
 //!
-//! The atom counter makes atom bodies the only authority for atom references,
-//! and the molecule counters and the blob counters do the same for molecules and
+//! The record counter makes record bodies the only authority for record references,
+//! and the field key counters and the blob counters do the same for field keys and
 //! for local file blobs. A new home holds no reference of any kind, so no
 //! reference-completeness proof is needed. The format and account-key proofs
 //! authorize the new home.
 //! The storage layer refuses earlier physical layouts. A native home also needs
-//! the logical identity marker `7;typed-ranges=v1` before it can serve. Home
-//! creation writes it. An atom row is plain JSON, and the block encryption of
-//! each run file protects it at rest. Tips and control values have no outer
+//! the logical identity marker `typed-ranges` before it can serve. Home
+//! creation writes it. A record row is plain JSON, and the block encryption of
+//! each run file protects it at rest. Control values have no outer
 //! envelope. Startup never rewrites a home.
 
 use super::RecordStore;
@@ -28,7 +28,7 @@ impl RecordStore {
             .await?;
         if !stored
             .as_deref()
-            .is_some_and(crate::atom::molecule_key_codec::current_key_format)
+            .is_some_and(lastdb_model::field_key_codec::current_key_format)
         {
             return Err(StorageError::InvalidOperation(
                 "the logical key format does not match this node home".into(),

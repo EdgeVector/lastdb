@@ -10,7 +10,7 @@ use serde_json::Value;
 
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
-/// The `Arc` strong and weak counters in front of the atom.
+/// The `Arc` strong and weak counters in front of the record.
 const ARC_HEADER: usize = 2 * std::mem::size_of::<usize>();
 /// One warm record: its map slot, the `Arc` of its key pair, and its recency
 /// entry. The key strings are charged by their capacity (estimate).
@@ -21,7 +21,7 @@ const ROUND: usize = 16;
 
 const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 
-/// One decoded record of a format 7 home and its key coordinate.
+/// One decoded record of a home and its key coordinate.
 pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord) -> usize {
     let fields = record
         .fields

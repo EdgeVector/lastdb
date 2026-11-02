@@ -11,11 +11,8 @@ impl SchemaStore {
         name: &str,
     ) -> Result<Option<Arc<crate::resident::CoreMemoryValue<SchemaReadSnapshot>>>, SchemaError>
     {
-        let Some(runtime) = self.runtime.as_ref() else {
-            return Ok(None);
-        };
         Ok(transaction::prepared_core_memory(
-            runtime,
+            &self.runtime,
             self.snapshot_owner(),
             name,
         )?)
@@ -26,10 +23,7 @@ impl SchemaStore {
     }
 
     pub(super) async fn stage_native_snapshot(&self, name: &str) -> Result<(), SchemaError> {
-        let Some(runtime) = self.runtime.as_ref() else {
-            return Ok(());
-        };
-        if !transaction::publication::active(Some(Arc::clone(runtime))) {
+        if !transaction::publication::active(&self.runtime) {
             return Ok(());
         }
         if self.prepared_snapshot(name)?.is_some() {
@@ -38,7 +32,7 @@ impl SchemaStore {
         let snapshot = self.read_snapshot(name).await?;
         let bytes = snapshot_bytes(&snapshot)?;
         transaction::stage_core_memory(
-            runtime,
+            &self.runtime,
             self.snapshot_owner(),
             name.to_owned(),
             snapshot,

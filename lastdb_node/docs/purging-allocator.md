@@ -50,4 +50,4 @@ primary showed the gap on 2026-09-25: `governor_state=under` for hours, with
 `malloc_held_free` near 10 GiB the whole time.
 
 The `allocator_memory_proof` test also puts 64 MiB through an 8 MiB resident
-budget. It checks eviction, physical memory, schema retention, and dirty atoms.
+budget. It checks eviction, physical memory, schema retention, and dirty records.

@@ -2,7 +2,7 @@ name: Cloud backup recovery
 
 # Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
-# The manual `baseline` mode cuts the fixed baseline: once on format 7, later
+# The manual `baseline` mode cuts the fixed baseline: once on format 8, later
 # only for an approved cloud contract change. A local format change must keep
 # the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;

@@ -190,12 +190,9 @@ pub struct PackReadScope {
 }
 
 impl PackReadScope {
-    /// Capture a native root when this store uses packs. Legacy stores return None.
-    pub async fn for_store(store: &Arc<dyn NamespacedStore>) -> StorageResult<Option<Self>> {
-        let Some(runtime) = store.disk_pack_runtime() else {
-            return Ok(None);
-        };
-        Self::for_runtime(&runtime).await.map(Some)
+    /// Capture the native root of the home that backs this store.
+    pub async fn for_store(store: &Arc<dyn NamespacedStore>) -> StorageResult<Self> {
+        Self::for_runtime(&store.disk_pack_runtime()).await
     }
 
     pub(crate) async fn for_runtime(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {

@@ -1,6 +1,6 @@
 //! Applying and previewing a manifest retention at declare time.
 //!
-//! A TTL sweep uses the owned schema's record molecules. Before a policy
+//! A TTL sweep uses the owned schema's record field keys. Before a policy
 //! changes, the declaration checks these facts:
 //!
 //! 1. The schema belongs to this app and has no conflicting retention owner.

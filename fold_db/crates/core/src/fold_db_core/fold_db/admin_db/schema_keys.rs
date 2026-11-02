@@ -107,7 +107,7 @@ impl FoldDB {
         let key_field = hash_field.as_ref().cloned().ok_or_else(|| {
             SchemaError::InvalidField(format!("schema '{requested}' has no hash_field to list"))
         })?;
-        let (molecule, (pairs, next_cursor, has_more)) = self
+        let (field_key, (pairs, next_cursor, has_more)) = self
             .schema_key_page(&schema, &request, storage_prefix.as_deref())
             .await?;
         Ok(SchemaRecordKeysReport {
@@ -117,7 +117,7 @@ impl FoldDB {
             hash_field,
             range_field,
             hash_filter: hash_filter.map(str::to_owned),
-            molecule,
+            field_key,
             keys: pairs
                 .into_iter()
                 .map(|(hash, range)| SchemaRecordKey { hash, range })

@@ -1,7 +1,7 @@
 //! The store side of the blob planner: read the counters, plan, build the writes.
 //!
 //! [`RecordStore::blob_counter_mutations`] is called by the record write
-//! (`records.rs`), the history release (`atom_history/records.rs`) and the scope
+//! (`records.rs`), the history release (`field_history/records.rs`) and the scope
 //! drop inside the native write request scope. It returns the mutations that
 //! join the one batch of the row change, so a blob count and the references it
 //! counts change together. [`RecordStore::register_blob_upload`] is
@@ -51,9 +51,9 @@ impl RecordStore {
     }
 
     /// A reference that makes the counter of a blob whose row is gone is a late
-    /// reference: the dwell deleted the blob (the counter with it), and an atom
+    /// reference: the dwell deleted the blob (the counter with it), and a record
     /// that names it arrives afterwards. The write goes through, because a blob
-    /// that comes from a peer arrives after the atom that names it. The report
+    /// that comes from a peer arrives after the record that names it. The report
     /// counts it and logs the blob, `lastdb liveness explain blob` says
     /// `referenced_row_missing`, and `lastdb db verify-refs` reports
     /// `blob_counter_without_blob`. One keyed read of the rows of the blobs that
@@ -72,9 +72,7 @@ impl RecordStore {
         if fresh.is_empty() {
             return Ok(());
         }
-        let Some(rows) = self.blob_rows_exist(&fresh).await? else {
-            return Ok(());
-        };
+        let rows = self.blob_rows_exist(&fresh).await?;
         for (blob, present) in fresh.iter().zip(rows) {
             if !present {
                 self.blob_events.note(blob, BlobEvent::LateReference);
@@ -84,7 +82,7 @@ impl RecordStore {
     }
 
     /// A blob row was put. A blob with no reference starts or renews its dwell,
-    /// because the atom that names it comes after the upload. The caller holds
+    /// because the record that names it comes after the upload. The caller holds
     /// the native write gate and has put the row in the same request scope.
     pub(crate) async fn register_blob_upload(&self, blob_ref: &str) -> Result<(), SchemaError> {
         self.require_write_scope()?;
@@ -150,7 +148,7 @@ impl RecordStore {
         // The three reads see one committed root. A dwell chunk deletes the row,
         // the counter and the queue entry in one batch, so one root shows all of
         // them or none of them.
-        self.atom_read_scope(self.read_blob_views(blobs)).await
+        self.record_read_scope(self.read_blob_views(blobs)).await
     }
 
     async fn read_blob_views(&self, blobs: &[String]) -> Result<Vec<BlobCounterView>, SchemaError> {
@@ -171,10 +169,7 @@ impl RecordStore {
             .exists_many(queue_keys)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read blob queue: {error}")))?;
-        let rows = self
-            .blob_rows_exist(blobs)
-            .await?
-            .unwrap_or_else(|| vec![false; blobs.len()]);
+        let rows = self.blob_rows_exist(blobs).await?;
         Ok(blobs
             .iter()
             .zip(counters)
@@ -194,23 +189,19 @@ impl RecordStore {
             .collect())
     }
 
-    /// For each blob, whether the `cas_blobs` plane holds its row. `None` when
-    /// the store has no native plane to ask.
+    /// For each blob, whether the `cas_blobs` plane holds its row.
     pub(in crate::db_operations::record_store) async fn blob_rows_exist(
         &self,
         blobs: &[String],
-    ) -> Result<Option<Vec<bool>>, SchemaError> {
-        let Some(store) = self.namespaced_store.as_ref() else {
-            return Ok(None);
-        };
-        let cas = store
+    ) -> Result<Vec<bool>, SchemaError> {
+        let cas = self
+            .namespaced_store
             .open_namespace("cas_blobs")
             .await
             .map_err(|error| SchemaError::InvalidData(format!("open cas_blobs: {error}")))?;
         let keys = blobs.iter().map(|blob| blob.as_bytes().to_vec()).collect();
         cas.exists_many(keys)
             .await
-            .map(Some)
             .map_err(|error| SchemaError::InvalidData(format!("read blob rows: {error}")))
     }
 

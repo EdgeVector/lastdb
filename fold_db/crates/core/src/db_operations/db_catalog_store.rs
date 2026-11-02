@@ -35,7 +35,7 @@ pub struct DbCatalogEntry {
     pub db_locator: String,
     pub schema_name: String,
     /// Storage instance namespace. `None` references the legacy unprefixed
-    /// personal instance without migrating or copying its molecules/atoms.
+    /// personal instance without migrating or copying its field keys and records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
     #[serde(default)]
@@ -46,13 +46,13 @@ pub struct DbCatalogEntry {
 #[derive(Clone)]
 pub struct DbCatalogStore {
     entries: Arc<TypedKvStore<dyn KvStore>>,
-    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    runtime: Arc<crate::storage::disk_pack::PackRuntime>,
 }
 
 impl DbCatalogStore {
     pub(crate) fn new(
         entries: Arc<TypedKvStore<dyn KvStore>>,
-        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Self {
         Self { entries, runtime }
     }
@@ -143,8 +143,8 @@ pub fn referenced_instance_ids(entries: &[DbCatalogEntry]) -> std::collections::
         .collect()
 }
 
-/// Remove one current database scope. The blob counters that the scope's atom
-/// counters and tips held go down in the same batch as the rows that held them.
+/// Remove one current database scope. The blob counters that the scope's
+/// records held go down in the same batch as the rows that held them.
 pub async fn drop_prefixed_rows_for_instance(
     records: &super::RecordStore,
     main: &dyn crate::storage::traits::KvStore,

@@ -15,18 +15,18 @@
 //!
 //! # Why the stage clocks live here and not in `RequestPhaseTotals`
 //!
-//! [`ResidentCommitStages`] carries the four stage times the design names in
-//! §11 — preparation, gate wait, publish, acknowledgment. They are NOT added to
+//! [`ResidentCommitStages`] carries the two stage times a native write
+//! measures — preparation and acknowledgment. They are NOT added to
 //! [`crate::request_phases::RequestPhaseTotals`], and that is deliberate rather
 //! than an omission.
 //!
 //! The phase set is a *partition* of the request's wall clock: `apply` is
 //! computed as the residual of every other named bucket, and
 //! `PhaseTimings::within_wall_us` sums the set to derive the `unattributed=`
-//! remainder every operator surface prints. These four stages overlap phases
-//! that already exist — gate wait IS `molecule_gate_us`, publish IS
-//! `apply_memory_us`, and preparation spans `restore_molecules_us`
-//! and `schema_load_us`. Adding them as phase buckets would
+//! remainder every operator surface prints. These stages overlap phases that
+//! already exist — preparation spans `restore_field_keys_us` and
+//! `schema_load_us`, and the acknowledgment spans the whole request. Adding
+//! them as phase buckets would
 //! double-count those microseconds, drive the residual to zero and then
 //! underflow it, and corrupt `unattributed` on every request the node serves —
 //! not just resident commits.
@@ -115,20 +115,12 @@ impl ResidentCommitOperations {
 /// Stage times for one resident commit, in microseconds.
 ///
 /// See the module docs for why these are on the receipt rather than in the
-/// request phase set. Zero means "not measured on this path" — a batch that
-/// was entirely idempotency duplicates never reaches the gates and reports zero
-/// gate wait and zero publish, which is the true answer rather than a gap.
+/// request phase set. Zero preparation means "not measured on this path" — a
+/// batch that was entirely idempotency duplicates prepares nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitStages {
-    /// Delta preparation: restore, atom build, and prepared-revision capture
-    /// for every schema in the batch, all of it outside the apply gates.
+    /// Record preparation for every schema in the batch.
     pub prepare_us: u64,
-    /// Time blocked acquiring the sorted apply gates, summed across the
-    /// revision-mismatch retries.
-    pub gate_wait_us: u64,
-    /// The memory-only publish performed while the gates are held. This is the
-    /// span the p99 bar in the terminal proof measures.
-    pub publish_us: u64,
     /// Whole-batch wall clock to the acknowledgment, including finalize.
     pub ack_us: u64,
 }
@@ -138,7 +130,7 @@ pub struct ResidentCommitStages {
 pub struct ResidentCommitReceipt {
     /// One accepted input mutation identity per caller input, in caller order.
     /// Idempotent repeats retain their submitted identity. This list does not
-    /// claim which identity currently owns a tip or which erase removed bytes.
+    /// claim which identity currently owns a field value or which erase removed bytes.
     pub mutation_ids: Vec<String>,
     /// The one committed revision for the primary record and every exact
     /// projection in this batch.
@@ -160,9 +152,6 @@ pub struct ResidentCommitReceipt {
     pub durability: ResidentDurability,
     /// Stage times for this commit.
     pub stages: ResidentCommitStages,
-    /// Legacy fanout slots, retained for receipt compatibility. Native writes
-    /// leave this empty; their durability belongs to the native commit queue.
-    pub touched_group_ids: Vec<crate::durable_flush::TouchedGroupId>,
 }
 
 impl ResidentCommitReceipt {
@@ -175,7 +164,6 @@ impl ResidentCommitReceipt {
             operations: ResidentCommitOperations::default(),
             durability: ResidentDurability::Queued,
             stages: ResidentCommitStages::default(),
-            touched_group_ids: Vec::new(),
         }
     }
 }

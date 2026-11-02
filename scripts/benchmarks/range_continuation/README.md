@@ -22,7 +22,7 @@ The daemon version must contain its selected source revision.
 
 Each variant receives 16,384 records with four fields and 1 KiB generated bodies.
 Create mutations use batches of 128. Complete known-key reads use batches of 256.
-Two matched pairs run on format 7 homes: blinded hash keys and typed range keys.
+Two matched pairs run on format 8 homes: blinded hash keys and typed range keys.
 Pair order reverses in the second pair.
 Automatic maintenance is off for both variants; the warm budget uses the product default.
 
@@ -87,7 +87,7 @@ a primary-field condition, a captured empty field map, nullable absence, a numer
 A separate value-order case omits its sort field from the projection.
 An additional request verifies the API offset and limit after the condition stage.
 Four additional requests use duplicate projection names for ordinary and conditional reads, with `include_tombstones` off and on.
-These operational controls compare exact values and field metadata. They do not add timed cases or process restarts.
+These operational controls compare exact values and record metadata. They do not add timed cases or process restarts.
 No condition request uses a cursor or an unkeyed selector.
 Missing numeric values pass the numeric filter. Concrete null and string values fail it.
 Equal numeric scores use ascending range keys as their tie order.
@@ -95,18 +95,16 @@ Equal numeric scores use ascending range keys as their tie order.
 Each case has 32 warm requests per run after a complete condition reference read.
 Each case also has one request after its own process restart, with schema preload off.
 The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
-Every returned value and each field's atom, molecule, writer, and source metadata must match the same-home reference.
+Every returned value and the record metadata block must match the same-home reference.
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
-The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary primary-field metadata contract.
-The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
-Every record retains exactly `key`, `fields`, `metadata`, and `author_pub_key`.
-The key retains both hash and range coordinates. The author names a writer from the original projected metadata map.
-The author is null when no field names a writer or the selected writer is empty.
-The check does not impose a new order on the original metadata map. Absent or empty writer coverage requires actual returned metadata.
+The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary record metadata contract.
+The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields.
+Every record retains exactly `key`, `fields`, `metadata`, and `has_conflicts` (plus `conflicted_fields` on a conflicted record).
+The key retains both hash and range coordinates. `metadata` is one block for the record, or `null`.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.
 It matches the exact request IDs and client name. Every warm cell requires 32 matches; every fresh-process cell requires one.
-The existing samples retain the server duration and reported `hydrate_atoms_us` and `hydrate_format_us` phases.
+The existing samples retain the server duration and reported `hydrate_records_us` and `hydrate_format_us` phases.
 The core query phase includes the value copy. The format phase measures the later response format work.
 These status calls stay outside the timed and memory windows. Absent phase fields remain unreported; the report does not use zero.
 The request counter does not measure the native guard's examined-key count.
@@ -135,7 +133,7 @@ The artifact file manifest gives each retained file's hash and size.
 Only useful source scripts and this method enter Git.
 Generated evidence follows the shared 10-file/100,000-byte policy; this PR adds no raw evidence file.
 
-Each owned run permits 1,200 seconds, 10,000 request rows, 1 GiB raw receipts, 512 MiB compressed receipts, and 4 MiB per response.
+Each owned run permits 1,200 seconds, 10,000 request entries, 1 GiB raw receipts, 512 MiB compressed receipts, and 4 MiB per response.
 Exact-home cleanup permits 50,000 entries, depth 12, and 4 GiB of files after the owned daemon stops.
 The whole measurement step permits 55 minutes; the workflow permits 90 minutes.
 Raw evidence remains until upload verification; automatic runner cleanup occurs after the job.

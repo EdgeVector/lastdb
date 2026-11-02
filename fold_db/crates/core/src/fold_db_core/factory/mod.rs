@@ -34,7 +34,7 @@ pub struct FoldDbOptions {
 ///
 /// Always opens the native packed store.
 ///
-/// `signer` is the Ed25519 keypair used to sign molecule mutations. Callers are
+/// `signer` is the Ed25519 keypair used to sign field key mutations. Callers are
 /// responsible for loading and validating it from the node's persistent identity
 /// before calling this factory — passing a freshly-generated keypair on every
 /// boot would produce signatures that do not match the node's public key.

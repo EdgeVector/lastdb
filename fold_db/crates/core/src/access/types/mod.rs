@@ -69,7 +69,7 @@ pub struct AccessContext {
     /// org fills handles; the SDK forwards them; Mini scopes storage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_locator: Option<String>,
-    /// Local storage prefix (64-hex `db_hash`) for molecule keys under this
+    /// Local storage prefix (64-hex `db_hash`) for field keys under this
     /// request. `None` = personal unprefixed home. Derived from
     /// [`Self::db_locator`] via [`super::db_handle::storage_prefix_for`].
     #[serde(default, skip_serializing_if = "Option::is_none")]

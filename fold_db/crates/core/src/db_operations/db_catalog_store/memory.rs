@@ -10,13 +10,11 @@ impl DbCatalogStore {
         &self,
         key: &str,
     ) -> StorageResult<Option<DbCatalogEntry>> {
-        if !crate::storage::disk_pack::read_snapshot_active(self.runtime.clone()) {
+        if !crate::storage::disk_pack::read_snapshot_active(&self.runtime) {
             return self.entries.get_item(key).await;
         }
         let owner = std::ptr::from_ref(&MEMBERSHIP_MEMORY) as usize;
-        if let Some(entry) =
-            core_memory_get::<Option<DbCatalogEntry>>(self.runtime.clone(), owner, key)?
-        {
+        if let Some(entry) = core_memory_get::<Option<DbCatalogEntry>>(&self.runtime, owner, key)? {
             return Ok(entry.as_ref().as_ref().cloned());
         }
         let entry: Option<DbCatalogEntry> = self.entries.get_item(key).await?;
@@ -32,7 +30,7 @@ impl DbCatalogStore {
             .saturating_mul(8)
             .saturating_add(1024);
         let retained = core_memory_insert(
-            self.runtime.clone(),
+            &self.runtime,
             owner,
             key.to_owned(),
             entry,

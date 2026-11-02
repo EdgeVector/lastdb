@@ -12,40 +12,69 @@ from ci_control import decimal, digest
 from node import OwnedNode
 from ownership import REPOSITORY, WORKFLOW
 from recovery_recipe import ROLES, validate as validate_recipe
-from restore_receipts import NODE_V7, restored
+from restore_receipts import NODE_V8, restored
 from support import OperationError, canonical_uuid, require
 
-# The first accepted main source whose client writes and restores only home
-# format 7 (#929). A kept stream from an older source holds a format 4 to 6
-# snapshot, which this client refuses by design. The service still keeps that
-# stream until a newer successful CI stream replaces it.
-FORMAT_SEVEN_SOURCE = "2cdc5531c1f056891ff17e16fbe25b52a5c4a201"
+# A snapshot restores only with the backup profile of the client that wrote it.
+# A kept stream from a source with another profile holds an older home format,
+# which this client does not open. The service still keeps that stream until a
+# newer successful CI stream replaces it.
+PROFILE_FILE = "fold_db/crates/core/src/storage/disk_pack/run_admission.rs"
+PROFILE = re.compile(r"const RECORD_PROFILE: u16 = ([0-9]+);")
 MAIN = "refs/remotes/origin/main"
 
 
-def ancestor(older, newer):
-    # Commit ancestry only: the full-history checkout has every main commit.
+def git(*args, fetch=False):
+    # The full-history checkout has every main commit, without trees or files.
     root = Path(__file__).resolve().parents[2]
-    # No credential or product variable reaches git; a missing commit fails, never fetches.
+    # No credential or product variable reaches git. Only an explicit file read
+    # of a main commit fetches from the public repository; a missing commit fails.
     environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
-                   "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
+                   "GIT_TERMINAL_PROMPT": "0"}
+    if not fetch:
+        environment["GIT_NO_LAZY_FETCH"] = "1"
     try:
-        result = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
-                                env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=60, check=False)
+        return subprocess.run(["git", "-C", str(root), *args],
+                              env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OperationError("ci_kept_source_history") from error
+
+
+def ancestor(older, newer):
+    result = git("merge-base", "--is-ancestor", older, newer)
     require(result.returncode in (0, 1), "ci_kept_source_history")
     return result.returncode == 0
 
 
+def profile(text):
+    found = PROFILE.findall(text)
+    return int(found[0]) if len(found) == 1 else None
+
+
+def client_profile():
+    root = Path(__file__).resolve().parents[2]
+    value = profile((root / PROFILE_FILE).read_text(encoding="utf-8"))
+    require(value is not None, "ci_client_backup_profile")
+    return value
+
+
+def source_profile(source):
+    """The backup profile that the client at main commit `source` writes."""
+    result = git("show", source + ":" + PROFILE_FILE, fetch=True)
+    require(result.returncode == 0, "ci_kept_source_profile")
+    value = profile(result.stdout.decode("utf-8", "replace"))
+    require(value is not None, "ci_kept_source_profile")
+    return value
+
+
 def legacy_format(kept):
-    """True when the kept stream's exact main source precedes the format 7 client."""
+    """True when the kept stream's exact main source writes another backup profile."""
     owner = kept.get("owner") if isinstance(kept, dict) else None
     source = owner.get("source") if isinstance(owner, dict) else None
     require(isinstance(source, str) and re.fullmatch(r"[0-9a-f]{40}", source), "ci_kept_exact_owner")
-    require(ancestor(source, MAIN) and ancestor(FORMAT_SEVEN_SOURCE, MAIN), "ci_kept_source_on_main")
-    return not ancestor(FORMAT_SEVEN_SOURCE, source)
+    require(ancestor(source, MAIN), "ci_kept_source_on_main")
+    return source_profile(source) != client_profile()
 
 
 def selected(kept, baseline):
@@ -100,7 +129,7 @@ def recover(operation, kept, credentials, phrase):
     report = operation.programs.restore(credentials, destination, expected, phrase)
     require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
             "ci_kept_native_size")
-    proof = restored(destination, report, expected, node_markers=(NODE_V7,))
+    proof = restored(destination, report, expected, node_markers=(NODE_V8,))
     inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
     proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
     operation.node = OwnedNode(destination, operation.programs)

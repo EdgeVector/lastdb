@@ -46,7 +46,7 @@ def measure(args, mode, folder):
         node = Node(args.candidate, args.candidate_revision, folder, environment=environment,
                     arguments=("--enable-search",) if mode == "enabled" else ())
         node.start()
-        # The checkpoints read the logical record measure of a format 7 home.
+        # The checkpoints read the stored record bytes of the home.
         result["home_format"] = node.home_format()
         workload = DiskBudgetWorkload(node, {"growth": PROFILES[args.profile]}, folder)
         workload.seed()
@@ -116,7 +116,7 @@ def render(manifest):
                      + " | ".join(f"{v / 2**20:.3f}" for v in values)
                      + f" | {batches['batch_files']} | {max(sizes['whole_home'].values()) / 2**20:.3f} | "
                      + (", ".join(result["advisories"]) or "None") + " |")
-    lines.extend(["", "Logical MiB is the stored record values of the format 7 home.",
+    lines.extend(["", "Logical MiB is the stored record values of the home.",
                   "Queue caps count batch file lengths and file count. Allocated queue blocks remain visible separately.",
                   "Only the same finding in the first two independent runs produces a warning. Size findings never fail CI.",
                   "Missing measurements, incorrect values, an unhealthy writer, or failed cleanup fail completion.",

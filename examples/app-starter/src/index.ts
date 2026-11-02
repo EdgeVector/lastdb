@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   const { rows, rowCount } = await fold.query(SCHEMA, { fields: ['id', 'text'] });
   console.log(`query: ${SCHEMA} returned ${rowCount} row(s):`);
   for (const row of rows) {
-    console.log(`  key=${row.key} fields=${JSON.stringify(row.fields)} author=${row.authorPubKey}`);
+    console.log(`  key=${row.key} fields=${JSON.stringify(row.fields)} metadata=${JSON.stringify(row.metadata)}`);
   }
 
   console.log('\nround-trip complete: created a row and read it back through the SDK.');

@@ -1,5 +1,5 @@
 //! Exercise explicit cleanup inside the existing CI-only run-home operation.
-//! This checks physical compaction, not an atom-counter or node completion claim.
+//! This checks physical compaction, not a blob counter or node completion claim.
 
 use crate::gen::{apply, Model, Rng};
 use crate::{budget, dir_bytes, run_files, Result};
@@ -23,7 +23,7 @@ fn seed(dir: &Path, key: &[u8; 32], count: usize, bytes: usize) -> Result<(RunHo
             }
             body.truncate(bytes);
             HomeMutation {
-                collection: "atoms".into(),
+                collection: "blob_counts".into(),
                 key: format!("cleanup:{n:08}"),
                 body: Some(body),
             }
@@ -38,7 +38,7 @@ fn seed(dir: &Path, key: &[u8; 32], count: usize, bytes: usize) -> Result<(RunHo
 fn delete(home: &RunHome, model: &mut Model, count: usize) -> Result<()> {
     let operations: Vec<_> = (0..count)
         .map(|n| HomeMutation {
-            collection: "atoms".into(),
+            collection: "blob_counts".into(),
             key: format!("cleanup:{n:08}"),
             body: None,
         })
@@ -140,7 +140,7 @@ fn reopen_progress(scratch: &Path, key: &[u8; 32]) -> Result<String> {
     }
     let frontier = home.status().frontier;
     let next = HomeMutation {
-        collection: "atoms".into(),
+        collection: "blob_counts".into(),
         key: "cleanup:00000000".into(),
         body: Some(b"new value after the cleanup step".to_vec()),
     };

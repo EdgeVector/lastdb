@@ -30,7 +30,7 @@ pub enum HashRangeFilter {
     },
     /// Filter by range key range across all hash groups
     RangeRange { start: String, end: String },
-    /// Take a bounded peek of at most [`SAMPLE_PEEK_CAP`] logical records.
+    /// Take a bounded peek of at most [`SAMPLE_PEEK_CAP`] records.
     /// A sample does not certify complete membership or global key order.
     /// Storage candidates refill until enough valid members appear or their
     /// source is exhausted. Resource limits refuse an incomplete short sample.

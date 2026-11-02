@@ -1,4 +1,4 @@
-//! The fifth degradation arm `probe_degradation` reads: a `governor_state`
+//! The degradation arm of `probe_degradation` for a `governor_state`
 //! of `purge-failed` that has HELD past [`GOVERNOR_PURGE_FAILED_WARN_SECS`].
 //!
 //! **Why this arm has its own duration gate, where the others do not.**
@@ -29,8 +29,7 @@ pub(super) const GOVERNOR_PURGE_FAILED_WARN_SECS: u64 = 3_600;
 /// `purge-failed` is the governor's highest-precedence state (it masks the
 /// other six while it holds), so it is the one reading most likely to be
 /// mistaken for news. Gate on the age, not the bare bool — see the module
-/// doc for why. `governor_state_held_secs` is absent on an older daemon
-/// payload (pre-`governor_state_since_epoch_secs`); absence reads as "below
+/// doc for why. An absent `governor_state_held_secs` reads as "below
 /// budget", same as a missing `slowest_request_ms` would.
 pub(super) fn stale_purge_failed_reason(mem: &serde_json::Value) -> Option<String> {
     if mem

@@ -47,22 +47,15 @@ function rowWitness(row, state) {
   require(ranged ? typeof row.key.range === "string" : row.key.range == null || row.key.range === "",
     "A snapshot record changed its primary key shape");
   const key = { hash: row.key.hash, range: ranged ? row.key.range : null };
-  const fields = state.profile.normalize(row.fields), metadata = state.profile.normalize(row.metadata);
+  const fields = state.profile.normalize(row.fields);
   require(fields[state.key.hash_field] === key.hash && (!ranged || fields[state.key.range_field] === key.range),
     "The stored primary fields differ from the actual query key");
-  const references = {};
-  for (const field of Object.keys(fields)) {
-    const info = metadata[field];
-    require(info && typeof info === "object" && !Array.isArray(info),
-      "A present snapshot field lacks its actual atom metadata");
-    require(typeof info.atom_uuid === "string" && info.atom_uuid.length > 0, "A snapshot field lacks its current atom");
-    // New owned molecules are expected. Every other public tip attribute must
-    // remain exact, including an absent writer on an unsigned local tip.
-    references[field] = Object.fromEntries(Object.entries(info).filter(([name]) => name !== "molecule_uuid"));
-  }
-  require(Object.keys(metadata).every((field) => Object.hasOwn(fields, field)), "Snapshot metadata has no field value");
-  return { key, fields: Object.keys(fields).length, atoms: Object.keys(references).length,
-    values_sha256: digest(fields), references_sha256: digest(references) };
+  // One metadata block belongs to the record (decision D7), or null.
+  const metadata = row.metadata ?? null;
+  require(metadata === null || (typeof metadata === "object" && !Array.isArray(metadata)),
+    "A snapshot record has a metadata block that is not an object");
+  return { key, fields: Object.keys(fields).length,
+    values_sha256: digest(fields), metadata_sha256: digest(metadata) };
 }
 
 function queryWindow(filter, definition, width) {
@@ -109,7 +102,7 @@ async function readPages(node, entries, states) {
     const next = [];
     for (let index = 0; index < pending.length; index++) {
       const entry = pending[index], item = body.results[index], reply = payload(item.response), state = states.get(entry.name);
-      require(item.status === 200 && reply?.ok === true && reply.unresolved_rows === 0
+      require(item.status === 200 && reply?.ok === true
         && Array.isArray(reply.results) && typeof reply.has_more === "boolean", "An actual snapshot page is unresolved or failed");
       for (const row of reply.results) {
         const witness = rowWitness(row, state), id = stable(witness.key);
@@ -184,5 +177,5 @@ export function assertSnapshotsEqual(before, after, names = Object.keys(before.s
   for (const name of names)
     require(before.schemas[name] && after.schemas[name]
       && stable(before.schemas[name]) === stable(after.schemas[name]),
-    "Actual values, keys, current atoms, or author metadata changed for " + name);
+    "Actual values, keys, current records, or author metadata changed for " + name);
 }

@@ -395,6 +395,6 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
 }
 
 // ---------------------------------------------------------------------------
-// Identity + native index + history + atom — shared handler bodies
+// Identity + native index + history + record — shared handler bodies
 // ---------------------------------------------------------------------------
 // lint:file-size-ok moved verbatim from exec.rs; cohesive unit, split further in a later pass

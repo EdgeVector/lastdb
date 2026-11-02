@@ -8,7 +8,7 @@ use crate::schema::types::author_clock::{
     mutation_author_canonical_bytes, MUTATION_AUTHOR_SIGNATURE_VERSION,
 };
 use crate::schema::types::Mutation;
-use crate::security::{verify_molecule_signature, Ed25519KeyPair, KeyUtils};
+use crate::security::{verify_field_key_signature, Ed25519KeyPair, KeyUtils};
 
 /// Sign a fully stamped local mutation.
 #[must_use]
@@ -22,7 +22,7 @@ pub fn sign_mutation_author_clock(mutation: &Mutation, keypair: &Ed25519KeyPair)
 /// Version zero is the independent unsigned-input contract: it carries no
 /// logical counter or author signature. Signed input uses only the current
 /// domain and framed content hash; older signature versions receive a refusal.
-/// Molecule signature version one remains independent and unchanged.
+/// Field key signature version one remains independent and unchanged.
 #[must_use]
 pub fn verify_mutation_author_clock(mutation: &Mutation) -> bool {
     match mutation.author_clock_signature_version {
@@ -30,7 +30,7 @@ pub fn verify_mutation_author_clock(mutation: &Mutation) -> bool {
         MUTATION_AUTHOR_SIGNATURE_VERSION => {
             !mutation.author_clock_signature.is_empty()
                 && !mutation.author_clock_writer_id.is_empty()
-                && verify_molecule_signature(
+                && verify_field_key_signature(
                     &mutation_author_canonical_bytes(mutation),
                     &mutation.author_clock_signature,
                     &mutation.author_clock_writer_id,

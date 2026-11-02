@@ -6,7 +6,7 @@ use serde_json::Value;
 /// Numeric comparison filters for field values.
 ///
 /// These filters compare current field values independently of the projection,
-/// unlike `HashRangeFilter` which selects molecule keys. Multiple filters are
+/// unlike `HashRangeFilter` which selects field keys. Multiple filters are
 /// AND'd before ordering and `predicate_limit`. Missing values remain accepted;
 /// a concrete non-numeric value fails its comparison.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,10 +160,8 @@ pub struct Query {
     /// only on a keyed query with no post-key filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
-    /// When `false` (default), tombstone atoms — see
-    /// [`crate::atom::tombstone`] — are filtered out at the molecule
-    /// resolution boundary. Set to `true` only for the historical
-    /// population; live `Delete` does not mint these.
+    /// When `true`, the query takes the full read path instead of a keyed
+    /// count or alternate key shortcut. The default is `false`.
     #[serde(default)]
     pub include_tombstones: bool,
     /// Opt in to bounded secondary field reads for this query. One is serial.
@@ -246,11 +244,9 @@ pub enum MutationType {
     Create,
     Update,
     /// User-facing hard delete. "Delete means gone": same erasure path as
-    /// [`Self::Purge`] (no per-field tombstone atoms). Missing target is
+    /// [`Self::Purge`] (no per-field tombstone records). Missing target is
     /// an idempotent success unless the request sets `must_exist: true`
-    /// (loud miss). Legacy tombstones on disk remain filtered by
-    /// `include_tombstones = false` readers; see
-    /// north-star-lastdb-delete-returns-the-bytes.
+    /// (loud miss). See north-star-lastdb-delete-returns-the-bytes.
     Delete,
     /// Compatibility alias of [`Self::Delete`] + `must_exist`. Same
     /// physical path; a missing target is a *loud* error ("refusing to
@@ -272,7 +268,7 @@ impl<'de> Deserialize<'de> for MutationType {
             "delete" => Ok(Self::Delete),
             "purge" => Ok(Self::Purge),
             _ => Err(serde::de::Error::custom(
-                "unknown mutation type, expected create, update, or delete (purge is a legacy must-exist alias)",
+                "unknown mutation type, expected create, update, or delete (purge is a must-exist alias)",
             )),
         }
     }

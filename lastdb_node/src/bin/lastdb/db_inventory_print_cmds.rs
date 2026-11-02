@@ -64,11 +64,10 @@ fn print_main_classes(inventory: &Value) {
     }
 }
 
-/// `per_schema_atoms` holds the live records of each schema. The JSON name
-/// stays for the benchmark readers.
+/// `per_schema_records` holds the live records of each schema.
 fn print_per_schema_records(inventory: &Value) {
     println!("Per-schema records (stored value size):");
-    if let Some(rows) = array_of(inventory, "per_schema_atoms") {
+    if let Some(rows) = array_of(inventory, "per_schema_records") {
         for (i, row) in rows.iter().enumerate() {
             if i >= SCHEMA_ROW_LIMIT {
                 println!(
@@ -86,7 +85,7 @@ fn print_per_schema_records(inventory: &Value) {
         }
         println!(
             "  total record bytes: {}",
-            format_bytes(u64_of(inventory, "per_schema_atoms_total_bytes"))
+            format_bytes(u64_of(inventory, "per_schema_records_total_bytes"))
         );
     }
 }

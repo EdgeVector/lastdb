@@ -3,41 +3,6 @@ use super::*;
 mod phase_lines;
 pub(crate) use phase_lines::*;
 
-/// Persist-lane occupancy lines for `lastdb status` / `lastdb ops`.
-#[must_use]
-pub fn persist_lane_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
-    if snap.persist_lanes.is_empty() {
-        return Vec::new();
-    }
-    snap.persist_lanes
-        .iter()
-        .map(|row| {
-            let schema = if row.schema.is_empty() {
-                "none"
-            } else {
-                row.schema.as_str()
-            };
-            format!(
-                "Persist lane: schema={schema} reserved_bytes={} fair_share_bytes={} \
-                 queued_entries={} reserved_entries={} oldest_age_ms={} \
-                 refuse_bytes={} refuse_entries={} refuse_unhealthy={} \
-                 unhealthy_lanes={} quarantined={} breaker_trips={}",
-                row.reserved_bytes,
-                row.fair_share_bytes,
-                row.queued_entries,
-                row.reserved_entries,
-                row.oldest_age_ms,
-                row.refuse_bytes,
-                row.refuse_entries,
-                row.refuse_unhealthy,
-                row.unhealthy_lanes,
-                row.quarantined,
-                row.breaker_trips
-            )
-        })
-        .collect()
-}
-
 /// Human-readable lines for `lastdb ops` / status extensions.
 pub fn snapshot_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
     snapshot_lines_with_schema_labels(snap, &SchemaLabels::new())
@@ -58,7 +23,6 @@ pub fn snapshot_lines_with_schema_labels(
         snap.recent.len().min(snap.ring_capacity),
         snap.ring_capacity
     )];
-    lines.extend(persist_lane_lines(snap));
 
     if snap.top_by_total_ms.is_empty() && snap.idle_wait.is_empty() {
         // Cheap `/api/status` keeps sample_count but strips the forensic
@@ -76,9 +40,6 @@ pub fn snapshot_lines_with_schema_labels(
     }
 
     lines.extend(app_verb_table_lines(snap));
-
-    // `key_use` stays in the JSON for its readers. The record model keeps it
-    // empty, so the text output has no table for it.
     lines.extend(top_total_time_lines(snap, labels));
     lines.extend(body_volume_lines(snap, labels));
     lines.extend(idle_wait_lines(snap));

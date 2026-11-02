@@ -39,13 +39,13 @@ impl SchemaCore {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         let cache = self.db_ops.schemas().snapshot_owner();
         let key = "\0native_schema_name_directory";
-        if let Some(directory) = core_memory_get(runtime.clone(), cache, key)? {
+        if let Some(directory) = core_memory_get(&runtime, cache, key)? {
             return Ok(Some(directory));
         }
         let directory = self.db_ops.schemas().read_name_directory().await?;
         let bytes = memory::directory_bytes(&directory)?;
         Ok(Some(core_memory_insert(
-            runtime,
+            &runtime,
             cache,
             key.into(),
             directory,
@@ -76,7 +76,7 @@ impl SchemaCore {
     }
 
     pub(super) fn native_read_snapshot_active(&self) -> bool {
-        read_snapshot_active(self.db_ops.namespaced_store().disk_pack_runtime())
+        read_snapshot_active(&self.db_ops.namespaced_store().disk_pack_runtime())
     }
 
     pub(super) async fn native_schema_snapshot(
@@ -103,13 +103,13 @@ impl SchemaCore {
     ) -> Result<Arc<CoreMemoryValue<SchemaReadSnapshot>>, SchemaError> {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         let cache = self.db_ops.schemas().snapshot_owner();
-        if let Some(snapshot) = core_memory_get(runtime.clone(), cache, name)? {
+        if let Some(snapshot) = core_memory_get(&runtime, cache, name)? {
             return Ok(snapshot);
         }
         let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
         let bytes = snapshot_bytes(&snapshot)?;
         Ok(core_memory_insert(
-            runtime,
+            &runtime,
             cache,
             name.to_string(),
             snapshot,
@@ -123,7 +123,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Option<Option<Schema>>, SchemaError> {
         let snapshot = read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.namespaced_store().disk_pack_runtime(),
             self.db_ops.schemas().snapshot_owner(),
             name,
         )?;
@@ -135,7 +135,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
         Ok(read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.namespaced_store().disk_pack_runtime(),
             self.db_ops.schemas().snapshot_owner(),
             name,
         )?

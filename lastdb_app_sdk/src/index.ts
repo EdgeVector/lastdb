@@ -106,6 +106,7 @@ export type {
   QueryPage,
   QueryResult,
   QueryRow,
+  RecordMetadata,
   SchemaDescriptor,
   CasExpectation,
   MutationDurability,

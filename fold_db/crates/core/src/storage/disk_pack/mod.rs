@@ -2,7 +2,6 @@
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
-use crate::resident::PersistLaneMetrics;
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use laststore::space::SpaceReservation;
 use std::path::Path;
@@ -16,7 +15,6 @@ mod diagnostics;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
-pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
 mod namespace_delete;
@@ -75,13 +73,9 @@ pub struct PackRuntime {
     write_gate: Arc<tokio::sync::Mutex<()>>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
-    /// True for a format 7 home: the record model. Only such a home uses the
-    /// `rk:` record keys and mints a record space key bundle for a schema.
-    record_home: bool,
     restore_blocked: AtomicBool,
     pub(in crate::storage) serving: AtomicBool,
     // A failed commit retains its space charge until this runtime drops.
@@ -136,16 +130,12 @@ impl PackNamespacedStore {
     /// Open a node store with the node encryption key. An absent or empty
     /// home becomes a new v2 home, and a v2 creation that stopped before its
     /// node marker is created again. A v2 home needs the key: its run home
-    /// keys derive from it. Any other home is refused: this program opens
-    /// only disk format v2.
+    /// keys derive from it. The node marker check admits only format 8.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
-        if run_node::is_run_node(path)? {
-            return Self::open_run(path, node_key);
-        }
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);
         }
-        Err(run_node::not_v2(path))
+        Self::open_run(path, node_key)
     }
 
     /// Open an existing v2 node home for an offline tool. The home must be
@@ -174,9 +164,6 @@ impl PackNamespacedStore {
                 path.display()
             )));
         }
-        if !run_node::is_run_node(path)? {
-            return Err(run_node::not_v2(path));
-        }
         Self::open_run_with_merges(path, Some(node_key), resume_merges)
     }
 
@@ -185,10 +172,8 @@ impl PackNamespacedStore {
         physical: physical::V2Home,
         current: physical::V2Root,
         initializing: bool,
-        record_home: bool,
         space_policy: laststore::space::SpacePolicy,
     ) -> Self {
-        let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
         let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
@@ -206,30 +191,16 @@ impl PackNamespacedStore {
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
                 initializing: AtomicBool::new(initializing),
-                record_home,
                 failed_write: Mutex::new(None),
                 space_policy,
                 last_root,
             }),
         }
-    }
-}
-
-impl PackRuntime {
-    /// Share one process counter owner with DbOperations and its background work.
-    pub(crate) fn persist_metrics(&self) -> Arc<PersistLaneMetrics> {
-        Arc::clone(&self.persist_metrics)
-    }
-
-    /// True for a format 7 home: the record model.
-    pub(crate) const fn record_home(&self) -> bool {
-        self.record_home
     }
 }
 
@@ -292,7 +263,7 @@ impl NamespacedStore for PackNamespacedStore {
         self.runtime.flush().await
     }
 
-    fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
-        Some(Arc::clone(&self.runtime))
+    fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
+        Arc::clone(&self.runtime)
     }
 }

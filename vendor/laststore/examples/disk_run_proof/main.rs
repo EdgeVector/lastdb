@@ -4,7 +4,7 @@
 //! reads every record back by full scan, by key and by range under one hash,
 //! replays overwrites and deletes through incremental runs and merges, checks
 //! that a changed byte fails authentication, and fails the run when the disk
-//! size is over 2x the logical atom bytes. No primary or user data is opened.
+//! size is over 2x the logical value bytes. No primary or user data is opened.
 
 mod levels;
 mod seed;
@@ -25,8 +25,8 @@ pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub(crate) type Expected = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 
 const BATCH_KEYS: usize = 10_000;
-/// Class byte, hash group and molecule, then the 16-byte hash of a tip key.
-const TIP_HASH_PREFIX: usize = 1 + 2 + 4 + 16;
+/// Class byte, hash group and field key, then the 16-byte hash of an entry key.
+const ENTRY_HASH_PREFIX: usize = 1 + 2 + 4 + 16;
 
 struct Row {
     name: &'static str,
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
 fn run(scratch: &Path) -> Result<()> {
     let key = random_key()?;
     let stream = build_stream();
-    let logical = stream.logical_atom_bytes;
+    let logical = stream.logical_value_bytes;
     let mut rows = Vec::new();
     for (name, ope, dir) in [
         ("V1 one run, today's OPE range", true, "single-ope"),
@@ -70,8 +70,8 @@ fn run(scratch: &Path) -> Result<()> {
     )?);
     let tamper = tamper_check(&fresh(scratch, "tamper")?, &key, &records)?;
     println!(
-        "seed: {} atoms, {:.1} MiB logical, {} records",
-        stream.atoms,
+        "seed: {} values, {:.1} MiB logical, {} records",
+        stream.values,
         logical as f64 / MIB,
         records.len()
     );
@@ -95,7 +95,7 @@ fn run(scratch: &Path) -> Result<()> {
     }
     println!("Tamper check: {tamper}");
     if rows.iter().any(|r| r.bytes > 2 * logical) {
-        return Err("disk size is over 2x the logical atom bytes".into());
+        return Err("disk size is over 2x the logical value bytes".into());
     }
     Ok(())
 }
@@ -204,10 +204,10 @@ fn check_runs(runs: &[PathBuf], key: &[u8; 32], expected: &Expected) -> Result<S
     }
     let prefixes: Vec<Vec<u8>> = expected
         .keys()
-        .filter(|k| k.first() == Some(&2) && k.len() > TIP_HASH_PREFIX)
+        .filter(|k| k.first() == Some(&2) && k.len() > ENTRY_HASH_PREFIX)
         .step_by(211)
         .take(500)
-        .map(|k| k[..TIP_HASH_PREFIX].to_vec())
+        .map(|k| k[..ENTRY_HASH_PREFIX].to_vec())
         .collect();
     let mut ranged = 0;
     for prefix in &prefixes {

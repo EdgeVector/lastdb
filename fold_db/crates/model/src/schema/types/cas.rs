@@ -26,7 +26,7 @@
 //!   recreate semantics.
 //!
 //! The content hash shape was dropped with the record model (Tom,
-//! 2026-11-01): a record has no atom whose identity could be compared.
+//! 2026-11-01): a record has no record whose identity could be compared.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

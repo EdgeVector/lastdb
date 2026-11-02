@@ -18,12 +18,11 @@ from restore_log import position, verified as verified_log_routes
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-# Every home of this release is format 7 (the record model), backup profile 5.
-# The product restores no older snapshot, so a format 4 to 6 marker is refused
-# here too. Kept recovery hashes the restored bytes in place; it does not
-# upgrade the marker.
-NODE_V7 = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
-NODE_PROFILE = {NODE_V7: (5, 7)}
+# Every home of this release is format 8 (the record model), backup profile 6.
+# Only that marker is accepted. Kept recovery hashes the restored bytes in
+# place; it does not upgrade the marker.
+NODE_V8 = b"format=8\nhome=disk-run\ncas=disk-cas\n"
+NODE_PROFILE = {NODE_V8: (6, 8)}
 MAX_FILES = 4096
 
 
@@ -133,11 +132,11 @@ def matched_node_marker(size, expected, node_markers):
     for marker in node_markers:
         if size == len(marker) and expected == hashlib.sha256(marker).hexdigest():
             matched = marker
-    require(matched in NODE_PROFILE, "format_seven_marker")
+    require(matched in NODE_PROFILE, "format_eight_marker")
     return matched
 
 
-def inventory(home, root, node_markers=(NODE_V7,)):
+def inventory(home, root, node_markers=(NODE_V8,)):
     entries = owned(root, "entries/placeholder").parent
     files, seen, matched = [], set(), None
     for name in sorted(names(entries)):
@@ -201,7 +200,7 @@ def replayed_inventory(home, root, replay, accepted, observe):
 
 
 def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None,
-             node_markers=(NODE_V7,)) -> dict:
+             node_markers=(NODE_V8,)) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -214,7 +213,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             and report["file_dependencies_verified"] is True
             and nonnegative(report["native_files"]) > 0
             and nonnegative(report["native_bytes"]) > 0
-            and nonnegative(report["verified_atoms"]) >= 0
+            and nonnegative(report["verified_records"]) >= 0
             and nonnegative(report["verified_external_files"]) == 0, "restore_report_binding")
     receipt_path = owned(home, "byte-cloud-restore-receipt.json")
     receipt = read_json(receipt_path, max_bytes=65536)
@@ -229,7 +228,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
     if replay is None:
         files, marker = inventory(home, root, node_markers)
     else:
-        # Replay restores a fresh format 7 run.
+        # Replay restores a fresh format 8 run.
         files, routes = replayed_inventory(home, root, replay,
             read_json(owned(root, "selection.json"))["accepted"], observe)
         marker = node_marker(home)

@@ -102,8 +102,8 @@ impl Workload {
     fn insert(&mut self, len: usize) -> HomeMutation {
         self.made += 1;
         let key = format!("{:016x}", self.made.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        self.live.push(("atoms".to_string(), key.clone()));
-        self.put("atoms", key, len)
+        self.live.push(("blob_counts".to_string(), key.clone()));
+        self.put("blob_counts", key, len)
     }
 
     /// The next key of a range that only grows, as the change feed writes.

@@ -191,11 +191,7 @@ impl SchemaStore {
         }
         let floors = Arc::clone(&self.retention_floors);
         let name = schema.name.clone();
-        let Some(runtime) = self.runtime.as_deref() else {
-            floors.note_written(&name, &keys);
-            return Ok(());
-        };
-        crate::storage::disk_pack::transaction::after_commit(runtime, async move {
+        crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
             floors.note_written(&name, &keys);
             Ok(())
         })?;

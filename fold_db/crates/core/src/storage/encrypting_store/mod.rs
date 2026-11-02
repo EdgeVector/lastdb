@@ -82,7 +82,7 @@ impl EncryptingKvStore {
     /// incompressible — a value sealed without being compressed can never be
     /// shrunk again by compaction, the backup chunk plane, or the cloud bill.
     /// That order is the standing rule in
-    /// `preference-lastdb-storage-compress-atoms-and-blobs`.
+    /// `preference-lastdb-storage-compress-records-and-blobs`.
     ///
     /// The deflate flag stays clear whenever the write-side switch is off,
     /// the value is under the floor, or deflate did not actually shrink it, so

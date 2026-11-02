@@ -8,25 +8,18 @@ pub struct AtRestCompressionHealth {
     pub sealed_compressed: u64,
     pub sealed_plain: u64,
     /// Deflate calls made while qualifying values for compression.
-    #[serde(default)]
     pub compression_attempts: u64,
     /// Current-thread CPU time spent in deflate qualification.
-    #[serde(default)]
     pub compression_attempt_cpu_ns: u64,
     /// Bytes removed by successful deflate qualification.
-    #[serde(default)]
     pub bytes_saved: u64,
     /// Values below the configured compression floor.
-    #[serde(default)]
     pub skipped_below_min_bytes: u64,
     /// Values above the configured inflated-size ceiling.
-    #[serde(default)]
     pub skipped_above_inflate_ceiling: u64,
     /// Values whose deflated form did not reduce stored bytes.
-    #[serde(default)]
     pub skipped_output_not_smaller: u64,
     /// Values that did not qualify because compression was disabled.
-    #[serde(default)]
     pub skipped_compression_disabled: u64,
     /// Whether the KV seam may compress new `cas_blobs` values
     /// (`LASTDB_KV_AT_REST_COMPRESS`).

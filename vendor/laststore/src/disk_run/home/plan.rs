@@ -31,11 +31,11 @@
 //! [`RunHome::retired_bytes`] counts them, and an owner with long reads
 //! waits for them before its next step.
 //!
-//! The shares serve the 2x limit of a node over its logical atom bytes, not
-//! only over its live bytes: with small atoms a node's files take about 1.45
-//! bytes per logical atom byte (the disk v2 node proof), which leaves the
+//! The shares serve the 2x limit of a node over its logical value bytes, not
+//! only over its live bytes: with small values a node's files take about 1.45
+//! bytes per logical value byte (the disk v2 node proof), which leaves the
 //! merges about 0.38 of the live file bytes. That proof peaked during writes
-//! at 2.03x to 2.12x of the atom bytes with shares of a quarter and an
+//! at 2.03x to 2.12x of the value bytes with shares of a quarter and an
 //! eighth, and at 1.95x to 2.06x with an eighth and a sixteenth: most of
 //! each peak was replaced runs that a node's write requests still held.
 //! Base merges start about twice as often as with the first shares, and

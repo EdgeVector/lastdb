@@ -220,7 +220,6 @@ pub fn run_installed_app(
         .args(&args)
         .current_dir(&checkout_path)
         .env("LASTDB_HOME", home)
-        .env("FOLDDB_HOME", home)
         .env("LASTDB_DATA_DIR", home.join("data"))
         .env("LASTDB_SOCKET", &socket)
         .env("LASTDB_APP_ID", app_id)

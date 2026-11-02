@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 impl NamespacedStore for EncryptingNamespacedStore {
-    fn disk_pack_runtime(&self) -> Option<Arc<crate::storage::disk_pack::PackRuntime>> {
+    fn disk_pack_runtime(&self) -> Arc<crate::storage::disk_pack::PackRuntime> {
         self.inner.disk_pack_runtime()
     }
 

@@ -6,7 +6,7 @@ pub(super) fn read(source: &RunRead, key_heads: bool) -> StorageResult<Option<Ru
         .then(|| {
             super::fork_mapped(
                 source,
-                read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000),
+                read_budget(budget::RECORD_INVENTORY_READ_BYTES, 10000),
             )
         })
         .transpose()
@@ -48,7 +48,7 @@ impl<'a> Rows<'a> {
         while !self.exhausted {
             let mut page = match &mut self.mode {
                 Mode::Persistent(cursor) => cursor
-                    .next_backup_page(1, budget::ATOM_BODY_MAX_BYTES)
+                    .next_backup_page(1, budget::RECORD_BODY_MAX_BYTES)
                     .map_err(map)?,
                 Mode::Stateless(source, collection) => {
                     stateless_page(source, collection, self.after.as_deref())?
@@ -90,7 +90,7 @@ fn stateless_page(
 ) -> StorageResult<laststore::disk_run::home::RunRangePage> {
     let mut read = super::fork_mapped(
         source,
-        read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000),
+        read_budget(budget::RECORD_INVENTORY_READ_BYTES, 10000),
     )?;
     let mut cursor = match after {
         Some(after) => read.administrative_range_after(collection, after.as_bytes(), &[0xff]),
@@ -98,6 +98,6 @@ fn stateless_page(
     }
     .map_err(map)?;
     cursor
-        .next_page_yielding_bounded(1, 0, 0, budget::ATOM_BODY_MAX_BYTES)
+        .next_page_yielding_bounded(1, 0, 0, budget::RECORD_BODY_MAX_BYTES)
         .map_err(map)
 }

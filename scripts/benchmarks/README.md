@@ -135,9 +135,9 @@ The initial read/write neighbors address the same key, so snapshot selection dep
 Older values can be valid captured snapshots; this count is diagnostic and does not reject them.
 Missing observations from earlier artifacts remain unreported.
 The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
-The cold boundary purges clean logical records after the daemon restarts.
+The cold boundary purges clean records from the warm set after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
-A format 7 home keeps one warm entry per record, so each hot read requires at least one warm hit per requested key.
+A format 8 home keeps one warm entry per record, so each hot read requires at least one warm hit per requested key.
 The native unknown-path fallback does not always increment the logical miss counter.
 The cold control therefore uses the purge boundary and actual disk-read receipts.
 These checks reject invalid measurements. They do not form a test suite.
@@ -149,7 +149,7 @@ The event's base value can lag the base used for the candidate merge tree.
 The plan records that value and uses the actual merge parent for the comparison.
 The candidate includes current base changes, so the comparison measures the proposed merge result.
 An older branch cannot turn unrelated changes on main into a claimed PR speed change.
-A main push uses its new tip and the previous tip from the push event.
+A main push uses its new commit and the previous commit from the push event.
 A nightly run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
 The running daemon must report the expected revision.
@@ -176,8 +176,8 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
-Every measured home is a format 7 home on disk format v2, with blinded hashes and typed ranges.
-The driver accepts only that node marker. A revision that creates an older home fails completion.
+Every measured home is a format 8 home on disk format v2, with blinded hashes and typed ranges.
+The driver reads the `format=` number of each node marker and reports it in the summary.
 The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
@@ -281,7 +281,7 @@ These checks establish overlap with the case; they do not claim that every reque
 The retained ledger timestamps describe that exposure.
 Exact keyed reads verify every accepted fresh value after the measured window.
 Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
-Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
+Cleanup uses persisted field key identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
 Every home restarts before the final fresh-value reads.
 These calls use ordinary generated records. They inject no damaged age entries or active generations.
 Payload construction and validation stay outside request latency. Throughput includes client overhead.
@@ -319,35 +319,34 @@ Inserts increase the record count. Memory allocators can retain space, and autom
 Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
 The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
 
-### Format 7 (record model) homes
+### Format 8 homes
 
 Each driver reads the home format from the node marker that the daemon writes when it creates the home.
-Every new home is format 7, and the program opens no older home.
-A run fails completion when a version creates a home with a different marker. A base revision from before the record model release therefore cannot supply a comparison.
-A format 7 home stores one record per key. The speed lane then requires one warm hit per key, not per field.
+Every new home is format 8, and the program opens no other home format.
+A format 8 home stores one record per key. The speed lane then requires one warm hit per key, not per field.
 The size passes use the stored record values as the logical measure. The record count must drop after each delete round.
+All checkpoints of one size case must show the same home format.
 Every summary states the home format of each version.
-Each version creates its own home. `--seed-with-baseline` lets the candidate open a home that the baseline created.
-Use it only when both programs open the same format.
+Each version creates its own home.
 
 ### V2 disk size budget
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the format 7 node marker of both generated homes.
-Since phase V3, every new home is v2, and disk format v1 is gone.
+It reports the node marker format of both generated homes.
+Every home uses disk format v2.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
 It uses one baseline/candidate pair on PRs and at night, with no automatic disk-size repeat.
 Reads, updates, inserts, and deletes use the same four generated fields.
 The delete case uses a separate fresh generated home in both profiles.
-The driver extends its seed to at least **10 MiB of logical record data on PRs and nightly runs**.
+The driver extends its seed to at least **10 MiB of record data on PRs and nightly runs**.
 The seed must start below that target. The larger nightly insert corpus does not enter this case.
 It adds at most 128 records per batch and records the actual byte count. The seed has a five-minute and 512-batch bound.
 The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
 Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
-The logical record bytes and the live record count must decrease after each delete round.
+The record bytes and the live record count must decrease after each delete round.
 Each delete checkpoint also records a bounded, complete inventory of current storage collections.
 The inventory follows the size sample and does not alter the measured bytes.
 The artifact retains delete-case memory samples, Search state, ownership, and cleanup records under `delete/` in each program's result directory.
@@ -360,19 +359,19 @@ This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search o
 Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
 Historical programs that lack the Search-off status cannot satisfy this required size pass.
 
-The ratio is retained disk bytes divided by logical record bytes:
+The ratio is retained disk bytes divided by record bytes:
 
 - Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
   The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: the stored value bytes of the live records (`total_record_bytes`).
-  Tombstones stay out. The report keeps the field name `logical_atom_bytes` for this value.
+  Tombstones stay out. The report names this value `stored_record_bytes`.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - The required maximum ratio includes every settled checkpoint in the single candidate run.
   The report states the room below the cap in bytes and as a percent of the limit at each case's highest ratio.
 
 The required ceiling is **1.5×**. Equality is within the budget.
-This is total database size. For example, 10 MiB of logical records permits at most 15 MiB of database files.
+This is total database size. For example, 10 MiB of records permits at most 15 MiB of database files.
 After deletes, the denominator is the logical data that remains.
 CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
@@ -418,7 +417,7 @@ Every state verifies all generated keys and their current values. The artifact r
 
 The final `GET /api/db/inventory` supplies live key-class sizes and the live record bytes of each schema.
 CAUTION: This owner report writes attribution-ledger records. It runs after all original size observations.
-The diagnostic records its extra disk cost separately and checks that the logical record total stays unchanged.
+The diagnostic records its extra disk cost separately and checks that the record byte total stays unchanged.
 Its class sizes describe decrypted live records; they are not physical file sizes or a complete report of every namespace.
 The pass has a 40-minute deadline. Its source revisions, executable hashes, driver hashes, data recipe, and raw results stay in the verified artifact.
 It does not force compaction, change retention, relax the 1.5× ceiling, or use primary data.

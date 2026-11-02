@@ -149,44 +149,24 @@ function expandTilde(p: string): string {
 
 /**
  * Resolve the node's home directory the same way the Rust `folddb_home()`
- * does, in priority order:
- *
- * 1. `LASTDB_HOME` — the new canonical override.
- * 2. `FOLDDB_HOME` — the legacy override (still honored).
- * 3. an existing `~/.lastdb` — an already-migrated install.
- * 4. an existing `~/.folddb` — an existing install, read in place.
- * 5. `~/.lastdb` — the brand-new-install default.
- *
- * Both env overrides are tilde-expanded, matching the Rust resolver.
+ * does: `LASTDB_HOME` (tilde-expanded) when it is set, else `~/.lastdb`.
  */
-function resolveFolddbHome(env: NodeJS.ProcessEnv): string | null {
+function resolveLastdbHome(env: NodeJS.ProcessEnv): string | null {
   const lastdbHome = env.LASTDB_HOME;
   if (lastdbHome && lastdbHome.length > 0) {
     return expandTilde(lastdbHome);
-  }
-  const folddbHome = env.FOLDDB_HOME;
-  if (folddbHome && folddbHome.length > 0) {
-    return expandTilde(folddbHome);
   }
   const home = homedir();
   if (!home) {
     return null;
   }
-  const lastdb = join(home, '.lastdb');
-  if (existsSync(lastdb)) {
-    return lastdb;
-  }
-  const folddb = join(home, '.folddb');
-  if (existsSync(folddb)) {
-    return folddb;
-  }
-  return lastdb;
+  return join(home, '.lastdb');
 }
 
 /**
  * Resolve the node's default data-plane socket path: an explicit
  * `LASTDB_SOCKET_PATH` override (tilde-expanded) wins, then
- * `FOLDDB_SOCKET_PATH`, otherwise `<folddb_home>/data/folddb.sock`.
+ * `FOLDDB_SOCKET_PATH`, otherwise `<lastdb_home>/data/folddb.sock`.
  * Returns `null` only when neither an env override is set nor a home dir can
  * be resolved.
  */
@@ -199,7 +179,7 @@ function resolveSocketPath(env: NodeJS.ProcessEnv): string | null {
   if (explicit && explicit.length > 0) {
     return expandTilde(explicit);
   }
-  const home = resolveFolddbHome(env);
+  const home = resolveLastdbHome(env);
   if (home === null) {
     return null;
   }
@@ -216,8 +196,7 @@ function resolveSocketPath(env: NodeJS.ProcessEnv): string | null {
  * 2. `FOLDDB_SOCKET_PATH` — second explicit override, read when
  *    `LASTDB_SOCKET_PATH` is unset.
  * 3. `<data_dir>/folddb.sock` — the default the node binds, resolved via
- *    {@link resolveSocketPath} (honors the `LASTDB_HOME`/`FOLDDB_HOME` →
- *    `~/.lastdb`/`~/.folddb` home order).
+ *    {@link resolveSocketPath} (`LASTDB_HOME`, else `~/.lastdb`).
  * 4. Loopback TCP at `fallbackBaseUrl` — the fallback when no socket exists.
  *
  * A socket path is only chosen when the file actually EXISTS, so a node that

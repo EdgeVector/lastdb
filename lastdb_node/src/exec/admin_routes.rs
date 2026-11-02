@@ -22,10 +22,8 @@ pub(super) async fn execute_status_route(
     let wants_forensics = query_flag(&req.target, "recent") || query_flag(&req.target, "forensics");
     if wants_forensics {
         // Diagnostic callers need the current ring, not the minute-old sampler
-        // copy. This bounded in-memory snapshot does not fetch logical records.
-        let mut current = host.request_telemetry.snapshot();
-        current.persist_lanes = std::mem::take(&mut snapshot.request_ops.persist_lanes);
-        snapshot.request_ops = current;
+        // copy. This bounded in-memory snapshot does not fetch records.
+        snapshot.request_ops = host.request_telemetry.snapshot();
     } else {
         snapshot.request_ops = snapshot.request_ops.for_cheap_health();
     }
@@ -143,13 +141,9 @@ pub(super) fn execute_log_filter_set_route(req: &UdsRequest, ctx: &AccessContext
     }
 }
 
-/// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
+/// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
 /// byte breakdown (owner socket). Scans the open store; no offline exclusive open.
-///
-/// CAUTION: despite the GET method, `Host::db_inventory` durably writes
-/// attribution rows (schema/system/retention root walks) before it reads the
-/// summary back. The writes are idempotent (deterministic keys), so repeat
-/// calls are safe, but this is not a side-effect-free read.
+/// It writes nothing.
 pub(super) async fn execute_db_inventory_route(ctx: &AccessContext, host: &Host) -> UdsResponse {
     match host.db.db_inventory().await {
         Ok(inventory) => json_ok(&envelope(
@@ -160,7 +154,7 @@ pub(super) async fn execute_db_inventory_route(ctx: &AccessContext, host: &Host)
     }
 }
 
-/// `GET /api/db/schemas` — atom-only per-schema logical storage (owner socket).
+/// `GET /api/db/schemas` — record-only per-schema logical storage (owner socket).
 pub(super) async fn execute_db_schemas_route(ctx: &AccessContext, host: &Host) -> UdsResponse {
     match host.db.db_schema_storage().await {
         Ok(report) => json_ok(&envelope(

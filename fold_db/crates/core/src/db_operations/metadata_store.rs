@@ -58,8 +58,7 @@ impl MetadataStore {
 
     /// Point-put one JSON value into the metadata namespace.
     ///
-    /// Does not flush: LastStore's own persist cadence makes the row durable,
-    /// matching the keep-small meter write.
+    /// Does not flush: LastStore's own persist cadence makes the row durable.
     pub async fn put_typed<T: Serialize + Send + Sync>(
         &self,
         key: &str,
@@ -91,11 +90,9 @@ impl MetadataStore {
 
     // ===== Idempotency store =====
 
-    /// Read bounded cache limits and old-cache cleanup counters, without keys or values.
-    pub async fn retry_cache_status(&self) -> Result<serde_json::Value, SchemaError> {
-        idempotency::status(&self.idempotency_store)
-            .await
-            .map_err(Into::into)
+    /// Read the bounded cache limits, without keys or values.
+    pub fn retry_cache_status(&self) -> serde_json::Value {
+        idempotency::status()
     }
 
     /// Batch-read the bounded retry cache, preserving input order and scope.

@@ -10,13 +10,13 @@ pub async fn resolve_file_bytes(
     db: &FoldDB,
     field_value: &Value,
 ) -> Result<Option<Vec<u8>>, FoldDbError> {
-    match file_blob_access_from_atom_value(field_value)? {
+    match file_blob_access_from_value(field_value)? {
         Some(access) => resolve_local_blob_bytes(db, &access).await,
         None => Ok(None),
     }
 }
 
-/// A CAS row authenticates its own address; the atom also binds the plaintext hash.
+/// A CAS row authenticates its own address; the record also binds the plaintext hash.
 pub(super) async fn resolve_local_blob_bytes(
     db: &FoldDB,
     access: &FileBlobAccess,

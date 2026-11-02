@@ -9,9 +9,6 @@ write scope. This lint finds every Rust function that writes through a store
 and either (a) names one of those key families or (b) holds a raw store handle,
 and it compares the set with scripts/lints/store-writers.allow.
 
-A format 7 home has no tip, atom body, atom counter or molecule header, so the
-lint names no family for them.
-
 The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 
@@ -52,9 +49,9 @@ RAW = re.compile(
 )
 FAMILIES = {
     "C": re.compile(
-        r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq:|"ahk:|"ahb:'
+        r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq\b|"ahk:|"ahb\b'
     ),
-    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:v3'),
+    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 

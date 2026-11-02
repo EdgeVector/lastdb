@@ -58,15 +58,15 @@ deleted the desktop node on **2026-07-12**.
 Release process: [`docs/RELEASING.md`](docs/RELEASING.md). There is no DMG
 or desktop-app channel.
 
-## Atom content size limit
+## Field value size limit
 
-**Atoms are not a blob store.** Each field value is hard-capped (default
+**Records are not a blob store.** Each field value is hard-capped (default
 **256 KiB** serialized JSON before encryption). Override with env
-`LASTDB_MAX_ATOM_CONTENT_BYTES` (absolute max **1 MiB**). Oversized writes
-return HTTP 413 `atom_content_too_large` with a `hint`. Many small fields may
-be packed into one atom up to the cap; a list or log that grows → one record per
+`LASTDB_MAX_FIELD_VALUE_BYTES` (absolute max **1 MiB**). Oversized writes
+return HTTP 413 `field_value_too_large` with a `hint`. Many small fields may
+be packed into one record up to the cap; a list or log that grows → one record per
 entry in a HashRange schema; large opaque bytes → file blob (CAS) with a
-pointer. Full write-up: [`fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`](fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md).
+pointer. Full write-up: [`fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`](fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md).
 Operators: `lastdb status` shows `Limits: max_peer_field_value=…`.
 
 ## Build

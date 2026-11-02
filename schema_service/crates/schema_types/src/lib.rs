@@ -1,6 +1,6 @@
 //! Pure wire/domain schema types for schema_service.
 //!
-//! No storage, HTTP, fold_db, atom, or FieldVariant. Lambda and other
+//! No storage, HTTP, fold_db, record, or FieldVariant. Lambda and other
 //! fold_db-free consumers depend on this crate instead of `fold_db`.
 
 pub mod alternate_keys;
@@ -15,7 +15,7 @@ pub mod hex;
 pub mod key_comparison;
 pub mod key_config;
 pub use alternate_keys::{AlternateKey, MissingAlternateKey};
-pub mod molecule_range_profile;
+pub mod field_range_profile;
 pub mod range_storage_profile;
 pub mod rfc3339;
 pub mod schema_type;

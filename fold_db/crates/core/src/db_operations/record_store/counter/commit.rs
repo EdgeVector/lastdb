@@ -1,5 +1,5 @@
 //! The row commit: one native batch of rows, deletes, guarded deletes, and the
-//! release of the conflict rows of a format 7 home.
+//! release of the conflict rows of a home.
 //!
 //! The retention janitor, the queue repairs, the blob queue repair and the
 //! field history expiry write through [`RecordStore::commit_rows`]. It runs inside
@@ -7,7 +7,7 @@
 //! accepted batches and the pending batch of the request, and the one
 //! `batch_mutate` at the end joins that pending batch.
 //!
-//! A release names a conflict row (`rcf:`). The row holds no atom or file blob
+//! A release names a conflict row (`rcf:`). The row holds no record or file blob
 //! reference, so a release only deletes: the row, its queue rows, and the marker
 //! of the record when no live entry of it is left (`record_conflicts/release.rs`).
 
@@ -124,14 +124,9 @@ impl RecordStore {
     pub(in crate::db_operations::record_store) fn require_write_scope(
         &self,
     ) -> Result<(), SchemaError> {
-        let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-        else {
-            return Ok(());
-        };
-        if crate::storage::disk_pack::transaction::publication::active(Some(runtime)) {
+        if crate::storage::disk_pack::transaction::publication::active(
+            &self.namespaced_store.disk_pack_runtime(),
+        ) {
             return Ok(());
         }
         Err(SchemaError::InvalidData(

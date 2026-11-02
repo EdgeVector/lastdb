@@ -132,14 +132,7 @@ class OwnedNode:
                 and status["status"]["process_start_ts"] == start, "daemon_start_identity")
         self.start_ts, self.instance_id = start, instance
         measured = status["status"]
-        for key in ("persist_lane_failures", "deferred_persist_failed"):
-            value = measured["resident"][key]
-            require(type(value) is int and value == 0, "daemon_persist_failure")
-        for key in ("unresolved_atom_skips", "unresolved_atom_distinct", "unresolved_atom_rows"):
-            value = measured["integrity"][key]
-            require(type(value) is int and value == 0, "daemon_read_integrity")
-        require(measured["integrity"]["unresolved_distinct_capped"] is False
-                and native["native_disk"]["writer_failed"] is False, "daemon_native_health")
+        require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
         if not self.backup_source:
             require(durability["automatic_enabled"] is False and durability["running"] is False,
@@ -202,13 +195,11 @@ class OwnedNode:
             if expected.get("deleted") is True:
                 require(item["status"] == 200 and result["ok"] is True
                         and result["returned_count"] == 0 and result["results"] == []
-                        and not result.get("has_more", False)
-                        and result.get("unresolved_rows", 0) == 0, "deleted_key_stays_absent")
+                        and not result.get("has_more", False), "deleted_key_stays_absent")
                 continue
             require(item["status"] == 200 and result["ok"] is True
                     and result["returned_count"] == 1 and len(result["results"]) == 1
-                    and not result.get("has_more", False)
-                    and result.get("unresolved_rows", 0) == 0, "keyed_record_complete")
+                    and not result.get("has_more", False), "keyed_record_complete")
             fields = result["results"][0]["fields"]
             require(result["results"][0]["key"] == {"hash": expected["id"], "range": None},
                     "keyed_record_identity")

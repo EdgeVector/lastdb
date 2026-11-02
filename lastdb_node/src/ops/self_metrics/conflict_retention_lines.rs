@@ -5,13 +5,9 @@ use super::*;
 /// The janitor releases a kept conflict record at the end of its retention
 /// window. The line shows the window, the janitor's last run, the queue depth
 /// and the number of queue buckets when the status was sampled, the failed wakes of the janitor, and what the janitor and the
-/// purge released. Always emits one
-/// line, so a daemon that predates the field reads differently from one with
-/// an empty queue.
+/// purge released. Always emits one line.
 pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let Some(report) = snapshot.conflict_retention.as_ref() else {
-        return vec!["Conflict retention: unsupported by daemon (no retention report)".to_string()];
-    };
+    let report = &snapshot.conflict_retention;
     let janitor = if report.janitor_interval_ms == 0 {
         "janitor off".to_string()
     } else {

@@ -26,8 +26,8 @@ pub(super) async fn open(
 
 #[async_trait]
 impl NamespacedStore for Reader {
-    fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
-        Some(Arc::clone(&self.runtime))
+    fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
+        Arc::clone(&self.runtime)
     }
 
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {

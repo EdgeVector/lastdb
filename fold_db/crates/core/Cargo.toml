@@ -60,7 +60,7 @@ thiserror = { workspace = true }
 observability = { workspace = true }
 # Pure wire schema types (shared with schema_service; no storage).
 schema_types = { workspace = true }
-# Pure LastDB models: atoms, molecules, schemas, keys, mutations (no behavior).
+# Pure LastDB models: records, field keys, schemas, keys, mutations (no behavior).
 lastdb_model = { workspace = true }
 
 ed25519-compact = "2.2.0"

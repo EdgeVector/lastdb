@@ -206,7 +206,7 @@ export async function runFileIngestion(options) {
       ? {
           key: matched.key,
           fields: matched.fields,
-          author_pub_key: matched.authorPubKey,
+          metadata: matched.metadata,
         }
       : null,
   };

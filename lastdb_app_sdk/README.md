@@ -71,7 +71,7 @@ await fold.mutate('fbrain/Concept', {                          // capability aut
 });
 const { rows } = await fold.query('fbrain/Concept', { fields: ['id', 'title'] });
 for (const row of rows) {
-  console.log(row.key, row.fields, row.authorPubKey); // full envelope per row
+  console.log(row.key, row.fields, row.metadata); // full envelope per record
 }
 ```
 
@@ -197,7 +197,7 @@ const db = ownerClient({
 });
 
 // Full read/write across any schema — device trust, no write-own restriction.
-const rows = await db.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
+const records = await db.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
 await db.mutate('fbrain/Concept', {
   mutationType: 'create',
   fields: { id: 'c1', title: 'hello' },
@@ -323,9 +323,8 @@ the socket lives:
 2. **`FOLDDB_SOCKET_PATH`** — second explicit override, read when
    `LASTDB_SOCKET_PATH` is unset.
 3. **`<data_dir>/folddb.sock`** — the default the node binds:
-   `<folddb_home>/data/folddb.sock` where
-   `folddb_home` honors `LASTDB_HOME` → `FOLDDB_HOME` → an existing `~/.lastdb`
-   → an existing `~/.folddb` → `~/.lastdb`. Used only when the file exists.
+   `<home>/data/folddb.sock`. The home is `LASTDB_HOME` when it is set,
+   else `~/.lastdb`. The SDK uses this path only when the file exists.
 4. **Loopback TCP at `baseUrl`** — the fallback when no socket file exists (a
    pre-data-plane node, or one whose socket bind failed).
 
@@ -451,28 +450,32 @@ snapshot; concurrent writes or deletes can change membership between pages.
 
 ## Query result envelope
 
-`query()` returns the node's **full per-row envelope**, not a bare field map.
-Each `QueryRow` carries:
+`query()` returns the node's **full envelope for each record**, not a bare
+field map. Each `QueryRow` (the SDK type name) carries:
 
 | Field | Meaning |
 |---|---|
-| `key` | the row's storage key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
-| `keyValue` | the row's **structured** `{hash, range}` key — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` only when the key has neither a hash nor a range |
+| `key` | the record key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
+| `keyValue` | the **structured** `{hash, range}` key of the record — pass it back verbatim as `MutationOp.key` to update/delete this exact record; `null` only when the key has neither a hash nor a range |
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
-| `metadata` | write metadata keyed by field name. In a format 7 home each entry holds the record's `source_file_name` and `metadata`, and `atom_uuid` is an empty string; there is no `molecule_uuid` or `writer_pubkey` |
-| `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null`; always `null` from a format 7 home |
+| `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
-This is the exact shape `lastdbd`'s `/api/query` builds
-(`{key, fields, metadata, author_pub_key}` per result key, under `results`);
-the SDK surfaces those fields faithfully and invents none. A body without a
-`results` array, or a row without an object `key` and `fields`, throws
-`UnexpectedResponseError`.
+This is the API 21 shape of `lastdbd`'s `/api/query`. Each item of `results`
+is one record: `{key, fields, metadata, has_conflicts}`.
+`metadata` is `{source_file_name, metadata?}` or `null`.
+`has_conflicts` is `true`, `false`, or `"unknown"`. When it is `true`,
+`conflicted_fields` names the returned fields that have a kept conflict.
+The page reports `conflict_flags` (`"known"` or `"unknown"`); a `false` flag
+is clean only when the page says `"known"`.
+The SDK surfaces the key, field, and metadata parts and invents none. A body
+without a `results` array, or a record without an object `key` and `fields`,
+throws `UnexpectedResponseError`.
 
 ## Pagination
 
 Mini / production `lastdbd` **always pages `/api/query`**: with no `limit` it
 still caps the response at its default page size (100, `DEFAULT_QUERY_LIMIT`),
-so a plain `query()` against a >100-row schema is silently truncated. The SDK
+so a plain `query()` against a schema with more than 100 records is silently truncated. The SDK
 exposes the node's pagination params and metadata:
 
 - `query(schema, { limit, offset })` — forwarded verbatim as the request's
@@ -483,13 +486,13 @@ exposes the node's pagination params and metadata:
   `returnedCount`, `limit`, `offset`, `hasMore`), or `null` when the node
   reported none. `page?.hasMore` is the truncation signal.
 - `queryAll(schema, filter?, { pageSize?, maxRows? })` — auto-paginates until
-  the node reports no more rows and returns everything as one result.
+  the node reports no more records and returns everything as one result.
   `maxRows` (default 100k) is the safety ceiling; when hit, the returned
   `page.hasMore` stays `true` so the truncation is visible.
 
 ```ts
 const all = await fold.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
-console.log(all.rowCount, all.page?.hasMore); // every row; false unless maxRows hit
+console.log(all.rowCount, all.page?.hasMore); // every record; false unless maxRows hit
 ```
 
 ## Batch reads (`queryBatch`)
@@ -508,7 +511,7 @@ else console.error(note.error); // the typed error `query` would have thrown
 ```
 
 - Outcomes come back **in request order**. A failing item is `{ ok: false, error }`
-  with the same typed error `query` throws; the other items still return rows.
+  with the same typed error `query` throws; the other items still return records.
   The call itself throws only when the whole request is refused (auth,
   capability, malformed) or the transport fails.
 - More than 64 items go out as several requests, joined in order.
@@ -530,12 +533,12 @@ associative recall over the user's data, ranked by relevance.
 const { hits } = await fold.search('quantum computing', { k: 10 });
 for (const hit of hits) {
   console.log(hit.score, hit.schemaName, hit.key, hit.fields);
-  //          ^relevance ^which schema   ^row key  ^full envelope
+  //          ^relevance ^which schema   ^record key ^full envelope
 }
 ```
 
-Each hit is a full `QueryRow` envelope (`key` + `fields` + `metadata` +
-`authorPubKey`, exactly as `query()` returns) plus three search-only fields:
+Each hit is a full `QueryRow` envelope (`key` + `fields` + `metadata`,
+exactly as `query()` returns) plus three search-only fields:
 
 | Field | Meaning |
 |---|---|
@@ -577,7 +580,7 @@ search — the SDK surfaces that as `PermissionDeniedError`.
 `changes()` reads thin, ordered mutation metadata from `POST /api/app/changes`.
 The feed is persisted in a bounded, node-local LastDB namespace; it is not a
 sidecar file and is not cloud-synced product data. Consumers must point-read
-the authoritative row after each event.
+the authoritative record after each event.
 
 ```ts
 let cursor: string | undefined;
@@ -601,7 +604,7 @@ event history as complete.
 A `mutate` can carry an optional `expected` **CAS precondition** on a single
 field — the write is applied only if the field still holds the value you expect,
 so contended writers (ref updates, state-machine transitions, first-writer-wins
-rows) don't clobber each other:
+records) don't clobber each other:
 
 ```ts
 // "update main from oldoid → newoid, but only if it's still at oldoid"
@@ -710,18 +713,18 @@ interface QueryPage { totalCount: number; returnedCount: number; limit: number; 
 interface KeyValue { hash: string | null; range: string | null }
 interface QueryRow {
   key: string                          // rendered key string (Display form; ambiguous with ':' ranges)
-  keyValue: KeyValue | null            // structured row address — pass back as MutationOp.key
+  keyValue: KeyValue | null            // structured record address — pass back as MutationOp.key
   fields: Record<string, JsonValue>    // the flattened field map
-  metadata: JsonValue                  // per-field write metadata (writer_pubkey, …)
-  authorPubKey: string | null          // who authored the row
+  metadata: RecordMetadata | null      // the one metadata block of the record
 }
+interface RecordMetadata { source_file_name: string | null; metadata?: Record<string, string> }
 
 interface SearchOptions {
   k?: number                           // top-N hits (node defaults + clamps)
   target?: string                      // ONE schema the node INTERSECTS with S(A); never an allowlist
 }
 interface SearchResult { hits: SearchHit[] }
-interface SearchHit extends QueryRow { // the full row envelope, plus:
+interface SearchHit extends QueryRow { // the full record envelope, plus:
   score: number | null                 // relevance (cosine), or null
   schemaName: string                   // which (in-scope) schema the hit came from
   schemaDisplayName: string | null
@@ -746,7 +749,7 @@ interface MutationResult {
 class CasConflictError extends FoldDbError {
   readonly schema: string | null      // the schema the write targeted
   readonly field: string | null       // the field the precondition checked
-  readonly key: string | null         // the row key (rendered)
+  readonly key: string | null         // the record key (rendered)
   readonly expected: string | null    // the value the write expected
   readonly actual: string | null      // the value the node observed (null when the field was absent)
   readonly body: unknown              // the verbatim parsed 409 body

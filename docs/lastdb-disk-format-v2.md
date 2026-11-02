@@ -18,13 +18,13 @@ The [native node design](lastdb-disk-native-node.md) describes the memory and re
 <data>/disk-cas/runs/<UUID>.ldrun
 ```
 
-`disk-run` holds the main records. `disk-cas` holds the `cas_blobs` records.
+`disk-run` holds the main entries: records, alternate entries, and system entries. `disk-cas` holds the `cas_blobs` entries.
 The separate files permit different cloud destinations without a format conversion.
 Each authenticated `CURRENT` names the complete readable files of its own home.
 It records the home identity, physical generation, logical frontier, ordered run sets, and any incomplete base merge.
 The frontier advances for a complete native commit. Compaction advances the generation without a new logical frontier.
 
-Ordinary reads use one captured committed state and the logical warm set.
+Ordinary reads use one captured committed state and the warm set.
 They use neither the private write queue nor the mutation log.
 A range reads matching ordered keys from the required runs and resolves newer values and tombstones first.
 The [LastStore engine](../vendor/laststore/README.md) describes the file reads and compaction.
@@ -33,19 +33,19 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 
 | Component | Current writer | Current reader |
 | --- | --- | --- |
-| Node marker | `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n` | The same exact marker only; a format 3 marker is refused |
-| Home descriptor | 64 bytes; magic `LDRHOME3`; descriptor version 1; home UUID; CRC32 | The same descriptor; `LDRHOME2` is refused |
-| `CURRENT` payload | Magic `LDRCUR2\0` inside one encrypted frame | `LDRCUR2\0`, or `LDRCUR1\0` without a base; the latter opens as tiered runs |
+| Node marker | `format=8\nhome=disk-run\ncas=disk-cas\n` | The same exact marker only |
+| Home descriptor | 64 bytes; magic `LDRHOME3`; descriptor version 1; home UUID; CRC32 | The same descriptor only |
+| `CURRENT` payload | Magic `LDRCUR2\0` inside one encrypted frame | `LDRCUR2\0` only |
 | Run footer | 64 bytes; magic `LDRUN\x01\0\0`; version 1; run UUID; top-block position; counts; CRC32 | The same footer, with counts checked against the authenticated top block |
 | Encryption frame | Magic `LSF1`; version 2; raw or zstd flag; authenticated header; ciphertext; 16-byte tag | Version 2 with known flags only |
 | Stored value | Tag 0 for original bytes; tag 1 for compact JSON | Tags 0 and 1 only |
-| Logical key format | `7;typed-ranges=v1` | `7;typed-ranges=v1` only; `6` and `6;delete-replay-cutoff=v1` are refused |
-| Client backup profile | Profile 2 | Profile 2 only, with the exact native identities, hashes, totals, and required features; profile 1 is refused |
+| Logical key format | `typed-ranges` in the entry `layout:keys` | `typed-ranges` only |
+| Client backup profile | Profile 6 | Profile 6 only, with the exact native identities, hashes, totals, and required features |
 
 The marker is an exact byte contract. Its filename alone does not prove compatibility.
-A missing delete replay cutoff record means cutoff 0.
+A missing delete replay cutoff entry means cutoff 0.
 The node checks the logical format and account proof before ordinary access or writer cleanup.
-The [typed range contract](designs/typed-range-field-contract.md) defines the complete scalar and molecule profiles.
+The [typed range contract](designs/typed-range-field-contract.md) defines the complete scalar and field key profiles.
 
 Every home uses blinded hashes and typed ordered ranges inside encrypted blocks.
 No environment setting selects another key encoding.
@@ -55,11 +55,12 @@ An older home moves with one manual copy into a new home. The program has no con
 ## Record and encryption bytes
 
 A run key contains a two-byte big-endian collection length, the collection bytes, and the complete storage key.
-Records use strict ascending byte order. Duplicate keys within a commit resolve to its last mutation before the run write.
+Run entries use strict ascending byte order. Duplicate keys within a commit resolve to its last mutation before the run write.
 Each block stores common key prefixes once and uses unsigned LEB128 lengths.
-A record stores a tombstone or its tagged value.
+A run entry stores a tombstone or its tagged value.
 Tag 1 must reproduce the exact original compact JSON bytes; otherwise the writer uses tag 0.
-The tag 1 key dictionary and element codes cannot change under that tag.
+The tag 1 key dictionary and element codes are fixed for format 8. A different dictionary
+needs a new home format.
 
 The [value codec](../vendor/laststore/src/disk_run/value/mod.rs) defines those codes and the fixed dictionary.
 The [filter codec](../vendor/laststore/src/disk_run/bloom.rs) fixes its hash and seven-probe rule.
@@ -73,9 +74,9 @@ The nonce contains four zero bytes followed by the eight-byte big-endian counter
 Data counters start at zero; lookup counters start at `1 << 62`; the top counter is `1 << 63`.
 The writer uses zstd level 3 only when the compressed bytes and length prefix are smaller.
 
-Keys, lookup contents, atoms, tips, counters, and control values all receive block encryption.
-Atoms use plain logical JSON within those encrypted blocks, without another atom envelope.
-Portable file ciphertext retains its separate format inside CAS records.
+Keys, lookup contents, records, counters, and control values all receive block encryption.
+Records use plain JSON within those encrypted blocks, without another record envelope.
+Portable file ciphertext retains its separate format inside CAS entries.
 Descriptors, footers, frame headers, file lengths, and file counts remain readable.
 The private identity seed remains a separate local file and never enters a native backup.
 The [at-rest threat model](security/at-rest-threat-model.md) states that separate key boundary.
@@ -124,15 +125,16 @@ Backup holds retain bytes independently. Local compaction cannot promise erasure
 | `CURRENT` file | At most 64 MiB; its writer also checks the payload before encryption |
 | Manifest shape | At most 32 tiered levels and 4096 runs per level, merge set, or base |
 | Native commit | At most 16,384 physical mutations |
-| Logical atom content | 256 KiB default; configured range 1 KiB through 1 MiB |
-| Logical warm set | 256 MiB default byte budget; no former 10,000-record retention cap |
+| Record | At most 64 KiB (`MAX_RECORD_BYTES`), with its stamps, metadata, and delete floor |
+| Field value of a peer record | 256 KiB default (`LASTDB_MAX_FIELD_VALUE_BYTES`); configured range 1 KiB through 1 MiB |
+| Warm set | 256 MiB default byte limit; no record count limit |
 | Pending native writes | 512 MiB shared memory allowance |
 | Ordinary read work | Separate limits for keys, pages, blocks, and cumulative bytes; an explicit resource error ends excess work |
 | Backup work | 96 MiB memory, four streams with 1 MiB buffers, and 1 GiB durable spool policy |
 
 These limits do not define a maximum for the complete process memory size.
-The physical value limit does not enlarge the logical atom limit.
-The read work limit does not define the logical warm-set size or the database record count.
+The physical value limit does not enlarge the record cap.
+The read work limit does not define the warm set size or the database record count.
 
 The current block targets are 16 KiB, with ten filter bits per key.
 A tiered merge becomes due at eight runs. A tiered step reads at most 64 input runs.
@@ -155,7 +157,7 @@ An incomplete upload never replaces the preceding accepted recovery point.
 
 The client profile and encrypted recovery metadata describe the physical and logical contracts.
 The service does not decode them. A native format change does not require cloud knowledge of LastDB files.
-The current backup feature set is 176: record references 16, large batches 32, and atom records 128.
+The current backup feature set is 176: the base bit 16, large batches 32, and the record layout 128.
 Those feature bits occur in client backup metadata, not in the local home descriptor.
 
 A compatible change preserves every accepted byte meaning and reads existing supported files without conversion.

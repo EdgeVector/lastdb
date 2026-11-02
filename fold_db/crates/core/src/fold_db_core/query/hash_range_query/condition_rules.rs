@@ -181,7 +181,7 @@ pub(super) fn exact_key_selected_fields(
     }
     // The host orders its formatted rows after the core returns its
     // records. Keep this captured value internally, then let its formatter
-    // remove the helper from the public projection and metadata.
+    // remove the helper from the public projection.
     if let Some(order_by) = order_by {
         if !selected.contains(&order_by.field) {
             selected.push(order_by.field.clone());

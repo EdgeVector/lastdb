@@ -8,6 +8,6 @@ pub mod hash_range_query;
 pub mod query_executor;
 
 // Re-export main query functionality
-pub use formatter::{FieldMetadata, QueryRecords, Record};
+pub use formatter::{QueryRecords, Record, RecordMetadata};
 pub use hash_range_query::HashRangeQueryProcessor;
 pub use query_executor::QueryExecutor;

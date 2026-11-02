@@ -117,24 +117,14 @@ pub(crate) fn peak_request_bytes_from_ops(
     (slowest_request_ms, peak_request_bytes)
 }
 
-/// One line for `lastdb status`: used-record cap for tips and atoms.
-///
-/// This is the memory limit for the logical resident set. The byte budgets
-/// on the Memory budget line bound other collections.
-pub(super) fn logical_keys_status_line(r: &ResidentHealth) -> String {
+/// One line for `lastdb status`: the records in the warm set. Bytes, not a
+/// record count, limit the warm set; the Warm set bytes line shows the limit.
+pub(super) fn warm_records_status_line(r: &ResidentHealth) -> String {
     let count = r.resident_key_count.as_wire_u64().map_or_else(
         || "unavailable from this daemon".to_string(),
         |n| n.to_string(),
     );
-    let budget_n = r.resident_key_budget.as_wire_u64();
-    let budget = budget_n.map_or_else(
-        || "unavailable from this daemon".to_string(),
-        |n| n.to_string(),
-    );
-    format!(
-        "Logical keys: {count} / {budget} ({})",
-        logical_key_memory_limit_for(budget_n)
-    )
+    format!("Warm records: {count} (limited by warm set bytes)")
 }
 
 pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<String> {
@@ -144,18 +134,8 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
     let ratio = memory
         .implied_footprint_multiplier
         .map_or_else(|| "unavailable".to_string(), |ratio| format!("{ratio:.2}x"));
-    let heaviest = if memory.deferred_heaviest_lane.is_empty() {
-        "none".to_string()
-    } else {
-        format!(
-            "{}:{}",
-            memory.deferred_heaviest_lane,
-            format_bytes(memory.deferred_heaviest_lane_bytes)
-        )
-    };
     Some(format!(
-        "Memory admission: deferred={} / {} lane_fair_share={} heaviest_lane={} \
-         refuse_bytes={} refuse_entries={} · reserve={} · projection={} ± {} diverged={} · \
+        "Memory admission: deferred={} / {} · reserve={} · projection={} ± {} diverged={} · \
          footprint={} over_limit={} runtime_degraded={} · implied_multiplier={ratio} · \
          allocator={} allocator_committed={} allocator_reserved={} \
          malloc_in_use={} malloc_held_free={} footprint_net={} footprint_sticky={} \
@@ -165,10 +145,6 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
          peak_request_bytes={} slowest_request_ms={}",
         format_bytes(memory.deferred_persist_bytes),
         format_bytes(memory.deferred_persist_cap_bytes),
-        format_bytes(memory.deferred_lane_fair_share_bytes),
-        heaviest,
-        memory.deferred_lane_refuse_bytes,
-        memory.deferred_lane_refuse_entries,
         format_bytes(memory.charged_budget_bytes),
         format_bytes(memory.projected_total_bytes),
         format_bytes(memory.projection_tolerance_bytes),
@@ -218,23 +194,12 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
 
 fn node_home_line(snapshot: &StatusSnapshot) -> String {
     let size = dir_size_display(snapshot.home_bytes, snapshot.home_size_walks);
-    match (snapshot.home_path_disclosed, snapshot.home.as_deref()) {
-        (true, Some(path)) => format!("Node home: {path} ({size})"),
-        (true, None) => format!("Node home: (path missing) ({size})"),
-        (false, _) => format!("Node home: (path not disclosed) ({size})"),
-    }
+    format!("Node home: {} ({size})", snapshot.home)
 }
 
 fn data_dir_line(snapshot: &StatusSnapshot) -> String {
     let size = dir_size_display(snapshot.data_dir_bytes, snapshot.data_dir_size_walks);
-    match (
-        snapshot.data_dir_path_disclosed,
-        snapshot.data_dir.as_deref(),
-    ) {
-        (true, Some(path)) => format!("Data dir: {path} ({size})"),
-        (true, None) => format!("Data dir: (path missing) ({size})"),
-        (false, _) => format!("Data dir: (path not disclosed) ({size})"),
-    }
+    format!("Data dir: {} ({size})", snapshot.data_dir)
 }
 
 fn sampler_line(snapshot: &StatusSnapshot) -> String {
@@ -293,17 +258,17 @@ fn watchers_line(snapshot: &StatusSnapshot) -> String {
 
 /// The value limit applies to one field value of a peer record
 /// (`peer_import/records/admission.rs`). The JSON fields and the env var keep
-/// their `max_atom_content` names for their readers.
+/// their `max_field_value` names for their readers.
 fn limits_line(snapshot: &StatusSnapshot) -> String {
     format!(
         "Limits: max_request_body={} B; max_record={} B; max_peer_field_value={} B (default {} B; \
          abs max {} B; env {})",
         gauge_or_zero(&snapshot.limits.max_request_body_bytes),
         gauge_or_zero(&snapshot.limits.max_record_bytes),
-        gauge_or_zero(&snapshot.limits.max_atom_content_bytes),
-        gauge_or_zero(&snapshot.limits.max_atom_content_bytes_default),
-        gauge_or_zero(&snapshot.limits.max_atom_content_bytes_absolute_max),
-        snapshot.limits.max_atom_content_bytes_env,
+        gauge_or_zero(&snapshot.limits.max_field_value_bytes),
+        gauge_or_zero(&snapshot.limits.max_field_value_bytes_default),
+        gauge_or_zero(&snapshot.limits.max_field_value_bytes_absolute_max),
+        snapshot.limits.max_field_value_bytes_env,
     )
 }
 
@@ -320,9 +285,9 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         node_home_line(snapshot),
         data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
-        at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
+        at_rest_compression_status_line(snapshot.at_rest_compression),
     ];
-    lines.insert(1, logical_keys_status_line(&snapshot.resident));
+    lines.insert(1, warm_records_status_line(&snapshot.resident));
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
     }
@@ -333,12 +298,7 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 }
 
 fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let mut lines = vec![resident_status_line(&snapshot.resident)];
-    if let Some(line) = integrity_status_line(&snapshot.integrity) {
-        lines.push(line);
-    }
-    lines.extend(purge_stats_lines(snapshot));
-    lines.extend(local_retention_lines(snapshot));
+    let mut lines = local_retention_lines(snapshot);
     lines.extend(verify_refs_status_lines(snapshot));
     lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
@@ -361,14 +321,9 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 
 /// At-rest compression effectiveness since this daemon process started.
 ///
-/// This line is unconditional. In particular, zero counters are useful: they
-/// mean the daemon supports the metric but has not sealed anything since its
-/// last restart. An absent field is reserved for an older, unsupported daemon.
-pub(super) fn at_rest_compression_status_line(stats: Option<&AtRestCompressionHealth>) -> String {
-    let Some(stats) = stats else {
-        return "At-rest compression: unsupported by daemon (no process-lifetime counters)"
-            .to_string();
-    };
+/// This line is unconditional. Zero counters mean the daemon has not sealed
+/// anything since its last restart.
+pub(super) fn at_rest_compression_status_line(stats: AtRestCompressionHealth) -> String {
     format!(
         "At-rest compression: {:.1}% saved ({} -> {}; {} saved) sealed={} compressed / {} plain; attempts={} cpu={}ns skips=below_min:{} above_ceiling:{} not_smaller:{} disabled:{}; enabled={}; process-lifetime counters (reset on daemon restart)",
         stats.percent_saved(),

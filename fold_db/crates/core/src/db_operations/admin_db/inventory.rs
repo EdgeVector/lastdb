@@ -91,10 +91,9 @@ impl RecordStore {
             main_classes,
             main_total_keys,
             main_total_bytes,
-            per_schema_atoms: records.per_schema,
-            per_schema_atoms_total_bytes: records.total_logical_bytes,
+            per_schema_records: records.per_schema,
+            per_schema_records_total_bytes: records.total_logical_bytes,
             scan,
-            attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })
     }
@@ -104,8 +103,7 @@ impl RecordStore {
 fn inventory_notes() -> Vec<String> {
     let notes = vec![
         "Sizes count live keys and values; physical file sizes can differ.".into(),
-        "per_schema_atoms holds the live records of each schema; the name stays for its readers."
-            .into(),
+        "per_schema_records holds the live records of each schema.".into(),
     ];
 
     notes

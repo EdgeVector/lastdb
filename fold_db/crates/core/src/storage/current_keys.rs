@@ -1,15 +1,14 @@
 //! Imported data must use the same exact keys as a fresh native home.
 //!
-//! Every home is format 7. The `main` namespace holds the key families in
-//! [`CURRENT_FAMILIES`]. Every native read by key, every write and every
-//! restored row passes [`validate`], which refuses a family of an older home
-//! ([`RETIRED_FAMILIES`]).
+//! The `main` namespace holds only the key families in [`CURRENT_FAMILIES`].
+//! Every native read by key, every write and every restored row passes
+//! [`validate`], which refuses every other family.
 
 use super::error::{StorageError, StorageResult};
 
 pub(crate) mod families;
 
-/// The `main` key families that a format 7 home writes or reads.
+/// The `main` key families of a home.
 ///
 /// - `rk`: one record for each key. `ak`: the alternate key entries.
 /// - `rh`: field history copies of old record values. `ahp`, `ahk`, `ahq`,
@@ -17,92 +16,28 @@ pub(crate) mod families;
 ///   expiry queue of the history entries and its bucket directory.
 /// - `rcf`, `rcm`: the kept conflict rows of a record and its conflict marker.
 ///   `crq`, `crb`: the retention queue of those rows and its bucket directory.
-/// - `bref`: the blob counters and the blob dwell queue (`bref:v3:`).
-///   `cas_blob`: the blob dwell deletes a `cas_blob:{blob}` row of the `main`
-///   namespace with the counter. No format 7 writer puts one; the family
-///   stays so that delete passes the key law.
+/// - `bref`: the blob counters and the blob dwell queue (`bref:`).
 /// - `dellog`: the hard-delete audit rows.
-/// - `layout`: the key format marker and the delete replay floor.
+/// - `layout`: the key format marker, the delete replay floor and the field
+///   history setting.
 /// - `idem`: the idempotency keys. They live in the `idempotency`
 ///   namespace; the family stays so that a scoped key parses.
 const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "bref", "cas_blob",
-    "dellog", "layout", "idem",
-];
-
-/// Key families of a format 6 or older home. [`source_key`] still names them,
-/// so that a scope parse stops at them, and [`validate`] refuses them.
-///
-/// Format 6: atom bodies and counters (`atom`), field molecule tips (`mk`),
-/// molecule headers (`mh`), generations (`mgp`, `mgr`, `mgd`), delete
-/// barriers (`rdel`), binding edges and drain candidates (`mref`), atom file
-/// dependencies (`fdep`), conflict caches (`mcc`, `hcu`), history and
-/// conflict archive rows (`history`, `conflict`), the slot directory of kept
-/// conflict records (`crs`), the field index of atom history (`ahf`) and the
-/// schema markers (`schemaidx`). The rest retired before format 6.
-const RETIRED_FAMILIES: &[&str] = &[
-    "atom",
-    "mk",
-    "mh",
-    "mgp",
-    "mgr",
-    "mgd",
-    "rdel",
-    "mref",
-    "fdep",
-    "mcc",
-    "hcu",
-    "history",
-    "conflict",
-    "crs",
-    "ahf",
-    "schemaidx",
-    "tv",
-    "tvr",
-    "tvr-meta",
-    "ref",
-    "mord",
-    "moc",
-    "mhr",
-    "mhi",
-    "mhk",
-    "amigr",
-    "schema_atoms",
-    "idx",
-    "aloc",
-    "aref",
-    "gcatoms-meta",
-    "gcatoms-probe-ref",
-    "gcatoms-probe-tv-skip",
-    "peer-apply",
+    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "bref", "dellog",
+    "layout", "idem",
 ];
 
 /// True for a `main` key of the record lifecycle: a record, an alternate key
-/// entry, a history or conflict row, a blob counter or queue row, and the
-/// pending restore marker. Raw replay must never write one part of that
-/// lifecycle by itself, so restore validation reads each one back from the
-/// logical store.
+/// entry, a history or conflict row, and a blob counter or queue row. Raw
+/// replay must never write one part of that lifecycle by itself, so restore
+/// validation reads each one back from the logical store.
 pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let bare = source_key(key)?;
-    if bare == super::disk_pack::restore_safety::PENDING_KEY {
-        return Ok(true);
-    }
     let family = bare.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,
-        "ak" | "rk"
-            | "rh"
-            | "rcf"
-            | "rcm"
-            | "ahk"
-            | "ahp"
-            | "ahq"
-            | "ahb"
-            | "bref"
-            | "crq"
-            | "crb"
-            | "cas_blob"
+        "ak" | "rk" | "rh" | "rcf" | "rcm" | "ahk" | "ahp" | "ahq" | "ahb" | "bref" | "crq" | "crb"
     ))
 }
 
@@ -113,17 +48,8 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let bare = source_key(key)?;
     let family = bare.split([':', '\0']).next().unwrap_or_default();
-    if RETIRED_FAMILIES.contains(&family) {
-        return Err(unsupported("retired key family"));
-    }
-    // `dellog\0…` is the only flat kind a format 7 home writes.
-    if lastdb_model::kind_partition::KIND_PARTITION_KINDS.contains(&family)
-        && bare.as_bytes().get(family.len()) == Some(&b':')
-    {
-        return Err(unsupported("retired flat key spelling"));
-    }
-    if bare.starts_with("bref:v1:") || bare.starts_with("bref:v2:") {
-        return Err(unsupported("retired reference key format"));
+    if !CURRENT_FAMILIES.contains(&family) {
+        return Err(unsupported("unknown key family"));
     }
     validate_references(bare, family)?;
     validate_retention(bare, family)?;
@@ -136,7 +62,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     } else if let Some(rest) = bare.strip_prefix("rh:") {
         validate_digest_key(rest, 3, "invalid record history key")?;
     } else if let Some(rest) = bare.strip_prefix("rcf:") {
-        // `rcf:{S}:{sha256 hex}`: the conflict row of a format 7 record.
+        // `rcf:{S}:{sha256 hex}`: the conflict row of a record.
         validate_digest_key(rest, 1, "invalid record conflict key")?;
     }
     Ok(())
@@ -145,9 +71,9 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
 /// The retention queue of kept conflict rows and its bucket directory.
 fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        // `crq:v1:{bucket:020}\0{expires:020}:{id}`
+        // `crq:{bucket:020}\0{expires:020}:{id}`
         "crq" => key
-            .strip_prefix("crq:v1:")
+            .strip_prefix("crq:")
             .and_then(|rest| rest.split_once('\0'))
             .is_some_and(|(bucket, tail)| {
                 digits(bucket, 20)
@@ -155,10 +81,10 @@ fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
                         .split_once(':')
                         .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
             }),
-        // `crb:v1\0{bucket:020}`
-        // `crb:v1\0params` records the window of the node
+        // `crb\0{bucket:020}`
+        // `crb\0params` records the window of the node
         "crb" => key
-            .strip_prefix("crb:v1\0")
+            .strip_prefix("crb\0")
             .is_some_and(|bucket| digits(bucket, 20) || bucket == "params"),
         _ => true,
     };
@@ -172,20 +98,20 @@ fn digits(text: &str, width: usize) -> bool {
 }
 
 fn validate_record(rest: &str) -> StorageResult<()> {
-    let (molecule, suffix) = rest
+    let (field_key, suffix) = rest
         .split_once(':')
-        .ok_or_else(|| unsupported("invalid molecule key"))?;
-    validate_molecule(molecule)?;
+        .ok_or_else(|| unsupported("invalid field key"))?;
+    validate_field_key(field_key)?;
     validate_suffix(suffix)
 }
 
-/// `rh:{S}:{sha(record key)}:{field identity}:{id}`: a field history entry
-/// of a format 7 home. `S` is the record space of the schema.
+/// `rh:{S}:{sha(record key)}:{field identity}:{id}`: a field history entry.
+/// `S` is the record space of the schema.
 /// `{S}:{digest}...`: a record space, then `count` SHA-256 digests in hex.
 fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<()> {
     let mut parts = rest.split(':');
     let space = parts.next().unwrap_or_default();
-    validate_molecule(space)?;
+    validate_field_key(space)?;
     let digests: Vec<&str> = parts.collect();
     if digests.len() != count || !digests.iter().all(|part| hex_identity(part, 64)) {
         return Err(unsupported(reason));
@@ -194,8 +120,8 @@ fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<
 }
 
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
-    crate::atom::molecule_key_codec::decode_hash_range_suffix(suffix)
-        .ok_or_else(|| unsupported("retired molecule key layout"))?;
+    lastdb_model::field_key_codec::decode_hash_range_suffix(suffix)
+        .ok_or_else(|| unsupported("invalid field key layout"))?;
     Ok(())
 }
 
@@ -207,7 +133,7 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
 }
 
 /// Scope components precede a structural family. The first family owns the
-/// complete remainder, so a hash or atom placement cannot become another scope.
+/// complete remainder, so a hash or record placement cannot become another scope.
 pub(in crate::storage) fn source_key(key: &str) -> StorageResult<&str> {
     let mut bare = fixed_scope(key).unwrap_or(key);
     loop {
@@ -298,15 +224,15 @@ fn cloud_scope(key: &str) -> Option<&str> {
     hex_identity(identity, 64).then_some(bare)
 }
 
-/// A structural family of the `main` namespace: a current one or a retired
-/// one. A key names its scope before the first such family.
+/// A structural family of the `main` namespace. A key names its scope before
+/// the first such family.
 pub(in crate::storage) fn main_family(family: &str) -> bool {
-    CURRENT_FAMILIES.contains(&family) || RETIRED_FAMILIES.contains(&family)
+    CURRENT_FAMILIES.contains(&family)
 }
 
-fn validate_molecule(molecule: &str) -> StorageResult<()> {
-    if !crate::atom::molecule_uuid::is_canonical_molecule_uuid(molecule) {
-        return Err(unsupported("retired molecule identity spelling"));
+fn validate_field_key(field_key: &str) -> StorageResult<()> {
+    if !lastdb_model::field_key_id::is_canonical_field_key_id(field_key) {
+        return Err(unsupported("invalid field key identity"));
     }
     Ok(())
 }

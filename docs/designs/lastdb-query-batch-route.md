@@ -113,7 +113,7 @@ not measured here.
   to 5 (HashRange) loader loads that the node does not keep. Four of the five read
   records that do not exist: `hcu:mols` (the conflict index) in two collections,
   `mgp:v1:` (a generation pointer), and `rdel:v2:` (a delete barrier). The fifth
-  reads the molecule header, which exists but is sealed at rest, and the resident set
+  reads the field key header, which exists but is sealed at rest, and the resident set
   never admits a sealed body. Measured 2026-10-08 with a diagnostic build that logs
   each loader call (brain `design-lastdb-batch-reads-and-composable-queries-20261007`).
   This needs no API change and helps every call.

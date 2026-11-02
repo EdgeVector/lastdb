@@ -25,7 +25,7 @@ members = [
     # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
     "app_identity_crypto",
 
-    # shared `$FOLDDB_HOME` profile loader + endpoint registry + path helpers.
+    # shared `$LASTDB_HOME` profile loader + endpoint registry + path helpers.
     # A leaf crate (minimal deps) reusable across node and dev-mode support
     # without them depending on each other.
     "folddb_profile",

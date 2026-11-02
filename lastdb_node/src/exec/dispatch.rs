@@ -79,11 +79,10 @@ where
     // apply/persist/flush lifted from fold_db core's timing breakdown) add
     // into this request's totals. Non-mutation routes add nothing, so their
     // samples keep an absent phase set by construction.
-    let (resp, phase_totals, work_counts, tip_keys) =
-        Box::pin(fold_db::request_phases::run_with_phases_and_keys(
-            fold_db::user_context::run_with_user(&user_hash, work),
-        ))
-        .await;
+    let (resp, phase_totals, work_counts) = Box::pin(fold_db::request_phases::run_with_phases(
+        fold_db::user_context::run_with_user(&user_hash, work),
+    ))
+    .await;
 
     // Skip recording the status probe itself when it is the ops dashboard
     // poll — still record it, but keep schema empty. Always record so
@@ -110,8 +109,8 @@ where
         rows,
         body_bytes,
         phases: phase_timings(queue_wait_us, &phase_totals),
-        molecules_persisted: work_counts.molecules_persisted,
-        molecule_store_commits: work_counts.molecule_store_commits,
+        field_keys_persisted: work_counts.field_keys_persisted,
+        field_key_store_commits: work_counts.field_key_store_commits,
         resident_commits: work_counts.resident_commits,
         resident_operations: work_counts.resident_operations,
         uds_in_flight: uds_snapshot.map(|snap| snap.in_flight),
@@ -123,8 +122,7 @@ where
         peer_comm,
     };
     write_diagnostics::finish(write_clock, &sample);
-    host.request_telemetry
-        .record_with_tip_keys(sample, &tip_keys);
+    host.request_telemetry.record(sample);
     resp
 }
 
@@ -234,7 +232,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::NativeIndexSearch | DataRoute::SearchAppQuery | DataRoute::AppSearch => {
             OpKind::Search
         }
-        DataRoute::AtomHistory | DataRoute::AppChanges => OpKind::History,
+        DataRoute::FieldHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.

@@ -4,18 +4,16 @@ use super::*;
 
 /// Current physical prefixes and their exact destination collections.
 ///
-/// A format 7 home keeps the blob counters and the blob dwell queue in
-/// `atoms` and every other `main` row in `tips`. The key law
-/// (`storage::current_keys`) refuses the format 6 families (`atom`, `fdep`,
-/// `mref`, `schemaidx`), so no current row needs a route for them.
-const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:v3:", "atoms")];
+/// Blob counters and the blob dwell queue use the routed collection
+/// (`blob_counts`). Every other `main` row uses `records`.
+const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:", "blob_counts")];
 
 pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
     let bare = std::str::from_utf8(key)
         .ok()
         .and_then(|key| crate::storage::current_keys::source_key(key).ok());
     bare.and_then(|key| classify_main_key(key.as_bytes()))
-        .unwrap_or(TIPS_COLLECTION)
+        .unwrap_or(RECORDS_COLLECTION)
 }
 
 /// A structural prefix selects only current families. A prefix that stops
@@ -40,13 +38,13 @@ pub(super) fn main_collections_for_prefix(prefix: &[u8]) -> Vec<&'static str> {
         }
     }
     if collections.is_empty() {
-        collections.push(TIPS_COLLECTION);
+        collections.push(RECORDS_COLLECTION);
     }
     collections
 }
 
 fn all_current_collections() -> Vec<&'static str> {
-    let mut collections = vec![TIPS_COLLECTION];
+    let mut collections = vec![RECORDS_COLLECTION];
     for (_, collection) in ROUTED_PREFIXES {
         if !collections.contains(collection) {
             collections.push(*collection);

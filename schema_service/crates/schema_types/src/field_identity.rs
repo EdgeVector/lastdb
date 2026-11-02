@@ -1,5 +1,5 @@
 //! Canonical field hashes identify reusable definitions and types.
-//! A matching hash does not share record values or connect schema molecules.
+//! A matching hash does not share record values or connect schema field keys.
 
 use crate::FieldValueType;
 use sha2::{Digest, Sha256};

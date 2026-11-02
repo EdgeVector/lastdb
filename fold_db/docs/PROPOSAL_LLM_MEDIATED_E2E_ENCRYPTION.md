@@ -9,9 +9,9 @@
 
 ## 1. Executive Summary
 
-**Exemem Client** is fold_db's current process — duplicated, cloud-only, with end-to-end encryption. The HTTP server wraps requests in LLM calls exactly as fold_db does today. The LLM calls Exemem APIs to fetch or persist data (Query, Mutation, Index). Storage is routed through **Exemem's cloud API** (mutation/query endpoints) rather than hitting DynamoDB directly. Atoms are **encrypted before being written** and **decrypted when fetched**, enabling true end-to-end encryption.
+**Exemem Client** is fold_db's current process — duplicated, cloud-only, with end-to-end encryption. The HTTP server wraps requests in LLM calls exactly as fold_db does today. The LLM calls Exemem APIs to fetch or persist data (Query, Mutation, Index). Storage is routed through **Exemem's cloud API** (mutation/query endpoints) rather than hitting DynamoDB directly. Records are **encrypted before being written** and **decrypted when fetched**, enabling true end-to-end encryption.
 
-This applies to **all data surfaces**: DynamoDB atoms AND S3 file uploads.
+This applies to **all data surfaces**: DynamoDB records AND S3 file uploads.
 
 fold_db remains the open-source product with local storage. Exemem Client is the commercial product: fold_db minus local storage, with cloud API-backed persistence and E2E encryption.
 
@@ -71,7 +71,7 @@ fold_db remains the open-source product with local storage. Exemem Client is the
               │   (API Gateway + Lambda) │
               │                          │
               │   → DynamoDB (opaque     │
-              │     encrypted atoms)     │
+              │     encrypted records)     │
               │   → S3 (opaque           │
               │     encrypted files)     │
               └──────────────────────────┘
@@ -180,7 +180,7 @@ This means the entire fold_db engine — queries, mutations, indexing, schemas �
 
 | Data Surface        | Current State                                   | Proposed                                              |
 | :------------------ | :---------------------------------------------- | :---------------------------------------------------- |
-| **DynamoDB atoms**  | Server-side KMS encryption (server can decrypt) | **Client-side E2E** (server stores opaque ciphertext) |
+| **DynamoDB records**  | Server-side KMS encryption (server can decrypt) | **Client-side E2E** (server stores opaque ciphertext) |
 | **S3 file uploads** | **Not encrypted**                               | **Client-side encrypted before upload**               |
 | **Schema metadata** | Plaintext                                       | Remains plaintext (schemas are public by design)      |
 
@@ -233,7 +233,7 @@ Passkey (syncs across devices)
 ### 5.2 How It Works
 
 1. **First time**: Generate random DEK → encrypt with PRF-derived wrapping key → store encrypted DEK on Exemem Cloud
-2. **Any device**: Authenticate with passkey → PRF gives wrapping key → decrypt stored DEK → use for atoms and files
+2. **Any device**: Authenticate with passkey → PRF gives wrapping key → decrypt stored DEK → use for records and files
 3. **Passkey sync**: iCloud Keychain / Google Password Manager syncs the passkey → PRF works on any synced device
 
 ### 5.3 Browser Support
@@ -254,7 +254,7 @@ Browser (exemem.com dashboard)
     ├── 3. Unwrap stored encrypted DEK
     ├── 4. DEK held in memory (JavaScript)
     │
-    ├── On mutation: encrypt atom → send ciphertext to API
+    ├── On mutation: encrypt record → send ciphertext to API
     ├── On query:    receive ciphertext → decrypt with DEK
     ├── On file upload: encrypt chunks → upload to S3
     └── On AI query: decrypt locally → send plaintext transiently to LLM
@@ -287,13 +287,13 @@ S3 multipart upload handles the transport.
 Server only ever sees encrypted chunks.
 ```
 
-### 7.3 Atom ↔ S3 Linkage
+### 7.3 Record ↔ S3 Linkage
 
-Each uploaded file has a corresponding **atom with a metadata field** that points to the S3 object. The atom stores the reference and any extracted/structured data; the S3 object stores the encrypted raw file.
+Each uploaded file has a corresponding **record with a metadata field** that points to the S3 object. The record stores the reference and any extracted/structured data; the S3 object stores the encrypted raw file.
 
 ```
 ┌─────────────────────────────────────┐       ┌──────────────────────┐
-│  Atom (DynamoDB)                    │       │  S3 Object           │
+│  Record (DynamoDB)                    │       │  S3 Object           │
 │                                     │       │                      │
 │  fields: { ... extracted data ... } │       │  (encrypted chunks)  │
 │  s3_ref: "uploads/{user}/{file_id}" │──────►│                      │
@@ -302,7 +302,7 @@ Each uploaded file has a corresponding **atom with a metadata field** that point
 └─────────────────────────────────────┘       └──────────────────────┘
 ```
 
-The `s3_ref` metadata field lets the client retrieve and decrypt the original file from any device. The atom content (structured fields) and the S3 file (raw source) are both encrypted with the same client-side DEK.
+The `s3_ref` metadata field lets the client retrieve and decrypt the original file from any device. The field value (structured fields) and the S3 file (raw source) are both encrypted with the same client-side DEK.
 
 ### 7.4 Works Everywhere
 
@@ -318,15 +318,15 @@ The `s3_ref` metadata field lets the client retrieve and decrypt the original fi
 
 ### 8.1 Write Path (Mutation)
 
-1. Client encrypts atom content with DEK → ciphertext
+1. Client encrypts field value with DEK → ciphertext
 2. Exemem Client sends encrypted mutation via Cloud API (`POST /mutation`)
 3. Cloud API persists opaque ciphertext to DynamoDB
 
 ### 8.2 Read Path (Query)
 
 1. Exemem Client calls Cloud API (`POST /query`)
-2. Cloud API returns encrypted atoms
-3. Client decrypts atoms with DEK → plaintext
+2. Cloud API returns encrypted records
+3. Client decrypts records with DEK → plaintext
 
 ### 8.3 File Upload Path
 
@@ -336,7 +336,7 @@ The `s3_ref` metadata field lets the client retrieve and decrypt the original fi
 
 ### 8.4 LLM-Mediated Path (AI Queries)
 
-1. Client decrypts relevant atoms locally
+1. Client decrypts relevant records locally
 2. Sends decrypted context + question in transient request
 3. LLM computes answer, returns mediated response
 4. Raw data never persisted server-side
@@ -346,7 +346,7 @@ The `s3_ref` metadata field lets the client retrieve and decrypt the original fi
 1. Client computes `HMAC-SHA256(DEK, search_term)` → deterministic encrypted key
 2. ExememApiStore looks up `feature:encrypted_term` via Storage API
 3. Server returns index entries (schema references — not encrypted, don't contain user data)
-4. Client uses schema references to retrieve and decrypt the actual atoms
+4. Client uses schema references to retrieve and decrypt the actual records
 
 > [!NOTE]
 > Because the encryption is deterministic (HMAC), the same search term always produces the same encrypted key. The server can do exact-match lookups without ever seeing the plaintext term.
@@ -365,7 +365,7 @@ The `s3_ref` metadata field lets the client retrieve and decrypt the original fi
 ### Phase 2: Client-Side Encryption
 
 - DEK generation + passkey PRF wrapping
-- Encrypt-before-send for atoms (mutations) and files (S3 uploads)
+- Encrypt-before-send for records (mutations) and files (S3 uploads)
 - Decrypt-after-receive for queries and file downloads
 - Remove server-side KMS encryption for new tenants (dual-read for migration)
 - Dashboard (web UI) encryption via Web Crypto API
@@ -382,7 +382,7 @@ The `s3_ref` metadata field lets the client retrieve and decrypt the original fi
 
 | GOAL.md Concept         | How This Delivers It                                                             |
 | :---------------------- | :------------------------------------------------------------------------------- |
-| **Data Sovereignty**    | Client-side DEK — only the user can decrypt (atoms AND files)                    |
+| **Data Sovereignty**    | Client-side DEK — only the user can decrypt (records AND files)                    |
 | **Mediated Disclosure** | fold_db's existing LLM pipeline, inherited as-is                                 |
 | **Custodial Hosting**   | Exemem Cloud is the custodian — but E2E means even the custodian can't read data |
 | **Self-Hosted Option**  | fold_db (open-source, Sled) is the self-hosted PDN                               |
@@ -421,7 +421,7 @@ Index value:           → schema reference (not encrypted)
 2. Client computes `HMAC-SHA256(DEK, "hello")` → same encrypted term as write time
 3. ExememApiStore queries `word:encrypted_term` via Storage API
 4. Server returns matching schema references (unencrypted)
-5. Client uses schema references to retrieve and decrypt actual atoms
+5. Client uses schema references to retrieve and decrypt actual records
 
 ### 11.4 What's Protected
 
@@ -430,7 +430,7 @@ Index value:           → schema reference (not encrypted)
 | **Search term (key)**        | ✅ Deterministic (HMAC) | Prevents server from learning what terms exist       |
 | **Feature/classification**   | ❌ Plaintext            | Generic categories ("word", "email") — not sensitive |
 | **Index value (schema ref)** | ❌ Plaintext            | Just points to a schema — no user data               |
-| **Atom content**             | ✅ AES-256-GCM          | Full E2E encryption as described in §4               |
+| **Field value**             | ✅ AES-256-GCM          | Full E2E encryption as described in §4               |
 
 ### 11.5 Limitation: Prefix Search
 
@@ -457,7 +457,7 @@ Exemem Client exposes a **local HTTP server** that third-party apps can connect 
 │  │                │     │  Local HTTP Server        │ │
 │  │  API Key: xyz  │     │   → Validates API key     │ │
 │  └───────────────┘     │   → Enforces access policy │ │
-│                         │   → Decrypts atoms locally │ │
+│                         │   → Decrypts records locally │ │
 │  ┌───────────────┐     │   → Returns permitted data │ │
 │  │  Another App   │────►│                          │ │
 │  │  API Key: abc  │     └──────────┬───────────────┘ │
@@ -486,7 +486,7 @@ The local HTTP server enforces access policies **before** decrypting and returni
 1. App sends request with API key to `localhost:{port}`
 2. Exemem Client validates the API key
 3. Checks which schemas this key has access to
-4. If permitted: decrypts atoms locally, returns plaintext response
+4. If permitted: decrypts records locally, returns plaintext response
 5. If denied: returns 403 — app never sees the data
 
 ### 12.4 Why Local
@@ -507,7 +507,7 @@ The user is responsible for storing their passkey safely. Passkeys sync via iClo
 
 - **Same LLM pipeline** — inherited from fold_db as-is
 - **Storage via Exemem Storage API** — new `/storage/*` endpoints, not existing handlers
-- **Everything encrypted client-side** — atoms, S3 files, and search term keys
+- **Everything encrypted client-side** — records, S3 files, and search term keys
 - **Passkey PRF for key management** — DEK migrates across devices with the passkey
 - **Dashboard support** — web UI does E2E encryption via Web Crypto API
 - **Deterministic encrypted search** — HMAC on search terms, index values stay plaintext

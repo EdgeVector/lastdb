@@ -43,7 +43,7 @@ pub enum DataRoute {
     /// `GET /api/schemas` — list the node's available schemas.
     ListSchemas,
     /// `GET /api/list?schema=` — keys-only page of live record identities
-    /// (hash + range). No atom bodies. Served on both sockets.
+    /// (hash + range). No record bodies. Served on both sockets.
     ListRecordKeys,
     /// `GET /api/schema/{name}` — fetch one schema by canonical name/hash or
     /// descriptive name.
@@ -76,7 +76,7 @@ pub enum DataRoute {
     /// every identity owned by one app, from the node catalog.
     ///
     /// ACK is catalog absence: `GET /api/schema/{name}` misses. Product
-    /// tips and atoms stay until a later janitor. This is not
+    /// records stay until a later janitor. This is not
     /// `RetireSchemaNameClaim` (name resolution only) and not a product-row
     /// Delete.
     ///
@@ -165,8 +165,8 @@ pub enum DataRoute {
     /// entries are structurally unreachable), which is precisely what
     /// distinguishes it from retired owner-wide cross-namespace search.
     NativeIndexKnn,
-    /// `POST /api/atom-history` — owner-only field policies, lookup, purge and restore.
-    AtomHistory,
+    /// `POST /api/field-history` — owner-only field policies, lookup, purge and restore.
+    FieldHistory,
     /// `PUT /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob write.
     AppBlobPut,
     /// `GET /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob read.
@@ -179,15 +179,6 @@ pub enum DataRoute {
     AppOrgBlobGet,
     /// `GET /api/app/blob/footprint` — local app namespace byte footprint.
     AppBlobFootprint,
-    /// `GET /api/storage/app` — live storage grouped by `owner_app_id`, read
-    /// from the keep-small projection. OWNER socket only: it reports across
-    /// every app, so a jailed app must not see it. Bounded work — point reads
-    /// of the write-path meters, never a store walk.
-    AppStorage,
-    /// `POST /api/storage/app/reconcile` — one bounded page of declared
-    /// schema/key layouts that recovers unresolved owner attribution.
-    /// OWNER socket only. Never a collection scan.
-    AppStorageReconcile,
     /// `GET /api/storage/home` — the latest persisted unique physical ledger
     /// for the configured LastDB home. OWNER socket only. The read performs
     /// one metadata point-get and never inventories the filesystem.
@@ -214,13 +205,8 @@ pub enum DataRoute {
     SyncByteBackupV2Connect,
     /// `POST /api/sync/logical-v1` — owner trust and bounded signed device events.
     SyncLogicalV1,
-    /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
-    /// byte breakdown. OWNER socket only.
-    ///
-    /// Not a passive read: this route runs the bounded schema/system/retention
-    /// root walks and durably writes their attribution rows before it
-    /// summarizes the ledger, so a GET here has real (idempotent, catalog-sized)
-    /// write side effects.
+    /// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
+    /// byte breakdown. OWNER socket only. It writes nothing.
     DbInventory,
     /// `POST /api/db/verify-refs` — one bounded step of the reference
     /// verifier (the retention queue and the blob counters). OWNER socket only.
@@ -235,9 +221,9 @@ pub enum DataRoute {
     /// database catalog names, besides the personal scope. OWNER socket only.
     /// Reads the catalog, not the data.
     DbVerifyRefsScopes,
-    /// `GET /api/db/schemas` — atom-only per-schema logical storage.
-    /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
-    /// order-log / tip-format walks) but still a heavy admin scan.
+    /// `GET /api/db/schemas` — record-only per-schema logical storage.
+    /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
+    /// order-log walks) but still a heavy admin scan.
     DbSchemas,
     /// `POST /api/storage/liveness/explain` — point-read the counter of one
     /// file blob, and its dwell queue state.
@@ -250,8 +236,8 @@ pub enum DataRoute {
     /// `GET /api/db/native-status` — read native completion and writer state.
     /// OWNER only. This does not request a flush.
     DbNativeStatus,
-    /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
-    /// trail (purge, delete and delete-converge), oldest first. Query: `?limit=N` (0/absent =
+    /// `GET /api/db/delete-ledger` — read the durable record hard-delete audit
+    /// trail (purge and delete), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,

@@ -84,8 +84,8 @@ It does not measure the process memory size or prove the warm set cap.
 - The query can read one extra record to determine `has_more`. A request with
   `limit: 2` can therefore read three candidate records.
 - `requested_keys` covers measured exact storage and typed core lookups.
-  Those calls include schema and molecule work, atom
-  bodies, fallback probes, and atom reads for the page lookahead.
+  Those calls include schema and field key work, record
+  bodies, fallback probes, and record reads for the page lookahead.
 - The logical hit, miss, and requested-key counters do not count the keys
   that a range enumerates. They need not equal the returned record count.
 - A confirmed absent key can count as a warm hit.
@@ -93,7 +93,7 @@ It does not measure the process memory size or prove the warm set cap.
 - The receipt does not count writes, file sync calls, cloud reads, schema
   service network calls, or storage calls outside its attached context.
 - At-rest value decode and inflate contribute to `decrypt_nanos`. Upstream
-  atom-owner content decryption is outside this measurement.
+  record-owner content decryption is outside this measurement.
 - `lock_wait_nanos` covers only the lock on the call's native read context.
   It does not measure every lock that a complete query uses.
 - The time fields cover named code paths. A zero field does not prove zero

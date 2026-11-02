@@ -25,9 +25,7 @@ pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnecti
 pub use control::request;
 pub(crate) use control::status;
 pub use credentials::client_from_home;
-pub use local_snapshot::{
-    local_snapshot, local_snapshot_plan, LocalSnapshotAction, LocalSnapshotReport,
-};
+pub use local_snapshot::{local_snapshot, LocalSnapshotAction, LocalSnapshotReport};
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
 pub use stopped::{backup_stopped, StoppedBackupReport, StoppedBackupRequest};
 pub type Result<T> = std::result::Result<T, BackupError>;

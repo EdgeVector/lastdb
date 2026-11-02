@@ -4,7 +4,7 @@ use std::pin::Pin;
 use super::locks::lock_map;
 use super::SchemaCore;
 
-mod molecule_map;
+mod field_key_map;
 pub(super) mod owned;
 mod rules;
 use crate::schema::types::{Schema, SchemaError};
@@ -141,7 +141,7 @@ impl SchemaCore {
         }) // end Box::pin
     }
 
-    /// Prepare definitions, keep local molecule ownership, write durable metadata,
+    /// Prepare definitions, keep local field key ownership, write durable metadata,
     /// then publish the matching cache state.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
         schema
@@ -156,22 +156,26 @@ impl SchemaCore {
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
         owned::check_owned_declaration(&schema)?;
-        molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
-        schema.sync_molecule_uuids();
-        // Each field keeps the molecule of the installed owned schema. A field
+        field_key_map::restore_owned_field_keys(&mut schema, existing.as_ref());
+        schema.sync_field_key_ids();
+        // Each field keeps the field key of the installed owned schema. A field
         // that the installed schema lacks (a field added in place) uses its own
-        // deterministic molecule.
+        // deterministic field key.
         let retained = existing
             .as_ref()
-            .and_then(|stored| stored.field_molecule_uuids.as_ref());
-        if schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
+            .and_then(|stored| stored.field_key_ids.as_ref());
+        if schema.field_key_ids.as_ref().is_some_and(|ids| {
             ids.iter().any(|(field, id)| {
                 retained.and_then(|retained| retained.get(field)) != Some(id)
-                    && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                    && *id
+                        != lastdb_model::field_key_id::deterministic_field_key_id(
+                            &schema.name,
+                            field,
+                        )
             })
         }) {
             return Err(SchemaError::InvalidData(
-                "alternate keys require this schema's owned field molecules".into(),
+                "alternate keys require this schema's owned field keys".into(),
             ));
         }
         Self::stamp_identity_for_load(&mut schema, existing.as_ref());

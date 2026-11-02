@@ -1,4 +1,4 @@
-//! Explicit retention backfill uses bounded live-key pages, then exact tip reads.
+//! Explicit retention backfill uses bounded live-key pages, then exact record reads.
 
 use super::*;
 use crate::schema::types::{schema::DeclarativeSchemaType, KeyValue};

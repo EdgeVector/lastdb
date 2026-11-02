@@ -14,7 +14,7 @@ pub const DEFAULT_DATA_DIR_SIZE_TTL: Duration = Duration::from_secs(60);
 ///
 /// This plane used to be capped at `30 * 24 * 60` = 43,200 ROWS, read as "30
 /// days of one sample a minute". That number bounded the window, not the
-/// storage: a row costs `fields x tip_bytes`, and at today's 54 fields the
+/// storage: a row costs `fields x field_bytes`, and at today's 54 fields the
 /// row cap put the plane's ceiling at **1.29 GB** — five times the
 /// byte-budgeted sibling below, on the same store. Adding one observability
 /// field grew that ceiling by ~24 MB silently. It is the same defect the
@@ -40,9 +40,9 @@ pub const DEFAULT_SELF_METRIC_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// The budget is stated in BYTES because bytes are what grows. The retention
 /// cap used to be a row count (`48 * 60 * 64` = 184,320 rows, read as "48h of
 /// 64 buckets a minute") while the cost of a row is
-/// `fields x tip_bytes` — so the two moved independently, and when
+/// `fields x field_bytes` — so the two moved independently, and when
 /// `REQUEST_OPS_ROLLUP_FIELDS` went from 12 to 39 the plane's ceiling tripled
-/// to ~7.19M tips (~3.95 GB) with no edit to the constant that was supposed
+/// to ~7.19M field values (~3.95 GB) with no edit to the constant that was supposed
 /// to bound it, on a 7.25 GiB store. A row count cannot bound a plane whose
 /// per-row cost is a free variable.
 ///
@@ -52,13 +52,11 @@ pub const DEFAULT_SELF_METRIC_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// `LASTDB_REQUEST_OPS_ROLLUP_MAX_ROWS` to bypass the derivation entirely.
 pub const DEFAULT_REQUEST_OPS_ROLLUP_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Measured cost of one tip plus its atom on the primary, in bytes.
+/// Estimated stored cost of one field value of a telemetry record, in bytes.
 ///
-/// From `lastdb db inventory` on the live primary 2026-08-03: the `mk:` tip
-/// plane was 1,134,259,272 B over 2,044,361 keys = 555 B/key. Used only to
-/// turn the byte budget into a row cap, so it wants to be a defensible
-/// order-of-magnitude constant, not a precise one.
-pub const ROLLUP_TIP_BYTES: u64 = 555;
+/// Used only to turn the byte budget into a row cap, so it wants to be a
+/// defensible order-of-magnitude constant, not a precise one.
+pub const ROLLUP_FIELD_BYTES: u64 = 555;
 /// Relative path under node home for the out-of-band vitals log (JSONL).
 /// Survives LastDB being wedged — unlike SelfMetricSample mutations.
 pub const DEFAULT_SELF_METRICS_LOG_REL: &str = "logs/self-metrics.jsonl";

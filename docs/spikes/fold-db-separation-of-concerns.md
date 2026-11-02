@@ -11,7 +11,7 @@ Split the crate last, after the module cycles are gone.
 `fold_db` is the database engine and also the shell around the engine.
 Its functions mix decisions with effects:
 
-- A decision says what a mutation is, what a backup contains, or what stamp an atom gets.
+- A decision says what a mutation is, what a backup contains, or what stamp a record gets.
 - An effect reads or changes the world: the clock, random ids, env vars, disk, network, and tasks.
 
 Tom named four problems:
@@ -79,7 +79,7 @@ The appendix has the commands.
 | `storage` | 22,136 |
 | `schema` | 8,362 |
 | `resident` | 5,183 |
-| `atom` | 3,061 |
+| `record` | 3,061 |
 | 11 other modules and the top-level files | 9,724 |
 
 ### Effect sites
@@ -104,10 +104,10 @@ They do not change stored data, so this spike leaves them in the engine.
 
 | Constructor or method | Effect | Location |
 |---|---|---|
-| `Mutation::new` | `Uuid::new_v4()` for `uuid` | [mutation.rs:146](../../fold_db/crates/core/src/schema/types/mutation.rs#L146) |
-| `Atom::new` | `Utc::now()` for `created_at` | [atom_def.rs:91](../../fold_db/crates/core/src/atom/atom_def.rs#L91) |
-| `MoleculeHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](../../fold_db/crates/core/src/atom/molecule_hash_range/construct.rs#L17), [:40](../../fold_db/crates/core/src/atom/molecule_hash_range/construct.rs#L40) |
-| `MoleculeHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](../../fold_db/crates/core/src/atom/molecule_hash_range/ops.rs#L67), [:122](../../fold_db/crates/core/src/atom/molecule_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
+| `Mutation::new` | `Uuid::new_v4()` for `uuid` | [mutation.rs:146](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/schema/types/mutation.rs#L146) |
+| `Record::new` | `Utc::now()` for `created_at` | [record_def.rs:91](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/record_def.rs#L91) |
+| `FieldKeyHashRange::new`, `with_uuid` | `Utc::now()` for `updated_at` | [construct.rs:17](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L17), [:40](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/construct.rs#L40) |
+| `FieldKeyHashRange` write methods | `Utc::now()` for `updated_at` | [ops.rs:67](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L67), [:122](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/field_key_hash_range/ops.rs#L122), `import.rs:128`, `overlay.rs:23` |
 | `Ed25519KeyPair::generate` | `OsRng` | [security/keys.rs:19](../../fold_db/crates/core/src/security/keys.rs#L19) |
 
 One write reads the clock three times:
@@ -116,21 +116,21 @@ One write reads the clock three times:
    `state.advance_local_batch(unix_nanos(), local_count)`
    ([author_clock.rs:341](../../fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs#L341)).
    This part already has the target shape.
-2. `AtomStore::create_atom` calls `Atom::new`, which reads `Utc::now()` for `created_at`.
-3. The molecule write methods read `Utc::now()` for `updated_at`.
+2. `RecordStore::create_record` calls `Record::new`, which reads `Utc::now()` for `created_at`.
+3. The field key write methods read `Utc::now()` for `updated_at`.
 
 The three values differ for one mutation.
-A replay of the same mutation gives a new `created_at` on an atom with the same content UUID.
-The [warm set spike](../lastdb-core-model-warm-spike.md) has to handle that case.
+A replay of the same mutation gives a new `created_at` on a record with the same content UUID.
+The [warm set spike](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/docs/lastdb-core-model-warm-spike.md) (at the base commit, since removed) had to handle that case.
 
-`create_atom` also reads a process global.
-It calls `enforce_atom_content_limit`, which reads `max_atom_content_bytes()`.
-That function returns a `OnceLock` value from `LASTDB_MAX_ATOM_CONTENT_BYTES`.
+`create_record` also reads a process global.
+It calls `enforce_field_value_limit`, which reads `max_field_value_bytes()`.
+That function returns a `OnceLock` value from `LASTDB_MAX_FIELD_VALUE_BYTES`.
 
 ### Problem 2: a decision and its effects in one function
 
 The backup planner is in
-[planner.rs](../../fold_db/crates/core/src/storage/disk_pack/byte_backup/planner.rs).
+[planner.rs](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/storage/disk_pack/byte_backup/planner.rs).
 
 - `build` (line 19) lists the files on disk (`inner.files()`) and writes `job.json` two times.
 - `input` (line 100) reads a frozen plan from disk.
@@ -166,7 +166,7 @@ The schema types also fetch their own data.
 
 The engine reads env vars in constructors and in hot paths:
 
-- `FoldDB` boot reads the conflict janitor and molecule drain task policies
+- `FoldDB` boot reads the conflict janitor and field key drain task policies
   ([init_boot.rs:50, :74, :101](../../fold_db/crates/core/src/fold_db_core/fold_db/init_boot.rs#L50)).
 - The `MutationManager` constructor reads `ResidentPolicy::from_env()`
   ([mutation_manager/mod.rs:185](../../fold_db/crates/core/src/fold_db_core/mutation_manager/mod.rs#L185)).
@@ -181,7 +181,7 @@ Three budgets live in `OnceLock` statics:
 | Function | Static | Location |
 |---|---|---|
 | `process_memory_budget()` | `BUDGET` | [process_budget.rs:196](../../fold_db/crates/core/src/memory_budget/process_budget.rs#L196) |
-| `max_atom_content_bytes()` | `EFFECTIVE_LIMIT` | [size_limit.rs:55](../../fold_db/crates/core/src/atom/size_limit.rs#L55) |
+| `max_field_value_bytes()` | `EFFECTIVE_LIMIT` | [size_limit.rs:55](https://github.com/EdgeVector/lastdb/blob/e1a4a349c4e0a09619e082fc253fa40956f8042c/fold_db/crates/core/src/record/size_limit.rs#L55) |
 | `core_warm_bytes()` | `CORE_WARM_BYTES_IN_FORCE` | [warm_bytes.rs:17](../../fold_db/crates/core/src/resident/warm_bytes.rs#L17) |
 
 The first read sets each value for the life of the process.
@@ -213,9 +213,9 @@ The table counts `crate::<module>` references between top-level modules.
 |---|---|---|
 | `schema` | `storage` (28), `db_operations` (26), `fold_db_core` (1) | model to engine: wrong direction |
 | `crypto` | `storage` (2) | model to engine: wrong direction |
-| `atom` | `schema` (4), `security` (1), `crypto` (1), `sharing` (1) | model to model: small |
+| `record` | `schema` (4), `security` (1), `crypto` (1), `sharing` (1) | model to model: small |
 | `storage` | `schema` (22), `db_operations` (16), `sharing` (6) | engine to model and engine |
-| `db_operations` | `schema` (294), `storage` (157), `atom` (123) | engine to model: correct direction |
+| `db_operations` | `schema` (294), `storage` (157), `record` (123) | engine to model: correct direction |
 
 The wrong-direction edges are the work.
 Most `schema` to engine edges come from the fetch code in `schema::types::field`.
@@ -225,7 +225,7 @@ Cycles inside the engine (`storage` and `db_operations`) can stay, because they 
 ### Patterns that already work
 
 - A pure parse function sits next to most env reads, for example
-  `parse_core_warm_bytes(Option<&str>)`, `parse_max_atom_content_bytes`, and `parse_interval`.
+  `parse_core_warm_bytes(Option<&str>)`, `parse_max_field_value_bytes`, and `parse_interval`.
   Only the `std::env::var` call has to move.
 - `advance_local_batch(now, count)` gets the time as an argument.
 - `FoldDbOptions` already carries open-time inputs (`offline_maintenance`, `search_outbox_inbox`).
@@ -275,9 +275,9 @@ pub trait IdGen: Send + Sync {
 pub struct EngineConfig {
     pub memory: ProcessMemoryBudget,
     pub warm_set: WarmSetConfig,      // LASTDB_CORE_WARM_BYTES
-    pub atoms: AtomLimits,            // LASTDB_MAX_ATOM_CONTENT_BYTES
+    pub records: RecordLimits,            // LASTDB_MAX_FIELD_VALUE_BYTES
     pub resident: ResidentPolicy,
-    pub drain: MoleculeDrainPolicy,
+    pub drain: FieldKeyDrainPolicy,
     pub janitor: ConflictJanitorPolicy,
     pub disk: SpacePolicy,
     pub at_rest: AtRestConfig,
@@ -299,9 +299,9 @@ pub struct FoldDbOptions {
 | Today | Target |
 |---|---|
 | `Mutation::new(schema, fields, key, pub_key, kind)` | `Mutation::new(id, schema, fields, key, pub_key, kind)` |
-| `Atom::new(schema, content)` | `Atom::new(schema, content, created_at)` |
-| `MoleculeHashRange::new(schema, field)` | `MoleculeHashRange::new(schema, field, at)` |
-| `set_atom_uuid_from_values(...)` sets `updated_at` from the clock | the same method gets `at` |
+| `Record::new(schema, content)` | `Record::new(schema, content, created_at)` |
+| `FieldKeyHashRange::new(schema, field)` | `FieldKeyHashRange::new(schema, field, at)` |
+| `set_value_id_from_values(...)` sets `updated_at` from the clock | the same method gets `at` |
 | `Ed25519KeyPair::generate()` | `Ed25519KeyPair::generate(&mut rng)`; the host supplies `OsRng` |
 | `planner::build(inner, state, key)` | `plan_objects(&inventory, &policy) -> Vec<PlannedObject>` in the model, and a shell step in the engine that lists files and writes `job.json` |
 
@@ -323,8 +323,8 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 
 | PR | Change |
 |---|---|
-| 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and atom content limit. |
-| 2b | Move the task policies: molecule drain, conflict janitor, lane breaker cooldown, writer watch, `keep_small` interval, blob dwell, and conflict retention. |
+| 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and field value limit. |
+| 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, blob dwell, and conflict retention. |
 | 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, `LASTDB_ENGINE`, attribution events, and the conflict index flags. |
 | 2d | Move the other process state into the `FoldDB` instance (appendix list). Keep a static only with a written reason, for example the process start time in `footprint.rs`. |
 
@@ -336,7 +336,7 @@ Done when: `fold_db` has 0 env reads and 0 `OnceLock` statics.
 |---|---|
 | 3a | Add `Clock` and `IdGen` to `fold_db`. The host passes `SystemClock` and `SystemIds`. `FoldDB` holds them. |
 | 3b | `Mutation::new` gets the id. `lastdb_host` takes it from `IdGen` in `into_mutation` ([handlers/mutation.rs:86](../../lastdb_host/src/handlers/mutation.rs#L86)), where the comment already says "Allocate one mutation identity". Update the 10 callers. |
-| 3c | `Atom::new` and the `MoleculeHashRange` writes get the time. The write path passes the mutation admission time (D2). |
+| 3c | `Record::new` and the `FieldKeyHashRange` writes get the time. The write path passes the mutation admission time (D2). |
 | 3d | Replace the other clock and id calls: repair and guard tokens, generation ids, backup request ids, erase meter keys, and report times. |
 
 Done when: `fold_db` has 0 `Uuid::new_v4`, 0 `Utc::now`, and 0 `SystemTime::now`.
@@ -358,9 +358,9 @@ The engine list is a subset of the `schema_service_core` list:
 | PR | Change | Done when |
 |---|---|---|
 | 5a | Move the fetch code out of `schema::types::field` (`variant::read*`, `filter_utils::fetch*`) into the engine query layer. | `schema` has no reference to `storage`, `db_operations`, or `fold_db_core`. |
-| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `atom::file_pointer` gets the cipher suite constant from the model. `atom::history_event_memo` moves to the engine. | `atom` and `crypto` have no engine reference. |
-| 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs`, `TipCommit`). | The pack rule runs on a file list without a store. |
-| 5d | Create `lastdb_model` with `atom`, `schema::types`, the mutation type, key values, `canonical`, `kind_partition`, `json_order`, and the codecs. Its manifest has `uuid` without `v4`, `chrono` without `clock` and `now`, and no `tokio`, `reqwest`, or `laststore`. Its `clippy.toml` uses the full `schema_service_core` list. | A CI job runs `cargo check -p lastdb_model` alone, and the job passes. |
+| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `record::file_pointer` gets the cipher suite constant from the model. `record::history_event_memo` moves to the engine. | `record` and `crypto` have no engine reference. |
+| 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs` and its commit type). | The pack rule runs on a file list without a store. |
+| 5d | Create `lastdb_model` with `record`, `schema::types`, the mutation type, key values, `canonical`, `kind_partition`, `json_order`, and the codecs. Its manifest has `uuid` without `v4`, `chrono` without `clock` and `now`, and no `tokio`, `reqwest`, or `laststore`. Its `clippy.toml` uses the full `schema_service_core` list. | A CI job runs `cargo check -p lastdb_model` alone, and the job passes. |
 | 5e | `lastdb_host` uses `lastdb_model` for its 33 `schema::types` references. | |
 
 The 5d CI job builds `lastdb_model` alone, so a feature from another crate cannot enable `v4` or `clock`.
@@ -368,7 +368,7 @@ A call to `Uuid::new_v4` or `Utc::now` in the model then fails to compile.
 
 ### Step 6 (optional, D4): the host owns the task schedule
 
-The engine owns tasks for molecule drain, conflict janitor, atom history,
+The engine owns tasks for field key drain, conflict janitor, field history,
 the author clock queue, the flush lanes, the cleanup worker, the change feed, the schema key load,
 the disk queue, and three `spawn_blocking` calls.
 Step 6 changes each periodic task to `run_once(budget, now)`, and the host calls it on its schedule.
@@ -391,7 +391,7 @@ Tests stay retired. Each PR uses these checks:
 5. **Optional output snapshot (D5).** #757 added a deterministic snapshot of `schema_service_core` outputs,
    so later PRs diff outputs without a test suite.
    After step 3, `fold_db` can do the same.
-   A fixed clock and fixed ids give identical molecules and atoms for one scripted write sequence.
+   A fixed clock and fixed ids give identical field keys and records for one scripted write sequence.
 
 ## Constraints
 
@@ -423,7 +423,7 @@ Tests stay retired. Each PR uses these checks:
 | ID | Question | Recommendation |
 |---|---|---|
 | D1 | Do you approve the boundary rule and the names `lastdb_model`, `lastdb_primitives`, and `lastdb_backup_transport`? | Yes. |
-| D2 | Do atom `created_at` and molecule `updated_at` take the mutation admission time (one clock read for each write)? | Yes. An imported mutation keeps its source time, so a replay gives the same `created_at` on each device. |
+| D2 | Do record `created_at` and field key `updated_at` take the mutation admission time (one clock read for each write)? | Yes. An imported mutation keeps its source time, so a replay gives the same `created_at` on each device. |
 | D3 | Who mints the mutation id? | The caller, from `IdGen`. `lastdb_host` already allocates the id at that point. An id from the engine at admission changes the retry cache flow. |
 | D4 | Does the host own the task schedule (step 6)? | Decide after step 5. Steps 1 to 5 do not need it. |
 | D5 | Do we add an engine output snapshot, in the form of #757, as proof for step 5? | Yes, for step 5 only. Tom approves it, because tests stay retired. |
@@ -455,14 +455,13 @@ rg -o --no-filename 'crate::[a-z_]+' schema | sort | uniq -c | sort -rn
 | `memory_budget/process_budget.rs:196` | `BUDGET` | `OnceLock` |
 | `memory_budget/env_parse.rs:87` | `PERCENT` | `OnceLock` |
 | `resident/warm_bytes.rs:17` | `CORE_WARM_BYTES_IN_FORCE` | `OnceLock` |
-| `atom/size_limit.rs:55` | `EFFECTIVE_LIMIT` | `OnceLock` |
-| `atom/history_event_memo.rs:46` | `MEMO` | `OnceLock<Mutex<..>>` |
-| `atom/history_event_memo.rs:34` | `NEXT` | `AtomicU64` |
+| `record/size_limit.rs:55` | `EFFECTIVE_LIMIT` | `OnceLock` |
+| `record/history_event_memo.rs:46` | `MEMO` | `OnceLock<Mutex<..>>` |
+| `record/history_event_memo.rs:34` | `NEXT` | `AtomicU64` |
 | `db_operations/conflict_operations.rs:83` | `DISABLED` | `OnceLock` |
 | `db_operations/conflict_operations.rs:135` | `COUNTER` | `AtomicU64` |
 | `db_operations/search_index/queue_policy.rs:13` | `CLI_ENABLED` | `AtomicBool` |
 | `storage/disk_pack/cloud_work.rs:6` | `ACTIVE` | `AtomicBool` |
 | `storage/disk_pack/transaction/blocked.rs:30` | `WRITE_SCOPES` | `AtomicU64` |
-| `fold_db_core/mutation_manager/logical_capture/collector.rs:23` | `CANDIDATES` | thread-local `Mutex` |
 
 A pattern search found this list. Step 2d checks it again before the move.

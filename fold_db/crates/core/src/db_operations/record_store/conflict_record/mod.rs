@@ -1,8 +1,6 @@
-//! The sync device id of the atom store.
+//! The sync device id of the record store.
 //!
-//! A format 7 home keeps a lost write in its record conflict rows
-//! (`rcf:`/`rcm:`). No write records a format 6 tip conflict or captures a
-//! format 6 field history row.
+//! A home keeps a lost write in its record conflict rows (`rcf:`/`rcm:`).
 
 use super::RecordStore;
 

@@ -5,7 +5,7 @@
 //! removed. The deltas are summed per blob before any counter is read, so a
 //! batch that removes and adds the same blob changes its counter once.
 
-use crate::records::atom_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
+use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;

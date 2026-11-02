@@ -60,8 +60,6 @@ def validate(result, expected, coordinates, projected_fields=None):
             wanted = {name: wanted[name] for name in ["bucket", *projected_fields]}
         if row["fields"] != wanted:
             raise RuntimeError("A generated query page returns stale or incorrect fields")
-    if result.get("unresolved_rows") != 0:
-        raise RuntimeError("A generated query page reports an unresolved record")
 
 
 def validate_cursor(cursor, previous, coordinate):

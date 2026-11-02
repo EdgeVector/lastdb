@@ -1,6 +1,6 @@
-//! Content-addressed atoms and blobs: construction, sealing and verified decode.
+//! Content-addressed records and blobs: construction, sealing and verified decode.
 
-use super::types::{ContentAddressedAtom, ContentAddressedBlob, FileBlobAccess};
+use super::types::{ContentAddressedBlob, ContentAddressedValue, FileBlobAccess};
 use super::validate::validate_file_blob_access_for_ref;
 use super::FILE_BLOB_CIPHER_SUITE;
 use crate::error::FoldDbError;
@@ -9,11 +9,11 @@ use lastdb_model::hex::hex_lower;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-pub fn content_addressed_atom(value: Value) -> Result<ContentAddressedAtom, FoldDbError> {
+pub fn content_addressed_value(value: Value) -> Result<ContentAddressedValue, FoldDbError> {
     let bytes = serde_json::to_vec(&value).map_err(FoldDbError::from)?;
     let content_sha256 = hex_lower(Sha256::digest(bytes));
-    Ok(ContentAddressedAtom {
-        atom_ref: format!("sha256:{content_sha256}"),
+    Ok(ContentAddressedValue {
+        value_ref: format!("sha256:{content_sha256}"),
         value,
         content_sha256,
     })

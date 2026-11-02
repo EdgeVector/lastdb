@@ -50,7 +50,6 @@ use fold_db::clock::unix_millis;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Mutex;
 
-use fold_db::request_phases::TipKeySketch;
 use lastdb_uds::uds_http::UdsRequest;
 use serde::{Deserialize, Serialize};
 
@@ -67,9 +66,6 @@ const MAX_SCHEMA_LEN: usize = 128;
 const DEFAULT_RING_CAP: usize = 256;
 const DEFAULT_TOP_N: usize = 32;
 const MAX_AGGREGATE_KEYS: usize = 512;
-const KEY_USE_BUCKET_MS: u64 = 15 * 60 * 1000;
-const KEY_USE_BUCKETS: u64 = 4;
-const MAX_KEY_USE_SERIES: usize = 128;
 /// Distinct HTTP statuses retained per aggregate in the error breakdown.
 ///
 /// Real traffic uses a small closed set (400/404/409/413/500/503). The cap
@@ -79,7 +75,6 @@ const MAX_KEY_USE_SERIES: usize = 128;
 const MAX_ERROR_STATUS_KEYS: usize = 8;
 
 mod app_verb_render;
-mod key_use;
 mod op_aggregate;
 mod op_kind;
 mod ops_render;
@@ -91,7 +86,6 @@ mod runtime;
 mod snapshot;
 
 pub use app_verb_render::*;
-pub use key_use::*;
 pub use op_aggregate::*;
 pub use op_kind::*;
 pub use ops_render::*;

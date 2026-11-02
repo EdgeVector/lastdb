@@ -20,23 +20,23 @@ pub struct OpSample {
     /// unchanged. Fixed-size `Copy` by design — see [`PhaseTimings`].
     #[serde(default, skip_serializing_if = "PhaseTimings::is_empty")]
     pub phases: PhaseTimings,
-    /// Field molecules this request handed to the durable store.
+    /// Field keys this request handed to the durable store.
     ///
-    /// The denominator `phases.persist_molecules_us` lacks. Request-scoped and
+    /// The denominator `phases.persist_field_keys_us` lacks. Request-scoped and
     /// exact: this is counted at the site that issues the work, so it is never
     /// charged for a concurrent caller.
     /// Zero (and omitted) on every non-mutating request.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub molecules_persisted: u64,
-    /// Awaited durable molecule-store operations this request issued.
+    pub field_keys_persisted: u64,
+    /// Awaited durable field-key-store operations this request issued.
     ///
-    /// Read against [`Self::molecules_persisted`] as a ratio: `24/24` is the
-    /// per-molecule store path, `24/1` is the shared batch commit. A wall-clock
-    /// read of `persist_molecules_us` cannot separate those two — it moved 3.4x
+    /// Read against [`Self::field_keys_persisted`] as a ratio: `24/24` is the
+    /// per-field-key store path, `24/1` is the shared batch commit. A wall-clock
+    /// read of `persist_field_keys_us` cannot separate those two — it moved 3.4x
     /// on the primary in two hours with no change to the code path at all —
     /// which is why the count exists.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub molecule_store_commits: u64,
+    pub field_key_store_commits: u64,
     /// Logical resident commits this request published — one per caller batch
     /// that reached the apply gates.
     ///

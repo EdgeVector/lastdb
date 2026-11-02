@@ -18,7 +18,6 @@ pub use session::RestoreReport;
 pub enum RestoreError {
     Invalid(&'static str),
     Limit(&'static str),
-    Unsupported(&'static str),
     Io(std::io::Error),
     Protocol(cloud_backup_protocol::ProtocolError),
     Source(&'static str),
@@ -52,7 +51,6 @@ impl std::fmt::Display for RestoreError {
         match self {
             Self::Invalid(field) => write!(f, "invalid restore {field}"),
             Self::Limit(field) => write!(f, "restore limit: {field}"),
-            Self::Unsupported(field) => write!(f, "unsupported restore: {field}"),
             Self::Io(_) => f.write_str("restore disk operation failed"),
             Self::Protocol(_) => f.write_str("restore protocol validation failed"),
             Self::Source(field) => write!(f, "restore source unavailable: {field}"),

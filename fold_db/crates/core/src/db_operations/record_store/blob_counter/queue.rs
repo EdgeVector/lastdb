@@ -9,8 +9,8 @@
 //!
 //! | Row | Key | Value |
 //! |---|---|---|
-//! | Entry | `bref:v3:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
-//! | Directory row | `bref:v3:d\0{bucket:020}` | a token |
+//! | Entry | `bref:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
+//! | Directory row | `bref:d\0{bucket:020}` | a token |
 //!
 //! The time of an entry is the `zero_since` of its counter, not its due time. The
 //! dwell is a property of the reader: it asks for the entries older than
@@ -23,8 +23,8 @@
 //! follows the dwell: a home that changed such a dwell between two starts shows
 //! `queued=false` for an entry that an earlier start wrote.
 //!
-//! The key families are `bref:v3:q` and `bref:v3:d`. Neither holds a NUL, and
-//! neither is a prefix of the other or of the counter family `bref:v3:c:`.
+//! The key families are `bref:q` and `bref:d`. Neither holds a NUL, and
+//! neither is a prefix of the other or of the counter family `bref:c:`.
 
 use super::blob_id;
 use crate::db_operations::record_store::time_queue::TimeQueue;

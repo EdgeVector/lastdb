@@ -56,7 +56,7 @@ pub(crate) struct AlertCheckArgs {
 pub(crate) enum ServiceHomeCommand {
     /// Persist the home directory service starts should use.
     Set {
-        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.folddb.
+        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.lastdb.
         home: PathBuf,
     },
     /// Show the persisted service home, if one is configured.

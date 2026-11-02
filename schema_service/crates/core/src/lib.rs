@@ -24,20 +24,14 @@
 //! This is a hard contract, not a convention. Downstream correctness
 //! depends on it:
 //!
-//! * **Derived-mutation provenance is permanently verifiable.** A
-//!   `Provenance::Derived { wasm_hash, input_snapshot_hash, sources_merkle_root }`
-//!   stamped at write time can be re-checked years later: the WASM
-//!   identified by `wasm_hash` will still hash to the same bytes, because
-//!   the schema service never reissued or replaced them. See
-//!   `projects/view-compute-as-mutations` for the full chain.
 //! * **Sync replay is convergent.** Two devices replaying the same log
-//!   compute identical atoms because the WASM they fetch (by hash, from
+//!   compute identical records because the WASM they fetch (by hash, from
 //!   here) is bit-identical. There is no version-skew failure mode —
 //!   a `wasm_hash` mismatch is forgery, not stale data.
 //! * **fold_db needs no migration plumbing for view changes.** The local
 //!   schema cache can assume a view's shape is final from registration
 //!   on; reorganizing the data model means registering new schemas
-//!   that field-map onto the old molecules, not editing the old schema.
+//!   that field-map onto the old field keys, not editing the old schema.
 //!
 //! "Approved" is the gate. Pre-approval, drafts are scratchpad. Once
 //! approval succeeds the artifact is frozen; any subsequent change is
@@ -61,7 +55,7 @@ pub mod field_name_policy;
 pub mod ids;
 mod lock_helpers;
 pub mod memory_persistence;
-/// Same-product multi-key tip regeneration (background reindex job class).
+/// Same-product multi-key membership rebuild (background job class).
 pub mod multi_key_reindex;
 pub mod name_validator;
 pub mod native_schema_resolver;

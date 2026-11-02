@@ -34,7 +34,7 @@ impl DeclarativeSchemaDefinition {
         Ok(())
     }
 
-    /// Malformed field names cannot become ordinary field molecules.
+    /// Malformed field names cannot become ordinary field keys.
     /// Validate programmatic definitions as well as their JSON wire form.
     pub fn validate_field_names(&self) -> Result<(), String> {
         let mut names = self
@@ -49,7 +49,7 @@ impl DeclarativeSchemaDefinition {
                     .map(String::as_str),
             )
             .chain(
-                self.field_molecule_uuids
+                self.field_key_ids
                     .iter()
                     .flat_map(|map| map.keys())
                     .map(String::as_str),

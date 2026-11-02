@@ -7,14 +7,13 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::Instrument;
 
 use crate::schema::SchemaError;
 use crate::storage::{KvStore, StorageError, TypedKvStore};
 
 pub(crate) mod native;
 
-const TIP_KEY: &str = "tip";
+const LAST_SEQ_KEY: &str = "last_seq";
 const EVENT_PREFIX: &str = "event:";
 const EVENT_END: &str = "event;";
 const APPEND_EVENTS: usize = 1_024;
@@ -45,21 +44,21 @@ pub struct ChangeFeedPage {
 #[derive(Clone)]
 pub struct ChangeFeedStore {
     store: Arc<TypedKvStore<dyn KvStore>>,
-    native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
-    tip: Arc<Mutex<u64>>,
+    native: Arc<crate::storage::disk_pack::PackRuntime>,
+    last_seq: Arc<Mutex<u64>>,
 }
 
 impl ChangeFeedStore {
     pub(crate) async fn new(
         store: Arc<dyn KvStore>,
-        native: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        native: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Result<Self, StorageError> {
         let store = Arc::new(TypedKvStore::new(store));
-        let tip = store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0);
+        let last_seq = store.get_item::<u64>(LAST_SEQ_KEY).await?.unwrap_or(0);
         Ok(Self {
             store,
             native,
-            tip: Arc::new(Mutex::new(tip)),
+            last_seq: Arc::new(Mutex::new(last_seq)),
         })
     }
 
@@ -68,10 +67,10 @@ impl ChangeFeedStore {
     }
 
     /// Preserve caller order in bounded chunks. Each native chunk acquires the
-    /// writer before the tip and advances the tip only after durability.
+    /// writer before the last sequence and advances it only after durability.
     pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
         if events.is_empty() {
-            return Ok(*self.tip.lock().await);
+            return Ok(*self.last_seq.lock().await);
         }
         let mut chunk = Vec::new();
         let mut bytes = 0usize;
@@ -100,30 +99,6 @@ impl ChangeFeedStore {
         Ok(end)
     }
 
-    fn prune(&self, first: u64, end: u64) {
-        if end <= MAX_EVENTS || first > end {
-            return;
-        }
-        let store = Arc::clone(&self.store);
-        let mut first = first.saturating_sub(MAX_EVENTS).max(1);
-        let end = end - MAX_EVENTS;
-        // Best-effort retention stays outside the tip lock. A crash retains
-        // surplus events; it never removes a newly acknowledged event.
-        tokio::spawn(
-            async move {
-                while first <= end {
-                    let last = first.saturating_add(APPEND_EVENTS as u64 - 1).min(end);
-                    let keys = (first..=last)
-                        .map(|sequence| event_key(sequence).into_bytes())
-                        .collect();
-                    let _ = store.inner().batch_delete(keys).await;
-                    first = last + 1;
-                }
-            }
-            .in_current_span(),
-        );
-    }
-
     pub async fn list_after(
         &self,
         after: u64,
@@ -135,8 +110,8 @@ impl ChangeFeedStore {
                 gap: false,
             });
         }
-        let tip = *self.tip.lock().await;
-        let oldest = tip.saturating_sub(MAX_EVENTS).saturating_add(1).max(1);
+        let last_seq = *self.last_seq.lock().await;
+        let oldest = last_seq.saturating_sub(MAX_EVENTS).saturating_add(1).max(1);
         let gap = after > 0 && after.saturating_add(1) < oldest;
         let effective_after = if gap { oldest.saturating_sub(1) } else { after };
         let start = event_key(effective_after.saturating_add(1));
@@ -150,8 +125,8 @@ impl ChangeFeedStore {
         Ok(ChangeFeedPage { events, gap })
     }
 
-    pub async fn tip(&self) -> u64 {
-        *self.tip.lock().await
+    pub async fn last_seq(&self) -> u64 {
+        *self.last_seq.lock().await
     }
 }
 

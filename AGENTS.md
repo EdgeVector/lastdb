@@ -56,22 +56,22 @@ Use format, syntax, type, lint, and product build checks.
 This rule replaces all earlier test and test coverage requirements.
 Situation: `no-tests-all-repos-20261009`.
 
-### Scoped extension: atom history product proof (Tom, 2026-10-29)
+### Scoped extension: field history product proof (Tom, 2026-10-29)
 
-Tom approved the fresh-home atom history proof as a required check on 2026-10-29.
+Tom approved the fresh-home field history proof as a required check on 2026-10-29.
 The proof runs the public CLI and daemon on a fresh generated home.
 This authorizes only:
 
-- `scripts/operations/atom_history.py`
-- `.github/workflows/atom-history.yml`
-- the `atom_history` job in `.github/workflows/ci-required.yml`
+- `scripts/operations/field_history.py`
+- `.github/workflows/field-history.yml`
+- the `field_history` job in `.github/workflows/ci-required.yml`
 
 Use CI for the build and the proof. No primary copy. Keep every other test target retired.
 
 ### Scoped extension: record home product proofs (Tom, 2026-10-30/31)
 
-Tom approved the record model plan (#911, item 9: "Proof in CI. A fresh format 7 home
-on a synthetic seed: product operations, latency comparisons and `benchmark-complete`").
+Tom approved the record model plan (#911, item 9): a proof in CI on a fresh home with a
+synthetic seed, with product operations, latency comparisons and `benchmark-complete`.
 The workspace rule of 2026-10-29/30 also asks for CI product operations before merge.
 The proofs run the public CLI and daemon on fresh generated homes.
 This authorizes only:

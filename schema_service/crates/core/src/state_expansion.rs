@@ -162,9 +162,9 @@ impl SchemaServiceState {
         );
         schema.fields = Some(merged_fields);
 
-        // A definition carries no molecule address. Each node keeps the
-        // molecules of the schema that it installed.
-        schema.field_molecule_uuids = None;
+        // A definition carries no field key address. Each node keeps the
+        // field keys of the schema that it installed.
+        schema.field_key_ids = None;
         merge_existing_metadata(schema, existing);
         self.validate_proposal_field_names(schema)?;
         self.apply_canonical_types(schema)?;

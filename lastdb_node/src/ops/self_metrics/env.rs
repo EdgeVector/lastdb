@@ -34,7 +34,7 @@ pub fn retention_max_samples_from_env() -> usize {
 /// that already had it.
 #[must_use]
 pub fn max_rows_for_budget(max_bytes: u64, fields_per_row: usize) -> usize {
-    let per_row = ROLLUP_TIP_BYTES.saturating_mul(fields_per_row.max(1) as u64);
+    let per_row = ROLLUP_FIELD_BYTES.saturating_mul(fields_per_row.max(1) as u64);
     usize::try_from(max_bytes / per_row.max(1))
         .unwrap_or(usize::MAX)
         .max(1)

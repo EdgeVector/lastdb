@@ -38,8 +38,8 @@ const API_VERSION_PATH: &str = "/api/version";
 /// the first build with the per-mutation `durability` key and this route.
 ///
 /// `2` (2026-10-26) removes three retired owner-socket routes:
-/// `POST /api/db/stamp-purged-atom-retirements`,
-/// `POST /api/db/reclaim-keep-small-snapshot` and `POST /api/db/pin-log-audit`.
+/// `POST /api/db/reclaim-keep-small-snapshot`, `POST /api/db/pin-log-audit`,
+/// and one retired purge route.
 /// No app-socket route and no request key changed, so a client that requires
 /// `1` still works; `MIN_SUPPORTED_API_VERSION` stays `1`.
 ///
@@ -80,35 +80,74 @@ const API_VERSION_PATH: &str = "/api/version";
 /// Existing actions and the minimum API version remain unchanged.
 /// 11 adds named alternate-key query pages in the unmerged spike.
 /// 12 adds owner-directed alternate changes, named key lists/counts, and signed declaration revisions.
-/// `14` (2026-10-31) removes the owner-only `POST /api/db/repair-schema-molecule-map`
-/// route. Other requests are unchanged; `MIN_SUPPORTED_API_VERSION` stays `1`.
-/// `15` (2026-10-31) removes the owner-only routes that serve only a format
-/// 4-6 home or a feature that format 7 drops: `POST /api/db/molecule-drain`,
-/// `GET /api/db/unresolved-atoms`, `POST /api/db/molecule-keys`,
+/// `14` (2026-10-31) removes one owner-only schema map repair route.
+/// Other requests are unchanged; `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// `15` (2026-10-31) removes the owner-only routes that no current home
+/// serves: the drain, the unresolved-count read, the key repair,
 /// `POST /api/db/alternate-keys`, `POST /api/db/repair-hashrange-key-fields`,
 /// `POST /api/db/clear-history`, `POST /api/storage/schema`,
 /// `GET /api/storage/schemas`, `POST /api/aggregate/repair`,
-/// `POST /api/aggregate/finalize`, `GET /api/history/{molecule_uuid}` and
-/// `GET /api/atom/{atom_uuid}`. `POST /api/storage/liveness/explain` accepts
-/// only the `blob` class. `POST /api/mutation` no longer accepts the
-/// `aggregate_set` key (a format 7 home already refused it), and the
-/// `atomic_aggregate_set_v1` and `alternate_key_changes_v1` capabilities are
-/// gone. No other app-socket request changed; `MIN_SUPPORTED_API_VERSION`
-/// stays `1`.
+/// `POST /api/aggregate/finalize`, the history read and the record read.
+/// `POST /api/storage/liveness/explain` accepts only the `blob` class.
+/// `POST /api/mutation` no longer accepts the `aggregate_set` key (the home
+/// already refused it), and the `atomic_aggregate_set_v1` and
+/// `alternate_key_changes_v1` capabilities are gone. No other app-socket
+/// request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// `16` (2026-11-01) removes the `independent_fields` key from the schema
 /// list, the schema detail and the declare reply. Installed apps accept a
 /// missing key from API 13 and later. No request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-/// `17` (2026-11-01) removes the atom keys that a format 7 home always reports
-/// as zero from the owner-only storage reports: `total_atoms`, `histogram` and
-/// the per-schema `atom_count` of `GET /api/db/schemas`, and the owner row
-/// `atom_count` of `GET /api/storage/app`. No request changed;
-/// `MIN_SUPPORTED_API_VERSION` stays `1`.
-/// `18` (2026-11-01) removes `unattributable_plane_bytes` from the owner-only
-/// `GET /api/storage/app` reply. It counted format 6 tips and molecule
-/// bookkeeping, which a format 7 home does not have, so it was always zero.
+/// `17` (2026-11-01) removes the always-zero count keys from the owner-only
+/// storage reports `GET /api/db/schemas` and `GET /api/storage/app`.
 /// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 18;
+/// `18` (2026-11-01) removes `unattributable_plane_bytes` from the owner-only
+/// `GET /api/storage/app` reply. It counted bookkeeping that the home does
+/// not have, so it was always zero. No request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// `19` (2026-11-01) removes reply keys that the home always left
+/// empty: the empty value id on query field metadata, `integrity` on
+/// `/api/status`, the warm count on native disk status, the value byte count
+/// and the tracked count on warm byte stats, and the empty value id on a
+/// field history entry. No request changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+/// `20` (2026-11-01) renames the field history route to
+/// `POST /api/field-history`. Status, inventory, restore, and share replies
+/// use the field-value, verify-ref, and record-count names.
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// `21` (2026-11-01) gives a query record one `metadata` block,
+/// `{source_file_name, metadata?}` or null, in place of the per-field
+/// metadata map. A query record carries `has_conflicts` and
+/// `conflicted_fields`; `author_pub_key`, `field_key_id`, and `writer_pubkey`
+/// are removed. Query pages and counts remove `unresolved_rows` and
+/// `tombstoned_rows`. Mutation replies remove `touched_group_ids` and the
+/// `gate_wait` and `publish` stages. Share slices remove `field_key_id`,
+/// `writer_pubkey`, and `signature`. Restore replies rename `verified_rows` to
+/// `verified_records`, and the record proof stage is `records`. The local
+/// watch reply names its sequence `last_seq`. The delete ledger removes its
+/// always-zero counters, `version`, and the always-true `committed`, and
+/// renames `records_converged` to `records_erased`. `GET /api/db/inventory`
+/// removes `attribution` and writes nothing. `GET /api/storage/home` removes
+/// `inclusive_app_attribution`, which summed field key counters that no write
+/// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`, the
+/// partial-record path count, `core_warm_field_keys`, `core_warm_dirty`, and
+/// the always-zero dirty and current byte keys of `core_model`. `/api/status`
+/// removes the partial-record key count, `resident_dirty_keys`, the unserved
+/// `resident_key_budget`, the constant notes `resident_graph_bounds` and the
+/// key memory limit, and the purge stat `purge_records_deleted`; its
+/// `memory_budget.core_warm` removes `held_bytes`, `dirty_bytes`, and
+/// `dirty_limit_bytes`. `POST /api/admin/shed` removes `groups_evicted`,
+/// `effective_warm_bytes`, and `target_warm_bytes`, and names its purge count
+/// `records_purged`. Its `native_memory` block reports `records` and
+/// `held_records` in place of the previous record counts, without the
+/// always-zero unflushed count and `complete_key_bytes`; `native_memory.warm`
+/// removes `path_bytes`, `slot_bytes`, `link_bytes`, `held_bytes`,
+/// `dirty_bytes`, and `dirty_limit_bytes`. A read that cannot resolve a
+/// selected record reports the `MissingSelectedRecord` error identity.
+/// The owner-only routes `GET /api/storage/app` and
+/// `POST /api/storage/app/reconcile` are removed: no write filled their
+/// per-schema meters, so the report was always empty.
+/// No other request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 21;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -333,11 +372,11 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
 /// Field history spans every record of the owning (schema, field), so it may
 /// not exist for a jailed app.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
-    if path == "/api/atom-history" {
+    if path == "/api/field-history" {
         return Some(single_method(
             method,
             "POST",
-            ControlRoute::Data(DataRoute::AtomHistory),
+            ControlRoute::Data(DataRoute::FieldHistory),
         ));
     }
     None

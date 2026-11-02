@@ -6,6 +6,11 @@ pub struct StatusSnapshot {
     pub process_start_ts: u64,
     pub uptime_secs: u64,
     pub rss_bytes: Option<u64>,
+    /// Where this daemon's stdout and stderr are actually going.
+    ///
+    /// Same class of fact as pid, version and uptime, and the one the node is
+    /// the only honest source for — see [`LogStreamHealth`].
+    pub logs: LogStreamHealth,
     /// Physical memory footprint — what the OS actually bills this process for.
     ///
     /// This is the honest "how much memory am I using" number and it leads the
@@ -17,12 +22,6 @@ pub struct StatusSnapshot {
     ///
     /// `None` on platforms with no footprint accounting (everything but macOS
     /// today), where RSS is not misleading in the same way.
-    /// Where this daemon's stdout and stderr are actually going.
-    ///
-    /// Same class of fact as pid, version and uptime, and the one the node is
-    /// the only honest source for — see [`LogStreamHealth`].
-    #[serde(default)]
-    pub logs: LogStreamHealth,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phys_footprint_bytes: Option<u64>,
     /// Lifetime peak of [`Self::phys_footprint_bytes`] for this process.
@@ -47,13 +46,11 @@ pub struct StatusSnapshot {
     /// distance. Not persisted into the self-metric series — it is a constant
     /// for the life of the process, and a constant string on a per-sample row
     /// is storage spent to learn nothing.
-    #[serde(default)]
     pub memory_guard_metric: MemoryGuardMetric,
     /// Runtime occupancy against the process memory budget.
     ///
     /// Every value is an in-process counter or immutable boot-time budget. No
     /// catalog, row, or per-group scan is performed on the status path.
-    #[serde(default)]
     pub memory_budget: MemoryBudgetHealth,
     pub cpu_percent: Option<f64>,
     /// Allocated disk under the configured **node home** (not only `data/`).
@@ -80,17 +77,9 @@ pub struct StatusSnapshot {
     /// measures wait rather than work. Expect `1` shortly after a restart no
     /// matter how many probes arrive at once, then one more per TTL expiry
     /// under continued polling.
-    #[serde(default)]
     pub home_size_walks: u64,
-    /// Absolute path of this node's home directory, when disclosed.
-    ///
-    /// Same disclosure contract as [`Self::data_dir`]: omitted only when
-    /// [`Self::home_path_disclosed`] is false.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub home: Option<String>,
-    /// Whether this response discloses the host-local node-home path.
-    #[serde(default)]
-    pub home_path_disclosed: bool,
+    /// Absolute path of this node's home directory.
+    pub home: String,
     /// Allocated disk under the data directory only (`Host::data_dir`).
     ///
     /// Secondary gauge: store payload without sibling trees under the node home.
@@ -101,81 +90,45 @@ pub struct StatusSnapshot {
     pub data_dir_bytes: Option<u64>,
     /// Directory walks this process has completed for the data dir.
     /// See [`Self::home_size_walks`].
-    #[serde(default)]
     pub data_dir_size_walks: u64,
-    /// Absolute path of this node's data directory, when disclosed.
+    /// Absolute path of this node's data directory.
     ///
     /// HTTP / non-socket clients need this to place durable node-relative
-    /// artifacts (pack CAS, workdirs, …) without guessing `$TMPDIR`. Omitted
-    /// only when [`Self::data_dir_path_disclosed`] is false — never silently.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_dir: Option<String>,
-    /// Whether this response discloses the host-local data-dir path.
-    ///
-    /// Always present so a client can tell "old binary / field missing" from
-    /// "path withheld by policy". When false, do not invent a fallback path
-    /// for durable node-relative artifacts.
-    #[serde(default)]
-    pub data_dir_path_disclosed: bool,
+    /// artifacts (pack CAS, workdirs, …) without guessing `$TMPDIR`.
+    pub data_dir: String,
     /// Redacted explicit V2 job status; no legacy marker or automatic coverage claim.
-    #[serde(default)]
     pub durability: DurabilityHealth,
     pub sampler: SamplerStatus,
     pub qos: QosHealth,
     /// UDS worker pool (workers + queue backpressure).
-    #[serde(default)]
     pub uds: UdsPoolHealth,
     /// Blocking long-poll watchers — the pool occupancy `qos` cannot see.
-    #[serde(default)]
     pub watchers: WatchersHealth,
     /// In-process request/op offender ranking (self-reported clients).
-    #[serde(default)]
     pub request_ops: crate::request_telemetry::RequestTelemetrySnapshot,
-    /// Write-path product limits (atom size fence, …) — always present so
+    /// Write-path product limits (record size fence, …) — always present so
     /// operators and agents see them without reading docs.
-    #[serde(default)]
     pub limits: LimitsHealth,
-    /// Resident graph counters (T0 memory hits, rehydrates, deferred persists).
-    #[serde(default)]
+    /// Warm set record counts and lookups.
     pub resident: ResidentHealth,
     /// Daemon build identity + the phase vocabulary it knows, so a client can
-    /// detect that it is about to render a truncated breakdown. Defaults empty
-    /// when read from a daemon predating this field.
-    #[serde(default)]
+    /// detect that it is about to render a truncated breakdown.
     pub build: BuildHealth,
-    /// Read-path integrity: rows dropped from query results because their tip
-    /// pointed at an atom that would not resolve.
-    #[serde(default)]
-    pub integrity: IntegrityHealth,
-    /// Per-schema purge accounting (cumulative since process start).
-    ///
-    /// This ledger reports purge counts, guarded critical-section time, and
-    /// path work. Consumers delta the cumulative counters themselves, as they
-    /// do for request-ops.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub purge_stats: HashMap<String, fold_db::fold_db_core::PurgeStats>,
     /// Configured node-local TTL policies plus process-lifetime sweep state.
-    #[serde(default)]
     pub local_retention: LocalRetentionHealth,
     /// The reference verifier: the last run of `lastdb db verify-refs` and a
-    /// run in progress. `None` means the daemon predates this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
+    /// run in progress.
+    pub verify_refs: fold_db::db_operations::VerifySummary,
     /// The blob counters: totals, the dwell queue at the last pass, counter
-    /// faults. `None` means the daemon predates this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub blob_counters: Option<fold_db::db_operations::BlobCounterReport>,
+    /// faults.
+    pub blob_counters: fold_db::db_operations::BlobCounterReport,
     /// The retention window of kept conflict records, the janitor's last run
-    /// and the queue depth. `None` means the daemon predates this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conflict_retention: Option<fold_db::db_operations::ConflictRetentionReport>,
+    /// and the queue depth.
+    pub conflict_retention: fold_db::db_operations::ConflictRetentionReport,
     /// Process-lifetime effectiveness of plaintext compression before sealing.
     ///
-    /// `None` means the serving daemon predates this status field. A current
-    /// daemon always publishes `Some`, including all-zero counters, so clients
-    /// can distinguish "nothing sealed yet" from "unsupported". The enabled
-    /// bit separately distinguishes a cold process from the compression kill
-    /// switch being engaged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub at_rest_compression: Option<AtRestCompressionHealth>,
+    /// All-zero counters mean nothing sealed yet. The enabled bit separately
+    /// distinguishes a cold process from the compression kill switch being
+    /// engaged.
+    pub at_rest_compression: AtRestCompressionHealth,
 }

@@ -284,7 +284,7 @@ fn loud_erasure(mutation: &Mutation) -> Option<(&'static str, &'static str)> {
 /// purge carries its cutoff and never takes this path.
 fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredRecord>) -> bool {
     mutation.mutation_type == MutationType::Purge
-        && mutation.erase_tips_before_nanos.is_none()
+        && mutation.erase_written_before_nanos.is_none()
         && before.is_some_and(|record| !record.is_live())
 }
 
@@ -314,7 +314,7 @@ fn merge_mutation(
         // device (its device ID and logical counter) at the cutoff, so a write
         // with a later stamp from any device stays, and a peer that receives
         // the floor in a capture event applies it as a delete.
-        if let Some(cutoff) = mutation.erase_tips_before_nanos {
+        if let Some(cutoff) = mutation.erase_written_before_nanos {
             if record.written_at().is_some_and(|at| at >= cutoff) {
                 return Ok(false);
             }

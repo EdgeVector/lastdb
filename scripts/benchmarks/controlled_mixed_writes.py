@@ -56,8 +56,6 @@ def prepare(node, mode, template, whole, physical, expected_root):
         append_bytes = sum(entry["bytes"] for entry in delta["added"].values())
         if expected_root is not None and boot != expected_root:
             raise RuntimeError(f"Shared reopened roots differ: expected={expected_root}, observed={boot}")
-    if node.disk_format() != 2:
-        raise RuntimeError("Comparison requires disk format v2")
     logical = warm(node)
     if mode.startswith("shared-"):
         save(node.output / "settle.json", stable_boundary(node))

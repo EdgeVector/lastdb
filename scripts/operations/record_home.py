@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise a format 7 (record model) home through a fresh CI daemon.
+"""Exercise a record model home through a fresh CI daemon.
 
-Every new home is format 7. The script writes and reads records with the
+Every new home uses the record model. The script writes and reads records with the
 selectors that the brain and LastSecrets apps use, checks that repeated reads
 by key come from the record warm set, keeps field history, lets the TTL sweep
 delete an expired record, reads the delete audit, then restarts the daemon and
@@ -21,7 +21,7 @@ import time
 import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
-from node import Node, RECORD_NODE_MARKER, UnixConnection  # noqa: E402
+from node import Node, marker_format, UnixConnection  # noqa: E402
 import record_runs  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
@@ -224,14 +224,14 @@ def warm_records(node):
     after = native_status(node)
     hits = after["core_warm_hits"] - before["core_warm_hits"]
     require(hits >= 2, f"repeated reads by key hit memory {hits} times")
-    require(after["core_warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
+    require(after["warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
             "the warm set holds or charges no record: " + repr(after["core_warm_bytes"]))
     mutate(node, "RecordById", {"hash": "warm"}, {"value": "w2"})
     require(one(node, "warm")["value"] == "w2", "a read after a write returned the old record")
     mutate(node, "RecordById", {"hash": "warm"}, {}, "delete")
     require(absent(node, "warm"), "a read after a delete returned the deleted record")
     print(f"Record warm set: {hits} memory hits for 3 reads by key, "
-          f"{after['core_warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
+          f"{after['warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
           "read after write and after delete passed", flush=True)
 
 
@@ -240,7 +240,7 @@ def ledger(node):
 
 
 def history(node, action, key="hist"):
-    return node.call("/api/atom-history", {
+    return node.call("/api/field-history", {
         "location": {"schema": "RecordById", "field": "value", "key": {"hash": key}},
         "action": action,
     })[0]
@@ -256,7 +256,7 @@ def field_history(node):
     mutate(node, "RecordById", {"hash": "hist"}, {"value": "h2"})
     page = history(node, {"op": "list"})
     entries = page["entries"]
-    require(len(entries) == 1 and entries[0]["reason"] == "replace" and "atom" not in entries[0],
+    require(len(entries) == 1 and entries[0]["reason"] == "replace" and "record" not in entries[0],
             "an overwrite did not add one copied entry: " + repr(entries))
     entry = entries[0]["id"]
     require(history(node, {"op": "get", "id": entry})["value"] == "h1", "the history entry holds another value")
@@ -280,7 +280,7 @@ def field_history(node):
     require(absent(node, "gone") and history(node, {"op": "list"}, "gone")["entries"] == [],
             "a record purge left the record or its history")
     rows = [row for row in ledger(node) if row.get("schema") == "RecordById" and row["verb"] == "purge"]
-    require(len(rows) == 1 and rows[0]["committed"] and rows[0]["history_rows_deleted"] == 1
+    require(len(rows) == 1 and rows[0]["history_rows_deleted"] == 1
             and rows[0]["caller"] == "mutation-pipeline", "the purge audit row differs: " + repr(rows))
     print("Field history: copy on overwrite and delete, same value skip, get, guarded restore, "
           "release on record purge passed", flush=True)
@@ -306,7 +306,7 @@ def retention(node):
     # The sweep erases through the schema that holds the policy.
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordTtl", reply["anchor"]}]
     require(len(rows) == 1 and rows[0]["caller"] == "ttl-sweep-purge" and rows[0]["verb"] == "purge"
-            and rows[0]["records_converged"] == 1 and rows[0]["committed"],
+            and rows[0]["records_erased"] == 1,
             "the TTL sweep audit row differs: " + repr(rows))
     print("Retention: the TTL sweep deleted the expired record, kept a rewritten and a fresh "
           "record, and wrote its audit row", flush=True)
@@ -314,7 +314,7 @@ def retention(node):
 
 def delete_audit(node):
     rows = [row for row in ledger(node) if row["caller"] == "mutation-pipeline" and row["verb"] == "delete"]
-    schemas = {row.get("schema") for row in rows if row["committed"] and row["records_converged"] >= 1}
+    schemas = {row.get("schema") for row in rows if row["records_erased"] >= 1}
     require({"RecordById", "RecordByBucket"} <= schemas, "a record delete has no audit row: " + repr(rows))
     print(f"Delete audit: {len(rows)} delete rows for {sorted(schemas)} passed", flush=True)
 
@@ -434,7 +434,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker == RECORD_NODE_MARKER, "the new home is not format 7: " + repr(marker))
+        require(marker_format(marker) == 8, "the new home is not format 8: " + repr(marker))
         install(node)
         hash_records(node)
         alternate_keys(node)

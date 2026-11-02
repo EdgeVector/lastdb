@@ -60,11 +60,8 @@ def measure(binary, recipe, folder):
     folder.mkdir(parents=True, exist_ok=False)
     node, result = None, {"complete": False}
     try:
-        node = Node(Path(binary["path"]), binary["revision"], folder,
-                    environment={"LASTDB_DISK_FORMAT": "2"})
+        node = Node(Path(binary["path"]), binary["revision"], folder)
         node.start()
-        if node.disk_format() != 2:
-            raise ValueError("The disk diagnostic requires a v2 home")
         workload = DiskBudgetWorkload(node, {"growth": recipe}, folder)
         workload.seed()
         result["fixed_read"] = workload.measure("fixed-read")
@@ -78,14 +75,13 @@ def measure(binary, recipe, folder):
         save(folder / "reopen-shutdown.json", json.loads((folder / "shutdown.json").read_text()))
         node.start()
         result["after_reopen"] = snapshot(workload, ROUNDS + 2)
-        # This owner report writes attribution-ledger rows. All benchmark
-        # observations above precede it; its own disk cost stays explicit.
+        # All benchmark observations above precede this owner report.
         inventory, _, _ = node.call("/api/db/inventory")
         result["inventory"] = inventory["inventory"]
         result["after_inventory"] = snapshot(workload, ROUNDS + 3)
-        if (result["inventory"]["per_schema_atoms_total_bytes"]
+        if (result["inventory"]["per_schema_records_total_bytes"]
                 != result["after_reopen"]["logical_storage"]["total_logical_bytes"]):
-            raise ValueError("The inventory and pre-inventory logical record totals differ")
+            raise ValueError("The inventory and pre-inventory record totals differ")
         native, _, _ = node.call("/api/db/native-status")
         result["native_status"] = native
         if native["native_disk"].get("writer_failed") is not False:
@@ -119,7 +115,7 @@ def render(manifest):
             lines.append(f"| {row['pair']} | {row['label']} | {row['records']} | {state} | "
                          f"{logical / 2**20:.3f} | {disk / 2**20:.3f} | {disk / logical:.3f}× |")
     lines.extend(["", "The idle interval is 30 seconds. Reopen uses the same owned generated home and verifies every live key.",
-                  "The inventory occurs after the benchmark observations. It writes attribution-ledger records; after_inventory shows that extra cost.",
+                  "The inventory occurs after the benchmark observations. It writes nothing; after_inventory shows the state after its walk.",
                   "The artifact retains the named live-key classes, logical reports, file lengths and allocated blocks.",
                   "Inventory byte counts describe decrypted live records, not physical file bytes. Classes can omit other namespaces.",
                   "This investigation does not change the 1.5× advisory ceiling, maintenance settings, or the primary.", ""])

@@ -46,33 +46,13 @@ impl FoldDB {
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
         self.background_conflict_janitor.stop();
-        if let Err(error) = self.background_atom_history.stop().await {
+        if let Err(error) = self.background_field_history.stop().await {
             pre_flush_errors.push(error);
         }
         let pending_task_timeout = self
             .drain_pending_tasks_at_shutdown(task_drain_timeout)
             .await;
-        // The keep-small projection is written on a debounce, so the last
-        // interval of meter updates is still in memory. Land it here, after
-        // the tracked tasks have stopped moving the numbers and before the
-        // durability barrier, stamped as a clean stop so the next boot
-        // hydrates it as exact. An unclean stop leaves the runtime stamp
-        // behind and reopens as `stale_after_unclean_stop` (2026-09-21).
-        if let Err(e) = self
-            .db_ops
-            .records()
-            .flush_keep_small_for_clean_stop()
-            .await
-        {
-            tracing::warn!(
-                target: "fold_node::database",
-                error = %e,
-                "shutdown: keep-small flush failed; live-budget meters may reopen stale"
-            );
-            pre_flush_errors.push(format!("keep-small flush failed: {e}"));
-        }
-        // Keep the final barrier after accepted work and the debounced
-        // keep-small projection have drained.
+        // Keep the final barrier after accepted work has drained.
         let flush_result = self.flush().await;
         let timeout = pending_task_timeout
             .into_iter()

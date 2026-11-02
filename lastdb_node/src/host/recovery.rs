@@ -29,7 +29,7 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              ===========================================================\n\
              This phrase is your account root: identity, content encryption, \
              and HashKey blinding. Enabling cloud later reuses it — \
-             no re-encryption of molecule keys.\n"
+             no re-encryption of field keys.\n"
         )
     } else {
         "=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===\n"
@@ -115,33 +115,15 @@ pub fn mark_never_indexed(home: &Path) {
 #[cfg(not(target_os = "macos"))]
 pub fn mark_never_indexed(_home: &Path) {}
 
-/// The layout descriptor that the deleted LastStore engine wrote into its root
-/// on first open. A home from that engine still has it, so the check below
-/// still refuses to start fresh over one.
-pub(super) const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
-
-/// The node marker. Every native node home has it, in disk format v1 and v2.
+/// The node marker. Every node home has it.
 pub(super) const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
 
-/// Whether `<home>/data` already holds a store (a layout file, a node marker, or a collection).
+/// Whether `<home>/data` already holds a store: a home with the node marker.
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
-///
-/// Recognises the layouts the node wrote or writes: the LastStore layout file,
-/// the node marker (disk format v1 and v2), or any collection directory under
-/// `<data>/data`. The refuse-to-start-fresh contract below rests on this
-/// structural answer, not on the storage layer's error text.
+/// The refuse-to-start-fresh contract below rests on this structural answer,
+/// not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
-    // LastStore: `<data>/laststore-layout-v1` + `<data>/data/<collection>/…`.
-    if data_path.join(LASTSTORE_LAYOUT_FILE).is_file() {
-        return true;
-    }
-    // A disk format v2 home has the node marker and no layout file.
-    if data_path.join(NODE_MARKER_FILE).is_file() {
-        return true;
-    }
-    let collections = data_path.join("data");
-    std::fs::read_dir(&collections)
-        .is_ok_and(|entries| entries.filter_map(Result::ok).any(|e| e.path().is_dir()))
+    data_path.join(NODE_MARKER_FILE).is_file()
 }
 
 pub(super) fn is_decrypt_boot_failure(msg: &str) -> bool {

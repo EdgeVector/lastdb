@@ -7,24 +7,14 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import RECORD_NODE_MARKER, save
-
-
-def require_record_homes(output, manifest):
-    """Each run measured two format 7 homes: the main corpus and the delete corpus."""
-    for run in manifest["runs"]:
-        directory = output / run["directory"]
-        for corpus in (directory, directory / "delete"):
-            marker = json.loads((corpus / "disk-format.json").read_text())
-            if set(marker) != {"marker"} or marker["marker"] != RECORD_NODE_MARKER:
-                raise ValueError("The disk budget did not measure two format 7 homes")
+from node import home_format_line, save
 
 
 def compare(output, manifest):
     recipe = manifest["recipe"]
-    if (recipe.get("disk_budget") is not True or recipe.get("disk_format") != 2
+    if (recipe.get("disk_budget") is not True
             or recipe.get("search_enabled") is not False or recipe.get("pairs") != 1):
-        raise ValueError("The disk budget requires one v2 pair with Search off")
+        raise ValueError("The disk budget requires one pair with Search off")
     values = {label: {} for label in ("baseline", "candidate")}
     for run in manifest["runs"]:
         if not run["complete"]:
@@ -71,9 +61,9 @@ def headroom_lines(comparison):
         rows.append(f"| {case} | {value['max_disk_to_logical_ratio']:.6f}× | "
                     f"{value['limit_headroom_bytes'] / 2**20:.3f} | {value['limit_headroom_percent']:.2f}% |")
     deleted = comparison["delete"]["candidate"]
-    rows.extend(["", f"Delete corpus: {deleted['starting_logical_atom_bytes'] / 2**20:.3f} MiB logical; "
+    rows.extend(["", f"Delete corpus: {deleted['starting_stored_record_bytes'] / 2**20:.3f} MiB logical; "
                  f"deleted {deleted['deleted_records']} of {deleted['starting_live_records']} records; "
-                 f"{deleted['logical_atom_bytes'] / 2**20:.3f} MiB logical remains."])
+                 f"{deleted['stored_record_bytes'] / 2**20:.3f} MiB logical remains."])
     return "\n".join(rows) + "\n"
 
 
@@ -100,7 +90,6 @@ def main():
         if not manifest["complete"] or args.job_status != "success":
             raise ValueError("The disk budget measurement did not complete")
         comparison = compare(args.output, manifest)
-        require_record_homes(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         exceeded = any(item["candidate"]["max_disk_to_logical_ratio"] > disk_budget.LIMIT
                        for item in comparison.values())
@@ -110,7 +99,7 @@ def main():
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
                   f"Driver: `{manifest['driver_revision']}`  \n"
-                  "Home format: base **7**, candidate **7**\n"
+                  + home_format_line(args.output, manifest) + "\n"
                   + disk_budget.render(comparison) + headroom_lines(comparison))
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:

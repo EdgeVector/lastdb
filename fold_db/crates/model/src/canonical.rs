@@ -10,24 +10,19 @@
 //!
 //! The naive approach — joining variable-length fields with a single `0x00`
 //! separator — is **not** injective when a field can itself contain `0x00`.
-//! Many of our fields can: `atom_uuid` and `molecule_uuid` are peer-supplied
-//! on the import / sync-merge path, range/hash `key`s are user-supplied, and
-//! `share_e2e_secret` is random bytes. An attacker could shift a `0x00` byte
-//! across a field boundary so that, e.g.
+//! Many of our fields can: `field_key_id` is peer-supplied on the import
+//! path, hash and range keys are user-supplied, and `share_e2e_secret` is
+//! random bytes. An attacker could shift a `0x00` byte across a field boundary
+//! so that, e.g.
 //!
 //! ```text
-//! A: { atom_uuid: "B",     key: "\x00k" }
-//! B: { atom_uuid: "B\x00", key: "k"     }
+//! A: { hash: "B",     range: "\x00k" }
+//! B: { hash: "B\x00", range: "k"     }
 //! ```
 //!
 //! serialize identically under a `0x00`-separator scheme. This is the
-//! "NUL-shift collision". It was discovered and patched independently, site by
-//! site, across PRs #408 (share rules), #409 (`MoleculeHashRange`), #422
-//! (`hash_input_snapshot`), #438 (`MoleculeRange`), #442 (`MoleculeHash`),
-//! #566 (`MoleculeRef`), and #573 (`Molecule`) — each one re-deriving the same
-//! fix and re-implementing the same private helper. This module is the *one*
-//! home for that discipline so each signing/hashing site uses the same field
-//! framing rule.
+//! "NUL-shift collision". This module is the *one* home for the fix, so each
+//! signing/hashing site uses the same field framing rule.
 //!
 //! # The framing
 //!
@@ -101,9 +96,9 @@ pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
 ///
 /// ```ignore
 /// let bytes = CanonicalWriter::new()
-///     .field(molecule_uuid.as_bytes())
-///     .field(atom_uuid.as_bytes())
-///     .u64(version)
+///     .field(field_key_id.as_bytes())
+///     .field(hash.as_bytes())
+///     .field(range.as_bytes())
 ///     .u64(written_at)
 ///     .finish();
 /// ```

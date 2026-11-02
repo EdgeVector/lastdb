@@ -8,19 +8,15 @@
 //! - `recount`: `lastdb db recount`, on a stopped home. It counts the file blob
 //!   references of the records and the field history, repairs the blob counters
 //!   and the blob queue, and gives the retention queue buckets their rows back.
-//!
-//! The atom counters, the tip records and the atom bodies of format 6 are gone.
 
 mod commit;
 mod guarded;
 mod recount;
-mod report;
 pub(crate) mod restore_validation;
 mod verify;
 
 pub(crate) use commit::{GuardedDelete, ReleaseRequest, RowChanges};
 pub use recount::{RecountOptions, RecountReport};
-pub use report::AtomCounterReport;
 pub(crate) use verify::VerifyState;
 pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 

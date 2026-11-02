@@ -7,7 +7,7 @@ use crate::{field_value_type::temporal, FieldValueType};
 use serde::Serialize;
 use std::cmp::Ordering;
 
-/// Captured once per schema read, never stored on each molecule key.
+/// Captured once per schema read, never stored on each field key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RangeKeyComparison {
     pub field_type: FieldValueType,

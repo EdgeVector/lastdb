@@ -67,7 +67,7 @@ def records(node, pointers, deleted):
     for number, (reply, pointer) in enumerate(zip(replies, pointers)):
         value = reply["response"]
         require(reply["status"] == 200 and value["ok"] is True
-                and value.get("unresolved_rows", 0) == 0 and not value.get("has_more", False),
+                and not value.get("has_more", False),
                 "keyed read failed or returned incomplete data")
         present = not deleted or number >= COUNT
         rows = value["results"]

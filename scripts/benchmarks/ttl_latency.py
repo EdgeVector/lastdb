@@ -131,7 +131,7 @@ def measure(binary, revision, output, state, clients, maintenance):
             save(output / "compaction.json", {"format": 2, "automatic_merges": True})
         metric = writes(node, clients, output)
         ledger = node.call("/api/db/delete-ledger")[0]["delete_ledger"]
-        entries = [e for e in ledger["entries"] if e["caller"] == "ttl-sweep-purge" and e["committed"]]
+        entries = [e for e in ledger["entries"] if e["caller"] == "ttl-sweep-purge"]
         overlap = [e for e in entries if metric["first_unix"] <=
                    datetime.fromisoformat(e["at"].replace("Z", "+00:00")).timestamp() <= metric["last_unix"]]
         save(output / "ttl-ledger.json", entries)

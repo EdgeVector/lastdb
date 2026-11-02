@@ -12,15 +12,15 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaError> {
-    let runtime = store
-        .disk_pack_runtime()
-        .ok_or_else(|| invalid("native restore owner is missing"))?;
+    let runtime = store.disk_pack_runtime();
     let raw = restore_safety::raw_main(Arc::clone(&runtime)).await?;
     let main = store.open_namespace("main").await?;
     let scopes = restored_scopes(raw.as_ref(), main.as_ref()).await?;
     let namespaces = reader::open(store, runtime, Arc::clone(&main)).await?;
-    let records = RecordStore::new(Arc::new(crate::storage::TypedKvStore::new(main)))
-        .with_namespaced_store(namespaces);
+    let records = RecordStore::new(
+        Arc::new(crate::storage::TypedKvStore::new(main)),
+        namespaces,
+    );
     records.minimum_replay_time().await?;
     // The retention queue and the blob counters are global: one personal run
     // checks them. The blob recount below reads the records of every scope.
@@ -115,26 +115,12 @@ async fn restored_scopes(
 }
 
 pub(crate) async fn validate_pending(store: &dyn NamespacedStore) -> Result<(), SchemaError> {
-    let Some(runtime) = store.disk_pack_runtime() else {
-        return Ok(());
-    };
+    let runtime = store.disk_pack_runtime();
     if !runtime.restore_validation_pending() {
         return Ok(());
     }
     let owner = Arc::clone(&runtime);
     restore_safety::exclusive(runtime, async {
-        // Matching counts cannot prove that every namespace arrived.
-        // Only a complete row-by-row restore can clear this key.
-        if restore_safety::raw_main(Arc::clone(&owner))
-            .await?
-            .get(restore_safety::PENDING_KEY.as_bytes())
-            .await?
-            .is_some()
-        {
-            return Err(invalid(
-                "snapshot restore is incomplete; repeat the complete restore before startup",
-            ));
-        }
         validate(store).await?;
         finish(store, &owner).await
     })
@@ -145,11 +131,6 @@ pub(crate) async fn finish(
     store: &dyn NamespacedStore,
     runtime: &PackRuntime,
 ) -> Result<(), SchemaError> {
-    store
-        .open_namespace("main")
-        .await?
-        .delete(restore_safety::PENDING_KEY.as_bytes())
-        .await?;
     store.restore_durability_barrier().await?;
     runtime.finish_restore_validation()?;
     Ok(())

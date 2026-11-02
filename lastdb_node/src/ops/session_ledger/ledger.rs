@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Handle to a node's session ledger, scoped to a `$FOLDDB_HOME` directory.
+/// Handle to a node's session ledger, scoped to a `$LASTDB_HOME` directory.
 ///
 /// Holds the current session's identity so [`Ledger::heartbeat`] and
 /// [`mark_clean_shutdown`] can target the right ledger line without re-reading
@@ -68,17 +68,17 @@ impl SessionRecord {
 }
 
 impl Ledger {
-    /// `$FOLDDB_HOME/sessions.jsonl`.
+    /// `$LASTDB_HOME/sessions.jsonl`.
     pub fn ledger_path(home: &Path) -> PathBuf {
         home.join("sessions.jsonl")
     }
 
-    /// `$FOLDDB_HOME/current-session.json`.
+    /// `$LASTDB_HOME/current-session.json`.
     pub fn current_session_path(home: &Path) -> PathBuf {
         home.join("current-session.json")
     }
 
-    /// `$FOLDDB_HOME/restart-intent.json`.
+    /// `$LASTDB_HOME/restart-intent.json`.
     pub fn restart_intent_path(home: &Path) -> PathBuf {
         home.join(RESTART_INTENT_FILE)
     }

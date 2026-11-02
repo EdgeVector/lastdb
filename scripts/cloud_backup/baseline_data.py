@@ -1,7 +1,7 @@
 """Deterministic private content of the fixed CI baseline.
 
-A baseline move (once on format 7, later only for an approved cloud contract
-change) puts the CI baseline on a new stream. The baseline operation and the
+A baseline move (once for each home format that Tom approves) puts the CI
+baseline on a new stream. The baseline operation and the
 operator who saves the protected baseline secret must make the same 16 notes
 and the same 8 MiB file without a transfer of either value.
 Both derive them from the account recovery phrase and the public stream ID.
@@ -23,7 +23,7 @@ import re
 ACCOUNT = "2a81c95623f2445854a794b5b48471d6"
 FILE_BYTES = 8 * 1024 * 1024
 WORDS_SHA256 = "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
-SCHEMA = "CloudCiBaselineF7"
+SCHEMA = "CloudCiBaseline"
 RECORD_IDS = tuple("ci-baseline-{:02d}".format(number) for number in range(16))
 DOMAIN = b"lastdb:cloud-ci-baseline:v1"
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

@@ -1,6 +1,6 @@
 name: Record home product proof
 
-# ci-required calls this workflow. A product diff runs the format 7 (record
+# ci-required calls this workflow. A product diff runs the format 8 (record
 # model) fresh-home proof.
 # Any other pull request or main push skips that build and still reports success.
 on:
@@ -69,7 +69,7 @@ jobs:
           echo "Record home proof selected: $run"
 
   records:
-    name: Fresh format 7 home records
+    name: Fresh format 8 home records
     needs: select
     if: needs.select.outputs.run == 'true'
     runs-on: ubuntu-24.04
@@ -88,7 +88,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the product in CI
         run: cargo build --locked -p lastdb_node --bin lastdbd
-      - name: Exercise the actual daemon on a fresh generated format 7 home
+      - name: Exercise the actual daemon on a fresh generated format 8 home
         run: |
           set -euo pipefail
           python3 scripts/operations/record_home.py --daemon "$PWD/target/debug/lastdbd" \

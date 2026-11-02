@@ -1,19 +1,18 @@
-//! The side rows of one format 7 record group: field history, the delete
+//! The side rows of one record group: field history, the delete
 //! audit and the retention ages. Each joins the batch of the records.
 //!
 //! - Field history (D5): a copy of each overwritten or deleted field value
-//!   whose field has a history policy (`atom_history/records.rs`). A purge
+//!   whose field has a history policy (`field_history/records.rs`). A purge
 //!   captures nothing and releases the history of its record.
 //! - Delete audit: one `dellog:` row for each verb and caller of the group, as
-//!   the erase lane writes for a molecule home. A TTL sweep delete keeps its
+//!   the erase lane writes for a field key home. A TTL sweep delete keeps its
 //!   caller tag.
 //! - Conflict rows: a purge deletes the conflict rows of its record, their
 //!   queue entries and the marker (`record_conflicts/purge.rs`). A delete
 //!   keeps them until the end of their window.
 //! - Retention: a Hash or Single schema with a policy ages each live record by
 //!   its write time (the newest stamp) and drops the age rows of a deleted
-//!   record. The age rows of the molecule path come from the tip clocks after
-//!   the commit; a record holds its own stamps, so the rows go in this batch.
+//!   record. A record holds its own stamps, so the rows go in this batch.
 //! - Share copies: a personal write to a schema with an active share rule
 //!   puts each changed record in the scope of each rule too
 //!   (`share:{recipient}:{opaque}`). The copy is the whole record after the
@@ -24,7 +23,7 @@
 
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
-use crate::db_operations::{AtomDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
+use crate::db_operations::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::types::operations::MutationType;
@@ -255,16 +254,17 @@ impl MutationManager {
                 [(key, _)] => describe_key(key),
                 _ => format!("<bulk:{} keys>", records.len()),
             };
-            let mut entry = AtomDeleteLedgerEntry::erasure(verb, caller, schema_name, &descriptor);
-            entry.records_converged = records.len() as u64;
-            entry.file_pointer_atoms_purged = records
+            let mut entry =
+                RecordDeleteLedgerEntry::erasure(verb, caller, schema_name, &descriptor);
+            entry.records_erased = records.len() as u64;
+            entry.file_pointer_records_purged = records
                 .iter()
                 .filter(|(_, outcome)| outcome.named_blobs)
                 .count() as u64;
             if verb == LEDGER_VERB_PURGE {
                 entry.history_rows_deleted = history_released;
             }
-            record_store.record_atom_delete_audit(None, entry).await?;
+            record_store.record_record_delete_audit(None, entry).await?;
         }
         Ok(())
     }

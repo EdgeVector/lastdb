@@ -11,10 +11,10 @@
 
 use super::record_reads::decode;
 use super::RecordStore;
-use crate::atom::MoleculeKeyCodec;
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
+use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid};
 use lastdb_model::record_value::StoredRecord;
 
@@ -30,7 +30,7 @@ pub(crate) enum RecordBound<'a> {
 /// one scope.
 pub(crate) struct RecordSpan {
     hash: String,
-    codec: MoleculeKeyCodec,
+    codec: FieldKeyCodec,
     base: String,
     start: String,
     end: String,
@@ -74,7 +74,7 @@ impl RecordStore {
         scope: Option<&str>,
     ) -> Result<Option<RecordSpan>, SchemaError> {
         let space = record_space_uuid(&schema.name);
-        let codec = self.key_codec_for_molecule(&space)?;
+        let codec = self.key_codec_for_field_key(&space)?;
         let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
         let base = build_storage_key(scope, &record_hash_prefix(&space, &storage_hash));
         let stored = |range: &str| {

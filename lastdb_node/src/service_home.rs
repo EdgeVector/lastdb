@@ -19,7 +19,6 @@ const UNIX_CONFIG_REL: &[&str] = &[".config", "lastdb", "lastdbd-service-home"];
 
 pub fn explicit_home_override_present() -> bool {
     std::env::var_os(folddb_profile::paths::LASTDB_HOME_ENV).is_some()
-        || std::env::var_os(folddb_profile::paths::FOLDDB_HOME_ENV).is_some()
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
@@ -92,7 +91,7 @@ pub fn show_configured_home() -> Result<String, String> {
             path.display()
         )),
         None => Ok(format!(
-            "No lastdbd service home configured.\nConfig: {}\nService start will use LASTDB_HOME/FOLDDB_HOME/default resolution.",
+            "No lastdbd service home configured.\nConfig: {}\nService start will use LASTDB_HOME or ~/.lastdb.",
             path.display()
         )),
     }
@@ -102,7 +101,7 @@ pub fn clear_configured_home() -> Result<String, String> {
     let path = config_path()?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(format!(
-            "Removed lastdbd service-home config {}\nService start will use LASTDB_HOME/FOLDDB_HOME/default resolution.",
+            "Removed lastdbd service-home config {}\nService start will use LASTDB_HOME or ~/.lastdb.",
             path.display()
         )),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!(
@@ -142,7 +141,7 @@ fn reject_primary_live_home(home: &Path) -> Result<(), String> {
 
 fn primary_live_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let primary = home.join(folddb_profile::paths::FOLDDB_DIR);
+    let primary = home.join(folddb_profile::paths::LASTDB_DIR);
     primary.is_dir().then(|| canonical_if_exists(&primary))
 }
 

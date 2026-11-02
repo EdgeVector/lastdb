@@ -1,5 +1,5 @@
 //! Read-only Mini health checks through the owner socket.
-//! Liveness, memory pressure, integrity faults and blocked V2 work stay distinct.
+//! Liveness, memory pressure and blocked V2 work stay distinct.
 //! Unknown V2 freshness is never reported as healthy or as a missing cloud backup.
 //! The checker saves its own transition state outside the database.
 

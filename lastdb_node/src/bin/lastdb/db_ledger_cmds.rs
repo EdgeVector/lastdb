@@ -39,20 +39,11 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
     for e in &entries {
         let s = |k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
         let n = |k: &str| e.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
-        let committed = e
-            .get("committed")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let state = if committed { "ok" } else { "UNCONFIRMED" };
-        // A record model erase row counts its records in `records_converged`.
-        // `atoms_deleted` and `tips_removed` stay in the JSON for its readers;
-        // the record model keeps both at zero, so the text leaves them out.
         let mut line = format!(
-            "  {}  {:<15} {:<11} records={}",
+            "  {}  {:<15} records={}",
             s("at"),
             s("verb"),
-            state,
-            n("records_converged"),
+            n("records_erased"),
         );
         if let Some(schema) = e.get("schema").and_then(|v| v.as_str()) {
             line.push_str(&format!(" schema={schema}"));
@@ -67,11 +58,6 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
             line.push_str(&format!(" history={}", n("history_rows_deleted")));
         }
         println!("{line}");
-        if !committed {
-            println!(
-                "      ^ this batch started and never confirmed; its counts are what was ATTEMPTED"
-            );
-        }
     }
     Ok(())
 }

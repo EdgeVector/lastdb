@@ -30,14 +30,9 @@ pub(super) struct FootprintGovernorState {
 pub struct ShedReport {
     /// Accepted writes reached the disk barrier. Retained memory owners can remain.
     pub deferred_idle: bool,
-    /// Retired physical-group field; native relief removes logical records.
-    pub groups_evicted: u64,
-    pub logical_records_purged: u64,
+    pub records_purged: u64,
     pub warm_bytes_before: u64,
     pub warm_bytes_after: u64,
-    /// No byte admission budget is enforced during the stage-one measurement.
-    pub effective_warm_bytes: u64,
-    pub target_warm_bytes: u64,
     pub target_met: bool,
     pub native_memory: Option<fold_db::storage::disk_pack::NativeMemoryStatus>,
     pub error: Option<String>,

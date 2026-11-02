@@ -14,7 +14,7 @@ pub const MAX_POINTS: usize = 32768;
 /// Maximum complete encoded accepted metadata retained by one calculation.
 pub const MAX_DIRECTORY_BYTES: usize = 32 * 1024 * 1024;
 
-/// Exact immutable identity. Native frontiers and atom identities stay private.
+/// Exact immutable identity. Native frontiers and record identities stay private.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryPoint {

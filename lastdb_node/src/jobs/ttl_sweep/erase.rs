@@ -9,7 +9,6 @@ use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
 
 static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
-use fold_db::request_phases::{run_with_phases, RequestPhaseTotals};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
@@ -26,8 +25,8 @@ use crate::self_metrics::TtlPassReport;
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct PassTotals {
-    /// Keys that a batch sent to the erase. A key that the tip write-time guard
-    /// spared counts here; the delete ledger counts only the tips it removed.
+    /// Keys that a batch sent to the erase. A key that the write-time guard
+    /// spared counts here; the delete ledger counts only the records it erased.
     pub(super) erased: usize,
     /// Keys that the re-check dropped because they were no longer expired.
     pub(super) dropped: usize,
@@ -102,13 +101,11 @@ pub(super) async fn purge_round_robin(
 /// one native batch (16,384 operations). One key at least.
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
     use fold_db::fold_db_core::purge::budget::max_erase_keys;
-    let fits = host
-        .db
-        .db_ops()
-        .batch_operation_limit()
-        .map_or(usize::MAX, |limit| {
-            max_erase_keys(verb == SweepVerb::Delete, backlog.shape, limit)
-        });
+    let fits = max_erase_keys(
+        verb == SweepVerb::Delete,
+        backlog.shape,
+        host.db.db_ops().batch_operation_limit(),
+    );
     pace_batch.min(fits).min(backlog.batch_cap()).max(1)
 }
 
@@ -152,19 +149,19 @@ async fn erase_batch(
         });
     };
     let dropped = listed - keys.len();
-    // A Hash or Single key ages by its tip write time, so the erase spares a
-    // key with a tip written at or after the cutoff. A rewrite that is acked
-    // but not yet in the age index is spared this way. In a format 7 home the
-    // write time is the newest field stamp of the record, and the delete takes
-    // its floor at the cutoff. Range and HashRange keys age by the key, so a
-    // rewrite does not change their age.
-    let tip_cutoff_nanos = matches!(
+    // A Hash or Single key ages by its record write time, the newest field
+    // stamp, so the erase spares a record written at or after the cutoff and
+    // takes its delete floor at the cutoff. A rewrite that is acked but not yet
+    // in the age rows is spared this way. Range and HashRange keys age by the
+    // key, so a rewrite does not change their age.
+    let write_cutoff_nanos = matches!(
         backlog.schema_type,
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
     )
     .then(|| cutoff.saturating_mul(1_000_000_000));
     let (erased, missing) =
-        send_with_missing_retry(host, &backlog.schema_name, keys, (verb, tip_cutoff_nanos)).await?;
+        send_with_missing_retry(host, &backlog.schema_name, keys, (verb, write_cutoff_nanos))
+            .await?;
     Ok(Batch {
         erased,
         dropped,
@@ -217,10 +214,9 @@ async fn still_expired(
     }
 }
 
-/// One line per batch with the erase phases, for the operator who asks where a
-/// batch spent its time. Phase times are in milliseconds. A batch that dropped
-/// keys at the re-check is logged at info.
-fn log_batch(schema_name: &str, batch: &Batch, took: Duration, phases: &RequestPhaseTotals) {
+/// One line per batch, for the operator who asks where a batch spent its time.
+/// A batch that dropped keys at the re-check is logged at info.
+fn log_batch(schema_name: &str, batch: &Batch, took: Duration) {
     let Batch {
         erased,
         dropped,
@@ -242,13 +238,6 @@ fn log_batch(schema_name: &str, batch: &Batch, took: Duration, phases: &RequestP
         dropped,
         missing,
         took_ms = took.as_millis() as u64,
-        materialize_ms = phases.purge_materialize_us / 1000,
-        trace_ms = phases.purge_trace_us / 1000,
-        guard_ms = phases.purge_retention_guard_us / 1000,
-        delete_ms = phases.purge_delete_us / 1000,
-        finalize_ms = phases.purge_finalize_us / 1000,
-        other_commit_ms = phases.purge_commit_us / 1000,
-        barrier_wait_ms = phases.purge_barrier_us / 1000,
         "ttl sweep batch erased"
     );
 }

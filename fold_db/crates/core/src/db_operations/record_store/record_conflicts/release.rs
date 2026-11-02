@@ -1,4 +1,4 @@
-//! The janitor release of the conflict rows of a format 7 home. A row holds
+//! The janitor release of the conflict rows of a home. A row holds
 //! no reference, so a release only deletes: the row, its queue rows, and the
 //! marker of the record when no live entry of it is left.
 

@@ -35,16 +35,14 @@ and sends no message.
 `payload.schemas[]` carries the schema name, its JSON definition, and the exact
 fields included in this slice.
 
-`payload.molecules[]` carries one field molecule per delivered field:
+`payload.field_keys[]` carries one field key per delivered field:
 
 - `schema_name`
 - `record_key`
 - `field_name`
-- `atom_ref`
-- optional original molecule UUID/version, writer pubkey, and molecule
-  signature when available
+- `value_ref`
 
-`payload.atoms[]` carries the JSON value for each referenced atom. Each atom is
+`payload.records[]` carries the JSON value for each referenced record. Each record is
 content-addressed as `sha256:<hex>` over the canonical JSON value bytes.
 
 `payload.blobs[]` (optional, default empty) carries **first-class binary files**
@@ -74,18 +72,18 @@ a blob:
 }
 ```
 
-Every `$lastdb_file.blob_ref` in `atoms[]` MUST have a matching entry in
+Every `$lastdb_file.blob_ref` in `records[]` MUST have a matching entry in
 `blobs[]`. LastDB reads no other file-value form.
 
 ## Consumer Contract
 
 A non-LastDB consumer decrypts the JWE, verifies the payload hash and Ed25519
-signature, parses schemas/molecules/atoms/**blobs**, joins each molecule to its
-atom by `atom_ref`, and joins each `$lastdb_file` atom to its blob by
+signature, parses schemas, field keys, records/**blobs**, joins each field key to its
+record by `value_ref`, and joins each `$lastdb_file` record to its blob by
 `blob_ref` (after verifying the blob's hash).
 
 A LastDB consumer can mount the same payload by importing the schema definitions,
-replaying molecule/atom values into a peer namespace, and storing `blobs[]` in a
+replaying field key/record values into a peer namespace, and storing `blobs[]` in a
 local CAS so `$lastdb_file` pointers resolve to the original file bytes. The
 format intentionally includes raw canonical components first; flattened views
 can be derived by consumers without changing the signed payload.

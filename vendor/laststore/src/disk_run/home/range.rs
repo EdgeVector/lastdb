@@ -77,7 +77,7 @@ impl RunRead {
 
     /// Internal metadata range over one collection, `[start, end)` in
     /// storage key bytes. Node bootstrap and maintenance use it; user
-    /// molecule reads use [`RunRead::hash_range`].
+    /// record reads use [`RunRead::hash_range`].
     pub fn administrative_range(
         &mut self,
         collection: &str,

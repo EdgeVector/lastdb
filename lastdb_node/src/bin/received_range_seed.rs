@@ -293,7 +293,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
     let result = populate(&host, &input).await;
     host.db.shutdown().await?;
-    // Every home is format 7, so the share send check always runs.
+    // The share send check always runs.
     println!(
         "{}",
         serde_json::json!({"mutations": result?, "durable": true,

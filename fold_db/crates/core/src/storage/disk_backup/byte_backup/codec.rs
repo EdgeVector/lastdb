@@ -1,8 +1,7 @@
 //! Mini-owned encrypted metadata. The byte service never interprets these values.
 //!
-//! Version 5 adds an authenticated logical inclusion map to a disk V2 backup.
-//! Version 3 remains readable with unknown logical coverage. Version 4 belongs
-//! to mutation-log roots; versions 1 and 2 described the retired disk format.
+//! Version 6 is the snapshot root of a format 8 home. Version 4 belongs to
+//! mutation-log roots.
 use super::{invalid, protocol, StorageResult};
 use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;
@@ -14,8 +13,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub const CODEC_PLAINTEXT_MAX_BYTES: u64 = 256 * 1024;
 pub const CODEC_ENVELOPE_MAX_BYTES: u64 = CODEC_PLAINTEXT_MAX_BYTES + 29;
 /// New snapshot metadata; independent of the cloud protocol and disk versions.
-pub const CLIENT_VERSION: u16 = 5;
-pub const LEGACY_CLIENT_VERSION: u16 = 3;
+pub const CLIENT_VERSION: u16 = 6;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
 
@@ -84,10 +82,6 @@ pub struct ClientRoot {
     pub pages: Vec<ClientPageReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<super::RunBackupProfile>,
-    /// None is legacy unknown coverage. New roots require explicit coverage,
-    /// including Disabled when the captured home has no logical stream.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub logical_inclusion: Option<crate::storage::disk_pack::logical_capture::SnapshotInclusion>,
 }
 impl ClientRoot {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
@@ -111,11 +105,6 @@ impl ClientRoot {
             .as_ref()
             .ok_or_else(|| invalid("run root profile missing"))?;
         profile.validate_root(&self.native_root)?;
-        match (self.version, &self.logical_inclusion) {
-            (CLIENT_VERSION, Some(inclusion)) => inclusion.validate_for(&self.native_root)?,
-            (LEGACY_CLIENT_VERSION, None) => {}
-            _ => return Err(invalid("snapshot logical inclusion version differs")),
-        }
         self.recovery
             .validate_for(&begin.job.stream.scope)
             .map_err(protocol)?;
@@ -167,8 +156,7 @@ impl ClientRoot {
         Ok(value)
     }
     /// The metadata version of an encrypted root, read before the strict
-    /// decode. A disk format v1 home wrote version 1 or 2 roots with other
-    /// fields, which the strict decode reports only as a format error.
+    /// decode selects the snapshot or mutation log root.
     pub fn version_of(bytes: &[u8], key: &[u8; 32]) -> StorageResult<u16> {
         #[derive(Deserialize)]
         struct Version {
@@ -179,7 +167,7 @@ impl ClientRoot {
 }
 fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;
-    if !matches!(version, CLIENT_VERSION | LEGACY_CLIENT_VERSION)
+    if version != CLIENT_VERSION
         || !begin.descriptor.as_value().is_null()
         || *digest != begin.input_sha256().map_err(protocol)?
         || *descriptor != begin.descriptor.commitment().map_err(protocol)?

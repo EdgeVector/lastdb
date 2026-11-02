@@ -18,22 +18,6 @@ impl MutationManager {
                     mutation.uuid
                 )));
             }
-            if matches!(
-                mutation.mutation_type,
-                crate::schema::types::MutationType::Create
-                    | crate::schema::types::MutationType::Update
-            ) {
-                if let Some((field, _)) = mutation
-                    .fields_and_values
-                    .iter()
-                    .find(|(_, value)| crate::atom::is_tombstone_value(value))
-                {
-                    return Err(SchemaError::InvalidData(format!(
-                        "schema '{}' field '{field}' rejects the reserved tombstone value on create or update; use Delete for record removal",
-                        mutation.schema_name,
-                    )));
-                }
-            }
         }
         self.validate_mutation_keys_and_layouts(mutations)?;
         self.validate_key_field_payloads(mutations)

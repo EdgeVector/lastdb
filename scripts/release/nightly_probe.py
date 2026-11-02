@@ -19,8 +19,8 @@ from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architec
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-# Every new home is format 7 (the record model).
-MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+# Every new home is format 8 (the record model).
+MARKER = "format=8\nhome=disk-run\ncas=disk-cas\n"
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -52,7 +52,7 @@ class OwnedNode:
         # The setup route below is local. Unexpected catalog requests cannot reach a service.
         self.environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
                             "HOME": str(self.root / "os-home"), "TMPDIR": str(self.root / "tmp"),
-                            "LASTDB_HOME": str(self.home), "FOLDDB_HOME": str(self.home),
+                            "LASTDB_HOME": str(self.home),
                             "LASTDB_ISOLATED_COPY": "1", "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
                             "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev", "RUST_MIN_STACK": "16777216",
                             "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
@@ -194,7 +194,7 @@ def read(node, updated, ranged=False):
                  if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
     result = node.call("/api/query", {"schema_name": SCHEMA, "fields": FIELDS, "limit": 8, "filter": condition})
     records = result.get("results", [])
-    if result.get("returned_count") != 8 or len(records) != 8 or result.get("unresolved_rows", 0):
+    if result.get("returned_count") != 8 or len(records) != 8:
         raise RuntimeError("The packaged daemon returned an incomplete query")
     found = []
     for record in records:
@@ -217,7 +217,7 @@ def operations(node):
         raise RuntimeError("The packaged CLI returned an invalid status response")
     marker = node.home / "data" / "laststore-pack-node-v1"
     if marker.read_text() != MARKER:
-        raise RuntimeError("The packaged daemon did not initialize a format 7 home")
+        raise RuntimeError("The packaged daemon did not initialize a format 8 home")
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
         "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,
@@ -261,7 +261,7 @@ def main():
     write_json(args.output / "probe.json", {
         "schema": "lastdb.nightly.probe.v1", "complete": True, "target": manifest["target"],
         "source_git_oid": args.source, "version": args.version, "bundle_sha256": digest(args.bundle),
-        "api_version": version["api_version"], "capabilities": version["capabilities"], "disk_format": 2,
+        "api_version": version["api_version"], "capabilities": version["capabilities"],
         "min_supported_api_version": version.get("min_supported_api_version"),
         "current_outbox_format_version": version.get("current_outbox_format_version"),
         "records": 8, "daemon_stopped": True, "home_removed": True,

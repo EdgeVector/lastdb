@@ -47,33 +47,33 @@ impl SchemaError {
         }
     }
 
-    /// The discriminated `413 atom_content_too_large` response body for a
-    /// [`Self::AtomContentTooLarge`] or a [`Self::RecordTooLarge`]. Clients key
-    /// on `error == "atom_content_too_large"`; `scope` says which cap refused
+    /// The discriminated `413 field_value_too_large` response body for a
+    /// [`Self::FieldValueTooLarge`] or a [`Self::RecordTooLarge`]. Clients key
+    /// on `error == "field_value_too_large"`; `scope` says which cap refused
     /// the write, and `hint` says how to reshape the data (one record per entry,
     /// or a file blob). Returns `None` for every other variant.
-    pub fn atom_content_too_large_body(&self) -> Option<serde_json::Value> {
+    pub fn field_value_too_large_body(&self) -> Option<serde_json::Value> {
         match self {
             Self::RecordTooLarge { size, limit } => Some(serde_json::json!({
                 "ok": false,
-                "error": "atom_content_too_large",
+                "error": "field_value_too_large",
                 "scope": "record",
                 "size": size,
                 "limit": limit,
-                "hint": crate::atom::RECORD_TOO_LARGE_HINT,
+                "hint": crate::content_limit::RECORD_TOO_LARGE_HINT,
                 "message": self.to_string(),
             })),
-            Self::AtomContentTooLarge { size, limit } => Some(serde_json::json!({
+            Self::FieldValueTooLarge { size, limit } => Some(serde_json::json!({
                 "ok": false,
-                "error": "atom_content_too_large",
-                "scope": "atom",
+                "error": "field_value_too_large",
+                "scope": "record",
                 "size": size,
                 "limit": limit,
-                "default_limit": crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,
-                "absolute_max_limit": crate::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
-                "env": crate::atom::MAX_ATOM_CONTENT_BYTES_ENV,
-                "hint": crate::atom::ATOM_CONTENT_TOO_LARGE_HINT,
-                "docs": "fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md",
+                "default_limit": crate::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES,
+                "absolute_max_limit": crate::content_limit::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
+                "env": crate::content_limit::MAX_FIELD_VALUE_BYTES_ENV,
+                "hint": crate::content_limit::FIELD_VALUE_TOO_LARGE_HINT,
+                "docs": "fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md",
                 "message": self.to_string(),
             })),
             _ => None,

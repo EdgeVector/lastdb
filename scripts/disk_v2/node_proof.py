@@ -13,14 +13,14 @@ records have the envelope forms of the primary (compressed and raw). Then:
 After each step the key list of each seed schema (GET /api/list, the
 `lastdb list` pages) must hold each live key of the model and no key that
 the model does not know. The open must keep the reads, the key lists, and
-the logical record bytes and record count of each seed schema equal to the
+the record bytes and record count of each seed schema equal to the
 step before it. Only the proof writes the seed schemas, so a change there
 comes from the open.
 
-Every new home is format 7 (the record model): one stored record value per
+Every new home uses the record model: one stored record value per
 key. A sampler reads the size of the node folder during the writes, the
 merges, and the open. The proof fails when the v2 data is above 2.0x of the
-logical record bytes that the node reports (GET /api/db/schemas, the
+record bytes that the node reports (GET /api/db/schemas, the
 `lastdb db schemas` walk), when the node reports under 16 MiB of logical
 records, because a smaller home does not test the limit, or when the sampler
 cannot read the node folder.
@@ -50,15 +50,15 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+RUN_NODE = b"format=8\nhome=disk-run\ncas=disk-cas\n"
 # The settings of the primary's launchd job that the node reads: the
-# compression of the at-rest envelopes, the atom size limit, the memory
+# compression of the at-rest envelopes, the record size limit, the memory
 # budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
     "LASTDB_ENGINE": "laststore",
     "LASTDB_KV_AT_REST_COMPRESS": "1",
-    "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
+    "LASTDB_MAX_FIELD_VALUE_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
     "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",
     "LASTDBD_RSS_LIMIT_MB": "16384",
@@ -70,7 +70,7 @@ CASE = "new-home"
 SEED_NUMBER = 2
 PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
-    # This qualifies the generic engine capacity check; fewer stored atoms are
+    # This qualifies the generic engine capacity check; fewer stored records are
     # not evidence of lost data. Alternate-key savings use a fixed-input pass.
     "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
@@ -171,13 +171,10 @@ class Case:
     def check_new_home(self):
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
-            raise ProofError(f"a new home has the node marker {marker!r}, not the format 7 marker")
-        for name in ("disk-pack", "laststore-layout-v1"):
-            if (self.data / name).exists():
-                raise ProofError(f"a new v2 home has the v1 entry {name}")
+            raise ProofError(f"a new home has the node marker {marker!r}, not the format 8 marker")
         for name in ("disk-run", "disk-cas"):
             if not (self.data / name).is_dir():
-                raise ProofError(f"a new v2 home lacks {name}")
+                raise ProofError(f"a new home lacks {name}")
 
     def write_v2(self):
         before = self.phases[-1]["logical"]["bytes"]
@@ -208,7 +205,7 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
-            self.failures.append(f"{name}: the node marker is not the format 7 marker")
+            self.failures.append(f"{name}: the node marker is not the format 8 marker")
         self.compare(name, logical, reads, listed)
         self.phases.append({
             "name": name, "settled": settled, "logical": logical,
@@ -218,7 +215,7 @@ class Case:
 
     def compare(self, name, logical, reads, listed):
         """A phase without writes must keep the reads, the key lists, and the
-        logical records of each seed schema of the phase before it."""
+        records of each seed schema of the phase before it."""
         before = self.phases[-1]
         if reads["digest"] != before["reads"]["digest"]:
             self.failures.append(f"{name}: the reads differ from the reads before it")
@@ -265,10 +262,9 @@ class Case:
     def logical(self):
         data, elapsed, _ = self.node.call("/api/db/schemas")
         report = data["schema_storage"]
-        # A format 7 home stores records, not atoms: the walk counts the stored
-        # record values and their bytes. The alternate-key storage comparison
-        # also runs the previous main binary, whose format 6 home stores atoms.
-        unit = "record_count" if self.node.home_format() == 7 else "atom_count"
+        # A record home stores one record per key: the walk counts the stored
+        # record values and their bytes.
+        unit = "record_count"
         return {"bytes": report["total_logical_bytes"],
                 "records": report.get("total_records", 0),
                 "milliseconds": round(elapsed),
@@ -371,7 +367,7 @@ class Case:
         raise ProofError(f"{schema}: the key list did not end after {LIST_PAGES} pages")
 
     def gate(self, name, window, start, end):
-        """The highest v2 size over the logical record bytes, sample by sample.
+        """The highest v2 size over the record bytes, sample by sample.
         In a write window the logical bytes go from `start` to `end` with the
         share of acknowledged mutations."""
         if min(start, end) < MINIMUM_LOGICAL:
@@ -389,7 +385,7 @@ class Case:
             self.failures.append(f"{name}: the sampler took no sample")
         elif worst["ratio"] > LIMIT:
             self.failures.append(f"{name}: the v2 data reached {worst['ratio']:.2f}x of the "
-                                 f"logical record bytes; the limit is {LIMIT}x")
+                                 f"record bytes; the limit is {LIMIT}x")
         return worst
 
 
@@ -402,16 +398,16 @@ def series(window):
 
 def summary(report, candidate):
     lines = ["## Disk v2 node proof (V3)", "",
-             f"Candidate `{candidate}` on a new format 7 home.", "",
-             f"Limit: the v2 node folder at or under {LIMIT}x of the logical record bytes "
-             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of logical records.", ""]
+             f"Candidate `{candidate}` on a new home.", "",
+             f"Limit: the v2 node folder at or under {LIMIT}x of the record bytes "
+             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of records.", ""]
     verdict = "FAIL" if report["failures"] else "PASS"
     counts = report["seed"]
     lines += [f"### {report['case']}: {verdict}", "",
               f"Engine settings of {report['settings_name']}. Mutations: "
               f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
               f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
-              "| Phase | Logical records | Node folder at end | Peak v2 / logical | Samples "
+              "| Phase | Records | Node folder at end | Peak v2 / logical | Samples "
               "(torn) | Keys read | Keys listed |",
               "|---|---|---|---|---|---|---|"]
     for phase in report["phases"]:

@@ -1,4 +1,3 @@
-use super::super::encrypting_namespaced_store::CATALOG_NAMESPACES;
 use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
 
@@ -28,7 +27,7 @@ impl PackKvStore {
 
     async fn change(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         let runtime = Arc::clone(&self.runtime);
-        transaction::scope(Some(Arc::clone(&runtime)), async {
+        transaction::scope(Arc::clone(&runtime), async {
             runtime.ensure_namespace(&self.namespace).await?;
             let context = read::ReadContext::current(&runtime).await?;
             let pending = transaction::PendingBatch::current(&runtime);
@@ -83,7 +82,6 @@ fn prepare(
     for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
         match mutation {
             KvMutation::Put { value, .. } => {
-                reject_enc_on_plaintext_catalog(namespace, &value)?;
                 out.push(HomeMutation {
                     collection: target.clone(),
                     key: key.clone(),
@@ -134,7 +132,7 @@ impl KvStore for PackKvStore {
     }
 
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
-        transaction::scope(Some(Arc::clone(&self.runtime)), async {
+        transaction::scope(Arc::clone(&self.runtime), async {
             if self.get(key).await?.is_none() {
                 return Ok(false);
             }
@@ -220,25 +218,4 @@ impl KvStore for PackKvStore {
     fn backend_name(&self) -> &'static str {
         "laststore-disk-pack"
     }
-}
-
-/// Catalog collections require direct JSON values with no value envelope (the
-/// run-file blocks encrypt them). An at-rest envelope there is what made Tom's
-/// primary unbootable on 2026-08-16:
-/// `TypedKvStore` parsed ciphertext as JSON (`expected value at line 1 column 1`)
-/// and `get_all_schemas` aborted `open_existing_store`. Reject at the native
-/// put so a legacy replay envelope fails closed instead of poisoning the catalog.
-fn reject_enc_on_plaintext_catalog(collection: &str, value: &[u8]) -> StorageResult<()> {
-    // Both at-rest envelopes are equally fatal on a catalog value: the
-    // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
-    // and a binary `ENB:` body would fail identically.
-    let enveloped = crate::crypto::is_sealed_at_rest(value);
-    if enveloped && CATALOG_NAMESPACES.contains(&collection) {
-        return Err(StorageError::InvalidOperation(format!(
-            "refusing to persist ENC:/ENB: envelope in catalog collection \
-             {collection:?} — schema/catalog rows must stay JSON so boot can \
-             deserialize them"
-        )));
-    }
-    Ok(())
 }

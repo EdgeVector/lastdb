@@ -1,6 +1,6 @@
 //! Query-defined portable `lastdb.slice.v1` materialization.
 //!
-//! Run one or more owner queries and package schemas, molecules, atoms, and
+//! Run one or more owner queries and package schemas, field keys, records, and
 //! first-class binary blobs into [`LastDbSlicePayload`].
 //!
 //! File-bearing fields are `$lastdb_file` pointers. The encrypted delivery
@@ -12,10 +12,10 @@ use crate::fold_db_core::FoldDB;
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::operations::{FieldPredicate, Query, QueryOrderBy};
 use crate::sharing::delivery_wire::{
-    blob_ref_from_atom_value, content_addressed_atom, content_addressed_blob_with_access,
-    file_blob_access_from_atom_value, validate_blob_refs, ContentAddressedAtom,
-    ContentAddressedBlob, FileBlobAccess, LastDbSlicePayload, SignedMolecule, SliceProvenance,
-    SliceSchema, LASTDB_SLICE_PAYLOAD_VERSION,
+    blob_ref_from_value, content_addressed_blob_with_access, content_addressed_value,
+    file_blob_access_from_value, validate_blob_refs, ContentAddressedBlob, ContentAddressedValue,
+    FileBlobAccess, LastDbSlicePayload, SliceFieldKey, SliceProvenance, SliceSchema,
+    LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -51,7 +51,7 @@ pub type BlobBytesResolver = dyn Fn(&str) -> Result<Option<Vec<u8>>, FoldDbError
 /// Build a portable snapshot payload from one or more owner queries.
 ///
 /// Multi-schema slices are the union of legs: each leg is one `Query` (LastDB
-/// queries are per-schema today). Molecules use `KeyValue::to_storage_key()` as
+/// queries are per-schema today). Field keys use `KeyValue::to_storage_key()` as
 /// `record_key` so hash/range keys round-trip losslessly.
 ///
 /// File fields: a `$lastdb_file` pointer has its blob bytes loaded via
@@ -95,8 +95,8 @@ pub async fn materialize_query_slice_with_blob_resolver(
     }
     let SliceBuilder {
         schemas,
-        molecules,
-        atoms_by_ref,
+        field_keys,
+        records_by_ref,
         blobs_by_ref,
         ..
     } = builder;
@@ -112,8 +112,8 @@ pub async fn materialize_query_slice_with_blob_resolver(
             sender_public_key: sender_public_key.into(),
         },
         schemas,
-        molecules,
-        atoms: atoms_by_ref.into_values().collect(),
+        field_keys,
+        records: records_by_ref.into_values().collect(),
         blobs: blobs_by_ref.into_values().collect(),
     };
     validate_blob_refs(&payload)?;
@@ -131,8 +131,8 @@ async fn normalize_file_field_value(
     blobs_by_ref: &mut BTreeMap<String, ContentAddressedBlob>,
 ) -> Result<Value, FoldDbError> {
     // A pointer — ensure the blob body is packed when we can resolve it.
-    if let Some(blob_ref) = blob_ref_from_atom_value(value) {
-        let access = file_blob_access_from_atom_value(value)?;
+    if let Some(blob_ref) = blob_ref_from_value(value) {
+        let access = file_blob_access_from_value(value)?;
         if !blobs_by_ref.contains_key(blob_ref) {
             let bytes = resolve_blob_bytes(db, blob_ref, access.as_ref(), blob_resolver).await?;
             if let Some(raw) = bytes {

@@ -1,7 +1,5 @@
 use super::*;
 
-use super::attribution::*;
-
 /// Durable response body for `GET /api/storage/home`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HomeStorageReport {
@@ -28,11 +26,6 @@ pub struct HomeStorageReport {
     /// Named reasons that prevent an exact report.
     #[serde(default)]
     pub unresolved_scopes: Vec<String>,
-    /// Logical data counted once per reaching app. This ledger is independent
-    /// from the unique physical bucket ledger above and can exceed its own
-    /// unique logical total when apps share molecules.
-    #[serde(default)]
-    pub inclusive_app_attribution: HomeStorageInclusiveAppAttribution,
 }
 
 impl HomeStorageReport {
@@ -53,7 +46,6 @@ impl HomeStorageReport {
             overaccounted_apparent_bytes: 0,
             unknown_path_bytes: 0,
             unresolved_scopes: vec!["snapshot_missing".to_string()],
-            inclusive_app_attribution: HomeStorageInclusiveAppAttribution::default(),
         }
     }
 
@@ -63,7 +55,6 @@ impl HomeStorageReport {
     pub fn validated_for_read(mut self) -> Self {
         self.metric = HOME_STORAGE_METRIC.to_string();
         self.heavy = false;
-        self.inclusive_app_attribution = self.inclusive_app_attribution.validated_for_read();
 
         let bucket_apparent = self
             .unique_physical_buckets
@@ -112,16 +103,6 @@ impl HomeStorageReport {
             && self.overaccounted_bytes == 0
             && self.unaccounted_apparent_bytes == 0
             && self.overaccounted_apparent_bytes == 0;
-        self
-    }
-
-    /// Attach a measured inclusive app ledger to this physical snapshot.
-    #[must_use]
-    pub fn with_inclusive_app_attribution(
-        mut self,
-        attribution: HomeStorageInclusiveAppAttribution,
-    ) -> Self {
-        self.inclusive_app_attribution = attribution.validated_for_read();
         self
     }
 }

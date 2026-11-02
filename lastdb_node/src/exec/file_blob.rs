@@ -23,9 +23,7 @@ struct FetchFileBlobRequest {
 
 impl FetchFileBlobRequest {
     fn parse(body: &[u8]) -> Result<Self, (u16, String)> {
-        use fold_db::sharing::delivery_wire::{
-            blob_ref_from_atom_value, file_blob_access_from_atom_value,
-        };
+        use fold_db::sharing::delivery_wire::{blob_ref_from_value, file_blob_access_from_value};
 
         #[derive(Deserialize)]
         struct Body {
@@ -38,7 +36,7 @@ impl FetchFileBlobRequest {
                 format!("invalid /api/db/fetch-file-blob body: {error}"),
             )
         })?;
-        let blob_ref = blob_ref_from_atom_value(&pointer)
+        let blob_ref = blob_ref_from_value(&pointer)
             .map(str::to_string)
             .ok_or_else(|| {
                 (
@@ -46,7 +44,7 @@ impl FetchFileBlobRequest {
                     "pointer must be a $lastdb_file value with blob_ref".into(),
                 )
             })?;
-        let access = file_blob_access_from_atom_value(&pointer)
+        let access = file_blob_access_from_value(&pointer)
             .map_err(|error| (422, format!("invalid file blob access: {error}")))?
             .ok_or_else(|| (422, "pointer is missing file blob access metadata".into()))?;
         Ok(Self {

@@ -2,11 +2,11 @@
 
 **Status:** implemented on Mini (`lastdbd`)  
 **Date:** 2026-07-19  
-**Not:** cloud-synced · product truth · full-row CDC
+**Not:** cloud-synced · product truth · full-record CDC
 
 ## Problem
 
-Apps (lastgit forge, later Discovery) idle-poll keyed tables even when nothing
+Apps (lastgit forge, later Discovery) idle-poll keyed schemas even when nothing
 changed. Polls are correctly **keyed**, but **chatty** (N repos × cycles).
 
 ## Product shape
@@ -17,7 +17,7 @@ mutation succeeds
   → wake long-poll waiters on GET /api/local-watch
 
 client sleeps on /api/local-watch?after_seq=&timeout_ms=
-  → on events: keyed-read product tables (HashRange)
+  → on events: keyed-read product schemas (HashRange)
   → on gap:true: resync from product cursors/keys
 ```
 
@@ -43,7 +43,7 @@ Response (envelope-wrapped as usual):
 ```json
 {
   "after_seq": 12,
-  "tip_seq": 15,
+  "last_seq": 15,
   "gap": false,
   "events": [
     {
@@ -62,7 +62,7 @@ Response (envelope-wrapped as usual):
 
 `schema` accepts repeated or comma-separated values. `hash` accepts one exact
 HashRange hash. `start` is inclusive and `end` is exclusive. The node wakes the
-request only for matching events. The response still includes `tip_seq`, so the
+request only for matching events. The response still includes `last_seq`, so the
 client can advance its cursor across unrelated writes.
 
 ## Concurrency: watchers are capped, and the cap is visible
@@ -100,7 +100,7 @@ thread-per-request). Card:
 
 - Cloud upload of the ring  
 - WebSocket  
-- Full row bodies on the wire  
+- Full records on the wire  
 
 ## First consumer (follow-up)
 

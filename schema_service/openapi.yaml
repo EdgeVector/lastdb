@@ -48,7 +48,7 @@ info:
         resolve the same content-addressed schemas.
       * fold_db assumes a registered schema's shape is final from
         registration on; data-model changes are modeled as new schemas
-        that field-map onto old molecules, not as edits to old schemas.
+        that field-map onto old field_keys, not as edits to old schemas.
 
     "Approved" is the gate. Pre-approval drafts are scratchpad. Once
     approval succeeds the artifact is frozen.
@@ -1909,7 +1909,7 @@ components:
         hash:
           type: string
           nullable: true
-        field_molecule_uuids:
+        field_key_ids:
           type: object
           nullable: true
           additionalProperties:

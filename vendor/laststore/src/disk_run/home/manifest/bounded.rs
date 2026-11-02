@@ -1,7 +1,7 @@
 //! Backup-only CURRENT admission. Normal boot, publication and codecs stay unchanged.
 use super::{
-    corrupt, get_len, get_slice, get_varint, Manifest, RunFile, RunMeta, MAGIC, MAGIC_V1,
-    MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS, MAX_RUN_KEY_BYTES, RUN_SUFFIX,
+    corrupt, get_len, get_slice, get_varint, Manifest, RunFile, RunMeta, MAGIC, MAX_CURRENT_BYTES,
+    MAX_LEVELS, MAX_LEVEL_RUNS, MAX_RUN_KEY_BYTES, RUN_SUFFIX,
 };
 use crate::frame::VerifiedFrameReader;
 use crate::read_receipt::TemporaryBytes;
@@ -99,12 +99,7 @@ impl Manifest {
 }
 
 fn decode(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Manifest> {
-    let with_base = match bytes.get(..8) {
-        Some(magic) if magic == MAGIC.as_slice() => true,
-        Some(magic) if magic == MAGIC_V1.as_slice() => false,
-        _ => return Err(corrupt("bad CURRENT")),
-    };
-    if bytes.len() < 24 {
+    if bytes.get(..8) != Some(MAGIC.as_slice()) || bytes.len() < 24 {
         return Err(corrupt("bad CURRENT"));
     }
     let home_id = Uuid::from_slice(&bytes[8..24]).map_err(|_| corrupt("bad CURRENT"))?;
@@ -114,17 +109,15 @@ fn decode(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Manifest>
     let count = get_len(bytes, &mut at, MAX_LEVELS)?;
     let mut levels = budget.array(count)?;
     for _ in 0..count {
-        levels.push(run_list(bytes, &mut at, runs, with_base, budget)?);
+        levels.push(run_list(bytes, &mut at, runs, budget)?);
     }
-    let (mut merging, mut merge_cut, mut base) = (Vec::new(), None, Vec::new());
-    if with_base {
-        merging = run_list(bytes, &mut at, runs, true, budget)?;
-        let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
-        if let Some(length) = cut.checked_sub(1) {
-            merge_cut = Some(budget.copy(get_slice(bytes, &mut at, length)?)?);
-        }
-        base = run_list(bytes, &mut at, runs, true, budget)?;
-    }
+    let merging = run_list(bytes, &mut at, runs, budget)?;
+    let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
+    let merge_cut = match cut.checked_sub(1) {
+        Some(length) => Some(budget.copy(get_slice(bytes, &mut at, length)?)?),
+        None => None,
+    };
+    let base = run_list(bytes, &mut at, runs, budget)?;
     if at != bytes.len() || generation == 0 {
         return Err(corrupt("bad CURRENT"));
     }
@@ -145,7 +138,6 @@ fn run_list(
     bytes: &[u8],
     at: &mut usize,
     directory: &Path,
-    counts: bool,
     budget: &mut Admission,
 ) -> Result<Vec<Arc<RunFile>>> {
     let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
@@ -154,16 +146,11 @@ fn run_list(
         let run_id = Uuid::from_slice(get_slice(bytes, at, 16)?)
             .map_err(|_| corrupt("bad run entry in CURRENT"))?;
         let records = get_varint(bytes, at)?;
-        let (tombstones, record_bytes, tombstone_bytes, file_bytes, hidden) = if counts {
-            let mut values = [0; 5];
-            for value in &mut values {
-                *value = get_varint(bytes, at)?;
-            }
-            (values[0], values[1], values[2], values[3], values[4])
-        } else {
-            let size = get_varint(bytes, at)?;
-            (0, size, 0, size, 0)
-        };
+        let mut values = [0u64; 5];
+        for value in &mut values {
+            *value = get_varint(bytes, at)?;
+        }
+        let [tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = values;
         let length = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
         let first_key = budget.copy(get_slice(bytes, at, length)?)?;
         let length = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;

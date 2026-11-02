@@ -14,6 +14,7 @@ import {
   QueryPage,
   QueryResult,
   QueryRow,
+  RecordMetadata,
   SchemaDescriptor,
   RowFields,
   SearchHit,
@@ -27,8 +28,8 @@ export { parseListResponse } from './listResponse.js';
  * full per-row envelope.
  *
  * The node returns its rows under `results`, one object per key shaped
- * `{ key, fields, metadata, author_pub_key }` (`lastdb_host`
- * `handlers::query::rows::format_rows`). Each row is normalized to a
+ * `{ key, fields, metadata, has_conflicts }` (`lastdb_host`
+ * `handlers::query::response::format_rows`). Each row is normalized to a
  * {@link QueryRow}; a body without a `results` array, or a row without the
  * envelope, is an unexpected response. The node sends no schema name, so
  * `schema` is empty here and the client sets the app schema name.
@@ -121,8 +122,8 @@ export function parseMutationId(
 }
 
 /**
- * Normalize one raw query row (`{key, fields, metadata, author_pub_key}`)
- * into a {@link QueryRow}. The structured `{hash, range}` key is preserved
+ * Normalize one raw query row (`{key, fields, metadata}`) into a
+ * {@link QueryRow}. The structured `{hash, range}` key is preserved
  * verbatim as `keyValue` (the unambiguous row address) AND rendered to the
  * `key` string the same way fold_db's `KeyValue::Display` does. A row without
  * an object `key` and an object `fields` is an unexpected response.
@@ -133,16 +134,35 @@ export function parseQueryRow(raw: unknown): QueryRow {
   if (!isObject(raw) || !isObject(fields) || !isObject(rawKey)) {
     throw new UnexpectedResponseError('query returned an invalid row', 200, raw);
   }
-  const author = raw['author_pub_key'];
   const { key, keyValue } = parseRowKey(rawKey);
   return {
     key,
     keyValue,
     ...(isObject(raw['matched_key']) ? { matchedKey: parseRowKey(raw['matched_key']).keyValue } : {}),
     fields: fields as RowFields,
-    metadata: 'metadata' in raw ? (raw['metadata'] as JsonValue) : null,
-    authorPubKey: typeof author === 'string' && author.length > 0 ? author : null,
+    metadata: parseRecordMetadata(raw['metadata']),
   };
+}
+
+/**
+ * Read the one metadata block of a row (decision D7), or `null` when the row
+ * carries none.
+ */
+export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
+  if (!isObject(raw)) {
+    return null;
+  }
+  const sourceFileName = raw['source_file_name'];
+  const map = raw['metadata'];
+  const metadata: RecordMetadata = {
+    source_file_name: typeof sourceFileName === 'string' ? sourceFileName : null,
+  };
+  if (isObject(map)) {
+    metadata.metadata = Object.fromEntries(
+      Object.entries(map).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+  }
+  return metadata;
 }
 
 /**
@@ -258,13 +278,13 @@ export function parseChangesResponse(body: unknown): ChangesResult {
  *
  * The node wraps the hits in its standard envelope: `{ ok, results: [...],
  * user_hash }` (the `ApiResponse<IndexSearchResponse>` shape). Each element of
- * `results` is a full `/api/query` row envelope (`key`, `fields`, `metadata`,
- * `author_pub_key`) with three search-only fields the node adds per hit:
+ * `results` is a full `/api/query` row envelope (`key`, `fields`, `metadata`)
+ * with three search-only fields the node adds per hit:
  * `schema_name`, `schema_display_name`, and `score`. Hits arrive in the node's
  * relevance order and are surfaced verbatim — the SDK preserves it.
  *
  * The row part is parsed by the SAME {@link parseQueryRow} used for `query()`,
- * so the envelope handling (structured key, null author) is identical.
+ * so the envelope handling (structured key, record metadata) is identical.
  */
 export function parseSearchResponse(body: unknown): SearchResult {
   const b = (body ?? {}) as { results?: unknown };
@@ -400,8 +420,8 @@ export function stringOrNull(value: unknown): string | null {
 }
 
 /**
- * Normalize one raw search hit. The row envelope (`key`/`fields`/`metadata`/
- * `authorPubKey`) is parsed by {@link parseQueryRow}; the search-only
+ * Normalize one raw search hit. The row envelope (`key`/`fields`/`metadata`)
+ * is parsed by {@link parseQueryRow}; the search-only
  * attribution fields (`score`, `schema_name`, `schema_display_name`) are read
  * off the same object. `score` is `null` when the node reported none.
  */

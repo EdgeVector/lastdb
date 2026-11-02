@@ -221,7 +221,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppSearch
         | DataRoute::NativeIndexAppVectorPut
         | DataRoute::NativeIndexKnn
-        | DataRoute::AtomHistory
+        | DataRoute::FieldHistory
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
@@ -231,8 +231,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppOrgBlobPut
         | DataRoute::AppOrgBlobGet
         | DataRoute::AppBlobFootprint
-        | DataRoute::AppStorage
-        | DataRoute::AppStorageReconcile
         | DataRoute::HomeStorage
         | DataRoute::HomeStorageReconcile
         | DataRoute::LivenessExplain

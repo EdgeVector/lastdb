@@ -57,7 +57,7 @@ def physical_state(node, expected_layout, expected_root=None):
 
 
 def boot_boundary(node, seed_layout):
-    """Allow only the startup stamp append; freeze the resulting layout for timing."""
+    """Allow at most one startup append; freeze the resulting layout for timing."""
     state = snapshot(node)
     observed = inventory(node.home, physical_only=True)
     removed = sorted(seed_layout.keys() - observed.keys())
@@ -66,12 +66,15 @@ def boot_boundary(node, seed_layout):
     root = {name: state[name] for name in ("generation", "frontier")}
     save(node.output / "boot-delta.json", {"removed": removed, "added": added,
                                           "changed": changed, "root": root, "files": observed})
-    # hydrate_from_snapshot writes one keep-small header to re-arm clean_stop.
-    # A small append alone does not authenticate its contents; retain this explicit
-    # residual startup difference and audit exact query work across the versions.
-    if (removed or changed != ["data/disk-run/CURRENT"] or len(added) != 1
-            or any(not re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
-                   or not 0 < v["bytes"] <= 4096 for k, v in added.items())):
+    # An older program writes one small metadata header at startup; a newer one
+    # writes nothing. A small append alone does not authenticate its contents;
+    # retain this explicit residual startup difference and audit exact query work
+    # across the versions.
+    unchanged = not removed and not changed and not added
+    one_append = (not removed and changed == ["data/disk-run/CURRENT"] and len(added) == 1
+                  and all(re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
+                          and 0 < v["bytes"] <= 4096 for k, v in added.items()))
+    if not (unchanged or one_append):
         raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
     return root, observed
 
@@ -80,8 +83,6 @@ def prepare_seed(node, output):
     work = None
     try:
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("The shared seed must use disk format v2")
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
         work.seed()
         save(output / "observed-stable.json", stable_boundary(node))
@@ -113,7 +114,7 @@ def audit_samples(output):
 
 def measure(binary, revision, output, template, whole, physical):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_DISK_FORMAT": "2"})
+    node = Node(binary, revision, output)
     work, error, samples, root = None, None, None, None
     try:
         # The template's daemon is stopped; node owns its separate destination root.
@@ -124,8 +125,6 @@ def measure(binary, revision, output, template, whole, physical):
             raise RuntimeError("The complete copied home is not byte-identical to the seed")
         save(output / "clone.json", {"byte_identical": True, "files": len(whole)})
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("A product cannot open the shared disk format")
         root, timing_layout = boot_boundary(node, physical)
         save(output / "root.json", root)
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
@@ -134,8 +133,8 @@ def measure(binary, revision, output, template, whole, physical):
             boundary = node.call("/api/admin/shed", {})[0]["shed"]
             save(output / f"boundary-{batch}.json", boundary)
             if (boundary.get("error") or boundary.get("target_met") is not True
-                    or boundary["native_memory"]["logical_records"] != 0):
-                raise RuntimeError("The clone did not establish an empty logical warm set")
+                    or boundary["native_memory"]["records"] != 0):
+                raise RuntimeError("The clone did not establish an empty warm set")
             physical_state(node, timing_layout, root)
             work.measure(case, "cold", batch=batch)
             physical_state(node, timing_layout, root)
@@ -198,12 +197,11 @@ def main():
                          "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
                          "All opening samples retained. "
                          "Content verification reads files before timing: filesystem pages are not cold. "
-                         "This isolates logical-record-cold reads on a fixed physical layout, not device latency."}
+                         "This isolates record-cold reads on a fixed physical layout, not device latency."}
     save(args.output / "benchmark.json", manifest)
     seed_output = args.output / "seed"
     seed_output.mkdir()
-    template = Node(binaries["baseline"], revisions["baseline"], seed_output,
-                    environment={"LASTDB_DISK_FORMAT": "2"})
+    template = Node(binaries["baseline"], revisions["baseline"], seed_output)
     samples, comparison = {}, None
     try:
         whole, physical = prepare_seed(template, seed_output)

@@ -127,13 +127,13 @@ fn route_request(
 /// A reachable daemon cannot report success while storage refuses record calls.
 /// This probe uses only the admission failure atomic, without database I/O or locks.
 fn storage_health_response(host: &Host) -> UdsResponse {
-    let failed = host
+    if host
         .db
         .db_ops()
         .namespaced_store()
         .disk_pack_runtime()
-        .is_some_and(|runtime| runtime.requires_recovery());
-    if failed {
+        .requires_recovery()
+    {
         return UdsResponse::new(
             503,
             "Service Unavailable",

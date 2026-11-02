@@ -1,4 +1,4 @@
-"""Measure retained v2 disk space against the node's logical record report."""
+"""Measure retained v2 disk space against the node's record report."""
 
 import math
 import statistics
@@ -12,11 +12,11 @@ LIMIT = 1.5
 PERCENT = 10
 FLOOR = 64 * 1024
 CASES = (*GROWTH_CASES, "delete")
-MEASURES = ("logical_atom_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
+MEASURES = ("stored_record_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
             "max_disk_to_logical_ratio", "search_queue_bytes", "search_queue_payload_bytes",
             "search_queue_files", "other_home_bytes", "whole_home_disk_bytes",
             "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent",
-            "starting_logical_atom_bytes", "starting_live_records", "deleted_records")
+            "starting_stored_record_bytes", "starting_live_records", "deleted_records")
 
 
 def require_search_off(node, output, phase):
@@ -35,9 +35,7 @@ def logical_storage(node):
 
 
 def validate_logical(report, home_format):
-    """A format 7 home stores one record per key. Its logical bytes are the stored record values."""
-    if home_format != 7:
-        raise ValueError(f"The disk budget requires a format 7 home, not format {home_format}")
+    """A format 8 home stores one record per key. Its logical bytes are the stored record values."""
     rows = report["per_schema"]
     if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]
@@ -46,7 +44,7 @@ def validate_logical(report, home_format):
             or report["total_records"] != sum(row["record_count"] for row in rows)
             or any(type(row[key]) is not int or row[key] <= 0
                    for row in rows for key in ("bytes", "record_bytes", "record_count"))):
-        raise ValueError("The logical record report is incomplete")
+        raise ValueError("The record report is incomplete")
 
 
 def metrics(points):
@@ -56,7 +54,7 @@ def metrics(points):
                 / p["logical_storage"]["total_logical_bytes"])
     logical = worst["logical_storage"]["total_logical_bytes"]
     retained = max(worst["disk_breakdown"]["database"].values())
-    return {"logical_atom_bytes": last["logical_storage"]["total_logical_bytes"],
+    return {"stored_record_bytes": last["logical_storage"]["total_logical_bytes"],
             "retained_disk_bytes": max(breakdown["database"].values()),
             "search_queue_bytes": max(breakdown["search_queue"].values()),
             "search_queue_payload_bytes": breakdown["search_queue"]["logical_bytes"],
@@ -66,7 +64,7 @@ def metrics(points):
             "limit_logical_bytes": logical, "limit_database_bytes": retained,
             "limit_headroom_bytes": LIMIT * logical - retained,
             "limit_headroom_percent": 100 * (1 - retained / (LIMIT * logical)),
-            "starting_logical_atom_bytes": points[0]["logical_storage"]["total_logical_bytes"],
+            "starting_stored_record_bytes": points[0]["logical_storage"]["total_logical_bytes"],
             "starting_live_records": points[0]["live_records"], "deleted_records": last["deleted_records"],
             "disk_to_logical_ratio": max(breakdown["database"].values()) / last["logical_storage"]["total_logical_bytes"],
             "max_disk_to_logical_ratio": max(
@@ -88,8 +86,6 @@ class DiskBudgetWorkload(GrowthWorkload):
         try:
             node.start()
             require_search_off(node, output, "before")
-            if node.disk_format() != 2:
-                raise ValueError("The delete case requires a fresh v2 run home")
             if node.home_format() != self.node.home_format():
                 raise ValueError("The delete case requires the home format of the main corpus")
             workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)
@@ -223,7 +219,7 @@ def render(comparison):
              "|---|---:|---:|---:|---:|"]
     for case, item in comparison.items():
         cells = [" → ".join(f"{item[label][name] / divisor:.3f}{unit}" for label in ("baseline", "candidate"))
-                 for name, divisor, unit in (("logical_atom_bytes", 2**20, ""),
+                 for name, divisor, unit in (("stored_record_bytes", 2**20, ""),
                                              ("retained_disk_bytes", 2**20, ""),
                                              ("disk_to_logical_ratio", 1, "×"),
                                              ("max_disk_to_logical_ratio", 1, "×"))]
@@ -237,7 +233,7 @@ def render(comparison):
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines.extend(["", "The ceiling is 1.5× logical bytes. Equality is within the budget.",
                   "Logical bytes use GET /api/db/schemas, the same measure as lastdb db schemas: "
-                  "the stored record values of the format 7 home.",
+                  "the stored record values of the home.",
                   "Database disk is the greater of file lengths and allocated blocks under data/ and blobs/.",
                   "The Search queue includes apps/search/inbox/; other home files and the whole home remain explicit.",
                   "Each category retains both file lengths and allocated blocks; its raw totals add exactly to the whole home.",

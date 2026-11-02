@@ -1,80 +1,5 @@
 use super::*;
 
-/// Per-schema purge counters for `lastdb status` / `lastdb ops`.
-///
-/// Always emits at least one line. This lets an operator distinguish an empty
-/// process-lifetime ledger from an omitted display section.
-///
-/// `purge_atoms_deleted` stays in the JSON for its readers. The record model
-/// keeps it at zero, so the text output leaves it out.
-pub fn purge_stats_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    if snapshot.purge_stats.is_empty() {
-        return vec!["Purge stats: (none since process start)".to_string()];
-    }
-    let mut names: Vec<&String> = snapshot.purge_stats.keys().collect();
-    names.sort();
-    let mut lines = Vec::with_capacity(names.len() + 1);
-    lines.push(format!(
-        "Purge stats: {} schema(s), process totals; delta the totals.",
-        names.len()
-    ));
-    for name in names {
-        let s = &snapshot.purge_stats[name];
-        lines.push(format!(
-            "  {name}: purges={} records_purged={} purge_target_slots={} last_purge_finished_unix_ms={}",
-            s.purges,
-            s.records_purged,
-            s.purge_target_slots,
-            s.last_purge_finished_unix_ms
-        ));
-    }
-    lines
-}
-
-/// Aligned purge ledger for the default `lastdb ops` human view.
-///
-/// `lastdb status` keeps the compact key-value form above. The ops command can
-/// spend more lines on a table and can add catalog labels for runtime IDs.
-pub fn purge_stats_table_lines(
-    snapshot: &StatusSnapshot,
-    labels: &crate::request_telemetry::SchemaLabels,
-) -> Vec<String> {
-    use crate::request_telemetry::{aligned_table, human_age, human_count, schema_cell};
-
-    if snapshot.purge_stats.is_empty() {
-        return vec!["Purge stats: none since process start.".to_string()];
-    }
-
-    let mut names: Vec<&String> = snapshot.purge_stats.keys().collect();
-    names.sort();
-    let rows: Vec<Vec<String>> = names
-        .iter()
-        .map(|name| {
-            let stats = &snapshot.purge_stats[*name];
-            vec![
-                schema_cell(Some(name), labels),
-                human_count(stats.purges),
-                human_count(stats.records_purged),
-                human_count(stats.purge_target_slots),
-                human_age(
-                    fold_db::clock::unix_millis(),
-                    stats.last_purge_finished_unix_ms,
-                ),
-            ]
-        })
-        .collect();
-    let mut lines = vec![format!(
-        "Purge stats: {} schema(s) — process lifetime totals",
-        names.len()
-    )];
-    lines.extend(aligned_table(
-        &["SCHEMA", "PURGES", "RECORDS", "TARGET SLOTS", "LAST"],
-        &rows,
-        &[false, true, true, true, true],
-    ));
-    lines
-}
-
 /// Render configured retention series and the counters that prove their cost.
 pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let health = &snapshot.local_retention;
@@ -115,19 +40,16 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     names.sort();
     for name in names {
         let policy = &health.policies[name];
-        let purge = snapshot.purge_stats.get(name).copied().unwrap_or_default();
         let partitions = if policy.hash_partitions.is_empty() {
             "-".to_string()
         } else {
             policy.hash_partitions.join(",")
         };
         lines.push(format!(
-            "  {name}: ttl_seconds={} source={} hash_partitions={} records_reaped={} last_purge_finished_unix_ms={}",
+            "  {name}: ttl_seconds={} source={} hash_partitions={}",
             policy.ttl_seconds,
             policy.source.as_str(),
             partitions,
-            purge.records_purged,
-            purge.last_purge_finished_unix_ms,
         ));
     }
     lines

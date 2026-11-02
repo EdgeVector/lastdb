@@ -13,11 +13,9 @@ pub enum SchemaError {
     WriteResourceLimit {
         detail: String,
     },
-    /// A selected tip names an atom that this read cannot resolve.
+    /// A read selected a record that it cannot resolve.
     /// This is a store failure, not an absent key or an optional field.
-    // Preserve the serialized error identity for existing diagnostic consumers.
-    #[serde(rename = "MissingLocalAtom")]
-    MissingSelectedAtom,
+    MissingSelectedRecord,
     /// Storage or decode failed after a read selected the stored record.
     StorageRead {
         detail: String,
@@ -92,24 +90,24 @@ pub enum SchemaError {
         expected: String,
         actual: Option<String>,
     },
-    /// Atom field content exceeded the hard size limit
-    /// (core's `fold_db::atom::max_atom_content_bytes`, default 256 KiB).
+    /// Record field content exceeded the hard size limit
+    /// (core's `fold_db::content_limit::max_field_value_bytes`, default 256 KiB).
     ///
     /// Carried as a distinct variant (not stringly-typed `InvalidData`) so the
-    /// HTTP layer can render a discriminated `413 { error: "atom_content_too_large",
+    /// HTTP layer can render a discriminated `413 { error: "field_value_too_large",
     /// size, limit }` body and clients can fail closed without sniffing text.
     /// Measure is pre-encryption serialized JSON of the field payload.
-    /// Raise (within 1 MiB absolute max) via env `LASTDB_MAX_ATOM_CONTENT_BYTES`.
+    /// Raise (within 1 MiB absolute max) via env `LASTDB_MAX_FIELD_VALUE_BYTES`.
     /// The right shape depends on the data: see
-    /// [`crate::atom::ATOM_CONTENT_TOO_LARGE_HINT`] and
-    /// `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
-    AtomContentTooLarge {
+    /// [`crate::content_limit::FIELD_VALUE_TOO_LARGE_HINT`] and
+    /// `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`.
+    FieldValueTooLarge {
         size: usize,
         limit: usize,
     },
-    /// The encoded record of a format 7 home exceeded the record cap
+    /// The encoded record of a home exceeded the record cap
     /// (`MAX_RECORD_BYTES`, 64 KiB, in `record_value.rs`). The HTTP layer
-    /// renders the same discriminated `413 atom_content_too_large` body with
+    /// renders the same discriminated `413 field_value_too_large` body with
     /// `scope: "record"`, so a client that keys on the error keeps working.
     RecordTooLarge {
         size: usize,
@@ -165,7 +163,7 @@ impl fmt::Display for SchemaError {
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
-            Self::MissingSelectedAtom => write!(f, "selected tip has no readable atom body"),
+            Self::MissingSelectedRecord => write!(f, "selected record has no readable body"),
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
             Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),
@@ -205,18 +203,18 @@ impl fmt::Display for SchemaError {
                 "CAS conflict on schema '{schema}' field '{field}' key '{key}':                  expected {expected}, found {}",
                 actual.as_deref().unwrap_or("<absent>")
             ),
-            Self::AtomContentTooLarge { size, limit } => write!(
+            Self::FieldValueTooLarge { size, limit } => write!(
                 f,
-                "atom content too large: {size} bytes exceeds hard limit of {limit} bytes \
-                 (default {} KiB; env LASTDB_MAX_ATOM_CONTENT_BYTES, absolute max 1 MiB). \
-                 {} See fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md.",
-                crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES / 1024,
-                crate::atom::ATOM_CONTENT_TOO_LARGE_HINT
+                "field value too large: {size} bytes exceeds hard limit of {limit} bytes \
+                 (default {} KiB; env LASTDB_MAX_FIELD_VALUE_BYTES, absolute max 1 MiB). \
+                 {} See fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md.",
+                crate::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES / 1024,
+                crate::content_limit::FIELD_VALUE_TOO_LARGE_HINT
             ),
             Self::RecordTooLarge { size, limit } => write!(
                 f,
                 "record too large: {size} bytes exceeds the record cap of {limit} bytes. {}",
-                crate::atom::RECORD_TOO_LARGE_HINT
+                crate::content_limit::RECORD_TOO_LARGE_HINT
             ),
             Self::StorageFull { detail } => write!(
                 f,

@@ -1,5 +1,5 @@
 //! `folddb_profile` — the cross-environment endpoint registry and the
-//! `FOLDDB_HOME` / tilde path helpers.
+//! `LASTDB_HOME` / tilde path helpers.
 //!
 //! This is a small leaf crate. The production node and the observability
 //! crate resolve service endpoints and the node home from here. They do not

@@ -26,7 +26,7 @@ impl SchemaStore {
         // so the existing captured storage path remains authoritative.
         if let Some(snapshot) =
             crate::storage::disk_pack::core_memory_get_for_write::<SchemaReadSnapshot>(
-                self.runtime.clone(),
+                &self.runtime,
                 self.snapshot_owner(),
                 name,
                 &super::snapshot_sources(name),

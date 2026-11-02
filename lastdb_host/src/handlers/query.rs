@@ -45,19 +45,17 @@ pub async fn execute_query<H: HostNode>(
     let scope = fold_db::storage::disk_pack::PackReadScope::for_store(&store)
         .await
         .map_err(|error| HostError::new(503, error.to_string()))?;
-    let future = Box::pin(execute_query_scoped(
-        host,
-        query,
-        limit,
-        offset,
-        cursor,
-        ctx,
-        allow_full_scan,
-    ));
-    match scope {
-        Some(scope) => scope.run_result(future).await,
-        None => future.await,
-    }
+    scope
+        .run_result(Box::pin(execute_query_scoped(
+            host,
+            query,
+            limit,
+            offset,
+            cursor,
+            ctx,
+            allow_full_scan,
+        )))
+        .await
 }
 
 async fn execute_query_scoped<H: HostNode>(

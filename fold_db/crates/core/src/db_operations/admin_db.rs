@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod report_inventory;
 pub use report_inventory::*;
-mod report_molecule_keys;
-pub use report_molecule_keys::*;
+mod report_field_keys;
+pub use report_field_keys::*;
 mod inventory;
 mod inventory_key_classes;

@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Exercise field history through the actual CLI and a fresh CI daemon.
+
+Every new home uses the record model: a history entry keeps its own copy of an old field
+value at a record history key (`rh:`). The proof counts those rows through the
+inventory to show that an expiry and a purge remove the copies, not only hide
+them. It uses the existing owned-node launcher and runs no test runner or
+benchmark. The home contains generated data only and never reads or copies a
+primary.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from node import Node, marker_format  # noqa: E402
+
+
+def require(value, message):
+    if not value:
+        raise RuntimeError(message)
+
+
+def history(node, action, schema="HistoryById", key=None, field="value"):
+    return node.call("/api/field-history", {
+        "location": {"schema": schema, "field": field, "key": key or {"hash": "one"}},
+        "action": action,
+    })[0]
+
+
+def mutate(node, schema, key, values, operation):
+    return node.call("/api/mutation", {
+        "type": "mutation", "schema": schema, "key_value": key,
+        "fields_and_values": values, "mutation_type": operation,
+        "durability": "durable", "convergence": "sync",
+    })[0]
+
+
+def write(node, value=None, operation="update"):
+    values = {} if value is None else {"value": value}
+    if operation == "create":
+        values.update(id="one", bucket="bucket-one")
+    return mutate(node, "HistoryById", {"hash": "one"}, values, operation)
+
+
+def cli(node, binary, *args, success=True):
+    env = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
+    run = subprocess.run([str(binary), "history", "HistoryById", "value",
+                          "--key-hash", "one", *args], env=env, text=True,
+                         capture_output=True, timeout=90)
+    require((run.returncode == 0) == success, run.stderr[-1200:])
+    return json.loads(run.stdout) if success else run.stderr
+
+
+def install(node):
+    for name, cross in [("HistoryById", False), ("HistoryByBucket", True), ("HistoryAlternate", False)]:
+        definition = {
+            "source": "system_seed", "name": name, "descriptive_name": name,
+            "schema_type": "HashRange" if cross else "Hash",
+            "key": {"hash_field": "bucket", "range_field": "id"} if cross else {"hash_field": "id"},
+            "fields": ["id", "bucket", "value"],
+            "field_types": {f: "String" for f in ["id", "bucket", "value"]},
+            "field_descriptions": {f: "History example " + f for f in ["id", "bucket", "value"]},
+            "field_versions": {f: 1 for f in ["id", "bucket", "value"]},
+        }
+        if name == "HistoryAlternate":
+            definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}
+        node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
+
+
+def verify(node):
+    cursor = None
+    for _ in range(100):
+        request = {"max_pages": 128, "max_ms": 10000, "pause_ms": 0}
+        if cursor is not None:
+            request["cursor"] = cursor
+        result = node.call("/api/db/verify-refs", request)[0]["verify_refs"]
+        require(result["mismatches_total"] == 0, "reference verifier reported a mismatch: " + json.dumps(result))
+        if result["done"]:
+            return
+        cursor = result["next_cursor"]
+    raise RuntimeError("reference verification did not complete")
+
+
+def numeric_policy(node):
+    fields = ["number_bucket", "number", "number_value"]
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": "HistoryByNumber", "descriptive_name": "HistoryByNumber",
+        "schema_type": "HashRange", "key": {"hash_field": "number_bucket", "range_field": "number"},
+        "fields": fields, "field_types": {f: "Integer" if f == "number" else "String" for f in fields},
+        "field_descriptions": {f: "Numeric history example " + f for f in fields},
+        "field_versions": {f: 1 for f in fields},
+    }})
+    result = node.call("/api/field-history", {
+        "location": {"schema": "HistoryByNumber", "field": "number_value"},
+        "action": {"op": "policy", "policy": {"mode": "keep"}},
+    })[0]
+    require(result["policy"] == {"mode": "keep"}, "numeric range policy required key coordinates")
+    print("field policy without a key on a numeric range passed", flush=True)
+
+
+def absent(node, action, schema, key, field="value"):
+    try:
+        history(node, action, schema, key, field)
+    except RuntimeError as error:
+        require("HTTP 404" in str(error), "history get failed for another reason: " + str(error))
+        return
+    raise RuntimeError("history get returned a body")
+
+
+def history_rows(node):
+    """The stored field history copies (`rh:` rows), expired or not."""
+    payload = node.call("/api/db/inventory")[0]
+    inventory = payload.get("inventory")
+    require(isinstance(inventory, dict) and "main_classes" in inventory,
+            "inventory response has no main_classes")
+    return sum(row["keys"] for row in inventory["main_classes"] if row["class"] == "record_history")
+
+
+def ledger(node):
+    return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
+
+
+def capture_rules(node):
+    key = {"hash": "capture-one"}
+    mutate(node, "HistoryById", key,
+           {"id": "capture-one", "bucket": "bucket-capture", "value": "same"}, "create")
+    require(history(node, {"op": "list"}, key=key)["entries"] == [],
+            "first write added a sidecar record")
+    mutate(node, "HistoryById", key, {"value": "same"}, "update")
+    require(history(node, {"op": "list"}, key=key)["entries"] == [],
+            "same record added a sidecar record")
+    mutate(node, "HistoryById", key, {"value": "other"}, "update")
+    page = history(node, {"op": "list"}, key=key)
+    require(len(page["entries"]) == 1, "a new record did not add one sidecar record")
+    require(page["entries"][0]["reason"] == "replace", "replace reason was not replace")
+    require(history(node, {"op": "get", "id": page["entries"][0]["id"]}, key=key)["value"] == "same",
+            "archived first value differs")
+    print("first write, same record, and one replace passed", flush=True)
+
+
+def alternate_key_move(node):
+    schema = "HistoryAlternate"
+    key = {"hash": "move-one"}
+    old = {"hash": "from", "range": "move-one"}
+    new = {"hash": "to", "range": "move-one"}
+    mutate(node, schema, key,
+           {"id": "move-one", "bucket": "from", "value": "stable"}, "create")
+    require(history(node, {"op": "list"}, schema, key)["entries"] == [],
+            "source value history existed before the key move")
+    def lookup(coordinates):
+        page = node.call("/api/query", {
+            "schema_name": schema, "key_name": "by_bucket",
+            "fields": ["id", "bucket", "value"], "filter": {"HashRangeKey": coordinates},
+        })[0]
+        require(not page.get("has_more"), "alternate move lookup was truncated")
+        return page["results"]
+    require(len(lookup(old)) == 1 and not lookup(new), "initial alternate key membership differs")
+    mutate(node, schema, key, {"bucket": "to"}, "update")
+    require(history(node, {"op": "list"}, schema, key)["entries"] == [],
+            "unchanged value record entered source history")
+    require(not lookup(old), "the old alternate key still resolves")
+    current = lookup(new)
+    require(len(current) == 1 and current[0]["key"]["hash"] == "move-one"
+            and current[0]["fields"]["value"] == "stable", "the new alternate key lost its primary value")
+    mutate(node, schema, key, {}, "delete")
+    moved = history(node, {"op": "list"}, schema, key)
+    require(len(moved["entries"]) == 1 and moved["entries"][0]["reason"] == "delete",
+            "primary delete did not archive exactly one value")
+    require(history(node, {"op": "get", "id": moved["entries"][0]["id"]}, schema, key)["value"]
+            == "stable", "the primary delete archived another value")
+    require(not lookup(old) and not lookup(new), "a deleted record remains under an alternate key")
+    try:
+        history(node, {"op": "restore", "id": moved["entries"][0]["id"], "absent": True}, schema, key)
+    except RuntimeError as error:
+        require("HTTP 400" in str(error) and "required alternate key field is absent" in str(error),
+                "incomplete record restore failed for another reason")
+    else:
+        raise RuntimeError("a field-only restore created a record without its required alternate fields")
+    require(history(node, {"op": "list"}, schema, key) == moved,
+            "a refused incomplete restore changed the field or its history")
+    print("alternate key move preserved the value and primary delete archived it once", flush=True)
+
+
+def expiry_body(node):
+    fields = ["id", "note"]
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": "HistoryExpiry", "descriptive_name": "HistoryExpiry",
+        "schema_type": "Hash", "key": {"hash_field": "id"}, "fields": fields,
+        "field_types": {item: "String" for item in fields},
+        "field_descriptions": {item: "Expiry isolated " + item for item in fields},
+        "field_versions": {item: 1 for item in fields},
+    }})
+    result = node.call("/api/field-history", {
+        "location": {"schema": "HistoryExpiry", "field": "note"},
+        "action": {"op": "policy", "policy": {"mode": "ttl", "seconds": 2}},
+    })[0]
+    require(result["policy"] == {"mode": "ttl", "seconds": 2}, "expiry policy was not ttl")
+    key = {"hash": "expire-one"}
+    before = history_rows(node)
+    mutate(node, "HistoryExpiry", key, {"id": "expire-one", "note": "held"}, "create")
+    mutate(node, "HistoryExpiry", key, {"note": "next"}, "update")
+    page = history(node, {"op": "list"}, "HistoryExpiry", key, "note")
+    expiring = [entry for entry in page["entries"] if entry["expires_at"] is not None]
+    require(len(expiring) == 1, "expiry write did not list one entry")
+    expired_id = expiring[0]["id"]
+    held = history_rows(node)
+    require(held == before + 1, "expiry write did not store one history copy: "
+            + json.dumps({"before": before, "after": held}))
+    deadline = time.monotonic() + 20
+    dropped = None
+    last_count = None
+    while time.monotonic() < deadline:
+        page = history(node, {"op": "list"}, "HistoryExpiry", key, "note")
+        visible = any(entry["id"] == expired_id for entry in page["entries"])
+        last_count = history_rows(node)
+        if not visible and last_count == held - 1:
+            dropped = last_count
+            break
+        time.sleep(1)
+    require(dropped == held - 1,
+            "expiry worker did not drop the history copy from " + str(held)
+            + " to " + str(held - 1) + "; last count " + str(last_count))
+    absent(node, {"op": "get", "id": expired_id}, "HistoryExpiry", key, "note")
+    verify(node)
+    print("ttl worker dropped the expired history copy", flush=True)
+
+
+def exercise(node, binary):
+    install(node)
+    numeric_policy(node)
+    write(node, "first", "create")
+    write(node, "second")
+    require(history(node, {"op": "list"})["entries"] == [], "off policy retained a value")
+    cli(node, binary, "policy", "keep")
+    capture_rules(node)
+    alternate_key_move(node)
+    expiry_body(node)
+    write(node, "third")
+    page = cli(node, binary, "list")
+    require(len(page["entries"]) == 1, "keep policy did not retain one transition")
+    entry = page["entries"][0]["id"]
+    require(cli(node, binary, "get", entry)["value"] == "second", "old record value differs")
+    independent_key = {"hash": "bucket-one", "range": "one"}
+    mutate(node, "HistoryByBucket", independent_key,
+           {"id": "one", "bucket": "bucket-one", "value": "independent-first"}, "create")
+    mutate(node, "HistoryByBucket", independent_key, {"value": "independent-second"}, "update")
+    independent = history(node, {"op": "list"}, "HistoryByBucket", independent_key)
+    require(len(independent["entries"]) == 1, "canonical field policy missed the independent schema")
+    require(history(node, {"op": "get", "id": independent["entries"][0]["id"]}, "HistoryByBucket", independent_key)["value"]
+            == "independent-first", "independent field history contains another schema's value")
+    require(cli(node, binary, "get", entry)["value"] == "second", "field reuse changed another schema's history")
+    current = node.call("/api/query", {"schema_name": "HistoryById", "fields": ["value"],
+                                        "filter": {"HashKey": "one"}})[0]["results"]
+    require(len(current) == 1 and current[0]["fields"]["value"] == "third",
+            "field reuse changed another schema's current value")
+    expected = page["current"]["mutation"]
+    cli(node, binary, "restore", entry, "--expected-mutation", expected)
+    cli(node, binary, "restore", entry, "--expected-mutation", expected, success=False)
+    verify(node)
+    print("keep, canonical field policy, CLI fetch, restore, and stale-write refusal passed", flush=True)
+    node.stop()
+    node.start()
+    require(history(node, {"op": "get", "id": entry})["value"] == "second", "restart lost history")
+    write(node, operation="delete")
+    require(len(history(node, {"op": "list"})["entries"]) >= 3, "delete removed ordinary history")
+    cli(node, binary, "restore", entry, "--absent")
+    verify(node)
+    print("restart, delete retention, and restore of an absent key passed", flush=True)
+    cli(node, binary, "policy", "ttl", "--seconds", "2")
+    write(node, "short-lived-old")
+    write(node, "short-lived-new")
+    before = history(node, {"op": "list"})
+    expiring = [e["id"] for e in before["entries"] if e["expires_at"] is not None]
+    require(expiring, "TTL policy created no expiring entry")
+    time.sleep(3)
+    after = history(node, {"op": "list"})
+    require(not any(e["id"] in expiring for e in after["entries"]), "expired entries remain visible")
+    require(any(e["id"] == entry for e in after["entries"]), "policy change changed old keep entries")
+    verify(node)
+    print("per-field TTL and fixed expiry of existing entries passed", flush=True)
+    cli(node, binary, "policy", "off")
+    count = len(history(node, {"op": "list"})["entries"])
+    write(node, "off-again")
+    require(len(history(node, {"op": "list"})["entries"]) == count, "off policy continued capture")
+    # The format marker bytes have no owner read. This restart shows the kept entries stay.
+    node.stop()
+    node.start()
+    require(history(node, {"op": "get", "id": entry})["value"] == "second",
+            "off restart hid a kept entry")
+    require(len(history(node, {"op": "list"})["entries"]) == count,
+            "off restart changed history")
+    print("off policy left prior entries readable after restart", flush=True)
+    cursor = None
+    for _ in range(100):
+        action = {"op": "purge", "cursor": cursor}
+        result = history(node, action)
+        if result["complete"]:
+            break
+        cursor = result["cursor"]
+    else:
+        raise RuntimeError("bounded history purge did not complete")
+    require(history(node, {"op": "list"})["entries"] == [], "purge retained selected history")
+    verify(node)
+    print("off policy, bounded history purge, and final reference verification passed", flush=True)
+    cli(node, binary, "policy", "keep")
+    write(node, "before-delete")
+    write(node, operation="delete")
+    held = history(node, {"op": "list"})["entries"]
+    require(held, "delete left no retained history")
+    rows = history_rows(node)
+    write(node, operation="purge")
+    require(history(node, {"op": "list"})["entries"] == [], "compliance purge retained history-only key")
+    require(history_rows(node) == rows - len(held), "compliance purge left history copies")
+    audit = [row for row in ledger(node) if row.get("schema") == "HistoryById" and row["verb"] == "purge"]
+    require(len(audit) == 1 and audit[0]["history_rows_deleted"] == len(held),
+            "the compliance purge audit row differs: " + json.dumps(audit))
+    try:
+        write(node, operation="purge")
+    except RuntimeError as error:
+        require("Purge target not found" in str(error), "a second purge failed for another reason")
+    else:
+        raise RuntimeError("a purge of a key with no record and no history did not refuse")
+    verify(node)
+    print("compliance purge of a key with only history and final reference verification passed", flush=True)
+    kept = [("HistoryById", {"hash": "capture-one"}), ("HistoryByBucket", {"hash": "bucket-one", "range": "one"}),
+            ("HistoryAlternate", {"hash": "move-one"})]
+    listed = sum(len(history(node, {"op": "list"}, schema, key)["entries"]) for schema, key in kept)
+    require(listed == 3 and history_rows(node) == listed,
+            "stored history copies differ from the listed entries: "
+            + json.dumps({"listed": listed, "stored": history_rows(node)}))
+    print("every stored history copy belongs to a listed entry", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--daemon", type=Path, required=True)
+    parser.add_argument("--cli", type=Path, required=True)
+    parser.add_argument("--revision", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
+    root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
+    output = args.output.resolve()
+    require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
+    output.mkdir(mode=0o700)
+    node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
+                environment={"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "0",
+                             "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
+                             "EXEMEM_API_URL": "http://127.0.0.1:9",
+                             "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
+    try:
+        node.start()
+        marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+        require(marker_format(marker) == 8, "the new home is not format 8: " + repr(marker))
+        exercise(node, args.cli.resolve())
+    finally:
+        node.close()
+
+
+if __name__ == "__main__":
+    main()

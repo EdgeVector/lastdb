@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     let node_key: [u8; 32] = seed.bytes(32).try_into().expect("32 bytes");
 
     let store = PackNamespacedStore::create_run(&node, &node_key)?;
-    let runtime = store.disk_pack_runtime().ok_or("no native runtime")?;
+    let runtime = store.disk_pack_runtime();
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
     println!("node database operations: opened on a new v2 home");

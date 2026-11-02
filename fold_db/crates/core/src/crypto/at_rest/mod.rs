@@ -3,7 +3,7 @@
 //! seam.
 //!
 //! Some values are sealed inside a record or a field rather than by the
-//! namespaced encryption seam: molecule key bundles and sharing delivery
+//! namespaced encryption seam: field key bundles and sharing delivery
 //! blobs. Each must encrypt its value at rest with the same framing, so every
 //! one of them seals and opens through this module rather than its own wrapper
 //! (see `docs/security/at-rest-threat-model.md`).

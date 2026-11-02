@@ -1,62 +1,14 @@
 //! Exact current storage-key layouts and administrative family bounds.
 //!
-//! Flat kinds use `kind\0id`. Located atoms use distinct compound keys.
-//! No reader substitutes another key spelling.
-
-/// Kinds whose flat keys use `kind\0rest`.
-pub const KIND_PARTITION_KINDS: &[&str] = &["schemaidx", "conflict", "history", "dellog", "atom"];
+//! A flat kind uses `kind\0id`.
 
 /// The separator between the kind and the rest of a flat key.
 pub const KIND_PARTITION_SEP: char = '\0';
 
-/// `kind\0rest` — the write form for a listed flat kind.
+/// `kind\0rest` — the write form of a flat kind (`dellog`).
 #[must_use]
 pub fn anchored(kind: &str, rest: &str) -> String {
     format!("{kind}{KIND_PARTITION_SEP}{rest}")
-}
-
-/// Match the current separator and any current compound form for this kind.
-#[must_use]
-pub fn starts_with_kind(bare: &str, kind: &str) -> bool {
-    if matches!(kind, "tv" | "tvr" | "tvr-meta") || !bare.starts_with(kind) {
-        return false;
-    }
-    let rest = &bare[kind.len()..];
-    if !KIND_PARTITION_KINDS.contains(&kind) {
-        return rest.starts_with(':');
-    }
-    rest.starts_with(KIND_PARTITION_SEP)
-        || match kind {
-            // `atom:{uuid}\0b` and `atom:{uuid}\0c`: one NUL after the uuid.
-            "atom" => rest.starts_with(':') && rest.contains(KIND_PARTITION_SEP),
-            _ => false,
-        }
-}
-
-/// Match a family selector against exact current key layouts.
-#[must_use]
-pub fn colon_prefix_matches(bare: &str, known_with_colon: &str) -> bool {
-    let Some(kind) = known_with_colon.strip_suffix(':') else {
-        return bare.starts_with(known_with_colon);
-    };
-    starts_with_kind(bare, kind)
-}
-
-/// Rest after the current kind separator. No alternate spelling is accepted.
-#[must_use]
-pub fn rest_of<'a>(key: &'a str, kind: &str) -> Option<&'a str> {
-    let bare = strip_org(key).1;
-    if !starts_with_kind(bare, kind) {
-        return None;
-    }
-    Some(&bare[kind.len() + 1..])
-}
-
-fn match_kind(bare: &str) -> Option<&'static str> {
-    KIND_PARTITION_KINDS
-        .iter()
-        .copied()
-        .find(|kind| starts_with_kind(bare, kind))
 }
 
 /// Split a production org key `{sha256-hex}:{rest}` into `(storage_prefix, rest)`.
@@ -74,30 +26,9 @@ pub fn split_org_storage_prefix(key: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn strip_org(key: &str) -> (Option<&str>, &str) {
-    if let Some((prefix, rest)) = split_org_storage_prefix(key) {
-        return (Some(prefix), rest);
-    }
-    // Catalog instances and share receive can use compound scope prefixes.
-    // Peel a scope only before an exact current flat/compound kind.
-    if match_kind(key).is_some() {
-        return (None, key);
-    }
-    let mut search = 0usize;
-    while let Some(rel) = key[search..].find(':') {
-        let colon = search + rel;
-        let bare = &key[colon + 1..];
-        if match_kind(bare).is_some() {
-            return (Some(&key[..colon]), bare);
-        }
-        search = colon + 1;
-    }
-    (None, key)
-}
-
 /// Return the half-open byte range for one physical prefix.
 ///
-/// The bytes name one prefix, molecule, generation, or other exact identity.
+/// The bytes name one prefix, field key, generation, or other exact identity.
 #[must_use]
 pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
     (prefix.to_string(), exclusive_prefix_end(prefix))

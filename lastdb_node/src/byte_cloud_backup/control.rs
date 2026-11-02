@@ -216,12 +216,7 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         return Err(BackupError::Identity);
     }
     if let Some(saved) = &saved {
-        let runtime = host
-            .db
-            .db_ops()
-            .namespaced_store()
-            .disk_pack_runtime()
-            .ok_or(BackupError::Source)?;
+        let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
         if saved.source_home.as_str() != runtime.native_home_id().to_string() {
             return Err(BackupError::Identity);
         }
@@ -253,8 +248,7 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
             .db_ops()
             .namespaced_store()
             .disk_pack_runtime()
-            .map(|runtime| runtime.mutation_log_status())
-            .transpose()?,
+            .mutation_log_status()?,
         manual_connection: connection,
         running,
         request_id: id,
