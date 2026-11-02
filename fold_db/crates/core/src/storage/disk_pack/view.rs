@@ -14,17 +14,11 @@ pub struct NativeDiskStatus {
     pub completed_sequence: u64,
     pub writer_failed: bool,
     pub cas_delete_recovery: Option<CasDeleteRecovery>,
-    /// Logical records in memory: field paths plus format 7 records.
+    /// Records in the warm set.
     pub warm_records: usize,
-    /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
-    pub warm_record_limit: usize,
-    pub core_warm_paths: usize,
-    /// Decoded records of a format 7 home in the warm set.
+    /// Decoded records in the warm set.
     pub core_warm_records: usize,
-    pub core_warm_tip_only_paths: usize,
-    pub core_warm_field_keys: usize,
     pub core_warm_held: usize,
-    pub core_warm_dirty: usize,
     pub core_warm_hits: u64,
     pub core_warm_misses: u64,
     pub core_warm_purged: u64,
@@ -111,14 +105,9 @@ impl PackRuntime {
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.requires_recovery(),
             cas_delete_recovery: self.physical.cas_delete_recovery,
-            warm_records: core.paths + core.records,
-            warm_record_limit: 0,
-            core_warm_paths: core.paths,
+            warm_records: core.records,
             core_warm_records: core.records,
-            core_warm_tip_only_paths: core.tip_only_paths,
-            core_warm_field_keys: core.field_keys,
             core_warm_held: core.held,
-            core_warm_dirty: core.dirty,
             core_warm_hits: core.hits,
             core_warm_misses: core.misses,
             core_warm_purged: core.purged,

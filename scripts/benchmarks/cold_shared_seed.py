@@ -130,8 +130,8 @@ def measure(binary, revision, output, template, whole, physical):
             boundary = node.call("/api/admin/shed", {})[0]["shed"]
             save(output / f"boundary-{batch}.json", boundary)
             if (boundary.get("error") or boundary.get("target_met") is not True
-                    or boundary["native_memory"]["logical_records"] != 0):
-                raise RuntimeError("The clone did not establish an empty logical warm set")
+                    or boundary["native_memory"]["records"] != 0):
+                raise RuntimeError("The clone did not establish an empty warm set")
             physical_state(node, timing_layout, root)
             work.measure(case, "cold", batch=batch)
             physical_state(node, timing_layout, root)

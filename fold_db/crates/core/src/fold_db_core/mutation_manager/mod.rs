@@ -48,8 +48,6 @@ pub struct PurgeStats {
     pub last_purge_finished_unix_ms: u64,
     /// Exact field key slots removed by erase passes.
     pub purge_target_slots: u64,
-    /// Record bodies deleted because their count reached zero.
-    pub purge_records_deleted: u64,
 }
 
 /// Cumulative [`PurgeStats`] per schema name, since process start.

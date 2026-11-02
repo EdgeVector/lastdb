@@ -35,17 +35,12 @@ impl std::fmt::Display for CoreCapacity {
 
 impl std::error::Error for CoreCapacity {}
 
-/// The path, tip and field key counts stay in the status reply. A
-/// format 7 home keeps no field paths, so they are always 0.
+/// Counts of the warm set for the status reply.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
-    pub(crate) paths: usize,
-    /// Decoded records of a format 7 home.
+    /// Decoded records in the warm set.
     pub(crate) records: usize,
-    pub(crate) tip_only_paths: usize,
-    pub(crate) field_keys: usize,
     pub(crate) held: usize,
-    pub(crate) dirty: usize,
     pub(crate) hits: u64,
     pub(crate) misses: u64,
     pub(crate) purged: u64,
@@ -68,12 +63,8 @@ pub(crate) struct CoreWarmSet {
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
         CoreWarmStats {
-            paths: 0,
             records: self.records.len(),
-            tip_only_paths: 0,
-            field_keys: 0,
             held: self.records.held(),
-            dirty: 0,
             hits: self.hits,
             misses: self.misses,
             purged: self.purged,

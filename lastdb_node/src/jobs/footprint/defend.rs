@@ -1,7 +1,7 @@
 //! The measured-footprint defence tick, split into its phases.
 //!
 //! [`defend_measured_footprint`] reads like the tick: sample the host, purge
-//! the allocator, refresh the governor snapshot, purge clean logical records,
+//! the allocator, refresh the governor snapshot, purge clean warm records,
 //! then record the result. Each phase is a function
 //! here so the order stays visible and each phase owns one lock scope.
 
@@ -48,7 +48,7 @@ struct HoldState {
     shed_hold: bool,
 }
 
-/// Remove clean native logical records while the process exceeds its pressure
+/// Remove clean native warm records while the process exceeds its pressure
 /// target. Measurements do not enforce a byte admission limit.
 pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     let in_flight = uds_in_flight(host);
@@ -101,7 +101,7 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
         return;
     }
     let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() else {
-        tracing::error!(target: "lastdbd::footprint", "native logical memory is unavailable");
+        tracing::error!(target: "lastdbd::footprint", "native warm set is unavailable");
         return;
     };
     let memory = match runtime.memory_status() {

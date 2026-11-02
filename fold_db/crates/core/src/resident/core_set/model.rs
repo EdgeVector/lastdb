@@ -33,17 +33,12 @@ pub(crate) struct CoreModelUpdate {
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
 pub(crate) struct CoreModelStats {
-    pub(crate) dirty_slots: usize,
-    pub(crate) dirty_field_keys: usize,
-    pub(crate) dirty_definitions: usize,
     pub(crate) metadata_limit_bytes: usize,
-    pub(crate) metadata_current_bytes: usize,
     pub(crate) metadata_used_bytes: usize,
     /// Includes held old versions and privately prepared replacement versions.
     pub(crate) metadata_retained_bytes: usize,
     pub(crate) metadata_peak_bytes: usize,
     pub(crate) refused: u64,
-    pub(crate) body_reserved_current_bytes: u64,
     pub(crate) body_reserved_used_bytes: u64,
     /// Held earlier values and privately prepared owners outside current slots.
     pub(crate) body_reserved_retained_bytes: u64,
@@ -63,8 +58,8 @@ impl CoreWarmSet {
         }
     }
 
-    /// A format 7 home keeps no current field slots, so the current byte
-    /// fields are 0 and every reserved byte counts as retained.
+    /// A record home keeps no current field slots, so every reserved byte
+    /// counts as retained.
     pub(crate) fn model_stats(&self) -> CoreModelStats {
         let budget = self.model.budget.stats();
         let body_used: u64 = self
@@ -75,17 +70,11 @@ impl CoreWarmSet {
             .map(|owner| owner.bytes())
             .sum();
         CoreModelStats {
-            // Retained status fields: native writes publish only after disk commit.
-            dirty_slots: 0,
-            dirty_field_keys: 0,
-            dirty_definitions: 0,
             metadata_limit_bytes: budget.limit_bytes,
-            metadata_current_bytes: 0,
             metadata_used_bytes: budget.used_bytes,
             metadata_retained_bytes: budget.used_bytes,
             metadata_peak_bytes: budget.peak_bytes,
             refused: self.model.refused,
-            body_reserved_current_bytes: 0,
             body_reserved_used_bytes: body_used,
             body_reserved_retained_bytes: body_used,
             body_reserved_peak_bytes: self.model.body_peak_bytes,

@@ -1,4 +1,4 @@
-//! Pressure relief for the current native logical model.
+//! Pressure relief for the native warm set.
 
 use fold_db::storage::disk_pack::PackRuntime;
 use std::sync::Arc;
@@ -25,14 +25,14 @@ pub(super) struct EvictPass {
     pub(super) footprint_sticky: bool,
     pub(super) evict_stalled: bool,
     pub(super) steps: u32,
-    pub(super) logical_records_purged: u64,
+    pub(super) records_purged: u64,
     pub(super) warm_bytes_before_pass: Option<u64>,
     pub(super) warm_bytes_after_pass: u64,
     pub(super) malloc_bytes_released: u64,
 }
 
-/// A pass purges only the measured warm-record bytes. Definitions, complete
-/// keys, held values, and other process allocations can leave pressure high.
+/// A pass purges only the measured warm record bytes. Definitions, held
+/// values, and other process allocations can leave pressure high.
 pub(super) fn run_evict_pass(
     ctx: &EvictContext,
     start: &TickStart,
@@ -44,7 +44,7 @@ pub(super) fn run_evict_pass(
         footprint_sticky: start.footprint_sticky,
         evict_stalled: false,
         steps: 0,
-        logical_records_purged: 0,
+        records_purged: 0,
         warm_bytes_before_pass: None,
         warm_bytes_after_pass: resident,
         malloc_bytes_released: start.initial_released,
@@ -57,7 +57,7 @@ pub(super) fn run_evict_pass(
         let report = match ctx.runtime.purge_clean_memory(target) {
             Ok(report) => report,
             Err(error) => {
-                tracing::warn!(target: "lastdbd::footprint", %error, "native logical memory purge failed");
+                tracing::warn!(target: "lastdbd::footprint", %error, "native warm set purge failed");
                 pass.evict_stalled = true;
                 break;
             }
@@ -65,7 +65,7 @@ pub(super) fn run_evict_pass(
         pass.warm_bytes_before_pass
             .get_or_insert(report.bytes_before);
         pass.warm_bytes_after_pass = report.bytes_after;
-        pass.logical_records_purged += report.logical_records_purged;
+        pass.records_purged += report.records_purged;
         pass.steps += 1;
         let freed = report.bytes_before.saturating_sub(report.bytes_after);
         let released = crate::allocator::purge();
@@ -79,20 +79,18 @@ pub(super) fn run_evict_pass(
         score_step(&mut pass, start, freed, released, before);
         tracing::warn!(
             target: "lastdbd::footprint",
-            logical_records_purged = report.logical_records_purged,
+            records_purged = report.records_purged,
             warm_bytes_before = report.bytes_before,
             warm_bytes_after = report.bytes_after,
             target_bytes = target,
             target_met = report.target_met,
-            held_records = report.remaining.held_logical_records,
-            unflushed_records = report.remaining.unflushed_logical_records,
+            held_records = report.remaining.held_records,
             definition_bytes = report.remaining.definition_bytes,
-            complete_key_bytes = report.remaining.complete_key_bytes,
             write_metadata_bytes = report.remaining.write_metadata_bytes,
-            "native logical memory pressure relief"
+            "native warm set pressure relief"
         );
         resident = report.bytes_after;
-        if report.logical_records_purged == 0 || !report.target_met {
+        if report.records_purged == 0 || !report.target_met {
             pass.evict_stalled = true;
             break;
         }
@@ -165,12 +163,12 @@ pub(super) fn log_pass(pass: &EvictPass, measured_footprint_bytes: u64) {
         measured_footprint_mb = measured_footprint_bytes / (1024 * 1024),
         final_footprint_mb = pass.footprint / (1024 * 1024),
         steps = pass.steps,
-        logical_records_purged = pass.logical_records_purged,
+        records_purged = pass.records_purged,
         warm_bytes_before = pass.warm_bytes_before_pass.unwrap_or(0),
         warm_bytes_after = pass.warm_bytes_after_pass,
         byte_admission_limit_enforced = false,
         malloc_bytes_released = pass.malloc_bytes_released,
         evict_stalled = pass.evict_stalled,
-        "measured footprint defence purged clean logical records"
+        "measured footprint defence purged clean warm records"
     );
 }

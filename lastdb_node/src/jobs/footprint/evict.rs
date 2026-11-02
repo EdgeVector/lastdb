@@ -1,4 +1,4 @@
-//! Process-memory capture and explicit native logical-record relief.
+//! Process-memory capture and explicit native warm record relief.
 
 use super::*;
 
@@ -61,7 +61,7 @@ pub fn maybe_capture_vmmap(home: &Path, footprint_bytes: u64) {
 }
 
 /// Bound each pressure step so a tick makes useful progress without a large
-/// lock section. The target refers only to logical warm-record bytes.
+/// lock section. The target refers only to warm record bytes.
 pub(super) const FOOTPRINT_EVICT_MIN_STEP_BYTES: u64 = 64 * 1024 * 1024;
 pub(super) const FOOTPRINT_EVICT_MAX_STEP_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -90,16 +90,16 @@ pub async fn shed_memory(host: &Host) -> ShedReport {
         .db_ops()
         .namespaced_store()
         .disk_pack_runtime()
-        .ok_or_else(|| "native logical memory is unavailable".to_string())
+        .ok_or_else(|| "native warm set is unavailable".to_string())
         .and_then(|runtime| {
             runtime
                 .purge_clean_memory(0)
                 .map_err(|error| error.to_string())
         });
-    let (logical_records_purged, warm_bytes_before, warm_bytes_after, target_met, native_memory) =
+    let (records_purged, warm_bytes_before, warm_bytes_after, target_met, native_memory) =
         match result {
             Ok(report) => (
-                report.logical_records_purged,
+                report.records_purged,
                 report.bytes_before,
                 report.bytes_after,
                 report.target_met,
@@ -117,12 +117,9 @@ pub async fn shed_memory(host: &Host) -> ShedReport {
     }
     ShedReport {
         deferred_idle,
-        groups_evicted: 0,
-        logical_records_purged,
+        records_purged,
         warm_bytes_before,
         warm_bytes_after,
-        effective_warm_bytes: 0,
-        target_warm_bytes: 0,
         target_met,
         native_memory,
         error,

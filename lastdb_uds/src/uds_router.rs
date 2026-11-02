@@ -127,7 +127,16 @@ const API_VERSION_PATH: &str = "/api/version";
 /// always-zero counters. `GET /api/db/inventory` removes `attribution` and
 /// writes nothing. `GET /api/storage/home` removes
 /// `inclusive_app_attribution`, which summed field key counters that no write
-/// fills. No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`,
+/// `core_warm_tip_only_paths`, `core_warm_field_keys`, `core_warm_dirty`, and
+/// the always-zero dirty and current byte keys of `core_model`. `/api/status`
+/// removes `resident_tip_only_keys`, `resident_dirty_keys`, and the purge
+/// stat `purge_records_deleted`. `POST /api/admin/shed` removes
+/// `groups_evicted`, `effective_warm_bytes`, and `target_warm_bytes`, renames
+/// `logical_records_purged` to `records_purged`, and its `native_memory`
+/// block reports `records` and `held_records` in place of the logical record
+/// counts, without the always-zero unflushed count and `complete_key_bytes`.
+/// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 pub const API_VERSION: u32 = 21;
 
 /// The build string `GET /api/version` reports, installed once by the binary.

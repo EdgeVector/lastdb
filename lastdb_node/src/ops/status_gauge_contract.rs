@@ -109,16 +109,10 @@ fn collect_sampler(out: &mut Vec<GaugeContractEntry>, s: &SamplerStatus) {
 }
 
 fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
-    push_gauge(
-        out,
-        "resident.resident_tip_only_keys",
-        &r.resident_tip_only_keys,
-    );
     push_gauge(out, "resident.warm_lookup_hits", &r.warm_lookup_hits);
     push_gauge(out, "resident.warm_lookup_misses", &r.warm_lookup_misses);
     push_gauge(out, "resident.resident_key_count", &r.resident_key_count);
     push_gauge(out, "resident.resident_held_keys", &r.resident_held_keys);
-    push_gauge(out, "resident.resident_dirty_keys", &r.resident_dirty_keys);
     push_gauge(out, "resident.resident_key_budget", &r.resident_key_budget);
     push_gauge(
         out,

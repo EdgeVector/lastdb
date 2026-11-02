@@ -4,9 +4,6 @@ use super::*;
 ///
 /// Always emits at least one line. This lets an operator distinguish an empty
 /// process-lifetime ledger from an omitted display section.
-///
-/// `purge_records_deleted` stays in the JSON for its readers. The record model
-/// keeps it at zero, so the text output leaves it out.
 pub fn purge_stats_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if snapshot.purge_stats.is_empty() {
         return vec!["Purge stats: (none since process start)".to_string()];

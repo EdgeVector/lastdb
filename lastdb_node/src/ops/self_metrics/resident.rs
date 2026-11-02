@@ -1,6 +1,6 @@
 use super::*;
 
-/// Logical records plus background work. Historical wire fields that installed
+/// Warm set records plus background work. Historical wire fields that installed
 /// clients require remain; the native sampler does not maintain retired counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResidentHealth {
@@ -35,7 +35,7 @@ pub struct ResidentHealth {
     /// Persist-lane write failures.
     #[serde(default)]
     pub persist_lane_failures: u64,
-    /// Used logical records currently in the logical resident set.
+    /// Used records currently in the warm set.
     #[serde(default = "default_keys_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
@@ -45,11 +45,6 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
     pub resident_held_keys: Gauge,
-    /// Used records with an uncovered durability token.
-    #[serde(default = "default_keys_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_keys_instant")]
-    pub resident_dirty_keys: Gauge,
     /// Retired path-count budget; not served. The warm set limit is
     /// `memory_budget.core_warm.limit_bytes`.
     #[serde(default = "default_keys_instant_gauge")]
@@ -61,12 +56,7 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_lifetime")]
     pub resident_purged_keys: Gauge,
-    /// Logical records with a known tip and no full value.
-    #[serde(default = "default_keys_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_keys_instant")]
-    pub resident_tip_only_keys: Gauge,
-    /// Core lookups, including tip-only lookups; these are not query counts.
+    /// Warm set lookups; these are not query counts.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
@@ -101,10 +91,8 @@ impl Default for ResidentHealth {
             persist_lane_failures: 0,
             resident_key_count: default_keys_instant_gauge(),
             resident_held_keys: default_keys_instant_gauge(),
-            resident_dirty_keys: default_keys_instant_gauge(),
             resident_key_budget: default_keys_instant_gauge(),
             resident_purged_keys: default_keys_lifetime_gauge(),
-            resident_tip_only_keys: default_keys_instant_gauge(),
             warm_lookup_hits: default_events_lifetime_gauge(),
             warm_lookup_misses: default_events_lifetime_gauge(),
         }
@@ -119,10 +107,8 @@ impl ResidentHealth {
         Self {
             resident_key_count: g_instant(core.warm_records as u64, Unit::Keys),
             resident_held_keys: g_instant(core.core_warm_held as u64, Unit::Keys),
-            resident_dirty_keys: g_instant(core.core_warm_dirty as u64, Unit::Keys),
             resident_key_budget: Gauge::field_not_served(Unit::Keys, GAUGE_INSTANT),
             resident_purged_keys: g_lifetime(core.core_warm_purged, Unit::Keys),
-            resident_tip_only_keys: g_instant(core.core_warm_tip_only_paths as u64, Unit::Keys),
             warm_lookup_hits: g_lifetime(core.core_warm_hits, Unit::Events),
             warm_lookup_misses: g_lifetime(core.core_warm_misses, Unit::Events),
             persist_lane_depth: work.depth,
