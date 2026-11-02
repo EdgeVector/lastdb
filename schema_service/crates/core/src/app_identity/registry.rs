@@ -40,13 +40,6 @@ impl SchemaServiceState {
         env_label(self.app_identity_config().deployment_env).to_string()
     }
 
-    /// Replace the app-identity config. Called once at startup by the binaries.
-    pub fn configure_app_identity(&self, config: AppIdentityConfig) {
-        if let Ok(mut slot) = self.app_identity.write() {
-            *slot = config;
-        }
-    }
-
     /// Number of registered apps (gauge source).
     pub fn apps_count(&self) -> usize {
         self.apps.read().map_or(0, |a| a.len())
