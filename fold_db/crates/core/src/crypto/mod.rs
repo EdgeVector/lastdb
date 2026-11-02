@@ -24,4 +24,3 @@ pub use envelope::{
 };
 pub use error::{CryptoError, CryptoResult};
 pub use provider::{CryptoProvider, LocalCryptoProvider};
-pub mod inbox;
