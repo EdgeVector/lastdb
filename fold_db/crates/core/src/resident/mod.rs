@@ -16,6 +16,6 @@ pub(crate) use core_set::{CoreWarmSet, RecordCoordinate};
 pub use lane::PersistLanePressure;
 pub use metrics::{PersistLaneMetrics, PersistLaneMetricsSnapshot};
 pub use warm_bytes::{
-    core_warm_bytes, core_warm_dirty_bytes, init_core_warm_bytes_from_env, parse_core_warm_bytes,
-    CORE_WARM_BYTES_ENV, CORE_WARM_DIRTY_PERCENT, DEFAULT_CORE_WARM_BYTES,
+    core_warm_bytes, init_core_warm_bytes_from_env, parse_core_warm_bytes, CORE_WARM_BYTES_ENV,
+    DEFAULT_CORE_WARM_BYTES,
 };

@@ -32,8 +32,8 @@ pub use db_catalog_store::{
     DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
-    key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE,
-    LEDGER_VERB_PURGE, RECORD_DELETE_LEDGER_PREFIX,
+    key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,
+    RECORD_DELETE_LEDGER_PREFIX,
 };
 pub use keep_small::{
     keep_small_schema_shard_key, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,

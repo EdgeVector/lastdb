@@ -8,9 +8,6 @@ pub const DEFAULT_CORE_WARM_BYTES: usize = 256 * 1024 * 1024;
 /// Env override for the warm set byte limit. Zero and invalid values are refused.
 pub const CORE_WARM_BYTES_ENV: &str = "LASTDB_CORE_WARM_BYTES";
 
-/// Unflushed writes may use this percentage of the limit (D4).
-pub const CORE_WARM_DIRTY_PERCENT: usize = 25;
-
 static CORE_WARM_BYTES_IN_FORCE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 /// Parse the limit override. `None` (unset) is [`DEFAULT_CORE_WARM_BYTES`].
@@ -40,10 +37,4 @@ pub fn core_warm_bytes() -> usize {
         .get()
         .copied()
         .unwrap_or(DEFAULT_CORE_WARM_BYTES)
-}
-
-/// The dirty share of `limit`.
-#[must_use]
-pub fn core_warm_dirty_bytes(limit: usize) -> usize {
-    limit / 100 * CORE_WARM_DIRTY_PERCENT
 }

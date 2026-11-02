@@ -90,30 +90,21 @@ pub struct CoreWarmBytesHealth {
     pub limit_bytes: u64,
     pub used_bytes: u64,
     pub peak_bytes: u64,
-    pub held_bytes: u64,
-    pub dirty_bytes: u64,
-    pub dirty_limit_bytes: u64,
-    #[serde(default)]
     pub purged_bytes: u64,
-    #[serde(default)]
     pub over_limit_admissions: u64,
 }
 
 impl CoreWarmBytesHealth {
-    /// One `lastdb status` line. `None` from a daemon that predates the gauge.
+    /// One `lastdb status` line. `None` when the status has no warm set limit.
     pub(super) fn status_line(&self) -> Option<String> {
         if self.limit_bytes == 0 {
             return None;
         }
         Some(format!(
-            "Warm set bytes: used={} / limit={} peak={} held={} dirty={} / {} \
-             purged={} over_limit_admissions={}",
+            "Warm set bytes: used={} / limit={} peak={} purged={} over_limit_admissions={}",
             format_bytes(self.used_bytes),
             format_bytes(self.limit_bytes),
             format_bytes(self.peak_bytes),
-            format_bytes(self.held_bytes),
-            format_bytes(self.dirty_bytes),
-            format_bytes(self.dirty_limit_bytes),
             format_bytes(self.purged_bytes),
             self.over_limit_admissions,
         ))
@@ -126,9 +117,6 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
             limit_bytes: stats.limit_bytes as u64,
             used_bytes: stats.used_bytes as u64,
             peak_bytes: stats.peak_bytes as u64,
-            held_bytes: stats.held_bytes as u64,
-            dirty_bytes: stats.dirty_bytes as u64,
-            dirty_limit_bytes: stats.dirty_limit_bytes as u64,
             purged_bytes: stats.purged_bytes,
             over_limit_admissions: stats.over_limit_admissions,
         }

@@ -1,4 +1,4 @@
-//! Field history of a format 7 home (decision D5).
+//! Field history of a home (decision D5).
 //!
 //! An entry keeps its own copy of one old field value and its stamp, at
 //! `{scope:}rh:{S}:{sha(record key)}:{field identity}:{id}`. `S` is the record
@@ -72,7 +72,7 @@ pub(super) fn record_prefix(record: &str, field: Option<&str>) -> Result<String,
     Ok(build_storage_key(scope, &base))
 }
 
-/// True for the key of a field history entry of a format 7 home.
+/// True for the key of a field history entry of a home.
 pub(super) fn is_record_history(key: &str) -> bool {
     let Ok(scope) = crate::storage::current_keys::exact_scope(key) else {
         return false;
@@ -301,10 +301,7 @@ fn capture_value(
             let id = digest(key.as_bytes());
             let queue_key = queue().entry_key(at, &id);
             let queued = serde_json::to_value(RetentionEntry {
-                version: 1,
                 history: key.clone(),
-                conflict: None,
-                dir: String::new(),
                 queue: queue_key.clone(),
                 slot: record.to_string(),
                 created: now,
