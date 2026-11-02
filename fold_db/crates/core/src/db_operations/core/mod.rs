@@ -1,4 +1,3 @@
-use super::attribution_ledger::AttributionLedger;
 use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
 use super::metadata_store::MetadataStore;
@@ -42,8 +41,6 @@ pub struct DbOperations {
     public_key_store: PublicKeyStore,
     /// Metadata + idempotency + process results
     metadata_store: MetadataStore,
-    /// Node-local, rebuildable proof rows for an isolated attribution migration.
-    attribution_ledger: AttributionLedger,
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
@@ -108,11 +105,6 @@ impl DbOperations {
         &self.metadata_store
     }
 
-    /// Access copy-migration attribution proof rows.
-    pub fn attribution(&self) -> &AttributionLedger {
-        &self.attribution_ledger
-    }
-
     /// Borrow the primary namespaced store handle.
     pub fn namespaced_store(&self) -> Arc<dyn NamespacedStore> {
         Arc::clone(&self.store)
@@ -143,7 +135,6 @@ impl DbOperations {
         self.record_store.flush().await?;
         self.public_key_store.flush().await?;
         self.metadata_store.flush().await?;
-        self.attribution_ledger.flush().await?;
         Ok(())
     }
 }

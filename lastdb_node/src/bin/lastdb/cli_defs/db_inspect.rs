@@ -9,11 +9,7 @@ pub(crate) enum DbInspectCommand {
     /// **Heavy op:** full-prefix walks over multi-GiB stores can take minutes
     /// (see `lastdb ops`). Prefer `--out PATH` over
     /// shell redirect (`> file`) so a client deadline cannot leave a 0-byte
-    /// product file that looks like an empty store.
-    ///
-    /// **Not read-only:** this command also durably writes attribution rows
-    /// (schema/system/retention root walks) before it reports the summary.
-    /// The writes are idempotent, so repeat runs are safe.
+    /// product file that looks like an empty store. It writes nothing.
     ///
     /// Client deadline defaults to the admin-scan budget (600s, or
     /// `LASTDB_UDS_ADMIN_TIMEOUT_SECS`). Raise with `--timeout <secs>` on this

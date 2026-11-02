@@ -1,4 +1,3 @@
-use super::super::attribution_ledger::AttributionLedger;
 use super::super::change_feed::ChangeFeedStore;
 use super::super::db_catalog_store::DbCatalogStore;
 use super::super::metadata_store::MetadataStore;
@@ -23,7 +22,6 @@ struct CoreNamespaces {
     idempotency_kv: Arc<dyn KvStore>,
     superseded_by_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
-    attribution_ledger_kv: Arc<dyn KvStore>,
     keep_small_kv: Arc<dyn KvStore>,
 }
 
@@ -54,7 +52,6 @@ impl CoreNamespaces {
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
-        let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). The snapshot
         // (a small header plus shards) is rewritten on each debounce tick, so
         // the old bytes are dead when the next put lands. Under the LastStore
@@ -76,7 +73,6 @@ impl CoreNamespaces {
             idempotency_kv,
             superseded_by_kv,
             change_feed_kv,
-            attribution_ledger_kv,
             keep_small_kv,
         })
     }
@@ -121,7 +117,6 @@ impl DbOperations {
             idempotency_kv,
             superseded_by_kv,
             change_feed_kv,
-            attribution_ledger_kv,
             keep_small_kv,
         } = CoreNamespaces::open(&store).await?;
 
@@ -158,7 +153,6 @@ impl DbOperations {
         .await?;
         let public_key_store = PublicKeyStore::new(public_keys_typed);
         let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
-        let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
         let change_feed = ChangeFeedStore::new(change_feed_kv, Arc::clone(&runtime)).await?;
 
         Ok(Self {
@@ -169,7 +163,6 @@ impl DbOperations {
             record_store,
             public_key_store,
             metadata_store,
-            attribution_ledger,
             change_feed,
             persist_metrics,
         })

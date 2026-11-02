@@ -145,11 +145,7 @@ pub(super) fn execute_log_filter_set_route(req: &UdsRequest, ctx: &AccessContext
 
 /// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
 /// byte breakdown (owner socket). Scans the open store; no offline exclusive open.
-///
-/// CAUTION: despite the GET method, `Host::db_inventory` durably writes
-/// attribution rows (schema/system/retention root walks) before it reads the
-/// summary back. The writes are idempotent (deterministic keys), so repeat
-/// calls are safe, but this is not a side-effect-free read.
+/// It writes nothing.
 pub(super) async fn execute_db_inventory_route(ctx: &AccessContext, host: &Host) -> UdsResponse {
     match host.db.db_inventory().await {
         Ok(inventory) => json_ok(&envelope(

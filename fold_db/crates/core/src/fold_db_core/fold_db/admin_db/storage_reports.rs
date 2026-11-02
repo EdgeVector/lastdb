@@ -4,14 +4,7 @@ use super::*;
 
 impl FoldDB {
     /// Live inventory of the `main` tree key classes and the live records of
-    /// each schema, plus a fresh attribution summary.
-    ///
-    /// The attribution numbers are not a passive read: this route runs the
-    /// bounded schema/system-root and retention-root walks (catalog- and
-    /// registry-sized, not record-sized — the same cost class as the rest of
-    /// this admin scan) before it summarizes the ledger, so the counts
-    /// reflect the current catalog rather than whatever a prior caller
-    /// happened to leave behind.
+    /// each schema. It writes nothing.
     pub async fn db_inventory(&self) -> Result<DbInventory, FoldDbError> {
         let schemas = self
             .db_ops()
@@ -19,28 +12,11 @@ impl FoldDB {
             .await
             .map_err(|e| FoldDbError::Database(format!("list schemas: {e}")))?;
         let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
-        let mut inventory = self
-            .db_ops()
+        self.db_ops()
             .records()
             .db_inventory(&names, None)
             .await
-            .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))?;
-
-        self.db_ops()
-            .attribute_schema_root_field_keys(LIVE_ATTRIBUTION_EPOCH_ID, 0)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("attribute schema roots: {e}")))?;
-        self.db_ops()
-            .attribute_schema_retention_roots(LIVE_ATTRIBUTION_EPOCH_ID, 0)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("attribute retention roots: {e}")))?;
-        inventory.attribution = self
-            .db_ops()
-            .attribution()
-            .summarize()
-            .await
-            .map_err(|e| FoldDbError::Database(format!("summarize attribution: {e}")))?;
-        Ok(inventory)
+            .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))
     }
 
     /// Per-schema logical storage: the live records of each schema

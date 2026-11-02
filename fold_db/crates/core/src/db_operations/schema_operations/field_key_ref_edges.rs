@@ -1,5 +1,4 @@
-//! The edges from a schema field or an alternate key to its field key. The
-//! attribution ledger roots each field key through them.
+//! The edges from a schema field or an alternate key to its field key.
 
 use serde::{Deserialize, Serialize};
 

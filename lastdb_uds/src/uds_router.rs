@@ -124,8 +124,8 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `writer_pubkey`, and `signature`. Restore replies rename `verified_rows` to
 /// `verified_records` and the `tips` proof stage to `records`. The local
 /// watch reply renames `tip_seq` to `last_seq`. The delete ledger removes its
-/// always-zero counters. No request changed; `MIN_SUPPORTED_API_VERSION`
-/// stays `1`.
+/// always-zero counters. `GET /api/db/inventory` removes `attribution` and
+/// writes nothing. No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 pub const API_VERSION: u32 = 21;
 
 /// The build string `GET /api/version` reports, installed once by the binary.

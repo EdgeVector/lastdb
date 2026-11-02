@@ -94,7 +94,6 @@ impl RecordStore {
             per_schema_records: records.per_schema,
             per_schema_records_total_bytes: records.total_logical_bytes,
             scan,
-            attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })
     }

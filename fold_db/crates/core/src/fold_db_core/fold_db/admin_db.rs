@@ -2,7 +2,7 @@
 
 use crate::db_operations::{
     DbInventory, RecordDeleteLedgerEntry, SchemaRecordKey, SchemaRecordKeysReport,
-    SchemaStorageReport, LIVE_ATTRIBUTION_EPOCH_ID,
+    SchemaStorageReport,
 };
 use crate::error::FoldDbError;
 

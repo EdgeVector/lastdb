@@ -70,11 +70,6 @@ pub struct DbInventory {
     /// narrower key range (`shrinks` and `splits`).
     #[serde(default)]
     pub scan: crate::db_operations::record_store::WalkStats,
-    /// Attribution ledger summary: object counts by class (schema/retention/
-    /// system/derived/residue/unknown) and total path-row count. Absent
-    /// (all-zero) on a home written before this field existed.
-    #[serde(default)]
-    pub attribution: crate::db_operations::AttributionSummary,
     pub notes: Vec<String>,
 }
 

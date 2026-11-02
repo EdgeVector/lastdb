@@ -7,11 +7,7 @@ use field_key_ref_edges::FieldKeyRefEdge;
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;
 
-mod attribution;
-mod attribution_reports;
 mod field_key_ref_edges;
-
-pub use attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 
 fn schema_field_key_ref_edges(schema_name: &str, schema: &Schema) -> Vec<FieldKeyRefEdge> {
     let mut fields: Vec<_> = schema

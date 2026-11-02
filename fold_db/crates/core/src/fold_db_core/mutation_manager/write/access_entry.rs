@@ -55,18 +55,6 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
-        // This marker is the conservative bridge between the product write and
-        // the attribution event. If a crash lands between them, a later walk
-        // sees the marker and blocks reclaim for this exact source scope.
-        let attribution_scopes = if attribution_source_events_enabled() {
-            attribution_scopes(&mutations, storage_prefix)?
-        } else {
-            Vec::new()
-        };
-        self.db_ops
-            .attribution()
-            .begin_pending_scopes(&attribution_scopes)
-            .await?;
         // Which mutations arrive WITHOUT a clock is the only signal that says
         // which ones this node is authoring, and stamping erases it. Capture it
         // first so the receipt reports the counter this batch allocated rather
@@ -121,11 +109,6 @@ impl MutationManager {
             ),
         )
         .await?;
-        // Event append is durable before this method returns. Clear only after
-        // the event succeeds; a clear failure leaves a conservative marker.
-        // With source events disabled the scope list is empty and this call
-        // performs no write and no flush.
-        self.record_attribution_scopes(&attribution_scopes).await?;
         receipt.revision = revision;
         Ok(receipt)
     }

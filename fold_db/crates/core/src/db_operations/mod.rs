@@ -4,7 +4,6 @@ pub mod core;
 pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
-pub mod attribution_ledger;
 mod conflict_metadata;
 pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
@@ -26,12 +25,6 @@ mod storage_breakdown;
 pub use admin_db::{
     DbInventory, MainKeyClass, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
     SchemaStorageReport,
-};
-pub use attribution_ledger::{
-    classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
-    AttributionLedger, AttributionObjectKind, AttributionPath, AttributionPendingScope,
-    AttributionRecord, AttributionRootKind, AttributionSize, AttributionSummary,
-    ATTRIBUTION_PATH_PREFIX, ATTRIBUTION_RECORD_PREFIX, LIVE_ATTRIBUTION_EPOCH_ID,
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use db_catalog_store::{
@@ -66,7 +59,6 @@ pub use core::{
 };
 pub use metadata_store::MetadataStore;
 pub use public_key_store::PublicKeyStore;
-pub use schema_operations::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 pub use schema_store::{SchemaDropReceipt, SchemaStore};
 pub use search_index::{
     run_search_rebuild_for_home, IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink,

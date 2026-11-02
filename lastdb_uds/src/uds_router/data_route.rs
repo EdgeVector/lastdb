@@ -215,12 +215,7 @@ pub enum DataRoute {
     /// `POST /api/sync/logical-v1` — owner trust and bounded signed device events.
     SyncLogicalV1,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
-    /// byte breakdown. OWNER socket only.
-    ///
-    /// Not a passive read: this route runs the bounded schema/system/retention
-    /// root walks and durably writes their attribution rows before it
-    /// summarizes the ledger, so a GET here has real (idempotent, catalog-sized)
-    /// write side effects.
+    /// byte breakdown. OWNER socket only. It writes nothing.
     DbInventory,
     /// `POST /api/db/verify-refs` — one bounded step of the reference
     /// verifier (the retention queue and the blob counters). OWNER socket only.
