@@ -1,17 +1,17 @@
-//! The random mutation id. The model takes the id as an argument.
+//! Caller-supplied mutation ids. The model stores the id it is given.
+//! Callers draw a uuid v4 and pass it in.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
-use uuid::Uuid;
 
 use super::{KeyValue, Mutation, MutationType};
 
-/// Construct a [`Mutation`] with a fresh uuid v4 id.
+/// Construct a [`Mutation`] with a caller-supplied id.
 pub trait MutationIds {
-    /// A new mutation with a random uuid v4 id. See
-    /// [`Mutation::with_uuid`] for a caller-chosen id.
+    /// A new mutation with the caller's id. [`Mutation::with_uuid`] stores it.
     fn new(
+        id: String,
         schema_name: String,
         fields_and_values: HashMap<String, Value>,
         key_value: KeyValue,
@@ -22,6 +22,7 @@ pub trait MutationIds {
 
 impl MutationIds for Mutation {
     fn new(
+        id: String,
         schema_name: String,
         fields_and_values: HashMap<String, Value>,
         key_value: KeyValue,
@@ -29,7 +30,7 @@ impl MutationIds for Mutation {
         mutation_type: MutationType,
     ) -> Self {
         Self::with_uuid(
-            Uuid::new_v4().to_string(),
+            id,
             schema_name,
             fields_and_values,
             key_value,

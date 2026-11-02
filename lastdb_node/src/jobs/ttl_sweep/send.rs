@@ -74,6 +74,7 @@ async fn purge_keys(
         .iter()
         .map(|key| {
             let mut mutation = Mutation::new(
+                uuid::Uuid::new_v4().to_string(),
                 schema_name.to_string(),
                 HashMap::new(),
                 key.clone(),

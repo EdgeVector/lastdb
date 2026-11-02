@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 # QoS admission gate (qos.rs): async semaphores + deadline timers.
 tokio = { workspace = true, features = ["sync", "time"] }
 
