@@ -63,11 +63,6 @@ impl FoldDbFastEmbedder {
         }
     }
 
-    /// Eagerly initialize the underlying ONNX model (best-effort).
-    pub fn warm(&self) {
-        let _ = self.model();
-    }
-
     fn model(&self) -> Result<&TextEmbedding, EmbedError> {
         match self.model.get_or_init(|| self.init_model()) {
             Ok(model) => Ok(model),
