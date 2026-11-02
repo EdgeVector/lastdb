@@ -248,7 +248,7 @@ def ttl_resume(node):
         erased += keys
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordAged", reply.get("anchor")}
             and row["caller"] == "ttl-sweep-purge"]
-    converged = sum(row["records_converged"] for row in rows if row["committed"])
+    converged = sum(row["records_erased"] for row in rows)
     require(converged == len(erased), f"the TTL sweep audit rows name {converged} records, "
             f"not {len(erased)}: " + repr(rows))
 

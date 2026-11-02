@@ -78,8 +78,8 @@ class Lifecycle:
             rows = self.replies(self.source.node)
             if all(reply["returned_count"] == 0 for _, reply in rows[:count]):
                 ledger = self.source.node.call("/api/db/delete-ledger")["delete_ledger"]["entries"]
-                removed = sum(entry["records_converged"] for entry in ledger
-                              if entry["schema"] == self.schema and entry["committed"]
+                removed = sum(entry["records_erased"] for entry in ledger
+                              if entry["schema"] == self.schema
                               and entry["caller"] == "ttl-sweep-purge" and entry["verb"] == "purge")
                 require(removed >= count, "ttl_native_committed_delete_evidence")
                 require(rows[-1][1]["returned_count"] == 1, "ttl_kept_live_key")

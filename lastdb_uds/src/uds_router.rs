@@ -124,8 +124,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `writer_pubkey`, and `signature`. Restore replies rename `verified_rows` to
 /// `verified_records` and the `tips` proof stage to `records`. The local
 /// watch reply renames `tip_seq` to `last_seq`. The delete ledger removes its
-/// always-zero counters. `GET /api/db/inventory` removes `attribution` and
-/// writes nothing. `GET /api/storage/home` removes
+/// always-zero counters, `version`, and the always-true `committed`, and
+/// renames `records_converged` to `records_erased`. `GET /api/db/inventory`
+/// removes `attribution` and writes nothing. `GET /api/storage/home` removes
 /// `inclusive_app_attribution`, which summed field key counters that no write
 /// fills. Native disk status removes `warm_record_limit`, `core_warm_paths`,
 /// `core_warm_tip_only_paths`, `core_warm_field_keys`, `core_warm_dirty`, and

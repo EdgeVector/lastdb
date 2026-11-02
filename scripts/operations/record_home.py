@@ -280,7 +280,7 @@ def field_history(node):
     require(absent(node, "gone") and history(node, {"op": "list"}, "gone")["entries"] == [],
             "a record purge left the record or its history")
     rows = [row for row in ledger(node) if row.get("schema") == "RecordById" and row["verb"] == "purge"]
-    require(len(rows) == 1 and rows[0]["committed"] and rows[0]["history_rows_deleted"] == 1
+    require(len(rows) == 1 and rows[0]["history_rows_deleted"] == 1
             and rows[0]["caller"] == "mutation-pipeline", "the purge audit row differs: " + repr(rows))
     print("Field history: copy on overwrite and delete, same value skip, get, guarded restore, "
           "release on record purge passed", flush=True)
@@ -306,7 +306,7 @@ def retention(node):
     # The sweep erases through the schema that holds the policy.
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordTtl", reply["anchor"]}]
     require(len(rows) == 1 and rows[0]["caller"] == "ttl-sweep-purge" and rows[0]["verb"] == "purge"
-            and rows[0]["records_converged"] == 1 and rows[0]["committed"],
+            and rows[0]["records_erased"] == 1,
             "the TTL sweep audit row differs: " + repr(rows))
     print("Retention: the TTL sweep deleted the expired record, kept a rewritten and a fresh "
           "record, and wrote its audit row", flush=True)
@@ -314,7 +314,7 @@ def retention(node):
 
 def delete_audit(node):
     rows = [row for row in ledger(node) if row["caller"] == "mutation-pipeline" and row["verb"] == "delete"]
-    schemas = {row.get("schema") for row in rows if row["committed"] and row["records_converged"] >= 1}
+    schemas = {row.get("schema") for row in rows if row["records_erased"] >= 1}
     require({"RecordById", "RecordByBucket"} <= schemas, "a record delete has no audit row: " + repr(rows))
     print(f"Delete audit: {len(rows)} delete rows for {sorted(schemas)} passed", flush=True)
 

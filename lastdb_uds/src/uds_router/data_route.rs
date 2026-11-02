@@ -246,7 +246,7 @@ pub enum DataRoute {
     /// OWNER only. This does not request a flush.
     DbNativeStatus,
     /// `GET /api/db/delete-ledger` — read the durable record hard-delete audit
-    /// trail (purge, delete and delete-converge), oldest first. Query: `?limit=N` (0/absent =
+    /// trail (purge and delete), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,

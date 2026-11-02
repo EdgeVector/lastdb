@@ -317,7 +317,7 @@ def exercise(node, binary):
     require(history(node, {"op": "list"})["entries"] == [], "compliance purge retained history-only key")
     require(history_rows(node) == rows - len(held), "compliance purge left history copies")
     audit = [row for row in ledger(node) if row.get("schema") == "HistoryById" and row["verb"] == "purge"]
-    require(len(audit) == 1 and audit[0]["committed"] and audit[0]["history_rows_deleted"] == len(held),
+    require(len(audit) == 1 and audit[0]["history_rows_deleted"] == len(held),
             "the compliance purge audit row differs: " + json.dumps(audit))
     try:
         write(node, operation="purge")

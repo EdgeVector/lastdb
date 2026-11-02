@@ -11,7 +11,7 @@ impl RecordStore {
     pub(crate) async fn record_record_delete_audit(
         &self,
         storage_prefix: Option<&str>,
-        mut entry: RecordDeleteLedgerEntry,
+        entry: RecordDeleteLedgerEntry,
     ) -> Result<(), SchemaError> {
         let runtime = self
             .namespaced_store
@@ -28,7 +28,6 @@ impl RecordStore {
             &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
         );
         let key = build_storage_key(storage_prefix, &base);
-        entry.committed = true;
         self.raw()
             .put_item(&key, &entry)
             .await

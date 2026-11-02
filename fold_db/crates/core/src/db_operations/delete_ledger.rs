@@ -5,9 +5,8 @@
 //! repairs a counter, or authorizes another delete.
 //!
 //! The row retains counts, caller, schema, time, and a key fingerprint. It
-//! retains no field value, record UUIDs, or plaintext subject key. Existing
-//! version-1 attempted-operation rows remain historical audit facts only.
-//! Audit rows have no automatic retention policy.
+//! retains no field value, record UUIDs, or plaintext subject key. Audit rows
+//! have no automatic retention policy.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -24,43 +23,29 @@ pub const RECORD_DELETE_LEDGER_PREFIX: &str = "dellog:";
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
-/// Live `Delete` converge. It counts its records in `records_converged`.
-///
-/// Deliberately NOT [`LEDGER_VERB_DELETE`]: converge reclaims no record body,
-/// so the converge lane gets its own verb.
-pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
 
-/// One audit row per hard-delete batch. Version 2 joins the native erase
-/// atomically and always has `committed: true`.
+/// One audit row per erase batch. The row joins the native erase atomically,
+/// so a stored row always names a committed erase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordDeleteLedgerEntry {
-    /// Row format version. Bump when fields change meaning, not when adding.
-    pub version: u32,
-    /// [`LEDGER_VERB_PURGE`], [`LEDGER_VERB_DELETE`] or [`LEDGER_VERB_DELETE_CONVERGE`].
+    /// [`LEDGER_VERB_PURGE`] or [`LEDGER_VERB_DELETE`].
     pub verb: String,
     /// When the batch was planned (RFC3339). Matches the key's timestamp.
     pub at: String,
     /// Who asked. Free-form caller tag, e.g. `"mutation-pipeline"` or
     /// `"admin-api"`. Not authenticated — evidence of provenance, not identity.
     pub caller: String,
-    /// Version 2 is always true. A false version-1 row is historical evidence
-    /// of an attempted operation, never a recovery instruction.
-    pub committed: bool,
-    /// Purge only: the schema whose record was erased.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The schema whose records were erased.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
-    /// Purge only: SHA-256 hex over `{schema}\0{described key}`. See the
-    /// module docs for why the key itself is not stored.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// SHA-256 hex over `{schema}\0{described key}`. See the module docs for
+    /// why the key itself is not stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_fingerprint: Option<String>,
     /// `history:` rows removed (purge only).
-    #[serde(default)]
     pub history_rows_deleted: u64,
-    /// Delete-converge only: records in the batch that had durable residue to
-    /// converge. Keys already converged, or never persisted, are dropped
-    /// before the row is written and are not counted here.
-    #[serde(default)]
-    pub records_converged: u64,
+    /// Records the batch erased.
+    pub records_erased: u64,
     /// Purge only: how many of the hard-deleted records carried a file-blob
     /// reference (a `$lastdb_file` content pointer or `file_blob_ref` /
     /// `file_hash` metadata). A count, never the refs themselves — a blob_ref
@@ -68,7 +53,6 @@ pub struct RecordDeleteLedgerEntry {
     /// confirmation oracle the records-uuid rule closes (see module docs). A
     /// nonzero value tells compliance that sealed blob bytes may now be
     /// orphaned. The blob counter reclaims them when the dwell passes.
-    #[serde(default)]
     pub file_pointer_records_purged: u64,
 }
 
@@ -78,15 +62,13 @@ impl RecordDeleteLedgerEntry {
     /// as one struct field + one line here instead of an edit per verb.
     fn base(verb: &str, caller: &str) -> Self {
         Self {
-            version: 2,
             verb: verb.to_string(),
             at: Utc::now().to_rfc3339(),
             caller: caller.to_string(),
-            committed: true,
             schema: None,
             key_fingerprint: None,
             history_rows_deleted: 0,
-            records_converged: 0,
+            records_erased: 0,
             file_pointer_records_purged: 0,
         }
     }

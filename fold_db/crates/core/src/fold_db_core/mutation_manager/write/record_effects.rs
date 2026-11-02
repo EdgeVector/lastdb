@@ -257,7 +257,7 @@ impl MutationManager {
             };
             let mut entry =
                 RecordDeleteLedgerEntry::erasure(verb, caller, schema_name, &descriptor);
-            entry.records_converged = records.len() as u64;
+            entry.records_erased = records.len() as u64;
             entry.file_pointer_records_purged = records
                 .iter()
                 .filter(|(_, outcome)| outcome.named_blobs)
