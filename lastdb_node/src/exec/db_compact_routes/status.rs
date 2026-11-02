@@ -16,13 +16,7 @@ pub(in crate::exec) async fn execute(
             ctx,
         );
     };
-    let retry_cache = host
-        .db
-        .db_ops()
-        .metadata()
-        .retry_cache_status()
-        .await
-        .unwrap_or_else(|error| serde_json::json!({"error": error.to_string()}));
+    let retry_cache = host.db.db_ops().metadata().retry_cache_status();
     let mut status = serde_json::json!({
         "native_disk": runtime.status_native(), "retry_cache": retry_cache,
         "search": fold_db::db_operations::search_index::queue_policy::status(
