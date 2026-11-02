@@ -10,7 +10,7 @@ use super::receipt::{
 };
 use super::MutationManager;
 
-use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance};
+use super::helpers::apply_storage_prefix_to_schema;
 
 mod access_entry;
 mod admission;

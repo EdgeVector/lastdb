@@ -24,12 +24,6 @@
 //! This is a hard contract, not a convention. Downstream correctness
 //! depends on it:
 //!
-//! * **Derived-mutation provenance is permanently verifiable.** A
-//!   `Provenance::Derived { wasm_hash, input_snapshot_hash, sources_merkle_root }`
-//!   stamped at write time can be re-checked years later: the WASM
-//!   identified by `wasm_hash` will still hash to the same bytes, because
-//!   the schema service never reissued or replaced them. See
-//!   `projects/view-compute-as-mutations` for the full chain.
 //! * **Sync replay is convergent.** Two devices replaying the same log
 //!   compute identical records because the WASM they fetch (by hash, from
 //!   here) is bit-identical. There is no version-skew failure mode —

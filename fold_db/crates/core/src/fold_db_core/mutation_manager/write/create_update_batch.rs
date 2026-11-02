@@ -38,7 +38,7 @@ impl MutationManager {
             .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
 
-        self.reject_derived_and_blocked(&mutations)?;
+        self.reject_blocked(&mutations)?;
 
         // The native transaction gate covers every condition and its complete
         // publication.
@@ -78,18 +78,9 @@ impl MutationManager {
         );
     }
 
-    /// Phase -1: reject historical derived writes and blocked targets, then
-    /// record the purge-barrier phase as zero.
-    fn reject_derived_and_blocked(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
-        // Phase -1: Reject historical derived writes before anything else
-        // touches them. No live writer is allowed to mint
-        // `Provenance::Derived`; keeping the check here prevents forged or
-        // stale derived writes from polluting records. User mutations
-        // (`Provenance::User` or `None`) are untouched.
-        for mutation in mutations {
-            validate_derived_provenance(mutation)?;
-        }
-
+    /// Phase -1: reject blocked targets, then record the purge-barrier phase
+    /// as zero.
+    fn reject_blocked(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
         self.reject_blocked_mutation_targets(mutations)?;
 
         // No write waits on a schema-wide purge barrier: a purge merges into
