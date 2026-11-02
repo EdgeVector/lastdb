@@ -22,7 +22,7 @@ pub struct ManagedReceipt {
     pub listing: super::ListEntry,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ActivationOptions {
     pub accept_install: bool,
     pub inactive: bool,
