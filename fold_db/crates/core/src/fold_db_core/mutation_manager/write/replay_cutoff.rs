@@ -9,7 +9,7 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         if mutations.iter().any(|mutation| {
             mutation.replay_cutoff_required
-                && mutation.erase_tips_before_nanos.is_some()
+                && mutation.erase_written_before_nanos.is_some()
                 && mutation.author_clock_signature_version == 0
         }) {
             return Err(SchemaError::InvalidData(

@@ -119,15 +119,14 @@ pub struct Mutation {
     #[serde(skip)]
     pub erase_caller: Option<&'static str>,
     /// Local guard for a `Delete` that a node job issues on a key whose age is
-    /// its write time (the TTL sweep on a Hash or Single schema): a tip written
-    /// at or after this time, in unix nanoseconds, is not erased. The check
-    /// reads the tip's own write clock under the tip lock, so a rewrite that is
-    /// acked but not yet indexed survives. A format 7 home reads the record's
-    /// newest field stamp in the write scope instead, and puts the delete floor
-    /// at this time. Ordinary API serialization omits it;
+    /// its write time (the TTL sweep on a Hash or Single schema): a record
+    /// written at or after this time, in unix nanoseconds, is not erased. The
+    /// write scope reads the record's newest field stamp and puts the delete
+    /// floor at this time, so a rewrite that is acked but not yet in the age
+    /// rows survives. Ordinary API serialization omits it;
     /// the signed mutation-intent envelope carries it explicitly for replay.
     #[serde(skip)]
-    pub erase_tips_before_nanos: Option<u64>,
+    pub erase_written_before_nanos: Option<u64>,
 }
 
 impl Mutation {
@@ -167,7 +166,7 @@ impl Mutation {
             aggregate_set: None,
             aggregate_derived_internal: false,
             erase_caller: None,
-            erase_tips_before_nanos: None,
+            erase_written_before_nanos: None,
         }
     }
 
@@ -180,10 +179,10 @@ impl Mutation {
         self
     }
 
-    /// Erase only tips written before `nanos` (unix nanoseconds). See the field.
+    /// Erase only records written before `nanos` (unix nanoseconds). See the field.
     #[must_use]
-    pub fn with_erase_tips_before_nanos(mut self, nanos: u64) -> Self {
-        self.erase_tips_before_nanos = Some(nanos);
+    pub fn with_erase_written_before_nanos(mut self, nanos: u64) -> Self {
+        self.erase_written_before_nanos = Some(nanos);
         self
     }
 

@@ -25,8 +25,8 @@ use crate::self_metrics::TtlPassReport;
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct PassTotals {
-    /// Keys that a batch sent to the erase. A key that the tip write-time guard
-    /// spared counts here; the delete ledger counts only the tips it removed.
+    /// Keys that a batch sent to the erase. A key that the write-time guard
+    /// spared counts here; the delete ledger counts only the records it erased.
     pub(super) erased: usize,
     /// Keys that the re-check dropped because they were no longer expired.
     pub(super) dropped: usize,
@@ -151,19 +151,19 @@ async fn erase_batch(
         });
     };
     let dropped = listed - keys.len();
-    // A Hash or Single key ages by its tip write time, so the erase spares a
-    // key with a tip written at or after the cutoff. A rewrite that is acked
-    // but not yet in the age index is spared this way. In a format 7 home the
-    // write time is the newest field stamp of the record, and the delete takes
-    // its floor at the cutoff. Range and HashRange keys age by the key, so a
-    // rewrite does not change their age.
-    let tip_cutoff_nanos = matches!(
+    // A Hash or Single key ages by its record write time, the newest field
+    // stamp, so the erase spares a record written at or after the cutoff and
+    // takes its delete floor at the cutoff. A rewrite that is acked but not yet
+    // in the age rows is spared this way. Range and HashRange keys age by the
+    // key, so a rewrite does not change their age.
+    let write_cutoff_nanos = matches!(
         backlog.schema_type,
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
     )
     .then(|| cutoff.saturating_mul(1_000_000_000));
     let (erased, missing) =
-        send_with_missing_retry(host, &backlog.schema_name, keys, (verb, tip_cutoff_nanos)).await?;
+        send_with_missing_retry(host, &backlog.schema_name, keys, (verb, write_cutoff_nanos))
+            .await?;
     Ok(Batch {
         erased,
         dropped,
