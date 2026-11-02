@@ -1,6 +1,5 @@
 //! Durable mutation author-clock allocation and remote observation.
 
-use crate::clock::unix_nanos;
 use std::sync::Arc;
 
 use crate::schema::mutation_author::{sign_mutation_author_clock, verify_mutation_author_clock};
@@ -263,6 +262,11 @@ async fn run_author_clock_persist_queue(
 impl MutationManager {
     /// Stamp local mutations in caller order and observe imported author clocks.
     ///
+    /// `now` is the caller's one wall-clock sample for this batch, in
+    /// nanoseconds since the Unix epoch. This function does not read the
+    /// clock. Imported clocks are observed first, then one local range is
+    /// reserved from that sample.
+    ///
     /// The resident state and a bounded persist slot are reserved before
     /// mutation apply. The caller submits the state before resident apply and
     /// gives its durable barrier to each schema lane. A failed request can
@@ -272,6 +276,7 @@ impl MutationManager {
     pub(super) fn prepare_mutation_author_clocks(
         &self,
         mutations: &mut [Mutation],
+        now: u64,
     ) -> Result<Option<(AuthorClockPersistReservation, MutationAuthorClockState)>, SchemaError>
     {
         if mutations.is_empty() {
@@ -322,13 +327,9 @@ impl MutationManager {
         let mut local_clock = if local_count == 0 {
             None
         } else {
-            Some(
-                state
-                    .advance_local_batch(unix_nanos(), local_count)
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData("mutation author-clock range exhausted".into())
-                    })?,
-            )
+            Some(state.advance_local_batch(now, local_count).ok_or_else(|| {
+                SchemaError::InvalidData("mutation author-clock range exhausted".into())
+            })?)
         };
         for mutation in mutations {
             if mutation.imported_written_at.is_some() {
