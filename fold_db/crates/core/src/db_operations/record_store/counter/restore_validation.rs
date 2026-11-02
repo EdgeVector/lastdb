@@ -123,18 +123,6 @@ pub(crate) async fn validate_pending(store: &dyn NamespacedStore) -> Result<(), 
     }
     let owner = Arc::clone(&runtime);
     restore_safety::exclusive(runtime, async {
-        // Matching counts cannot prove that every namespace arrived.
-        // Only a complete row-by-row restore can clear this key.
-        if restore_safety::raw_main(Arc::clone(&owner))
-            .await?
-            .get(restore_safety::PENDING_KEY.as_bytes())
-            .await?
-            .is_some()
-        {
-            return Err(invalid(
-                "snapshot restore is incomplete; repeat the complete restore before startup",
-            ));
-        }
         validate(store).await?;
         finish(store, &owner).await
     })
@@ -145,11 +133,6 @@ pub(crate) async fn finish(
     store: &dyn NamespacedStore,
     runtime: &PackRuntime,
 ) -> Result<(), SchemaError> {
-    store
-        .open_namespace("main")
-        .await?
-        .delete(restore_safety::PENDING_KEY.as_bytes())
-        .await?;
     store.restore_durability_barrier().await?;
     runtime.finish_restore_validation()?;
     Ok(())

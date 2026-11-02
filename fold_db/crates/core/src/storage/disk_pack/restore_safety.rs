@@ -2,8 +2,6 @@
 
 use super::*;
 
-pub(crate) const PENDING_KEY: &str = "__lastdb_counter_restore_pending_v1";
-
 tokio::task_local! {
     static RESTORING: Arc<PackRuntime>;
 }

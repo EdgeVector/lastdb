@@ -4,14 +4,12 @@ use crate::records::key_format::{
 };
 use crate::storage::content_key_proof;
 use crate::storage::disk_pack::native_routing;
-use crate::storage::disk_pack::restore_safety;
 use lastdb_storage_policy::backup_decode as budget;
 
 pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {
     let names = [
         CURRENT_KEY_FORMAT_KEY.as_bytes(),
         DELETE_REPLAY_CUTOFF_KEY.as_bytes(),
-        restore_safety::PENDING_KEY.as_bytes(),
     ];
     let coordinates = names.map(|key| {
         (
@@ -20,15 +18,15 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
         )
     });
     let values = {
-        let mut read = super::fork_mapped(main, read_budget(budget::DIRECTORY_READ_BYTES, 3))?;
+        let mut read = super::fork_mapped(main, read_budget(budget::DIRECTORY_READ_BYTES, 2))?;
         read.get_many_bounded(&coordinates, 8192).map_err(map)?
     };
     let values = values
         .into_iter()
         .collect::<Result<Vec<_>, _>>()
         .map_err(map)?;
-    if values.len() != 3 || values[2].is_some() {
-        return Err(invalid("run backup counter restore validation is pending"));
+    if values.len() != 2 {
+        return Err(invalid("run backup logical marker read is incomplete"));
     }
     validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
     let marker = values[0]
