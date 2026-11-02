@@ -150,6 +150,8 @@ jobs:
           test "$(uname -m)" = '${{ matrix.architecture }}'
           echo "CARGO_TARGET_DIR=$RUNNER_TEMP/nightly-target" >> "$GITHUB_ENV"
           python3 -m py_compile scripts/release/nightly_*.py
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           rustup show active-toolchain
           rustup target add "$TARGET"
           mkdir "$RUNNER_TEMP/nightly-evidence"
