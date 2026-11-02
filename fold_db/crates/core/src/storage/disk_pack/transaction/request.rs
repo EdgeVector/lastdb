@@ -142,12 +142,12 @@ impl BatchShape {
                 (&mut shape.alternate_puts, &mut shape.alternate_deletes)
             } else if key.starts_with("rh:") {
                 (&mut shape.history_puts, &mut shape.history_deletes)
-            } else if key.starts_with("bref:v3:c:") {
+            } else if key.starts_with("bref:c:") {
                 (
                     &mut shape.blob_counter_puts,
                     &mut shape.blob_counter_deletes,
                 )
-            } else if key.starts_with("bref:v3:q:") || key.starts_with("bref:v3:d\0") {
+            } else if key.starts_with("bref:q:") || key.starts_with("bref:d\0") {
                 (&mut shape.blob_queue_puts, &mut shape.blob_queue_deletes)
             } else {
                 continue;

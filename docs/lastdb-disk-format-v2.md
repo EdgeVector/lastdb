@@ -39,7 +39,7 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 | Run footer | 64 bytes; magic `LDRUN\x01\0\0`; version 1; run UUID; top-block position; counts; CRC32 | The same footer, with counts checked against the authenticated top block |
 | Encryption frame | Magic `LSF1`; version 2; raw or zstd flag; authenticated header; ciphertext; 16-byte tag | Version 2 with known flags only |
 | Stored value | Tag 0 for original bytes; tag 1 for compact JSON | Tags 0 and 1 only |
-| Logical key format | `7;typed-ranges=v1` | `7;typed-ranges=v1` only; `6` and `6;delete-replay-cutoff=v1` are refused |
+| Logical key format | `typed-ranges` in the row `layout:keys` | `typed-ranges` only |
 | Client backup profile | Profile 2 | Profile 2 only, with the exact native identities, hashes, totals, and required features; profile 1 is refused |
 
 The marker is an exact byte contract. Its filename alone does not prove compatibility.

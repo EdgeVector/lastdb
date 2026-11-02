@@ -24,9 +24,9 @@ pub(super) fn record(records: &[(Vec<u8>, Option<Vec<u8>>)]) {
             value.as_ref().map_or(0, |bytes| bytes.len()) as u64,
         );
         if collection == "blob_counts" {
-            // A blob counter key starts with `bref:v3:c:`; the dwell queue
+            // A blob counter key starts with `bref:c:`; the dwell queue
             // entries and its bucket directory hold the rest.
-            let tag = if key[at..].starts_with(b"bref:v3:c:") {
+            let tag = if key[at..].starts_with(b"bref:c:") {
                 ["v2_blob_counter_puts", "v2_blob_counter_deletes"]
             } else {
                 ["v2_blob_queue_puts", "v2_blob_queue_deletes"]

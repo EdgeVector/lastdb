@@ -52,9 +52,9 @@ RAW = re.compile(
 )
 FAMILIES = {
     "C": re.compile(
-        r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq:|"ahk:|"ahb:'
+        r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq\b|"ahk:|"ahb\b'
     ),
-    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:v3'),
+    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 

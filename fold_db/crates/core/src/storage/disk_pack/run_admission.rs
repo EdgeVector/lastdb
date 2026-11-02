@@ -1,7 +1,9 @@
 //! Check the logical format through read-only snapshots before writer cleanup.
 
 use super::{map, native_routing, run_node, StorageError, StorageResult, NODE_MARKER};
-use crate::records::key_format::{validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY};
+use crate::records::key_format::{
+    validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+};
 use crate::storage::content_key_proof;
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
@@ -59,7 +61,7 @@ fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
 
 pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
     let marker = CURRENT_KEY_FORMAT_KEY;
-    let cutoff = "layout:v3:delete-replay-cutoff";
+    let cutoff = DELETE_REPLAY_CUTOFF_KEY;
     let coordinates = vec![
         (
             native_routing::collection_for_key(marker.as_bytes()).into(),

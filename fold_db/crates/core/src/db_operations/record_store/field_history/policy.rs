@@ -9,7 +9,7 @@ impl RecordStore {
         field: &str,
         scope: Option<&str>,
     ) -> Result<FieldHistoryPolicy, SchemaError> {
-        let key = build_storage_key(scope, &format!("ahp:v1:{field}"));
+        let key = build_storage_key(scope, &format!("ahp:{field}"));
         Ok(self.main_store.get_item(&key).await?.unwrap_or_default())
     }
 
@@ -39,13 +39,15 @@ impl RecordStore {
         }
         self.in_background_scope(async {
             let mut writes = vec![crate::storage::KvMutation::put(
-                build_storage_key(scope, &format!("ahp:v1:{field}")).into_bytes(),
+                build_storage_key(scope, &format!("ahp:{field}")).into_bytes(),
                 serde_json::to_vec(&policy).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
             )];
             if policy != FieldHistoryPolicy::Off {
                 writes.push(crate::storage::KvMutation::put(
-                    Self::CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
-                    lastdb_model::field_key_codec::HISTORY_KEY_FORMAT.to_vec(),
+                    crate::records::key_format::FIELD_HISTORY_KEY
+                        .as_bytes()
+                        .to_vec(),
+                    crate::records::key_format::FIELD_HISTORY_ON.to_vec(),
                 ));
             }
             self.main_store.inner().batch_mutate(writes).await?;

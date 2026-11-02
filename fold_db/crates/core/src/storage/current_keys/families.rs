@@ -4,12 +4,12 @@
 //! above it (blob counters, schema catalog) name the same constants here, so
 //! one definition serves both.
 
-/// Key prefix of one blob counter: `bref:v3:c:{sha256}\0c`.
-pub(crate) const BLOB_COUNTER_PREFIX: &str = "bref:v3:c:";
+/// Key prefix of one blob counter: `bref:c:{sha256}`.
+pub(crate) const BLOB_COUNTER_PREFIX: &str = "bref:c:";
 /// Key family of the blob dwell queue entries.
-pub(crate) const BLOB_QUEUE_ENTRIES: &str = "bref:v3:q";
+pub(crate) const BLOB_QUEUE_ENTRIES: &str = "bref:q";
 /// Key family of the blob dwell queue bucket directory.
-pub(crate) const BLOB_QUEUE_DIRECTORY: &str = "bref:v3:d";
+pub(crate) const BLOB_QUEUE_DIRECTORY: &str = "bref:d";
 
 /// Reserved internal key prefix for retention policies in `schema_states`.
 ///
@@ -38,13 +38,13 @@ pub(crate) fn is_blob_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// True for a counter key, a queue entry key or a queue directory key of the
-/// current layout. The key check of every native write and every import calls
-/// this for the `bref` family.
+/// True for a counter key, a queue entry key or a queue directory key. The key
+/// check of every native write and every import calls this for the `bref`
+/// family.
 #[must_use]
 pub(crate) fn is_blob_reference_key(key: &str) -> bool {
     match key.strip_prefix(BLOB_COUNTER_PREFIX) {
-        Some(rest) => rest.strip_suffix("\0c").is_some_and(is_blob_id),
+        Some(rest) => is_blob_id(rest),
         None => is_blob_queue_key(key),
     }
 }

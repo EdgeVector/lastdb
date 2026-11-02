@@ -346,7 +346,7 @@ Later cleanup or cutover checks must identify their own source and product evide
 ## Current key format
 
 A new home records the current key format before it serves requests.
-The current logical marker is `layout:v3:keys` with value `3`.
+The current logical marker is `layout:keys` with value `typed-ranges`.
 It covers framed field key identities and exact binding identities.
 The physical node marker remains `laststore-pack-node-v1`.
 A new home records its setup state before it creates the physical store.

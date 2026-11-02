@@ -20,28 +20,28 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
     ),
     (
         "blob_counter",
-        "bref:v3:c:",
-        "bref:v3:c:{sha256(blob_ref)}\\0c — blob counter (references to a local file blob, and its dwell)",
+        "bref:c:",
+        "bref:c:{sha256(blob_ref)} — blob counter (references to a local file blob, and its dwell)",
     ),
     (
         "blob_queue",
-        "bref:v3:q:",
-        "bref:v3:q:{bucket}\0{zero_since}:{sha256(blob_ref)} — time-bucketed dwell queue of local file blobs at zero (the dwell pass reads it)",
+        "bref:q:",
+        "bref:q:{bucket}\0{zero_since}:{sha256(blob_ref)} — time-bucketed dwell queue of local file blobs at zero (the dwell pass reads it)",
     ),
     (
         "blob_queue_bucket_directory",
-        "bref:v3:d\0",
-        "bref:v3:d\0{bucket} — one row for each bucket of the blob dwell queue (the dwell pass lists it)",
+        "bref:d\0",
+        "bref:d\0{bucket} — one row for each bucket of the blob dwell queue (the dwell pass lists it)",
     ),
     (
         "retention_queue",
-        "crq:v1:",
-        "crq:v1:{bucket}\0{expires}:{record} — time-bucketed queue of kept conflict records (the janitor reads it)",
+        "crq:",
+        "crq:{bucket}\0{expires}:{record} — time-bucketed queue of kept conflict records (the janitor reads it)",
     ),
     (
         "retention_bucket_directory",
-        "crb:v1\0",
-        "crb:v1\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
+        "crb\0",
+        "crb\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
     ),
     (
         "record_delete_ledger",

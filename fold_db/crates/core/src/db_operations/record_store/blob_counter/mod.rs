@@ -19,13 +19,13 @@
 //! again inside the write gate and deletes the blob row, the counter and the
 //! queue entry in one batch.
 //!
-//! Records, all in the `records` collection:
+//! Records, all in the `blob_counts` collection:
 //!
 //! | Record | Key |
 //! |---|---|
-//! | Counter | `bref:v3:c:{sha256(blob_ref)}\0c` |
-//! | Queue entry | `bref:v3:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` |
-//! | Queue directory row | `bref:v3:d\0{bucket:020}` |
+//! | Counter | `bref:c:{sha256(blob_ref)}` |
+//! | Queue entry | `bref:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` |
+//! | Queue directory row | `bref:d\0{bucket:020}` |
 //!
 //! A key hashes on its first NUL. The counter of a blob is one hash, as the
 //! counter of a record is. The queue is a time-bucketed queue (`queue.rs`, and
@@ -182,7 +182,7 @@ pub(crate) fn blob_id(blob_ref: &str) -> String {
     hex_lower(Sha256::digest(blob_ref.as_bytes()))
 }
 
-/// Counter key `bref:v3:c:{id}\0c`.
+/// Counter key `bref:c:{id}`.
 #[must_use]
 pub(crate) fn blob_counter_key(blob_ref: &str) -> String {
     blob_counter_key_of_id(&blob_id(blob_ref))
@@ -191,7 +191,7 @@ pub(crate) fn blob_counter_key(blob_ref: &str) -> String {
 /// Counter key of a blob identity.
 #[must_use]
 pub(crate) fn blob_counter_key_of_id(id: &str) -> String {
-    format!("{COUNTER_PREFIX}{id}\0c")
+    format!("{COUNTER_PREFIX}{id}")
 }
 
 /// The key range of every blob counter: one hash for each blob.

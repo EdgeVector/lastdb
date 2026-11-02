@@ -96,9 +96,9 @@ stays in the `cas_blobs` plane, keyed by its `blob_ref`.
 
 | Record | Key | Value |
 |---|---|---|
-| Counter | `bref:v3:c:{sha256(blob_ref)}\0c` | `{"v":1,"blob":"sha256:..","refs":N,"zero_since":ms,"suspect":false}` |
-| Queue entry | `bref:v3:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
-| Queue directory row | `bref:v3:d\0{bucket:020}` | a token (`{"v":1,"t":"{zero_since_ns:020}:{id}"}`) |
+| Counter | `bref:c:{sha256(blob_ref)}` | `{"v":1,"blob":"sha256:..","refs":N,"zero_since":ms,"suspect":false}` |
+| Queue entry | `bref:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
+| Queue directory row | `bref:d\0{bucket:020}` | a token (`{"v":1,"t":"{zero_since_ns:020}:{id}"}`) |
 
 `zero_since` in the counter is in unix milliseconds. It is present only while
 `refs` is zero. `suspect` is present only when true. A key hashes on its first
@@ -133,9 +133,9 @@ the head. The review measured 16 blobs a minute after 9,800 deletions.
   `recount --execute` writes the entry again under the new key and clears the fault at
   once (7 entries restored, 0 faults); the older entries stay. A fresh home, and a home
   with the default dwell (3,600 s), are not affected.
-- **Two key families**, `bref:v3:q` for the entries and `bref:v3:d` for the
+- **Two key families**, `bref:q` for the entries and `bref:d` for the
   directory. Neither holds a NUL, and neither is a prefix of the other or of the
-  counter family `bref:v3:c:`. The entries have no scope: a blob is global.
+  counter family `bref:c:`. The entries have no scope: a blob is global.
 - **A new entry brings the directory row of its bucket** in the same batch, with a
   new token that names the entry. A planner run that zeroes several blobs of one
   slice writes the directory row once (the last token stays).
@@ -319,11 +319,9 @@ next retirement of that bucket checks the token it reads.
 
 ## Format fence
 
-The key format marker `layout:v3:keys` is `4`. A home from a build that kept blob
-reference edges (`bref:v2`) has the value `3` (an older one has the marker
-`layout:v2:keys`). It has no blob counters, so this build refuses it ("create a new
-empty home"). A home that this build made is refused the same way by a build that
-expects `3`. The design has no migration.
+The node marker (`format=8`) and the key format row `layout:keys`
+(`typed-ranges`) fence the home. This build opens no other home. The design has
+no migration.
 
 ## Verify and recount
 

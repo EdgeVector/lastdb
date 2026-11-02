@@ -1,6 +1,6 @@
 # Delete replay cutoff
 
-A format 7 home keeps one global replay cutoff in the record `layout:v3:delete-replay-cutoff`.
+A home keeps one global replay cutoff in the record `layout:delete-replay-cutoff`.
 LastDB refuses a replayed or imported mutation when its author time is missing or is at or before the cutoff.
 A home without the cutoff record has cutoff 0.
 
@@ -33,7 +33,7 @@ The serving process reads and validates the format marker and the cutoff once at
 Its clones share that fixed value. Normal writes need no extra disk read or lock for this check.
 Offline recount uses a separate instance that reads disk and cannot use the serving cache.
 A snapshot restore opens a new process and validates its own restored cutoff.
-A home without the format 7 marker (`layout:v3:keys`) does not start. A malformed cutoff record prevents startup.
+A home without the key format row (`layout:keys`) does not start. A malformed cutoff record prevents startup.
 
 ## TTL replay
 

@@ -1,6 +1,6 @@
-//! Optional field history of format 7 records. Each entry keeps its own copy of
-//! one old field value, and each file blob that the copy names holds one
-//! reference while the entry lives.
+//! Optional field history of records. Each entry keeps its own copy of one old
+//! field value, and each file blob that the copy names holds one reference
+//! while the entry lives. The home row `layout:field-history` turns it on.
 
 mod key_counts;
 mod policy;
@@ -18,13 +18,13 @@ impl super::RecordStore {
     }
 
     pub(crate) async fn field_history_enabled(&self) -> Result<bool, crate::schema::SchemaError> {
-        let marker = self
+        let setting = self
             .main_store
             .inner()
-            .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
+            .get(crate::records::key_format::FIELD_HISTORY_KEY.as_bytes())
             .await
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))?;
-        Ok(marker.as_deref() == Some(lastdb_model::field_key_codec::HISTORY_KEY_FORMAT))
+        Ok(setting.as_deref() == Some(crate::records::key_format::FIELD_HISTORY_ON))
     }
 }
 
@@ -75,7 +75,7 @@ fn validate_id(id: &str) -> Result<(), crate::schema::SchemaError> {
 }
 
 pub(crate) fn queue() -> TimeQueue {
-    TimeQueue::with_slice("ahq:v1", "ahb:v1", 3_600_000_000_000)
+    TimeQueue::with_slice("ahq", "ahb", 3_600_000_000_000)
 }
 
 pub(crate) fn digest(value: &[u8]) -> String {

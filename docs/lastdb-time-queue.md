@@ -72,10 +72,10 @@ A page of live entries does not bound a read call. The key space bounds it.
   the entry (for the retention queue: the key of the history row). A queue that
   scoped its keys would need one directory for each scope.
 - **Each queue has its own families.** A queue is two families: the entries
-  (`crq:v1`) and the directory (`crb:v1`). A queue must not share a directory
+  (`crq`) and the directory (`crb`). A queue must not share a directory
   with another queue, because a bucket start does not say which queue it
   belongs to. A family name holds no NUL (the NUL ends the hash), and no name is
-  a prefix of another name (`crq:v1` and `crq:v1:a` would put the keys of one
+  a prefix of another name (`crq` and `crq:a` would put the keys of one
   family inside the key range of the other). Register the names in the key
   validation, the cutover classes, the capture skip list and the inventory.
 - **The writer and the reader read one clock.** The expiry that the writer puts in
@@ -346,7 +346,7 @@ What the net does not cover:
 - A process with another lifetime than the node that wrote the entries. The slice
   follows `LASTDB_CONFLICT_RETENTION_SECS`. `verify-refs` asks the daemon, so it
   uses the daemon's slice. `recount` is a process of its own, and the janitor
-  records the window of the node in one row (`crb:v1\0params`, once at its start
+  records the window of the node in one row (`crb\0params`, once at its start
   and when the window changes). The recount reads that row and uses the recorded
   window and slice for its survey and its repair, and it prints a note when its own
   `LASTDB_CONFLICT_RETENTION_SECS` differs. A home whose janitor never ran has no

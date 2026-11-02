@@ -17,7 +17,7 @@ fn count_key(slot: &str) -> Result<String, SchemaError> {
     let scope = crate::storage::current_keys::exact_scope(slot)?;
     Ok(crate::schema::types::field::build_storage_key(
         scope,
-        &format!("ahk:v1:{}", digest(slot.as_bytes())),
+        &format!("ahk:{}", digest(slot.as_bytes())),
     ))
 }
 

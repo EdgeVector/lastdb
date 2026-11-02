@@ -6,7 +6,7 @@
 //! reference-completeness proof is needed. The format and account-key proofs
 //! authorize the new home.
 //! The storage layer refuses earlier physical layouts. A native home also needs
-//! the logical identity marker `7;typed-ranges=v1` before it can serve. Home
+//! the logical identity marker `typed-ranges` before it can serve. Home
 //! creation writes it. A record row is plain JSON, and the block encryption of
 //! each run file protects it at rest. Tips and control values have no outer
 //! envelope. Startup never rewrites a home.

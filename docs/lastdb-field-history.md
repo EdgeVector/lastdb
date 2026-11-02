@@ -29,9 +29,8 @@ The TTL starts when the value leaves the current tip. It does not expire a
 current value. A policy change affects future entries only. Existing entries
 keep their original expiry.
 
-CAUTION: A policy that enables history raises the logical format to
-`8;typed-ranges=v1;atom-history=v1`. Older binaries refuse the home.
-A later change to `off` does not lower the format.
+A policy that enables history writes the home row `layout:field-history`
+with the value `on`. A later change to `off` does not remove the row.
 
 ```sh
 lastdb history Notes body policy
@@ -105,9 +104,9 @@ field key header. Expiry and purge release references through the same planner.
 A record leaves only after its final reference goes.
 
 The sidecar uses tagged `history\0` records and the existing slot directory.
-It uses separate `ahq:v1` and `ahb:v1` queue families for expiry.
+It uses separate `ahq` and `ahb` queue families for expiry.
 The queue and directory hold pointers, with no record reference.
-An `ahk:v1` record counts the history entries for one field key.
+An `ahk:` record counts the history entries for one field key.
 The count joins each capture or release batch.
 Purge checks these counts in one batch, even after delete removes every tip.
 The expiry worker keeps bounded cursors and stops with the database.

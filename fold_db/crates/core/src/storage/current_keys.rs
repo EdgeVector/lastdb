@@ -17,7 +17,7 @@ pub(crate) mod families;
 ///   expiry queue of the history entries and its bucket directory.
 /// - `rcf`, `rcm`: the kept conflict rows of a record and its conflict marker.
 ///   `crq`, `crb`: the retention queue of those rows and its bucket directory.
-/// - `bref`: the blob counters and the blob dwell queue (`bref:v3:`).
+/// - `bref`: the blob counters and the blob dwell queue (`bref:`).
 ///   `cas_blob`: the blob dwell deletes a `cas_blob:{blob}` row of the `main`
 ///   namespace with the counter. No format 7 writer puts one; the family
 ///   stays so that delete passes the key law.
@@ -114,9 +114,6 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     {
         return Err(unsupported("retired flat key spelling"));
     }
-    if bare.starts_with("bref:v1:") || bare.starts_with("bref:v2:") {
-        return Err(unsupported("retired reference key format"));
-    }
     validate_references(bare, family)?;
     validate_retention(bare, family)?;
     if let Some(rest) = bare
@@ -137,9 +134,9 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
 /// The retention queue of kept conflict rows and its bucket directory.
 fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        // `crq:v1:{bucket:020}\0{expires:020}:{id}`
+        // `crq:{bucket:020}\0{expires:020}:{id}`
         "crq" => key
-            .strip_prefix("crq:v1:")
+            .strip_prefix("crq:")
             .and_then(|rest| rest.split_once('\0'))
             .is_some_and(|(bucket, tail)| {
                 digits(bucket, 20)
@@ -147,10 +144,10 @@ fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
                         .split_once(':')
                         .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
             }),
-        // `crb:v1\0{bucket:020}`
-        // `crb:v1\0params` records the window of the node
+        // `crb\0{bucket:020}`
+        // `crb\0params` records the window of the node
         "crb" => key
-            .strip_prefix("crb:v1\0")
+            .strip_prefix("crb\0")
             .is_some_and(|bucket| digits(bucket, 20) || bucket == "params"),
         _ => true,
     };

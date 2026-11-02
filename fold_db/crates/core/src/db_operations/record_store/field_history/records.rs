@@ -172,7 +172,7 @@ impl RecordStore {
         identities.dedup();
         let keys: Vec<String> = identities
             .iter()
-            .map(|identity| build_storage_key(scope, &format!("ahp:v1:{identity}")))
+            .map(|identity| build_storage_key(scope, &format!("ahp:{identity}")))
             .collect();
         let policies: Vec<Option<FieldHistoryPolicy>> = self.main_store.get_items(&keys).await?;
         let policies: HashMap<&str, FieldHistoryPolicy> = identities

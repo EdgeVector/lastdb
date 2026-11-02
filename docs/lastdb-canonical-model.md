@@ -113,7 +113,7 @@ field value of a peer record. A local write is checked against the record cap on
 Large opaque bytes (files, packs, images) go in a **content-addressed file blob**
 (CAS). A `$lastdb_file.blob_ref` field value, or the `file_blob_ref` / `file_hash`
 record metadata, holds the reference, not the bytes. Each file blob has a counter
-(`bref:v3:c:{sha256}`) of the records and field history entries that name it. A write
+(`bref:c:{sha256}`) of the records and field history entries that name it. A write
 changes the counter by the net change between the old and the new record. At zero the
 file blob waits for a dwell of one hour (`LASTDB_BLOB_DWELL_SECS`), then goes
 (`docs/lastdb-blob-counter.md`).

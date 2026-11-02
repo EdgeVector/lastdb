@@ -24,11 +24,11 @@ use sha2::Sha256;
 mod profile;
 mod range_decode;
 
-/// Logical typed-range format; physical run blocks keep their existing format.
-pub const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
-pub const HISTORY_KEY_FORMAT: &[u8] = b"8;typed-ranges=v1;atom-history=v1";
+/// The logical key format of a home: typed range keys. Physical run blocks
+/// keep their own format. The field history setting has its own row.
+pub const KEY_FORMAT: &[u8] = b"typed-ranges";
 pub fn current_key_format(marker: &[u8]) -> bool {
-    marker == TYPED_KEY_FORMAT || marker == HISTORY_KEY_FORMAT
+    marker == KEY_FORMAT
 }
 
 /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).

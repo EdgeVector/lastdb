@@ -7,7 +7,7 @@
 //! expiry, and would list slices that do not line up with the buckets. So the
 //! janitor records the window of the node in one row, and the recount reads it.
 //!
-//! The row is `crb:v1\0params`, in the family of the bucket directory. Its key
+//! The row is `crb\0params`, in the family of the bucket directory. Its key
 //! sorts after every bucket row (`p` follows the digits), so no read of the
 //! directory (the reader, the survey, the size count) meets it.
 //!

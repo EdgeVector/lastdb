@@ -111,7 +111,7 @@ Any other value logs one warning at the first sampler tick and uses `purge`. The
 Both verbs do these steps in the same batch as the tombstone:
 
 - They delete the alternate key entries (`ak:`) of the record.
-- They lower the file blob counters of the record (`bref:v3:`). A file blob whose count reaches
+- They lower the file blob counters of the record (`bref:`). A file blob whose count reaches
   zero enters the blob dwell queue, and the dwell deletes it after `LASTDB_BLOB_DWELL_SECS` (one
   hour by default; `docs/lastdb-blob-counter.md`).
 - They remove the age entries of the record from the retention index.
@@ -148,7 +148,7 @@ Both verbs leave the same tombstone, and both stop an older write from bringing 
 - `delete` only: the field history entries and the kept conflict rows, until their own windows end.
 
 The default remains `purge`. No timer infers a maximum offline time for a device.
-The owner selects the home-wide replay cutoff (`layout:v3:delete-replay-cutoff`) explicitly.
+The owner selects the home-wide replay cutoff (`layout:delete-replay-cutoff`) explicitly.
 After the cutoff rises, an old or unclocked replay refuses and the peer needs a current snapshot.
 The [replay cutoff guide](delete-replay-cutoff.md) gives the steps and the replay refusal rule.
 

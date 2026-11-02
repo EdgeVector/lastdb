@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 /// current shape.
 fn id_of_counter_key(key: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(key).ok()?;
-    let id = text.strip_prefix("bref:v3:c:")?.strip_suffix("\0c")?;
+    let id = text.strip_prefix(crate::storage::current_keys::families::BLOB_COUNTER_PREFIX)?;
     (id.len() == 64).then(|| id.to_string())
 }
 

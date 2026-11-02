@@ -4,7 +4,7 @@ use super::{map, RunHome, StorageResult};
 use crate::records::key_format::CURRENT_KEY_FORMAT_KEY;
 use crate::storage::content_key_proof;
 use crate::storage::disk_pack::{kv, run_admission::RECORD_NODE_BYTES};
-use lastdb_model::field_key_codec::TYPED_KEY_FORMAT;
+use lastdb_model::field_key_codec::KEY_FORMAT;
 use laststore::disk_run::home::HomeMutation;
 
 /// Every new home is format 8 (the record model). The caller publishes the
@@ -14,7 +14,7 @@ pub(super) fn initialize(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&
     let format = HomeMutation {
         collection,
         key,
-        body: Some(TYPED_KEY_FORMAT.to_vec()),
+        body: Some(KEY_FORMAT.to_vec()),
     };
     let proof = HomeMutation {
         collection: content_key_proof::NAMESPACE.into(),

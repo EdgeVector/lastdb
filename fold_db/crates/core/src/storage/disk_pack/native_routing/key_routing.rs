@@ -6,7 +6,7 @@ use super::*;
 ///
 /// Blob counters and the blob dwell queue use the routed collection
 /// (`blob_counts`). Every other `main` row uses `records`.
-const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:v3:", "blob_counts")];
+const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:", "blob_counts")];
 
 pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
     let bare = std::str::from_utf8(key)
