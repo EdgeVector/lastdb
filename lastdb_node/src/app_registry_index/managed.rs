@@ -80,7 +80,12 @@ pub fn install(
         .is_some_and(|r| r.sha == resolution.sha && r.inactive == options.inactive)
     {
         let current = prior.ok_or("missing current receipt")?;
-        verify_active(&root, home, &current)?;
+        if let Err(error) = verify_active(&root, home, &current) {
+            restore_previous(&root, home)?;
+            return Err(format!(
+                "current app failed its health check; restored previous version: {error}"
+            ));
+        }
         return Ok(current);
     }
     let version = root.join("versions").join(format!(
@@ -100,8 +105,9 @@ pub fn install(
         Ok(new) => {
             fs::create_dir_all(root.join("versions")).map_err(|e| e.to_string())?;
             fs::rename(&stage, &version).map_err(|e| e.to_string())?;
-            activate(&root, &version, home, &new)?;
+            let activation = activate(&root, &version, home, &new);
             prune(&root)?;
+            activation?;
             Ok(new)
         }
         Err(error) => Err(error),
@@ -275,16 +281,30 @@ pub fn activate(
 pub fn rollback(app: &str, home: &Path) -> Result<ManagedReceipt, String> {
     let root = app_root(app)?;
     let _lock = lock(&root)?;
+    restore_previous(&root, home)
+}
+
+fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> {
     let target = fs::canonicalize(root.join("previous")).map_err(|e| e.to_string())?;
     if !target.starts_with(fs::canonicalize(root.join("versions")).map_err(|e| e.to_string())?) {
         return Err("rollback target is outside app versions".into());
     }
     let prior = receipt(&target)?;
-    let plan = InstallPlan::load(&target.join("source"), app)?;
-    if !prior.inactive {
-        steps(&target.join("source"), home, app, &plan.probe)?;
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let (_, _, node) = super::running_node(&socket);
+    if prior.listing.api_version != node.api_version
+        || prior
+            .listing
+            .outbox_format_version
+            .is_some_and(|v| v != node.outbox_format_version)
+    {
+        return Err("previous app does not match the running node interface".into());
     }
-    activate(&root, &target, home, &prior)?;
+    let plan = InstallPlan::load(&target.join("source"), &prior.app_id)?;
+    if !prior.inactive {
+        steps(&target.join("source"), home, &prior.app_id, &plan.probe)?;
+    }
+    activate(root, &target, home, &prior)?;
     Ok(prior)
 }
 

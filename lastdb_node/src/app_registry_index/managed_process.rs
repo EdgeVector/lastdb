@@ -16,6 +16,11 @@ pub fn steps(source: &Path, home: &Path, app: &str, list: &[InstallStep]) -> Res
 
 fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {
     let mut cmd = Command::new(&step.argv[0]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     cmd.args(&step.argv[1..])
         .current_dir(source)
         .env_clear()
@@ -61,6 +66,10 @@ fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), 
             };
         }
         if start.elapsed() >= Duration::from_secs(step.timeout_s) {
+            #[cfg(unix)]
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", &format!("-{}", child.id())])
+                .output();
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!(

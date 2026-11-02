@@ -101,17 +101,37 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
     let mut rows = std::collections::HashMap::new();
     let mut results = Vec::new();
     let mut failed = false;
+    let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").ok().as_deref() == Some("1");
     for app in names {
         let current = installed(&app)?;
         let channel = input.source.channel.as_deref().unwrap_or(&current.channel);
+        let stamp = host::app_root(&app)?.join("last-checked");
+        if polling
+            && channel == "stable"
+            && std::fs::metadata(&stamp)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|d| d.as_secs() < 3600)
+        {
+            if let Err(error) = host::verify_active(&host::app_root(&app)?, home, &current) {
+                failed = true;
+                results.push(json!({"app": app, "state": "red", "error": error}));
+            }
+            continue;
+        }
         if let std::collections::hash_map::Entry::Vacant(entry) = rows.entry(channel.to_string()) {
             entry.insert(resolutions(home, &input.source, channel)?);
         }
+        std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
         let Some(row) = rows
             .get(channel)
             .and_then(|v| v.iter().find(|r| r.app_id == app))
         else {
-            results.push(json!({"app": app, "state": "no_row", "installed_release": current.sha}));
+            if !polling {
+                results
+                    .push(json!({"app": app, "state": "no_row", "installed_release": current.sha}));
+            }
             continue;
         };
         match host::install(
@@ -123,7 +143,9 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
             },
         ) {
             Ok(receipt) => {
-                results.push(json!({"app": app, "state": "current", "receipt": receipt}));
+                if !polling || receipt.sha != current.sha {
+                    results.push(json!({"app": app, "state": "current", "receipt": receipt}));
+                }
             }
             Err(error) => {
                 failed = true;
@@ -131,7 +153,9 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
             }
         }
     }
-    print_pretty_json(&results);
+    if !polling || !results.is_empty() {
+        print_pretty_json(&results);
+    }
     if failed {
         Err("one or more app upgrades failed; prior versions retained".into())
     } else {
