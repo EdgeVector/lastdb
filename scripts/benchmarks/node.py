@@ -18,11 +18,6 @@ from disk_usage import usage
 # key. The daemon writes it when it creates the home. Every program creates format 8 and opens
 # no older home.
 RECORD_NODE_MARKER = "format=8\nhome=disk-run\ncas=disk-cas\n"
-# A comparison also measures its base revision. A base revision before format 8 creates a
-# format 7 home. Remove this entry when no compared base revision predates format 8.
-BASE_FORMAT_SEVEN_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
-# The home format of each marker that a measured program can create.
-HOME_FORMATS = {RECORD_NODE_MARKER: 8, BASE_FORMAT_SEVEN_MARKER: 7}
 
 
 def save(path, value):
@@ -203,14 +198,13 @@ class Node:
         return path.read_text() if path.exists() else None
 
     def home_format(self):
-        """8 for a format 8 home (7 for the home of a base revision before format 8), or None for
-        an unknown marker or before the home exists."""
-        return HOME_FORMATS.get(self.marker())
+        """8 for a format 8 home, or None for an unknown marker or before the home exists."""
+        return 8 if self.marker() == RECORD_NODE_MARKER else None
 
     def disk_format(self):
-        """2 for a record home (a v2 disk home), 1 for any other marker; the marker exists after the first start."""
+        """2 for a format 8 home (a v2 disk home), 1 for any other marker; the marker exists after the first start."""
         marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
-        return 2 if marker in HOME_FORMATS else 1
+        return 2 if marker == RECORD_NODE_MARKER else 1
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]
