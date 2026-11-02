@@ -15,7 +15,7 @@
 #      owner socket up, `/health` ok, `lastdb ... status` sees it.
 #   3. Data round-trip over the socket — /api/schemas/declare -> mutation -> query.
 #   3b. First-run app path — POST /api/apps/declare-schema (catalog
-#      register/reuse/expand), then mutate/query by the returned identity-hash pin
+#      register/reuse/expand), then mutate/query by the returned canonical name
 #      (brain/kanban init path).
 #   4. Native search retired-route contract on the SHIPPED Mini binary —
 #      release builds have no owner-wide native-index search route. Assert HTTP
@@ -130,21 +130,27 @@ assert_work_root_safe() {
 }
 
 # assert_apps_declare_catalog_sync_payload <file> — first-run app declare must
-# return an identity-hash pin the client can use for mutation/query.
+# return the namespaced runtime name in .canonical. Mutation and query use that
+# name. .identity_hash is the catalog definition hash and is not the write
+# address. Release run 41488809179 returned canonical
+# "validation/AppCatalogProbe"; the old length-64 check rejected it.
 # Mini may reuse an existing catalog identity or register/expand through Schema
-# Service, but it must never accept a local-only durable identity.
+# Service. bind_eligible and audit_event_id prove the sync completed.
 assert_apps_declare_catalog_sync_payload() {
   jq -e '
     .ok == true
     and .app_id == "validation"
+    and .bind_eligible == true
+    and (.audit_event_id | type == "string" and length > 0)
     and (.resolution == "register"
          or .resolution == "reuse"
          or .resolution == "expand")
-    and (.canonical | type == "string" and length == 64)
+    and .canonical == "validation/AppCatalogProbe"
     and (
-      (.schema | type == "string" and startswith("validation/"))
-      or (.schema_name | type == "string" and startswith("validation/"))
+      .schema == "validation/AppCatalogProbe"
+      or .schema_name == "validation/AppCatalogProbe"
     )
+    and (.identity_hash | type == "string" and test("^[0-9a-f]{64}$"))
   ' "$1" >/dev/null
 }
 
@@ -468,10 +474,9 @@ jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.note_bod
 # --- 3b. App-schema declare path (brain / kanban first-run) -----------------
 #
 # Mini first-run init uses POST /api/apps/declare-schema (catalog sync) and
-# pins mutations to the returned identity hash — not the namespaced
-# /api/schemas/declare form above. A regression that 404s this route or stores
-# the schema under the wrong name breaks `brain init` / `kanban init` on a
-# brand-new Mac (thelastdb.com path).
+# pins mutations to the returned canonical name. A regression that 404s this
+# route or stores the schema under the wrong name breaks `brain init` /
+# `kanban init` on a brand-new Mac (thelastdb.com path).
 
 log "declaring an app-owned schema via /api/apps/declare-schema (first-run path)"
 # field_descriptions required when apps/declare-schema hits the live catalog
@@ -508,15 +513,15 @@ if ! C -H 'Content-Type: application/json' \
   fail "/api/apps/declare-schema request failed (body: $(head -c 500 "$REPORT_DIR/apps-declare.json" 2>/dev/null || true))"
 fi
 assert_apps_declare_catalog_sync_payload "$REPORT_DIR/apps-declare.json" \
-  || fail "/api/apps/declare-schema did not return identity-hash canonical (body: $(head -c 400 "$REPORT_DIR/apps-declare.json" 2>/dev/null || true))"
+  || fail "/api/apps/declare-schema catalog sync payload rejected (ok=$(jq -r '.ok // empty' "$REPORT_DIR/apps-declare.json" 2>/dev/null || true) resolution=$(jq -r '.resolution // empty' "$REPORT_DIR/apps-declare.json" 2>/dev/null || true) canonical=$(jq -r '.canonical // empty' "$REPORT_DIR/apps-declare.json" 2>/dev/null || true) identity_hash_len=$(jq -r '(.identity_hash // "") | length' "$REPORT_DIR/apps-declare.json" 2>/dev/null || true) bind_eligible=$(jq -r '.bind_eligible // empty' "$REPORT_DIR/apps-declare.json" 2>/dev/null || true))"
 
-APP_HASH="$(jq -r '.canonical' "$REPORT_DIR/apps-declare.json")"
-log "app-schema catalog canonical=$APP_HASH; mutating by identity-hash pin"
+APP_SCHEMA="$(jq -r '.canonical' "$REPORT_DIR/apps-declare.json")"
+log "app-schema catalog canonical=$APP_SCHEMA; mutating by canonical name"
 
 cat > "$REPORT_DIR/apps-mutation-request.json" <<JSON
 {
   "type": "mutation",
-  "schema": "$APP_HASH",
+  "schema": "$APP_SCHEMA",
   "fields_and_values": {
     "record_slug": "first-run",
     "record_title": "App catalog probe",
@@ -530,11 +535,11 @@ C -H 'Content-Type: application/json' \
   --data-binary "@$REPORT_DIR/apps-mutation-request.json" \
   "http://lastdb/api/mutation" > "$REPORT_DIR/apps-mutation.json"
 jq -e '.ok == true and .success == true' "$REPORT_DIR/apps-mutation.json" >/dev/null \
-  || fail "mutation by apps/declare-schema identity hash did not succeed"
+  || fail "mutation by apps/declare-schema canonical name did not succeed"
 
 cat > "$REPORT_DIR/apps-query-request.json" <<JSON
 {
-  "schema_name": "$APP_HASH",
+  "schema_name": "$APP_SCHEMA",
   "fields": ["record_slug", "record_title", "note_body"],
   "filter": { "HashKey": "first-run" }
 }
@@ -547,7 +552,7 @@ jq -e '
   and (.results | length) == 1
   and (.results[0].fields.note_body | contains("identity hash"))
 ' "$REPORT_DIR/apps-query.json" >/dev/null \
-  || fail "query by apps/declare-schema identity hash did not return the record"
+  || fail "query by apps/declare-schema canonical name did not return the record"
 
 # --- 4. Native search retired-route contract -------------------------------
 #
@@ -623,7 +628,7 @@ jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.record_i
     "${EXPECT_VERSION:+ and == $EXPECT_VERSION}"
   printf -- '- `lastdbd` booted on a pristine throwaway home with zero config: no prompt, `identity.key` auto-generated, owner socket up, `/health` ok, `lastdb status` sees it.\n'
   printf -- '- Data round-trip over the socket: `/api/schemas/declare` -> `mutation` -> `query` returned the record.\n'
-  printf -- '- First-run app path: `/api/apps/declare-schema` catalog sync + mutation/query by identity-hash pin (brain/kanban init).\n'
+  printf -- '- First-run app path: `/api/apps/declare-schema` catalog sync + mutation/query by canonical name (brain/kanban init).\n'
   printf -- '- Owner-wide native-index search is retired: `GET /api/native-index/search?q=...` returned HTTP 404 Not Found; clients use the Search app plane or scoped app-vector routes.\n'
   printf -- '- The record survived a daemon restart on the same home.\n'
 } > "$REPORT_DIR/report.md"
