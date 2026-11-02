@@ -12,9 +12,8 @@ pub struct RestoreReport {
     pub commit_sha256: String,
     pub native_files: u64,
     pub native_bytes: u64,
-    pub verified_rows: u64,
+    pub verified_records: u64,
     pub file_dependencies_verified: bool,
-    #[serde(default)]
     pub verified_external_files: u64,
     pub destination: PathBuf,
 }

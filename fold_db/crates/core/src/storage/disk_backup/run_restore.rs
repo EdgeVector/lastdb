@@ -32,7 +32,7 @@ impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
-    pub fn verified_rows(&self) -> u64 {
+    pub fn verified_records(&self) -> u64 {
         self.records
     }
 

@@ -62,7 +62,7 @@ pub(super) fn finish_run_context(
     if files != inventory.files || bytes != inventory.bytes || inventory.dependencies != 0 {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
-    publish_context(session, keys, inventory, proof.verified_rows())
+    publish_context(session, keys, inventory, proof.verified_records())
 }
 
 fn publish_context(
@@ -80,7 +80,7 @@ fn publish_context(
         commit_sha256: session.commit_sha256.as_str().into(),
         native_files: inventory.files,
         native_bytes: inventory.bytes,
-        verified_rows: records,
+        verified_records: records,
         file_dependencies_verified: true,
         verified_external_files: inventory.dependencies,
         destination: session.destination.to_path_buf(),
