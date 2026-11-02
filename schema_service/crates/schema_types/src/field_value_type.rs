@@ -149,38 +149,6 @@ impl FieldValueType {
             }
         }
     }
-
-    /// Infer a FieldValueType from a sample JSON value.
-    /// Used as fallback when the AI doesn't provide types.
-    pub fn infer(value: &serde_json::Value) -> Self {
-        match value {
-            serde_json::Value::Null => Self::Null,
-            serde_json::Value::Bool(_) => Self::Boolean,
-            serde_json::Value::Number(n) => {
-                if n.is_i64() {
-                    Self::Integer
-                } else {
-                    Self::Float
-                }
-            }
-            serde_json::Value::String(_) => Self::String,
-            serde_json::Value::Array(arr) => {
-                if arr.is_empty() {
-                    Self::Array(Box::new(Self::Any))
-                } else {
-                    // Infer from first element
-                    Self::Array(Box::new(Self::infer(&arr[0])))
-                }
-            }
-            serde_json::Value::Object(obj) => {
-                let mut fields = BTreeMap::new();
-                for (k, v) in obj {
-                    fields.insert(k.clone(), Self::infer(v));
-                }
-                Self::Object(fields)
-            }
-        }
-    }
 }
 
 fn validate_ref_object(value: &serde_json::Value, expected_schema: &str) -> Result<(), String> {
