@@ -120,9 +120,8 @@ pub use resolver_config::{
 pub use resolver_pack_consumer::{
     validate_bootstrap_base_url, ImportedResolverPackEmbeddings, LoadedResolverPack,
     ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError, ResolverPackCache,
-    ResolverPackConsumer, ResolverPackConsumerConfig, ResolverPackFallbackReason,
-    ResolverPackFetchError, ResolverPackLoadOutcome, ResolverPackLoadSource,
-    ResolverPackObjectStore, ResolverPackTelemetrySnapshot,
+    ResolverPackFallbackReason, ResolverPackFetchError, ResolverPackLoadOutcome,
+    ResolverPackLoadSource, ResolverPackObjectStore, ResolverPackTelemetrySnapshot,
 };
 pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
 pub use schema_core_resolver::{

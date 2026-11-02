@@ -1,37 +1,8 @@
-//! Consumer and bootstrap configuration for the resolver pack consumer.
+//! Bootstrap configuration for the resolver pack consumer.
 
 use std::path::PathBuf;
 
 use super::*;
-
-#[derive(Debug, Clone)]
-pub struct ResolverPackConsumerConfig {
-    /// Keeps the consumer dev/off-by-default until node wiring explicitly opts in.
-    pub enabled: bool,
-    pub env: Env,
-    pub expected_embedder_id: String,
-    pub trusted_keys: Vec<TrustedResolverPackKey>,
-    /// Optional freshness ceiling for the manifest's `generated_at`.
-    pub max_pack_age_seconds: Option<i64>,
-    /// Test hook for deterministic stale-pack checks.
-    pub now: Option<crate::clock::FrozenInstant>,
-}
-
-impl ResolverPackConsumerConfig {
-    pub fn dev(
-        expected_embedder_id: impl Into<String>,
-        trusted_keys: Vec<TrustedResolverPackKey>,
-    ) -> Self {
-        Self {
-            enabled: false,
-            env: Env::Dev,
-            expected_embedder_id: expected_embedder_id.into(),
-            trusted_keys,
-            max_pack_age_seconds: None,
-            now: None,
-        }
-    }
-}
 
 /// Installation-owned bootstrap configuration for the native resolver runtime.
 ///
@@ -47,7 +18,7 @@ pub struct ResolverBootstrapConfig {
     pub refresh_jitter_seconds: u64,
     pub request_timeout_seconds: u64,
     pub max_download_bytes: u64,
-    /// Maps to consumer `max_pack_age_seconds`.
+    /// Optional freshness ceiling for pack manifest age, in seconds.
     pub max_config_age_seconds: Option<i64>,
     pub expected_embedder_id: String,
     pub cache_dir: PathBuf,
@@ -67,17 +38,6 @@ pub enum ResolverBootstrapConfigError {
 impl ResolverBootstrapConfig {
     pub fn validate_bootstrap(&self) -> Result<(), ResolverBootstrapConfigError> {
         validate_bootstrap_base_url(&self.base_url)
-    }
-
-    pub fn to_consumer_config(&self) -> ResolverPackConsumerConfig {
-        ResolverPackConsumerConfig {
-            enabled: self.enabled,
-            env: self.env,
-            expected_embedder_id: self.expected_embedder_id.clone(),
-            trusted_keys: self.trusted_keys.clone(),
-            max_pack_age_seconds: self.max_config_age_seconds,
-            now: self.now,
-        }
     }
 }
 
