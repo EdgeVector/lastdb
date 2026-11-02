@@ -61,8 +61,6 @@ removed so tooling no longer mis-detects this library as a JavaScript app.
 
 - Monorepo overview: [`../README.md`](../README.md)
 - Contributing to this library: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Record size limit: [`docs/FIELD_VALUE_SIZE_LIMIT.md`](docs/FIELD_VALUE_SIZE_LIMIT.md)
-- Release (Homebrew Mini tarball): [`../docs/RELEASING.md`](../docs/RELEASING.md)
 
 ## License
 

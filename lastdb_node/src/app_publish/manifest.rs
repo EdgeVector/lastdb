@@ -31,8 +31,7 @@ use fold_db::schema::ManifestRetention;
 /// expire. On a Range schema every old record expires at the next sweep, those
 /// written before the declare included. Hash and Single schemas track only
 /// later writes. A synced second device must declare the same manifest: the
-/// policy is not synced, and a TTL erase syncs to the peers as an erase of the key. The
-/// full contract is in `docs/app-manifest-retention.md`.
+/// policy is not synced, and a TTL erase syncs to the peers as an erase of the key.
 ///
 /// What the app author must do:
 ///

@@ -29,7 +29,7 @@
 //!
 //! A key hashes on its first NUL. The counter of a blob is one hash, as the
 //! counter of a record is. The queue is a time-bucketed queue (`queue.rs`, and
-//! `docs/lastdb-time-queue.md`): the entries of one slice of time are one hash,
+//! `time_queue`): the entries of one slice of time are one hash,
 //! a small directory lists the buckets, and the dwell pass walks them with
 //! cursors. A delete leaves a deleted key in its bucket, and the bucket leaves
 //! the directory when it is done, so no read ever passes the deleted keys of a

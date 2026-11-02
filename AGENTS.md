@@ -28,16 +28,15 @@ whole design before a line is written:
 > catalog, not a table. Each primary key holds one record: all fields of the
 > schema in one stored value. A named alternate key finds that same record.
 
-Before designing or planning anything against LastDB, read:
+Before designing or planning anything against LastDB, read the brain records:
 
-- `docs/lastdb-canonical-model.md` — CANONICAL (schema → record → file blob,
-  named keys, and the no-scan contract). If another doc or a code
-  comment disagrees with it, it wins; fix the other.
-- `docs/lastdb-agent-access-model.md` — day-to-day do / don't rules.
-- `docs/lastdb-access-complexity-requirements.md` — the complexity law.
+- `concepts-lastdb-canonical-model` — CANONICAL (schema → record → file blob,
+  named keys, and the no-scan contract). If a code comment disagrees with
+  it, it wins; fix the comment.
+- `concepts-lastdb-agent-access-model` — day-to-day do / don't rules.
 
-Brain equivalents (authoritative, kept in sync): `concepts-lastdb-canonical-model`,
-`concepts-lastdb-agent-access-model`, `requirement-lastdb-access-complexity`.
+The docs folders were removed on 2026-11-02. `docs/` keeps only designs for
+work in progress. Read a removed page with `git show 13a2cf188:<path>`.
 
 ## Code size limits (CI fails a PR that breaks them)
 

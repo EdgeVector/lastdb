@@ -392,7 +392,6 @@ Do not compare these ratios with a different workload.
 Search delivery is off by default. `lastdbd --enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
 The live queue has a default cap of 64 MiB of batch file lengths and 4,096 files.
 At capacity, delivery stops with a durable rebuild marker. Database writes continue.
-See [the Search option and recovery policy](../../docs/lastdb-optional-search.md).
 
 Each measured run also compares default-off and explicit enabled modes of the verified candidate.
 Historical manual comparisons opt into `search_queue` only for a candidate that supports the option.

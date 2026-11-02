@@ -50,7 +50,6 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
     // Status reports the configured peer field value limit (default 256 KiB).
     // No write path reads it. The structured field keeps its `max_field_value_bytes`
     // name: the private diagnostics log allowlists it by that name.
-    // Docs: fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md
     // Read the env once here and pass the usize in. Core does not read it.
     install_field_value_limit();
     tracing::info!(

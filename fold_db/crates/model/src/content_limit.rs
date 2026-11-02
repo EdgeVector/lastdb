@@ -4,7 +4,7 @@
 //! usize to core (`fold_db::content_limit`). The status reports that limit.
 //!
 //! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
-//! writes. See `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`.
+//! writes.
 
 /// Product default hard limit (256 KiB). Prefer core's
 /// `max_field_value_bytes` at runtime so env overrides apply.

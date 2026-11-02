@@ -15,8 +15,7 @@
 //! Policies are listed by anchor name. An app schema has two installed names
 //! that share records, and an app manifest `retention` makes its catalog schema
 //! (named by the identity hash) the anchor of both. The sweep reads, queries and
-//! deletes through the anchor, so a write through either name is covered. See
-//! `docs/app-manifest-retention.md`.
+//! deletes through the anchor, so a write through either name is covered.
 //!
 //! Safety properties borrowed from `drain_orphaned_telemetry`:
 //! - never create an absent schema
@@ -28,7 +27,7 @@
 //!
 //! Kill switch: `LASTDB_TTL_SWEEP=0`. Default **on**.
 //!
-//! Pacing, verb and the knobs that tune them: `docs/lastdb-ttl-sweep.md`.
+//! Pacing, verb and the knobs that tune them: `ttl_sweep/pace.rs` and `ttl_sweep/verb.rs`.
 
 use fold_db::clock::unix_secs;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -12,9 +12,6 @@ LastDB targets a **password-manager-grade** at-rest posture: all user data
 encrypted at rest, no plaintext fallback, a documented key hierarchy, and key
 material that clears from memory after use.
 
-The threat model, the current state, and the gap list are in
-[`docs/security/at-rest-threat-model.md`](docs/security/at-rest-threat-model.md).
-
 Current state, in short:
 
 - A format 8 home encrypts every block of its run files with AES-256-GCM.

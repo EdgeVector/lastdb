@@ -41,9 +41,6 @@
 # outside `src/`.
 #
 # Exit code: 0 if every match is instrumented or marked, 1 otherwise.
-#
-# See docs/observability/spawn-instrument-lint.md for the canonical
-# pattern and override syntax.
 
 set -euo pipefail
 
@@ -262,9 +259,6 @@ Each tokio::spawn(async ...) must either:
   - chain .in_current_span() on the future, or
   - carry a `// lint:spawn-bare-ok <reason>` comment on the spawn line,
     the line immediately preceding it, or anywhere inside the spawn body.
-
-See docs/observability/spawn-instrument-lint.md for guidance and the
-list of pre-approved bare-spawn rationales.
 EOF
     exit 1
 fi

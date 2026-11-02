@@ -3,7 +3,7 @@
 //! A blob at zero has one queue entry. The entry is in the bucket of its
 //! `zero_since`, one slice of time, and the dwell pass releases the entries whose
 //! dwell is over, oldest first. The layout, the reader and the retirement are
-//! the ones of `time_queue` (`docs/lastdb-time-queue.md`). This module gives the
+//! the ones of `time_queue`. This module gives the
 //! queue its names, its slice and its entry value, and it turns a `zero_since`
 //! in milliseconds into the time of the queue in nanoseconds.
 //!

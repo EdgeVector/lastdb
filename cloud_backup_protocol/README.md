@@ -2,7 +2,7 @@
 
 The crate supplies canonical cloud backup types to the client and service.
 It performs no I/O and enables no runtime capability.
-The [V2 contract](../docs/designs/cloud-byte-transport-v2.md) defines the active backup protocol.
+The `src/v2` module defines the active backup protocol.
 The service consumes this source through its pinned LastDB submodule.
 Do not duplicate the wire types in the service.
 

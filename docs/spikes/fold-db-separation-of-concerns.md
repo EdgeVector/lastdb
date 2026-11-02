@@ -411,8 +411,8 @@ Tests stay retired. Each PR uses these checks:
    A config field read costs less than a `OnceLock` read.
 5. **Scale.** `fold_db` has 5.2 times the lines of `schema_service_core`, and more effect sites.
    Steps 1 to 5 need 17 PRs, not 6.
-6. **A stale design doc.** [lastdb-kernel-constitution.md](../designs/lastdb-kernel-constitution.md)
-   names an automated test as the constitution. Tests are retired. Update that doc before step 5.
+6. **A stale design doc.** The kernel constitution design (removed on 2026-11-02)
+   named an automated test as the constitution. Tests are retired. Restate the kernel tiers before step 5.
 
 ## Decisions for Tom
 

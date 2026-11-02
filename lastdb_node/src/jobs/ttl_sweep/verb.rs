@@ -21,7 +21,7 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 /// `purge` (default) is the hard-erasure verb. It also releases the field
 /// history of the record. `delete` is the ordinary delete that a client uses.
 /// The erase budget charges a delete one more operation for each field than a
-/// purge, so a batch of a wide schema is smaller. See `docs/lastdb-ttl-sweep.md`.
+/// purge, so a batch of a wide schema is smaller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SweepVerb {
     Delete,

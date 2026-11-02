@@ -148,7 +148,6 @@ if [[ $violations -ne 0 ]]; then
 
 Add a comment like '// trace-egress: <propagate|loopback|skip-s3|skip-3p>' on
 one of the 3 lines immediately preceding each reqwest::Client construction.
-See docs/observability/tracing-egress-lint.md for guidance.
 EOF
     if [[ $strict -eq 1 ]]; then
         exit 1

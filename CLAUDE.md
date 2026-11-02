@@ -19,7 +19,7 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 Use one schema with named alternate keys for the same records.
 Canonical field reuse supplies definitions and types. It does not share record values.
-Follow `docs/multi-key-schemas.md`.
+The alternate key rules are in brain `concepts-lastdb-canonical-model`.
 Older data moves by a copy into a fresh home. Source work does not authorize a primary data change.
 
 ## Builds and benchmarks run in CI (Tom, 2026-10-23)
@@ -56,17 +56,11 @@ This rule supersedes the local build commands and coordination rules below.
 > that the record names. A named alternate key finds the same record through
 > declared fields. A relationship with different data uses its own schema.
 >
-> **Read before you design:**
-> - `docs/lastdb-canonical-model.md` — CANONICAL. If any other doc or code
->   comment disagrees with it, it wins; fix the other.
-> - `docs/lastdb-agent-access-model.md` — day-to-day usage rules (do / don't).
-> - `docs/lastdb-access-complexity-requirements.md` — the complexity law.
->
-> Brain equivalents (authoritative, kept in sync):
+> **Read before you design** (the brain records are canonical; if a code
+> comment disagrees with them, they win; fix the comment):
 > `brain get concepts-lastdb-canonical-model` ·
-> `brain get concepts-lastdb-agent-access-model` ·
-> `brain get requirement-lastdb-access-complexity` ·
-> https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md
+> `brain get concepts-lastdb-agent-access-model` (the complexity table above
+> is also in the canonical model)
 
 One cargo workspace: `fold_db` (core), `schema_service` (cloud schema
 registry), `lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped
@@ -168,8 +162,8 @@ reads cannot use that queue. Native requests complete a durable run commit and
 their clean core memory publication before the ack. No collection timer delays them.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,
-  the warm-set byte limit, and shared counters. Read its module doc and
-  `docs/lastdb-rehydrate.md` before a change.
+  the warm-set byte limit, and shared counters. Read its module doc before
+  a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
 - Empty homes initialize as format 8 (marker `format=8`, backup profile 6). This program opens only format 8.
@@ -194,6 +188,9 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md` — size limits. A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. The page also says which shape to use for growing lists and large bytes.
+- Size limits (`fold_db/crates/core/src/content_limit.rs`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
 
 Per-crate command files: `fold_db/CLAUDE.md`, `schema_service/CLAUDE.md`.
+
+The docs folders were removed on 2026-11-02 (Tom). `docs/` keeps only designs
+for work in progress. Read a removed page with `git show 13a2cf188:<path>`.

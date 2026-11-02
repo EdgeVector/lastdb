@@ -1,4 +1,4 @@
-//! Byte charges for the warm set gauge (design: docs/lastdb-warm-set-byte-limit-design.md).
+//! Byte charges for the warm set gauge.
 //!
 //! A charge is a calculated estimate of retained heap bytes, rounded up. The
 //! variable parts (strings, vectors, maps, the decoded JSON tree) are measured

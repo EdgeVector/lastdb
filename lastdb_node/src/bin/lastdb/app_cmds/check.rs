@@ -279,7 +279,7 @@ pub(crate) fn app_check_command(
         collision_error(&manifest, &outcomes).map_or(Ok(()), Err)
     } else if let Some(refused) = retention_refusals(&outcomes) {
         Err(format!(
-            "the node did not apply the manifest retention for: {refused}. No retention policy was changed for those schemas. Fix the cause named above (docs/app-manifest-retention.md), then run `lastdb app check` again: a declare is idempotent."
+            "the node did not apply the manifest retention for: {refused}. No retention policy was changed for those schemas. Fix the cause named above, then run `lastdb app check` again: a declare is idempotent."
         ))
     } else if sync {
         Err(format!(

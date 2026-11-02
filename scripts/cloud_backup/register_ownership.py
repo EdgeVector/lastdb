@@ -24,8 +24,7 @@ from support import (OperationError, baseline_from_environment, child_environmen
 
 # The usual cause of a start-claim refusal after a baseline move.
 STALE_INPUTS = ("The protected inputs can name a replaced baseline after a baseline run. "
-                "Run scripts/cloud_backup/baseline_inputs.py for that run "
-                "(docs/cloud-backup-recovery-ci.md, \"Baseline move\").")
+                "Run scripts/cloud_backup/baseline_inputs.py for that run.")
 
 
 def summary(value):

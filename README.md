@@ -3,10 +3,8 @@
 Use one schema with named alternate keys when several keys must find the same records.
 Keep canonical field definition reuse separate from mutable record values.
 Existing homes move by a copy into a fresh home, not by an in-place conversion.
-See [the multi-key schema guide](docs/multi-key-schemas.md).
 
 Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
-See [optional Search and its queue limit](docs/lastdb-optional-search.md).
 
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
@@ -44,7 +42,7 @@ deleted the desktop node on **2026-07-12**.
 │   ├── crates/{core,client,server_shared,server_http,server_lambda,worker,…}
 │   └── openapi.yaml
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
-└── docs/                       # operator + release docs (Mini / Homebrew)
+└── docs/                       # designs for work in progress
 ```
 
 ## What's deployed where
@@ -55,7 +53,7 @@ deleted the desktop node on **2026-07-12**.
 | schema_service Lambda | `schema_service/crates/server_lambda` | schema registry via [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) (submodules this repo) |
 | schema_service compile worker | `schema_service/crates/worker` | DockerImageFunction via schema-infra |
 
-Release process: [`docs/RELEASING.md`](docs/RELEASING.md). There is no DMG
+Releases: nightly GitHub prereleases from `.github/workflows/nightly-release.yml`. There is no DMG
 or desktop-app channel.
 
 ## Record size limit
@@ -63,7 +61,6 @@ or desktop-app channel.
 A local write uses the 64 KiB record cap. An oversized record returns HTTP 413
 `field_value_too_large` with `scope: "record"`. `lastdb status` also prints
 `max_peer_field_value`. No write path reads that number.
-Full write-up: [`fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`](fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md).
 
 ## Build
 

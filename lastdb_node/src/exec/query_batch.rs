@@ -1,5 +1,4 @@
 //! `POST /api/queries/batch`: several independent reads in one request.
-//! Design page: `docs/designs/lastdb-query-batch-route.md`.
 
 use super::*;
 use lastdb_host::HostNode as _;

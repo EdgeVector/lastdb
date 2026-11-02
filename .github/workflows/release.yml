@@ -1,7 +1,7 @@
 # STATUS (2026-09-29): this workflow is DISABLED in the GitHub Actions UI on
 # purpose. EdgeVector/fold is canonical on GitHub again
 # (brain decision-2026-09-29-fold-venue-back-to-github), but stable releases
-# still ship from the last-stack canary chain (docs/RELEASING.md), which
+# still ship from the last-stack canary chain, which
 # creates the public homebrew-lastdb release itself. A `v*` tag pushed to this
 # repo (scripts/release/cut-local-stable.sh --push-tag pushes to origin) would
 # fire this workflow and try to create the same release; the job refuses to
@@ -9,8 +9,6 @@
 # first. Enable only after Tom decides release.yml, not the local chain, owns
 # tag-driven releases. The weekly smoke also needs the org secret GH_PAT for
 # private git dependencies (not verifiable from repo secrets).
-#
-# How to release: see docs/RELEASING.md
 #
 # tl;dr — `git tag -a vX.Y.Z -m "vX.Y.Z" main && git push origin vX.Y.Z`. The
 # tag push fires this workflow, which produces the LastDB Mini tarball on this
@@ -221,7 +219,7 @@ jobs:
           if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] \
              || [ -z "${APPLE_CERTIFICATE:-}" ] \
              || [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
-            echo "::warning::Apple signing secrets not set — skipping codesign + notarize. macOS binaries will ship UNSIGNED. See docs/macos-code-signing.md."
+            echo "::warning::Apple signing secrets not set — skipping codesign + notarize. macOS binaries will ship UNSIGNED."
             exit 0
           fi
 

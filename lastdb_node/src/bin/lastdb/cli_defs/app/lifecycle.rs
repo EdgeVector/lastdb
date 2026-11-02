@@ -28,8 +28,7 @@ pub(crate) enum AppLifecycleCommand {
     /// manifest TTL, who shares the records (`shared_with`), and whether the
     /// TTL would delete existing records. `--sync` applies it. The node refuses
     /// a TTL on a catalog schema that another app owns or another schema is
-    /// bound to. A TTL deletes records for good: read
-    /// docs/app-manifest-retention.md first.
+    /// bound to. A TTL deletes records for good.
     Check {
         /// App manifest (JSON: app_id, metadata, uses[], schemas[]).
         #[arg(long)]
