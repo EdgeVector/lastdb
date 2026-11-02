@@ -15,9 +15,8 @@ mod metadata;
 mod validation;
 
 pub use identity::{
-    canonical_name_parts, compute_identity_hash_parts, parse_canonical_name,
-    refuses_identity_downgrade, IdentityRecompute, IDENTITY_HASH_ALGO_VERSION,
-    LEGACY_IDENTITY_HASH_ALGO_VERSION,
+    compute_identity_hash_parts, parse_canonical_name, refuses_identity_downgrade,
+    IdentityRecompute, IDENTITY_HASH_ALGO_VERSION, LEGACY_IDENTITY_HASH_ALGO_VERSION,
 };
 /// The schema identity algorithm lives here and nowhere else. Every schema
 /// type in the monorepo — including `fold_db`'s, which is a distinct struct —
