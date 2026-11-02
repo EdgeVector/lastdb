@@ -60,7 +60,7 @@ def audit(node, output):
     rows = [json.loads(line) for line in gzip.decompress((output / "samples.jsonl.gz").read_bytes()).splitlines()]
     if len(rows) != 256 or any(row.get("error") or row["case"] != CASE for row in rows):
         raise RuntimeError("The target case lacks 256 successful samples")
-    expected, identities = {}, []
+    expected, identities, outside = {}, [], 0
     for client in range(4):
         selected = sorted((r for r in rows if r["client"] == client), key=lambda r: r["client_request"])
         if len(selected) != 64 or [r["client_request"] for r in selected] != list(range(64)):
@@ -71,11 +71,14 @@ def audit(node, output):
             identities.append([client, turn, row["kind"], row["request_sha256"]])
             if row["kind"] == "read":
                 cost = row.get("read_receipt")
-                # A read of one warm record counts one warm hit and no warm miss.
-                # The conflict flag lookup of a record without a conflict still
-                # reads disk, so read_operations is measured, not gated.
-                if not cost or cost["logical_warm_hits"] != 1 or cost["logical_warm_misses"] != 0:
-                    raise RuntimeError("The mixed read is not one warm record hit")
+                # The warm-up puts every case record in memory, so a warm miss
+                # refuses. A read that races an unfinished write to the same
+                # record can read it from disk with no warm hit; count those.
+                # The conflict flag lookup also reads disk, so read_operations
+                # is measured, not gated.
+                if not cost or cost["logical_warm_misses"] != 0 or cost["logical_warm_hits"] > 1:
+                    raise RuntimeError("A mixed read missed the warm set")
+                outside += cost["logical_warm_hits"] == 0
             else:
                 if not isinstance(row.get("resident_stages_us", {}).get("ack"), (int, float)):
                     raise RuntimeError("A durable write lacks its native acknowledgment timing")
@@ -94,6 +97,7 @@ def audit(node, output):
         if any(title != expected[name] for name, title in found.items()):
             raise RuntimeError("A successful durable write is missing or has the wrong final value")
     save(output / "audit.json", {"requests": 256, "reads": 128, "writes": 128,
+                                 "reads_outside_warm_set": outside,
                                  "verified_written_keys": len(expected), "server_coverage": 256,
                                  "identities": identities})
     return identities

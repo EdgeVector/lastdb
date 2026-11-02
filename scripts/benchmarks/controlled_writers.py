@@ -11,7 +11,7 @@ import signal
 from statistics import median
 
 from cold_layout import stable_boundary
-from cold_shared_seed import boot_boundary, inventory, physical_state
+from cold_shared_seed import boot_boundary, inventory, physical_state, settle_seed
 from disk_budget import require_search_off
 from node import Node, file_hash, save
 from run import host_details
@@ -27,6 +27,7 @@ def seed(node):
         save(node.output / "observed-stable.json", stable_boundary(node))
     finally:
         node.stop()
+    save(node.output / "settle.json", {"opens": settle_seed(node)})
     whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
     save(node.output / "inventory.json", whole)
     save(node.output / "physical-inventory.json", physical)

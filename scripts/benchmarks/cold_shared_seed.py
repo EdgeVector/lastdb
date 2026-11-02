@@ -56,25 +56,55 @@ def physical_state(node, expected_layout, expected_root=None):
     return root
 
 
+def layout_delta(before, after):
+    removed = sorted(before.keys() - after.keys())
+    added = {k: after[k] for k in after.keys() - before.keys()}
+    changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
+    return removed, added, changed
+
+
+def bounded_startup(removed, added, changed):
+    """No change, or one small metadata run with its CURRENT update."""
+    if not removed and not added and not changed:
+        return True
+    return (not removed and changed == ["data/disk-run/CURRENT"] and len(added) == 1
+            and all(re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
+                    and 0 < v["bytes"] <= 4096 for k, v in added.items()))
+
+
+def settle_seed(node, attempts=3):
+    """Reopen the stopped seed until a startup no longer merges its run files.
+
+    A program can merge run files when it opens a home. A clone of an unsettled
+    seed then starts on different files than the seed, and boot_boundary refuses.
+    """
+    before = inventory(node.home, physical_only=True)
+    for attempt in range(attempts):
+        try:
+            node.start()
+            save(node.output / f"settle-{attempt}.json", stable_boundary(node))
+        finally:
+            node.stop()  # Requires the normal successful durable shutdown receipt.
+        after = inventory(node.home, physical_only=True)
+        if bounded_startup(*layout_delta(before, after)):
+            return attempt + 1
+        before = after
+    raise RuntimeError("The stopped seed still merges run files at startup")
+
+
 def boot_boundary(node, seed_layout):
     """Allow at most one startup append; freeze the resulting layout for timing."""
     state = snapshot(node)
     observed = inventory(node.home, physical_only=True)
-    removed = sorted(seed_layout.keys() - observed.keys())
-    added = {k: observed[k] for k in observed.keys() - seed_layout.keys()}
-    changed = sorted(k for k in seed_layout.keys() & observed.keys() if seed_layout[k] != observed[k])
+    removed, added, changed = layout_delta(seed_layout, observed)
     root = {name: state[name] for name in ("generation", "frontier")}
     save(node.output / "boot-delta.json", {"removed": removed, "added": added,
                                           "changed": changed, "root": root, "files": observed})
-    # An older program writes one small metadata header at startup; a newer one
-    # writes nothing. A small append alone does not authenticate its contents;
-    # retain this explicit residual startup difference and audit exact query work
-    # across the versions.
-    unchanged = not removed and not changed and not added
-    one_append = (not removed and changed == ["data/disk-run/CURRENT"] and len(added) == 1
-                  and all(re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
-                          and 0 < v["bytes"] <= 4096 for k, v in added.items()))
-    if not (unchanged or one_append):
+    # settle_seed leaves a seed that startup does not merge. A program can still
+    # write one small metadata run when it opens a home. A small append alone does
+    # not authenticate its contents; retain this explicit residual startup
+    # difference and audit exact query work across the versions.
+    if not bounded_startup(removed, added, changed):
         raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
     return root, observed
 
@@ -90,6 +120,7 @@ def prepare_seed(node, output):
         if work:
             work.raw.close()
         node.stop()  # Requires the normal successful durable shutdown receipt.
+    save(output / "settle.json", {"opens": settle_seed(node)})
     whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
     save(output / "inventory.json", whole)
     save(output / "physical-inventory.json", physical)

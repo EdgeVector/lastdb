@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/benchmarks/controlled_mixed_writes.py'
+      - 'scripts/benchmarks/cold_shared_seed.py'
       - 'scripts/benchmarks/mixed_layout_support.py'
       - 'scripts/benchmarks/mixed_native_stages.py'
       - '.github/workflows/controlled-mixed-writes.yml'
@@ -12,11 +13,11 @@ on:
       baseline:
         description: Full baseline product SHA
         type: string
-        default: '4139d566678d39f161f91056bbf192c5aae8e32a'
+        required: true
       candidate:
         description: Full product SHA (compatible with the stopped seed)
         type: string
-        default: '0def0114be62c4084e00613cfc4c8dbd4108fea4'
+        required: true
 
 permissions:
   contents: read
@@ -30,8 +31,8 @@ jobs:
   build:
     uses: ./.github/workflows/bench-build.yml
     with:
-      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
-      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha }}
       driver: ${{ github.sha }}
       profile: standard
 
@@ -40,8 +41,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
-      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
       DRIVER_SHA: ${{ github.sha }}
       BUILD_CONTEXT: ${{ needs.build.outputs.context }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
