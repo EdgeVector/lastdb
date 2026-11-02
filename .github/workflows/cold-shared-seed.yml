@@ -61,6 +61,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cold-bins"
           for label in baseline candidate; do
             cd "$GITHUB_WORKSPACE/$label"
+            # rustup show auto-installs today and warns that this will stop.
+            rustup toolchain install
+            rustup show active-toolchain
             revision=$(git rev-parse HEAD)
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
               CARGO_TARGET_DIR="$RUNNER_TEMP/cold-build-$label" \
