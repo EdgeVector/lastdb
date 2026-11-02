@@ -29,6 +29,7 @@ pub(super) async fn purge_series_rows(
         .iter()
         .map(|sample_id| {
             Mutation::new(
+                uuid::Uuid::new_v4().to_string(),
                 schema_name.to_string(),
                 HashMap::new(),
                 KeyValue::new(Some(series.to_string()), Some(sample_id.clone())),

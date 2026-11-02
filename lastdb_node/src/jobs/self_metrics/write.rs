@@ -148,6 +148,7 @@ pub(super) async fn write_mutation(
     mutation_type: MutationType,
 ) -> Result<(), String> {
     let mutation = Mutation::new(
+        uuid::Uuid::new_v4().to_string(),
         schema_name.to_string(),
         fields,
         key_value,

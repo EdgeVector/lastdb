@@ -81,6 +81,7 @@ impl MutationComponents {
     fn into_mutation(self, canonical: String, public_key: String) -> Mutation {
         let mut mutation = configure_mutation(
             Mutation::new(
+                uuid::Uuid::new_v4().to_string(),
                 canonical,
                 self.fields_and_values,
                 self.key_value,
@@ -253,6 +254,7 @@ fn build_mutations<H: HostNode>(
         .map(|key_value| {
             configure_mutation(
                 Mutation::new(
+                    uuid::Uuid::new_v4().to_string(),
                     plan.canonical.clone(),
                     components.fields_and_values.clone(),
                     key_value,

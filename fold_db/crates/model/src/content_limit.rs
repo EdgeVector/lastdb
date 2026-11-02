@@ -1,7 +1,7 @@
 //! The fixed numbers and text of the field value size limit.
 //!
-//! These are data. Core resolves the effective limit for a process from the
-//! environment (`fold_db::content_limit`). The status reports that limit.
+//! These are data. The shell reads the environment once and passes the parsed
+//! usize to core (`fold_db::content_limit`). The status reports that limit.
 //!
 //! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
 //! writes. See `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md`.
@@ -19,7 +19,7 @@ pub const MIN_MAX_FIELD_VALUE_BYTES: usize = 1024;
 
 /// Env var name that raises/lowers the field value limit within
 /// \[`MIN_MAX_FIELD_VALUE_BYTES`, `ABSOLUTE_MAX_FIELD_VALUE_BYTES`\].
-/// The model only names it; core reads it.
+/// The model only names it. The shell reads it once and passes the usize to core.
 pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
 
 /// Guidance for a record of a home above its 64 KiB cap

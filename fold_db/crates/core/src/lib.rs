@@ -23,7 +23,7 @@
 //! and the operations that can be performed on it.
 
 pub mod access;
-/// The maximum size of one field value. The check reads the environment.
+/// The maximum size of one field value. The shell installs the parsed limit.
 pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
 /// The stored record value of a home and its cap.

@@ -130,8 +130,7 @@ pub struct Mutation {
 }
 
 impl Mutation {
-    /// A new mutation with a caller-chosen id. The model makes no random id;
-    /// core's `MutationIds::new` supplies a uuid v4.
+    /// A new mutation with a caller-chosen id. The model makes no random id.
     #[must_use]
     pub fn with_uuid(
         uuid: String,
