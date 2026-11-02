@@ -45,6 +45,8 @@ jobs:
       - name: Install Rust toolchain
         run: |
           test "$(uname -m)" = arm64
+          # rustup show auto-installs today and warns that this will stop.
+          rustup toolchain install
           rustup show active-toolchain
           rustup target add aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
