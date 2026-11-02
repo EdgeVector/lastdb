@@ -11,7 +11,7 @@ const OTHER: u64 = 3_000;
 /// The largest value that can take the compact form.
 const COMPACT_INPUT: usize = 1 << 20;
 const WORDS: [&str; 14] = [
-    "atom",
+    "record",
     "schema",
     "brain",
     "kanban",
@@ -27,57 +27,64 @@ const WORDS: [&str; 14] = [
     "€uro",
 ];
 
-/// A record as the node writes it, as `serde_json::to_vec` text: an atom
-/// row, a tip, a molecule entry, or a mutation record.
+/// A value as a format 8 node writes it, as `serde_json::to_vec` text: a
+/// record, a field history entry, an alternate key entry, or a change feed
+/// event.
 pub(crate) fn node_value(rng: &mut Rng, n: u64) -> Vec<u8> {
     let value = match n % 4 {
         0 => {
             let body = 8 + rng.below(40);
             json!({
-                "content": {
+                "v": 1,
+                "fields": {
                     "body": words(rng, body),
                     "tags": [words(rng, 1), words(rng, 1)],
                     "title": words(rng, 4),
                     "updated": time(rng),
                 },
-                "created_at": time(rng),
-                "metadata": null,
-                "source_file_name": null,
-                "source_schema_name": hex(rng, 32),
-                "uuid": uuid(rng),
+                "stamps": {
+                    "body": stamp(rng),
+                    "title": stamp(rng),
+                },
+                "meta": {
+                    "source_file_name": null,
+                    "metadata": null,
+                    "stamp": stamp(rng),
+                },
+                "deleted": false,
             })
         }
         1 => {
-            let previous = if rng.below(2) == 0 {
+            let expires = if rng.below(2) == 0 {
                 Value::Null
             } else {
-                Value::from(uuid(rng))
+                Value::from(rng.below(1 << 62))
             };
             json!({
-                "atom_uuid": uuid(rng),
-                "logical_counter": rng.below(1 << 40),
-                "mutation_uuid": uuid(rng),
-                "prev_tip_id": previous,
-                "signature": hex(rng, 64),
-                "signature_version": 2,
-                "writer_pubkey": hex(rng, 32),
-                "written_at": time(rng),
+                "v": 1,
+                "schema": hex(rng, 32),
+                "field": words(rng, 1),
+                "field_identity": hex(rng, 32),
+                "record": hex(rng, 32),
+                "value": words(rng, 6),
+                "stamp": stamp(rng),
+                "archived_at": rng.below(1 << 62),
+                "expires_at": expires,
+                "reason": "replace",
+                "queue_key": null,
             })
         }
         2 => json!({
-            "field_key": words(rng, 1),
-            "hash": hex(rng, 32),
-            "molecule_uuid": uuid(rng),
-            "range": time(rng),
-            "version": rng.below(100),
+            "primary": {"hash": hex(rng, 32), "range": time(rng)},
+            "matched": {"hash": words(rng, 1), "range": null},
         }),
         _ => json!({
             "background_tasks_drained": rng.below(2) == 0,
             "committed_at_ms": 1_761_000_000_000 + rng.below(1 << 32),
             "mutation_id": uuid(rng),
             "operation": "update",
-            "refs": [{"src": uuid(rng), "sz": rng.below(1 << 20)}],
             "schema": hex(rng, 32),
+            "seq": rng.below(1 << 40),
         }),
     };
     text(&value)
@@ -148,7 +155,7 @@ pub(crate) fn near_json(rng: &mut Rng) -> Vec<Vec<u8>> {
             "{\"a\":}", "{,}", "[,]", "[1,]", "{\"a\":1,}", "{\"v\":01}", "{\"v\":-0}",
             "{\"v\":1e400}", "{\"v\":-}", "{\"v\":1-2}", "{\"v\":+1}", "{\"v\":.5}",
             "{\"v\":1,\"v\":2}", "[\"\\u00E9\",\"\\x\",\"\\\\\"]", "[\"a\\\"]",
-            "{\"atom_uuid\" :1}", "[1 ,2]", "[true,fals]", "[nul]", "[\"\"]", "{\"\":\"\"}",
+            "{\"record\" :1}", "[1 ,2]", "[true,fals]", "[nul]", "[\"\"]", "{\"\":\"\"}",
             "[18446744073709551615,18446744073709551616,-18446744073709551615,-18446744073709551616]",
         ]
         .map(|edge| edge.as_bytes().to_vec()),
@@ -295,6 +302,17 @@ fn time(rng: &mut Rng) -> String {
         format!(".{fraction:0digits$}")
     };
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}{fraction}Z")
+}
+
+/// A stamp as a record stores it: write time, logical counter, device and
+/// mutation.
+fn stamp(rng: &mut Rng) -> Value {
+    json!([
+        rng.below(1 << 62),
+        rng.below(1 << 40),
+        hex(rng, 32),
+        uuid(rng)
+    ])
 }
 
 /// Lowercase hex text of `bytes` random bytes.

@@ -40,72 +40,77 @@ pub const RAW: u8 = 0;
 /// Tag of a compact JSON value.
 pub const COMPACT_JSON: u8 = 1;
 
-/// Object keys that tag 1 stores as an index. The list is part of the stored
-/// format: do not change or reorder it. A different list needs a new tag.
-pub const KEYS: [&str; 63] = [
-    "atom_uuid",
-    "written_at",
-    "logical_counter",
-    "mutation_uuid",
-    "writer_pubkey",
-    "signature",
-    "signature_version",
-    "provenance",
-    "device_id",
-    "origin_device",
-    "prev_tip_id",
-    "content",
-    "created_at",
-    "metadata",
-    "source_file_name",
-    "source_schema_name",
-    "uuid",
-    "molecule_key_bundle",
-    "User",
-    "pubkey",
-    "Derived",
-    "wasm_hash",
-    "input_snapshot_hash",
-    "sources_merkle_root",
+/// Object keys that tag 1 stores as an index: the keys of the stored JSON of a
+/// format 8 home. The list is part of the stored format: do not change or
+/// reorder it. A different list needs a new home format.
+pub const KEYS: [&str; 54] = [
+    // Record.
     "v",
-    "refs",
-    "blobs",
-    "sz",
-    "src",
-    "suspect",
-    "seq",
-    "mutation_id",
-    "schema",
-    "operation",
+    "fields",
+    "stamps",
+    "meta",
+    "deleted",
+    "source_file_name",
+    "metadata",
+    "stamp",
+    // Alternate key entry and key.
+    "primary",
+    "matched",
     "hash",
     "range",
+    // Field history entry.
+    "schema",
+    "field",
+    "field_identity",
+    "record",
+    "value",
+    "archived_at",
+    "expires_at",
+    "reason",
+    "queue_key",
+    // Conflict row.
+    "key",
+    "loser",
+    "winner",
+    "detected_at",
+    // Retention and history queue entry.
+    "history",
+    "conflict",
+    "dir",
+    "queue",
+    "slot",
+    "created",
+    // Queue directory row and blob queue entry.
+    "t",
+    "blob",
+    // Blob counter.
+    "refs",
+    "zero_since",
+    "suspect",
+    // Retention window.
+    "window_secs",
+    // History count of a key.
+    "version",
+    "records",
+    // Field history policy.
+    "mode",
+    "seconds",
+    // Delete replay cutoff.
+    "minimum_written_at_nanos",
+    // Change feed event.
+    "seq",
+    "mutation_id",
+    "operation",
     "committed_at_ms",
     "background_tasks_drained",
     "convergence_pending",
-    "molecule_uuid",
-    "timestamp",
-    "field_key",
-    "old_atom_uuid",
-    "new_atom_uuid",
-    "kind",
-    "version",
-    "is_conflict",
-    "conflict_loser_atom",
-    "source_order",
-    "suppressed_by_delete",
-    "suppressed_by_tip",
-    "mk_key",
-    "updated_at",
-    "generation",
-    "previous_generation",
-    "activated_at_unix_nanos",
-    "shadow",
+    // Field key bundle metadata and wrap.
+    "field_key_id",
+    "range_profile",
+    "key_authority",
+    "conflict_identity",
     "domain",
     "sealed_bundle",
-    "after",
-    "retired",
-    "examined",
-    "minimum_written_at_nanos",
 ];
 
 /// Larger values are stored as given: their encode would cost time for

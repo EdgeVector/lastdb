@@ -59,7 +59,8 @@ Records use strict ascending byte order. Duplicate keys within a commit resolve 
 Each block stores common key prefixes once and uses unsigned LEB128 lengths.
 A record stores a tombstone or its tagged value.
 Tag 1 must reproduce the exact original compact JSON bytes; otherwise the writer uses tag 0.
-The tag 1 key dictionary and element codes cannot change under that tag.
+The tag 1 key dictionary and element codes are fixed for format 8. A different dictionary
+needs a new home format.
 
 The [value codec](../vendor/laststore/src/disk_run/value/mod.rs) defines those codes and the fixed dictionary.
 The [filter codec](../vendor/laststore/src/disk_run/bloom.rs) fixes its hash and seven-probe rule.
