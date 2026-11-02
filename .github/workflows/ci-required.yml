@@ -81,6 +81,8 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "Cloud recovery recipe syntax" -- python3 -m py_compile scripts/cloud_backup/*.py
       - name: No build-artifact blobs in tree
         run: bash scripts/ci/mini-gate-step.sh "No build-artifact blobs in tree" -- bash scripts/lints/lint-no-build-artifacts.sh --tree HEAD
+      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition)
+        run: bash scripts/ci/mini-gate-step.sh "Source lints" -- bash scripts/lints/source-lints.sh
       - name: cargo fmt --check
         run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
       - name: lint no write-path syncing store
