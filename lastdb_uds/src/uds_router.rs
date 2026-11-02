@@ -148,7 +148,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/storage/app/reconcile` are removed: no write filled their
 /// per-schema meters, so the report was always empty.
 /// No other request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 21;
+/// `22` (2026-11-02) removes the declare refusal of a non-empty
+/// `field_mappers` schema key. The node ignores the key, the same as any other
+/// unknown schema key; no EdgeVector app sends it. No other request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 22;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

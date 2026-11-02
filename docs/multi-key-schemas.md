@@ -24,8 +24,7 @@ A one-time read of the old home fills the new home through normal declarations a
 Keep the primary unchanged during source and CI work.
 
 CAUTION: Do not roll a home back to a program from #911 to #941.
-From #942 on, a release writes no `layout:owned-values` marker and no per-schema `independent_fields` flag.
-A program from #911 to #941 refuses a stored schema that has no marker, no flag, and no alternate keys.
+A program from #911 to #941 refuses some stored schemas that a release from #942 on writes.
 That program then does not open a home that a release from #942 on created.
 
 ## Publication and field definitions

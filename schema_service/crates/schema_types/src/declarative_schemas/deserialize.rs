@@ -57,10 +57,8 @@ struct DeclarativeSchemaDefinitionHelper {
     source: SchemaSource,
     // Preserve unrelated unknown-field behavior, but refuse removed storage
     // configuration even when its JSON value is null. Stored Schema Service
-    // records and released nodes can still carry `field_mappers` and
-    // `independent_fields: true` from the retired cross-schema value sharing;
-    // those keys land here and have no effect, so the Schema Service accepts
-    // and ignores them.
+    // records can carry keys of retired features; those keys land here and
+    // have no effect.
     #[serde(flatten)]
     unknown: HashMap<String, serde::de::IgnoredAny>,
 }
