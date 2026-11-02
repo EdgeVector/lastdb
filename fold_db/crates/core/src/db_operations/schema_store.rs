@@ -51,7 +51,7 @@ pub struct SchemaStore {
     schemas_store: Arc<TypedKvStore<dyn KvStore>>,
     schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
     superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
-    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     /// The floors of the TTL sweep, in process memory (`retention_floors.rs`).
     retention_floors: Arc<RetentionFloors>,
 }
@@ -61,7 +61,7 @@ impl SchemaStore {
         schemas_store: Arc<TypedKvStore<dyn KvStore>>,
         schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
         superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
-        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Self {
         Self {
             schemas_store,

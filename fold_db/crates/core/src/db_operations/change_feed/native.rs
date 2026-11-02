@@ -95,11 +95,8 @@ impl ChangeFeedStore {
         &self,
         events: Vec<ChangeFeedEvent>,
     ) -> Result<u64, SchemaError> {
-        transaction::background_scope(
-            Some(Arc::clone(&self.native)),
-            self.stage_chunk(events, None),
-        )
-        .await
+        transaction::background_scope(Arc::clone(&self.native), self.stage_chunk(events, None))
+            .await
     }
 
     async fn stage_chunk(
@@ -177,11 +174,7 @@ impl ChangeFeedStore {
 
     async fn prepared_last_seq(&self) -> Result<u64, SchemaError> {
         let cache = Arc::as_ptr(&self.last_seq) as usize;
-        match transaction::publication::get::<u64>(
-            Some(Arc::clone(&self.native)),
-            cache,
-            LAST_SEQ_KEY,
-        )? {
+        match transaction::publication::get::<u64>(&self.native, cache, LAST_SEQ_KEY)? {
             Some(last_seq) => Ok(*last_seq),
             None => Ok(*self.last_seq.lock().await),
         }
@@ -191,7 +184,7 @@ impl ChangeFeedStore {
         // The existing private metadata prefix covers earlier queued calls and
         // repeated stages in this call. The fallback is the durable last sequence.
         transaction::publication::publish(
-            Some(Arc::clone(&self.native)),
+            &self.native,
             Arc::as_ptr(&self.last_seq) as usize,
             LAST_SEQ_KEY.into(),
             end,

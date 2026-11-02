@@ -9,7 +9,7 @@ impl PackRuntime {
                 "invalid native namespace identity".into(),
             ));
         }
-        transaction::scope(Some(Arc::clone(self)), async {
+        transaction::scope(Arc::clone(self), async {
             let context = read::ReadContext::current(self).await?;
             let pending = transaction::PendingBatch::current(self);
             let registry_key = format!("{NAMESPACES}{name}");

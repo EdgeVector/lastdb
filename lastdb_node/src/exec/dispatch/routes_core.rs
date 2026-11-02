@@ -58,10 +58,6 @@ pub(super) async fn dispatch_search_app(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::AppStorage => heap_route_ctx_host!(execute_app_storage_route, ctx, host).await,
-        DataRoute::AppStorageReconcile => {
-            heap_route!(execute_app_storage_reconcile_route, req, ctx, host).await
-        }
         DataRoute::HomeStorage => heap_route_ctx_host!(execute_home_storage_route, ctx, host).await,
         DataRoute::HomeStorageReconcile => {
             heap_route!(execute_home_storage_reconcile_route, req, ctx, host).await

@@ -18,7 +18,7 @@ impl FieldKeyStore {
         for (at, field_key) in field_keys.iter().enumerate() {
             let key = metadata_key(field_key);
             if let Some(value) =
-                core_memory_get::<Option<BundleMetadata>>(self.runtime.clone(), owner, &key)?
+                core_memory_get::<Option<BundleMetadata>>(&self.runtime, owner, &key)?
             {
                 self.validate_metadata(field_key, value.as_ref().as_ref())?;
                 output[at] = value.as_ref().as_ref().cloned();
@@ -42,7 +42,7 @@ impl FieldKeyStore {
         for (((at, _), key), value) in missing.into_iter().zip(keys).zip(metadata) {
             let sources = core_memory_sources("field_keys", key.as_bytes());
             let bytes = metadata_memory_bytes(value.as_ref());
-            let held = core_memory_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
+            let held = core_memory_insert(&self.runtime, owner, key, value, sources, bytes)?;
             output[at] = held.as_ref().as_ref().cloned();
         }
         Ok(output)

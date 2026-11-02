@@ -3,24 +3,25 @@
 use super::*;
 
 impl RecordStore {
-    pub(crate) fn new(main_store: Arc<TypedKvStore<dyn KvStore>>) -> Self {
-        Self::new_with_content_key(main_store, None)
+    pub(crate) fn new(
+        main_store: Arc<TypedKvStore<dyn KvStore>>,
+        namespaced_store: Arc<dyn NamespacedStore>,
+    ) -> Self {
+        Self::new_with_content_key(main_store, namespaced_store, None)
     }
 
     pub(crate) fn new_with_content_key(
         main_store: Arc<TypedKvStore<dyn KvStore>>,
+        namespaced_store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
     ) -> Self {
         Self {
             main_store,
             serving_replay_cutoff: Arc::default(),
-            namespaced_store: None,
+            namespaced_store,
             content_key,
             field_keys: None,
             field_key_commit_locks: Arc::default(),
-            keep_small: Arc::new(KeepSmallMeters::default()),
-            keep_small_persist: None,
-            keep_small_persist_lock: Arc::default(),
             blob_events: Arc::default(),
             retention: Arc::default(),
             history_activation: Arc::default(),
@@ -41,13 +42,6 @@ impl RecordStore {
         field_keys: crate::db_operations::FieldKeyStore,
     ) -> Self {
         self.field_keys = Some(field_keys);
-        self
-    }
-
-    /// Attach the owner namespace store.
-    #[must_use]
-    pub(crate) fn with_namespaced_store(mut self, store: Arc<dyn NamespacedStore>) -> Self {
-        self.namespaced_store = Some(store);
         self
     }
 }

@@ -44,51 +44,8 @@ pub struct RequestTelemetrySnapshot {
     /// never dropped on the forensic path. Opt-in on status.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub idle_wait: Vec<OpAggregate>,
-    #[serde(default)]
     pub sample_count: u64,
-    #[serde(default = "default_ring_capacity")]
     pub ring_capacity: usize,
-    /// Persist-lane occupancy that filled or refused the deferred window.
-    ///
-    /// Cheap atomics from the lane set — kept on default `/api/status` so
-    /// `lastdb ops` can name the schema that occupied the shared budget.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub persist_lanes: Vec<PersistLaneOpRow>,
-}
-
-/// One persist lane's reservation / refusal counters for `lastdb ops`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PersistLaneOpRow {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub schema: String,
-    #[serde(default)]
-    pub reserved_bytes: u64,
-    #[serde(default)]
-    pub queued_entries: u64,
-    #[serde(default)]
-    pub reserved_entries: u64,
-    #[serde(default)]
-    pub oldest_age_ms: u64,
-    #[serde(default)]
-    pub refuse_bytes: u64,
-    #[serde(default)]
-    pub refuse_entries: u64,
-    #[serde(default)]
-    pub refuse_unhealthy: u64,
-    #[serde(default)]
-    pub unhealthy_lanes: u64,
-    #[serde(default)]
-    pub fair_share_bytes: u64,
-    /// Envelopes the lanes moved to quarantine since process start. A
-    /// quarantined envelope failed deterministically; its record lives under
-    /// the `persist_lane_quarantine:` metadata keys.
-    #[serde(default)]
-    pub quarantined: u64,
-    /// Quarantine-breaker trips since process start. A trip closes one lane
-    /// until its half-open probe; a nonzero value with `unhealthy_lanes > 0`
-    /// means the lane recovers by itself after the cooldown.
-    #[serde(default)]
-    pub breaker_trips: u64,
 }
 
 impl RequestTelemetrySnapshot {
@@ -108,7 +65,6 @@ impl RequestTelemetrySnapshot {
             idle_wait: Vec::new(),
             sample_count: self.sample_count,
             ring_capacity: self.ring_capacity,
-            persist_lanes: self.persist_lanes.clone(),
         }
     }
 }
@@ -149,26 +105,5 @@ impl RequestOpsRollupSnapshot {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.top_by_total_ms.is_empty() && self.idle_wait.is_empty()
-    }
-}
-
-pub(super) fn default_ring_capacity() -> usize {
-    DEFAULT_RING_CAP
-}
-
-impl Default for RequestTelemetrySnapshot {
-    fn default() -> Self {
-        Self {
-            recent: Vec::new(),
-            top_by_duration: Vec::new(),
-            top_by_total_ms: Vec::new(),
-            top_by_count: Vec::new(),
-            top_by_body_bytes: Vec::new(),
-            app_verb: Vec::new(),
-            idle_wait: Vec::new(),
-            sample_count: 0,
-            ring_capacity: DEFAULT_RING_CAP,
-            persist_lanes: Vec::new(),
-        }
     }
 }

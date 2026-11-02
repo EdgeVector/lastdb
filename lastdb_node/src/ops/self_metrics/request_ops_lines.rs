@@ -21,7 +21,6 @@ pub fn request_ops_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             .into_iter()
             .take(5),
     );
-    lines.extend(crate::request_telemetry::persist_lane_lines(snap));
     lines
 }
 

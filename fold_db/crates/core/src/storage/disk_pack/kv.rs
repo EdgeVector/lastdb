@@ -27,7 +27,7 @@ impl PackKvStore {
 
     async fn change(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         let runtime = Arc::clone(&self.runtime);
-        transaction::scope(Some(Arc::clone(&runtime)), async {
+        transaction::scope(Arc::clone(&runtime), async {
             runtime.ensure_namespace(&self.namespace).await?;
             let context = read::ReadContext::current(&runtime).await?;
             let pending = transaction::PendingBatch::current(&runtime);
@@ -132,7 +132,7 @@ impl KvStore for PackKvStore {
     }
 
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
-        transaction::scope(Some(Arc::clone(&self.runtime)), async {
+        transaction::scope(Arc::clone(&self.runtime), async {
             if self.get(key).await?.is_none() {
                 return Ok(false);
             }

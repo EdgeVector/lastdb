@@ -70,13 +70,12 @@ impl MutationManager {
         let author_clock_persist = self.prepare_mutation_author_clocks(&mut mutations)?;
         // Submit before resident apply. Each data envelope waits on a clone of
         // this barrier, so durable LWW data cannot pass its durable clock.
-        let inline_clock = self.db_ops.namespaced_store().disk_pack_runtime().is_some()
-            && mutations.iter().all(|mutation| {
-                matches!(
-                    mutation.mutation_type,
-                    MutationType::Create | MutationType::Update
-                )
-            });
+        let inline_clock = mutations.iter().all(|mutation| {
+            matches!(
+                mutation.mutation_type,
+                MutationType::Create | MutationType::Update
+            )
+        });
         let author_clock_barrier = author_clock_persist.and_then(|(reservation, state)| {
             if inline_clock {
                 drop(reservation);

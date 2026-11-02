@@ -224,14 +224,14 @@ def warm_records(node):
     after = native_status(node)
     hits = after["core_warm_hits"] - before["core_warm_hits"]
     require(hits >= 2, f"repeated reads by key hit memory {hits} times")
-    require(after["core_warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
+    require(after["warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
             "the warm set holds or charges no record: " + repr(after["core_warm_bytes"]))
     mutate(node, "RecordById", {"hash": "warm"}, {"value": "w2"})
     require(one(node, "warm")["value"] == "w2", "a read after a write returned the old record")
     mutate(node, "RecordById", {"hash": "warm"}, {}, "delete")
     require(absent(node, "warm"), "a read after a delete returned the deleted record")
     print(f"Record warm set: {hits} memory hits for 3 reads by key, "
-          f"{after['core_warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
+          f"{after['warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
           "read after write and after delete passed", flush=True)
 
 

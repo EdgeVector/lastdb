@@ -18,7 +18,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Option<Arc<CachedSchema>>, SchemaError> {
         Ok(publication::get(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.namespaced_store().disk_pack_runtime(),
             Arc::as_ptr(&self.schemas) as usize,
             name,
         )?)
@@ -26,7 +26,7 @@ impl SchemaCore {
 
     pub(super) fn staged_schemas(&self) -> Result<Vec<(String, Arc<CachedSchema>)>, SchemaError> {
         Ok(publication::entries(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.namespaced_store().disk_pack_runtime(),
             Arc::as_ptr(&self.schemas) as usize,
         )?)
     }
@@ -45,7 +45,7 @@ impl SchemaCore {
             state,
         };
         publication::publish(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.namespaced_store().disk_pack_runtime(),
             Arc::as_ptr(&self.schemas) as usize,
             name.clone(),
             staged,

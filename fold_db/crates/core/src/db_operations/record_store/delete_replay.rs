@@ -37,13 +37,10 @@ impl RecordStore {
     /// The serving process cannot advance this boundary. Offline recount uses
     /// a separate instance without this cache and always reads its disk state.
     pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
-        if let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-        {
-            runtime.begin_serving().await?;
-        }
+        self.namespaced_store
+            .disk_pack_runtime()
+            .begin_serving()
+            .await?;
         let cutoff = self.read_minimum_replay_time().await?;
         if let Err(cutoff) = self.serving_replay_cutoff.set(cutoff) {
             if self.serving_replay_cutoff.get() != Some(&cutoff) {

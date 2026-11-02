@@ -15,7 +15,7 @@
 //! - [`locks`] — write scopes, field key commit and blob liveness locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
 //! - [`key_format`] — the key format marker of a new empty home
-//! - [`erase_meters`], [`keep_small`] — maintenance passes
+//! - [`erase_meters`] — the erase audit row
 
 pub(crate) mod blob_counter;
 mod bounded_range;
@@ -27,7 +27,6 @@ pub mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod file_blob_seal;
-mod keep_small;
 mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
@@ -49,9 +48,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub use counter::{
-    RecountOptions, RecountReport, VerifyRefsReport, VerifyReport, VerifyRequest, VerifySummary,
-};
+pub use counter::{RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary};
 pub(crate) use field_history::RecordHistoryRows;
 pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
 pub(crate) use record_reads::KeyedRecord;
@@ -68,13 +65,8 @@ use crate::storage::{
     TypedKvStore,
 };
 use std::{
-    collections::HashSet,
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
-};
-
-use super::keep_small::{
-    KeepSmallMeters, KeepSmallSchemaShard, MeterDomainTrust, MeterTrustPayload,
 };
 
 async fn lock_target_stripes(
@@ -111,9 +103,7 @@ pub struct RecordStore {
     /// this floor; replay cannot write its two metadata records.
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     /// Owner namespace factory for physical-plane maintenance.
-    ///
-    /// Both constructions attach it with `with_namespaced_store`.
-    namespaced_store: Option<Arc<dyn NamespacedStore>>,
+    namespaced_store: Arc<dyn NamespacedStore>,
     /// The account key that seals a local CAS file blob (see
     /// `file_blob_seal.rs`). Record rows do not use it: a record row is plain
     /// JSON, and the block encryption of each run file protects it at rest.
@@ -125,13 +115,6 @@ pub struct RecordStore {
     /// interleave on one field key or deadlock.
     field_key_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
-    /// Incremental live-budget / churn meters. Point-read cheap.
-    keep_small: Arc<KeepSmallMeters>,
-    /// Metadata namespace used to persist [`KeepSmallMeters`] across reopen.
-    keep_small_persist: Option<Arc<TypedKvStore<dyn KvStore>>>,
-    /// Serialize whole-snapshot writes so an older export cannot land after a
-    /// newer export.
-    keep_small_persist_lock: Arc<tokio::sync::Mutex<()>>,
     /// Totals, the last queue reading and recent faults of the blob counters.
     blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.

@@ -22,22 +22,6 @@ struct CoreNamespaces {
     idempotency_kv: Arc<dyn KvStore>,
     superseded_by_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
-    keep_small_kv: Arc<dyn KvStore>,
-}
-
-/// The namespace handles required to construct the record store.
-struct RecordNamespaces {
-    main: Arc<TypedKvStore<dyn KvStore>>,
-    keep_small: Arc<TypedKvStore<dyn KvStore>>,
-}
-
-impl RecordNamespaces {
-    fn new(main: Arc<dyn KvStore>, keep_small: Arc<dyn KvStore>) -> Self {
-        Self {
-            main: Arc::new(TypedKvStore::new(main)),
-            keep_small: Arc::new(TypedKvStore::new(keep_small)),
-        }
-    }
 }
 
 impl CoreNamespaces {
@@ -52,14 +36,6 @@ impl CoreNamespaces {
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
-        // The keep-small snapshot has its own collection. The snapshot (a small
-        // header plus shards) is rewritten on each debounce tick, so the old
-        // bytes are dead when the next put lands. The collection is part of the
-        // main run home, so the V2 byte backup, when on, copies it with the
-        // other run files.
-        let keep_small_kv = store
-            .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
-            .await?;
         Ok(Self {
             main_kv,
             metadata_kv,
@@ -71,7 +47,6 @@ impl CoreNamespaces {
             idempotency_kv,
             superseded_by_kv,
             change_feed_kv,
-            keep_small_kv,
         })
     }
 }
@@ -98,12 +73,7 @@ impl DbOperations {
         content_key: Option<[u8; 32]>,
         field_key_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, crate::storage::StorageError> {
-        let runtime = store.disk_pack_runtime().ok_or_else(|| {
-            crate::storage::StorageError::ConfigurationError(
-                "LastDB logical operations require the native run store".into(),
-            )
-        })?;
-        let persist_metrics = runtime.persist_metrics();
+        let runtime = store.disk_pack_runtime();
         let CoreNamespaces {
             main_kv,
             metadata_kv,
@@ -115,7 +85,6 @@ impl DbOperations {
             idempotency_kv,
             superseded_by_kv,
             change_feed_kv,
-            keep_small_kv,
         } = CoreNamespaces::open(&store).await?;
 
         // Wrap KvStores in TypedKvStore adapters
@@ -133,17 +102,14 @@ impl DbOperations {
             schemas_store,
             schema_states_store,
             superseded_by_store,
-            store.disk_pack_runtime(),
+            Arc::clone(&runtime),
         );
-        let db_catalog = DbCatalogStore::new(db_catalog_store, store.disk_pack_runtime());
-        let field_keys = FieldKeyStore::new(
-            field_keys_store,
-            field_key_wrap_key,
-            store.disk_pack_runtime(),
-        );
+        let db_catalog = DbCatalogStore::new(db_catalog_store, Arc::clone(&runtime));
+        let field_keys =
+            FieldKeyStore::new(field_keys_store, field_key_wrap_key, Arc::clone(&runtime));
         let record_store = Self::open_record_store(
             &store,
-            RecordNamespaces::new(main_kv, keep_small_kv),
+            Arc::new(TypedKvStore::new(main_kv)),
             content_key,
             &field_keys,
             content_key.or(field_key_wrap_key),
@@ -162,43 +128,20 @@ impl DbOperations {
             public_key_store,
             metadata_store,
             change_feed,
-            persist_metrics,
         })
     }
 
     async fn open_record_store(
         store: &Arc<dyn NamespacedStore>,
-        namespaces: RecordNamespaces,
+        main: Arc<TypedKvStore<dyn KvStore>>,
         content_key: Option<[u8; 32]>,
         field_keys: &FieldKeyStore,
         proof_key: Option<[u8; 32]>,
     ) -> Result<RecordStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
-        let record_store = RecordStore::new_with_content_key(namespaces.main, content_key)
-            .with_namespaced_store(Arc::clone(store))
-            .with_field_keys(field_keys.clone())
-            .with_keep_small_persist(namespaces.keep_small);
+        let record_store = RecordStore::new_with_content_key(main, Arc::clone(store), content_key)
+            .with_field_keys(field_keys.clone());
         Self::initialize_fresh_native_refs(store, &record_store, proof_key).await?;
-        // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
-        // boot on any hydrate error; on 2026-09-25 that made every new build
-        // refuse the primary home because its keep_small group (1.08 GB of
-        // superseded snapshots) was over the cold-load cap. The meters are
-        // gauge state, rebuildable from authoritative records: a failed
-        // hydrate leaves every domain incomplete (reports stay incomplete,
-        // meter-dependent deletion stays closed) and the node boots. Tom's
-        // decision: decision-2026-09-25-lastdb-node-stays-upgradeable-soft-hard-cap.
-        if let Err(e) = record_store.hydrate_keep_small().await {
-            record_store
-                .note_keep_small_hydrate_failure(&e.to_string())
-                .await;
-            tracing::warn!(
-                target: "fold_node::database",
-                error = %e,
-                "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
-                 (reports stay incomplete and meter-dependent deletion stays closed until \
-                 a new complete meter snapshot is available)"
-            );
-        }
         Ok(record_store)
     }
 
@@ -207,10 +150,8 @@ impl DbOperations {
         records: &RecordStore,
         proof_key: Option<[u8; 32]>,
     ) -> Result<(), crate::storage::StorageError> {
-        let Some(runtime) = store.disk_pack_runtime() else {
-            return Ok(());
-        };
-        crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
+        let runtime = store.disk_pack_runtime();
+        crate::storage::disk_pack::transaction::scope(Arc::clone(&runtime), async {
             records.require_current_key_format().await?;
             if let Some(key) = proof_key {
                 crate::storage::content_key_proof::verify_stored(store.as_ref(), &key).await?;

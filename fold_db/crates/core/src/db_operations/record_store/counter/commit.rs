@@ -124,14 +124,9 @@ impl RecordStore {
     pub(in crate::db_operations::record_store) fn require_write_scope(
         &self,
     ) -> Result<(), SchemaError> {
-        let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-        else {
-            return Ok(());
-        };
-        if crate::storage::disk_pack::transaction::publication::active(Some(runtime)) {
+        if crate::storage::disk_pack::transaction::publication::active(
+            &self.namespaced_store.disk_pack_runtime(),
+        ) {
             return Ok(());
         }
         Err(SchemaError::InvalidData(

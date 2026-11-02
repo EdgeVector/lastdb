@@ -324,7 +324,7 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 | PR | Change |
 |---|---|
 | 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and field value limit. |
-| 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, `keep_small` interval, blob dwell, and conflict retention. |
+| 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, blob dwell, and conflict retention. |
 | 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, `LASTDB_ENGINE`, attribution events, and the conflict index flags. |
 | 2d | Move the other process state into the `FoldDB` instance (appendix list). Keep a static only with a written reason, for example the process start time in `footprint.rs`. |
 

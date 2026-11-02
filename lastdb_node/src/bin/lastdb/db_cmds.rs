@@ -4,9 +4,6 @@ use super::*;
 mod db_cleanup_cmds;
 pub(crate) use db_cleanup_cmds::*;
 
-#[path = "db_app_storage_cmds.rs"]
-mod db_app_storage_cmds;
-pub(crate) use db_app_storage_cmds::*;
 #[path = "db_blob_cmds.rs"]
 mod db_blob_cmds;
 pub(crate) use db_blob_cmds::*;
@@ -22,9 +19,6 @@ pub(crate) use db_put_blob_local_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;
-#[path = "db_report_util_cmds.rs"]
-mod db_report_util_cmds;
-pub(crate) use db_report_util_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;

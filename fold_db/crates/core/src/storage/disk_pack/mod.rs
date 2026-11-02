@@ -2,7 +2,6 @@
 
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
-use crate::resident::PersistLaneMetrics;
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use laststore::space::SpaceReservation;
 use std::path::Path;
@@ -74,7 +73,6 @@ pub struct PackRuntime {
     write_gate: Arc<tokio::sync::Mutex<()>>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
@@ -176,7 +174,6 @@ impl PackNamespacedStore {
         initializing: bool,
         space_policy: laststore::space::SpacePolicy,
     ) -> Self {
-        let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
         let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
@@ -194,7 +191,6 @@ impl PackNamespacedStore {
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(false),
@@ -205,13 +201,6 @@ impl PackNamespacedStore {
                 last_root,
             }),
         }
-    }
-}
-
-impl PackRuntime {
-    /// Share one process counter owner with DbOperations and its background work.
-    pub(crate) fn persist_metrics(&self) -> Arc<PersistLaneMetrics> {
-        Arc::clone(&self.persist_metrics)
     }
 }
 
@@ -274,7 +263,7 @@ impl NamespacedStore for PackNamespacedStore {
         self.runtime.flush().await
     }
 
-    fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
-        Some(Arc::clone(&self.runtime))
+    fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
+        Arc::clone(&self.runtime)
     }
 }

@@ -10,7 +10,7 @@
 //! North Star terminal criteria on `north-star-lastdb-status-gauge-contract`.
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::gauge::Gauge;
 use super::self_metrics::{
@@ -188,9 +188,7 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_watchers(&mut gauges, &snapshot.watchers);
     collect_limits(&mut gauges, &snapshot.limits);
     collect_resident(&mut gauges, &snapshot.resident);
-    if snapshot.at_rest_compression.is_some() {
-        collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
-    }
+    collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
     StatusGaugeContract {
         version: StatusGaugeContract::VERSION,
         gauges,
@@ -198,18 +196,14 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
 }
 
 /// Serialize a status snapshot for `/api/status` with the additive
-/// `capabilities` and `contract` siblings. Existing field names/types are
-/// preserved (wire freeze). `capabilities` stays an object; it is empty since
-/// the record model dropped the aggregate write.
+/// `contract` sibling.
 pub fn status_value_with_contract(snapshot: &StatusSnapshot) -> Result<Value, String> {
     let mut value = serde_json::to_value(snapshot).map_err(|e| format!("status serialize: {e}"))?;
-    let capabilities = json!({});
     let contract = gauge_contract(snapshot);
     let contract_value =
         serde_json::to_value(&contract).map_err(|e| format!("contract serialize: {e}"))?;
     match value.as_object_mut() {
         Some(map) => {
-            map.insert("capabilities".to_string(), capabilities);
             map.insert("contract".to_string(), contract_value);
             Ok(value)
         }

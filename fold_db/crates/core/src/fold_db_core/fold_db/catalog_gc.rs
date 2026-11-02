@@ -204,12 +204,7 @@ impl FoldDB {
         &self,
         batch: IndexChangeBatch,
     ) -> Result<(), SchemaError> {
-        let Some(runtime) = self.db_ops().namespaced_store().disk_pack_runtime() else {
-            return self
-                .mutation_manager
-                .deliver_index_change_batch(&batch)
-                .await;
-        };
+        let runtime = self.db_ops().namespaced_store().disk_pack_runtime();
         let manager = std::sync::Arc::clone(&self.mutation_manager);
         crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
             manager

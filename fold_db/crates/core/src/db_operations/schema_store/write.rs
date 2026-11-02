@@ -29,7 +29,7 @@ impl SchemaStore {
         schema: &Schema,
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.store_schema_native(schema_name, schema).boxed(),
         )
         .await
@@ -76,7 +76,7 @@ impl SchemaStore {
         state: &SchemaState,
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.store_schema_state_native(schema_name, state).boxed(),
         )
         .await
@@ -123,7 +123,7 @@ impl SchemaStore {
     /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
+            Arc::clone(&self.runtime),
             self.drop_schema_native(schema_name).boxed(),
         )
         .await

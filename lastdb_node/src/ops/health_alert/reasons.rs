@@ -3,8 +3,8 @@
 
 use super::governor_arm::stale_purge_failed_reason;
 
-/// `memory_budget` reasons: runtime degraded, over limit, refused lane
-/// entries, slow request, stale purge failure.
+/// `memory_budget` reasons: runtime degraded, over limit, slow request,
+/// stale purge failure.
 pub(super) fn memory_budget_reasons(mem: &serde_json::Value, warn_ms: u64) -> Vec<String> {
     let mut reasons = Vec::new();
     if mem
@@ -20,14 +20,6 @@ pub(super) fn memory_budget_reasons(mem: &serde_json::Value, warn_ms: u64) -> Ve
         == Some(true)
     {
         reasons.push("memory_budget.footprint_over_limit=true".to_string());
-    }
-    if let Some(refused) = mem
-        .get("deferred_lane_refuse_entries")
-        .and_then(serde_json::Value::as_u64)
-    {
-        if refused > 0 {
-            reasons.push(format!("deferred_lane_refuse_entries={refused}"));
-        }
     }
     if let Some(slowest) = mem
         .get("slowest_request_ms")

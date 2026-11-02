@@ -143,7 +143,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// removes `path_bytes`, `slot_bytes`, `link_bytes`, `held_bytes`,
 /// `dirty_bytes`, and `dirty_limit_bytes`. A read that cannot resolve a
 /// selected record reports the `MissingSelectedRecord` error identity.
-/// No request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// The owner-only routes `GET /api/storage/app` and
+/// `POST /api/storage/app/reconcile` are removed: no write filled their
+/// per-schema meters, so the report was always empty.
+/// No other request changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 pub const API_VERSION: u32 = 21;
 
 /// The build string `GET /api/version` reports, installed once by the binary.

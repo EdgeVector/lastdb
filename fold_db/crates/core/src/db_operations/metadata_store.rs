@@ -58,8 +58,7 @@ impl MetadataStore {
 
     /// Point-put one JSON value into the metadata namespace.
     ///
-    /// Does not flush: LastStore's own persist cadence makes the row durable,
-    /// matching the keep-small meter write.
+    /// Does not flush: LastStore's own persist cadence makes the row durable.
     pub async fn put_typed<T: Serialize + Send + Sync>(
         &self,
         key: &str,

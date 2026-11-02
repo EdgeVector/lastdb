@@ -291,7 +291,6 @@ pub struct AppVerbAggregate {
     /// p95 over samples still present in the recent ring.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub p95_ms: Option<u64>,
-    #[serde(default)]
     pub recent_count: u64,
 }
 

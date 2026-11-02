@@ -60,7 +60,7 @@ impl MutationManager {
         // Offline maintenance retains its exclusive no-writer contract.
         self.require_replay_cutoff(&request.mutations).await?;
         state.force_durable = true;
-        let committed = transaction::request_scope(Some(Arc::clone(&request.runtime)), async {
+        let committed = transaction::request_scope(Arc::clone(&request.runtime), async {
             let notifications =
                 crate::db_operations::ChangeFeedStore::native_events(&request.mutations);
             request

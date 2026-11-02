@@ -7,7 +7,6 @@ pub mod allocator;
 pub mod app_publish;
 pub mod app_registry_index;
 pub mod app_release_host;
-pub mod app_storage;
 pub mod backup_access;
 pub mod backup_runtime;
 pub mod byte_cloud_backup;

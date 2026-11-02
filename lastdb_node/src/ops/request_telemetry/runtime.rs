@@ -166,7 +166,6 @@ impl Inner {
             idle_wait,
             sample_count: self.sample_count,
             ring_capacity: self.ring_cap,
-            persist_lanes: Vec::new(),
         }
     }
 

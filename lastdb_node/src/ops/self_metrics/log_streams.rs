@@ -1,10 +1,5 @@
 use super::*;
 
-/// Resolve data-dir disclosure for a status response.
-///
-/// When `disclose` is true, returns the absolute path string and
-/// `data_dir_path_disclosed=true`. When false, omits the path and sets the
-/// flag so clients do not invent `$TMPDIR` / host guesses.
 /// Where the daemon's own stdout and stderr actually land, resolved from the
 /// live file descriptors rather than inferred.
 ///
@@ -103,16 +98,14 @@ pub(super) fn log_streams_line(logs: &LogStreamHealth) -> String {
     }
 }
 
-pub fn data_dir_path_for_status(data_dir: &Path, disclose: bool) -> (Option<String>, bool) {
-    if !disclose {
-        return (None, false);
-    }
-    // Prefer a canonical absolute path when the dir exists; fall back to the
-    // configured path display so a pre-create status still carries something
-    // usable for clients placing node-relative artifacts.
-    let path = std::fs::canonicalize(data_dir)
-        .unwrap_or_else(|_| data_dir.to_path_buf())
+/// The absolute path of a node directory for a status response.
+///
+/// Prefers a canonical absolute path when the dir exists; falls back to the
+/// configured path display so a pre-create status still carries something
+/// usable for clients placing node-relative artifacts.
+pub fn status_path(dir: &Path) -> String {
+    std::fs::canonicalize(dir)
+        .unwrap_or_else(|_| dir.to_path_buf())
         .display()
-        .to_string();
-    (Some(path), true)
+        .to_string()
 }

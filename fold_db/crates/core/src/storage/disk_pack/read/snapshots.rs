@@ -10,23 +10,21 @@ type Value = Arc<dyn Any + Send + Sync>;
 #[derive(Default)]
 pub(super) struct ReadSnapshots(Mutex<BTreeMap<CacheKey, Value>>);
 
-fn context(runtime: Option<Arc<PackRuntime>>) -> Option<Arc<ReadContext>> {
-    runtime.and_then(|runtime| {
-        if super::super::transaction::PendingBatch::current(&runtime).is_some() {
-            return None;
-        }
-        READ.try_with(Arc::clone)
-            .ok()
-            .filter(|context| context.identity == runtime.home_identity())
-    })
+fn context(runtime: &PackRuntime) -> Option<Arc<ReadContext>> {
+    if super::super::transaction::PendingBatch::current(runtime).is_some() {
+        return None;
+    }
+    READ.try_with(Arc::clone)
+        .ok()
+        .filter(|context| context.identity == runtime.home_identity())
 }
 
-pub(crate) fn read_snapshot_active(runtime: Option<Arc<PackRuntime>>) -> bool {
+pub(crate) fn read_snapshot_active(runtime: &PackRuntime) -> bool {
     context(runtime).is_some()
 }
 
 pub(crate) fn read_snapshot_get<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     cache: usize,
     name: &str,
 ) -> StorageResult<Option<Arc<T>>> {
@@ -45,7 +43,7 @@ pub(crate) fn read_snapshot_get<T: Any + Send + Sync>(
 }
 
 pub(super) fn read_snapshot_insert_arc<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     cache: usize,
     name: String,
     value: Arc<T>,

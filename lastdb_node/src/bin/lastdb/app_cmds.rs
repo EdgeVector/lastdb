@@ -87,16 +87,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
-fn handle_app_storage(
-    home: &Path,
-    json: bool,
-    reconcile: bool,
-    page_size: Option<u64>,
-) -> Result<(), String> {
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-    app_storage(&socket, json, reconcile, page_size)
-}
-
 fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
     let AppCatalogCommand::Resolve {
         app_id,
@@ -200,8 +190,8 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     )
 }
 
-/// Catalog subcommands of `lastdb app`: list, resolve, index, storage, info,
-/// install and upgrade.
+/// Catalog subcommands of `lastdb app`: list, resolve, index, info, install
+/// and upgrade.
 fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), String> {
     match action {
         AppCatalogCommand::List {
@@ -214,11 +204,6 @@ fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), Str
         } => app_list(home, env, schema_url, channel, index, trust_key, json),
         command @ AppCatalogCommand::Resolve { .. } => handle_app_resolve(home, command),
         AppCatalogCommand::Index(cmd) => app_index_command(home, cmd),
-        AppCatalogCommand::Storage {
-            json,
-            reconcile,
-            page_size,
-        } => handle_app_storage(home, json, reconcile, page_size),
         AppCatalogCommand::Info {
             app_id,
             env,

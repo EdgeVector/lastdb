@@ -7,10 +7,8 @@ type Action = Box<dyn FnOnce() -> StorageResult<()> + Send>;
 type CacheKey = (usize, String);
 type Value = Arc<dyn Any + Send + Sync>;
 
-pub(crate) fn active(runtime: Option<Arc<PackRuntime>>) -> bool {
-    runtime
-        .and_then(|runtime| PendingBatch::current(&runtime))
-        .is_some()
+pub(crate) fn active(runtime: &PackRuntime) -> bool {
+    PendingBatch::current(runtime).is_some()
 }
 
 #[derive(Default)]
@@ -63,13 +61,13 @@ impl PendingPublications {
 /// after the disk root.
 /// Outside a native write scope, retain the existing immediate cache behavior.
 pub(crate) fn publish<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     cache: usize,
     name: String,
     value: T,
     action: impl FnOnce() -> StorageResult<()> + Send + 'static,
 ) -> StorageResult<()> {
-    match runtime.and_then(|runtime| PendingBatch::current(&runtime)) {
+    match PendingBatch::current(runtime) {
         Some(pending) => {
             pending
                 .publications
@@ -80,7 +78,7 @@ pub(crate) fn publish<T: Any + Send + Sync>(
 }
 
 pub(crate) fn get<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     cache: usize,
     name: &str,
 ) -> StorageResult<Option<Arc<T>>> {
@@ -99,7 +97,7 @@ pub(crate) fn get<T: Any + Send + Sync>(
 }
 
 pub(crate) fn entries<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: &PackRuntime,
     cache: usize,
 ) -> StorageResult<Vec<(String, Arc<T>)>> {
     let mut entries = BTreeMap::new();
@@ -121,14 +119,11 @@ pub(crate) fn entries<T: Any + Send + Sync>(
 
 /// Preparation owns the gate, so accepted publications cannot drain mid-read.
 /// Ordinary queries retain their separate immutable raw-store metadata view.
-fn write_views(runtime: Option<Arc<PackRuntime>>) -> Vec<Arc<PendingBatch>> {
-    let Some(runtime) = runtime else {
+fn write_views(runtime: &PackRuntime) -> Vec<Arc<PendingBatch>> {
+    let Some(pending) = PendingBatch::current(runtime) else {
         return Vec::new();
     };
-    let Some(pending) = PendingBatch::current(&runtime) else {
-        return Vec::new();
-    };
-    let mut views = super::super::read::ReadContext::captured(&runtime)
+    let mut views = super::super::read::ReadContext::captured(runtime)
         .map_or_else(Vec::new, |context| context.accepted.as_ref().clone());
     views.push(pending);
     views

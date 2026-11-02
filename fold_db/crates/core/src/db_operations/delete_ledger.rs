@@ -47,8 +47,8 @@ pub struct RecordDeleteLedgerEntry {
     /// Records the batch erased.
     pub records_erased: u64,
     /// Purge only: how many of the hard-deleted records carried a file-blob
-    /// reference (a `$lastdb_file` content pointer or `file_blob_ref` /
-    /// `file_hash` metadata). A count, never the refs themselves — a blob_ref
+    /// reference (a `$lastdb_file` content pointer or `file_blob_ref`
+    /// metadata). A count, never the refs themselves — a blob_ref
     /// is a hash of the file's plaintext, so retaining it would be the same
     /// confirmation oracle the records-uuid rule closes (see module docs). A
     /// nonzero value tells compliance that sealed blob bytes may now be

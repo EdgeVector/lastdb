@@ -46,13 +46,13 @@ pub struct DbCatalogEntry {
 #[derive(Clone)]
 pub struct DbCatalogStore {
     entries: Arc<TypedKvStore<dyn KvStore>>,
-    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    runtime: Arc<crate::storage::disk_pack::PackRuntime>,
 }
 
 impl DbCatalogStore {
     pub(crate) fn new(
         entries: Arc<TypedKvStore<dyn KvStore>>,
-        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Self {
         Self { entries, runtime }
     }

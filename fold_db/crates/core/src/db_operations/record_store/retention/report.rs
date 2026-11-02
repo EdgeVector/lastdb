@@ -224,24 +224,19 @@ pub struct ConflictRetentionReport {
     pub queue_depth_capped: bool,
     /// Rows in the bucket directory of the queue: buckets that hold, or held,
     /// an entry. The count reads the directory only.
-    #[serde(default)]
     pub queue_buckets: Option<u64>,
     /// Janitor wakes in a row that ended with an error. The janitor waits
     /// longer after each one, and a good wake sets the count to zero.
-    #[serde(default)]
     pub consecutive_failures: u64,
     /// Unix milliseconds of the next janitor wake after an error. Zero means
     /// the janitor keeps its ordinary interval.
-    #[serde(default)]
     pub next_retry_unix_ms: u64,
     /// Sweeps of the safety net since the node started. A sweep probes every
     /// slice that can hold a live entry.
-    #[serde(default)]
     pub net_sweeps: u64,
     /// Buckets that the safety net registered again: they held live entries
     /// and had no directory row. A count above zero means that something wrote
     /// or deleted queue rows outside the queue, or that a retirement was wrong.
-    #[serde(default)]
     pub buckets_repaired: u64,
     pub last_error: Option<String>,
 }

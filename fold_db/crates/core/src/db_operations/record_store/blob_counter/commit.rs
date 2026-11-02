@@ -72,9 +72,7 @@ impl RecordStore {
         if fresh.is_empty() {
             return Ok(());
         }
-        let Some(rows) = self.blob_rows_exist(&fresh).await? else {
-            return Ok(());
-        };
+        let rows = self.blob_rows_exist(&fresh).await?;
         for (blob, present) in fresh.iter().zip(rows) {
             if !present {
                 self.blob_events.note(blob, BlobEvent::LateReference);
@@ -171,10 +169,7 @@ impl RecordStore {
             .exists_many(queue_keys)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read blob queue: {error}")))?;
-        let rows = self
-            .blob_rows_exist(blobs)
-            .await?
-            .unwrap_or_else(|| vec![false; blobs.len()]);
+        let rows = self.blob_rows_exist(blobs).await?;
         Ok(blobs
             .iter()
             .zip(counters)
@@ -194,23 +189,19 @@ impl RecordStore {
             .collect())
     }
 
-    /// For each blob, whether the `cas_blobs` plane holds its row. `None` when
-    /// the store has no native plane to ask.
+    /// For each blob, whether the `cas_blobs` plane holds its row.
     pub(in crate::db_operations::record_store) async fn blob_rows_exist(
         &self,
         blobs: &[String],
-    ) -> Result<Option<Vec<bool>>, SchemaError> {
-        let Some(store) = self.namespaced_store.as_ref() else {
-            return Ok(None);
-        };
-        let cas = store
+    ) -> Result<Vec<bool>, SchemaError> {
+        let cas = self
+            .namespaced_store
             .open_namespace("cas_blobs")
             .await
             .map_err(|error| SchemaError::InvalidData(format!("open cas_blobs: {error}")))?;
         let keys = blobs.iter().map(|blob| blob.as_bytes().to_vec()).collect();
         cas.exists_many(keys)
             .await
-            .map(Some)
             .map_err(|error| SchemaError::InvalidData(format!("read blob rows: {error}")))
     }
 

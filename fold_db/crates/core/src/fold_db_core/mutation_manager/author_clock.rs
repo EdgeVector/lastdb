@@ -25,7 +25,7 @@ const AUTHOR_CLOCK_CAPACITY_WINDOW: std::time::Duration = std::time::Duration::f
 pub(super) struct AuthorClockPersistQueue {
     sender: tokio::sync::mpsc::Sender<AuthorClockPersistJob>,
     pending_tasks: Arc<PendingTaskTracker>,
-    coverage: Option<Arc<coverage::ClockCoverage>>,
+    coverage: Arc<coverage::ClockCoverage>,
 }
 
 impl AuthorClockPersistQueue {
@@ -36,10 +36,7 @@ impl AuthorClockPersistQueue {
         pending_tasks: Arc<PendingTaskTracker>,
     ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(AUTHOR_CLOCK_QUEUE_CAPACITY);
-        let coverage = db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .map(|_| Arc::new(coverage::ClockCoverage::default()));
+        let coverage = Arc::new(coverage::ClockCoverage::default());
         // Process-lifetime ordered metadata lane. Each queued item owns a
         // PendingTask, so graceful shutdown waits for every submitted state.
         tokio::spawn(run_author_clock_persist_queue(
@@ -69,7 +66,7 @@ impl AuthorClockPersistQueue {
         Ok(AuthorClockPersistReservation {
             permit,
             pending_tasks: Arc::clone(&self.pending_tasks),
-            coverage: self.coverage.clone(),
+            coverage: Arc::clone(&self.coverage),
         })
     }
 }
@@ -77,7 +74,7 @@ impl AuthorClockPersistQueue {
 pub(super) struct AuthorClockPersistReservation {
     permit: tokio::sync::mpsc::OwnedPermit<AuthorClockPersistJob>,
     pending_tasks: Arc<PendingTaskTracker>,
-    coverage: Option<Arc<coverage::ClockCoverage>>,
+    coverage: Arc<coverage::ClockCoverage>,
 }
 
 /// A cloneable proof that the author clock for one request is durable.
@@ -131,10 +128,8 @@ impl AuthorClockPersistReservation {
         self,
         state: MutationAuthorClockState,
     ) -> AuthorClockPersistBarrier {
-        if let Some(coverage) = self.coverage.clone() {
-            return coverage.barrier(state, |reserved| self.submit_uncached(reserved));
-        }
-        self.submit_uncached(state)
+        let coverage = Arc::clone(&self.coverage);
+        coverage.barrier(state, |reserved| self.submit_uncached(reserved))
     }
 
     fn submit_uncached(self, state: MutationAuthorClockState) -> AuthorClockPersistBarrier {
@@ -177,8 +172,9 @@ async fn persist_author_clock(
     state_key: &str,
     state: &MutationAuthorClockState,
 ) -> Result<(), SchemaError> {
-    if let Some(runtime) = db_ops.namespaced_store().disk_pack_runtime() {
-        return crate::storage::disk_pack::transaction::request_scope(Some(runtime), async {
+    crate::storage::disk_pack::transaction::request_scope(
+        db_ops.namespaced_store().disk_pack_runtime(),
+        async {
             let mut durable = db_ops
                 .metadata()
                 .get_typed::<MutationAuthorClockState>(state_key)
@@ -187,10 +183,9 @@ async fn persist_author_clock(
             durable.observe_remote(state.physical_nanos, state.logical_counter);
             db_ops.metadata().put_typed(state_key, &durable).await?;
             Ok::<(), SchemaError>(())
-        })
-        .await;
-    }
-    db_ops.metadata().put_typed_durable(state_key, state).await
+        },
+    )
+    .await
 }
 
 async fn run_author_clock_persist_queue(

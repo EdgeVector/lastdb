@@ -1,21 +1,10 @@
 use super::*;
 
-/// `lastdb status` line for `lastdb db verify-refs`. The `verify_refs`
-/// object keeps its name in `/api/status`.
-pub fn verify_refs_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let Some(report) = snapshot.verify_refs.as_ref() else {
-        return vec!["Verify refs: unsupported by daemon (no verifier report)".to_string()];
-    };
-    vec![verify_refs_line(report)]
-}
-
-/// The `Verify refs` line: the last complete run of `lastdb db verify-refs`, and
+/// `lastdb status` line for `lastdb db verify-refs`: the last complete run, and
 /// a run in progress. The verifier keeps its result in memory, so a restart
 /// clears the line.
-fn verify_refs_line(report: &fold_db::db_operations::VerifyRefsReport) -> String {
-    let Some(summary) = report.verify_refs.as_ref() else {
-        return "Verify refs: unsupported by daemon (no verifier summary)".to_string();
-    };
+pub fn verify_refs_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
+    let summary = &snapshot.verify_refs;
     let mut line = match summary.last.as_ref() {
         None => "Verify refs: not run since the daemon started (lastdb db verify-refs)".to_string(),
         Some(last) => {
@@ -37,7 +26,7 @@ fn verify_refs_line(report: &fold_db::db_operations::VerifyRefsReport) -> String
             running.phase, running.pages
         ));
     }
-    line
+    vec![line]
 }
 
 /// `lastdb status` line for the blob counters and the dwell queue.
@@ -50,9 +39,7 @@ fn verify_refs_line(report: &fold_db::db_operations::VerifyRefsReport) -> String
 /// faults name the blobs by reference. A pass that failed shows its error and
 /// the time to the next try.
 pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let Some(report) = snapshot.blob_counters.as_ref() else {
-        return vec!["Blob counters: unsupported by daemon (no blob counter report)".to_string()];
-    };
+    let report = &snapshot.blob_counters;
     let now_ms = fold_db::clock::unix_millis();
     let until = |at: Option<u64>| {
         at.map_or_else(

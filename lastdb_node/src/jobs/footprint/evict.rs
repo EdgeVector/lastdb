@@ -90,12 +90,8 @@ pub async fn shed_memory(host: &Host) -> ShedReport {
         .db_ops()
         .namespaced_store()
         .disk_pack_runtime()
-        .ok_or_else(|| "native warm set is unavailable".to_string())
-        .and_then(|runtime| {
-            runtime
-                .purge_clean_memory(0)
-                .map_err(|error| error.to_string())
-        });
+        .purge_clean_memory(0)
+        .map_err(|error| error.to_string());
     let (records_purged, warm_bytes_before, warm_bytes_after, target_met, native_memory) =
         match result {
             Ok(report) => (

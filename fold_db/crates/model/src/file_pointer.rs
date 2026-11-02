@@ -29,9 +29,8 @@ pub fn blob_ref_from_value(value: &Value) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
-/// Every blob ref a record names — content pointer plus metadata
-/// (`file_blob_ref` verbatim; legacy `file_hash` as `sha256:{hash}`). Only a
-/// duplicate account-v2 plaintext hash is suppressed: it is not a CAS address.
+/// Every blob ref a record names — content pointer plus the `file_blob_ref`
+/// metadata entry.
 ///
 /// This union is the reachability definition shared by purge accounting and
 /// the blob counter: the resident persist path records refs in metadata, the
@@ -62,25 +61,6 @@ pub fn blob_refs_of_value(
                 refs.push(r.clone());
             }
         }
-        if let Some(h) = meta
-            .get("file_hash")
-            .filter(|hash| !is_private_pointer_hash(content, hash))
-        {
-            let r = format!("sha256:{h}");
-            if !refs.iter().any(|existing| existing == &r) {
-                refs.push(r);
-            }
-        }
     }
     refs
-}
-
-/// True when `hash` is the plaintext hash of the account-v2 pointer in
-/// `content`. That hash is not a CAS address.
-pub(crate) fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {
-    let Some(pointer) = content.get(LASTDB_FILE_KEY) else {
-        return false;
-    };
-    pointer.get("cipher_suite").and_then(Value::as_str) == Some(FILE_BLOB_CIPHER_SUITE)
-        && pointer.get("file_hash").and_then(Value::as_str) == Some(hash)
 }

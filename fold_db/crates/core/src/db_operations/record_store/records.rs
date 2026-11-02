@@ -90,16 +90,10 @@ impl RecordStore {
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        let mut warm = match &runtime {
-            Some(runtime) => runtime
-                .warm_records(keys)
-                .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?,
-            None => None,
-        };
+        let runtime = self.namespaced_store.disk_pack_runtime();
+        let mut warm = runtime
+            .warm_records(keys)
+            .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
         let mut out = match &mut warm {
             Some(read) => read.take_found(),
             None => vec![None; keys.len()],
@@ -134,7 +128,7 @@ impl RecordStore {
                 out[*at] = Some(record);
             }
         }
-        if let (Some(runtime), Some(read)) = (&runtime, &warm) {
+        if let Some(read) = &warm {
             runtime.admit_read_records(read, admitted);
         }
         Ok(out)
@@ -174,13 +168,9 @@ impl RecordStore {
         batch.extend(self.blob_counter_mutations(blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
         // The values enter the warm set after the flush puts the request on disk.
-        if let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-        {
-            runtime.stage_written_records(written);
-        }
+        self.namespaced_store
+            .disk_pack_runtime()
+            .stage_written_records(written);
         Ok(())
     }
 }

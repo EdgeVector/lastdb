@@ -26,14 +26,10 @@ pub struct VerifyLast {
     pub elapsed_ms: u64,
     pub mismatches: Mismatches,
     pub mismatches_total: u64,
-    #[serde(default)]
     pub queue_entries_read: u64,
-    #[serde(default)]
     pub blob_counters_read: u64,
-    #[serde(default)]
     pub blob_queue_read: u64,
     /// Pages read again because a read hit the read limit of one call.
-    #[serde(default)]
     pub page_retries: u64,
 }
 

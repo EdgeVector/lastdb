@@ -179,15 +179,6 @@ pub enum DataRoute {
     AppOrgBlobGet,
     /// `GET /api/app/blob/footprint` — local app namespace byte footprint.
     AppBlobFootprint,
-    /// `GET /api/storage/app` — live storage grouped by `owner_app_id`, read
-    /// from the keep-small projection. OWNER socket only: it reports across
-    /// every app, so a jailed app must not see it. Bounded work — point reads
-    /// of the write-path meters, never a store walk.
-    AppStorage,
-    /// `POST /api/storage/app/reconcile` — one bounded page of declared
-    /// schema/key layouts that recovers unresolved owner attribution.
-    /// OWNER socket only. Never a collection scan.
-    AppStorageReconcile,
     /// `GET /api/storage/home` — the latest persisted unique physical ledger
     /// for the configured LastDB home. OWNER socket only. The read performs
     /// one metadata point-get and never inventories the filesystem.

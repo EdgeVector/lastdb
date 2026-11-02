@@ -6,10 +6,6 @@ pub mod db_catalog_store;
 pub mod admin_db;
 mod conflict_metadata;
 pub mod delete_ledger;
-/// Local file-blob reachability GC. Gated on `sharing` because the
-/// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
-/// shipped daemon (`cloud-sync` default) always carries it.
-pub mod keep_small;
 pub mod metadata_store;
 pub mod record_store;
 /// Field key bundles are storage key material; the store lives in
@@ -34,17 +30,10 @@ pub use delete_ledger::{
     key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,
     RECORD_DELETE_LEDGER_PREFIX,
 };
-pub use keep_small::{
-    keep_small_schema_shard_key, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,
-    MeterDomainTrust, MeterTrustPayload, MeterTrustState, SchemaMeter,
-    KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
-    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, LIVE_BUDGET_BYTES,
-};
 pub use record_store::{
     BlobCounterReport, BlobCounterView, BlobRecountReport, ConflictRetentionReport, DwellCursor,
-    DwellGuard, DwellStep, NetStep, RecordStore, RecountOptions, RecountReport, VerifyRefsReport,
-    VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
-    RECORD_WALK_ROWS,
+    DwellGuard, DwellStep, NetStep, RecordStore, RecountOptions, RecountReport, VerifyReport,
+    VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.

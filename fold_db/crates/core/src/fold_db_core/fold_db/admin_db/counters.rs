@@ -3,15 +3,6 @@
 use super::*;
 
 impl FoldDB {
-    /// The verifier summary for `lastdb status`. A read of in-memory state; no
-    /// store access.
-    #[must_use]
-    pub fn verify_refs_report(&self) -> crate::db_operations::VerifyRefsReport {
-        crate::db_operations::VerifyRefsReport {
-            verify_refs: Some(self.db_ops().records().verify_refs_summary()),
-        }
-    }
-
     /// Run one step of the counter verifier (`lastdb db verify-refs`). It
     /// reads and reports; it writes nothing and takes no write gate.
     pub async fn verify_refs_step(
@@ -25,7 +16,8 @@ impl FoldDB {
             .map_err(|error| admin_op_error("verify_refs", error))
     }
 
-    /// The last complete verify run and the run in progress, from memory.
+    /// The last complete verify run and the run in progress, from memory. A
+    /// read of in-memory state for `lastdb status`; no store access.
     #[must_use]
     pub fn verify_refs_summary(&self) -> crate::db_operations::VerifySummary {
         self.db_ops().records().verify_refs_summary()

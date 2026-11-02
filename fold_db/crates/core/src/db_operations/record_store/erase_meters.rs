@@ -13,11 +13,9 @@ impl RecordStore {
         storage_prefix: Option<&str>,
         entry: RecordDeleteLedgerEntry,
     ) -> Result<(), SchemaError> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        if !crate::storage::disk_pack::transaction::publication::active(runtime) {
+        if !crate::storage::disk_pack::transaction::publication::active(
+            &self.namespaced_store.disk_pack_runtime(),
+        ) {
             return Err(SchemaError::InvalidData(
                 "erase audit requires a complete native write scope".into(),
             ));

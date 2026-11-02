@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "range_continuation"))
-from node import Node, file_hash, marker_format, save
+from node import Node, file_hash, save
 from workload import Workload
 from conditions import paired_conditions_match
 from narrow_report import narrow_samples_complete
@@ -26,8 +26,9 @@ def interrupted(_signum, _frame):
 
 
 def home_format(node):
-    """The `format=` number of the home marker."""
-    return marker_format((node.home / "data" / "laststore-pack-node-v1").read_text())
+    """The `format=` number of the home marker, or None for no marker."""
+    first = (node.home / "data" / "laststore-pack-node-v1").read_text().split("\n", 1)[0]
+    return int(first[len("format="):]) if first.startswith("format=") else None
 
 
 def measure(binary, revision, mode, role, output, helper):

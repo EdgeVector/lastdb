@@ -57,7 +57,7 @@ def physical_state(node, expected_layout, expected_root=None):
 
 
 def boot_boundary(node, seed_layout):
-    """Allow only the startup stamp append; freeze the resulting layout for timing."""
+    """Allow at most one startup append; freeze the resulting layout for timing."""
     state = snapshot(node)
     observed = inventory(node.home, physical_only=True)
     removed = sorted(seed_layout.keys() - observed.keys())
@@ -66,12 +66,15 @@ def boot_boundary(node, seed_layout):
     root = {name: state[name] for name in ("generation", "frontier")}
     save(node.output / "boot-delta.json", {"removed": removed, "added": added,
                                           "changed": changed, "root": root, "files": observed})
-    # hydrate_from_snapshot writes one keep-small header to re-arm clean_stop.
-    # A small append alone does not authenticate its contents; retain this explicit
-    # residual startup difference and audit exact query work across the versions.
-    if (removed or changed != ["data/disk-run/CURRENT"] or len(added) != 1
-            or any(not re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
-                   or not 0 < v["bytes"] <= 4096 for k, v in added.items())):
+    # An older program writes one small metadata header at startup; a newer one
+    # writes nothing. A small append alone does not authenticate its contents;
+    # retain this explicit residual startup difference and audit exact query work
+    # across the versions.
+    unchanged = not removed and not changed and not added
+    one_append = (not removed and changed == ["data/disk-run/CURRENT"] and len(added) == 1
+                  and all(re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
+                          and 0 < v["bytes"] <= 4096 for k, v in added.items()))
+    if not (unchanged or one_append):
         raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
     return root, observed
 

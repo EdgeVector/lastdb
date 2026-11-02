@@ -96,27 +96,3 @@ fn log_runtime_recovered(
         );
     }
 }
-
-/// The persist-lane row for the status snapshot: the heaviest schema's lane
-/// pressure, or nothing when the lane is idle.
-pub(super) fn persist_lane_rows(
-    persist_lanes: &fold_db::resident::PersistLanePressure,
-) -> Vec<crate::request_telemetry::PersistLaneOpRow> {
-    vec![crate::request_telemetry::PersistLaneOpRow {
-        schema: persist_lanes.heaviest_schema.clone(),
-        reserved_bytes: persist_lanes.heaviest_bytes,
-        queued_entries: persist_lanes.queued_entries,
-        reserved_entries: persist_lanes.reserved_entries,
-        oldest_age_ms: persist_lanes.oldest_age_ms,
-        refuse_bytes: persist_lanes.refuse_bytes,
-        refuse_entries: persist_lanes.refuse_entries,
-        refuse_unhealthy: persist_lanes.refuse_unhealthy,
-        unhealthy_lanes: persist_lanes.unhealthy_lanes,
-        fair_share_bytes: persist_lanes.fair_share_bytes,
-        quarantined: persist_lanes.quarantined,
-        breaker_trips: persist_lanes.breaker_trips,
-    }]
-    .into_iter()
-    .filter(persist_lane_row_is_visible)
-    .collect()
-}

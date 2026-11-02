@@ -11,11 +11,11 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::scope(runtime, work).boxed()
+        crate::storage::disk_pack::transaction::scope(
+            self.namespaced_store.disk_pack_runtime(),
+            work,
+        )
+        .boxed()
     }
 
     /// Run `work` inside one native write request scope of a background job.
@@ -26,11 +26,11 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::background_scope(runtime, work).boxed()
+        crate::storage::disk_pack::transaction::background_scope(
+            self.namespaced_store.disk_pack_runtime(),
+            work,
+        )
+        .boxed()
     }
 
     /// Take the guard of one field key. See

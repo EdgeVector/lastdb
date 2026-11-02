@@ -14,10 +14,8 @@ pub struct NativeDiskStatus {
     pub completed_sequence: u64,
     pub writer_failed: bool,
     pub cas_delete_recovery: Option<CasDeleteRecovery>,
-    /// Records in the warm set.
-    pub warm_records: usize,
     /// Decoded records in the warm set.
-    pub core_warm_records: usize,
+    pub warm_records: usize,
     pub core_warm_held: usize,
     pub core_warm_hits: u64,
     pub core_warm_misses: u64,
@@ -106,7 +104,6 @@ impl PackRuntime {
             writer_failed: self.requires_recovery(),
             cas_delete_recovery: self.physical.cas_delete_recovery,
             warm_records: core.records,
-            core_warm_records: core.records,
             core_warm_held: core.held,
             core_warm_hits: core.hits,
             core_warm_misses: core.misses,

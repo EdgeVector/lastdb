@@ -74,17 +74,12 @@ impl RecordStore {
             let missing: std::collections::HashSet<&str> = if referenced.is_empty() {
                 std::collections::HashSet::new()
             } else {
-                self.blob_rows_exist(&referenced)
-                    .await?
-                    .map(|rows| {
-                        referenced
-                            .iter()
-                            .zip(rows)
-                            .filter(|(_, row)| !*row)
-                            .map(|(blob, _)| blob.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default()
+                referenced
+                    .iter()
+                    .zip(self.blob_rows_exist(&referenced).await?)
+                    .filter(|(_, row)| !*row)
+                    .map(|(blob, _)| blob.as_str())
+                    .collect()
             };
             let mut entries = Vec::with_capacity(rows.len());
             for ((key, _), counter) in rows.iter().zip(counters) {

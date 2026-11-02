@@ -58,17 +58,11 @@ impl<'de> Deserialize<'de> for LimitsHealth {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
-            #[serde(default)]
             max_request_body_bytes: Option<u64>,
-            #[serde(default)]
             max_field_value_bytes: Option<u64>,
-            #[serde(default)]
             max_field_value_bytes_default: Option<u64>,
-            #[serde(default)]
             max_field_value_bytes_absolute_max: Option<u64>,
-            #[serde(default)]
             max_field_value_bytes_env: String,
-            #[serde(default)]
             max_record_bytes: Option<u64>,
         }
         let raw = Raw::deserialize(deserializer)?;

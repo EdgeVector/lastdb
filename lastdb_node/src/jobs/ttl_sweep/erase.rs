@@ -101,13 +101,11 @@ pub(super) async fn purge_round_robin(
 /// one native batch (16,384 operations). One key at least.
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
     use fold_db::fold_db_core::purge::budget::max_erase_keys;
-    let fits = host
-        .db
-        .db_ops()
-        .batch_operation_limit()
-        .map_or(usize::MAX, |limit| {
-            max_erase_keys(verb == SweepVerb::Delete, backlog.shape, limit)
-        });
+    let fits = max_erase_keys(
+        verb == SweepVerb::Delete,
+        backlog.shape,
+        host.db.db_ops().batch_operation_limit(),
+    );
     pace_batch.min(fits).min(backlog.batch_cap()).max(1)
 }
 

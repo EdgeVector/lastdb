@@ -201,7 +201,7 @@ This read does not wake the flush worker.
 
 | Field | Meaning |
 | --- | --- |
-| `warm_records`, `core_warm_records` | Current count of decoded records in the warm set. |
+| `warm_records` | Current count of decoded records in the warm set. |
 | `core_warm_bytes` | The byte charge, the byte limit, the peak, and the purge totals of the warm set. |
 | `core_warm_held` | Records held by running calls. |
 | `core_warm_hits`, `core_warm_misses`, `core_warm_purged` | Core lookup and purge counters. |
@@ -217,14 +217,13 @@ Sample the accepted and completed sequences and the pending batches immediately 
 Explicit durable requests wait for disk.
 A queued request can also wait for disk when its reservation or typed coverage is insufficient.
 
-`lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
-The `Logical keys:` line reports the count of warm records. It has no count limit; the warm set byte limit bounds it.
-The background purge counters describe queued purge tasks; they do not establish completion of all native writes.
-The direct native accepted/completed frontiers describe that completion.
+`lastdb status` prints `Warm records:`, `Memory admission:`, and `Warm set bytes:` lines.
+The `Warm records:` line reports the count of warm records. It has no count limit; the warm set byte limit bounds it.
+The direct native accepted/completed frontiers describe the completion of native writes.
 
-`status.resident` retains historical wire fields for existing readers.
-Its retired graph bytes, entry count, and revision fields do not measure current native core occupancy.
-A zero historical graph budget does not mean native memory is unbounded.
+`status.resident` holds five warm set gauges: `resident_key_count`, `resident_held_keys`,
+`resident_purged_keys`, `warm_lookup_hits`, and `warm_lookup_misses`.
+`status.memory_budget.core_warm` holds the warm set byte charge and limit.
 The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
 The warm set byte limit (`LASTDB_CORE_WARM_BYTES`) is the one conservative process-reserve input.

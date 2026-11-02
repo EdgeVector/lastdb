@@ -100,10 +100,7 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     if !run_evict {
         return;
     }
-    let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() else {
-        tracing::error!(target: "lastdbd::footprint", "native warm set is unavailable");
-        return;
-    };
+    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
     let memory = match runtime.memory_status() {
         Ok(memory) => memory,
         Err(error) => {

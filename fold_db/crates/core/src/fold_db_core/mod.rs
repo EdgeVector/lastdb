@@ -33,6 +33,6 @@ pub use conflict_janitor_policy::{
     ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV, CONFLICT_JANITOR_MS_ENV,
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
-pub use mutation_manager::{MutationManager, PurgeStats};
+pub use mutation_manager::MutationManager;
 
 pub use fold_db::{CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB};

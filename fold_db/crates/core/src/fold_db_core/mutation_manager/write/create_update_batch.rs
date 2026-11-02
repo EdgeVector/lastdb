@@ -46,16 +46,9 @@ impl MutationManager {
 
         let start_time = std::time::Instant::now();
         let state = BatchState::new(force_durable);
-        let runtime = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .ok_or_else(|| {
-                SchemaError::InvalidData("logical writes require native disk storage".into())
-            })?;
         self.write_native_batch(
             super::native::NativeRequest {
-                runtime,
+                runtime: self.db_ops.namespaced_store().disk_pack_runtime(),
                 mutations,
                 storage_prefix,
                 author_clock: author_clock_barrier,

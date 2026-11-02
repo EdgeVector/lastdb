@@ -132,9 +132,6 @@ class OwnedNode:
                 and status["status"]["process_start_ts"] == start, "daemon_start_identity")
         self.start_ts, self.instance_id = start, instance
         measured = status["status"]
-        for key in ("persist_lane_failures", "deferred_persist_failed"):
-            value = measured["resident"][key]
-            require(type(value) is int and value == 0, "daemon_persist_failure")
         require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
         if not self.backup_source:

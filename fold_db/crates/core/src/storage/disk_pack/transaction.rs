@@ -296,7 +296,7 @@ pub(in crate::storage) fn batch_bytes(
 
 /// Keep one complete logical job in one storage batch. Commit precedes dirty clear.
 pub(crate) async fn scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where

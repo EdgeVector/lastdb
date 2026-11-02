@@ -263,12 +263,7 @@ fn invoke(
     Ok(())
 }
 fn native(host: &crate::host::Host) -> Result<Arc<fold_db::storage::disk_pack::PackRuntime>> {
-    let runtime = host
-        .db
-        .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
-        .ok_or(BackupError::Source)?;
+    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
     if runtime.requires_recovery() {
         return Err(BackupError::Source);
     }

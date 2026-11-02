@@ -44,9 +44,6 @@ pub struct DbOperations {
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
-
-    /// Background purge counters shared with the native runtime.
-    persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
 }
 
 impl DbOperations {
@@ -77,22 +74,11 @@ impl DbOperations {
         &self.record_store
     }
 
-    /// Access background purge counters, separate from record counts.
-    pub fn persist_metrics(&self) -> &Arc<crate::resident::PersistLaneMetrics> {
-        &self.persist_metrics
-    }
-
     /// Logical queries require one captured core state and matching disk root.
     pub async fn read_scope(
         &self,
     ) -> crate::storage::error::StorageResult<crate::storage::disk_pack::PackReadScope> {
-        crate::storage::disk_pack::PackReadScope::for_store(&self.store)
-            .await?
-            .ok_or_else(|| {
-                crate::storage::StorageError::ConfigurationError(
-                    "logical reads require native packed storage".into(),
-                )
-            })
+        crate::storage::disk_pack::PackReadScope::for_store(&self.store).await
     }
 
     /// Access the system public-key domain store.
@@ -110,13 +96,10 @@ impl DbOperations {
         Arc::clone(&self.store)
     }
 
-    /// Most operations that one complete batch holds on a native home. `None`
-    /// when no native home backs this store.
+    /// Most operations that one complete batch holds on the native home.
     #[must_use]
-    pub fn batch_operation_limit(&self) -> Option<usize> {
-        self.store
-            .disk_pack_runtime()
-            .map(|runtime| runtime.batch_operation_limit())
+    pub fn batch_operation_limit(&self) -> usize {
+        self.store.disk_pack_runtime().batch_operation_limit()
     }
 
     /// Open a side namespace on the primary storage backend.

@@ -21,7 +21,6 @@ doc = "Parts that use only other leaf parts: storage homes, outboxes and queues,
 modules = [
   "allocator",
   "app_release_host",
-  "app_storage",
   "backup_runtime",
   "byte_cloud_log",
   "change_feed_queue",

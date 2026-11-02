@@ -1,32 +1,17 @@
 use super::*;
 
 /// Cheap runtime view of the memory budget declared at boot.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+///
+/// The `Option` fields stay off the wire when the platform has no such gauge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryBudgetHealth {
-    pub resident_graph_bytes: u64,
-    pub resident_graph_budget_bytes: u64,
     pub deferred_persist_bytes: u64,
     pub deferred_persist_cap_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_fair_share_bytes: u64,
-    #[serde(default)]
-    pub deferred_heaviest_lane: String,
-    #[serde(default)]
-    pub deferred_heaviest_lane_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_refuse_bytes: u64,
-    #[serde(default)]
-    pub deferred_lane_refuse_entries: u64,
     pub charged_budget_bytes: u64,
-    #[serde(default)]
     pub projected_total_bytes: u64,
-    #[serde(default)]
     pub projection_tolerance_bytes: u64,
-    #[serde(default)]
     pub projection_diverged: bool,
-    #[serde(default)]
     pub footprint_over_limit: bool,
-    #[serde(default)]
     pub runtime_degraded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phys_footprint_bytes: Option<u64>,
@@ -36,16 +21,12 @@ pub struct MemoryBudgetHealth {
     pub malloc_bytes_in_use: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub malloc_bytes_held_free: Option<u64>,
-    #[serde(default)]
     pub footprint_net_bytes: u64,
     /// Lifetime warm bytes released by eviction steps.
-    #[serde(default)]
     pub warm_bytes_freed: u64,
-    #[serde(default)]
     pub footprint_sticky: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footprint_delta_per_evicted_byte: Option<f64>,
-    #[serde(default)]
     pub governor_state: String,
     /// Seconds `governor_state` has HELD its current value at sample time.
     ///
@@ -54,32 +35,22 @@ pub struct MemoryBudgetHealth {
     /// reading most likely to be taken as news is the one that masks the
     /// rest while it holds. 0 means the governor has not stamped a
     /// transition yet (a cold process), not that the state just changed.
-    #[serde(default)]
     pub governor_state_held_secs: u64,
     /// Latched host pressure: `high` or `clear`.
-    #[serde(default)]
     pub host_pressure: String,
-    #[serde(default)]
     pub swap_used_bytes: u64,
-    #[serde(default)]
     pub compressor_bytes: u64,
-    #[serde(default)]
     pub purge_failed: bool,
     /// Drop in allocator `committed` from the last `purge()`. Not the slack predicate.
-    #[serde(default)]
     pub malloc_bytes_released_last_purge: u64,
-    #[serde(default)]
     pub allocator_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allocator_committed_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allocator_reserved_bytes: Option<u64>,
-    #[serde(default)]
     pub peak_request_bytes: u64,
-    #[serde(default)]
     pub slowest_request_ms: u64,
     /// Warm set byte charge and limit from the native core.
-    #[serde(default)]
     pub core_warm: CoreWarmBytesHealth,
 }
 
@@ -134,10 +105,8 @@ pub(crate) struct MemoryBudgetAttribution {
 
 impl MemoryBudgetHealth {
     pub(crate) fn measured(
-        resident: &ResidentHealth,
         deferred_persist_bytes: u64,
         deferred_persist_cap_bytes: u64,
-        persist_lanes: &fold_db::resident::PersistLanePressure,
         phys_footprint_bytes: Option<u64>,
         runtime: Option<fold_db::memory_budget::RuntimeMemoryBudgetObservation>,
         attribution: MemoryBudgetAttribution,
@@ -146,15 +115,8 @@ impl MemoryBudgetHealth {
         let charged_budget_bytes = budget.charged_bytes;
         let governor = attribution.governor;
         Self {
-            resident_graph_bytes: resident.resident_bytes,
-            resident_graph_budget_bytes: resident.budget_bytes,
             deferred_persist_bytes,
             deferred_persist_cap_bytes,
-            deferred_lane_fair_share_bytes: persist_lanes.fair_share_bytes,
-            deferred_heaviest_lane: persist_lanes.heaviest_schema.clone(),
-            deferred_heaviest_lane_bytes: persist_lanes.heaviest_bytes,
-            deferred_lane_refuse_bytes: persist_lanes.refuse_bytes,
-            deferred_lane_refuse_entries: persist_lanes.refuse_entries,
             charged_budget_bytes,
             projected_total_bytes: budget.projected_total_bytes,
             projection_tolerance_bytes: runtime.map_or_else(

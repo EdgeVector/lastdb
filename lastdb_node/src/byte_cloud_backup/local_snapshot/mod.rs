@@ -81,12 +81,7 @@ fn admit(
     let permit = Store::lock(&host.home)?;
     intent::require_no_remote(&host.home)?;
     let source = Source::from_host(host)?;
-    let runtime = host
-        .db
-        .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
-        .ok_or(BackupError::Source)?;
+    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
     let intent = intent::admit(&host.home, &source, action, &request_id)?;
     let inputs = Inputs {
         source,

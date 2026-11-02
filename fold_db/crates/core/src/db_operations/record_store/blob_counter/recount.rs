@@ -267,9 +267,7 @@ impl RecordStore {
         if asked.is_empty() {
             return Ok(());
         }
-        let Some(rows) = self.blob_rows_exist(&asked).await? else {
-            return Ok(());
-        };
+        let rows = self.blob_rows_exist(&asked).await?;
         for (blob, present) in asked.into_iter().zip(rows) {
             if !present {
                 report.rows_missing += 1;

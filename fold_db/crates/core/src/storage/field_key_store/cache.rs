@@ -12,7 +12,7 @@ impl FieldKeyStore {
         field_key: &str,
     ) -> StorageResult<Option<CachedFieldKeyContract>> {
         if let Some(contract) = publication::get::<CachedFieldKeyContract>(
-            self.runtime.clone(),
+            &self.runtime,
             Arc::as_ptr(&self.cache) as usize,
             field_key,
         )? {
@@ -55,7 +55,7 @@ impl FieldKeyStore {
         let cache = Arc::clone(&self.cache);
         let field_key = field_key.to_owned();
         publication::publish(
-            self.runtime.clone(),
+            &self.runtime,
             Arc::as_ptr(&cache) as usize,
             field_key.clone(),
             contract.clone(),

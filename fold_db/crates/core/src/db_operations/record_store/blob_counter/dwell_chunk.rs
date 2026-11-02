@@ -117,10 +117,7 @@ impl RecordStore {
         rows: Vec<Vec<u8>>,
     ) -> Result<(), SchemaError> {
         if !rows.is_empty() {
-            let store = self.namespaced_store.as_ref().ok_or_else(|| {
-                SchemaError::InvalidData("blob dwell requires a native store".into())
-            })?;
-            store
+            self.namespaced_store
                 .open_namespace("cas_blobs")
                 .await
                 .map_err(|error| SchemaError::InvalidData(format!("open cas_blobs: {error}")))?

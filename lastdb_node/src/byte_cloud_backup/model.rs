@@ -119,7 +119,7 @@ pub struct ByteBackupStatus {
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
     pub automatic_backup: Option<super::AutomaticBackupStatus>,
-    pub mutation_log: Option<fold_db::storage::disk_pack::mutation_log::MutationLogStatus>,
+    pub mutation_log: fold_db::storage::disk_pack::mutation_log::MutationLogStatus,
     pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
     pub request_id: Option<Id>,
@@ -143,7 +143,7 @@ impl From<ByteBackupStatus> for crate::self_metrics::DurabilityHealth {
                 .as_ref()
                 .is_some_and(|s| s.paused.is_some());
         let automatic = status.automatic_backup.as_ref();
-        let journal = status.mutation_log.as_ref();
+        let journal = &status.mutation_log;
         Self {
             observed: true,
             automatic_enabled: status.automatic_backup_enabled,
@@ -156,10 +156,10 @@ impl From<ByteBackupStatus> for crate::self_metrics::DurabilityHealth {
             // so coverage is measured against them and stamped with this read's time.
             // An accepted receipt alone never becomes a coverage claim.
             checked_at: Some(fold_db::clock::unix_secs()),
-            local_frontiers: journal.and_then(|j| j.head.as_ref()).map(|h| h.frontiers),
+            local_frontiers: journal.head.as_ref().map(|h| h.frontiers),
             backed_up_frontiers: automatic.and_then(|a| a.last_backed_up_frontiers),
             covered: None,
-            snapshot_required: journal.is_some_and(|j| j.snapshot_required),
+            snapshot_required: journal.snapshot_required,
             last_upload_at: automatic.and_then(|a| a.last_log_at),
             next_upload_at: automatic.map(|a| a.next_log_at),
             last_snapshot_at: automatic.and_then(|a| a.last_snapshot_at),

@@ -231,8 +231,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppOrgBlobPut
         | DataRoute::AppOrgBlobGet
         | DataRoute::AppBlobFootprint
-        | DataRoute::AppStorage
-        | DataRoute::AppStorageReconcile
         | DataRoute::HomeStorage
         | DataRoute::HomeStorageReconcile
         | DataRoute::LivenessExplain

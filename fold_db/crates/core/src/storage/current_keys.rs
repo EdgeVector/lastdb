@@ -20,27 +20,11 @@ pub(crate) mod families;
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
-/// - `keep_small`: the marker of a process that booted past a failed
-///   keep-small hydrate.
 /// - `idem`: the idempotency keys. They live in the `idempotency`
 ///   namespace; the family stays so that a scoped key parses.
 const CURRENT_FAMILIES: &[&str] = &[
-    "rk",
-    "ak",
-    "rh",
-    "ahp",
-    "ahk",
-    "ahq",
-    "ahb",
-    "rcf",
-    "rcm",
-    "crq",
-    "crb",
-    "bref",
-    "dellog",
-    "layout",
-    "keep_small",
-    "idem",
+    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "bref", "dellog",
+    "layout", "idem",
 ];
 
 /// True for a `main` key of the record lifecycle: a record, an alternate key

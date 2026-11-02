@@ -244,7 +244,6 @@ fn collection_label(name: &[u8]) -> &'static str {
         "idempotency",
         "schema_superseded_by",
         "change_feed",
-        "keep_small",
         "cas_blobs",
     ];
     KNOWN

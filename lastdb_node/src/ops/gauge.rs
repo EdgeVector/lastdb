@@ -24,15 +24,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnavailableReason {
-    /// JSON field was absent or null — daemon predates the field, or the
-    /// producer declined to publish it. Not the same as measured zero.
+    /// JSON field was null: the producer did not publish a value. Not the
+    /// same as measured zero.
     FieldNotServed,
 }
 
 impl UnavailableReason {
     fn display_phrase(self) -> &'static str {
         match self {
-            Self::FieldNotServed => "unavailable (daemon predates this field)",
+            Self::FieldNotServed => "unavailable (not served)",
         }
     }
 }

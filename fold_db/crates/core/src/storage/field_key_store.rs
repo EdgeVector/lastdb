@@ -66,14 +66,14 @@ pub struct FieldKeyStore {
     node_wrap_key: Option<[u8; 32]>,
     cache: FieldKeyCache,
     mint_lock: Arc<Mutex<()>>,
-    runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    runtime: Arc<crate::storage::disk_pack::PackRuntime>,
 }
 
 impl FieldKeyStore {
     pub(crate) fn new(
         entries: Arc<TypedKvStore<dyn KvStore>>,
         node_wrap_key: Option<[u8; 32]>,
-        runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Self {
         Self {
             entries,

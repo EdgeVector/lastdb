@@ -3,7 +3,7 @@
 use super::*;
 
 pub(crate) async fn request_scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
@@ -14,7 +14,7 @@ where
 
 /// Return after the complete private background commit reaches disk.
 pub(crate) async fn background_scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
@@ -24,16 +24,13 @@ where
 }
 
 async fn scope<T, E>(
-    runtime: Option<Arc<PackRuntime>>,
+    runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
     background: bool,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
 {
-    let Some(runtime) = runtime else {
-        return future.await;
-    };
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }

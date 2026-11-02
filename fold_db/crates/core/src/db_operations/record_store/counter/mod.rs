@@ -12,13 +12,11 @@
 mod commit;
 mod guarded;
 mod recount;
-mod report;
 pub(crate) mod restore_validation;
 mod verify;
 
 pub(crate) use commit::{GuardedDelete, ReleaseRequest, RowChanges};
 pub use recount::{RecountOptions, RecountReport};
-pub use report::VerifyRefsReport;
 pub(crate) use verify::VerifyState;
 pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 

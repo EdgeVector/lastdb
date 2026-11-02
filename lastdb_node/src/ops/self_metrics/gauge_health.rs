@@ -1,7 +1,7 @@
 //! Declare status gauges and optional trailing flags once, including metadata.
 //!
-//! The wire stays a bare u64 or null. Missing fields remain unavailable with
-//! their declared metadata, rather than becoming a measured zero.
+//! The wire stays a bare u64 or null. A null field remains unavailable with
+//! its declared metadata, rather than becoming a measured zero.
 
 macro_rules! gauge_health {
     (
@@ -48,8 +48,8 @@ macro_rules! gauge_health {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 #[derive(serde::Deserialize)]
                 struct Raw {
-                    $( #[serde(default)] $field: Option<u64>, )+
-                    $( $( #[serde(default)] $flag: bool, )+ )?
+                    $( $field: Option<u64>, )+
+                    $( $( $flag: bool, )+ )?
                 }
                 let raw = <Raw as serde::Deserialize<'de>>::deserialize(deserializer)?;
                 Ok(Self {

@@ -74,12 +74,12 @@ pub(super) enum Command {
     ///
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does
     /// not; the first human line is then `lastdbd: not reachable — <reason>`.
-    /// `--json` adds `"reachable": false` and the reason, and also exits 1.
+    /// `--json` adds `"running": false` and the reason, and also exits 1.
     /// A reachable-but-degraded node (QoS, backup) still exits 0.
     ///
-    /// Human lines by default. Pass `--json` for a machine-readable plane map
-    /// (ideal storage roles + bytes) plus live dual-read counters when the
-    /// daemon is up. Key counts are intentionally omitted — use
+    /// Human lines by default. Pass `--json` for a machine-readable summary:
+    /// home, socket, `running`, the daemon and CLI builds, and the at-rest
+    /// compression counters. Key counts are intentionally omitted — use
     /// `lastdb db inventory` for scanned key totals.
     ///
     /// Live `/api/status` is the **cheap health** path: process vitals,
@@ -87,7 +87,7 @@ pub(super) enum Command {
     /// ring (256 recent samples + rankings) is opt-in via `lastdb ops` or
     /// `GET /api/status?recent=1`.
     Status {
-        /// Emit machine-readable plane map + dual-read (and live sampler when up).
+        /// Emit the machine-readable summary (`running`, builds, at-rest compression).
         #[arg(long)]
         json: bool,
         /// Print the additive gauge contract (unit + window + availability for
@@ -118,9 +118,8 @@ pub(super) enum Command {
     /// drives the down path, its consecutive-failure threshold and its alert
     /// cooldown. `/api/status` — the node's own cheap health path — drives a
     /// DEGRADED verdict from signals the node already computes:
-    /// `runtime_degraded`, `footprint_over_limit`,
-    /// `deferred_lane_refuse_entries`, `durability.degraded` (with the node's
-    /// own reasons), a slowest request at or above
+    /// `runtime_degraded`, `footprint_over_limit`, `durability.degraded`
+    /// (with the node's own reasons), a slowest request at or above
     /// `--slowest-request-warn-ms`, and a `governor_state` of `purge-failed`
     /// held for at least `GOVERNOR_PURGE_FAILED_WARN_SECS` (not caller
     /// configurable; see `health_alert::probe_degradation`).

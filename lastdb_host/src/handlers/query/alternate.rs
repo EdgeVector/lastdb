@@ -77,8 +77,10 @@ pub(super) async fn execute<H: HostNode>(
     } else {
         None
     };
-    let mut flags = PageFlags::default();
-    flags.conflict_flags = conflict_flags;
+    let flags = PageFlags {
+        conflict_flags,
+        ..PageFlags::default()
+    };
     let mut payload = page_payload(results, None, limit, 0, page.has_more, flags);
     payload["next_cursor"] =
         serde_json::to_value(next).map_err(|_| HostError::internal("invalid alternate cursor"))?;

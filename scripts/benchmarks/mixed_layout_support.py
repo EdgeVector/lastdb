@@ -71,8 +71,9 @@ def audit(node, output):
             identities.append([client, turn, row["kind"], row["request_sha256"]])
             if row["kind"] == "read":
                 cost = row.get("read_receipt")
-                if not cost or cost["logical_warm_hits"] != 4 or cost["read_operations"] != 0:
-                    raise RuntimeError("The mixed read is not a four-field logical warm hit")
+                # A read of one record counts one warm record hit.
+                if not cost or cost["logical_warm_hits"] != 1 or cost["read_operations"] != 0:
+                    raise RuntimeError("The mixed read is not one warm record hit")
             else:
                 if not isinstance(row.get("resident_stages_us", {}).get("ack"), (int, float)):
                     raise RuntimeError("A durable write lacks its native acknowledgment timing")

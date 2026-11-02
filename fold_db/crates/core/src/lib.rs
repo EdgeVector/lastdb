@@ -30,9 +30,6 @@ pub mod content_limit;
 pub use lastdb_model::record_value;
 pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 
-/// Core logical memory, record retention, and background persist work.
-pub mod resident;
-pub use resident::{PersistLaneMetrics, PersistLanePressure};
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;
@@ -50,6 +47,8 @@ pub mod read_receipts;
 /// On-disk record formats of the typed stores (model layer).
 pub(crate) mod records;
 pub mod request_phases;
+/// Core logical memory and record retention.
+pub mod resident;
 pub mod schema;
 pub mod security;
 pub mod sharing;
