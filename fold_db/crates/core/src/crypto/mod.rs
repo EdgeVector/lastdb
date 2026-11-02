@@ -15,7 +15,7 @@ pub mod provider;
 pub mod stream;
 
 pub use at_rest::{
-    at_rest_compression_stats, is_sealed_at_rest, kv_at_rest_compression_enabled, open_at_rest,
+    at_rest_compression_stats, is_sealed_at_rest, kv_at_rest_compression_enabled,
     seal_at_rest_raw, seal_at_rest_utf8, AtRestCompressionStats, AT_REST_ENC_BINARY_PREFIX,
     AT_REST_ENC_PREFIX,
 };
