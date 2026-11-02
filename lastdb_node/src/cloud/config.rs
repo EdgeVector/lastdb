@@ -5,11 +5,22 @@ use super::*;
 /// The Exemem environment this home is connected to, from the `api_url`
 /// that explicit backup enrollment saved in `cloud_sync.json.paused`.
 /// `None` when the home has no cloud connection or points at a custom URL.
+/// A credential file that fails the private owner-file check also gives
+/// `None` with one warning, so daemon boot never fails because of it.
 pub fn home_cloud_environment(home: &Path) -> Option<folddb_profile::endpoints::Environment> {
-    let raw = std::fs::read(cloud_credentials_path(home)).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&raw).ok()?;
-    let api_url = value.get("api_url")?.as_str()?;
-    folddb_profile::endpoints::environment_for_exemem_api_url(api_url)
+    let credentials = match load_saved_credentials(home) {
+        Ok(credentials) => credentials?,
+        Err(error) => {
+            tracing::warn!(
+                target: "lastdb_node::cloud",
+                error = %error,
+                "saved cloud credentials failed the private owner-file check; \
+                 the schema service environment does not follow the home"
+            );
+            return None;
+        }
+    };
+    folddb_profile::endpoints::environment_for_exemem_api_url(&credentials.api_url)
 }
 
 /// Daemon boot: pin the schema-service environment to the home's cloud

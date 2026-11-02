@@ -14,7 +14,8 @@ use zeroize::Zeroizing;
 
 mod files;
 mod model;
-use model::{Credentials, ManualConnectionRecord};
+use crate::cloud::SavedCredentials;
+use model::ManualConnectionRecord;
 pub use model::{ManualConnectionStatus, SensitiveConnectionRequest};
 
 const RECORD: &str = "cloud-byte-backup-v2-manual.json";
@@ -58,10 +59,8 @@ pub async fn connect_existing(
     }
     let _permit = Store::lock(&host.home)?;
     let directory = files::Directory::open(&host.home)?;
-    let credentials = Credentials {
-        api_url: exemem_api_url_for(environment).to_owned(),
-        api_key: request.api_key.clone(),
-    };
+    let credentials =
+        SavedCredentials::new(exemem_api_url_for(environment), request.api_key.clone());
     let bytes = credential_bytes(&directory, &credentials)?;
     let record = ManualConnectionRecord {
         version: 1,
@@ -105,19 +104,17 @@ fn preflight(host: &crate::host::Host) -> Result<()> {
 
 fn credential_bytes(
     directory: &files::Directory,
-    supplied: &Credentials,
+    supplied: &SavedCredentials,
 ) -> Result<Zeroizing<Vec<u8>>> {
     if let Some(bytes) = directory.read(crate::cloud::CLOUD_SYNC_PAUSED_FILE)? {
-        let saved: Credentials =
-            serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid)?;
-        if saved.api_url != supplied.api_url || saved.api_key != supplied.api_key {
+        let saved = SavedCredentials::parse(&bytes).map_err(|_| BackupError::Invalid)?;
+        if saved.api_url != supplied.api_url || saved.api_key.as_str() != supplied.api_key.as_str()
+        {
             return Err(BackupError::Identity);
         }
         return Ok(bytes);
     }
-    Ok(Zeroizing::new(
-        serde_json::to_vec(supplied).map_err(|_| BackupError::Invalid)?,
-    ))
+    supplied.to_json().map_err(|_| BackupError::Invalid)
 }
 
 pub(super) fn status(host: &crate::host::Host) -> Result<Option<ManualConnectionStatus>> {
@@ -180,8 +177,7 @@ fn load_identity(
     if digest(&bytes)? != record.credential_sha256 {
         return Err(BackupError::Identity);
     }
-    let credentials: Credentials =
-        serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid)?;
+    let credentials = SavedCredentials::parse(&bytes).map_err(|_| BackupError::Invalid)?;
     let environment = environment(&record.environment)?;
     if credentials.api_url != exemem_api_url_for(environment) || credentials.api_key.is_empty() {
         return Err(BackupError::Identity);

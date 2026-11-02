@@ -40,12 +40,11 @@ modules = [
 
 [[layer]]
 name = "cloud"
-doc = "Cloud account configuration, registration, backup access credentials, ephemeral homes, and native cloud restore."
+doc = "Cloud account configuration, registration, the saved cloud credentials loader, backup access, and ephemeral homes."
 modules = [
   "backup_access",
   "cloud",
   "ephemeral",
-  "native_cloud_restore",
 ]
 
 [[layer]]

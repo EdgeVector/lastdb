@@ -1,9 +1,10 @@
-//! Account identity, protected credentials, and explicit backup enrollment.
+//! Account identity, the saved credentials loader, and explicit backup enrollment.
 use std::path::{Path, PathBuf};
 
 use fold_db::security::Ed25519KeyPair;
 
 mod config;
+mod credentials;
 mod register;
 mod resume;
 
@@ -17,5 +18,6 @@ pub fn cloud_backup_source_copy_path(home: &Path) -> PathBuf {
     home.join(".cloud_backup_source_copy")
 }
 pub use config::*;
+pub use credentials::*;
 pub use register::*;
 pub use resume::*;

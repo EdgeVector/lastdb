@@ -79,7 +79,7 @@ fn selected(directory: &File) -> Result<(&'static str, u8), String> {
 struct Receipt {
     version: u8,
     session_id: uuid::Uuid,
-    report: lastdb_node::native_cloud_restore::RestoreReport,
+    report: lastdb_node::byte_cloud_restore::RestoreReport,
 }
 
 fn validate(bytes: &[u8], version: u8, home: &Path) -> Result<(), String> {

@@ -33,7 +33,7 @@ impl VerifiedNativeContext<'_> {
         self.root.join("home/data")
     }
     pub fn published(&self) -> Result<Option<RestoreReport>> {
-        super::install::published_context(self)
+        super::publish::published_context(self)
     }
     pub fn finish_run(
         &self,
@@ -41,16 +41,6 @@ impl VerifiedNativeContext<'_> {
         inventory: NativeInventory,
         proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
     ) -> Result<RestoreReport> {
-        super::install::finish_run_context(self, keys, inventory, proof)
+        super::publish::finish_run_context(self, keys, inventory, proof)
     }
-}
-
-pub(crate) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
-    super::download::check_capacity(root, bytes)
-}
-pub(crate) fn verify_file(path: &Path, sha: &Digest, bytes: u64) -> Result<()> {
-    super::download::verify_file(path, sha, bytes)
-}
-pub(crate) fn bounded_bytes(path: &Path, maximum: u64) -> Result<Vec<u8>> {
-    super::download::bytes(path, maximum)
 }

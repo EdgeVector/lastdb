@@ -7,11 +7,12 @@ use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{
-    register_dev_recovery_device, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
+    register_dev_recovery_device, SavedCredentials, CLOUD_RESUME_REQUIRED_FILE,
+    CLOUD_SYNC_PAUSED_FILE,
 };
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
-use super::{files::FreshHome, Credentials};
+use super::files::FreshHome;
 
 #[path = "lastsecrets.rs"]
 mod lastsecrets;
@@ -222,13 +223,11 @@ fn commit_credentials(
     api_key: String,
     device_id: &str,
 ) -> Result<(), Failure> {
-    let credentials = Credentials {
-        api_url: exemem_api_url_for(Environment::Dev).to_owned(),
-        api_key,
-    };
-    let bytes = serde_json::to_vec_pretty(&credentials).map_err(|_| {
-        Failure::after_registration("cannot_encode_protected_credentials", device_id)
-    })?;
+    let bytes = SavedCredentials::new(exemem_api_url_for(Environment::Dev), api_key)
+        .to_json_pretty()
+        .map_err(|_| {
+            Failure::after_registration("cannot_encode_protected_credentials", device_id)
+        })?;
     target
         .write(CLOUD_SYNC_PAUSED_FILE, &bytes)
         .and_then(|()| target.write(CLOUD_RESUME_REQUIRED_FILE, b""))

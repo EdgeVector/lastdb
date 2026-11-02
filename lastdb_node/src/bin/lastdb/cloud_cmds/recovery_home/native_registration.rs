@@ -1,10 +1,10 @@
 //! Explicit environment, source-free signed registration. Retain unknown intent.
-use super::{files::FreshHome, Credentials};
+use super::files::FreshHome;
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{
-    register_native_device, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
+    register_native_device, SavedCredentials, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
 };
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use std::io::Read;
@@ -60,13 +60,9 @@ pub(super) fn command(
     if registered.user_hash != account.as_str() {
         return Err("registered account differs; retain the device intent".into());
     }
-    let bytes = Zeroizing::new(
-        serde_json::to_vec(&Credentials {
-            api_url: exemem_api_url_for(environment).to_owned(),
-            api_key: registered.api_key,
-        })
-        .map_err(|_| "cannot encode paused credentials; retain the device intent")?,
-    );
+    let bytes = SavedCredentials::new(exemem_api_url_for(environment), registered.api_key)
+        .to_json()
+        .map_err(|_| "cannot encode paused credentials; retain the device intent")?;
     target
         .write(CLOUD_SYNC_PAUSED_FILE, &bytes)
         .and_then(|()| target.commit_registered())

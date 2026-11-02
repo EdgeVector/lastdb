@@ -1,4 +1,5 @@
-//! Stable local restore report and durable owned metadata helpers.
+//! Stable local restore report and the metadata helpers for the published home.
+//! Session-owned files use `local`, which also checks the owner and the mode.
 use super::{RestoreError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};

@@ -65,7 +65,7 @@ pub(super) async fn load(
         return Err(RestoreError::Limit("client root metadata"));
     }
     let path = download::fetch(session, client, &grant, true).await?;
-    let bytes = crate::native_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?;
+    let bytes = crate::byte_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?;
     if inventory
         .receipt(&accepted.root_receipt_id)?
         .object
