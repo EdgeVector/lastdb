@@ -2,8 +2,8 @@
 
 use super::{
     contracts::TYPED_METADATA_VERSION, make_wrap, metadata_key, schema_field_key_profiles,
-    validate_identity, wrap_key_for, BundleMetadata, ConflictKeyIdentity, FieldKeyBundle,
-    FieldKeyStore, KeyAuthority, StorageError, StorageResult, NODE_DOMAIN,
+    validate_identity, wrap_key_for, BundleMetadata, FieldKeyBundle, FieldKeyStore, StorageError,
+    StorageResult, NODE_DOMAIN,
 };
 use crate::schema::Schema;
 use crate::storage::KvMutation;
@@ -28,7 +28,7 @@ impl FieldKeyStore {
         } else {
             schema
         };
-        let profiles = schema_field_key_profiles(schema, self.record_home())?;
+        let profiles = schema_field_key_profiles(schema)?;
         let field_keys: Vec<_> = profiles.iter().map(|(id, _)| id.clone()).collect();
         if self.missing_contracts(&profiles)?.is_empty() {
             return Ok(());
@@ -87,8 +87,6 @@ impl FieldKeyStore {
                 version: TYPED_METADATA_VERSION,
                 field_key_id: field_key.clone(),
                 range_profile: profile,
-                key_authority: KeyAuthority::Bundle,
-                conflict_identity: ConflictKeyIdentity::StoredV1,
             };
             rows.push(KvMutation::put(
                 wrap_key_for(&field_key, NODE_DOMAIN).as_bytes(),

@@ -1,8 +1,7 @@
 //! The node format and every schema must agree with the one stored profile.
 
 use super::{
-    schema_field_key_profiles, BundleMetadata, ConflictKeyIdentity, FieldKeyStore, KeyAuthority,
-    StorageError, StorageResult,
+    schema_field_key_profiles, BundleMetadata, FieldKeyStore, StorageError, StorageResult,
 };
 use crate::schema::Schema;
 use schema_types::field_range_profile::FieldRangeProfile;
@@ -15,11 +14,7 @@ impl FieldKeyStore {
         field_key: &str,
         metadata: &BundleMetadata,
     ) -> StorageResult<FieldRangeProfile> {
-        if metadata.version != TYPED_METADATA_VERSION
-            || metadata.field_key_id != field_key
-            || metadata.key_authority != KeyAuthority::Bundle
-            || metadata.conflict_identity != ConflictKeyIdentity::StoredV1
-        {
+        if metadata.version != TYPED_METADATA_VERSION || metadata.field_key_id != field_key {
             return Err(invalid());
         }
         Ok(metadata.range_profile)
@@ -62,7 +57,7 @@ impl FieldKeyStore {
     }
 
     pub(super) fn require_schema_profiles(&self, schema: &Schema) -> StorageResult<()> {
-        for (field_key, expected) in schema_field_key_profiles(schema, self.record_home())? {
+        for (field_key, expected) in schema_field_key_profiles(schema)? {
             match self.cached_contract(&field_key)? {
                 Some(contract) if contract.range_profile == expected => {}
                 _ => return Err(invalid()),

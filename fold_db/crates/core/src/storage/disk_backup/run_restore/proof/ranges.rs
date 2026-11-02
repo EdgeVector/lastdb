@@ -56,7 +56,7 @@ pub(super) fn verify(
         }
         // A format 7 home adds the record space of each schema.
         for (field_key, alternate_profile) in
-            crate::storage::field_key_store::schema_field_key_profiles(&schema, true)?
+            crate::storage::field_key_store::schema_field_key_profiles(&schema)?
         {
             if !field_keys.contains(&field_key.as_str()) {
                 batch(main, account_key, alternate_profile, &[field_key.as_str()])?;

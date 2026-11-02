@@ -43,27 +43,12 @@ pub(crate) struct CachedFieldKeyContract {
 }
 
 /// Every field key owns an independent key bundle under its node wrap.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum KeyAuthority {
-    Bundle,
-}
-
-/// Every conflict ID names the stored field key coordinate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum ConflictKeyIdentity {
-    StoredV1,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BundleMetadata {
     version: u8,
     field_key_id: String,
     range_profile: schema_types::field_range_profile::FieldRangeProfile,
-    key_authority: KeyAuthority,
-    conflict_identity: ConflictKeyIdentity,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -103,12 +88,6 @@ impl FieldKeyStore {
         self.node_wrap_key.is_some()
     }
 
-    /// True when this store serves a node home. Only a node home mints and
-    /// loads the record space key bundle of a schema.
-    fn record_home(&self) -> bool {
-        self.runtime.is_some()
-    }
-
     /// Resolve the exact field key contract and its key bundle.
     pub async fn load(&self, field_key_id: &str) -> StorageResult<Option<FieldKeyBundle>> {
         validate_identity(field_key_id, NODE_DOMAIN)?;
@@ -144,8 +123,7 @@ impl FieldKeyStore {
 
     /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
-        self.load_existing(&schema_field_key_ids(schema, self.record_home()))
-            .await?;
+        self.load_existing(&schema_field_key_ids(schema)).await?;
         self.require_schema_profiles(schema)
     }
 }
@@ -236,9 +214,8 @@ pub(crate) fn wrap_key_for(field_key_id: &str, domain: &str) -> String {
     format!("fkw:{field_key_id}:{domain_hash:x}")
 }
 
-/// Every field and alternate field key of a schema. With `records` (a node
-/// home), the record space of the schema too.
-pub(crate) fn schema_field_key_ids(schema: &Schema, records: bool) -> Vec<String> {
+/// Every field and alternate field key of a schema, and its record space.
+pub(crate) fn schema_field_key_ids(schema: &Schema) -> Vec<String> {
     let mut field_keys = schema
         .runtime_fields
         .iter()
@@ -254,20 +231,16 @@ pub(crate) fn schema_field_key_ids(schema: &Schema, records: bool) -> Vec<String
             .keys()
             .map(|name| lastdb_model::field_key_id::alternate_field_key_id(schema, name)),
     );
-    if records {
-        field_keys.push(lastdb_model::record_space::record_space_uuid(&schema.name));
-    }
+    field_keys.push(lastdb_model::record_space::record_space_uuid(&schema.name));
     field_keys.sort();
     field_keys.dedup();
     field_keys
 }
 
-/// Every field and alternate owns its own declared range profile. With
-/// `records` (a node home), the record space of the schema uses the range
-/// profile of the primary key.
+/// Every field and alternate owns its own declared range profile. The record
+/// space of the schema uses the range profile of the primary key.
 pub(crate) fn schema_field_key_profiles(
     schema: &Schema,
-    records: bool,
 ) -> StorageResult<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>> {
     use schema_types::field_range_profile::FieldRangeProfile;
     let kind = schema
@@ -298,12 +271,10 @@ pub(crate) fn schema_field_key_profiles(
             profile,
         ));
     }
-    if records {
-        result.push((
-            lastdb_model::record_space::record_space_uuid(&schema.name),
-            primary,
-        ));
-    }
+    result.push((
+        lastdb_model::record_space::record_space_uuid(&schema.name),
+        primary,
+    ));
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result.dedup();
     Ok(result)

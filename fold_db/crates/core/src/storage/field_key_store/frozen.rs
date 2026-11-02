@@ -33,8 +33,6 @@ pub(crate) fn verify_frozen_typed_profile(
     if metadata.version != super::contracts::TYPED_METADATA_VERSION
         || metadata.field_key_id != field_key
         || metadata.range_profile != expected
-        || metadata.conflict_identity != super::ConflictKeyIdentity::StoredV1
-        || metadata.key_authority != super::KeyAuthority::Bundle
     {
         return Err(invalid("typed field key metadata differs from its schema"));
     }

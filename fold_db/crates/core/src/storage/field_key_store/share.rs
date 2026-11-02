@@ -18,7 +18,7 @@ impl FieldKeyStore {
             return Ok(0);
         }
         validate_identity(&schema.name, domain)?;
-        let field_keys = schema_field_key_ids(schema, self.record_home());
+        let field_keys = schema_field_key_ids(schema);
         self.load_existing(&field_keys).await?;
         self.require_schema_profiles(schema)?;
         let mut rows = Vec::with_capacity(field_keys.len());
