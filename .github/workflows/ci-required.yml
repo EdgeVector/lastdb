@@ -344,7 +344,7 @@ jobs:
         run: |
           cargo clippy --locked -p lastdb_node --bin lastdb-format-spike -- -D warnings
           cargo build --locked -p lastdb_node --bin lastdb-format-spike
-      - name: Run both injected formats through replacement and native maintenance
+      - name: Run both formats through record and alternate-key replacement
         shell: bash
         run: |
           set -euo pipefail
@@ -380,6 +380,27 @@ jobs:
               "$spike_program" "${spike_args[@]}" maintain --steps 16
               "$spike_program" "${spike_args[@]}" get notes one
               "$spike_program" "${spike_args[@]}" get notes two
+              echo '### Alternate pointers: shared value, move, remove and refresh'
+              printf '%s\n' '{"title":"first alias","alias":"team"}' |
+                "$spike_program" "${spike_args[@]}" put notes alpha
+              printf '%s\n' '{"title":"second alias","alias":"team"}' |
+                "$spike_program" "${spike_args[@]}" put notes beta
+              "$spike_program" "${spike_args[@]}" lookup notes team
+              printf '%s\n' '{"title":"moved alias","alias":"other"}' |
+                "$spike_program" "${spike_args[@]}" put notes alpha
+              "$spike_program" "${spike_args[@]}" lookup notes team
+              "$spike_program" "${spike_args[@]}" lookup notes other
+              printf '%s\n' '{"title":"without alias"}' |
+                "$spike_program" "${spike_args[@]}" put notes alpha
+              "$spike_program" "${spike_args[@]}" lookup notes other
+              "$spike_program" "${spike_args[@]}" get notes alpha
+              printf '%s\n' '{"title":"updated second","alias":"team"}' |
+                "$spike_program" "${spike_args[@]}" put notes beta
+              "$spike_program" "${spike_args[@]}" lookup notes team
+              printf '%s\n' '{}' |
+                "$spike_program" "${spike_args[@]}" put notes beta
+              "$spike_program" "${spike_args[@]}" lookup notes team
+              "$spike_program" "${spike_args[@]}" get notes beta
             done
           } | tee "$RUNNER_TEMP/record-format-spike.txt"
           cat "$RUNNER_TEMP/record-format-spike.txt" >> "$GITHUB_STEP_SUMMARY"

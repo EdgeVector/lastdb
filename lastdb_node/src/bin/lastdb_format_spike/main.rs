@@ -36,6 +36,8 @@ enum Action {
     Put { kind: String, key: String },
     /// Read one complete record; a missing key returns null.
     Get { kind: String, key: String },
+    /// Read records through the format's named alternate key; returns primary keys.
+    Lookup { kind: String, value: String },
     /// Perform at most this many native merge steps; zero reports current state.
     Maintain {
         #[arg(long, default_value_t = 8)]
@@ -64,12 +66,19 @@ fn run(cli: Cli, format: impl Format) -> Result<()> {
         Action::Put { kind, key } => {
             let fields = read_record(format.layout().max_record_bytes)?;
             let record = RecordReplacement::new(kind, key, fields);
-            let frontier = writer::Store::open(&cli.home, format)?.replace(&record)?;
-            println!("{}", serde_json::json!({"ok": true, "frontier": frontier}));
+            let receipt = writer::Store::open(&cli.home, format)?.replace(&record)?;
+            println!(
+                "{}",
+                serde_json::json!({"ok": true, "frontier": receipt.frontier, "operations": receipt.operations})
+            );
         }
         Action::Get { kind, key } => {
             let record = writer::Store::open(&cli.home, format)?.get(&kind, &key)?;
             println!("{}", serde_json::to_string(&record)?);
+        }
+        Action::Lookup { kind, value } => {
+            let result = writer::Store::open(&cli.home, format)?.lookup(&kind, &value)?;
+            println!("{}", serde_json::to_string(&result)?);
         }
         Action::Maintain { steps } => {
             let report = writer::Store::open(&cli.home, format)?.maintain(steps)?;
