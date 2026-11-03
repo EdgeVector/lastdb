@@ -6,15 +6,28 @@ pub(super) struct Json<R> {
     input: R,
 }
 
+/// What the CAS row says about its envelope. The caller checks it against the
+/// opened envelope.
+pub(super) struct Selectors {
+    /// The plaintext size.
+    pub size: u64,
+    /// `sha256:<hex>` of the envelope.
+    pub blob_ref: String,
+    /// The hex SHA-256 of the envelope.
+    pub content_sha256: String,
+}
+
 pub(super) fn extract(
     input: impl BufRead,
     output: &mut impl Write,
     dependency: &FileDependency,
-) -> StorageResult<u64> {
+) -> StorageResult<Selectors> {
     let mut json = Json { input };
     json.expect(b'{')?;
     let mut seen = 0u8;
     let mut size = None;
+    let mut blob_ref = String::new();
+    let mut content_sha256 = String::new();
     loop {
         if json.peek()? == Some(b'}') {
             json.take()?;
@@ -36,13 +49,8 @@ pub(super) fn extract(
         }
         seen |= bit;
         match key.as_str() {
-            "blob_ref" if json.small_string()? != dependency.blob_ref() => {
-                return Err(invalid("native CAS blob identity"))
-            }
-            "content_sha256" if json.small_string()? != dependency.file_hash().as_str() => {
-                return Err(invalid("native CAS file digest"))
-            }
-            "blob_ref" | "content_sha256" => {}
+            "blob_ref" => blob_ref = json.small_string()?,
+            "content_sha256" => content_sha256 = json.small_string()?,
             "size" => {
                 size = Some(
                     json.number()?
@@ -52,7 +60,7 @@ pub(super) fn extract(
             }
             "local_cipher_suite" => {
                 let suite = json.small_string()?;
-                if !super::compatible_local_suite(&suite, dependency.encryption_suite()) {
+                if !super::compatible_local_suite(&suite) {
                     return Err(invalid(
                         "native CAS per-file encryption suite is uncertified",
                     ));
@@ -79,12 +87,14 @@ pub(super) fn extract(
         return Err(invalid("native CAS selector inventory"));
     }
     let size = size.ok_or_else(|| invalid("native CAS size"))?;
-    if size.checked_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
-        != Some(dependency.expected_stored_bytes())
-    {
+    if size != dependency.size_bytes() {
         return Err(invalid("native CAS file size differs"));
     }
-    Ok(size)
+    Ok(Selectors {
+        size,
+        blob_ref,
+        content_sha256,
+    })
 }
 
 impl<R: BufRead> Json<R> {

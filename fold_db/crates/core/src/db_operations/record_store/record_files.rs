@@ -17,7 +17,6 @@
 
 use super::RecordStore;
 use crate::error::FoldDbError;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::sharing::delivery_wire::{
     content_addressed_blob_from_envelope, decode_blob_bytes_with_dek, ContentAddressedBlob,
@@ -32,23 +31,9 @@ use std::sync::Arc;
 /// The namespace of the file rows: its own run home, sent to B2.
 pub(crate) const CAS_BLOB_TREE: &str = "cas_blobs";
 
-/// The key family of record files in `cas_blobs`.
-pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
-
 /// The file path of the record at one storage key, scope included.
 pub(crate) fn file_path(record: &str) -> Result<String, SchemaError> {
-    let scope = crate::storage::current_keys::exact_scope(record)?;
-    let bare = scope.map_or(Some(record), |scope| record.get(scope.len() + 1..));
-    let space = bare
-        .and_then(|bare| bare.strip_prefix(RECORD_PREFIX))
-        .and_then(|rest| rest.split(':').next())
-        .filter(|space| !space.is_empty())
-        .ok_or_else(|| SchemaError::InvalidData("record file: not a record key".into()))?;
-    let base = format!(
-        "{RECORD_FILE_PREFIX}{space}:{}",
-        super::field_history::digest(record.as_bytes())
-    );
-    Ok(build_storage_key(scope, &base))
+    Ok(crate::storage::current_keys::families::record_file_path(record)?)
 }
 
 /// The file row change of one record write: the new row when the write set the

@@ -29,8 +29,7 @@ pub(super) fn verify(proof: &Proof<'_>, dependency: &files::FileDependency) -> S
     let result = (|| {
         let policy = SpacePolicy::default();
         let mut output = files::NativeCasOutput::create(&raw_path, &policy)?;
-        let key =
-            crate::storage::disk_pack::native_routing::encode(dependency.blob_ref().as_bytes());
+        let key = crate::storage::disk_pack::native_routing::encode(dependency.path().as_bytes());
         let copied = {
             let mut read = super::fork_mapped(
                 proof.cas,

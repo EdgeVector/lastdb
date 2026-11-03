@@ -1,5 +1,4 @@
 //! Semantic proof against two fixed, authenticated disk V2 roots.
-mod blobs;
 mod keys;
 mod native;
 mod ranges;
@@ -79,9 +78,7 @@ fn verify_once(
         Stage::Schemas,
         ranges::verify(main, account_key, version, key_heads),
     )?;
-    let proved = phase(Stage::Blobs, blobs::verify(&proof))?;
-    phase(Stage::Records, records::verify_records(&proof))?;
-    Ok(proved)
+    phase(Stage::Records, records::verify_records(&proof))
 }
 
 fn descriptor_pressure(error: &StorageError) -> bool {

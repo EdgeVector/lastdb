@@ -29,6 +29,8 @@ pub struct NativeCasProof {
 
 /// Drop the native reader and record JSON before this disk-backed decode stage.
 /// The caller owns raw_path; this function removes its exact private siblings.
+/// The row must open with the record's file key and give the bytes that the
+/// record's marker names.
 pub fn verify_native_cas(
     proof: NativeCasProof,
     raw_path: &Path,
@@ -39,6 +41,6 @@ pub fn verify_native_cas(
     verify::verify(proof, raw_path, account_key, dependency, space)
 }
 
-fn compatible_local_suite(local: &str, pointer: &str) -> bool {
-    local == FILE_BLOB_CIPHER_SUITE && pointer == FILE_BLOB_CIPHER_SUITE
+fn compatible_local_suite(local: &str) -> bool {
+    local == FILE_BLOB_CIPHER_SUITE
 }

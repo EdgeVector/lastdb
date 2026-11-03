@@ -21,7 +21,6 @@ on:
       - 'fold_db/crates/core/src/record/**'
       - 'fold_db/crates/model/src/record/**'
       - 'fold_db/crates/core/src/crypto/**'
-      - 'fold_db/crates/core/src/main_key_placement.rs'
       - 'fold_db/crates/core/src/db_operations/record_store/**'
       - 'lastdb_node/src/host/**'
       - 'scripts/disk_v2/**'

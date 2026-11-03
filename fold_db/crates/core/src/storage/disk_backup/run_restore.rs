@@ -30,6 +30,8 @@ impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
+    /// The number of record files that the proof opened and checked against
+    /// their markers.
     pub fn verified_records(&self) -> u64 {
         self.records
     }

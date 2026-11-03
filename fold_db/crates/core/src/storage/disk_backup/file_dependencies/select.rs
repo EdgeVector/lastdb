@@ -22,7 +22,7 @@ pub fn expected_record(
     if stored.is_none_or(|stored| stored > FILE_DEPENDENCY_MAX_STORED_BYTES) {
         return Err(invalid("file dependency exceeds total backup policy"));
     }
-    let path = crate::db_operations::record_store::record_files::file_path(record_key)
+    let path = crate::storage::current_keys::families::record_file_path(record_key)
         .map_err(|_| invalid("file dependency path"))?;
     let dek = crate::sharing::file_blob_seal::account_file_blob_dek_hex(account_key, &marker.sha256)
         .map_err(|_| invalid("file dependency key format"))?;
