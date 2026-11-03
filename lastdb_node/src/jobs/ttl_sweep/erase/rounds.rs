@@ -42,7 +42,7 @@ pub(super) async fn erase_rounds(
 }
 
 /// Drain this one page, including smaller retries after size refusals. Each
-/// batch still releases admission and observes the existing duty pause.
+/// batch observes the existing duty pause.
 async fn erase_page(
     host: &Host,
     backlog: &mut Backlog,
@@ -59,16 +59,10 @@ async fn erase_page(
         let chunk = backlog.take(size);
         let taken = chunk.len();
         let started = Instant::now();
-        let admitted = crate::maintenance_write_gate::run(
-            host,
-            WriterWatch::measure(erase_batch(host, backlog, chunk, verb)),
-        )
+        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(erase_batch(
+            host, backlog, chunk, verb,
+        )))
         .await;
-        let Some((outcome, blocked, scopes)) = admitted else {
-            // Count this unaccepted batch as outstanding before the pass ends.
-            backlog.shrink_after_limit(taken);
-            return true;
-        };
         let pause = pace.pause_after(blocked, watch.writer_present(scopes));
         match outcome {
             Ok(done) => {

@@ -100,15 +100,9 @@ impl MutationManager {
                 barrier.wait().await?;
             }
         }
-        let mut receipt = crate::fold_db_core::admission::with_mutation_admission(
-            self.capture_router(),
-            self.write_mutations_batch_inner_with_clock(
-                mutations,
-                storage_prefix,
-                author_clock_barrier,
-            ),
-        )
-        .await?;
+        let mut receipt = self
+            .write_mutations_batch_inner_with_clock(mutations, storage_prefix, author_clock_barrier)
+            .await?;
         receipt.revision = revision;
         Ok(receipt)
     }

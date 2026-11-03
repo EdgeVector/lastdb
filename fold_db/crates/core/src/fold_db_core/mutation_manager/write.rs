@@ -13,7 +13,6 @@ use super::MutationManager;
 use super::helpers::apply_storage_prefix_to_schema;
 
 mod access_entry;
-mod admission;
 mod batch_inner;
 mod create_update_batch;
 mod erase_guards;
@@ -22,6 +21,7 @@ mod layout;
 mod native;
 mod record_effects;
 mod record_rules;
+mod receipt_entry;
 mod records;
 mod replay_cutoff;
 mod schema_delta_helpers;

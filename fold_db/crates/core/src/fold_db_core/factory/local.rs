@@ -36,7 +36,6 @@ pub(super) async fn create_local_fold_db(
         offline_maintenance: options.offline_maintenance,
         signer,
         search_outbox_inbox: options.search_outbox_inbox,
-        mutation_log_capture: Some(store_stack.mutation_log_capture),
     })
     .await
     .map_err(|e| map_boot_decrypt_error(e.to_string()))?;

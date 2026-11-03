@@ -18,7 +18,6 @@ mod catalog_share;
 mod init;
 mod init_boot;
 mod lifecycle;
-mod maintenance_admission;
 mod record_files;
 mod schema_drop;
 
@@ -26,7 +25,6 @@ pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;
 
 pub use init::FoldDbInit;
-pub use maintenance_admission::LocalMutationAdmission;
 pub use record_files::RecordFileState;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
@@ -41,9 +39,6 @@ pub struct FoldDB {
     /// Tracker for pending background tasks
     pub(crate) pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
     pub(crate) background_field_history: super::field_history::BackgroundFieldHistory,
-    /// Mutation admission gate. Maintenance and local record file writes take
-    /// an admission.
-    mutation_log_capture: Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>,
 }
 
 impl Drop for FoldDB {
