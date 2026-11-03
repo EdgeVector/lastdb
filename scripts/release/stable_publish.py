@@ -73,13 +73,17 @@ def formula_tree(plan, mac_hash):
         content, hashes = re.subn(r'(?m)^(\s*sha256 )"[0-9a-f]+"', rf'\g<1>"{mac_hash}"', content)
         if (versions, urls, hashes) != (1, 1, 1):
             raise ValueError("Formula changes exceed the three release fields")
+        if 'depends_on "openssl@3"' not in content:
+            if content.count("  on_macos do") != 1:
+                raise ValueError("The native formula has no definite macOS block")
+            content = content.replace("  on_macos do", '  depends_on "openssl@3"\n\n  on_macos do', 1)
         entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
     tree = api(f"repos/{TAP}/git/trees", "POST", {"base_tree": commit["tree"]["sha"], "tree": entries})
     return api(f"repos/{TAP}/git/commits", "POST", {
         "message": f'Promote qualified LastDB {plan["version"]}', "tree": tree["sha"], "parents": [parent]})["sha"]
 
 
-def release(plan, folder, hashes):
+def release(plan, folder, hashes, proof):
     marker = f'<!-- lastdb-stable:v1 source={plan["source"]} version={plan["version"]} -->'
     rows = api(f"repos/{TAP}/releases?per_page=100")
     matches = [row for row in rows if row["tag_name"] == plan["tag"]]
@@ -90,7 +94,9 @@ def release(plan, folder, hashes):
     else:
         result = api(f"repos/{TAP}/releases", "POST", {
             "tag_name": plan["tag"], "name": "LastDB " + plan["version"], "draft": True,
-            "prerelease": True, "body": marker + "\n\nQualified for one uninterrupted hour in CI.\n\n" + plan["run_url"]})
+            "prerelease": True, "body": marker + "\n\nQualified for one uninterrupted hour in CI.\n\n"
+            + f'Home format {proof["home_format"]}, API {proof["api_version"]}. Older homes require an explicit conversion; this release does not convert or upgrade a primary.\n\n'
+            + plan["run_url"]})
     # Existing assets are immutable, including on retry. Never --clobber.
     existing = {row["name"]: row for row in result["assets"]}
     if set(existing) - set(hashes):
@@ -116,12 +122,23 @@ def tap_pr(plan, commit):
         if not pr.get("merged_at") and pr["state"] != "open":
             raise ValueError("The stable update PR was closed without merging")
     else:
-        api(f"repos/{TAP}/git/refs", "POST", {"ref": "refs/heads/" + branch, "sha": commit})
+        from nightly_plan import MetadataError
+        try:
+            existing = api(f"repos/{TAP}/git/ref/heads/{branch}")["object"]["sha"]
+        except MetadataError as error:
+            if error.http_status != 404:
+                raise
+            api(f"repos/{TAP}/git/refs", "POST", {"ref": "refs/heads/" + branch, "sha": commit})
+        else:
+            previous = api(f"repos/{TAP}/git/commits/{existing}")
+            proposed = api(f"repos/{TAP}/git/commits/{commit}")
+            if previous["tree"]["sha"] != proposed["tree"]["sha"]:
+                raise ValueError("The existing stable branch differs; refuse to overwrite it")
         pr = api(f"repos/{TAP}/pulls", "POST", {"head": branch, "base": "main",
                  "title": "LastDB " + plan["version"] + " — qualified stable release",
                  "body": "Promote the matched CLI and daemon after the full one-hour CI qualification and signed app compatibility gate.\n\n"
                          + "Source: " + plan["source"] + "\n\nValidation: " + plan["run_url"]
-                         + "\n\nOnly version, URL, and checksum change in each formula. The primary is unchanged."})
+                         + "\n\nUpdate version, URL, and checksum in each formula, declaring openssl@3 when absent. The primary is unchanged."})
     _capture(["gh", "pr", "merge", str(pr["number"]), "--repo", TAP, "--auto", "--squash"], timeout=60)
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:
@@ -145,6 +162,10 @@ def main():
     if os.environ.get("GITHUB_REF") != "refs/heads/main" or os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
         raise ValueError("Untrusted release invocation")
     proof = qualification(args.proof, plan)
+    expected = {f"lastdb-{target}{suffix}" for target in TARGETS
+                for suffix in (".tar.gz", ".manifest.json", ".proof.json")}
+    if {path.name for path in args.bundles.iterdir()} != expected:
+        raise ValueError("The downloaded bundle set differs from the fixed native asset set")
     if proof["bundle_sha256"] != digest(args.bundles / "lastdb-x86_64-unknown-linux-gnu.tar.gz"):
         raise ValueError("Qualification belongs to different executable bytes")
     for target in TARGETS:
@@ -160,7 +181,7 @@ def main():
     (args.bundles / "SHA256SUMS.txt").write_text("".join(f"{value}  {name}\n" for name, value in sorted(hashes.items())))
     hashes["SHA256SUMS.txt"] = digest(args.bundles / "SHA256SUMS.txt")
     commit = formula_tree(plan, hashes["lastdb-aarch64-apple-darwin.tar.gz"])
-    result = release(plan, args.bundles, hashes)
+    result = release(plan, args.bundles, hashes, proof)
     pr = tap_pr(plan, commit)
     api(f'repos/{TAP}/releases/{result["id"]}', "PATCH", {"prerelease": False, "make_latest": "true"})
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:

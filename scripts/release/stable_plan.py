@@ -7,11 +7,36 @@ import json
 import os
 from pathlib import Path
 import re
+from urllib.error import HTTPError
 
 from nightly_plan import _capture, wait_gates
 
 TAP = "EdgeVector/homebrew-lastdb"
 APPS = ("brain", "lastsecrets", "search")
+
+
+def app_sources():
+    from stable_registry import catalog
+    text = Path("lastdb_uds/src/uds_router.rs").read_text()
+    match = re.search(r"pub const API_VERSION: u32 = ([0-9]+);", text)
+    if match is None:
+        raise ValueError("The source has no definite API version")
+    try:
+        listing = catalog(int(match[1]))
+    except HTTPError as error:
+        if error.code not in (403, 404):
+            raise
+        listing = {"apps": []}
+    result = {}
+    for app in APPS:
+        entries = [row for row in listing["apps"] if row.get("app_id") == app and row.get("status") == "listed"
+                   and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
+        # Re-prove the published compatible commit, instead of requiring a
+        # person to sign every unrelated app main update. A missing API list
+        # produces bootstrap evidence only; publication still fails closed.
+        result[app] = (max(entries, key=lambda row: row["published_at"])["sha"] if entries
+                       else api(f"repos/EdgeVector/{app}/commits/main")["sha"])
+    return result
 
 
 def api(path, method="GET", payload=None):
@@ -52,17 +77,18 @@ def make(output):
         raise ValueError("The stable formula has no explicit numeric version")
     version = ".".join((*match.groups()[:2], str(int(match[3]) + 1)))
     plan = {"repository": "EdgeVector/lastdb", "source": source, "version": version,
+            "base": os.environ.get("BASE_SHA") or _capture(["git", "rev-parse", "HEAD^"]).strip(),
             "tag": "v" + version, "publish": publish, "event_name": event,
             "epoch": int(_capture(["git", "show", "-s", "--format=%ct", source])),
             "run_url": f"https://github.com/EdgeVector/lastdb/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-            "apps": {app: api(f"repos/EdgeVector/{app}/commits/main")["sha"] for app in APPS}}
+            "apps": app_sources()}
     marker = f"<!-- lastdb-stable:v1 source={source} "
     rows = api(f"repos/{TAP}/releases?per_page=100")
     skip = publish and any(not row["draft"] and not row["prerelease"]
                            and marker in row.get("body", "") for row in rows)
     Path(output).write_text(json.dumps(plan, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
-        for key in ("source", "version", "tag"):
+        for key in ("source", "version", "tag", "base"):
             stream.write(f"{key}={plan[key]}\n")
         stream.write(f"skip={str(skip).lower()}\n")
     return plan

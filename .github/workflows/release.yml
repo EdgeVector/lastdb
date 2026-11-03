@@ -1,54 +1,12 @@
-# STATUS (2026-09-29): this workflow is DISABLED in the GitHub Actions UI on
-# purpose. EdgeVector/fold is canonical on GitHub again
-# (brain decision-2026-09-29-fold-venue-back-to-github), but stable releases
-# still ship from the last-stack canary chain, which
-# creates the public homebrew-lastdb release itself. A `v*` tag pushed to this
-# repo (scripts/release/cut-local-stable.sh --push-tag pushes to origin) would
-# fire this workflow and try to create the same release; the job refuses to
-# clobber, so it fails loudly, but it burns macOS minutes and may publish assets
-# first. Enable only after Tom decides release.yml, not the local chain, owns
-# tag-driven releases. The weekly smoke also needs the org secret GH_PAT for
-# private git dependencies (not verifiable from repo secrets).
-#
-# tl;dr — `git tag -a vX.Y.Z -m "vX.Y.Z" main && git push origin vX.Y.Z`. The
-# tag push fires this workflow, which produces the LastDB Mini tarball on this
-# public EdgeVector/homebrew-lastdb release. The formula bump is NOT made
-# here. Publish it with scripts/release/forge-promote-homebrew-stable.sh
-# --publish. That script opens a GitHub PR on EdgeVector/homebrew-lastdb
-# because LastGit and Forgejo are retired.
-#
-# VENUE (2026-07-10, Tom; restated 2026-09-29): GitHub Actions is the release
-# venue for tag-driven builds. The retired Forgejo release workflow was removed.
-#
-# PACKAGING (2026-07-12): this workflow ships the LastDB MINI channel — the
-# tiny socket/control CLI (`lastdb`) and the daemon (`lastdbd`) from the
-# `lastdb_node` crate, Apple-Silicon-only, matching the forge pipeline and
-# both tap formulas (`lastdb.rb` + the `folddb.rb` alias BOTH install
-# lastdb/lastdbd since the Mini cutover). The previous fold_db_node full-node
-# binary set (`lastdb_server`, `folddb_*`, React frontend, 3-target matrix)
-# is retired here — shipping it again would publish tarballs without
-# `lastdbd` and break both formulas.
-#
-# Triggers:
-# - `push: tags v*` — real release. Builds the Mini tarball, publishes one
-#   GitHub release on EdgeVector/homebrew-lastdb, and REPORTS the formula
-#   bump without publishing it (a GitHub formula PR, run locally).
-# - `workflow_dispatch` — dry-run. Builds binaries against any ref but DOES
-#   NOT publish anything. Use to reproduce a release-tooling bug or test
-#   tooling changes without burning a version number.
-# - `schedule: weekly Sunday 06:00 UTC` — smoke. Same as dispatch, against
-#   `main`. Catches drift between source code and this workflow's binary
-#   list before a real release tries to use it.
-#
-# The `release`, `bump-tap` jobs are gated to fire only on tag-push. The
-# `build` job runs on all triggers but skips the strict "version matches
-# tag" check when there is no tag.
+# Legacy canary packaging only. Stable releases are owned by
+# stable-release.yml and its one-hour CI qualification and Homebrew PR gates.
+# Manual and weekly builds retain their operational packaging checks.
 name: Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-canary.*'
   workflow_dispatch:
     inputs:
       ref:
@@ -135,7 +93,7 @@ jobs:
       # Tag-push only — on dispatch/schedule there's no tag to compare to,
       # so we just smoke-test that the binaries launch in the next step.
       - name: Verify --version matches tag
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-canary.')
         shell: bash
         run: |
           set -euo pipefail
@@ -326,7 +284,7 @@ jobs:
 
   release:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-canary.')
     runs-on: ubuntu-latest
     outputs:
       sha_aarch64_apple_darwin: ${{ steps.sums.outputs.sha_aarch64_apple_darwin }}

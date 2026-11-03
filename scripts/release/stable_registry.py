@@ -3,12 +3,13 @@
 import base64
 import hashlib
 import json
+from pathlib import Path
 import urllib.request
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
-BASE = "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists"
+PROFILE = Path(__file__).resolve().parents[2] / "folddb_profile" / "environments.json"
 KEY = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw="
 SIGNED = ("app_id", "channel", "app_version", "api_version", "lastdb_build",
           "outbox_format_version", "source", "sha", "audience")
@@ -22,10 +23,10 @@ def download(url):
     return raw
 
 
-def require_apps(qualification):
-    api = qualification["api_version"]
-    raw = download(f"{BASE}/stable/api/{api}.json")
-    envelope = json.loads(download(f"{BASE}/stable/api/{api}.json.sig"))
+def catalog(api):
+    base = json.loads(PROFILE.read_text())["environments"]["prod"]["registry_index"]
+    raw = download(f"{base}/stable/api/{api}.json")
+    envelope = json.loads(download(f"{base}/stable/api/{api}.json.sig"))
     digest = hashlib.sha256(raw).hexdigest()
     key = base64.b64decode(KEY, validate=True)
     if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
@@ -36,8 +37,14 @@ def require_apps(qualification):
     catalog = json.loads(raw)
     if catalog.get("api_version") != api or catalog.get("channel") != "stable" or catalog.get("list_version") != 1:
         raise ValueError("Registry list belongs to another interface")
+    return catalog
+
+
+def require_apps(qualification):
+    api = qualification["api_version"]
+    listing = catalog(api)
     for app, proof in qualification["apps"].items():
-        matches = [row for row in catalog["apps"] if row.get("app_id") == app
+        matches = [row for row in listing["apps"] if row.get("app_id") == app
                    and row.get("sha") == proof["sha"] and row.get("api_version") == api
                    and row.get("channel") == "stable" and row.get("status") == "listed"
                    and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
@@ -47,4 +54,5 @@ def require_apps(qualification):
             signed = {name: row[name] for name in SIGNED if name in row}
             Ed25519PublicKey.from_public_bytes(base64.b64decode(row["publisher_key"], validate=True)).verify(
                 base64.b64decode(row["publisher_sig"], validate=True), rfc8785.dumps(signed))
-    return {"api_version": api, "sequence": catalog["seq"], "generated_at": catalog["generated_at"]}
+    print(f'Authenticated API {api} stable list sequence {listing["seq"]}', flush=True)
+    return {"api_version": api, "apps": {app: proof["sha"] for app, proof in qualification["apps"].items()}}

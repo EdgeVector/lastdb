@@ -12,6 +12,7 @@ import time
 from nightly_assets import digest, document
 from nightly_package import write_json
 from nightly_probe import OwnedNode, operations, read, unpack, write
+from home_format import HOME_FORMAT
 from stable_apps import prove
 from stable_plan import load
 
@@ -70,6 +71,7 @@ def main():
     write_json(args.output / "qualification.json", {
         "schema": "lastdb.stable.qualification.v1", "source": plan["source"],
         "version": plan["version"], "bundle_sha256": digest(bundle), "api_version": version["api_version"],
+        "home_format": HOME_FORMAT,
         "started_at": started.isoformat(), "ended_at": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": elapsed, "health_p95_seconds": p95, "healthy_samples": len(latencies),
         "qualified": plan["publish"] and elapsed >= HOUR, "apps": apps,

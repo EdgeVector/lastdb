@@ -9,17 +9,18 @@ from nightly_package import write_json
 from stable_plan import APPS
 
 
-def command(argv, environment, directory, output, name, body=None, timeout=300):
+def command(argv, environment, directory, output, name, body=None, timeout=300, retain_output=True):
     with (output / (name + ".log")).open("w") as log:
         result = subprocess.run(argv, cwd=directory, env=environment, input=body, text=True,
                                 stdout=subprocess.PIPE, stderr=log, timeout=timeout)
         if result.returncode or len(result.stdout) > 1024 ** 2:
             raise RuntimeError(f"App operation {name} failed; see its CI artifact")
-        log.write(result.stdout)
+        if retain_output:
+            log.write(result.stdout)
     return result.stdout
 
 
-def prove(node, plan, output):
+def prove(node, plan, output, prepare_cli=None):
     environment = {**os.environ, **node.environment,
                    "PATH": str(node.binaries) + os.pathsep + os.environ["PATH"],
                    "FBRAIN_FOLDDB_SOCKET": str(node.socket),
@@ -43,8 +44,9 @@ def prove(node, plan, output):
         executable = source / ("bin/search" if app == "search" else
                                "bin/brain" if app == "brain" else "bin/registry-lastsecrets")
         executable.chmod(executable.stat().st_mode | 0o100)
-        run = lambda args, name, body=None: command([str(executable), *args], environment,
-                                                    source, output, app + "-" + name, body)
+        run = lambda args, name, body=None, retain_output=True: command(
+            [str(executable), *args], environment, source, output, app + "-" + name, body,
+            retain_output=retain_output)
         if app == "brain":
             run(["init"], "init")
             value = "CI stable qualification record"
@@ -56,7 +58,7 @@ def prove(node, plan, output):
             value = "generated-nonsecret-ci-value"
             run(["put", "ci-release-qualification", "--label", "CI qualification", "--provider", "ci",
                  "--purpose", "release", "--env", "dev", "--value-stdin"], "put", value)
-            if run(["get", "ci-release-qualification"], "get").strip() != value:
+            if run(["get", "ci-release-qualification"], "get", retain_output=False).strip() != value:
                 raise RuntimeError("LastSecrets did not return the acknowledged value")
         else:
             # Search owns no schemas. Exercise its real CLI status and inbox
@@ -72,7 +74,7 @@ def prove(node, plan, output):
                 raise RuntimeError("Search did not query the real database changes")
             run(["status", "--last-db-home", str(node.home)], "status")
         statement = output / (app + ".declaration.json")
-        command([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
+        command([str(prepare_cli or node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
                  "--manifest", str(source / "lastdb-app.json"), "--channel", "stable",
                  "--prepare", str(statement)], environment, source, output, app + "-declaration")
         declaration = json.loads(statement.read_text())

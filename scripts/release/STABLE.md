@@ -6,7 +6,8 @@ and exercise the operational path briefly; PR previews cannot publish or claim
 the one-hour qualification.
 
 The publishing run freezes one main commit, the next numeric Homebrew patch
-version, and exact Brain, LastSecrets, and Search source commits. It requires
+version, and the published compatible Brain, LastSecrets, and Search commits.
+Missing listings use app main only to prepare bootstrap evidence. It requires
 that database source's normal CI, benchmark completion, and security checks.
 Both native packages must pass durable write, keyed/range read, reopen, and
 crash recovery operations. The Linux package then runs the three real apps
@@ -33,9 +34,18 @@ provenance before using the cross-repository `GH_PAT` credential. It uploads
 immutable Homebrew prerelease assets, opens a formula PR, and waits for that
 repository's normal merge gates. Only a merged formula PR makes the release
 stable. A retry may reuse identical existing assets; it cannot replace them.
+The formulas declare the OpenSSL 3 runtime dependency used by the packages.
+Release notes state the proved home format and API and the need for explicit
+conversion of older homes.
 An already published source is skipped. Active qualifications are serialized
 and are never cancelled by another main update.
 
-The old local candidate and soak routines remain paused. The workflow does
+The separate API 23 backfill job uses an attested historical package and the
+known Brain/LastSecrets commits on another generated CI home. It repairs
+missing listings without operating on the primary. It is app evidence, not
+the one-hour qualification of the new stable package.
+
+The legacy tag workflow accepts only canary tags; a numeric stable tag cannot
+publish through that route. The old local candidate and soak routines remain paused. The workflow does
 not use a developer home, upgrade a primary, or change its backup settings.
 Summaries and retained CI artifacts are the validation record.
