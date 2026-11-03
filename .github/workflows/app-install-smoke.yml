@@ -40,6 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+
       - name: Configure git for private dependencies
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
@@ -86,7 +93,9 @@ jobs:
           cd "$TEST_HOME"
           
           # Start daemon in background
-          lastdbd --data-dir "$LASTDB_HOME" > "$PROOF_DIR/lastdbd-startup.log" 2>&1 &
+          search_flags=()
+          case '${{ matrix.app }}' in search|lastseek) search_flags+=(--enable-search) ;; esac
+          lastdbd --data-dir "$LASTDB_HOME" "${search_flags[@]}" > "$PROOF_DIR/lastdbd-startup.log" 2>&1 &
           LASTDBD_PID=$!
           echo "LASTDBD_PID=$LASTDBD_PID" >> "$GITHUB_ENV"
           
@@ -168,12 +177,12 @@ jobs:
           # Resolve and install against the running node's exact API.
           if lastdb app install ${{ matrix.app }} --channel "$REGISTRY_CHANNEL" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
             echo "INSTALLED=true" >> "$GITHUB_ENV"
-            
+
             # Verify install receipt
             if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
               cat "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" | tee "$PROOF_DIR/${{ matrix.app }}-install-receipt.json"
             fi
-            
+
             # Set APP_SOURCE for registry-installed apps
             if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
               echo "APP_SOURCE=$LASTDB_HOME/apps/${{ matrix.app }}/source" >> "$GITHUB_ENV"
@@ -247,8 +256,8 @@ jobs:
           set -o pipefail
           cd "$APP_SOURCE"
           
-          # Install Bun
-          brew install bun
+          # Use the pinned CI Bun runtime
+          bun --version
           
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/brain-deps-install.log"
@@ -347,8 +356,8 @@ jobs:
           set -o pipefail
           cd "$APP_SOURCE"
           
-          # Install Bun
-          brew install bun
+          # Use the pinned CI Bun runtime
+          bun --version
           
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/lastsecrets-deps-install.log"
@@ -439,6 +448,19 @@ jobs:
           # LastSecrets reads socket path from this env var
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
+      - name: Produce Search delivery with real database writes
+        if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        env:
+          FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
+        run: |
+          set -euo pipefail
+          lastdb app install brain --channel "$REGISTRY_CHANNEL"
+          source_dir="$LASTDB_HOME/apps/brain/source"
+          bun "$source_dir/src/cli.ts" init
+          printf '%s\n' 'CI app delivery record' | bun "$source_dir/src/cli.ts" put ci-app-delivery --type concept
+          bun "$source_dir/src/cli.ts" get ci-app-delivery --type concept > "$PROOF_DIR/delivery-record.txt"
+          grep -q 'CI app delivery record' "$PROOF_DIR/delivery-record.txt"
+
       # === lastseek (Outbox) ===
       - name: Set up lastseek dependencies
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
@@ -451,51 +473,12 @@ jobs:
           # Install binary
           cp target/release/lastseek "$HOME/.cargo/bin/" || cp target/release/lastseek /usr/local/bin/
 
-      - name: Initialize lastseek and seed outbox
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
+      - name: Consume real LastDB delivery with lastseek
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
-          # Create inbox directory
-          mkdir -p "$LASTDB_HOME/apps/search/inbox"
-          
-          # Generate test IndexChangeBatch file
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          cat > "$LASTDB_HOME/apps/search/inbox/test-batch-001.json" <<EOF
-          {
-            "format_version": 1,
-            "schema_name": "brain/Concept",
-            "searchable_fields": ["title", "content"],
-            "changes": [
-              {
-                "mutation_id": "test-mutation-${{ github.run_number }}",
-                "kind": "upsert",
-                "key_value": {
-                  "hash": null,
-                  "range": "test-concept-001"
-                },
-                "fields_and_values": {
-                  "id": "test-concept-001",
-                  "title": "Test Concept",
-                  "content": "Smoke test for lastseek outbox consumption"
-                }
-              }
-            ]
-          }
-          EOF
-          
-          lastseek --version 2>&1 | tee "$PROOF_DIR/lastseek-version.txt"
-
-      - name: Run lastseek health checks
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
-        run: |
-          # Test consuming the inbox (without --consume to preserve the file)
-          lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" 2>&1 | tee "$PROOF_DIR/lastseek-ingest-test.txt"
-          
-          if [ $? -eq 0 ]; then
-            echo "✓ lastseek outbox format test passed"
-          else
-            echo "✗ lastseek outbox format test failed"
-            exit 1
-          fi
+          set -euo pipefail
+          lastseek --version | tee "$PROOF_DIR/lastseek-version.txt"
+          lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" | tee "$PROOF_DIR/lastseek-ingest-test.txt"
 
       # === Search (Outbox) ===
       - name: Set up Search dependencies
@@ -503,74 +486,37 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Install Bun
-          brew install bun
+          # Use the pinned CI Bun runtime
+          bun --version
           
           # Add Bun's global bin directory to PATH
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           
           # Install dependencies
-          bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/search-deps-install.log"
+          # The verified registry manifest already ran npm ci and npm run build.
+          npm --version | tee "$PROOF_DIR/search-deps-install.log"
           
           # Link command globally so 'search' is on PATH
           bun link 2>&1 | tee "$PROOF_DIR/search-link.log"
 
-      - name: Initialize Search and seed outbox
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+      - name: Index real LastDB delivery with Search
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
+          set -euo pipefail
           cd "$APP_SOURCE"
-          
-          # Create inbox directory
-          mkdir -p "$LASTDB_HOME/apps/search/inbox"
-          
-          # Generate test IndexChangeBatch file for search
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          cat > "$LASTDB_HOME/apps/search/inbox/test-search-batch-001.json" <<EOF
-          {
-            "format_version": 1,
-            "schema_name": "brain/Concept",
-            "searchable_fields": ["title", "content"],
-            "changes": [
-              {
-                "mutation_id": "test-search-mutation-${{ github.run_number }}",
-                "kind": "upsert",
-                "key_value": {
-                  "hash": null,
-                  "range": "test-search-concept-001"
-                },
-                "fields_and_values": {
-                  "id": "test-search-concept-001",
-                  "title": "Search Test Concept",
-                  "content": "Semantic search smoke test content"
-                }
-              }
-            ]
-          }
-          EOF
-          
-          # Initialize search (processes pending inbox)
-          search init 2>&1 | tee "$PROOF_DIR/search-init.log"
-          
-          # Check version
-          search --version 2>&1 | tee "$PROOF_DIR/search-version.txt" || echo "No version flag"
+          search init --last-db-home "$LASTDB_HOME" 2>&1 | tee "$PROOF_DIR/search-init.log"
 
       - name: Run Search health checks
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
+          set -euo pipefail
           cd "$APP_SOURCE"
-          
-          # Test draining the inbox
-          search drain 2>&1 | tee "$PROOF_DIR/search-drain-test.txt"
-          
-          # Test status
-          search status 2>&1 | tee "$PROOF_DIR/search-status.txt" || true
-          
-          # Verify drain succeeded
-          if grep -qE "(drained|processed|indexed)" "$PROOF_DIR/search-drain-test.txt" || [ $? -eq 0 ]; then
-            echo "✓ Search outbox format test passed"
-          else
-            echo "⚠️  Search drain completed (verify output manually)"
-          fi
+          search drain --last-db-home "$LASTDB_HOME" 2>&1 | tee "$PROOF_DIR/search-drain-test.txt"
+          search query 'CI app delivery record' --json --last-db-home "$LASTDB_HOME" \
+            > "$PROOF_DIR/search-query.json" 2> "$PROOF_DIR/search-query.err"
+          jq -e '.hits | any(.schema_name == "brain/Concept" and (.text | contains("CI app delivery record")))' "$PROOF_DIR/search-query.json"
+          search status --last-db-home "$LASTDB_HOME" > "$PROOF_DIR/search-status.txt"
+          jq -e '.vector.state == "healthy"' "$PROOF_DIR/search-status.txt"
 
       - name: Final health check
         if: env.SKIP_APP != 'true'
@@ -588,7 +534,7 @@ jobs:
           else
             # Check that app-specific health check files exist
             HEALTH_CHECK_PASSED=false
-            
+
             case "${{ matrix.app }}" in
               brain)
                 if [ -f "$PROOF_DIR/brain-get-test.txt" ] && grep -q "Test concept from app-install-smoke" "$PROOF_DIR/brain-get-test.txt"; then
@@ -611,13 +557,13 @@ jobs:
                 fi
                 ;;
             esac
-            
+
             if [ "$HEALTH_CHECK_PASSED" = "true" ]; then
               echo "✓ Health checks executed and passed for ${{ matrix.app }}"
               echo "HEALTH_CHECKS_STATUS=passed" >> "$GITHUB_ENV"
             else
               echo "❌ FATAL: Health checks did not execute for ${{ matrix.app }}"
-              echo "This indicates a workflow logic error - health check steps were skipped when they should have run"
+              echo "Inspect the earlier registry, install, and setup steps for the prerequisite failure"
               echo "HEALTH_CHECKS_STATUS=failed" >> "$GITHUB_ENV"
               exit 1
             fi
@@ -647,8 +593,8 @@ jobs:
           LastDB Build:
           $LASTDB_VERSION
 
-          Proved row:
-          ${PROVED_BUILD:-unknown}
+          Registry channel:
+          ${REGISTRY_CHANNEL:-unavailable}
           
           App Resolution:
           - Version: $APP_VERSION
@@ -704,26 +650,28 @@ jobs:
       - name: Add summary to job output
         if: always()
         run: |
-          echo "## App Install Smoke: ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Show health check status prominently
-          if [ "${SKIP_REGISTRY:-false}" = "true" ]; then
-            echo "⚠️  **SKIPPED** - ${{ matrix.app }} is not yet published in registry" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "This app will be tested automatically once it is published to the next or stable registry." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
-            echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
-            echo "✅ **HEALTH CHECKS PASSED**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat "$PROOF_DIR/smoke-summary.txt" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Summary not available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## App Install Smoke: ${{ matrix.app }}"
+            echo ""
+
+            # Show health check status prominently
+            if [ "${SKIP_REGISTRY:-false}" = "true" ]; then
+              echo "⚠️  **SKIPPED** - ${{ matrix.app }} is not yet published in registry"
+              echo ""
+              echo "This app will be tested automatically once it is published to the next or stable registry."
+              echo ""
+            elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
+              echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)"
+              echo ""
+            elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
+              echo "✅ **HEALTH CHECKS PASSED**"
+              echo ""
+            fi
+
+            echo '```'
+            cat "$PROOF_DIR/smoke-summary.txt" 2>/dev/null || echo "Summary not available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always()

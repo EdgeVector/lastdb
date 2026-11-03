@@ -1,25 +1,7 @@
-# STATUS (2026-09-29): DISABLED in the GitHub Actions UI on purpose. Do not
-# enable without Tom. A scheduled run cuts a REAL tag every day at 07:00 UTC
-# (vX.Y.(N+1)-canary.YYYYMMDD from the latest homebrew-lastdb stable, pushed
-# with GH_PAT) and that fires release.yml, which publishes a public prerelease
-# on EdgeVector/homebrew-lastdb. It overlaps the last-stack canary chain, which
-# owns canaries and stable releases. The "commits since the
-# last v* tag" guard also reads stale tags: GitHub fold tags stop at v0.23.3
-# while homebrew-lastdb is at v0.23.9, so every day would look like new work.
-#
-# Nightly LastDB Mini canary release.
-#
-# Cuts a prerelease tag `vX.Y.Z-canary.YYYYMMDD` on current `main` when there
-# is new work since the last canary/stable tag. Pushing that tag fires the
-# existing `release.yml` pipeline (build → validate → publish prerelease on
-# EdgeVector/homebrew-lastdb). Tags with `-` skip `bump-tap`, so the stable
-# brew formula is never overwritten by a canary.
-#
-# Manual: Actions → Nightly Mini Canary → Run workflow (optional force).
-#
-# Discord: posts cut/skip/failure via scripts/release/notify-discord.sh when
-# DISCORD_WEBHOOK or DISCORD_WEBHOOK_RELEASE is set (org secret). Release
-# success/failure for the actual build is notified from release.yml.
+# Legacy tagged canary publication remains a prerelease path.
+# Stable promotion is owned by stable-release.yml and its one-hour CI gate.
+# The separate nightly-release.yml publishes attested immutable nightlies.
+# None of these workflows upgrades a developer primary.
 name: Nightly Mini Canary
 
 on:

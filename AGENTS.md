@@ -88,7 +88,8 @@ compatibility proofs, keep the one-hour qualification gate, and leave my
 primary unchanged."
 
 This authorizes the release qualification and app compatibility operations in
-`.github/workflows/stable-release.yml`, `scripts/release/stable_qualify.py`,
+`.github/workflows/stable-release.yml`, `.github/workflows/app-install-smoke.yml`,
+`scripts/release/stable_qualify.py`,
 `stable_apps.py`, `stable_api23.py`, and their existing packaged-program helper
 `nightly_probe.py`. They use only fresh generated CI homes and public packaged
 programs. The API 23 backfill must not operate on or copy a primary.

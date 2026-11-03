@@ -27,6 +27,8 @@ def prove(node, plan, output, prepare_cli=None):
                    "FBRAIN_FOLDDB_SOCKET": str(node.socket),
                    "LASTSECRETS_SOCKET_PATH": str(node.socket),
                    "LASTDB_SOCKET_PATH": str(node.socket)}
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"):
+        environment.pop(name, None)
     results = {}
     for app in APPS:
         source = output / app
