@@ -13,7 +13,7 @@ from stable_apps import prove
 from stable_plan import load
 
 TAG = "nightly-20261103-b252ab1df"
-APP_COMMITS = {"brain": "6a3e326669e5d876924feaed7df2043b83318d79",
+APP_COMMITS = {"brain": "46595a1f8faac3d0179a71d267d42b864eb7f71a",
                # The installed 310460ad manifest has schemas: [] despite
                # declaring two schemas, so it correctly fails publication.
                # Use the accepted complete, typed manifest; prove API 23
