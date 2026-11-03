@@ -5,6 +5,7 @@
 //! [`validate`], which refuses every other family.
 
 use super::error::{StorageError, StorageResult};
+use super::format::{CURRENT_FAMILIES, MAIN_NAMESPACE};
 
 pub(crate) mod families;
 
@@ -17,12 +18,8 @@ pub(crate) mod families;
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
-const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout",
-];
-
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
-    if namespace != "main" {
+    if namespace != MAIN_NAMESPACE {
         return Ok(());
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;

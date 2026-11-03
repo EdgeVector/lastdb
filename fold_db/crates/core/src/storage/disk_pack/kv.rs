@@ -105,7 +105,7 @@ fn prepare(
 }
 
 pub(super) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
-    let collection = if namespace == "main" {
+    let collection = if namespace == crate::storage::format::MAIN_NAMESPACE {
         native_routing::collection_for_key(key)
     } else {
         namespace

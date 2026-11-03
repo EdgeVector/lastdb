@@ -3,7 +3,7 @@
 use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
 use crate::storage::{NamespacedStore, StorageError};
 
-pub(crate) const NAMESPACE: &str = "metadata";
+pub(crate) use crate::storage::format::METADATA_NAMESPACE as NAMESPACE;
 pub(crate) const KEY: &[u8] = b"__content_key_proof_v1";
 const VALUE: &[u8] = b"lastdb-content-key-proof-v1";
 

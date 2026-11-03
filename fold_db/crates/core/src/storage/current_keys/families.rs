@@ -6,28 +6,28 @@
 
 /// Key family of record files in `cas_blobs` (design
 /// `design-lastdb-no-shared-file-blobs`).
-pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
+pub(crate) use crate::storage::format::RECORD_FILE_PREFIX;
 
-/// Reserved internal key prefix for retention policies in `schema_states`.
-///
-/// Existing schema-state rows remain keyed by the bare schema name. The NUL
-/// framed prefix keeps policy records disjoint from valid schema names while
-/// retaining one node-local storage namespace.
-pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 /// Reserved internal key prefix for retention anchors in `schema_states`.
 ///
 /// One row names the schema that holds the retention state (policy, age index,
 /// HashRange partition registry) for an app-qualified schema name. Same
 /// framing and rationale as [`RETENTION_POLICY_KEY_PREFIX`].
-pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
+pub(crate) use crate::storage::format::RETENTION_ANCHOR_KEY_PREFIX;
+/// Reserved internal key prefix for retention policies in `schema_states`.
+///
+/// Existing schema-state rows remain keyed by the bare schema name. The NUL
+/// framed prefix keeps policy records disjoint from valid schema names while
+/// retaining one node-local storage namespace.
+pub(crate) use crate::storage::format::RETENTION_POLICY_KEY_PREFIX;
 /// Node-local HashRange partition registry for retained schemas.
 ///
 /// A retention policy does not define the data partitions. Successful writes
 /// add their hash to this registry, so a TTL sweep can query each observed
 /// partition without a cross-partition product scan.
-pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
-pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
-pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
+pub(crate) use crate::storage::format::{
+    RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_HASH_PARTITION_KEY_PREFIX,
+};
 
 /// The file path of the record at one storage key:
 /// `fb:{S}:{sha256(record key)}`. One record has one path, so two records

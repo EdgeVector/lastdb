@@ -167,7 +167,7 @@ their clean core memory publication before the ack. No collection timer delays t
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
 - Empty homes initialize in the current format: `HOME_FORMAT`, `RECORD_NODE_BYTES` and `RECORD_PROFILE` in
-  `fold_db/crates/core/src/storage/disk_pack/run_admission.rs` (scripts read `scripts/benchmarks/home_format.py`).
+  `fold_db/crates/core/src/storage/format.rs` (scripts read `scripts/benchmarks/home_format.py`).
   This program opens only that format. A format change copies records from the old home into a fresh home.
   Startup refuses a stored schema that does not own its values. Startup does not convert data.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing

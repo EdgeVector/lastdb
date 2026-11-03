@@ -12,16 +12,8 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-/// The home format. One record lives at each primary key, a record has at
-/// most one file, at a path made from its key, and a run stores each value
-/// as given. Every new home has this format, and it is the only format this
-/// program opens. The format number names the whole layout, so the marker
-/// holds no feature versions. A layout change raises it.
-pub const HOME_FORMAT: u32 = 11;
-/// The node marker of a [`HOME_FORMAT`] home.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=11\nhome=disk-run\ncas=disk-cas\n";
-/// The backup profile version of a [`HOME_FORMAT`] home.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 9;
+pub(in crate::storage) use crate::storage::format::RECORD_PROFILE;
+pub use crate::storage::format::{HOME_FORMAT, RECORD_NODE_BYTES};
 
 /// The backup profile version of a node marker. Only the current marker has
 /// one; every other marker is unsupported.
