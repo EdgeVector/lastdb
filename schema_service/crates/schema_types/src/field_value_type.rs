@@ -188,10 +188,10 @@ fn validate_file_pointer(value: &serde_json::Value) -> Result<(), String> {
         .get(LASTDB_FILE_KEY)
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| format!("expected File: an object with a '{LASTDB_FILE_KEY}' object"))?;
-    if !inner
+    if inner
         .get("blob_ref")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|blob_ref| !blob_ref.is_empty())
+        .is_none_or(str::is_empty)
     {
         return Err(format!(
             "expected File: '{LASTDB_FILE_KEY}' has no 'blob_ref'"
