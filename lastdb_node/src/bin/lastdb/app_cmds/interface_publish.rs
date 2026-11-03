@@ -15,6 +15,7 @@ pub(crate) struct InterfacePublish {
     pub channel: Option<String>,
     pub key_file: Option<PathBuf>,
     pub api_key: Option<String>,
+    pub prepare: Option<PathBuf>,
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
@@ -114,10 +115,6 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
         }
         payload["audience"] = audience.clone();
     }
-    let key = signing_key(home, input.key_file.clone())?;
-    let signature = sign(&key, &canonicalize(&payload).map_err(|e| e.to_string())?);
-    payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
-    payload["publisher_sig"] = json!(BASE64.encode(signature));
     if let Some(description) = manifest
         .get("description")
         .or_else(|| manifest.pointer("/metadata/description"))
@@ -128,7 +125,29 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
 }
 
 pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<(), String> {
-    let payload = publish_payload(home, &input)?;
+    let mut payload = publish_payload(home, &input)?;
+    if let Some(path) = input.prepare {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|e| e.to_string())?;
+        file.write_all(&serde_json::to_vec_pretty(&payload).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        println!("Validated unsigned app declaration; nothing published");
+        return Ok(());
+    }
+    let key = signing_key(home, input.key_file.clone())?;
+    let signed = payload.as_object().ok_or("invalid publish payload")?;
+    let mut statement = signed.clone();
+    statement.remove("description");
+    let signature = sign(
+        &key,
+        &canonicalize(&Value::Object(statement)).map_err(|e| e.to_string())?,
+    );
+    payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
+    payload["publisher_sig"] = json!(BASE64.encode(signature));
     let url = input
         .registry_url
         .or_else(|| std::env::var("LASTDB_APP_REGISTRY_URL").ok())

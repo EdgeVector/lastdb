@@ -81,6 +81,22 @@ This authorizes only:
 
 The same limits apply: CI only, generated data, no primary copy. Keep every other test target retired.
 
+### Scoped extension: stable release qualification (Tom, 2026-11-03)
+
+Tom explicitly requested: "Move the release flow into CI, fix the missing app
+compatibility proofs, keep the one-hour qualification gate, and leave my
+primary unchanged."
+
+This authorizes the release qualification and app compatibility operations in
+`.github/workflows/stable-release.yml`, `.github/workflows/app-install-smoke.yml`,
+`scripts/release/stable_qualify.py`,
+`stable_apps.py`, `stable_api23.py`, and their existing packaged-program helper
+`nightly_probe.py`. They use only fresh generated CI homes and public packaged
+programs. The API 23 backfill must not operate on or copy a primary.
+
+Keep all other test targets retired. No local LastDB builds, benchmarks, or
+runtime proofs. No primary upgrade, restart, reset, copy, or backup change.
+
 ## Cursor Cloud specific instructions
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
