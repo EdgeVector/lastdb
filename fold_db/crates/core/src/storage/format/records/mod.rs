@@ -18,7 +18,7 @@ pub(crate) use keys::{AlternateAddress, RecordAddress};
 use crate::db_operations::record_store::record_files::file_row_change;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
-use crate::storage::{KvMutation, KvStore};
+use crate::storage::{KvMutation, KvStore, StorageError};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::sync::Arc;
 
@@ -89,11 +89,21 @@ impl EncodedRecords {
         self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,
+        following_history_rows: usize,
     ) -> Result<RecordEffects, SchemaError> {
         if !transaction::publication::active(runtime) {
             return Err(SchemaError::InvalidData(
                 "row commits require a complete native write scope".into(),
             ));
+        }
+        // Preserve the old combined group's admission bound even though its
+        // legacy history now stages separately. No-op deletes count here too.
+        let operation_limit = runtime.batch_operation_limit();
+        if self.main.len().saturating_add(following_history_rows) > operation_limit {
+            return Err(StorageError::InvalidOperation(format!(
+                "native mutation exceeds {operation_limit} operation admission limit"
+            ))
+            .into());
         }
         main_store.batch_mutate(self.main).await?;
         Ok(self.effects)

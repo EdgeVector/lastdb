@@ -129,6 +129,7 @@ impl RecordStore {
             .stage(
                 self.main_store.inner().as_ref(),
                 &self.namespaced_store.disk_pack_runtime(),
+                history.len(),
             )
             .await?;
         if !history.is_empty() {
