@@ -233,14 +233,14 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppBlobFootprint
         | DataRoute::HomeStorage
         | DataRoute::HomeStorageReconcile
-        | DataRoute::LivenessExplain
         | DataRoute::DbCatalogGet
         | DataRoute::DbCatalogPut
         | DataRoute::DbCatalogDelete
         | DataRoute::DbCatalogShare
         | DataRoute::DbSchemaRetention
-        | DataRoute::DbFetchFileBlob
-        | DataRoute::DbPutBlobLocal
+        | DataRoute::DbPutBlob
+        | DataRoute::DbFetchBlob
+        | DataRoute::DbDeleteBlob
         | DataRoute::DeliverSnapshot
         | DataRoute::SyncLogicalV1
         | DataRoute::LocalWatch

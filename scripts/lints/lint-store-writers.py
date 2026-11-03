@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""Writer boundary of the blob counter and the record conflict and history rows.
+"""Writer boundary of the record conflict and history rows.
 
-Only the row commit (db_operations/record_store/counter/commit.rs), the blob
-planner (db_operations/record_store/blob_counter/) and the record writers may
-write blob counters, blob queue entries, record conflict rows (`rcf:`, `rcm:`)
-and field history rows (`rh:` with its `ahq:`/`ahk:`/`ahb:` rows) inside a
-write scope. This lint finds every Rust function that writes through a store
+Only the row commit (db_operations/record_store/counter/commit.rs) and the
+record writers may write record conflict rows (`rcf:`, `rcm:`) and field
+history rows (`rh:` with its `ahq:`/`ahk:`/`ahb:` rows) inside a write scope. This lint finds every Rust function that writes through a store
 and either (a) names one of those key families or (b) holds a raw store handle,
 and it compares the set with scripts/lints/store-writers.allow.
 
 The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 
-- a key family token (family C record conflict or field history row, R blob
-  counter or blob queue entry);
+- a key family token (family C record conflict or field history row);
 - a raw handle token: `.raw()`, `main_store`, `open_namespace(`, a generic row
   restore (`restore_batch_put(`), or a scan (`scan_prefix(`, `scan_range(`, ...)
   next to a delete, which is a range delete of rows of every family.
@@ -21,7 +18,7 @@ has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 Each writer needs an allow-list line `path|function|families|reason`. The
 families on the line must cover the families the function names. `*` as the
 function covers every function of the file and still checks the families, so a
-file that is listed with `-` (no family) fails when someone adds a blob counter put to it.
+file that is listed with `-` (no family) fails when someone adds a conflict row put to it.
 A line that no writer matches fails, so the list stays honest.
 
 This is a source check. It does not prove the live result. It finds a direct
@@ -51,7 +48,6 @@ FAMILIES = {
     "C": re.compile(
         r'\brecord_conflict_row_key\b|"rcf:|"rcm:|\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq\b|"ahk:|"ahb\b'
     ),
-    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 

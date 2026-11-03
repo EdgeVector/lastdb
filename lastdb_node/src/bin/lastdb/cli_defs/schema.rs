@@ -1,4 +1,4 @@
-//! Clap subcommands for schema inspection, liveness, name claims and retention.
+//! Clap subcommands for schema inspection, name claims and retention.
 
 use super::*;
 
@@ -36,20 +36,6 @@ pub(crate) enum SchemaInspectCommand {
         /// Refuse if nothing was dropped.
         #[arg(long)]
         must_exist: bool,
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum LivenessCommand {
-    /// Explain why one file blob cannot be reclaimed.
-    Explain {
-        /// Target class. Only `blob` is served.
-        class: String,
-        /// Target blob reference.
-        id: String,
-        /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
     },

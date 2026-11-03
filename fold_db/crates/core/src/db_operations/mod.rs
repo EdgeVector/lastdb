@@ -31,9 +31,8 @@ pub use delete_ledger::{
     RECORD_DELETE_LEDGER_PREFIX,
 };
 pub use record_store::{
-    BlobCounterReport, BlobCounterView, BlobRecountReport, ConflictRetentionReport, DwellCursor,
-    DwellGuard, DwellStep, NetStep, RecordStore, RecountOptions, RecountReport, VerifyReport,
-    VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
+    ConflictRetentionReport, RecordStore, RecountOptions, RecountReport, VerifyReport,
+    VerifyRequest, VerifySummary, WalkStats, WriterWatch, RECORD_WALK_ROWS,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.

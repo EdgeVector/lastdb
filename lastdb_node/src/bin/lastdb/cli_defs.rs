@@ -256,11 +256,6 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: SchemaInspectCommand,
     },
-    /// Inspect the counter of a file blob.
-    Liveness {
-        #[command(subcommand)]
-        action: LivenessCommand,
-    },
     /// Database admin.
     ///
     /// Most verbs talk to the running daemon over the owner socket.

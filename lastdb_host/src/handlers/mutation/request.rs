@@ -5,7 +5,7 @@ use fold_db::schema::types::KeyValuePageOrder;
 use fold_db::access::AccessContext;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{KeyValue, Query};
+use fold_db::schema::types::{FileWrite, KeyValue, Query};
 use serde_json::Value;
 
 use crate::host_node::HostNode;
@@ -40,7 +40,12 @@ pub async fn execute_mutation<H: HostNode>(
     )
     .await?;
     request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-    let payload_bytes = fields_payload_bytes(&plan.components.fields_and_values);
+    let payload_bytes = fields_payload_bytes(&plan.components.fields_and_values)
+        + plan
+            .components
+            .file_write
+            .as_ref()
+            .map_or(0, FileWrite::row_len);
 
     let key_values = match &plan.components.key_range_prefix {
         Some(prefix) => {

@@ -8,7 +8,7 @@
 
 use crate::storage::error::StorageResult;
 use crate::storage::traits::KvStore;
-use crate::storage::{StorageError, TypedKvStore};
+use crate::storage::{KvMutation, StorageError, TypedKvStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -143,8 +143,8 @@ pub fn referenced_instance_ids(entries: &[DbCatalogEntry]) -> std::collections::
         .collect()
 }
 
-/// Remove one current database scope. The blob counters that the scope's
-/// records held go down in the same batch as the rows that held them.
+/// Remove one current database scope. The files of the scope's records go in
+/// the same batch as the records.
 pub async fn drop_prefixed_rows_for_instance(
     records: &super::RecordStore,
     main: &dyn crate::storage::traits::KvStore,
@@ -202,40 +202,32 @@ async fn current_scope_rows(
     Ok(rows)
 }
 
-/// Delete the rows of a dropped scope, and lower the blob counters that the
-/// rows held. The caller runs in the one native write scope of the catalog
-/// delete (`FoldDB::delete_catalog_membership`), and it read the rows inside that
-/// scope, so a writer cannot change a row between the read and the delete: the
-/// blob counters go down once for each row that goes. The blob counter changes
-/// join the same batch as the deletes. A scope too large for one native batch is
-/// refused before anything changes.
+/// Delete the rows of a dropped scope and the files of its records. The caller
+/// runs in the one native write scope of the catalog delete
+/// (`FoldDB::delete_catalog_membership`), and it read the rows inside that
+/// scope, so a writer cannot change a row between the read and the delete. The
+/// file deletes join the same batch as the row deletes. A scope too large for
+/// one native batch is refused before anything changes.
 async fn drop_scoped_source_rows(
     records: &super::RecordStore,
     main: &dyn crate::storage::traits::KvStore,
     rows: Vec<(String, Vec<u8>, Vec<u8>)>,
 ) -> StorageResult<usize> {
     let removed = rows.len();
-    let mut deltas = super::record_store::blob_counter::BlobDeltas::default();
-    let unreadable =
-        deltas.scope_rows_dropped(rows.iter().map(|(_, key, value)| (&key[..], &value[..])));
-    if unreadable > 0 {
-        tracing::warn!(
-            unreadable,
-            "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
-        );
-    }
-    let blob_writes = records
-        .blob_counter_mutations(deltas)
-        .await
-        .map_err(|error| StorageError::BackendError(error.to_string()))?;
+    let files = super::record_store::record_files::dropped_file_paths(
+        rows.iter().map(|(_, key, value)| (&key[..], &value[..])),
+    );
     // The catalog's outer native scope stages the deletes. A refusal or process
-    // stop before publication retains the rows, the counters and the catalog row.
+    // stop before publication retains the rows, the files and the catalog row.
     for chunk in rows.chunks(2_048) {
         main.batch_delete(chunk.iter().map(|(_, key, _)| key.clone()).collect())
             .await?;
     }
-    for chunk in blob_writes.chunks(1_024) {
-        main.batch_mutate(chunk.to_vec()).await?;
+    for chunk in files.chunks(2_048) {
+        records
+            .stage_file_rows(chunk.iter().cloned().map(KvMutation::delete).collect())
+            .await
+            .map_err(|error| StorageError::BackendError(error.to_string()))?;
     }
     Ok(removed)
 }

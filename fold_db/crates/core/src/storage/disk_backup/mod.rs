@@ -3,7 +3,6 @@
 
 pub mod byte_backup;
 mod cloud_work;
-pub mod file_dependencies;
 pub mod mutation_log;
 pub mod run_restore;
 

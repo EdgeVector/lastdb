@@ -27,10 +27,6 @@ pub struct VerifyLast {
     pub mismatches: Mismatches,
     pub mismatches_total: u64,
     pub queue_entries_read: u64,
-    pub blob_counters_read: u64,
-    pub blob_queue_read: u64,
-    /// Pages read again because a read hit the read limit of one call.
-    pub page_retries: u64,
 }
 
 /// A run in progress.
@@ -54,9 +50,6 @@ impl VerifyReport {
             mismatches: self.mismatches,
             mismatches_total: self.mismatches_total,
             queue_entries_read: self.queue_entries_read,
-            blob_counters_read: self.blob_counters_read,
-            blob_queue_read: self.blob_queue_read,
-            page_retries: self.page_retries,
         })
     }
 }

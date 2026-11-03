@@ -6,7 +6,7 @@
 //! binary call sites stable while new code can use `lastdb_node::ops`.
 //!
 //! The host holds this state, so `ops` sits below the host. Work that takes
-//! `&Host` (the sampler, TTL sweep, blob dwell, footprint relief) lives in
+//! `&Host` (the sampler, TTL sweep, footprint relief) lives in
 //! [`crate::jobs`].
 
 pub mod crash_attribution;

@@ -146,7 +146,6 @@ fn record_family(key: &str) -> &'static str {
         Some("ak") => "alternate_key",
         Some("rh") => "record_history",
         Some("rcf" | "rcm") => "record_conflict",
-        Some("bref") => "blob_reference",
         _ => "other",
     }
 }

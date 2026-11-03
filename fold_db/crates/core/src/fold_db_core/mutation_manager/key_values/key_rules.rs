@@ -154,7 +154,6 @@ fn materialized_key_value(
         | FieldValueType::Array(_)
         | FieldValueType::Map(_)
         | FieldValueType::Object(_)
-        | FieldValueType::SchemaRef(_)
-        | FieldValueType::File => None,
+        | FieldValueType::SchemaRef(_) => None,
     }
 }

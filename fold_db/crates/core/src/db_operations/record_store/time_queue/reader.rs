@@ -240,17 +240,6 @@ impl QueueReader {
         })
     }
 
-    /// The caller handled the keys of `page` that sort before `key`, and not
-    /// `key` itself: the cursor goes to `key`, and the bucket waits until
-    /// `retry_at` (an expiry in nanoseconds) before the next read.
-    pub(crate) fn finish_before(&mut self, page: &DuePage, key: &str, retry_at: u64) {
-        let (_, end) = self.queue.bucket_range(page.bucket);
-        if let Some(state) = self.buckets.get_mut(&page.bucket) {
-            state.walk = RangeWalk::new(key.as_bytes(), end.as_bytes(), self.page);
-            state.waiting_until = Some(retry_at);
-        }
-    }
-
     /// The caller handled every key of `page`: move the cursor past them. A key
     /// that was not due stays the next key, and the bucket waits for its time.
     pub(crate) fn finish(&mut self, page: DuePage) {

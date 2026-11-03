@@ -25,9 +25,9 @@
 //!   the buckets with bounded reads, and it does not fail on deleted keys
 //!   (`stats.rs`).
 //!
-//! The conflict record retention queue (`retention`) is the first user. Another
-//! queue with the same needs (the blob queue) takes the same layout, the same
-//! reader and the same retirement, and adds its own entry value and release.
+//! The conflict record retention queue (`retention`) is the user. Another
+//! queue with the same needs takes the same layout, the same reader and the
+//! same retirement, and adds its own entry value and release.
 
 mod keys;
 mod net;

@@ -75,11 +75,28 @@ pub(super) async fn execute_mutation_route(
             return reject.response();
         }
     };
+    let result = commit_mutation_components(host, components, ctx).await;
+    let response_started = std::time::Instant::now();
+    let response = render(result, ctx);
+    fold_db::request_phases::add_phase(
+        fold_db::request_phases::RequestPhase::ResponseEnvelope,
+        response_started.elapsed(),
+    );
+    response
+}
+
+/// Commit one parsed mutation with its change feed event and its local watch
+/// doorbell, as `/api/mutation` does. `put-blob` and `delete-blob` use it too.
+pub(super) async fn commit_mutation_components(
+    host: &Host,
+    components: handlers::MutationComponents,
+    ctx: &AccessContext,
+) -> Result<Value, HostError> {
     let hint = MutationWatchHint::from(&components);
-    let change_feed_reservation = match host.change_feed_queue.try_reserve() {
-        Ok(reservation) => reservation,
-        Err(message) => return error_response(503, message, ctx),
-    };
+    let change_feed_reservation = host
+        .change_feed_queue
+        .try_reserve()
+        .map_err(|message| HostError::new(503, message))?;
     let (result, captured_notifications) = fold_db::db_operations::ChangeFeedStore::capture_native(
         vec![(
             handlers::resolve_schema_name(host, &hint.schema)
@@ -91,7 +108,7 @@ pub(super) async fn execute_mutation_route(
         handlers::execute_mutation(host, components, ctx),
     )
     .await;
-    let result = result.and_then(|value| {
+    result.and_then(|value| {
         let mutation_id = single_mutation_id(&value)?;
         let event = hint.event(
             mutation_id.to_string(),
@@ -112,14 +129,7 @@ pub(super) async fn execute_mutation_route(
             change_record_started.elapsed(),
         );
         Ok(value)
-    });
-    let response_started = std::time::Instant::now();
-    let response = render(result, ctx);
-    fold_db::request_phases::add_phase(
-        fold_db::request_phases::RequestPhase::ResponseEnvelope,
-        response_started.elapsed(),
-    );
-    response
+    })
 }
 
 /// `GET /api/local-watch?after_seq=0&timeout_ms=0[&schema=App/Event][&hash=H][&start=R][&end=R]`

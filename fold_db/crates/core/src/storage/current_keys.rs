@@ -16,19 +16,18 @@ pub(crate) mod families;
 ///   expiry queue of the history entries and its bucket directory.
 /// - `rcf`, `rcm`: the kept conflict rows of a record and its conflict marker.
 ///   `crq`, `crb`: the retention queue of those rows and its bucket directory.
-/// - `bref`: the blob counters and the blob dwell queue (`bref:`).
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
 /// - `idem`: the idempotency keys. They live in the `idempotency`
 ///   namespace; the family stays so that a scoped key parses.
 const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "bref", "dellog",
-    "layout", "idem",
+    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "dellog", "layout",
+    "idem",
 ];
 
 /// True for a `main` key of the record lifecycle: a record, an alternate key
-/// entry, a history or conflict row, and a blob counter or queue row. Raw
+/// entry, and a history or conflict row. Raw
 /// replay must never write one part of that lifecycle by itself, so restore
 /// validation reads each one back from the logical store.
 pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
@@ -37,7 +36,7 @@ pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
     let family = bare.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,
-        "ak" | "rk" | "rh" | "rcf" | "rcm" | "ahk" | "ahp" | "ahq" | "ahb" | "bref" | "crq" | "crb"
+        "ak" | "rk" | "rh" | "rcf" | "rcm" | "ahk" | "ahp" | "ahq" | "ahb" | "crq" | "crb"
     ))
 }
 
@@ -51,7 +50,6 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if !CURRENT_FAMILIES.contains(&family) {
         return Err(unsupported("unknown key family"));
     }
-    validate_references(bare, family)?;
     validate_retention(bare, family)?;
     if let Some(rest) = bare
         .strip_prefix("ak:")
@@ -122,13 +120,6 @@ fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
     lastdb_model::field_key_codec::decode_hash_range_suffix(suffix)
         .ok_or_else(|| unsupported("invalid field key layout"))?;
-    Ok(())
-}
-
-fn validate_references(key: &str, family: &str) -> StorageResult<()> {
-    if family == "bref" && !families::is_blob_reference_key(key) {
-        return Err(unsupported("invalid reference key format"));
-    }
     Ok(())
 }
 

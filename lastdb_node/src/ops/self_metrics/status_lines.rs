@@ -285,7 +285,6 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         node_home_line(snapshot),
         data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
-        at_rest_compression_status_line(snapshot.at_rest_compression),
     ];
     lines.insert(1, warm_records_status_line(&snapshot.resident));
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
@@ -300,7 +299,6 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = local_retention_lines(snapshot);
     lines.extend(verify_refs_status_lines(snapshot));
-    lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
     lines
 }
@@ -317,27 +315,4 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     ]);
     lines.extend(trailing_status_lines(snapshot));
     lines
-}
-
-/// At-rest compression effectiveness since this daemon process started.
-///
-/// This line is unconditional. Zero counters mean the daemon has not sealed
-/// anything since its last restart.
-pub(super) fn at_rest_compression_status_line(stats: AtRestCompressionHealth) -> String {
-    format!(
-        "At-rest compression: {:.1}% saved ({} -> {}; {} saved) sealed={} compressed / {} plain; attempts={} cpu={}ns skips=below_min:{} above_ceiling:{} not_smaller:{} disabled:{}; enabled={}; process-lifetime counters (reset on daemon restart)",
-        stats.percent_saved(),
-        format_bytes(stats.bytes_in),
-        format_bytes(stats.bytes_out),
-        format_bytes(stats.bytes_saved),
-        stats.sealed_compressed,
-        stats.sealed_plain,
-        stats.compression_attempts,
-        stats.compression_attempt_cpu_ns,
-        stats.skipped_below_min_bytes,
-        stats.skipped_above_inflate_ceiling,
-        stats.skipped_output_not_smaller,
-        stats.skipped_compression_disabled,
-        stats.enabled,
-    )
 }

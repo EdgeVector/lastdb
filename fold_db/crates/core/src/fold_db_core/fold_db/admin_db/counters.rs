@@ -46,13 +46,6 @@ impl FoldDB {
         Ok(scopes)
     }
 
-    /// Totals of the blob counters since this process started, and the size of
-    /// the dwell queue: the buckets by the directory, and the entries counted up
-    /// to 1,000 with bounded reads (`queue_depth_capped`).
-    pub async fn blob_counter_report(&self) -> crate::db_operations::BlobCounterReport {
-        self.db_ops().records().blob_counter_report_full().await
-    }
-
     /// The retention window of kept conflict records, the janitor's last run,
     /// and the size of the queue: the buckets by the directory, and the entries
     /// counted up to 1,000 with bounded reads. A bucket that cannot be read

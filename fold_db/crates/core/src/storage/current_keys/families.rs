@@ -1,15 +1,12 @@
 //! Key shapes of the record families that the typed stores own.
 //!
 //! The import key check of the storage layer needs these shapes. The stores
-//! above it (blob counters, schema catalog) name the same constants here, so
+//! above it (record files, schema catalog) name the same constants here, so
 //! one definition serves both.
 
-/// Key prefix of one blob counter: `bref:c:{sha256}`.
-pub(crate) const BLOB_COUNTER_PREFIX: &str = "bref:c:";
-/// Key family of the blob dwell queue entries.
-pub(crate) const BLOB_QUEUE_ENTRIES: &str = "bref:q";
-/// Key family of the blob dwell queue bucket directory.
-pub(crate) const BLOB_QUEUE_DIRECTORY: &str = "bref:d";
+/// Key family of record files in `cas_blobs` (design
+/// `design-lastdb-no-shared-file-blobs`).
+pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
 
 /// Reserved internal key prefix for retention policies in `schema_states`.
 ///
@@ -33,39 +30,22 @@ pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
 pub(crate) const SCHEMA_DROP_RECEIPT_KEY_PREFIX: &str = "\0schema_drop_receipt\0";
 
-/// A blob identity: the 64 hex digits of its SHA-256.
-pub(crate) fn is_blob_id(id: &str) -> bool {
-    id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-/// True for a counter key, a queue entry key or a queue directory key. The key
-/// check of every native write and every import calls this for the `bref`
-/// family.
-#[must_use]
-pub(crate) fn is_blob_reference_key(key: &str) -> bool {
-    match key.strip_prefix(BLOB_COUNTER_PREFIX) {
-        Some(rest) => is_blob_id(rest),
-        None => is_blob_queue_key(key),
-    }
-}
-
-/// True for the key of an entry or of a directory row of the blob queue.
-fn is_blob_queue_key(key: &str) -> bool {
-    if let Some(rest) = key.strip_prefix(&format!("{BLOB_QUEUE_DIRECTORY}\0")) {
-        return digits(rest);
-    }
-    let Some(rest) = key.strip_prefix(&format!("{BLOB_QUEUE_ENTRIES}:")) else {
-        return false;
-    };
-    let Some((bucket, tail)) = rest.split_once('\0') else {
-        return false;
-    };
-    let Some((at, id)) = tail.split_once(':') else {
-        return false;
-    };
-    digits(bucket) && digits(at) && is_blob_id(id)
-}
-
-fn digits(text: &str) -> bool {
-    text.len() == 20 && text.bytes().all(|byte| byte.is_ascii_digit())
+/// The file path of the record at one storage key, scope included:
+/// `{scope:}fb:{S}:{sha256(record key)}`. One record has one path, so two
+/// records never share a file.
+pub(crate) fn record_file_path(record: &str) -> super::StorageResult<String> {
+    use sha2::Digest as _;
+    let scope = super::exact_scope(record)?;
+    let bare = scope.map_or(Some(record), |scope| record.get(scope.len() + 1..));
+    let space = bare
+        .and_then(|bare| bare.strip_prefix(lastdb_model::record_space::RECORD_PREFIX))
+        .and_then(|rest| rest.split(':').next())
+        .filter(|space| !space.is_empty())
+        .ok_or_else(|| super::unsupported("a record file path needs a record key"))?;
+    let digest = lastdb_model::hex::hex_lower(sha2::Sha256::digest(record.as_bytes()));
+    let base = format!("{RECORD_FILE_PREFIX}{space}:{digest}");
+    Ok(match scope {
+        Some(scope) => format!("{scope}:{base}"),
+        None => base,
+    })
 }

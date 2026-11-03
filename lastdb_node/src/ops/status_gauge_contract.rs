@@ -144,41 +144,6 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     push_gauge(out, "limits.max_record_bytes", &l.max_record_bytes);
 }
 
-fn push_process_counter(
-    out: &mut Vec<GaugeContractEntry>,
-    path: &str,
-    unit: &'static str,
-    since_boot_unix: u64,
-) {
-    out.push(GaugeContractEntry {
-        path: path.to_string(),
-        unit: unit.to_string(),
-        unit_noun: unit.to_string(),
-        window: "process_lifetime".to_string(),
-        window_qualifier: "this process".to_string(),
-        since_unix: (since_boot_unix > 0).then_some(since_boot_unix),
-        availability: "measured".to_string(),
-        unavailable_reason: None,
-    });
-}
-
-fn collect_at_rest_compression(out: &mut Vec<GaugeContractEntry>, since_boot_unix: u64) {
-    for (path, unit) in [
-        ("at_rest_compression.compression_attempts", "attempts"),
-        (
-            "at_rest_compression.compression_attempt_cpu_ns",
-            "nanoseconds",
-        ),
-        ("at_rest_compression.bytes_saved", "bytes"),
-        ("at_rest_compression.skipped_below_min_bytes", "skips"),
-        ("at_rest_compression.skipped_above_inflate_ceiling", "skips"),
-        ("at_rest_compression.skipped_output_not_smaller", "skips"),
-        ("at_rest_compression.skipped_compression_disabled", "skips"),
-    ] {
-        push_process_counter(out, path, unit, since_boot_unix);
-    }
-}
-
 /// Build the additive contract from every typed gauge on the snapshot.
 pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     let mut gauges = Vec::with_capacity(128);
@@ -188,7 +153,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_watchers(&mut gauges, &snapshot.watchers);
     collect_limits(&mut gauges, &snapshot.limits);
     collect_resident(&mut gauges, &snapshot.resident);
-    collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
     StatusGaugeContract {
         version: StatusGaugeContract::VERSION,
         gauges,

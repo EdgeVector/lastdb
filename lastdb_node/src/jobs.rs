@@ -5,12 +5,11 @@
 //! these jobs fill (the sampler state, the status snapshot, request telemetry)
 //! stay in [`crate::ops`], below the host, because the host holds them.
 //!
-//! The crate root re-exports `blob_dwell`, `footprint` and `ttl_sweep` so the
+//! The crate root re-exports `footprint` and `ttl_sweep` so the
 //! existing `lastdb_node::` paths stay stable.
 //!
 //! [`Host`]: crate::host::Host
 
-pub mod blob_dwell;
 pub mod footprint;
 mod paced_rest;
 pub mod self_metrics;

@@ -121,6 +121,7 @@ async fn restore(
         durability: MutationDurability::Durable,
         must_exist: None,
         key_range_prefix: None,
+        file_write: None,
     };
     handlers::execute_mutation(host, components, ctx).await
 }

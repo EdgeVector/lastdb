@@ -90,15 +90,13 @@ pub(super) async fn restore(
     if cursor.version != 1 || cursor.head != plan.head || cursor.remaining > plan.links {
         return Err(RestoreError::Invalid("mutation replay cursor"));
     }
-    for name in ["replay-files", "run-proof"] {
-        let path = session.root.join(name);
-        match fs::DirBuilder::new().mode(0o700).create(&path) {
-            Ok(()) => File::open(&session.root)?.sync_all()?,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        local::directory(&path)?;
+    let replay_files = session.root.join("replay-files");
+    match fs::DirBuilder::new().mode(0o700).create(&replay_files) {
+        Ok(()) => File::open(&session.root)?.sync_all()?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
     }
+    local::directory(&replay_files)?;
     while cursor.remaining > 0 {
         replay_checkpoint(session, client, keys, &latest, &mut cursor).await?;
     }
@@ -129,7 +127,6 @@ fn finish(
         &latest.anchor,
         &latest.through,
         keys.content_key(),
-        &session.root.join("run-proof"),
     )
     .map_err(RestoreError::native_proof)?;
     let root = proof
@@ -138,15 +135,7 @@ fn finish(
     let (files, bytes) = proof
         .totals()
         .map_err(|_| RestoreError::Invalid("replayed native totals"))?;
-    context(session, &root).finish_run(
-        keys,
-        super::NativeInventory {
-            files,
-            bytes,
-            dependencies: 0,
-        },
-        &proof,
-    )
+    context(session, &root).finish_run(keys, super::NativeInventory { files, bytes }, &proof)
 }
 
 async fn replay_checkpoint(

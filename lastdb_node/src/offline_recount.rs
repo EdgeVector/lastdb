@@ -1,8 +1,5 @@
-//! `lastdb db recount`: repair the blob counters and the retention queue of a
-//! STOPPED home.
+//! `lastdb db recount`: repair the retention queue of a STOPPED home.
 //!
-//! The recount reads the records and the field history, counts the file blob
-//! references of each blob, and repairs the blob counters and the blob queue.
 //! It gives a bucket of the retention queue that holds entries its directory
 //! row back, and it can raise the replay cutoff. See
 //! `fold_db::db_operations::RecordStore::recount_counters`. No gate and no write
@@ -33,8 +30,6 @@ pub struct RecountArgs<'a> {
     /// Recount each scope that the database catalog names, besides the
     /// personal scope.
     pub all_scopes: bool,
-    /// Set the blob counters to the exact count. Needs `all_scopes`.
-    pub blobs_exact: bool,
     /// Raise the replay cutoff to this unix second. The cutoff is one record
     /// for the whole home, so it does not depend on the scopes.
     pub delete_cutoff_unix_secs: Option<u64>,
@@ -49,9 +44,6 @@ struct Output<'a> {
     home: String,
     preflight: &'a Preflight,
     elapsed_secs: u64,
-    /// The blob step of the recount, the same object as `recount.blobs`. A reader
-    /// that looks for `blobs.rows_missing` finds it here.
-    blobs: &'a fold_db::db_operations::BlobRecountReport,
     recount: &'a RecountReport,
 }
 
@@ -85,7 +77,6 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
     let options = RecountOptions {
         execute: args.execute,
         scopes,
-        blobs_exact: args.blobs_exact && args.all_scopes,
         delete_cutoff_nanos: args
             .delete_cutoff_unix_secs
             .map(|secs| {
@@ -173,7 +164,6 @@ fn print_report(
             home: args.home.display().to_string(),
             preflight,
             elapsed_secs,
-            blobs: &report.blobs,
             recount: report,
         };
         let text = serde_json::to_string_pretty(&output).map_err(|e| format!("serialize: {e}"))?;
@@ -211,7 +201,7 @@ fn print_report(
         report.range_reads.shrinks,
         report.range_reads.splits
     );
-    print_blob_step(report);
+    print_replay_cutoff(report);
     for note in &report.notes {
         println!("  note: {note}");
     }
@@ -222,46 +212,6 @@ fn print_report(
         );
     }
     Ok(())
-}
-
-/// The blob step of the report.
-fn print_blob_step(report: &RecountReport) {
-    print_replay_cutoff(report);
-    let blobs = &report.blobs;
-    if !blobs.ran {
-        return;
-    }
-    println!(
-        "  blobs ({}): {} records and field history entries name {} blobs; {} counters read",
-        if blobs.exact { "exact" } else { "raise only" },
-        blobs.records_read,
-        blobs.referenced_blobs,
-        blobs.counters_read
-    );
-    println!(
-        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored, {} directory rows restored",
-        blobs.unchanged,
-        blobs.created,
-        blobs.raised,
-        blobs.lowered,
-        blobs.suspect_cleared,
-        blobs.dwell_cancelled,
-        blobs.dwell_started,
-        blobs.queue_read,
-        blobs.queue_deleted,
-        blobs.queue_restored,
-        blobs.directory_rows_restored
-    );
-    if blobs.rows_missing > 0 {
-        println!(
-            "  blob rows missing: {} referenced blob(s), for example {}",
-            blobs.rows_missing,
-            blobs.missing_row_samples.join(", ")
-        );
-    }
-    for note in &blobs.notes {
-        println!("  note: {note}");
-    }
 }
 
 fn print_replay_cutoff(report: &RecountReport) {

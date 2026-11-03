@@ -13,9 +13,9 @@ pub(crate) use db_inventory_print_cmds::*;
 #[path = "db_ledger_cmds.rs"]
 mod db_ledger_cmds;
 pub(crate) use db_ledger_cmds::*;
-#[path = "db_put_blob_local_cmds.rs"]
-mod db_put_blob_local_cmds;
-pub(crate) use db_put_blob_local_cmds::*;
+#[path = "db_put_blob_cmds.rs"]
+mod db_put_blob_cmds;
+pub(crate) use db_put_blob_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;
@@ -67,7 +67,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             execute,
             scopes,
             all_scopes,
-            blobs_exact,
             delete_cutoff_unix_secs,
             i_know_this_is_primary,
             json,
@@ -77,7 +76,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
                 execute,
                 scopes,
                 all_scopes,
-                blobs_exact,
                 delete_cutoff_unix_secs,
                 i_know_this_is_primary,
                 json,

@@ -19,12 +19,11 @@
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, the collection rule of a main key, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
+doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
 modules = [
   "clock",
   "crypto",
   "env_number",
-  "main_key_placement",
   "process_cpu",
   "security",
 ]
@@ -47,10 +46,9 @@ modules = [
 
 [[layer]]
 name = "wire"
-doc = "File blob and sharing wire formats: pointer and access records, the blob seal, and signed share types. Pure codecs over the model."
+doc = "Sharing wire formats: the delivery slice and signed share types. Pure codecs over the model."
 modules = [
   "sharing::delivery_wire",
-  "sharing::file_blob_seal",
   "sharing::signing",
   "sharing::types",
 ]
@@ -78,7 +76,6 @@ name = "operations"
 doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
 modules = [
   "db_operations",
-  "sharing::blob_cas",
   "sharing::store",
 ]
 

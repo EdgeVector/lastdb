@@ -225,9 +225,6 @@ pub enum DataRoute {
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
     /// order-log walks) but still a heavy admin scan.
     DbSchemas,
-    /// `POST /api/storage/liveness/explain` — point-read the counter of one
-    /// file blob, and its dwell queue state.
-    LivenessExplain,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,
@@ -244,14 +241,18 @@ pub enum DataRoute {
     /// `POST /api/db/schema-retention` — owner read/set/clear of the
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
-    /// `POST /api/db/fetch-file-blob` — explicitly fetch exactly one
-    /// `$lastdb_file` pointer from the local store, with byte verification.
-    /// Body: `{ "pointer": <field value> }`.
-    DbFetchFileBlob,
-    /// `POST /api/db/put-blob-local` — store one blob in the local `cas_blobs`
-    /// plane and return its `$lastdb_file` pointer. No sync engine, no record
-    /// written. Raw `application/octet-stream` or JSON `{ bytes_b64 }`. OWNER only.
-    DbPutBlobLocal,
+    /// `POST /api/db/put-blob` — store the file of one record with the record's
+    /// marker and optional fields, in one native write. Raw
+    /// `application/octet-stream` with an `X-LastDB-File-Blob-Metadata` header,
+    /// or JSON `{ schema, key, bytes_b64, name?, media_type?, fields? }`.
+    /// OWNER only.
+    DbPutBlob,
+    /// `POST /api/db/fetch-blob` — read the file of one record by schema and
+    /// key, checked against its marker. Body: `{ schema, key }`. OWNER only.
+    DbFetchBlob,
+    /// `POST /api/db/delete-blob` — remove the file and the marker of one
+    /// record; the record stays. Body: `{ schema, key }`. OWNER only.
+    DbDeleteBlob,
     /// `POST /api/sharing/snapshot` — materialize + seal a query snapshot and
     /// return `snapshot_key = sha256(canonical_query || recipient)` + sealed
     /// blob (no messaging append; object-store publishers overwrite by key).

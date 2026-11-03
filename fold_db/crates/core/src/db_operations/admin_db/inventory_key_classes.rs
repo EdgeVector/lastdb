@@ -19,21 +19,6 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "rh:{S}:{sha(record)}:{field}:{id} — field history copies of old record values",
     ),
     (
-        "blob_counter",
-        "bref:c:",
-        "bref:c:{sha256(blob_ref)} — blob counter (references to a local file blob, and its dwell)",
-    ),
-    (
-        "blob_queue",
-        "bref:q:",
-        "bref:q:{bucket}\0{zero_since}:{sha256(blob_ref)} — time-bucketed dwell queue of local file blobs at zero (the dwell pass reads it)",
-    ),
-    (
-        "blob_queue_bucket_directory",
-        "bref:d\0",
-        "bref:d\0{bucket} — one row for each bucket of the blob dwell queue (the dwell pass lists it)",
-    ),
-    (
         "retention_queue",
         "crq:",
         "crq:{bucket}\0{expires}:{record} — time-bucketed queue of kept conflict records (the janitor reads it)",

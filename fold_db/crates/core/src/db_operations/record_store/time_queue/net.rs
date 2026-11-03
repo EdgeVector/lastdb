@@ -48,9 +48,8 @@ pub(crate) struct NetChunk {
 
 /// The clock and the remaining slices of one safety-net sweep.
 ///
-/// `set_every` always restarts the clock. `set_every_when_changed` keeps the
-/// clock when the interval is the same. The caller supplies the slices when a
-/// sweep starts, and the caller mends each chunk.
+/// `set_every` always restarts the clock. The caller supplies the slices when
+/// a sweep starts, and the caller mends each chunk.
 #[derive(Debug)]
 pub(crate) struct NetSchedule {
     every: Option<Duration>,
@@ -71,13 +70,6 @@ impl NetSchedule {
     pub(crate) fn set_every(&mut self, every: Option<Duration>) {
         self.every = every;
         self.next_at = Instant::now();
-    }
-
-    /// Record `every` only when it differs. The same interval keeps this clock.
-    pub(crate) fn set_every_when_changed(&mut self, every: Option<Duration>) {
-        if self.every != every {
-            self.set_every(every);
-        }
     }
 
     /// Slices for the next chunk, or `None` when no sweep is due.

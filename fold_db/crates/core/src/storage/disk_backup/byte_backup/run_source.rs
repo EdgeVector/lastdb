@@ -212,14 +212,8 @@ pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {
         .as_ref()
         .ok_or_else(|| invalid("run source unavailable"))?;
     let (main, cas) = source.reads(crate::storage::disk_pack::budget())?;
-    super::super::run_restore::verify_readers_for_profile(
-        &main,
-        &cas,
-        key,
-        &inner.store.root,
-        source.version,
-    )
-    .map(|_| ())
+    super::super::run_restore::verify_readers_for_profile(&main, &cas, key, source.version)
+        .map(|_| ())
 }
 fn hash(mut input: File) -> StorageResult<Digest> {
     let mut hash = Sha256::new();

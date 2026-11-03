@@ -1,7 +1,7 @@
 //! A node home in disk format v2: the node marker and two run homes.
 //!
 //! ```text
-//! <node>/laststore-pack-node-v1   format 8: the record model
+//! <node>/laststore-pack-node-v1   format 9: the record model
 //! <node>/disk-run/                the run home for every collection except CAS
 //! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
 //! ```
@@ -12,7 +12,7 @@
 //! Every node home is v2: a node that opens an absent or empty home creates
 //! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
 //! one on request. Both need the node encryption key. Every new home is
-//! format 8; the node marker check admits no other home. The run homes are
+//! format 9; the node marker check admits no other home. The run homes are
 //! complete before the marker appears, so a crash during creation leaves the
 //! creation intent without a marker. The runtime opens only after the marker,
 //! so that home holds no application records: the next open removes the

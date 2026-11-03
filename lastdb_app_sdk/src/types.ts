@@ -91,15 +91,30 @@ export type MutationConvergence = 'sync' | 'async';
 export type MutationDurability = 'queued' | 'durable';
 
 /**
+ * The marker of a record's file. A record has at most one file; read it with
+ * `POST /api/db/fetch-blob` by schema and key.
+ */
+export interface FileMarker {
+  name?: string;
+  media_type?: string;
+  /** Plaintext size in bytes. */
+  size_bytes: number;
+  /** Plaintext SHA-256, lowercase hex. */
+  sha256: string;
+}
+
+/**
  * The one metadata block of a record (decision D7): the source file name and
- * the metadata map of the last write that carried them. A field has no
- * metadata of its own.
+ * the metadata map of the last write that carried them, and the marker of the
+ * record's file. A field has no metadata of its own.
  */
 export interface RecordMetadata {
   /** The source file name of the record, or `null` when it has none. */
   source_file_name: string | null;
-  /** The metadata map of the record (for example `file_blob_ref`), when set. */
+  /** The metadata map of the record, when set. */
   metadata?: Record<string, string>;
+  /** The record's file, when it has one. */
+  file?: FileMarker;
 }
 
 /**

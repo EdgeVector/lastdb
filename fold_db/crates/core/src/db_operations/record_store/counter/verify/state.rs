@@ -6,7 +6,6 @@ use super::report::{
     VerifySummary,
 };
 use crate::db_operations::record_store::time_queue::QueueSurvey;
-use crate::db_operations::record_store::{RangeWalk, WalkStats};
 use crate::schema::SchemaError;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -25,8 +24,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// One run of the verifier.
 pub(super) struct Run {
     pub phase: Phase,
-    /// The range walk of a blob phase. Empty in the queue phase.
-    pub walk: RangeWalk,
     /// The survey of the retention queue, while the queue phase runs.
     pub survey: Option<QueueSurvey>,
     pub report: VerifyReport,
@@ -40,7 +37,6 @@ impl Run {
         let id = uuid::Uuid::new_v4().simple().to_string();
         Self {
             phase: Phase::Queue,
-            walk: RangeWalk::new(&[], &[], page_rows),
             survey: None,
             report: VerifyReport {
                 run_id: id,
@@ -54,10 +50,6 @@ impl Run {
                 steps: 0,
                 pages: 0,
                 queue_entries_read: 0,
-                blob_counters_read: 0,
-                blob_queue_read: 0,
-                page_retries: 0,
-                range_reads: WalkStats::default(),
                 mismatches: Mismatches::default(),
                 mismatches_total: 0,
                 samples: Vec::new(),
@@ -83,11 +75,6 @@ impl Run {
     /// done, so a repeated or stale step is refused.
     pub(super) fn cursor(&self) -> String {
         format!("{}.{}", self.report.run_id, self.report.steps)
-    }
-
-    /// Record one fault: the count, and a sample while the kind has room.
-    pub(super) fn note_fault(&mut self, kind: super::report::Kind, subject: &str, detail: String) {
-        self.note_faults(kind, subject, detail, 1);
     }
 
     /// Record `count` faults of one kind with one sample.

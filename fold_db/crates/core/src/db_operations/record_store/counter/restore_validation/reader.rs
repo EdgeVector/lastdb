@@ -1,6 +1,6 @@
 //! Retain the logical encryption seam without borrowing a snapshot caller.
 
-use crate::storage::disk_pack::{PackReadScope, PackRuntime};
+use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::{KvStore, NamespacedStore};
 use async_trait::async_trait;
@@ -9,19 +9,12 @@ use std::sync::Arc;
 struct Reader {
     runtime: Arc<PackRuntime>,
     main: Arc<dyn KvStore>,
-    cas: Arc<dyn KvStore>,
 }
 
-pub(super) async fn open(
-    store: &dyn NamespacedStore,
-    runtime: Arc<PackRuntime>,
-    main: Arc<dyn KvStore>,
-) -> StorageResult<Arc<dyn NamespacedStore>> {
-    // A read scope opens an absent CAS namespace without registering it.
-    // Validation must never repair a missing namespace as a side effect.
-    let scope = PackReadScope::for_runtime(&runtime).await?;
-    let cas = scope.run_result(store.open_namespace("cas_blobs")).await?;
-    Ok(Arc::new(Reader { runtime, main, cas }))
+/// Validation reads the retention queue of `main` only. It opens no other
+/// namespace, so it never repairs a missing one as a side effect.
+pub(super) fn open(runtime: Arc<PackRuntime>, main: Arc<dyn KvStore>) -> Arc<dyn NamespacedStore> {
+    Arc::new(Reader { runtime, main })
 }
 
 #[async_trait]
@@ -33,7 +26,6 @@ impl NamespacedStore for Reader {
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
         match name {
             "main" => Ok(Arc::clone(&self.main)),
-            "cas_blobs" => Ok(Arc::clone(&self.cas)),
             _ => Err(StorageError::InvalidOperation(
                 "restore reader namespace is unsupported".into(),
             )),
@@ -41,7 +33,7 @@ impl NamespacedStore for Reader {
     }
 
     async fn list_namespaces(&self) -> StorageResult<Vec<String>> {
-        Ok(vec!["main".into(), "cas_blobs".into()])
+        Ok(vec!["main".into()])
     }
 
     async fn delete_namespace(&self, _name: &str) -> StorageResult<bool> {

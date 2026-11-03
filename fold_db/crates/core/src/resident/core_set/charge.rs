@@ -43,6 +43,13 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
                 .sum::<usize>()
             + stamp_heap_bytes(&meta.stamp)
     });
+    let file = record.file.as_ref().map_or(0, |file| {
+        std::mem::size_of::<lastdb_model::record_value::RecordFile>()
+            + file.name.as_ref().map_or(0, String::capacity)
+            + file.media_type.as_ref().map_or(0, String::capacity)
+            + file.sha256.capacity()
+            + stamp_heap_bytes(&file.stamp)
+    });
     finish(
         RECORD_BASE
             + ARC_HEADER
@@ -52,6 +59,7 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + fields
             + stamps
             + meta
+            + file
             + record.deleted.as_ref().map_or(0, stamp_heap_bytes),
     )
 }

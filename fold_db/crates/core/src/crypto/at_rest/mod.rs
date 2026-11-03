@@ -18,31 +18,18 @@
 //! valid UTF-8, for a storage boundary that requires a JSON string
 //! ([`seal_at_rest_utf8`]).
 //!
-//! **Binary wire format — `ENB:` ++ flags ++ envelope.** The low bit of the
-//! one-byte flags field records whether the plaintext was deflated before it
-//! was sealed. The raw-key seal ([`seal_at_rest_raw`]) never deflates, and
-//! [`open_at_rest_bounded`] refuses a deflated value.
+//! **Binary wire format — `ENB:` ++ flags ++ envelope.** The one-byte flags
+//! field is zero; any other value is refused.
 //!
 //! Both prefixes are 4 bytes and end in `:`, which is outside the base64
 //! alphabet, so neither can be confused with the other, with a base64 body,
 //! or with JSON (`{`/`[`). A value without one of them is not sealed, and
 //! [`open_at_rest_bounded`] rejects it.
 //!
-//! **The compression half serves the KV seam.** The namespaced
-//! `EncryptingKvStore`, which wraps only the local CAS blob records
+//! The namespaced `EncryptingKvStore`, which wraps only the record file rows
 //! (`cas_blobs`), seals through the async
-//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key. It writes
-//! `ENB:` only, and it uses the compress-or-skip decision
-//! (`compress_for_seal`), the bounded inflate (`inflate_at_rest`), and these
-//! counters. It is the only seal site that compresses.
-
-mod compress;
-mod config;
-mod stats;
-
-pub(crate) use compress::*;
-pub use config::*;
-pub use stats::*;
+//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key and writes
+//! `ENB:` only. A file row is already ciphertext, so nothing compresses it.
 
 use super::envelope::decrypt_envelope;
 use super::envelope::encrypt_envelope;
@@ -59,13 +46,9 @@ pub const AT_REST_ENC_PREFIX: &str = "ENC:";
 /// Prefix marker for binary at-rest values.
 ///
 /// The stored form is `ENB:` + one flags byte + the raw ciphertext envelope.
-/// Bit 0 means the plaintext was deflated before encryption. Other bits are
-/// reserved and rejected so a future extension cannot be misread by an older
-/// binary.
+/// The flags byte is zero. Other values are reserved and rejected so a future
+/// extension cannot be misread by an older binary.
 pub const AT_REST_ENC_BINARY_PREFIX: &str = "ENB:";
-
-const AT_REST_BINARY_FLAG_DEFLATED: u8 = 0x01;
-const AT_REST_BINARY_KNOWN_FLAGS: u8 = AT_REST_BINARY_FLAG_DEFLATED;
 
 /// True when `value` carries an at-rest envelope marker (`ENC:` or `ENB:`).
 #[must_use]
@@ -91,18 +74,18 @@ pub fn seal_at_rest_utf8(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u
 /// Seal `plaintext` as `ENB:` + flags + raw ciphertext envelope.
 pub fn seal_at_rest_raw(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
     let ciphertext = encrypt_envelope(key, plaintext)?;
-    Ok(encode_binary_ciphertext(&ciphertext, false))
+    Ok(encode_binary_ciphertext(&ciphertext))
 }
 
-pub(crate) fn encode_binary_ciphertext(ciphertext: &[u8], deflated: bool) -> Vec<u8> {
+pub(crate) fn encode_binary_ciphertext(ciphertext: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(AT_REST_ENC_BINARY_PREFIX.len() + 1 + ciphertext.len());
     out.extend_from_slice(AT_REST_ENC_BINARY_PREFIX.as_bytes());
-    out.push(u8::from(deflated) * AT_REST_BINARY_FLAG_DEFLATED);
+    out.push(0);
     out.extend_from_slice(ciphertext);
     out
 }
 
-pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<(bool, &[u8])>> {
+pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<&[u8]>> {
     if !stored.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
         return Ok(None);
     }
@@ -111,15 +94,12 @@ pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<(bo
             "at-rest ENB envelope is missing its flags byte".to_string(),
         ));
     };
-    if flags & !AT_REST_BINARY_KNOWN_FLAGS != 0 {
+    if flags != 0 {
         return Err(CryptoError::InvalidFormat(format!(
             "at-rest ENB envelope has unsupported flags 0x{flags:02x}"
         )));
     }
-    Ok(Some((
-        flags & AT_REST_BINARY_FLAG_DEFLATED != 0,
-        ciphertext,
-    )))
+    Ok(Some(ciphertext))
 }
 
 /// Open a sealed value with a caller-owned bound, independent of environment.
@@ -144,12 +124,7 @@ pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoRe
 }
 
 fn open_sealed(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
-    if let Some((deflated, ciphertext)) = decode_binary_ciphertext(stored)? {
-        if deflated {
-            return Err(CryptoError::InvalidFormat(
-                "a raw-key ENB envelope is never deflated".into(),
-            ));
-        }
+    if let Some(ciphertext) = decode_binary_ciphertext(stored)? {
         return decrypt_envelope(key, ciphertext);
     }
     let Some(encoded) = stored.strip_prefix(AT_REST_ENC_PREFIX.as_bytes()) else {

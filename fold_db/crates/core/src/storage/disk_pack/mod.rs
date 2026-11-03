@@ -38,7 +38,6 @@ mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub use crate::storage::disk_backup::byte_backup;
-pub use crate::storage::disk_backup::file_dependencies;
 pub use crate::storage::disk_backup::mutation_log;
 pub use crate::storage::disk_backup::run_restore;
 pub use crate::storage::disk_backup::NativeCloudWorkGuard;
@@ -130,7 +129,7 @@ impl PackNamespacedStore {
     /// Open a node store with the node encryption key. An absent or empty
     /// home becomes a new v2 home, and a v2 creation that stopped before its
     /// node marker is created again. A v2 home needs the key: its run home
-    /// keys derive from it. The node marker check admits only format 8.
+    /// keys derive from it. The node marker check admits only format 9.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);

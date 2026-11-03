@@ -11,17 +11,19 @@
 //! The release goes in bounded batches. A walk step reads at most
 //! [`RELEASE_ROWS`] rows outside the write gate. One native write scope then
 //! reads those keys again and deletes the rows that are still there, with
-//! their blob counter changes, in one batch. A row that a writer removed
+//! the files of the records, in one batch. A row that a writer removed
 //! between the two reads is not released twice. A drop that stops between two
 //! batches (an error, a timeout) leaves the schema installed, and the next drop
 //! goes on: it passes the deleted keys and releases the rest.
 //!
-//! - A record lowers the blobs that it names (`BlobDeltas::scope_rows_dropped`),
+//! - A record's file path (`fb:{S}:`, in `cas_blobs`) goes with the record,
 //!   and its conflict rows, their queue entries and its conflict marker go in
-//!   the same batch, as a purge does (`purged_record_conflicts`).
-//! - A field history entry goes with its queue entry, its blob references and
-//!   the entry count of its record (`release_dropped_history`).
-//! - An alternate entry holds no blob reference.
+//!   the same batch, as a purge does (`purged_record_conflicts`). The path
+//!   comes from the record key (`record_files::dropped_file_paths`); a record
+//!   row that does not decode loses its path too.
+//! - A field history entry goes with its queue entry and the entry count of
+//!   its record (`release_dropped_history`).
+//! - An alternate entry holds no file.
 //!
 //! Two kinds of rows are not in the record scope. The rows of a database
 //! binding live in the scope of its instance, and the catalog drop releases
@@ -41,7 +43,7 @@
 //! alternate-key change command must add a durable list of the revisions that
 //! the schema had, and this release must then read the `ak:{F}:` prefix of each.
 
-use super::blob_counter::BlobDeltas;
+use super::record_files::dropped_file_paths;
 use super::{record_scope, RangeWalk, RecordStore};
 use crate::records::field_history::RECORD_HISTORY_PREFIX;
 use crate::schema::types::field::build_storage_key;
@@ -142,30 +144,23 @@ impl RecordStore {
             .iter()
             .map(|(key, _)| KvMutation::delete(key.as_bytes().to_vec()))
             .collect();
+        let mut files = Vec::new();
         let batch = match family {
             Family::History | Family::Alternates => deletes,
             Family::Records => {
-                let mut blobs = BlobDeltas::default();
-                let unreadable = blobs.scope_rows_dropped(
+                files = dropped_file_paths(
                     rows.iter()
                         .map(|(key, value)| (key.as_bytes(), value.as_slice())),
                 );
-                if unreadable > 0 {
-                    tracing::warn!(
-                        target: "fold_node::database",
-                        unreadable,
-                        "records of a dropped schema do not decode; their blob counters stay \
-                         too high until a recount"
-                    );
-                }
                 let records: Vec<&str> = rows.iter().map(|(key, _)| key.as_str()).collect();
                 let mut batch = self.purged_record_conflicts(&records).await?;
                 batch.extend(deletes);
-                batch.extend(self.blob_counter_mutations(blobs).await?);
                 batch
             }
         };
         self.raw().inner().batch_mutate(batch).await?;
+        self.stage_file_rows(files.into_iter().map(KvMutation::delete).collect())
+            .await?;
         Ok(count)
     }
 }

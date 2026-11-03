@@ -237,7 +237,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.
         DataRoute::LocalWatch => OpKind::LocalWatch,
-        DataRoute::DbPutBlobLocal | DataRoute::DbFetchFileBlob => OpKind::FileBlob,
+        DataRoute::DbPutBlob | DataRoute::DbFetchBlob | DataRoute::DbDeleteBlob => OpKind::FileBlob,
         _ => OpKind::Other,
     }
 }

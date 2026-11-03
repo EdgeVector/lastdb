@@ -58,8 +58,7 @@ pub(crate) struct RecordHistoryEntry {
     pub field_identity: String,
     /// The full storage key of the record.
     pub record: String,
-    /// The copy of the old value. A file blob pointer in it holds one blob
-    /// reference while the entry lives.
+    /// The copy of the old value.
     pub value: serde_json::Value,
     /// The stamp of the old value.
     pub stamp: lastdb_model::record_value::FieldStamp,
@@ -86,10 +85,5 @@ impl RecordHistoryEntry {
 
     pub(crate) fn expired(&self, now: u64) -> bool {
         self.expires_at.is_some_and(|at| at <= now)
-    }
-
-    /// The blobs that the copied value names. Each holds one reference.
-    pub(crate) fn blobs(&self) -> Vec<String> {
-        lastdb_model::file_pointer::blob_refs_of_value(&self.value, None)
     }
 }

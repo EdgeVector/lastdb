@@ -36,8 +36,6 @@ pub mod db_operations;
 mod env_number;
 pub mod error;
 pub mod fold_db_core;
-/// The collection (`records` or `blob_counts`) of one `main` key.
-pub mod main_key_placement;
 /// One accounted process memory budget — the warm set limit projected to RSS,
 /// with the deferred-write window derived from what is left under the node's
 /// RSS guard.

@@ -50,14 +50,12 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=8\nhome=disk-run\ncas=disk-cas\n"
-# The settings of the primary's launchd job that the node reads: the
-# compression of the at-rest envelopes, the record size limit, the memory
-# budget, and the admin timeout.
+RUN_NODE = b"format=9\nhome=disk-run\ncas=disk-cas\n"
+# The settings of the primary's launchd job that the node reads: the record
+# size limit, the memory budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
     "LASTDB_ENGINE": "laststore",
-    "LASTDB_KV_AT_REST_COMPRESS": "1",
     "LASTDB_MAX_FIELD_VALUE_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
     "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",
@@ -171,7 +169,7 @@ class Case:
     def check_new_home(self):
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
-            raise ProofError(f"a new home has the node marker {marker!r}, not the format 8 marker")
+            raise ProofError(f"a new home has the node marker {marker!r}, not the format 9 marker")
         for name in ("disk-run", "disk-cas"):
             if not (self.data / name).is_dir():
                 raise ProofError(f"a new home lacks {name}")
@@ -205,7 +203,7 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
-            self.failures.append(f"{name}: the node marker is not the format 8 marker")
+            self.failures.append(f"{name}: the node marker is not the format 9 marker")
         self.compare(name, logical, reads, listed)
         self.phases.append({
             "name": name, "settled": settled, "logical": logical,

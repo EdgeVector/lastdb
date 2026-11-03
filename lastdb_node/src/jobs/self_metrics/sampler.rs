@@ -44,7 +44,6 @@ pub fn spawn_sampler(
             }
             maybe_spawn_drain(&host, cap);
             crate::ttl_sweep::maybe_spawn_ttl_sweep(&host, &shutdown);
-            crate::blob_dwell::maybe_spawn_blob_dwell_pass(&host, &shutdown);
             let until = tokio::time::Instant::now() + interval;
             while !shutdown.load(std::sync::atomic::Ordering::Acquire)
                 && tokio::time::Instant::now() < until

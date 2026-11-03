@@ -4,12 +4,10 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
-    /// Repair the blob counters and the retention queue. OFFLINE: it refuses a
-    /// home that a daemon serves.
+    /// Repair the retention queue. OFFLINE: it refuses a home that a daemon
+    /// serves.
     ///
-    /// It counts the file blob references of the records and the field
-    /// history, and repairs the blob counters and the blob queue. A queue
-    /// entry of the retention queue whose bucket has no directory row
+    /// A queue entry of the retention queue whose bucket has no directory row
     /// (`queue_entry_without_directory`) gets the row.
     ///
     /// Default is a dry run that reports every change. `--execute` writes the
@@ -31,14 +29,6 @@ pub(crate) enum DbOfflineCommand {
         /// personal scope. A scope with data and no catalog entry needs --scope.
         #[arg(long)]
         all_scopes: bool,
-        /// Set the blob counters to the exact count: lower a counter that is too
-        /// high, clear a `suspect` flag, and start the dwell of a blob that no
-        /// record and no field history entry names. Without it the blob step only raises
-        /// counters and makes missing ones. Requires --all-scopes, and every
-        /// scope of the home must be listed: a scope that is missing makes the
-        /// count too low.
-        #[arg(long, requires = "all_scopes")]
-        blobs_exact: bool,
         /// Raise the replay cutoff of the home to this unix second: a replayed
         /// write at or before it is refused. The cutoff is one record for the
         /// whole home, so it needs no --all-scopes. Stale peers need resync.

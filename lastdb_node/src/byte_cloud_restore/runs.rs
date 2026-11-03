@@ -37,11 +37,7 @@ pub(super) async fn stage(
     mut inventory: Inventory,
 ) -> Result<NativeInventory> {
     let mut coverage = coverage::Coverage::new(root, session, &mut inventory)?;
-    let mut total = NativeInventory {
-        files: 0,
-        bytes: 0,
-        dependencies: 0,
-    };
+    let mut total = NativeInventory { files: 0, bytes: 0 };
     for batch in root
         .pages
         .chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS)

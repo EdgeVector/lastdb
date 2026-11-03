@@ -1,5 +1,10 @@
-//! Local file fetch flow and data-only pointer/media-type rules.
+//! The file routes of a record: read and remove one record's file by schema
+//! and key (`put-blob` is in `file_blob_put.rs`). No request names a pointer,
+//! a path or a key: the node derives them from the record.
 use super::*;
+use fold_db::fold_db_core::fold_db::RecordFileState;
+use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
+use fold_db::schema::types::{FileWrite, KeyValue, MutationType};
 
 pub(super) const FILE_BLOB_METADATA_HEADER: &str = "x-lastdb-file-blob-metadata";
 
@@ -14,96 +19,141 @@ pub(super) fn is_media_type(header: Option<&str>, expected: &str) -> bool {
     })
 }
 
-/// Validated pointer and public reply metadata. No host access or byte reads.
-struct FetchFileBlobRequest {
-    pointer: Value,
-    blob_ref: String,
-    file_hash: String,
+/// The record a file route names: its schema and its key.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FileTarget {
+    pub(super) schema: String,
+    pub(super) key: KeyValue,
 }
 
-impl FetchFileBlobRequest {
-    fn parse(body: &[u8]) -> Result<Self, (u16, String)> {
-        use fold_db::sharing::delivery_wire::{blob_ref_from_value, file_blob_access_from_value};
+impl FileTarget {
+    fn parse(body: &[u8], route: &str) -> Result<Self, HostError> {
+        let target: Self = serde_json::from_slice(body)
+            .map_err(|error| HostError::new(400, format!("invalid {route} body: {error}")))?;
+        target.require_hash()?;
+        Ok(target)
+    }
 
-        #[derive(Deserialize)]
-        struct Body {
-            pointer: Value,
+    pub(super) fn require_hash(&self) -> Result<(), HostError> {
+        if self.key.hash.as_deref().is_none_or(str::is_empty) {
+            return Err(HostError::new(400, "a file route requires key.hash"));
         }
+        Ok(())
+    }
 
-        let Body { pointer } = serde_json::from_slice(body).map_err(|error| {
-            (
-                400,
-                format!("invalid /api/db/fetch-file-blob body: {error}"),
-            )
-        })?;
-        let blob_ref = blob_ref_from_value(&pointer)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                (
-                    400,
-                    "pointer must be a $lastdb_file value with blob_ref".into(),
-                )
-            })?;
-        let access = file_blob_access_from_value(&pointer)
-            .map_err(|error| (422, format!("invalid file blob access: {error}")))?
-            .ok_or_else(|| (422, "pointer is missing file blob access metadata".into()))?;
-        Ok(Self {
-            pointer,
-            blob_ref,
-            file_hash: access.file_hash,
-        })
+    /// The canonical schema name.
+    pub(super) fn canonical(&self, host: &Host) -> Result<String, HostError> {
+        handlers::resolve_schema_name(host, &self.schema)?
+            .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", self.schema)))
     }
 }
 
-/// `POST /api/db/fetch-file-blob` — explicit single-pointer local file fetch.
+/// The native write of a file route: an update of the record at `key` that
+/// carries only the file write. The record's key fields are written as for
+/// any mutation.
+pub(super) fn file_mutation(
+    schema: String,
+    key: KeyValue,
+    fields: HashMap<String, Value>,
+    file_write: FileWrite,
+    must_exist: Option<bool>,
+) -> handlers::MutationComponents {
+    handlers::MutationComponents {
+        metadata: None,
+        schema,
+        fields_and_values: fields,
+        key_value: key,
+        mutation_type: MutationType::Update,
+        source_file_name: None,
+        expected: None,
+        convergence: MutationConvergence::default(),
+        durability: MutationDurability::Durable,
+        must_exist,
+        key_range_prefix: None,
+        file_write: Some(file_write),
+    }
+}
+
+/// `POST /api/db/fetch-blob` — the file of one record, checked against the
+/// record's marker. OWNER socket only.
 ///
-/// JSON clients receive the historical base64 envelope. Clients that send
-/// `Accept: application/octet-stream` receive the verified plaintext bytes
-/// directly, with the blob reference and hash in response headers.
-pub(super) async fn execute_db_fetch_file_blob_route(
+/// JSON clients receive `{ file: { name?, media_type?, size_bytes, sha256,
+/// bytes_b64 } }`. Clients that send `Accept: application/octet-stream`
+/// receive the plaintext bytes, with the hash and size in headers.
+pub(super) async fn execute_db_fetch_blob_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let FetchFileBlobRequest {
-        pointer,
-        blob_ref,
-        file_hash,
-    } = match FetchFileBlobRequest::parse(&req.body) {
-        Ok(request) => request,
-        Err((status, message)) => return error_response(status, &message, ctx),
+    let read = async {
+        let target = FileTarget::parse(&req.body, "/api/db/fetch-blob")?;
+        let schema = target.canonical(host)?;
+        host.db
+            .read_record_file(&schema, &target.key)
+            .await
+            .map_err(HostError::from)?
+            .ok_or_else(|| HostError::new(404, "the record has no file"))
     };
-
-    // Resolve and verify the local blob. No remote fallback is admitted.
-    let bytes = match fold_db::sharing::query_slice::resolve_file_bytes(&host.db, &pointer).await {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return error_response(404, "file blob was not found locally", ctx),
-        Err(fold_db::error::FoldDbError::SecurityError(msg)) => {
-            return error_response(422, &format!("file blob verification failed: {msg}"), ctx)
-        }
-        Err(e) => return mapped_error_response("file blob fetch failed", e, ctx),
+    let (marker, bytes) = match read.await {
+        Ok(file) => file,
+        Err(error) => return render(Err(error), ctx),
     };
-
     if is_media_type(req.header("accept"), "application/octet-stream") {
-        let byte_count = bytes.len();
         return UdsResponse::new(200, "OK", bytes)
             .with_header("Content-Type", "application/octet-stream")
-            .with_header("X-LastDB-File-Blob-Ref", blob_ref)
-            .with_header("X-LastDB-File-Hash", file_hash)
-            .with_header("X-LastDB-File-Blob-Bytes", byte_count.to_string());
+            .with_header("X-LastDB-File-Sha256", marker.sha256)
+            .with_header("X-LastDB-File-Size", marker.size_bytes.to_string());
     }
-
-    let bytes_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let mut file = serde_json::to_value(&marker).unwrap_or(Value::Null);
+    if let Some(object) = file.as_object_mut() {
+        object.insert(
+            "bytes_b64".into(),
+            Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+        );
+    }
     json_ok(&envelope(
-        &serde_json::json!({
-            "file_blob": {
-                "blob_ref": blob_ref,
-                "file_hash": file_hash,
-                "bytes_b64": bytes_b64,
-                "bytes": bytes.len(),
-                "cached": true,
-            }
-        }),
+        &serde_json::json!({ "file": file }),
         ctx.user_id.as_str(),
     ))
+}
+
+/// `POST /api/db/delete-blob` — remove the file and the marker of one record
+/// in one native write. The record stays. OWNER socket only.
+pub(super) async fn execute_db_delete_blob_route(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "file delete is owner-only", ctx);
+    }
+    let delete = async {
+        let target = FileTarget::parse(&req.body, "/api/db/delete-blob")?;
+        let schema = target.canonical(host)?;
+        let (_, state) = host
+            .db
+            .record_file_state(&schema, &target.key)
+            .await
+            .map_err(HostError::from)?;
+        match state {
+            RecordFileState::NoRecord => Err(HostError::new(404, "record not found")),
+            RecordFileState::NoFile => Ok(serde_json::json!({ "deleted": false })),
+            RecordFileState::File(_) => {
+                let components = file_mutation(
+                    schema,
+                    target.key,
+                    HashMap::new(),
+                    FileWrite::Clear,
+                    Some(true),
+                );
+                let value = commit_mutation_components(host, components, ctx).await?;
+                Ok(serde_json::json!({
+                    "deleted": true,
+                    "mutation_id": value.get("mutation_id").cloned().unwrap_or(Value::Null),
+                }))
+            }
+        }
+    };
+    render(delete.await, ctx)
 }

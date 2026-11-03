@@ -21,6 +21,7 @@ mod field_keys;
 mod layout;
 mod native;
 mod record_effects;
+mod record_rules;
 mod records;
 mod replay_cutoff;
 mod schema_delta_helpers;

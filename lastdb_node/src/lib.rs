@@ -37,7 +37,7 @@ pub mod volume_isolation;
 pub mod watch_gate;
 
 pub use host::Host;
-pub use jobs::{blob_dwell, footprint, ttl_sweep};
+pub use jobs::{footprint, ttl_sweep};
 pub use local_outbox::{LocalOutbox, LocalWatchEvent, LocalWatchPoll};
 pub use ops::{
     crash_attribution, crash_telemetry, gauge, health_alert, log_filter, request_telemetry,

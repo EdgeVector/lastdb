@@ -10,11 +10,6 @@ pub struct RecountOptions {
     pub execute: bool,
     /// The storage scope prefixes to recount. `None` is the personal scope.
     pub scopes: Vec<Option<String>>,
-    /// The listed scopes are every scope of the home. The blob step may then lower
-    /// a blob counter, clear a `suspect` flag and start the dwell of a blob that
-    /// nothing references. Without it the blob step only raises counters.
-    #[serde(default)]
-    pub blobs_exact: bool,
     /// The new global replay cutoff of the home, in nanoseconds. A write older
     /// than the cutoff is refused.
     #[serde(default)]
@@ -26,7 +21,6 @@ impl Default for RecountOptions {
         Self {
             execute: false,
             scopes: vec![None],
-            blobs_exact: false,
             delete_cutoff_nanos: None,
         }
     }
@@ -53,9 +47,6 @@ pub struct RecountReport {
     pub batches: u64,
     pub elapsed_ms: u64,
     pub range_reads: WalkStats,
-    /// The blob step: the blob counters against the records and the field history.
-    #[serde(default)]
-    pub blobs: crate::db_operations::record_store::BlobRecountReport,
     #[serde(default)]
     pub replay_cutoff: Option<crate::db_operations::record_store::ReplayCutoffReport>,
     pub notes: Vec<String>,
@@ -67,15 +58,6 @@ impl RecountReport {
     pub fn changed(&self) -> u64 {
         self.replay_cutoff.as_ref().map_or(0, |raised| {
             u64::from(raised.cutoff_before_nanos != raised.cutoff_after_nanos)
-        }) + self.blobs.created
-            + self.blobs.raised
-            + self.blobs.lowered
-            + self.blobs.suspect_cleared
-            + self.blobs.dwell_cancelled
-            + self.blobs.dwell_started
-            + self.blobs.queue_deleted
-            + self.blobs.queue_restored
-            + self.blobs.directory_rows_restored
-            + self.queue_entries_without_directory
+        }) + self.queue_entries_without_directory
     }
 }

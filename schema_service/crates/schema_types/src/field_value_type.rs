@@ -7,8 +7,10 @@ pub(crate) mod temporal;
 ///
 /// Every declared field names one of these types, and every write is checked
 /// against it. A declaration with a field that has no type is refused.
-/// `Any` remains only until Brain's two file pointer fields move to `File`;
-/// then it is deleted (`decision-2026-11-02-field-types-no-any`).
+/// `Any` remains only until no stored schema names it; then it is deleted
+/// (`decision-2026-11-02-field-types-no-any`). Its last users were Brain's two
+/// file pointer fields, which format 9 removes: a file is the record's own
+/// `file` member, not a field value.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 pub enum FieldValueType {
     // ── Primitives ──────────────────────────────────────
@@ -50,14 +52,7 @@ pub enum FieldValueType {
     Date,
     /// RFC 3339 instant with an offset and at most nine fractional digits.
     DateTime,
-    /// A file blob pointer: `{"$lastdb_file": {"blob_ref": "...", ...}}`, the
-    /// value a local or personal file blob put returns.
-    File,
 }
-
-/// The member that marks a file blob pointer. `lastdb_model` depends on this
-/// crate, so the name is repeated here rather than imported.
-const LASTDB_FILE_KEY: &str = "$lastdb_file";
 
 impl FieldValueType {
     /// Validate a JSON value against this type. Returns Ok(()) if valid,
@@ -65,7 +60,6 @@ impl FieldValueType {
     pub fn validate(&self, value: &serde_json::Value) -> Result<(), String> {
         match self {
             Self::Any => Ok(()),
-            Self::File => validate_file_pointer(value),
             Self::Date => temporal::validate_date(value),
             Self::DateTime => temporal::validate_datetime(value),
             Self::Null => value
@@ -179,27 +173,6 @@ fn validate_ref_object(value: &serde_json::Value, expected_schema: &str) -> Resu
     Ok(())
 }
 
-/// A pointer is an object whose `$lastdb_file` member names its blob, the same
-/// shape `lastdb_model::file_pointer::blob_ref_from_value` reads. The record
-/// store checks the access metadata itself.
-fn validate_file_pointer(value: &serde_json::Value) -> Result<(), String> {
-    let obj = value.as_object().ok_or_else(|| type_err("File", value))?;
-    let inner = obj
-        .get(LASTDB_FILE_KEY)
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| format!("expected File: an object with a '{LASTDB_FILE_KEY}' object"))?;
-    if inner
-        .get("blob_ref")
-        .and_then(serde_json::Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        return Err(format!(
-            "expected File: '{LASTDB_FILE_KEY}' has no 'blob_ref'"
-        ));
-    }
-    Ok(())
-}
-
 fn type_err(expected: &str, got: &serde_json::Value) -> String {
     format!("expected {expected}, got {}", json_type_name(got))
 }
@@ -221,7 +194,6 @@ impl std::fmt::Display for FieldValueType {
             Self::String => write!(f, "String"),
             Self::Date => write!(f, "Date"),
             Self::DateTime => write!(f, "DateTime"),
-            Self::File => write!(f, "File"),
             Self::Integer => write!(f, "Integer"),
             Self::Float => write!(f, "Float"),
             Self::Number => write!(f, "Number"),

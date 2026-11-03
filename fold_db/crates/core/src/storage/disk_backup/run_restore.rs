@@ -30,6 +30,8 @@ impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
+    /// The number of record files that the proof opened and checked against
+    /// their markers.
     pub fn verified_records(&self) -> u64 {
         self.records
     }
@@ -67,10 +69,8 @@ pub fn verify(
     profile: &RunBackupProfile,
     native_root: &NativeRoot,
     account_key: &[u8; 32],
-    scratch_root: &Path,
 ) -> StorageResult<RunRestoreGuard> {
     phase(Stage::Profile, profile.validate_root(native_root))?;
-    phase(Stage::Scratch, files::directory(scratch_root))?;
     let native = phase(
         Stage::PhysicalRoot,
         RunNodeGuard::open(data_root, account_key),
@@ -82,7 +82,6 @@ pub fn verify(
         &native.main,
         &native.cas,
         account_key,
-        scratch_root,
         native.profile.version,
     )?;
     let guard = RunRestoreGuard { native, records };
@@ -94,11 +93,9 @@ pub(crate) fn verify_readers_for_profile(
     main: &RunRead,
     cas: &RunRead,
     account_key: &[u8; 32],
-    scratch_root: &Path,
     version: u16,
 ) -> StorageResult<u64> {
-    phase(Stage::Scratch, files::directory(scratch_root))?;
-    proof::verify(main, cas, account_key, scratch_root, version)
+    proof::verify(main, cas, account_key, version)
 }
 
 fn invalid(message: &'static str) -> StorageError {

@@ -1,20 +1,17 @@
 //! Semantic proof against two fixed, authenticated disk V2 roots.
-mod blobs;
+mod budget_json;
 mod keys;
-mod native;
 mod ranges;
 mod records;
 mod rows;
 
 use super::{map, phase, Stage};
-use crate::storage::disk_backup::file_dependencies as files;
 use crate::storage::error::NativeProofCause;
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use lastdb_storage_policy::backup_decode as budget;
 use laststore::disk_run::home::ReadBudget;
 use laststore::disk_run::home::RunRead;
-use std::path::Path;
 
 /// The caller authenticates both native inventories and keeps their readers
 /// held throughout this proof. No live home or source path is opened here.
@@ -22,14 +19,13 @@ pub(super) fn verify(
     main: &RunRead,
     cas: &RunRead,
     account_key: &[u8; 32],
-    scratch: &Path,
     version: u16,
 ) -> StorageResult<u64> {
     let reserved = match phase(Stage::Admission, reserve_cursor(main, cas)) {
         Ok(reserved) => reserved,
         Err(error) if descriptor_pressure(&error) => {
             drop(error);
-            return verify_once(main, cas, account_key, scratch, version, false);
+            return verify_once(main, cas, account_key, version, false);
         }
         Err(error) => return Err(error),
     };
@@ -38,22 +34,15 @@ pub(super) fn verify(
         let (read_main, read_cas) = reserved
             .as_ref()
             .map_or((main, cas), |(main, cas)| (main, cas));
-        verify_once(
-            read_main,
-            read_cas,
-            account_key,
-            scratch,
-            version,
-            key_heads,
-        )
+        verify_once(read_main, read_cas, account_key, version, key_heads)
     };
     // Every optional inventory cursor and fork must close before nested reads
-    // retry. The next attempt repeats exact scratch cleanup and its sync barrier
+    // retry. The next attempt repeats its sync barrier
     // before any account, schema, record, directory or CAS validation.
     drop(reserved);
     if key_heads && result.as_ref().err().is_some_and(descriptor_pressure) {
         drop(result);
-        return verify_once(main, cas, account_key, scratch, version, false);
+        return verify_once(main, cas, account_key, version, false);
     }
     result
 }
@@ -62,26 +51,20 @@ fn verify_once(
     main: &RunRead,
     cas: &RunRead,
     account_key: &[u8; 32],
-    scratch: &Path,
     version: u16,
     key_heads: bool,
 ) -> StorageResult<u64> {
     let proof = Proof {
         main,
         cas,
-        key: account_key,
-        scratch,
         key_heads,
     };
-    phase(Stage::Scratch, native::prepare(scratch))?;
     phase(Stage::Account, verify_account(main, account_key, version))?;
     phase(
         Stage::Schemas,
         ranges::verify(main, account_key, version, key_heads),
     )?;
-    let proved = phase(Stage::Blobs, blobs::verify(&proof))?;
-    phase(Stage::Records, records::verify_records(&proof))?;
-    Ok(proved)
+    phase(Stage::Records, records::verify_records(&proof))
 }
 
 fn descriptor_pressure(error: &StorageError) -> bool {
@@ -150,8 +133,6 @@ pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> St
 struct Proof<'a> {
     main: &'a RunRead,
     cas: &'a RunRead,
-    key: &'a [u8; 32],
-    scratch: &'a Path,
     key_heads: bool,
 }
 

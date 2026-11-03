@@ -9,8 +9,6 @@ mod app_cmds;
 #[path = "lastdb/history_cmds.rs"]
 mod history_cmds;
 use app_cmds::*;
-#[path = "lastdb/liveness_blob_print.rs"]
-mod liveness_blob_print;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;
@@ -33,7 +31,6 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use base64::Engine as _;
 use clap::{Args, Parser, Subcommand};
 
 #[path = "lastdb/cli_defs.rs"]
@@ -162,14 +159,6 @@ fn schema_inspect_dispatch(
     }
 }
 
-fn liveness_dispatch(data_dir: Option<PathBuf>, action: LivenessCommand) -> Result<(), String> {
-    match action {
-        LivenessCommand::Explain { class, id, json } => {
-            liveness_explain_command(data_dir, (&class, &id), json)
-        }
-    }
-}
-
 fn run(cli: Cli) -> Result<(), String> {
     match cli.command.unwrap_or(Command::Status {
         json: false,
@@ -202,7 +191,6 @@ fn run(cli: Cli) -> Result<(), String> {
         | Command::GetKeys(_)
         | Command::Get { .. }) => record_command(cli.data_dir, cmd),
         Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
-        Command::Liveness { action } => liveness_dispatch(cli.data_dir, action),
         Command::Db { action } => db_command(cli.data_dir, action),
         Command::History(args) => history_cmds::run(cli.data_dir, args),
         Command::SchemaRetention { action } => schema_retention_command(cli.data_dir, action),

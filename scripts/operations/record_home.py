@@ -434,7 +434,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker_format(marker) == 8, "the new home is not format 8: " + repr(marker))
+        require(marker_format(marker) == 9, "the new home is not format 9: " + repr(marker))
         install(node)
         hash_records(node)
         alternate_keys(node)

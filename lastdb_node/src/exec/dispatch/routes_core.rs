@@ -42,9 +42,6 @@ pub(super) async fn dispatch_core(
         DataRoute::DbVerifyRefsScopes => {
             heap_route_ctx_host!(execute_db_verify_refs_scopes_route, ctx, host).await
         }
-        DataRoute::LivenessExplain => {
-            heap_route!(execute_liveness_explain_route, req, ctx, host).await
-        }
         _ => return None,
     })
 }

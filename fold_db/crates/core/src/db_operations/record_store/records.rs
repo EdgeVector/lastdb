@@ -2,15 +2,15 @@
 //!
 //! The mutation manager merges the fields of a record (decision D1). This
 //! file reads the records by key and puts the changed ones, with their
-//! alternate entry changes and their file blob counter changes, in one batch
-//! of the native request.
+//! alternate entry changes and their file rows (`record_files.rs`), in one
+//! batch of the native request.
 //! Its field history entries hold copies of old values (`field_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A
 //! record that the read finds on disk, or that a flushed write puts, enters
 //! it.
 
-use super::blob_counter::BlobDeltas;
+use super::record_files::file_row_change;
 use super::RecordStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::types::{KeyValue, Schema};
@@ -36,6 +36,9 @@ pub(crate) struct RecordChange {
     /// True when another group of the request writes this key too: the cap
     /// applies to the final record (`record_cap.rs`).
     pub cap_deferred: bool,
+    /// The sealed file row of the `put-blob` write that changed this record.
+    /// The batch puts it at the record's file path when the write set the file.
+    pub file_row: Option<Arc<Vec<u8>>>,
 }
 
 /// The storage scope of the records of a schema: the prefix that its fields
@@ -135,27 +138,27 @@ impl RecordStore {
     }
 
     /// Put the changed records, their alternate entry changes and their file
-    /// blob counter changes in one batch of the native request. A blob that a
-    /// record stops naming loses one reference, and a blob that it starts
-    /// naming gains one. `alternates` also carries the field history rows of
-    /// the records, and `history_blobs` their blob changes, so each blob
-    /// counter changes once for the net delta. The caller holds the native
-    /// write gate and read each `before` in the same scope.
+    /// rows in one batch of the native request. A record that gets a file puts
+    /// its sealed row at its file path; a record that loses its file (a
+    /// delete, a purge, `delete-blob`) deletes the path. `alternates` also
+    /// carries the field history rows of the records. The caller holds the
+    /// native write gate and read each `before` in the same scope.
     pub(crate) async fn stage_records(
         &self,
         changes: Vec<RecordChange>,
         alternates: Vec<KvMutation>,
-        history_blobs: BlobDeltas,
     ) -> Result<(), SchemaError> {
         self.require_write_scope()?;
-        let mut blobs = history_blobs;
         let mut batch = Vec::with_capacity(changes.len() + alternates.len());
+        let mut files = Vec::new();
         let mut written = Vec::with_capacity(changes.len());
-        for change in changes {
-            if let Some(before) = &change.before {
-                blobs.add(&before.blob_refs(), -1);
-            }
-            blobs.add(&change.after.blob_refs(), 1);
+        for mut change in changes {
+            files.extend(file_row_change(
+                &change.key,
+                change.before.as_deref(),
+                &change.after,
+                change.file_row.take(),
+            )?);
             let value = super::record_cap::record_bytes(&change)?;
             written.push(WrittenRecord::new(
                 &change.key,
@@ -165,8 +168,8 @@ impl RecordStore {
             batch.push(KvMutation::put(change.key.into_bytes(), value));
         }
         batch.extend(alternates);
-        batch.extend(self.blob_counter_mutations(blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
+        self.stage_file_rows(files).await?;
         // The values enter the warm set after the flush puts the request on disk.
         self.namespaced_store
             .disk_pack_runtime()

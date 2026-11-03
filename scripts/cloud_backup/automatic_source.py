@@ -301,9 +301,12 @@ class Source:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        pointer = self.node.programs.command(self.node.home, ["db", "put-blob-local", "--file", str(path)])
-        mutations = []
+        # The new file replaces the file of the first record, at the same path.
         records = self.expected["records"]
+        reply = self.node.programs.command(self.node.home, ["db", "put-blob", "--schema", schema,
+                                                            "--hash", records[0]["id"], "--file", str(path)])
+        require(reply["file"]["sha256"] == hashlib.sha256(payload).hexdigest(), "automatic_file_marker")
+        mutations = []
         for number, record in enumerate(records):
             deleted = number == len(records) - 1
             if deleted:
@@ -311,13 +314,13 @@ class Source:
                 fields = {"id": record["id"]}
             else:
                 record["note"] = "Automatic log update " + str(number)
-                fields = {**record, "file": pointer}
+                fields = dict(record)
             mutations.append({"type": "mutation", "schema": schema,
                 "key_value": {"hash": record["id"], "range": None}, "fields_and_values": fields,
                 "mutation_type": "delete" if deleted else "update", "durability": "durable",
                 "must_exist": True})
         durable_batch(self.node, mutations)
-        self.expected.update(file_pointer=pointer, file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
+        self.expected.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
         self.node.verify_records(self.expected)
 
     def disable(self):

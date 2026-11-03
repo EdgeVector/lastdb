@@ -152,23 +152,25 @@ class BaselineOperation(Operation):
         # Same order as the normal source: connect, then write, then enable automatic backup.
         source = BaselineSource(node, expected, self.args.source, self.summary)
         source.connect(self.api_key)
-        fields = ["id", "note", "file"]
+        fields = ["id", "note"]
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": baseline_data.SCHEMA,
             "descriptive_name": baseline_data.SCHEMA, "schema_type": "Hash",
             "key": {"hash_field": "id"}, "fields": fields, "field_types": {"id": "String"},
             "field_descriptions": {name: baseline_data.SCHEMA + " " + name for name in fields}}})
+        mutations = [{"type": "mutation", "schema": baseline_data.SCHEMA, "mutation_type": "create",
+                      "durability": "durable", "key_value": {"hash": record["id"], "range": None},
+                      "fields_and_values": record}
+                     for record in expected["records"]]
+        durable_batch(node, mutations)
+        # The first record holds the one file, stored with the record in one write.
         path = self.root / "baseline-file.bin"
         private_write(path, payload)
         del payload
-        pointer = self.programs.command(home, ["db", "put-blob-local", "--file", str(path)])
+        reply = self.programs.command(home, ["db", "put-blob", "--schema", baseline_data.SCHEMA,
+                                             "--hash", expected["records"][0]["id"], "--file", str(path)])
         path.unlink()
-        mutations = [{"type": "mutation", "schema": baseline_data.SCHEMA, "mutation_type": "create",
-                      "durability": "durable", "key_value": {"hash": record["id"], "range": None},
-                      "fields_and_values": {**record, "file": pointer}}
-                     for record in expected["records"]]
-        durable_batch(node, mutations)
-        expected["file_pointer"] = pointer
+        require(reply["file"]["sha256"] == expected["file_sha256"], "baseline_file_marker")
         self.summary["source_reads"] = node.verify_records(expected)
         return expected, source
 

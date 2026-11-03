@@ -5,12 +5,9 @@
 //! space of the schema, and `id` is the SHA-256 of the record key, the field
 //! identity and the old stamp. The entry reuses the field policy (`ahp:`), the
 //! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb:`) of
-//! the field key history. A file blob pointer in the copied value holds one
-//! blob reference: the capture and the release change the blob counter in the
-//! batch of the entry.
+//! the field key history.
 
 use super::*;
-use crate::db_operations::record_store::blob_counter::BlobDeltas;
 use crate::db_operations::record_store::retention::RetentionEntry;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
@@ -27,11 +24,10 @@ use std::collections::{BTreeMap, HashMap};
 /// purged (`POST /api/field-history`, `op: purge`).
 const PURGE_RELEASE_CAP: u64 = 1_024;
 
-/// The field history rows of one record group and their blob changes.
+/// The field history rows of one record group.
 #[derive(Default)]
 pub(crate) struct RecordHistoryRows {
     pub(crate) rows: Vec<KvMutation>,
-    pub(crate) blobs: BlobDeltas,
     /// The entries that a purge released.
     pub(crate) released: u64,
     /// The change of the entry count of each record key.
@@ -81,14 +77,13 @@ pub(super) fn is_record_history(key: &str) -> bool {
     bare.is_some_and(|bare| bare.starts_with(RECORD_HISTORY_PREFIX))
 }
 
-/// Delete one entry, its queue entry and its blob references, and lower the
+/// Delete one entry and its queue entry, and lower the
 /// entry count of its record.
 pub(super) fn release(key: &str, entry: &RecordHistoryEntry, out: &mut RecordHistoryRows) {
     out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
     if let Some(queue) = &entry.queue_key {
         out.rows.push(KvMutation::delete(queue.as_bytes().to_vec()));
     }
-    out.blobs.add(&entry.blobs(), -1);
     *out.counts.entry(entry.record.clone()).or_default() -= 1;
     out.released += 1;
 }
@@ -246,7 +241,6 @@ impl RecordStore {
             return Ok(0);
         }
         batch.extend(self.record_history_count_mutations(out.counts).await?);
-        batch.extend(self.blob_counter_mutations(out.blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
         Ok(out.released)
     }
@@ -279,8 +273,8 @@ impl RecordStore {
     }
 }
 
-/// Add one entry, its queue entry when it expires, its blob references and
-/// one to the entry count of its record.
+/// Add one entry, its queue entry when it expires, and one to the entry count
+/// of its record.
 fn capture_value(
     schema: &str,
     capture: &Capture<'_>,
@@ -333,7 +327,6 @@ fn capture_value(
         reason: reason.into(),
         queue_key,
     };
-    out.blobs.add(&entry.blobs(), 1);
     let bytes = serde_json::to_vec(&entry).map_err(invalid)?;
     out.rows.push(KvMutation::put(key.into_bytes(), bytes));
     *out.counts.entry(record.to_string()).or_default() += 1;

@@ -3,11 +3,10 @@
 //! - [`RecordStore::commit_rows`](super::RecordStore::commit_rows): one native batch
 //!   of rows, deletes, guarded deletes and conflict row releases. The retention
 //!   janitor, the queue repairs and the field history expiry write through it.
-//! - `verify`: `lastdb db verify-refs`. It checks the retention queue, the blob
-//!   counters and the blob dwell queue, and writes nothing.
-//! - `recount`: `lastdb db recount`, on a stopped home. It counts the file blob
-//!   references of the records and the field history, repairs the blob counters
-//!   and the blob queue, and gives the retention queue buckets their rows back.
+//! - `verify`: `lastdb db verify-refs`. It checks the retention queue and
+//!   writes nothing.
+//! - `recount`: `lastdb db recount`, on a stopped home. It gives the retention
+//!   queue buckets their rows back and moves the replay cutoff.
 
 mod commit;
 mod guarded;

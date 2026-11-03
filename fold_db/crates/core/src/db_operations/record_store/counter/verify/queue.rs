@@ -2,7 +2,6 @@
 //! buckets that hold entries and have no directory row.
 
 use super::report::{Kind, Phase};
-use super::run::enter_phase;
 use super::state::{Run, StepGuard};
 use crate::db_operations::record_store::time_queue::QueueSurvey;
 use crate::db_operations::record_store::RecordStore;
@@ -35,8 +34,8 @@ impl RecordStore {
         Ok(())
     }
 
-    /// Judge the survey: buckets without a directory row. Then the personal run
-    /// checks the blob counters, which are global, once.
+    /// Judge the survey: buckets without a directory row. The run is then
+    /// complete.
     async fn finish_queue(&self, run: &mut Run) -> Result<(), SchemaError> {
         let Some(survey) = run.survey.take() else {
             return Ok(());
@@ -66,12 +65,7 @@ impl RecordStore {
                     .into(),
             );
         }
-        let next = if run.report.scope.is_none() {
-            Phase::Blobs
-        } else {
-            Phase::Done
-        };
-        enter_phase(run, next);
+        run.phase = Phase::Done;
         Ok(())
     }
 }

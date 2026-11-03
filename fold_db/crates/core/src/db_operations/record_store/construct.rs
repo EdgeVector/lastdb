@@ -22,17 +22,11 @@ impl RecordStore {
             content_key,
             field_keys: None,
             field_key_commit_locks: Arc::default(),
-            blob_events: Arc::default(),
             retention: Arc::default(),
             history_activation: Arc::default(),
             counter_verify: Arc::default(),
             range_walks: Arc::default(),
             local_origin_device: Arc::default(),
-            blob_liveness_locks: Arc::new(
-                (0..256)
-                    .map(|_| Arc::new(tokio::sync::Mutex::new(())))
-                    .collect(),
-            ),
         }
     }
 

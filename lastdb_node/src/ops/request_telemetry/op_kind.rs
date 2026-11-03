@@ -34,7 +34,7 @@ pub enum OpKind {
     /// `GET /api/local-watch` — intentional long-poll; duration often equals
     /// the client timeout (idle backoff), not store work.
     LocalWatch,
-    /// `/api/db/put-blob-local` and `/api/db/fetch-file-blob`.
+    /// `/api/db/put-blob`, `/api/db/fetch-blob` and `/api/db/delete-blob`.
     FileBlob,
     Other,
 }

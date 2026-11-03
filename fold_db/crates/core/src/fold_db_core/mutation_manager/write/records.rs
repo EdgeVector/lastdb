@@ -2,8 +2,8 @@
 //!
 //! Each mutation reads its record in the request's write scope and merges its
 //! fields by stamp (decision D1). The records, their alternate entry changes,
-//! the idempotency entries, the file blob counter changes, the field history
-//! entries, the delete audit rows and the retention age rows join the
+//! the idempotency entries, the file rows of `put-blob` and `delete-blob`, the
+//! field history entries, the delete audit rows and the retention age rows join the
 //! request's one batch (`record_effects.rs`). Writers that a record cannot
 //! hold are refused here, before any byte is staged.
 
@@ -13,7 +13,7 @@ use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Schema};
+use crate::schema::types::{FileWrite, KeyValue, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use lastdb_model::record_value::{FieldMerge, FieldStamp, StoredRecord};
 use std::collections::BTreeMap;
@@ -22,6 +22,7 @@ use std::sync::Arc;
 use super::super::cas_rules::{check_expectation, CurrentHead};
 use super::super::key_values::validate_field_value;
 use super::record_effects::ChangedRecord;
+use super::record_rules::{loud_erasure, purges_deleted_record, take_file_rows, FileRows};
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
@@ -55,7 +56,15 @@ impl MutationManager {
         }
         let stored = records.read_records(&record_keys).await?;
         let stored = record_keys.into_iter().zip(stored).collect();
-        let group = merge_group(schema_name, &schema, &mutations, &keys, stored, repeated)?;
+        let file_rows = take_file_rows(&mut mutations);
+        let group = merge_group(
+            schema_name,
+            &schema,
+            (&mutations, file_rows),
+            &keys,
+            stored,
+            repeated,
+        )?;
         let entries = records
             .alternate_entry_changes(
                 &schema,
@@ -229,7 +238,7 @@ impl GroupChanges<'_> {
 fn merge_group<'a>(
     schema_name: &str,
     schema: &Schema,
-    mutations: &'a [Mutation],
+    (mutations, file_rows): (&'a [Mutation], FileRows),
     keys: &'a [KeyValue],
     stored: Vec<(String, Option<Arc<StoredRecord>>)>,
     repeated: Option<&HashSet<KeyValue>>,
@@ -241,7 +250,8 @@ fn merge_group<'a>(
         before: Vec::with_capacity(mutations.len()),
         after: Vec::with_capacity(mutations.len()),
     };
-    for ((mutation, key), (record_key, before)) in mutations.iter().zip(keys).zip(stored) {
+    let merges = mutations.iter().zip(file_rows).zip(keys).zip(stored);
+    for (((mutation, file_row), key), (record_key, before)) in merges {
         let mut after = before.as_deref().cloned().unwrap_or_default();
         let merged = merge_mutation(schema_name, schema, mutation, &mut after)?;
         if !merged && !purges_deleted_record(mutation, before.as_deref()) {
@@ -261,31 +271,10 @@ fn merge_group<'a>(
             before,
             after,
             cap_deferred: repeated.is_some_and(|repeated| repeated.contains(key)),
+            file_row,
         });
     }
     Ok(group)
-}
-
-/// The miss wording of a delete that must find its record: a purge, or a
-/// delete with `must_exist`. `None` for every other mutation.
-fn loud_erasure(mutation: &Mutation) -> Option<(&'static str, &'static str)> {
-    match mutation.mutation_type {
-        MutationType::Purge => Some(("Purge", "(compliance verb)")),
-        MutationType::Delete if mutation.must_exist == Some(true) => {
-            Some(("Delete", "(must_exist)"))
-        }
-        _ => None,
-    }
-}
-
-/// True for a compliance purge of a deleted record. The merge changes nothing,
-/// but the purge still releases the field history of the record. The
-/// precondition check refused a deleted record with no history. A TTL sweep
-/// purge carries its cutoff and never takes this path.
-fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredRecord>) -> bool {
-    mutation.mutation_type == MutationType::Purge
-        && mutation.erase_written_before_nanos.is_none()
-        && before.is_some_and(|record| !record.is_live())
 }
 
 /// Merge the fields and the metadata of one mutation into its record. True
@@ -295,8 +284,8 @@ fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredRecord>) -> 
 ///
 /// A delete or a purge removes every value at or below its stamp and keeps
 /// the stamp as the delete floor: the record becomes a tombstone, and its
-/// alternate entries and file blob references go in the same batch. A delete
-/// of an absent record writes nothing.
+/// alternate entries and its file go in the same batch. A delete of an absent
+/// record writes nothing. Only `put-blob` and `delete-blob` carry a file write.
 fn merge_mutation(
     schema_name: &str,
     schema: &Schema,
@@ -347,6 +336,11 @@ fn merge_mutation(
             FieldMerge::Written { .. }
         );
     }
+    changed |= match &mutation.file_write {
+        Some(FileWrite::Put { marker, .. }) => record.set_file(marker.clone(), stamp),
+        Some(FileWrite::Clear) => record.clear_file(&stamp),
+        None => false,
+    };
     Ok(changed)
 }
 

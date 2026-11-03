@@ -89,7 +89,6 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/db/clear-history`, `POST /api/storage/schema`,
 /// `GET /api/storage/schemas`, `POST /api/aggregate/repair`,
 /// `POST /api/aggregate/finalize`, the history read and the record read.
-/// `POST /api/storage/liveness/explain` accepts only the `blob` class.
 /// `POST /api/mutation` no longer accepts the `aggregate_set` key (the home
 /// already refused it), and the `atomic_aggregate_set_v1` and
 /// `alternate_key_changes_v1` capabilities are gone. No other app-socket
@@ -152,7 +151,17 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `field_mappers` schema key. The node ignores the key, the same as any other
 /// unknown schema key; no EdgeVector app sends it. No other request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 22;
+/// `23` (2026-11-02) gives a record at most one file, addressed by schema and
+/// key (design `design-lastdb-no-shared-file-blobs`). The owner-only routes
+/// `POST /api/db/put-blob`, `POST /api/db/fetch-blob` and
+/// `POST /api/db/delete-blob` replace `put-blob-local`, `fetch-file-blob`
+/// and the `$lastdb_file` pointer value: no field value names a file. A
+/// query record's `metadata` block carries the record's `file` marker
+/// `{name?, media_type?, size_bytes, sha256}`. A share slice has no `blobs`.
+/// `POST /api/storage/liveness/explain` and the `blob_counters` block of
+/// `/api/status` are removed with the blob counter. `verify-refs` reports
+/// only the retention queue. The delete ledger names `file_records_erased`.
+pub const API_VERSION: u32 = 23;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

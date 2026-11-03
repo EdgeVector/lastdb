@@ -1,4 +1,6 @@
-"""Real TTL mutations across a frozen snapshot and its accepted log successor."""
+"""Real TTL mutations across a frozen snapshot and its accepted log successor.
+
+The lifecycle records hold no file. The baseline file stays on its own record."""
 
 import time
 
@@ -10,20 +12,11 @@ class Lifecycle:
     def __init__(self, source, baseline):
         self.source, self.baseline = source, baseline
         self.schema = "CloudRecordLifecycle" + source.source[:12]
-        key = baseline["records"][0]["id"]
-        query = {"schema_name": baseline["schema"], "fields": ["file"], "filter": {"HashKey": key}, "limit": 2}
-        reply = source.node.call("/api/queries/batch", {"queries": [query]})["results"][0]
-        value = reply["response"]
-        require(reply["status"] == 200 and value["ok"] is True and value["returned_count"] == 1
-                and len(value["results"]) == 1 and not value.get("has_more", False)
-                and value["results"][0]["key"] == {"hash": key, "range": None}, "lifecycle_shared_file")
-        self.pointer = value["results"][0]["fields"]["file"]
-        require(isinstance(self.pointer, dict) and "$lastdb_file" in self.pointer, "lifecycle_file_pointer")
         self.expired = [f"{1:020d}-expired-{n}" for n in range(4)]
         self.live = f"{int(time.time()) + 604800:020d}-live"
 
     def seed(self):
-        fields = ["bucket", "id", "note", "file"]
+        fields = ["bucket", "id", "note"]
         self.source.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": self.schema, "descriptive_name": self.schema,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
@@ -38,13 +31,13 @@ class Lifecycle:
         mutations = [{"type": "mutation", "schema": self.schema, "mutation_type": "create",
             "durability": "durable", "key_value": {"hash": "lifecycle", "range": key},
             "fields_and_values": {"bucket": "lifecycle", "id": key,
-                                  "note": "shared immutable lifecycle value", "file": self.pointer}}
+                                  "note": "immutable lifecycle value"}}
             for key in keys]
         durable_batch(self.source.node, mutations)
 
     def replies(self, node):
         keys = [*self.expired, self.live]
-        queries = [{"schema_name": self.schema, "fields": ["bucket", "id", "note", "file"],
+        queries = [{"schema_name": self.schema, "fields": ["bucket", "id", "note"],
                     "filter": {"HashRangeKey": {"hash": "lifecycle", "range": key}},
                     "limit": 2, "offset": 0} for key in keys]
         result = node.call("/api/queries/batch", {"queries": queries})["results"]
@@ -63,14 +56,14 @@ class Lifecycle:
             if present:
                 require(rows[0]["key"] == {"hash": "lifecycle", "range": key}
                         and rows[0]["fields"] == {"bucket": "lifecycle", "id": key,
-                            "note": "shared immutable lifecycle value", "file": self.pointer},
+                            "note": "immutable lifecycle value"},
                         "lifecycle_live_exact_value")
-        node.verify_file(self.pointer, self.baseline)
+        node.verify_file(self.baseline)
         return {"expired_absent": 0 if initial else 4, "expired_present_at_base": 2 if initial else 0,
                 "ttl_erased_records": 0 if initial else (4 if after_second else 2),
                 "not_yet_created": 0 if after_second else 2,
-                "live_exact": 1, "shared_file_bytes": self.baseline["file_bytes"],
-                "shared_file_sha256": self.baseline["file_sha256"], "ttl_worker_disabled": not node.ttl_sweep}
+                "live_exact": 1, "file_bytes": self.baseline["file_bytes"],
+                "file_sha256": self.baseline["file_sha256"], "ttl_worker_disabled": not node.ttl_sweep}
 
     def await_expiry(self, count):
         deadline = time.monotonic() + 180
