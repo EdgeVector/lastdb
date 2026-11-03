@@ -11,7 +11,8 @@ pub fn verify_refs_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             let m = &last.mismatches;
             format!(
                 "Verify refs: last run {} scope={} complete pages={} faults={} (queue_rows={})",
-                last.finished_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                last.finished_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 last.scope.as_deref().unwrap_or("personal"),
                 last.pages,
                 last.mismatches_total,

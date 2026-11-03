@@ -24,8 +24,9 @@ pub fn expected_record(
     }
     let path = crate::storage::current_keys::families::record_file_path(record_key)
         .map_err(|_| invalid("file dependency path"))?;
-    let dek = crate::sharing::file_blob_seal::account_file_blob_dek_hex(account_key, &marker.sha256)
-        .map_err(|_| invalid("file dependency key format"))?;
+    let dek =
+        crate::sharing::file_blob_seal::account_file_blob_dek_hex(account_key, &marker.sha256)
+            .map_err(|_| invalid("file dependency key format"))?;
     let dek = zeroize::Zeroizing::new(dek);
     let dek = zeroize::Zeroizing::new(
         lastdb_model::hex::hex_decode_array::<32>(&dek)

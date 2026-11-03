@@ -150,11 +150,6 @@ impl TimeQueue {
         self.parse_entry(key).map(|(_, expires)| expires)
     }
 
-    /// The bucket in the key of an entry.
-    pub(crate) fn entry_bucket(&self, key: &str) -> Option<u64> {
-        self.parse_entry(key).map(|(bucket, _)| bucket)
-    }
-
     /// The half-open key range of every entry of one bucket: one hash.
     pub(crate) fn bucket_range(&self, bucket: u64) -> (String, String) {
         exact_prefix_bounds(&format!("{}:{bucket:020}\0", self.entries))

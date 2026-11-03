@@ -31,7 +31,8 @@ pub const JWE_ZIP_GZIP: &str = "gzip";
 
 /// The cipher suite of every sealed file row: the account-v2 file key and
 /// AES-256-GCM, addressed by the ciphertext SHA-256.
-pub const FILE_BLOB_CIPHER_SUITE: &str = "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
+pub const FILE_BLOB_CIPHER_SUITE: &str =
+    "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
 
 /// True when `suite` is [`FILE_BLOB_CIPHER_SUITE`].
 #[must_use]

@@ -250,7 +250,6 @@ impl StoredRecord {
         removed
     }
 
-
     /// The stored bytes. A record above [`MAX_RECORD_BYTES`] is refused.
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
         let bytes = self.encode_uncapped()?;

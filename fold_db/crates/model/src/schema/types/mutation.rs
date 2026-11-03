@@ -24,7 +24,10 @@ pub fn is_zero_u64(value: &u64) -> bool {
 pub enum FileWrite {
     /// Set the record's file: the marker, and the sealed storage row that the
     /// write puts at the record's file path in the same batch.
-    Put { marker: FileMarker, row: Arc<Vec<u8>> },
+    Put {
+        marker: FileMarker,
+        row: Arc<Vec<u8>>,
+    },
     /// Remove the record's file and its marker.
     Clear,
 }

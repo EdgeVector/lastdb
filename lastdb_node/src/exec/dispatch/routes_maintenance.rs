@@ -48,9 +48,7 @@ pub(super) async fn dispatch_blob_identity(
     Some(match route {
         DataRoute::DbPutBlob => heap_route!(execute_db_put_blob_route, req, ctx, host).await,
         DataRoute::DbFetchBlob => heap_route!(execute_db_fetch_blob_route, req, ctx, host).await,
-        DataRoute::DbDeleteBlob => {
-            heap_route!(execute_db_delete_blob_route, req, ctx, host).await
-        }
+        DataRoute::DbDeleteBlob => heap_route!(execute_db_delete_blob_route, req, ctx, host).await,
         _ => return None,
     })
 }

@@ -33,7 +33,9 @@ pub(crate) const CAS_BLOB_TREE: &str = "cas_blobs";
 
 /// The file path of the record at one storage key, scope included.
 pub(crate) fn file_path(record: &str) -> Result<String, SchemaError> {
-    Ok(crate::storage::current_keys::families::record_file_path(record)?)
+    Ok(crate::storage::current_keys::families::record_file_path(
+        record,
+    )?)
 }
 
 /// The file row change of one record write: the new row when the write set the
@@ -154,7 +156,8 @@ impl RecordStore {
         };
         let row: ContentAddressedBlob = serde_json::from_slice(&bytes)?;
         drop(bytes);
-        let plaintext = decode_blob_bytes_with_dek(&row, &self.local_file_dek_hex(&marker.sha256)?)?;
+        let plaintext =
+            decode_blob_bytes_with_dek(&row, &self.local_file_dek_hex(&marker.sha256)?)?;
         if plaintext.len() as u64 != marker.size_bytes
             || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
         {
