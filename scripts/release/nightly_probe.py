@@ -37,13 +37,14 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class OwnedNode:
-    def __init__(self, directory, output, version):
+    def __init__(self, directory, output, version, enable_search=False):
         self.root = directory.resolve()
         self.uid, self.inode = os.getuid(), self.root.stat().st_ino
         self.home, self.binaries = self.root / "home", self.root / "bin"
         self.socket = self.home / "data" / "folddb.sock"
         self.output, self.version = output, version
         self.process, self.log = None, None
+        self.enable_search = enable_search
         try:
             for path in (self.home, self.binaries, self.root / "os-home", self.root / "tmp"):
                 path.mkdir(mode=0o700)
@@ -83,7 +84,7 @@ class OwnedNode:
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binaries / "lastdbd"), "--data-dir", str(self.home),
-             "--socket-path", str(self.socket)],
+             "--socket-path", str(self.socket)] + (["--enable-search"] if self.enable_search else []),
             env=self.environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:

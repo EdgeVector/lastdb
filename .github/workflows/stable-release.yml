@@ -1,0 +1,284 @@
+name: Stable Homebrew release
+
+on:
+  schedule:
+    - cron: '45 7 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stable-release.yml'
+      - 'scripts/release/stable_*.py'
+  pull_request:
+    paths:
+      - '.github/workflows/stable-release.yml'
+      - 'scripts/release/stable_*.py'
+      - 'scripts/release/nightly_*.py'
+      - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
+      - 'lastdb_node/src/bin/lastdb/cli_defs/app/lifecycle.rs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-homebrew-${{ github.event.pull_request.number || 'publication' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source: ${{ steps.plan.outputs.source }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      skip: ${{ steps.plan.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Freeze the source, numeric stable version, and required app commits
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/stable_plan.py plan --plan "$RUNNER_TEMP/stable-plan.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stable-plan-${{ github.run_id }}
+          overwrite: true
+          path: ${{ runner.temp }}/stable-plan.json
+          if-no-files-found: error
+          retention-days: 14
+
+  source-gates:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - name: Require CI, benchmark completion, and every security analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/stable_plan.py gates --plan "$RUNNER_TEMP/stable-plan.json"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      FOLDDB_BUILD_VERSION_OVERRIDE: ${{ needs.plan.outputs.version }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-release-${{ matrix.target }}
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Link the supported Homebrew OpenSSL
+        if: runner.os == 'macOS'
+        run: |
+          brew list --versions openssl@3 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - name: Build and strip the matched numeric stable CLI and daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd
+          for binary in lastdb lastdbd; do
+            path="$CARGO_TARGET_DIR/$TARGET/release/$binary"
+            strip "$path"
+            if [ '${{ runner.os }}' = macOS ]; then
+              codesign --force --sign - "$path"
+              codesign --verify --strict "$path"
+              if otool -L "$path" | grep -E 'lib(ssl|crypto)\.' | grep -v '/opt/homebrew/opt/openssl@3/lib/'; then
+                exit 1
+              fi
+            fi
+          done
+      - name: Package exact executable versions, source, and hashes
+        run: >-
+          python3 scripts/release/stable_package.py --plan "$RUNNER_TEMP/stable-plan.json"
+          --target "$TARGET" --bin-dir "$CARGO_TARGET_DIR/$TARGET/release"
+          --output "$RUNNER_TEMP/stable-bundles"
+      - name: Exercise each native package's durable operations and recovery
+        timeout-minutes: 10
+        run: |
+          python3 scripts/release/nightly_probe.py --bundle "$RUNNER_TEMP/stable-bundles/lastdb-$TARGET.tar.gz" \
+            --manifest "$RUNNER_TEMP/stable-bundles/lastdb-$TARGET.manifest.json" \
+            --version "$FOLDDB_BUILD_VERSION_OVERRIDE" --source '${{ needs.plan.outputs.source }}' \
+            --output "$RUNNER_TEMP/native-proof"
+          cp "$RUNNER_TEMP/native-proof/probe.json" "$RUNNER_TEMP/stable-bundles/lastdb-$TARGET.proof.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stable-bundles-${{ github.run_id }}-${{ matrix.target }}
+          overwrite: true
+          path: ${{ runner.temp }}/stable-bundles/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: stable-native-failure-${{ github.run_id }}-${{ matrix.target }}
+          overwrite: true
+          path: ${{ runner.temp }}/native-proof/*.log
+          retention-days: 3
+
+  qualify:
+    needs: [plan, build, source-gates]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: stable-bundles-${{ github.run_id }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/stable-bundles
+      - name: Prove app compatibility and the uninterrupted one-hour qualification
+        run: >-
+          python3 scripts/release/stable_qualify.py --plan "$RUNNER_TEMP/stable-plan.json"
+          --bundles "$RUNNER_TEMP/stable-bundles" --output "$RUNNER_TEMP/stable-qualification"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: stable-qualification-${{ github.run_id }}
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/stable-qualification/qualification.json
+            ${{ runner.temp }}/stable-qualification/apps.json
+            ${{ runner.temp }}/stable-qualification/*.declaration.json
+            ${{ runner.temp }}/stable-qualification/*.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Summarize qualification
+        if: always()
+        run: |
+          echo 'Stable qualification uses only a fresh generated CI home. The primary stays unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          if [ '${{ github.event_name }}' = pull_request ]; then
+            echo 'PR preview: operational checks only; not qualified for publication.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Publication requires at least 3600 uninterrupted seconds, health P95 <= 2 seconds, and all three app proofs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  attest:
+    needs: [plan, build, source-gates, qualify]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: stable-bundles-${{ github.run_id }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/stable-bundles
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-qualification-${{ github.run_id }}
+          path: ${{ runner.temp }}/stable-qualification
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ runner.temp }}/stable-bundles/*
+            ${{ runner.temp }}/stable-qualification/qualification.json
+
+  publish:
+    needs: [plan, build, source-gates, qualify, attest]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install cryptography==46.0.3 rfc8785==0.1.4
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: stable-bundles-${{ github.run_id }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/stable-bundles
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-qualification-${{ github.run_id }}
+          path: ${{ runner.temp }}/stable-qualification
+      - name: Require published app proofs and merge the Homebrew PR through its normal gates
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: >-
+          python3 scripts/release/stable_publish.py --plan "$RUNNER_TEMP/stable-plan.json"
+          --bundles "$RUNNER_TEMP/stable-bundles" --proof "$RUNNER_TEMP/stable-qualification"

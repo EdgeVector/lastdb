@@ -109,6 +109,10 @@ pub(crate) enum AppLifecycleCommand {
         /// Signed-list channel. Default: stable.
         #[arg(long)]
         channel: Option<String>,
+        /// Validate this checkout against the running node and write an unsigned
+        /// declaration for signing elsewhere. No key lookup or publication.
+        #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
+        prepare: Option<PathBuf>,
     },
     /// Step 4: promote a sandbox app to live. REJECTS if any manifest schema
     /// is still novel, or if the registry row has neither `source` nor

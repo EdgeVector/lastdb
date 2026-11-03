@@ -1,0 +1,50 @@
+"""Require signed, published app declarations for the exact proved API."""
+
+import base64
+import hashlib
+import json
+import urllib.request
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+import rfc8785
+
+BASE = "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists"
+KEY = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw="
+SIGNED = ("app_id", "channel", "app_version", "api_version", "lastdb_build",
+          "outbox_format_version", "source", "sha", "audience")
+
+
+def download(url):
+    with urllib.request.urlopen(url, timeout=30) as response:
+        raw = response.read(2 * 1024 ** 2 + 1)
+    if len(raw) > 2 * 1024 ** 2:
+        raise ValueError("Registry response exceeds the signed-list bound")
+    return raw
+
+
+def require_apps(qualification):
+    api = qualification["api_version"]
+    raw = download(f"{BASE}/stable/api/{api}.json")
+    envelope = json.loads(download(f"{BASE}/stable/api/{api}.json.sig"))
+    digest = hashlib.sha256(raw).hexdigest()
+    key = base64.b64decode(KEY, validate=True)
+    if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
+            or envelope.get("key_id") != hashlib.sha256(key).hexdigest()):
+        raise ValueError("Invalid registry list signature envelope")
+    Ed25519PublicKey.from_public_bytes(key).verify(
+        base64.b64decode(envelope["sig"], validate=True), digest.encode())
+    catalog = json.loads(raw)
+    if catalog.get("api_version") != api or catalog.get("channel") != "stable" or catalog.get("list_version") != 1:
+        raise ValueError("Registry list belongs to another interface")
+    for app, proof in qualification["apps"].items():
+        matches = [row for row in catalog["apps"] if row.get("app_id") == app
+                   and row.get("sha") == proof["sha"] and row.get("api_version") == api
+                   and row.get("channel") == "stable" and row.get("status") == "listed"
+                   and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
+        if not matches:
+            raise RuntimeError(f"Missing published {app} compatibility for API {api}; publication stays blocked")
+        for row in matches:
+            signed = {name: row[name] for name in SIGNED if name in row}
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(row["publisher_key"], validate=True)).verify(
+                base64.b64decode(row["publisher_sig"], validate=True), rfc8785.dumps(signed))
+    return {"api_version": api, "sequence": catalog["seq"], "generated_at": catalog["generated_at"]}

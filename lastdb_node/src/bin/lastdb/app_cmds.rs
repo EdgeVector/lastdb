@@ -97,6 +97,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             api_key,
             registry_url,
             channel,
+            prepare,
         }) => {
             if schema_url.is_some() || api_url.is_some() {
                 return Err("publish uses the separate app registry; use --registry-url".into());
@@ -110,6 +111,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
                     channel,
                     key_file,
                     api_key,
+                    prepare,
                 },
             )
         }
