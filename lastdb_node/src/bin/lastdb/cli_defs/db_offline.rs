@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone, Copy)]
 pub(crate) enum DbOfflineCommand {
     /// Raise the replay cutoff of the home. OFFLINE: it refuses a home that a
     /// daemon serves.
