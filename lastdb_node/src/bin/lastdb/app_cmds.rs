@@ -19,6 +19,8 @@ mod publish;
 pub(crate) use self::publish::*;
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
+#[path = "app_cmds/publish_rule.rs"]
+mod publish_rule;
 use interface_publish::{publish_interface, InterfacePublish};
 #[path = "app_cmds/public_catalog.rs"]
 mod public_catalog;

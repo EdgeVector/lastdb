@@ -16,6 +16,7 @@ mod retention_unmanaged;
 
 pub(super) use execute::*;
 pub(super) use logical_admission::logical_layout_error;
+pub use proposal::normalize_app_manifest_schema;
 pub(super) use proposal::*;
 pub use request::execute_apps_declare_schema_route;
 pub(super) use request::execute_declare_schema_route;

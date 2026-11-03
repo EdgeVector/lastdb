@@ -82,6 +82,18 @@ pub(crate) struct SchemaDeclareRequest {
     pub(crate) intent: SchemaSyncIntent,
 }
 
+/// One `lastdb-app.json` schema entry of `app_id`, normalized exactly as the
+/// declare route normalizes it: name `<app_id>/<name>`, `owner_app_id`, and
+/// the identity hash. `lastdb app publish` compares it with the schemas the
+/// running node holds, so the hash has one implementation.
+pub fn normalize_app_manifest_schema(
+    app_id: &str,
+    schema: DeclarativeSchemaDefinition,
+) -> Result<DeclarativeSchemaDefinition, String> {
+    normalize_direct_declare_proposal("app_id", app_id, schema)
+        .map(|proposal| proposal.catalog_schema)
+}
+
 pub(crate) fn normalize_direct_declare_proposal(
     namespace_label: &str,
     namespace: &str,
