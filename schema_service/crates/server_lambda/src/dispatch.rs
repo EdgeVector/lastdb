@@ -68,6 +68,7 @@ fn root_listing() -> serde_json::Value {
             "PUT /v1/apps/{app_id}": "Update app metadata (owner-only; display_name immutable)",
             "POST /v1/apps/{app_id}/promote": "Promote a sandbox app to live (owner-only; authorized_publisher required)",
             "GET /v2/releases/{release_id}/verification": "Redirect to the release verifier result (public)",
+            "POST /v1/advice/schema": "Advice for one draft schema declaration (read-only, never blocks)",
             "POST /v1/schemas/batch-check-reuse": "Batch lookup of reusable schemas by descriptive name + field list",
             "POST /v1/schemas/resolve": "Stateless read-only schema dedup for cache misses",
             "POST /v1/schemas/reload": "Reload schemas from storage",
@@ -136,6 +137,7 @@ async fn dispatch_schemas(
             routes::schemas::post_schemas_mutation_challenge(state, event)
         }
         ("POST", "/v1/schemas") => routes::schemas::post_schemas(state, event).await,
+        ("POST", "/v1/advice/schema") => routes::schemas::post_advice_schema(state, event),
         ("POST", "/v1/schemas/batch-check-reuse") => {
             routes::schemas::post_schemas_batch_check_reuse(state, event)
         }

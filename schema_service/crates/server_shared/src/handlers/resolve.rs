@@ -87,3 +87,20 @@ pub async fn health_check(state: web::Data<SchemaServiceState>) -> impl Responde
         schema_writes: state.current_schema_writes(),
     })
 }
+
+/// `POST /v1/advice/schema`: findings for one draft declaration. Read-only;
+/// no finding blocks a declare.
+#[allow(
+    clippy::unused_async,
+    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
+)]
+pub async fn schema_advice(
+    payload: web::Json<schema_service_core::advice::SchemaAdviceRequest>,
+    state: web::Data<SchemaServiceState>,
+) -> impl Responder {
+    let request = payload.into_inner();
+    match state.schema_advice_reply(&request).into_http() {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err((status, body)) => json_status(status, body),
+    }
+}

@@ -223,6 +223,36 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /v1/advice/schema:
+    post:
+      tags: [schemas]
+      operationId: schema_advice
+      summary: Advice for one draft schema declaration
+      description: |
+        Takes one entry of `lastdb-app.json` `schemas`, as written, and returns
+        findings: canonical field matches, names that mean something else
+        here, near names, name policy problems, missing types, usual
+        classifications, and schemas of other apps that cover most of the
+        same fields. Read-only. No finding blocks a declare; a LastDB node
+        declares its schemas locally.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaAdviceRequest'
+      responses:
+        '200':
+          description: The findings, in field order, then the similar schemas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaAdviceResponse'
+        '400':
+          description: The draft is not a JSON object or names more than 512 fields.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /v1/schemas/batch-check-reuse:
     post:
       tags: [schemas]
@@ -1356,6 +1386,47 @@ components:
           items:
             type: string
 
+    SchemaAdviceRequest:
+      type: object
+      required: [schema]
+      properties:
+        app_id:
+          type: string
+          description: The app that owns the draft. Its own schemas are left out of `similar_schema` findings.
+        schema:
+          type: object
+          description: One entry of `lastdb-app.json` `schemas`, as written. Members advice does not read are ignored.
+    SchemaAdviceResponse:
+      type: object
+      required: [findings]
+      properties:
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdviceFinding'
+    AdviceFinding:
+      type: object
+      required: [kind, message, evidence]
+      properties:
+        kind:
+          type: string
+          enum: [canonical_match, same_name_different_meaning, near_match, abbreviation, missing_type, suggested_classification, similar_schema]
+        field:
+          type: string
+          nullable: true
+          description: The field the finding is about; null for a schema-level finding.
+        message:
+          type: string
+        evidence:
+          type: object
+          description: Catalog facts behind the finding. Every member is optional.
+          properties:
+            canonical_field_hash: {type: string}
+            schema_identity: {type: string}
+            app_id: {type: string}
+            suggested_name: {type: string}
+            suggested_type: {description: A FieldValueType}
+            suggested_classification: {type: object}
     BatchSchemaReuseRequest:
       type: object
       required: [schemas]

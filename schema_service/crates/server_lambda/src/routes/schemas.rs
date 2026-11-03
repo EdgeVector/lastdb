@@ -2,6 +2,7 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::advice::SchemaAdviceRequest;
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::similarity_threshold_reply;
 use schema_service_core::{
@@ -310,6 +311,20 @@ pub(crate) fn post_schemas_batch_check_reuse(
     match state.batch_reuse_reply(&request.schemas).into_http() {
         Ok(response) => json_response(200, &json!({ "matches": response.matches })),
         Err((status, body, _)) => json_response(status, &body),
+    }
+}
+
+pub(crate) fn post_advice_schema(
+    state: &SchemaServiceState,
+    event: &Request,
+) -> Result<Response<Body>, Error> {
+    let request: SchemaAdviceRequest = match typed_json_body(event, "Invalid advice request") {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    match state.schema_advice_reply(&request).into_http() {
+        Ok(response) => json_response(200, &json!(response)),
+        Err((status, body)) => json_response(status, &body),
     }
 }
 
