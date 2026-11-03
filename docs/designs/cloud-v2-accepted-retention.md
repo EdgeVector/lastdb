@@ -37,7 +37,9 @@ Each dependency has an earlier ordinal.
 Omission means legacy behavior, not an independent snapshot.
 Legacy backups conservatively depend on their publication predecessor.
 No old hash changes because the absent field remains absent on serialization.
-No current client emits the new field before service capability admission.
+The automatic client declares the field on every new job: `[]` for a snapshot, and `[base]` or `[base, previous]` for a log checkpoint.
+Every deployed service package (DEV and PROD, protocol from `558926c35`) accepts and stores the field.
+Jobs saved before this client keep their legacy omission.
 An older service rejects the unsupported field instead of ignoring it.
 
 The pure `recovery_closure` operation classifies the frozen accepted directory.
