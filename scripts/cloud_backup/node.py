@@ -183,13 +183,15 @@ class OwnedNode:
         self.process = None
 
     def verify_records(self, baseline):
-        queries = [{"schema_name": baseline["schema"], "fields": ["id", "note", "file"],
+        """Exact keyed reads. The first baseline record holds the one file;
+        no other record has a file."""
+        file_record = baseline["records"][0]["id"]
+        queries = [{"schema_name": baseline["schema"], "fields": ["id", "note"],
                     "filter": {"HashKey": record["id"]}, "limit": 2, "offset": 0}
                    for record in baseline["records"]]
         reply = self.call("/api/queries/batch", {"queries": queries})
         require(isinstance(reply.get("results"), list) and len(reply["results"]) == len(queries),
                 "record_batch_count")
-        pointer = None
         for item, expected in zip(reply["results"], baseline["records"]):
             result = item["response"]
             if expected.get("deleted") is True:
@@ -200,19 +202,16 @@ class OwnedNode:
             require(item["status"] == 200 and result["ok"] is True
                     and result["returned_count"] == 1 and len(result["results"]) == 1
                     and not result.get("has_more", False), "keyed_record_complete")
-            fields = result["results"][0]["fields"]
-            require(result["results"][0]["key"] == {"hash": expected["id"], "range": None},
-                    "keyed_record_identity")
-            require(set(fields) == {"id", "note", "file"} and fields["id"] == expected["id"]
-                    and fields["note"] == expected["note"], "keyed_record_values")
-            require(isinstance(fields["file"], dict) and "$lastdb_file" in fields["file"],
-                    "record_file_pointer")
-            if pointer is None:
-                pointer = fields["file"]
-            require(fields["file"] == pointer, "shared_file_pointer")
-        require(pointer is not None and pointer == baseline.get("file_pointer", pointer),
-                "expected_file_pointer")
-        self.verify_file(pointer, baseline)
+            row = result["results"][0]
+            require(row["key"] == {"hash": expected["id"], "range": None}, "keyed_record_identity")
+            require(row["fields"] == {"id": expected["id"], "note": expected["note"]}, "keyed_record_values")
+            marker = (row.get("metadata") or {}).get("file")
+            if expected["id"] == file_record:
+                require(isinstance(marker, dict) and marker.get("size_bytes") == baseline["file_bytes"]
+                        and marker.get("sha256") == baseline["file_sha256"], "record_file_marker")
+            else:
+                require(marker is None, "record_without_file")
+        self.verify_file(baseline)
         self.health()
         return {"records": sum(not record.get("deleted", False) for record in baseline["records"]),
                 "deleted_records": sum(record.get("deleted", False) for record in baseline["records"]),
@@ -220,8 +219,9 @@ class OwnedNode:
                 "file_sha256": baseline["file_sha256"], "exact_values": True,
                 "health_checked": True}
 
-    def verify_file(self, pointer, baseline):
-        response, connection = self.call("/api/db/fetch-file-blob", {"pointer": pointer}, binary=True)
+    def verify_file(self, baseline):
+        target = {"schema": baseline["schema"], "key": {"hash": baseline["records"][0]["id"]}}
+        response, connection = self.call("/api/db/fetch-blob", target, binary=True)
         try:
             length = response.getheader("Content-Length")
             require(length is None or length == str(baseline["file_bytes"]), "file_response_size")

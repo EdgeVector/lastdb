@@ -52,8 +52,7 @@ class PrefixRecords:
         return copy.deepcopy(position(journal["head"]))
 
     def item(self, key, note, verb, expected):
-        fields = {"id": key} if note is None else {
-            "id": key, "note": note, "file": self.source.expected["file_pointer"]}
+        fields = {"id": key} if note is None else {"id": key, "note": note}
         result = {"type": "mutation", "schema": self.schema, "mutation_type": verb,
             "key_value": {"hash": key, "range": None}, "fields_and_values": fields,
             "expected": expected, "durability": "durable"}

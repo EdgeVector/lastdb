@@ -57,7 +57,7 @@ class StoppedFinal:
         source = self.source
         item = {"type": "mutation", "schema": source.expected["schema"],
                 "key_value": {"hash": self.key, "range": None},
-                "fields_and_values": {"id": self.key, "note": note, "file": source.expected["file_pointer"]},
+                "fields_and_values": {"id": self.key, "note": note},
                 "mutation_type": "create" if previous is None else "update", "durability": "durable",
                 "expected": ({"type": "absent", "field": "id"} if previous is None
                              else {"type": "value", "field": "note", "value": previous})}
