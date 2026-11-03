@@ -28,7 +28,9 @@ def qualification(folder, plan):
             or set(result.get("apps", {})) != set(APPS)):
         raise ValueError("The full one-hour qualification is incomplete")
     for app in APPS:
-        if result["apps"][app].get("complete") is not True or result["apps"][app]["sha"] != plan["apps"][app]:
+        if (result["apps"][app].get("complete") is not True
+                or result["apps"][app].get("installed_from_registry") is not True
+                or result["apps"][app]["sha"] != plan["apps"][app]):
             raise ValueError("App qualification differs from the frozen source")
     return result
 

@@ -215,6 +215,7 @@ jobs:
             ${{ runner.temp }}/stable-qualification/qualification.json
             ${{ runner.temp }}/stable-qualification/apps.json
             ${{ runner.temp }}/stable-qualification/*.declaration.json
+            ${{ runner.temp }}/stable-qualification/*.install-receipt.json
             ${{ runner.temp }}/stable-qualification/*.log
           if-no-files-found: error
           retention-days: 14
@@ -274,6 +275,7 @@ jobs:
             ${{ runner.temp }}/api23-app-proofs/compatibility.json
             ${{ runner.temp }}/api23-app-proofs/apps.json
             ${{ runner.temp }}/api23-app-proofs/*.declaration.json
+            ${{ runner.temp }}/api23-app-proofs/*.install-receipt.json
             ${{ runner.temp }}/api23-app-proofs/*.log
           if-no-files-found: error
           retention-days: 14

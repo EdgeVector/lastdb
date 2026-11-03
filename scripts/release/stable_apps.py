@@ -9,21 +9,53 @@ from nightly_package import write_json
 from stable_plan import APPS
 
 
-def command(argv, environment, directory, output, name, body=None, timeout=300, retain_output=True):
+def command(argv, environment, directory, output, name, body=None, timeout=300, retain_output=True,
+            accept_exit=(0,)):
     with (output / (name + ".log")).open("w") as log:
         result = subprocess.run(argv, cwd=directory, env=environment, input=body, text=True,
                                 stdout=subprocess.PIPE, stderr=log, timeout=timeout)
-        if result.returncode or len(result.stdout) > 1024 ** 2:
+        if result.returncode not in accept_exit or len(result.stdout) > 1024 ** 2:
             raise RuntimeError(f"App operation {name} failed; see its CI artifact")
         if retain_output:
             log.write(result.stdout)
     return result.stdout
 
 
+def source_for(node, plan, app, output, environment, cli):
+    prefix = [str(cli), "--data-dir", str(node.home), "app"]
+    resolved = subprocess.run([*prefix, "resolve", app, "--channel", "stable", "--json"],
+                              env=environment, capture_output=True, text=True, timeout=60)
+    if resolved.returncode == 0 and json.loads(resolved.stdout).get("sha") == plan["apps"][app]:
+        command([*prefix, "install", app, "--channel", "stable", "--accept-install"],
+                environment, output, output, app + "-registry-install", timeout=600)
+        active = Path(environment["LASTDB_APPS_ROOT"]) / app / "current"
+        receipt = json.loads((active / "lastdb-app-install.json").read_text())
+        if receipt["sha"] != plan["apps"][app] or receipt.get("inactive") is not False:
+            raise ValueError("The activated registry app differs from the frozen source")
+        write_json(output / (app + ".install-receipt.json"), receipt)
+        return active / "source", True
+    # Missing declarations can produce bootstrap evidence, never a stable
+    # qualification. A publishing run refuses this mode before the hour starts.
+    source = output / app
+    command(["git", "clone", "--no-checkout", "https://github.com/EdgeVector/" + app + ".git",
+             str(source)], environment, output, output, app + "-clone")
+    command(["git", "checkout", "--detach", plan["apps"][app]], environment, source,
+            output, app + "-checkout")
+    manifest = json.loads((source / "lastdb-app.json").read_text())
+    for phase in ("prepare", "probe"):
+        for index, step in enumerate(manifest["install"][phase]):
+            command(step["argv"], environment, source, output, f"{app}-{phase}-{index}",
+                    timeout=min(step.get("timeout_s", 300), 600),
+                    accept_exit=tuple(step.get("accept_exit", [0])))
+    return source, False
+
+
 def prove(node, plan, output, prepare_cli=None):
     observed = node.call("/api/version")
     environment = {**os.environ, **node.environment,
-                   "PATH": str(node.binaries) + os.pathsep + os.environ["PATH"],
+                   "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"),
+                                            os.environ["PATH"])),
+                   "LASTDB_APPS_ROOT": str(node.root / "managed-apps"),
                    "FBRAIN_FOLDDB_SOCKET": str(node.socket),
                    "LASTSECRETS_SOCKET_PATH": str(node.socket),
                    "LASTDB_SOCKET_PATH": str(node.socket)}
@@ -31,22 +63,13 @@ def prove(node, plan, output, prepare_cli=None):
         environment.pop(name, None)
     results = {}
     for app in APPS:
-        source = output / app
-        command(["git", "clone", "--no-checkout", "https://github.com/EdgeVector/" + app + ".git",
-                 str(source)], environment, output, output, app + "-clone")
-        command(["git", "checkout", "--detach", plan["apps"][app]], environment, source,
-                output, app + "-checkout")
+        source, installed = source_for(node, plan, app, output, environment,
+                                       prepare_cli or node.binaries / "lastdb")
         manifest = json.loads((source / "lastdb-app.json").read_text())
         if manifest["app_id"] != app:
             raise ValueError("App source identity differs")
-        # The reviewed manifest supplies bounded install commands, never an
-        # unverified registry fallback or a fabricated compatibility version.
-        for index, step in enumerate(manifest["install"]["prepare"]):
-            command(step["argv"], environment, source, output, f"{app}-prepare-{index}",
-                    timeout=min(step.get("timeout_s", 300), 600))
-        executable = source / ("bin/search" if app == "search" else
-                               "bin/brain" if app == "brain" else "bin/registry-lastsecrets")
-        executable.chmod(executable.stat().st_mode | 0o100)
+        link = next(item for item in manifest["install"]["links"] if item["command"] == app)
+        executable = Path(environment["HOME"]) / ".local/bin" / app if installed else source / link["source"]
         run = lambda args, name, body=None, retain_output=True: command(
             [str(executable), *args], environment, source, output, app + "-" + name, body,
             retain_output=retain_output)
@@ -74,7 +97,8 @@ def prove(node, plan, output, prepare_cli=None):
             hits = json.loads(run(["query", "CI stable qualification record", "--json",
                                   "--last-db-home", str(node.home)], "query"))
             if (drained.get("ok") is not True or not any(
-                    "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
+                    hit.get("schema_name") == "brain/Concept" and hit.get("key_hash") == "ci-release-qualification"
+                    and "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
                 raise RuntimeError("Search did not query the real database changes")
             run(["status", "--last-db-home", str(node.home)], "status")
         statement = output / (app + ".declaration.json")
@@ -86,6 +110,7 @@ def prove(node, plan, output, prepare_cli=None):
             raise ValueError("The validated app commit differs from the plan")
         results[app] = {"sha": declaration["sha"], "api_version": declaration["api_version"],
                         "outbox_format_version": observed["current_outbox_format_version"],
+                        "installed_from_registry": installed,
                         "declaration": declaration, "complete": True}
     write_json(output / "apps.json", results)
     return results

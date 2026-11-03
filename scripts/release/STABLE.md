@@ -10,7 +10,8 @@ version, and the published compatible Brain, LastSecrets, and Search commits.
 Missing listings use app main only to prepare bootstrap evidence. It requires
 that database source's normal CI, benchmark completion, and security checks.
 Both native packages must pass durable write, keyed/range read, reopen, and
-crash recovery operations. The Linux package then runs the three real apps
+crash recovery operations. The Linux package installs the three apps from the
+signed registry, verifies their exact receipts, then runs their real commands
 and completes at least 3600 uninterrupted seconds of health and durable
 operations on a fresh generated database. Health P95 must stay at or below
 two seconds. The package receives its stable numeric version before this gate;
@@ -28,6 +29,9 @@ the CI result. Publisher keys stay in LastSecrets, outside GitHub. Stable
 promotion requires an authenticated stable-channel listing for every proved
 app commit at that exact API; missing listings block publication, rather than
 being treated as app successes. A changed API needs new app declarations.
+If a listing is missing, CI can prepare bootstrap evidence. A publishing run
+then stops before starting the hour. After the owner publishes the declarations,
+retry qualification; all three real registry installs must pass first.
 
 CI verifies retained artifact digests, expiration, package hashes, and GitHub
 provenance before using the cross-repository `GH_PAT` credential. It uploads

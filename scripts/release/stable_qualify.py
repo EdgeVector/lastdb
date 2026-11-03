@@ -36,6 +36,8 @@ def main():
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         version = operations(node)
         apps = prove(node, plan, args.output)
+        if plan["publish"] and any(not proof["installed_from_registry"] for proof in apps.values()):
+            raise RuntimeError("Publish the validated bootstrap app declarations, then retry qualification; no hour started")
         started = datetime.now(timezone.utc)
         beginning = time.monotonic()
         latencies = []
