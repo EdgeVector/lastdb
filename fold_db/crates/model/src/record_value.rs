@@ -9,31 +9,37 @@
 //! {"v":1,
 //!  "fields":{"title":"Plan v2","status":"done"},
 //!  "stamps":{"title":[written_at,logical_counter,device_id,mutation_id], ...},
-//!  "meta":{"source_file_name":"plan.pdf","metadata":{"file_blob_ref":"..."},
+//!  "meta":{"source_file_name":"plan.pdf","metadata":{"origin":"scan"},
 //!          "stamp":[written_at,logical_counter,device_id,mutation_id]},
+//!  "file":{"name":"plan.pdf","media_type":"application/pdf","size_bytes":1024,
+//!          "sha256":"...","stamp":[written_at,logical_counter,device_id,mutation_id]},
 //!  "deleted":[written_at,logical_counter,device_id,mutation_id]}
 //! ```
 //!
 //! The metadata belongs to the record, not to a field (decision D7): one
 //! source file name and one metadata map, with their own stamp (`meta.rs`).
+//! The file marker says that the record has a file, with its own stamp
+//! (`file.rs`). The file lives at a path made from the record key.
 //!
 //! A stamp without a value is a removed field: it still refuses an older
 //! write of that field. `deleted` is the stamp of the last delete. It is a
 //! floor: a field write at or below it does not bring the record back, and a
 //! newer write makes a new record. A tombstone is a value with no fields.
 
-use crate::file_pointer::blob_refs_of_value;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
+mod file;
 mod meta;
+
+pub use file::{FileMarker, RecordFile};
 
 /// The format version of a stored record value.
 pub const RECORD_VALUE_VERSION: u8 = 1;
 
 /// The cap for the encoded value of the full record (decision D3). The app
-/// moves a large field to a file blob and keeps the pointer in the record.
+/// moves a large value to the record's file.
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 /// The stamp of one field write. The field order is the merge order: write
@@ -109,7 +115,7 @@ impl std::fmt::Display for RecordValueError {
             Self::TooLarge { bytes } => write!(
                 f,
                 "the record is {bytes} bytes; the cap is {MAX_RECORD_BYTES} bytes. Move a large \
-                 field to a file blob and keep its pointer in the record"
+                 value to the record's file (put-blob)"
             ),
         }
     }
@@ -146,6 +152,9 @@ pub struct StoredRecord {
     /// with metadata replaces only the keys that it sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RecordMeta>,
+    /// The file marker. Only the file routes set or remove it (`file.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<RecordFile>,
     /// The stamp of the last delete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted: Option<FieldStamp>,
@@ -159,26 +168,29 @@ impl Default for StoredRecord {
             fields: BTreeMap::new(),
             stamps: BTreeMap::new(),
             meta: None,
+            file: None,
             deleted: None,
         }
     }
 }
 
 impl StoredRecord {
-    /// True when the record has a field value. A tombstone has none.
+    /// True when the record has a field value or a file. A tombstone has
+    /// neither.
     #[must_use]
     pub fn is_live(&self) -> bool {
-        !self.fields.is_empty()
+        !self.fields.is_empty() || self.file.is_some()
     }
 
-    /// The write time of the record: the newest write time of a field stamp
-    /// or of the metadata stamp, in nanoseconds. A TTL ages a record by this
+    /// The write time of the record: the newest write time of a field stamp,
+    /// the metadata stamp or the file stamp, in nanoseconds. A TTL ages a record by this
     /// time. `None` when the record holds no stamp above its delete floor.
     #[must_use]
     pub fn written_at(&self) -> Option<u64> {
         self.stamps
             .values()
             .chain(self.meta.as_ref().map(|meta| &meta.stamp))
+            .chain(self.file.as_ref().map(|file| &file.stamp))
             .map(|stamp| stamp.written_at)
             .max()
     }
@@ -209,8 +221,8 @@ impl StoredRecord {
         FieldMerge::Written { old, old_stamp }
     }
 
-    /// Apply a delete. Each field at or below `stamp` goes, and `stamp`
-    /// becomes the delete floor. A field with a newer stamp stays: it is a
+    /// Apply a delete. Each field, the metadata and the file at or below
+    /// `stamp` go, and `stamp` becomes the delete floor. A field with a newer stamp stays: it is a
     /// write after the delete. Returns true when the delete removed a value.
     pub fn delete(&mut self, stamp: FieldStamp) -> bool {
         if self.deleted.as_ref().is_some_and(|floor| stamp <= *floor) {
@@ -230,28 +242,14 @@ impl StoredRecord {
             self.meta = None;
             removed = true;
         }
+        if self.file.as_ref().is_some_and(|file| file.stamp <= stamp) {
+            self.file = None;
+            removed = true;
+        }
         self.deleted = Some(stamp);
         removed
     }
 
-    /// Every file blob that a field value or the metadata of this record
-    /// names, sorted and without duplicates. The write path compares the old
-    /// and new sets to change the file blob counters in the same batch.
-    #[must_use]
-    pub fn blob_refs(&self) -> Vec<String> {
-        let mut refs: Vec<String> = self
-            .fields
-            .values()
-            .flat_map(|value| blob_refs_of_value(value, None))
-            .collect();
-        if let Some(meta) = &self.meta {
-            let metadata: HashMap<String, String> = meta.metadata.clone().into_iter().collect();
-            refs.extend(blob_refs_of_value(&Value::Null, Some(&metadata)));
-        }
-        refs.sort_unstable();
-        refs.dedup();
-        refs
-    }
 
     /// The stored bytes. A record above [`MAX_RECORD_BYTES`] is refused.
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
@@ -289,12 +287,22 @@ impl StoredRecord {
                 .stamps
                 .values()
                 .chain(record.meta.as_ref().map(|meta| &meta.stamp))
+                .chain(record.file.as_ref().map(|file| &file.stamp))
                 .any(|stamp| stamp <= floor)
             {
                 return Err(RecordValueError::Format(
                     "a stamp is at or below the delete floor".into(),
                 ));
             }
+        }
+        if record
+            .file
+            .as_ref()
+            .is_some_and(|file| !file.marker().has_valid_hash())
+        {
+            return Err(RecordValueError::Format(
+                "the file marker has an invalid sha256".into(),
+            ));
         }
         Ok(record)
     }

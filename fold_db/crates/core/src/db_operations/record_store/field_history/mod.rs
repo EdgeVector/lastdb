@@ -1,6 +1,6 @@
 //! Optional field history of records. Each entry keeps its own copy of one old
-//! field value, and each file blob that the copy names holds one reference
-//! while the entry lives. The home row `layout:field-history` turns it on.
+//! field value. A file is not a field value, so no entry holds a file. The
+//! home row `layout:field-history` turns it on.
 
 mod key_counts;
 mod policy;

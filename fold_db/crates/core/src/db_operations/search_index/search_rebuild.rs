@@ -5,7 +5,7 @@
 //! [`crate::db_operations::search_index::deliver_search_outbox_best_effort`] only (single
 //! batch). Full-corpus walks live here (restore / cold home / explicit rebuild).
 
-use super::inbox_fields::{inbox_value, searchable_fields};
+use super::inbox_fields::searchable_fields;
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::record_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
@@ -96,7 +96,7 @@ async fn collect_schema_records(
                             .as_ref()
                             .is_none_or(|fields| fields.contains(name.as_str()))
                 })
-                .map(|(name, value)| (name.clone(), inbox_value(value)))
+                .map(|(name, value)| (name.clone(), value.clone()))
                 .collect();
             if !fields.is_empty() {
                 records.insert(key, fields);

@@ -16,7 +16,6 @@ pub mod constants;
 pub mod content_limit;
 pub mod field_key_codec;
 pub mod field_key_id;
-pub mod file_pointer;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;

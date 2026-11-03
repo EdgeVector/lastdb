@@ -11,6 +11,7 @@
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
 //! - [`schema_release`] — the release of the rows of a dropped schema
+//! - [`record_files`] — the one file of a record, at a path made from its key
 //! - [`read_scope`] — one memory and disk boundary for a read
 //! - [`locks`] — write scopes, field key commit and blob liveness locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
@@ -33,6 +34,7 @@ mod locks;
 mod read_scope;
 mod record_cap;
 mod record_conflicts;
+pub(crate) mod record_files;
 mod record_reads;
 mod record_spans;
 mod record_walk;

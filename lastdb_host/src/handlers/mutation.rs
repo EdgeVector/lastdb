@@ -15,7 +15,7 @@ use fold_db::fold_db_core::mutation_manager::{
 };
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
-use fold_db::schema::types::{KeyValue, Mutation, MutationType, SchemaError};
+use fold_db::schema::types::{FileWrite, KeyValue, Mutation, MutationType, SchemaError};
 use serde_json::Value;
 
 use crate::host_node::HostNode;
@@ -73,6 +73,8 @@ pub struct MutationComponents {
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,
+    /// The record's file write. Only `put-blob` and `delete-blob` set it.
+    pub file_write: Option<FileWrite>,
 }
 
 impl MutationComponents {
@@ -94,6 +96,7 @@ impl MutationComponents {
             self.must_exist,
         );
         mutation.metadata = self.metadata;
+        mutation.file_write = self.file_write;
         mutation
     }
 
@@ -129,6 +132,7 @@ impl MutationComponents {
             durability: durability.unwrap_or_default(),
             must_exist,
             key_range_prefix,
+            file_write: None,
         }
     }
 }

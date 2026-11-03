@@ -3,7 +3,6 @@
 //! This module is compiled only with the `sharing` feature. Default local
 //! kernel builds omit it; product hosts opt in explicitly.
 
-pub mod blob_cas;
 pub mod delivery_wire;
 pub mod file_blob_seal;
 pub mod query_slice;

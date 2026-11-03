@@ -19,7 +19,8 @@
 //!   merge, delete floor included, so a delete or a purge reaches the copy in
 //!   the same batch. A copy has no alternate entries, field history or audit
 //!   rows: this node reads no share scope by an alternate key, and the
-//!   personal record keeps the history.
+//!   personal record keeps the history. A copy carries no file: a record's
+//!   file stays at the record's own path.
 
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
@@ -42,7 +43,7 @@ pub(super) struct ChangedRecord<'a> {
 struct RecordOutcome {
     live: bool,
     written_at: Option<u64>,
-    named_blobs: bool,
+    had_file: bool,
 }
 
 /// The outcome of each change, in the order of the changes.
@@ -52,10 +53,10 @@ fn record_outcomes(changes: &[RecordChange]) -> Vec<RecordOutcome> {
         .map(|change| RecordOutcome {
             live: change.after.is_live(),
             written_at: change.after.written_at(),
-            named_blobs: change
+            had_file: change
                 .before
                 .as_ref()
-                .is_some_and(|before| !before.blob_refs().is_empty()),
+                .is_some_and(|before| before.file.is_some()),
         })
         .collect()
 }
@@ -93,7 +94,7 @@ impl MutationManager {
         changes.extend(copies);
         self.db_ops
             .records()
-            .stage_records(changes, entries, history.blobs)
+            .stage_records(changes, entries)
             .await?;
         if storage_prefix.is_none() {
             // A live record below a floor of the TTL sweep removes the floor.
@@ -110,8 +111,8 @@ impl MutationManager {
     }
 
     /// The copy of each changed personal record in the scope of each active
-    /// share rule of the schema. One batch read gives the stored copies, so
-    /// the file blob counters change by the net delta.
+    /// share rule of the schema, without its file. One batch read gives the
+    /// stored copies.
     async fn record_share_copies(
         &self,
         schema_name: &str,
@@ -137,11 +138,16 @@ impl MutationManager {
             .into_iter()
             .zip(stored)
             .zip(changes.iter().cycle())
-            .map(|((key, before), change)| RecordChange {
-                key,
-                before,
-                after: change.after.clone(),
-                cap_deferred: change.cap_deferred,
+            .map(|((key, before), change)| {
+                let mut after = change.after.clone();
+                after.file = None;
+                RecordChange {
+                    key,
+                    before,
+                    after,
+                    cap_deferred: change.cap_deferred,
+                    file_row: None,
+                }
             })
             .collect())
     }
@@ -257,9 +263,9 @@ impl MutationManager {
             let mut entry =
                 RecordDeleteLedgerEntry::erasure(verb, caller, schema_name, &descriptor);
             entry.records_erased = records.len() as u64;
-            entry.file_pointer_records_purged = records
+            entry.file_records_erased = records
                 .iter()
-                .filter(|(_, outcome)| outcome.named_blobs)
+                .filter(|(_, outcome)| outcome.had_file)
                 .count() as u64;
             if verb == LEDGER_VERB_PURGE {
                 entry.history_rows_deleted = history_released;

@@ -3,13 +3,12 @@
 use super::*;
 use std::collections::BTreeSet;
 
-/// Accumulates the schemas, field keys, records and blobs for the legs of one slice.
+/// Accumulates the schemas, field keys and records for the legs of one slice.
 #[derive(Default)]
 pub(super) struct SliceBuilder {
     pub(super) schemas: Vec<SliceSchema>,
     pub(super) field_keys: Vec<SliceFieldKey>,
     pub(super) records_by_ref: BTreeMap<String, ContentAddressedValue>,
-    pub(super) blobs_by_ref: BTreeMap<String, ContentAddressedBlob>,
     pub(super) seen_schema: BTreeSet<String>,
 }
 
@@ -20,7 +19,6 @@ impl SliceBuilder {
         db: &FoldDB,
         leg: &QuerySliceLeg,
         access: &AccessContext,
-        blob_resolver: Option<&BlobBytesResolver>,
     ) -> Result<(), FoldDbError> {
         if leg.fields.is_empty() {
             return Err(FoldDbError::Other(format!(
@@ -59,10 +57,7 @@ impl SliceBuilder {
                 let Some(value) = record.fields.get(field_name) else {
                     continue;
                 };
-                let value =
-                    normalize_file_field_value(db, value, blob_resolver, &mut self.blobs_by_ref)
-                        .await?;
-                let record = content_addressed_value(value)?;
+                let record = content_addressed_value(value.clone())?;
                 self.field_keys.push(SliceFieldKey {
                     schema_name: leg.schema_name.clone(),
                     record_key: record_key.clone(),

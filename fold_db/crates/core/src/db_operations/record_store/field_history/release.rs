@@ -47,13 +47,12 @@ impl RecordStore {
     }
 
     /// Release field history rows of a dropped schema in one batch: each
-    /// entry, its queue entry and its blob references. The drop releases every
+    /// entry and its queue entry. The drop releases every
     /// entry of the schema, so the entry count of each named record is deleted,
     /// not lowered: an entry of the record in a later batch deletes the gone
     /// count again, and a count that drifted cannot stop the drop. The caller
     /// read the rows by key in its write scope. A row that does not decode
-    /// names no record or queue entry: it is deleted, and its blob counters
-    /// stay too high until a recount.
+    /// names no record or queue entry: it is deleted.
     pub(crate) async fn release_dropped_history(
         &self,
         rows: &[(String, Vec<u8>)],
@@ -72,8 +71,7 @@ impl RecordStore {
             tracing::warn!(
                 target: "fold_node::database",
                 unreadable,
-                "field history rows of a dropped schema do not decode; their blob counters stay \
-                 too high until a recount"
+                "field history rows of a dropped schema do not decode; they are deleted"
             );
         }
         if out.rows.is_empty() {
@@ -81,7 +79,6 @@ impl RecordStore {
         }
         let mut batch = out.rows;
         batch.extend(super::key_counts::history_count_deletes(out.counts.keys())?);
-        batch.extend(self.blob_counter_mutations(out.blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
         Ok(out.released + unreadable as u64)
     }

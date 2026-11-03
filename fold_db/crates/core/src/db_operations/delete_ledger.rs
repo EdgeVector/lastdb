@@ -46,14 +46,10 @@ pub struct RecordDeleteLedgerEntry {
     pub history_rows_deleted: u64,
     /// Records the batch erased.
     pub records_erased: u64,
-    /// Purge only: how many of the hard-deleted records carried a file-blob
-    /// reference (a `$lastdb_file` content pointer or `file_blob_ref`
-    /// metadata). A count, never the refs themselves — a blob_ref
-    /// is a hash of the file's plaintext, so retaining it would be the same
-    /// confirmation oracle the records-uuid rule closes (see module docs). A
-    /// nonzero value tells compliance that sealed blob bytes may now be
-    /// orphaned. The blob counter reclaims them when the dwell passes.
-    pub file_pointer_records_purged: u64,
+    /// Erased records that had a file. The same batch deleted each file. A
+    /// count, never the file hashes: a hash of the plaintext would be the
+    /// confirmation oracle that the records-uuid rule closes (see module docs).
+    pub file_records_erased: u64,
 }
 
 impl RecordDeleteLedgerEntry {
@@ -69,7 +65,7 @@ impl RecordDeleteLedgerEntry {
             key_fingerprint: None,
             history_rows_deleted: 0,
             records_erased: 0,
-            file_pointer_records_purged: 0,
+            file_records_erased: 0,
         }
     }
 

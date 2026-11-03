@@ -10,13 +10,6 @@ pub struct LastDbSlicePayload {
     pub schemas: Vec<SliceSchema>,
     pub field_keys: Vec<SliceFieldKey>,
     pub records: Vec<ContentAddressedValue>,
-    /// First-class binary content-addressed files (photos, PDFs, …).
-    ///
-    /// Empty when the slice has no file field. File-bearing fields in
-    /// `records[]` reference these via `$lastdb_file.blob_ref` (see
-    /// [`super::lastdb_file_pointer_with_access_and_thumbnail`]).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub blobs: Vec<ContentAddressedBlob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,8 +98,8 @@ pub struct ContentAddressedBlob {
 ///
 /// `file_hash` is the sha256 hex of the plaintext bytes. `blob_ref` names the
 /// ciphertext. `dek` is the 32-byte per-blob key, hex
-/// encoded. Slices carry this alongside file pointers so recipients can open
-/// the same remote CAS object without re-encrypting or re-uploading it.
+/// encoded. The node derives it when it seals or opens a record's file; no
+/// record stores it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileBlobAccess {
     pub blob_ref: String,
@@ -117,51 +110,6 @@ pub struct FileBlobAccess {
     pub dek: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encrypted_size_bytes: Option<u64>,
-}
-
-/// Minimal access metadata for an encrypted generated thumbnail/poster object.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FileThumbnailAccess {
-    pub dek: String,
-    pub cipher_suite: String,
-    pub encrypted_size_bytes: u64,
-}
-
-/// Reference-only thumbnail/poster metadata embedded in a `$lastdb_file` pointer.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FileThumbnailRef {
-    pub blob_ref: String,
-    /// Plaintext digest. A thumbnail reference without it fails validation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_hash: Option<String>,
-    pub tier: String,
-    pub access: FileThumbnailAccess,
-    pub media_type: String,
-    pub width: u32,
-    pub height: u32,
-    pub kind: String,
-    pub source_hash: String,
-}
-
-impl FileThumbnailRef {
-    /// The thumbnail's file access record, without exposing its key.
-    pub fn file_access(&self) -> Result<FileBlobAccess, crate::error::FoldDbError> {
-        let file_hash = self.file_hash.clone().ok_or_else(|| {
-            crate::error::FoldDbError::SecurityError(
-                "ciphertext-addressed thumbnail requires its plaintext digest".into(),
-            )
-        })?;
-        let access = FileBlobAccess {
-            blob_ref: self.blob_ref.clone(),
-            file_hash,
-            owner_scope: None,
-            cipher_suite: self.access.cipher_suite.clone(),
-            dek: self.access.dek.clone(),
-            encrypted_size_bytes: Some(self.access.encrypted_size_bytes),
-        };
-        super::validate_file_blob_access_for_ref(&access, &self.blob_ref)?;
-        Ok(access)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

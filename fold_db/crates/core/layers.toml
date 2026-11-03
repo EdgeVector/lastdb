@@ -47,7 +47,7 @@ modules = [
 
 [[layer]]
 name = "wire"
-doc = "File blob and sharing wire formats: pointer and access records, the blob seal, and signed share types. Pure codecs over the model."
+doc = "File blob and sharing wire formats: access records, the blob seal, and signed share types. Pure codecs over the model."
 modules = [
   "sharing::delivery_wire",
   "sharing::file_blob_seal",
@@ -78,7 +78,6 @@ name = "operations"
 doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
 modules = [
   "db_operations",
-  "sharing::blob_cas",
   "sharing::store",
 ]
 

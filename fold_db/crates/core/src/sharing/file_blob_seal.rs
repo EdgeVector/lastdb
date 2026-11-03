@@ -150,6 +150,15 @@ pub(crate) fn encrypt_envelope_with_nonce(
     Ok(envelope)
 }
 
+/// The file key of one plaintext hash under the account key, hex encoded. A
+/// record file stores no key: the reader derives it again from the marker.
+pub(crate) fn account_file_blob_dek_hex(
+    account_key: &[u8; 32],
+    file_hash_hex: &str,
+) -> Result<String, FileBlobSealError> {
+    derive_account_file_blob_key(account_key, file_hash_hex).map(hex_lower)
+}
+
 /// Account-derived file reference and its exact deterministic ciphertext.
 pub(crate) fn seal_file_blob(
     plaintext: &[u8],

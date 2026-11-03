@@ -1,108 +1,61 @@
-//! The file dependencies of record values and their bounded, exact-root
-//! coverage proof.
+//! The file of each record and its bounded, exact-root proof (design
+//! `design-lastdb-no-shared-file-blobs`).
 //!
-//! A record names its files in its field values. The restore proof
-//! and the byte backup derive each dependency from the value and copy and open
-//! its CAS body. A record has no separate file dependency row.
+//! A record says that it has a file with its marker (`StoredRecord::file`).
+//! The file lives in `cas_blobs` at a path made from the record key, so the
+//! restore proof needs only the record: it copies the row at that path from
+//! the authenticated CAS run, opens it with the key that the account key and
+//! the marker's hash give, and checks the bytes against the marker. A record
+//! has no separate file dependency row, and no record names another record's
+//! file.
 
 mod budget_json;
 mod native;
 mod select;
 
-pub use cloud_backup_protocol::FileDependencyKind;
 pub(crate) use native::scratch::Scratch as NativeCasOutput;
 pub use native::{verify_native_cas, NativeCasProof};
-pub use select::{expected_record, expected_values};
+pub use select::expected_record;
 
 /// Reuse the bounded JSON decoder for another physical snapshot reader.
 pub(crate) fn decode_bounded_json(bytes: &[u8]) -> StorageResult<serde_json::Value> {
     budget_json::decode(bytes)
 }
 
-use crate::sharing::delivery_wire::FileBlobAccess;
 use crate::storage::error::{StorageError, StorageResult};
-use cloud_backup_protocol::Digest;
-use serde::{Deserialize, Serialize};
 
 /// Declared source bound is independent of buffers and external transport.
 pub const FILE_DEPENDENCY_MAX_STORED_BYTES: u64 = lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES;
 pub const DIRECTORY_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
 
-/// Nonsecret pointer identity. No ciphertext/body digest is guessed at mutation time.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FileDependencyRecord {
-    pub version: u16,
-    pub record_id: String,
-    pub logical_pointer_sha256: Digest,
-    pub kind: FileDependencyKind,
-    pub blob_ref: String,
-    /// Ciphertext digest of the stored file.
-    /// This record is nonsecret and can enter the local capture spool.
-    pub file_hash: Digest,
-    pub owner_scope: Option<String>,
-    pub encryption_suite: String,
-    pub expected_stored_bytes: u64,
-}
-
-/// A selected pointer plus its original key. Never serialize this value.
+/// The file of one record: its path and what its marker says. It holds the
+/// file key, so it is never serialized.
 pub struct FileDependency {
-    pub record: FileDependencyRecord,
-    access: SecretAccess,
-}
-
-pub(super) struct SecretAccess(pub FileBlobAccess);
-impl Drop for SecretAccess {
-    fn drop(&mut self) {
-        use zeroize::Zeroize;
-        self.0.dek.zeroize();
-    }
+    path: String,
+    sha256: String,
+    size_bytes: u64,
+    dek: zeroize::Zeroizing<[u8; 32]>,
 }
 
 impl FileDependency {
-    pub fn access(&self) -> &FileBlobAccess {
-        &self.access.0
+    /// The raw key of the file row in `cas_blobs`.
+    pub fn path(&self) -> &str {
+        &self.path
     }
 
-    pub fn logical_pointer_sha256(&self) -> &Digest {
-        &self.record.logical_pointer_sha256
+    /// The plaintext SHA-256 of the marker, lowercase hex.
+    pub fn sha256(&self) -> &str {
+        &self.sha256
     }
 
-    pub fn kind(&self) -> FileDependencyKind {
-        self.record.kind
+    /// The plaintext size of the marker.
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
     }
 
-    pub fn encryption_suite(&self) -> &str {
-        &self.record.encryption_suite
+    fn dek(&self) -> &[u8; 32] {
+        &self.dek
     }
-
-    pub fn blob_ref(&self) -> &str {
-        &self.record.blob_ref
-    }
-
-    pub fn file_hash(&self) -> &Digest {
-        &self.record.file_hash
-    }
-
-    pub fn storage_hash(&self) -> StorageResult<&str> {
-        crate::sharing::file_blob_seal::file_blob_storage_hash(self.blob_ref())
-            .map_err(|_| invalid("file dependency storage digest"))
-    }
-
-    pub fn expected_stored_bytes(&self) -> u64 {
-        self.record.expected_stored_bytes
-    }
-}
-
-/// Check one offline record-namespace coordinate with the normal current-key law.
-/// Unknown or retired spellings cannot hide an unexamined file-pointer body.
-pub fn validate_restored_record_key(key: &str) -> StorageResult<()> {
-    let raw = crate::storage::disk_pack::native_routing::decode(key)?;
-    super::super::current_keys::validate("main", &raw)?;
-    if crate::storage::disk_pack::native_routing::collection_for_key(&raw) != "blob_counts" {
-        return Err(invalid("unsupported key in restored record namespace"));
-    }
-    Ok(())
 }
 
 pub(super) fn invalid(detail: &str) -> StorageError {

@@ -18,7 +18,7 @@ mod catalog_share;
 mod init;
 mod init_boot;
 mod lifecycle;
-mod local_file_blobs;
+mod record_files;
 mod maintenance_admission;
 
 mod record_conflicts;
@@ -28,7 +28,7 @@ pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;
 
 pub use init::FoldDbInit;
-pub use local_file_blobs::LocalFileBlobPut;
+pub use record_files::RecordFileState;
 pub use maintenance_admission::LocalMutationAdmission;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.

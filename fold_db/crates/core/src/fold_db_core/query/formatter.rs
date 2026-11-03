@@ -4,13 +4,16 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 /// The metadata of one record (decision D7): the source file name and the
-/// metadata map of the last write that carried them. A field has no metadata
-/// of its own.
+/// metadata map of the last write that carried them, and the marker of the
+/// record's file. A field has no metadata of its own.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RecordMetadata {
     pub source_file_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
+    /// The record's file, read with `fetch-blob` by schema and key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<lastdb_model::record_value::FileMarker>,
 }
 
 /// The selected fields of one record, keyed by `KeyValue` in [`QueryRecords`].
