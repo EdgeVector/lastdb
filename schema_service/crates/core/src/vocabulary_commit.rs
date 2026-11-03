@@ -45,6 +45,11 @@ pub(crate) enum VocabularyCommit<'a> {
 impl SchemaServiceState {
     /// Recheck the batch against durable state and publish only after the
     /// backend commits that same state. Contention has a bounded retry budget.
+    ///
+    /// Only fields that durable state lacks are written. A field-only batch
+    /// with nothing new writes nothing: every cold start offers the whole
+    /// built-in seed, and rewriting that unchanged image from many instances
+    /// at once exhausted the conditional-write retries and failed starts.
     pub(crate) async fn commit_vocabulary(
         &self,
         fields: &[(String, CanonicalField)],
@@ -53,7 +58,17 @@ impl SchemaServiceState {
         let backend = self.storage.backend();
         for _ in 0..MAX_ADMISSION_RETRIES {
             let expected = backend.load_all_canonical_fields().await?;
-            let fields = self.checked_vocabulary_batch_against(&expected, fields)?;
+            let checked = self.checked_vocabulary_batch_against(&expected, fields)?;
+            let fields: Vec<_> = checked
+                .iter()
+                .filter(|(name, field)| expected.get(name) != Some(field))
+                .cloned()
+                .collect();
+            if fields.is_empty()
+                && matches!(operation, VocabularyCommit::Schemas(schemas) if schemas.is_empty())
+            {
+                return self.cache_committed_vocabulary(&checked);
+            }
             let vocabulary = CanonicalVocabularyWrite { expected, fields };
             let result = match operation {
                 VocabularyCommit::Schemas(schemas) => {
@@ -72,7 +87,7 @@ impl SchemaServiceState {
                 }
             };
             match result {
-                Ok(()) => return self.cache_committed_vocabulary(&vocabulary.fields),
+                Ok(()) => return self.cache_committed_vocabulary(&checked),
                 Err(FoldDbError::Config(message)) if message.starts_with(VOCABULARY_CONFLICT) => {
                     continue;
                 }
