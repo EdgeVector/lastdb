@@ -6,6 +6,9 @@ use crate::schema::types::{FileWrite, Mutation};
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 
+/// The sealed file row of each mutation of a group, in mutation order.
+pub(super) type FileRows = Vec<Option<Arc<Vec<u8>>>>;
+
 /// The miss wording of a delete that must find its record: a purge, or a
 /// delete with `must_exist`. `None` for every other mutation.
 pub(super) fn loud_erasure(mutation: &Mutation) -> Option<(&'static str, &'static str)> {
@@ -30,7 +33,7 @@ pub(super) fn purges_deleted_record(mutation: &Mutation, before: Option<&StoredR
 
 /// Move the sealed row out of each `put-blob` mutation, so the batch takes the
 /// one copy and the mutation keeps only the marker.
-pub(super) fn take_file_rows(mutations: &mut [Mutation]) -> Vec<Option<Arc<Vec<u8>>>> {
+pub(super) fn take_file_rows(mutations: &mut [Mutation]) -> FileRows {
     mutations
         .iter_mut()
         .map(|mutation| match mutation.file_write.as_mut() {

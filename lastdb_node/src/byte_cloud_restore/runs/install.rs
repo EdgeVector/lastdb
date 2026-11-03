@@ -34,25 +34,12 @@ pub(super) fn verify(
         lock.sync_all()?;
         File::open(&home)?.sync_all()?;
     }
-    let scratch = session.root.join("run-proof");
-    match fs::DirBuilder::new().mode(0o700).create(&scratch) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
-    }
-    local::directory(&scratch)?;
     let profile = root
         .run
         .as_ref()
         .ok_or(RestoreError::Invalid("run profile"))?;
-    let proof = run_restore::verify(
-        &data,
-        profile,
-        &root.native_root,
-        keys.content_key(),
-        &scratch,
-    )
-    .map_err(RestoreError::native_proof)?;
+    let proof = run_restore::verify(&data, profile, &root.native_root, keys.content_key())
+        .map_err(RestoreError::native_proof)?;
     for file in proof.files() {
         let entry: NativeFileProof = local::read_json(
             &session

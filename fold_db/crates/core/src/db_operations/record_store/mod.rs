@@ -25,7 +25,6 @@ mod delete_replay;
 pub mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
-mod file_blob_seal;
 mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
@@ -73,9 +72,9 @@ pub struct RecordStore {
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     /// Owner namespace factory for physical-plane maintenance.
     namespaced_store: Arc<dyn NamespacedStore>,
-    /// The account key that seals a local CAS file blob (see
-    /// `file_blob_seal.rs`). Record rows do not use it: a record row is plain
-    /// JSON, and the block encryption of each run file protects it at rest.
+    /// The account key that seals a record file (see `record_files.rs`).
+    /// Record rows do not use it: a record row is plain JSON, and the block
+    /// encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
     /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
     field_keys: Option<crate::db_operations::FieldKeyStore>,

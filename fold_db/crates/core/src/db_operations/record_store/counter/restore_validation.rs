@@ -13,7 +13,7 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
     let raw = restore_safety::raw_main(Arc::clone(&runtime)).await?;
     let main = store.open_namespace("main").await?;
     lifecycle_rows_read_back(raw.as_ref(), main.as_ref()).await?;
-    let namespaces = reader::open(store, runtime, Arc::clone(&main)).await?;
+    let namespaces = reader::open(runtime, Arc::clone(&main));
     let records = RecordStore::new(
         Arc::new(crate::storage::TypedKvStore::new(main)),
         namespaces,

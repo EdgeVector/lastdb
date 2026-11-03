@@ -95,7 +95,6 @@ pub fn verify_replayed(
     anchor: &LogAnchor,
     through: &LogPosition,
     key: &[u8; 32],
-    scratch: &Path,
 ) -> StorageResult<RunRestoreGuard> {
     if through.epoch != anchor.epoch {
         return Err(invalid("mutation replay epoch"));
@@ -108,13 +107,8 @@ pub fn verify_replayed(
     {
         return Err(invalid("mutation replay exact final frontier"));
     }
-    let records = verify_readers_for_profile(
-        &native.main,
-        &native.cas,
-        key,
-        scratch,
-        native.profile.version,
-    )?;
+    let records =
+        verify_readers_for_profile(&native.main, &native.cas, key, native.profile.version)?;
     let guard = RunRestoreGuard { native, records };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)

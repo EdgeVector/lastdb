@@ -1,5 +1,5 @@
 //! Charge JSON allocation shapes before collection growth. Raw input is separately capped.
-use super::{invalid, StorageResult};
+use crate::storage::error::{StorageError, StorageResult};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use std::fmt;
@@ -17,6 +17,10 @@ impl Seed<'_> {
         Ok(())
     }
 }
+fn invalid(detail: &str) -> StorageError {
+    StorageError::InvalidOperation(detail.into())
+}
+
 pub(super) fn decode(bytes: &[u8]) -> StorageResult<Value> {
     let mut left = HEAP_MAX;
     let mut reader = serde_json::Deserializer::from_slice(bytes);

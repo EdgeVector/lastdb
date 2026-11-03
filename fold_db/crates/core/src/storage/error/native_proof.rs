@@ -11,7 +11,6 @@ pub enum NativeProofStage {
     Restore,
     Profile,
     PhysicalRoot,
-    Scratch,
     Account,
     Schemas,
     Directories,
@@ -29,7 +28,6 @@ impl fmt::Display for NativeProofStage {
             Self::Restore => "restore",
             Self::Profile => "profile",
             Self::PhysicalRoot => "physical_root",
-            Self::Scratch => "scratch",
             Self::Account => "account",
             Self::Schemas => "schemas",
             Self::Directories => "directories",
@@ -54,9 +52,6 @@ pub enum NativeProofCause {
     NativeFormat,
     Configuration,
     InvalidOperation,
-    FileSourceUnavailable,
-    UnsupportedFileScope,
-    UncertifiedFile,
     Encryption,
     Backend,
     Other,
@@ -76,28 +71,10 @@ impl fmt::Display for NativeProofCause {
                 Self::NativeFormat => "native_format",
                 Self::Configuration => "configuration",
                 Self::InvalidOperation => "invalid_operation",
-                Self::FileSourceUnavailable => "file_source_unavailable",
-                Self::UnsupportedFileScope => "unsupported_file_scope",
-                Self::UncertifiedFile => "uncertified_file",
                 Self::Encryption => "encryption",
                 Self::Backend => "backend",
                 _ => "other",
             }),
-        }
-    }
-}
-
-impl NativeProofCause {
-    /// Preserve the existing backup pause classification, not the dynamic text.
-    pub fn invalid_operation(detail: &str) -> Self {
-        match detail {
-            "native authorized file consumer copy is unavailable" => Self::FileSourceUnavailable,
-            "native file source owner scope needs a read-only grant" => Self::UnsupportedFileScope,
-            "legacy or incomplete file dependency is uncertified"
-            | "metadata-only file dependency is uncertified"
-            | "live file metadata lacks certified record pointer coverage"
-            | "native CAS per-file encryption suite is uncertified" => Self::UncertifiedFile,
-            _ => Self::InvalidOperation,
         }
     }
 }
@@ -134,7 +111,7 @@ impl StorageError {
             Self::StorageFull { .. } => NativeProofCause::StorageFull,
             Self::BackendError(_) => NativeProofCause::Backend,
             Self::ConfigurationError(_) => NativeProofCause::Configuration,
-            Self::InvalidOperation(detail) => NativeProofCause::invalid_operation(detail),
+            Self::InvalidOperation(_) => NativeProofCause::InvalidOperation,
             Self::EncryptionError(_) => NativeProofCause::Encryption,
             _ => NativeProofCause::Other,
         };

@@ -48,9 +48,6 @@ pub enum BackupError {
     Invalid,
     Disk,
     Source,
-    UnsupportedFileScope,
-    FileSourceUnavailable,
-    UncertifiedFile,
     Limit,
     Waiting,
     Closing,
@@ -69,11 +66,6 @@ impl BackupError {
             Self::Invalid => "native backup saved state differs",
             Self::Disk => "native backup disk operation failed",
             Self::Source => "native backup source needs attention",
-            Self::UnsupportedFileScope => {
-                "native backup needs a read-only grant for the original file"
-            }
-            Self::UncertifiedFile => "native backup needs complete file pointers and certificates",
-            Self::FileSourceUnavailable => "native backup has no existing authorized file copy; the saved job retains its source",
             Self::Limit => "native backup resource limit reached",
             Self::Waiting => "native backup awaits cloud verification; resume this job",
             Self::Closing => "native backup closure is requested",
@@ -161,9 +153,6 @@ impl From<fold_db::storage::StorageError> for BackupError {
             | StorageError::WriteResourceLimit { .. }
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
-            StorageError::InvalidOperation(detail) => {
-                Self::from(NativeProofCause::invalid_operation(&detail))
-            }
             _ => Self::Source,
         }
     }
@@ -174,10 +163,6 @@ impl From<NativeProofCause> for BackupError {
         match cause {
             NativeProofCause::ReadResource | NativeProofCause::WriteResource => Self::Limit,
             NativeProofCause::Io { .. } | NativeProofCause::StorageFull => Self::Disk,
-            NativeProofCause::FileSourceUnavailable => Self::FileSourceUnavailable,
-            NativeProofCause::UnsupportedFileScope => Self::UnsupportedFileScope,
-            NativeProofCause::UncertifiedFile => Self::UncertifiedFile,
-            NativeProofCause::Static(code) => Self::from(NativeProofCause::invalid_operation(code)),
             _ => Self::Source,
         }
     }
@@ -194,8 +179,7 @@ impl BackupError {
             Self::Identity => P::Identity,
             Self::Invalid => P::Invalid,
             Self::Disk => P::Disk,
-            Self::Source | Self::FileSourceUnavailable | Self::UncertifiedFile => P::Source,
-            Self::UnsupportedFileScope => P::Unsupported,
+            Self::Source => P::Source,
             Self::Limit => P::ResourceLimit,
             Self::Waiting => P::Temporary,
             Self::Closing => P::Closing,

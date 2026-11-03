@@ -46,10 +46,9 @@ modules = [
 
 [[layer]]
 name = "wire"
-doc = "File blob and sharing wire formats: access records, the blob seal, and signed share types. Pure codecs over the model."
+doc = "Sharing wire formats: the delivery slice and signed share types. Pure codecs over the model."
 modules = [
   "sharing::delivery_wire",
-  "sharing::file_blob_seal",
   "sharing::signing",
   "sharing::types",
 ]

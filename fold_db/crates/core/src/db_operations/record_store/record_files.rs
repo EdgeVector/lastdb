@@ -10,18 +10,19 @@
 //! request: `put-blob` puts the sealed row, and `delete-blob`, a record
 //! delete, a schema release and a database drop delete it.
 //!
-//! The row is a sealed `ContentAddressedBlob`: the account-v2 envelope of the
-//! plaintext. Its key comes from the account key and the marker's plaintext
-//! hash, so no key is stored. A new file at the same path has a new hash and
-//! so a new key and nonce.
+//! The row is the envelope `0x01 ‖ nonce ‖ AES-256-GCM ciphertext and tag`.
+//! The key comes from the account key and the marker's plaintext SHA-256
+//! (account-v2 derivation) and the nonce from the key, so no key is stored: a
+//! reader derives it again from the marker. A new file at the same path has a
+//! new hash and so a new key and nonce.
 
 use super::RecordStore;
 use crate::error::FoldDbError;
 use crate::schema::SchemaError;
-use crate::sharing::delivery_wire::{
-    content_addressed_blob_from_envelope, decode_blob_bytes_with_dek, ContentAddressedBlob,
-};
 use crate::storage::{KvMutation, KvStore};
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
+use hkdf::Hkdf;
 use lastdb_model::hex::hex_lower;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
@@ -30,6 +31,10 @@ use std::sync::Arc;
 
 /// The namespace of the file rows: its own run home, sent to B2.
 pub(crate) const CAS_BLOB_TREE: &str = "cas_blobs";
+
+const FILE_KEY_SALT: &[u8] = b"lastdb-file-blob-account-v2";
+const FILE_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
+const ENVELOPE_VERSION: u8 = 0x01;
 
 /// The file path of the record at one storage key, scope included.
 pub(crate) fn file_path(record: &str) -> Result<String, SchemaError> {
@@ -94,7 +99,35 @@ fn record_row_path(key: &str) -> Result<Option<String>, SchemaError> {
     file_path(key).map(Some)
 }
 
+fn file_crypto_error(detail: impl std::fmt::Display) -> FoldDbError {
+    FoldDbError::SecurityError(format!("record file encryption: {detail}"))
+}
+
+/// The file key of one plaintext hash, and its nonce.
+fn file_key(account_key: &[u8; 32], sha256: &str) -> Result<([u8; 32], [u8; 12]), FoldDbError> {
+    let hash = lastdb_model::hex::hex_decode_array::<32>(sha256)
+        .ok_or_else(|| file_crypto_error("the file hash is not 64 hex digits"))?;
+    let mut key = [0u8; 32];
+    Hkdf::<Sha256>::new(Some(FILE_KEY_SALT), account_key)
+        .expand(
+            &[b"file-dek\0".as_slice(), hash.as_slice()].concat(),
+            &mut key,
+        )
+        .map_err(file_crypto_error)?;
+    let mut nonce = [0u8; 12];
+    Hkdf::<Sha256>::new(Some(FILE_NONCE_SALT), &key)
+        .expand(b"aes-256-gcm-nonce", &mut nonce)
+        .map_err(file_crypto_error)?;
+    Ok((key, nonce))
+}
+
 impl RecordStore {
+    fn account_key(&self) -> Result<&[u8; 32], FoldDbError> {
+        self.content_key.as_ref().ok_or_else(|| {
+            FoldDbError::SecurityError("local file encryption requires the account key".into())
+        })
+    }
+
     async fn file_store(&self) -> Result<Arc<dyn KvStore>, SchemaError> {
         self.namespaced_store
             .open_namespace(CAS_BLOB_TREE)
@@ -120,27 +153,23 @@ impl RecordStore {
         name: Option<String>,
         media_type: Option<String>,
     ) -> Result<(FileMarker, Vec<u8>), FoldDbError> {
-        let (sealed, envelope) = self.seal_local_file_blob(plaintext)?;
-        let size_bytes = plaintext.len() as u64;
-        let mut row = content_addressed_blob_from_envelope(
-            size_bytes,
-            None,
-            None,
-            &sealed.to_access(),
-            &envelope,
-        )?;
-        drop(envelope);
-        row.stored_at = Some(chrono::Utc::now().to_rfc3339());
-        // One buffer sized up front: the sealed text is the whole row.
-        let mut bytes = Vec::with_capacity(row.bytes_b64.len() + 1024);
-        serde_json::to_writer(&mut bytes, &row)?;
+        let sha256 = hex_lower(Sha256::digest(plaintext));
+        let (key, nonce) = file_key(self.account_key()?, &sha256)?;
+        let ciphertext = Aes256Gcm::new_from_slice(&key)
+            .map_err(file_crypto_error)?
+            .encrypt(Nonce::from_slice(&nonce), plaintext)
+            .map_err(file_crypto_error)?;
+        let mut row = Vec::with_capacity(1 + nonce.len() + ciphertext.len());
+        row.push(ENVELOPE_VERSION);
+        row.extend_from_slice(&nonce);
+        row.extend_from_slice(&ciphertext);
         let marker = FileMarker {
             name,
             media_type,
-            size_bytes,
-            sha256: sealed.file_hash,
+            size_bytes: plaintext.len() as u64,
+            sha256,
         };
-        Ok((marker, bytes))
+        Ok((marker, row))
     }
 
     /// The plaintext of the file of the record at `record_key`, checked
@@ -151,13 +180,12 @@ impl RecordStore {
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
         let path = file_path(record_key)?;
-        let Some(bytes) = self.file_store().await?.get(path.as_bytes()).await? else {
+        let Some(row) = self.file_store().await?.get(path.as_bytes()).await? else {
             return Ok(None);
         };
-        let row: ContentAddressedBlob = serde_json::from_slice(&bytes)?;
-        drop(bytes);
+        let (key, _) = file_key(self.account_key()?, &marker.sha256)?;
         let plaintext =
-            decode_blob_bytes_with_dek(&row, &self.local_file_dek_hex(&marker.sha256)?)?;
+            crate::crypto::envelope::decrypt_envelope(&key, &row).map_err(file_crypto_error)?;
         if plaintext.len() as u64 != marker.size_bytes
             || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
         {

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use super::super::cas_rules::{check_expectation, CurrentHead};
 use super::super::key_values::validate_field_value;
 use super::record_effects::ChangedRecord;
-use super::record_rules::{loud_erasure, purges_deleted_record, take_file_rows};
+use super::record_rules::{loud_erasure, purges_deleted_record, take_file_rows, FileRows};
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
@@ -238,7 +238,7 @@ impl GroupChanges<'_> {
 fn merge_group<'a>(
     schema_name: &str,
     schema: &Schema,
-    (mutations, file_rows): (&'a [Mutation], Vec<Option<Arc<Vec<u8>>>>),
+    (mutations, file_rows): (&'a [Mutation], FileRows),
     keys: &'a [KeyValue],
     stored: Vec<(String, Option<Arc<StoredRecord>>)>,
     repeated: Option<&HashSet<KeyValue>>,

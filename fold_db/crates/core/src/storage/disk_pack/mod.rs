@@ -38,7 +38,6 @@ mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub use crate::storage::disk_backup::byte_backup;
-pub use crate::storage::disk_backup::file_dependencies;
 pub use crate::storage::disk_backup::mutation_log;
 pub use crate::storage::disk_backup::run_restore;
 pub use crate::storage::disk_backup::NativeCloudWorkGuard;

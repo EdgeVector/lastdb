@@ -4,7 +4,6 @@
 //! kernel builds omit it; product hosts opt in explicitly.
 
 pub mod delivery_wire;
-pub mod file_blob_seal;
 pub mod query_slice;
 pub mod signing;
 pub mod store;

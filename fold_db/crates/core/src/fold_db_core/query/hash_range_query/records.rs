@@ -21,7 +21,7 @@ use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::SAMPLE_PEEK_CAP;
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::KeyValuePageOrder;
-use lastdb_model::record_value::StoredRecord;
+use lastdb_model::record_value::{RecordFile, StoredRecord};
 
 type FieldMap = HashMap<String, HashMap<KeyValue, FieldValue>>;
 
@@ -360,7 +360,7 @@ fn record_metadata(record: &StoredRecord) -> Option<RecordMetadata> {
         .meta
         .as_ref()
         .filter(|meta| meta.source_file_name.is_some() || !meta.metadata.is_empty());
-    let file = record.file.as_ref().map(|file| file.marker());
+    let file = record.file.as_ref().map(RecordFile::marker);
     if meta.is_none() && file.is_none() {
         return None;
     }
