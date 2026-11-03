@@ -249,9 +249,15 @@ pub(crate) fn app_check_command(
     json: bool,
     sync: bool,
     confirm_expire_existing: bool,
+    schema_url: Option<String>,
 ) -> Result<(), String> {
     use lastdb_node::app_publish;
     let manifest = app_publish::load_manifest(manifest_path)?;
+    print_schema_advice(
+        resolve_schema_service_url(schema_url, None),
+        &manifest.app_id,
+        &manifest.schemas,
+    );
     let mode = if sync {
         app_publish::CheckMode::Sync
     } else {
