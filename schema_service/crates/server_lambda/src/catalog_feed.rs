@@ -54,7 +54,7 @@ pub(crate) async fn post_catalog_feed(
             &schema_service_core::error_only_body(&format!("Not found: POST {CATALOG_FEED_PATH}")),
         );
     }
-    if !env_flag::var_truthy(FEED_ENV) {
+    if !feed_enabled() {
         return json_response(200, &json!({ "enabled": false }));
     }
     let source = match list_base().and_then(HttpFeedSource::new) {
@@ -87,6 +87,18 @@ fn from_schedule(event: &Request) -> bool {
         Some(RequestContext::ApiGatewayV2(context))
             if context.apiid.as_deref() == Some(SCHEDULE_API_ID)
     )
+}
+
+/// `SCHEMA_CATALOG_FEED` with the `env_flag` vocabulary: trim, ASCII
+/// lowercase, `1`/`true`/`yes`/`on`. Matches `var_truthy` in
+/// `server_shared::schema_config`.
+fn feed_enabled() -> bool {
+    std::env::var(FEED_ENV).ok().is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 /// The list base: the override, or this environment's registry list base.
