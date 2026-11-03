@@ -86,10 +86,8 @@ pub struct ContentAddressedBlob {
     /// ciphertext under the file KDK — not plaintext file bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_cipher_suite: Option<String>,
-    /// RFC3339 instant this row was durably stored (stamped by
-    /// `put_blob_sealed_with_access_dedup_in_ops`). Information only: the blob counter decides
-    /// when a row may go (`db_operations::record_store::blob_counter`). Not part
-    /// of content addressing.
+    /// RFC3339 instant this row was stored (stamped by `put-blob`). Information
+    /// only: the row goes when its record loses its file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_at: Option<String>,
 }

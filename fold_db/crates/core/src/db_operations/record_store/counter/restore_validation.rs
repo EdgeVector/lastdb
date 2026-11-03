@@ -2,28 +2,24 @@
 
 mod reader;
 
-use crate::db_operations::record_store::{
-    RecordStore, RecountOptions, RecountReport, VerifyRequest,
-};
+use crate::db_operations::record_store::{RecordStore, VerifyRequest};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{restore_safety, PackRuntime};
 use crate::storage::{KvStore, NamespacedStore};
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaError> {
     let runtime = store.disk_pack_runtime();
     let raw = restore_safety::raw_main(Arc::clone(&runtime)).await?;
     let main = store.open_namespace("main").await?;
-    let scopes = restored_scopes(raw.as_ref(), main.as_ref()).await?;
+    lifecycle_rows_read_back(raw.as_ref(), main.as_ref()).await?;
     let namespaces = reader::open(store, runtime, Arc::clone(&main)).await?;
     let records = RecordStore::new(
         Arc::new(crate::storage::TypedKvStore::new(main)),
         namespaces,
     );
     records.minimum_replay_time().await?;
-    // The retention queue and the blob counters are global: one personal run
-    // checks them. The blob recount below reads the records of every scope.
+    // The retention queue is global: one personal run checks it.
     let mut request = VerifyRequest {
         max_pages: Some(1024),
         max_ms: Some(30_000),
@@ -34,7 +30,7 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
         let report = records.verify_refs_step(request.clone()).await?;
         if report.mismatches_total != 0 || !report.notes.is_empty() {
             return Err(invalid(
-                "the restored retention queue or blob counters do not have a complete exact match",
+                "the restored retention queue does not have a complete exact match",
             ));
         }
         if report.done {
@@ -48,41 +44,15 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
         }
         request.cursor = Some(next);
     }
-    validate_global_blobs(&records, scopes).await?;
     Ok(())
 }
 
-async fn validate_global_blobs(
-    records: &RecordStore,
-    scopes: BTreeSet<Option<String>>,
-) -> Result<(), SchemaError> {
-    let options = RecountOptions {
-        execute: false,
-        blobs_exact: true,
-        scopes: scopes.into_iter().collect(),
-        ..RecountOptions::default()
-    };
-    let mut report = RecountReport::default();
-    records.recount_blobs(&options, &mut report).await?;
-    if !report.blobs.ran
-        || !report.blobs.exact
-        || report.changed() != 0
-        || report.blobs.unreadable_counters != 0
-        || report.blobs.rows_missing != 0
-        || !report.blobs.notes.is_empty()
-    {
-        return Err(invalid(
-            "restored global file references do not match their counters and files",
-        ));
-    }
-    Ok(())
-}
-
-async fn restored_scopes(
+/// Every restored row of the record lifecycle must read back from the logical
+/// store.
+async fn lifecycle_rows_read_back(
     raw: &dyn KvStore,
     logical: &dyn KvStore,
-) -> Result<BTreeSet<Option<String>>, SchemaError> {
-    let mut scopes = BTreeSet::from([None]);
+) -> Result<(), SchemaError> {
     let mut cursor = None;
     loop {
         let page = raw
@@ -92,9 +62,6 @@ async fn restored_scopes(
         for (key, _) in page.rows {
             crate::storage::current_keys::validate("main", &key)?;
             if crate::storage::current_keys::counter_owned(&key)? {
-                let text =
-                    std::str::from_utf8(&key).map_err(|_| invalid("invalid restored key"))?;
-                scopes.insert(crate::storage::current_keys::exact_scope(text)?.map(str::to_owned));
                 keys.push(key);
             }
         }
@@ -111,7 +78,7 @@ async fn restored_scopes(
         }
         cursor = Some(next);
     }
-    Ok(scopes)
+    Ok(())
 }
 
 pub(crate) async fn validate_pending(store: &dyn NamespacedStore) -> Result<(), SchemaError> {

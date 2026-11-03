@@ -1,4 +1,4 @@
-//! Write scopes, field key guards and blob liveness locks.
+//! Write scopes and field key guards.
 
 use super::*;
 use futures::{future::BoxFuture, FutureExt};
@@ -57,13 +57,5 @@ impl RecordStore {
             .lock()
             .expect("field_key_commit_locks poisoned");
         Arc::clone(map.entry(lock_key).or_default())
-    }
-
-    /// Serialize source changes and reclaim checks for blob targets.
-    pub(crate) async fn lock_liveness_blobs(
-        &self,
-        blob_refs: &[String],
-    ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
-        lock_target_stripes(&self.blob_liveness_locks, blob_refs).await
     }
 }

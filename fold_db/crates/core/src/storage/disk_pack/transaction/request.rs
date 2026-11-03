@@ -103,10 +103,9 @@ where
 }
 
 /// The kinds of operation in one accepted batch, for a run that reads the log.
-/// The record, its alternate key entries, its field history copies and the
-/// blob counter changes of one request share one batch, so a delete shows its
-/// record, its entries and the blob counter change that goes with them under
-/// one sequence number.
+/// The record, its alternate key entries, its field history copies and its
+/// file of one request share one batch, so a delete shows its record, its
+/// entries and the delete of its file under one sequence number.
 #[derive(Default)]
 struct BatchShape {
     record_puts: u32,
@@ -115,10 +114,8 @@ struct BatchShape {
     alternate_deletes: u32,
     history_puts: u32,
     history_deletes: u32,
-    blob_counter_puts: u32,
-    blob_counter_deletes: u32,
-    blob_queue_puts: u32,
-    blob_queue_deletes: u32,
+    file_puts: u32,
+    file_deletes: u32,
 }
 
 impl BatchShape {
@@ -132,19 +129,14 @@ impl BatchShape {
             // structural family follows it.
             let key = operation.key.as_str();
             let key = super::super::super::current_keys::source_key(key).unwrap_or(key);
-            let (puts, deletes) = if key.starts_with("rk:") {
+            let (puts, deletes) = if operation.collection == "cas_blobs" {
+                (&mut shape.file_puts, &mut shape.file_deletes)
+            } else if key.starts_with("rk:") {
                 (&mut shape.record_puts, &mut shape.record_deletes)
             } else if key.starts_with("ak:") {
                 (&mut shape.alternate_puts, &mut shape.alternate_deletes)
             } else if key.starts_with("rh:") {
                 (&mut shape.history_puts, &mut shape.history_deletes)
-            } else if key.starts_with("bref:c:") {
-                (
-                    &mut shape.blob_counter_puts,
-                    &mut shape.blob_counter_deletes,
-                )
-            } else if key.starts_with("bref:q:") || key.starts_with("bref:d\0") {
-                (&mut shape.blob_queue_puts, &mut shape.blob_queue_deletes)
             } else {
                 continue;
             };
@@ -181,10 +173,8 @@ fn note_gate_hold(
         alternate_deletes = shape.alternate_deletes,
         history_puts = shape.history_puts,
         history_deletes = shape.history_deletes,
-        blob_counter_puts = shape.blob_counter_puts,
-        blob_counter_deletes = shape.blob_counter_deletes,
-        blob_queue_puts = shape.blob_queue_puts,
-        blob_queue_deletes = shape.blob_queue_deletes,
+        file_puts = shape.file_puts,
+        file_deletes = shape.file_deletes,
         "native write gate released"
     );
     held

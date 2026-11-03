@@ -13,12 +13,10 @@
 //! - [`schema_release`] — the release of the rows of a dropped schema
 //! - [`record_files`] — the one file of a record, at a path made from its key
 //! - [`read_scope`] — one memory and disk boundary for a read
-//! - [`locks`] — write scopes, field key commit and blob liveness locks
-//! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
+//! - [`locks`] — write scopes and field key commit locks
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`] — the erase audit row
 
-pub(crate) mod blob_counter;
 mod bounded_range;
 mod conflict_record;
 mod construct;
@@ -44,10 +42,6 @@ mod schema_release;
 pub(crate) mod time_queue;
 mod writer_watch;
 
-pub use blob_counter::{
-    BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
-    DwellStep, NetStep, DWELL_CHUNK,
-};
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub use counter::{RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary};
@@ -66,34 +60,7 @@ use crate::storage::{
     traits::{KvStore, NamespacedStore},
     TypedKvStore,
 };
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::Arc,
-};
-
-async fn lock_target_stripes(
-    locks: &[Arc<tokio::sync::Mutex<()>>],
-    target_ids: &[String],
-) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
-    if target_ids.is_empty() {
-        return Vec::new();
-    }
-    let mut stripes = target_ids
-        .iter()
-        .map(|target| {
-            let mut hasher = DefaultHasher::new();
-            target.hash(&mut hasher);
-            hasher.finish() as usize % locks.len()
-        })
-        .collect::<Vec<_>>();
-    stripes.sort_unstable();
-    stripes.dedup();
-    let mut guards = Vec::with_capacity(stripes.len());
-    for stripe in stripes {
-        guards.push(Arc::clone(&locks[stripe]).lock_owned().await);
-    }
-    guards
-}
+use std::sync::Arc;
 
 /// Record store for a home. One record at each primary key.
 ///
@@ -117,8 +84,6 @@ pub struct RecordStore {
     /// interleave on one field key or deadlock.
     field_key_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
-    /// Totals, the last queue reading and recent faults of the blob counters.
-    blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.
     retention: Arc<retention::RetentionState>,
     /// Wake expiry after a history policy activation attempt. Shared by clones.
@@ -131,17 +96,9 @@ pub struct RecordStore {
     /// field merge treats a write from any other non-empty device as a write
     /// from a peer. See [`RecordStore::local_origin_device`].
     local_origin_device: Arc<std::sync::RwLock<String>>,
-    /// Fixed target gates for blob source transitions and reclaim.
-    blob_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl RecordStore {
-    /// The blob counter report: totals, the queue reading of the last dwell pass.
-    #[must_use]
-    pub fn blob_counter_report(&self) -> BlobCounterReport {
-        self.blob_events.snapshot()
-    }
-
     /// The retention window and the report of kept conflict records.
     pub(crate) fn retention_state(&self) -> &retention::RetentionState {
         &self.retention

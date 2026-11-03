@@ -1,9 +1,8 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
-use super::pages::phase_range;
 use super::report::{Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
-use crate::db_operations::record_store::{RangeWalk, RecordStore};
+use crate::db_operations::record_store::RecordStore;
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
 
@@ -79,47 +78,12 @@ impl RecordStore {
         self.in_write_scope(async { Ok(()) }).await
     }
 
-    /// Read and judge one page, or move to the next phase.
+    /// Read and judge one page.
     async fn verify_page(&self, guard: &mut StepGuard<'_>) -> Result<(), SchemaError> {
-        let phase = guard.run().phase;
-        let walk_done = guard.run().walk.done();
-        match phase {
+        match guard.run().phase {
             Phase::Queue => self.verify_queue_page(guard).await,
-            Phase::Blobs | Phase::BlobQueue if !walk_done => self.verify_blob_page(guard).await,
-            Phase::Blobs | Phase::BlobQueue => {
-                next_phase(guard.run());
-                Ok(())
-            }
             Phase::Done => Ok(()),
         }
-    }
-
-    /// Record one page attempt. A read that hits the limit asks for fewer rows
-    /// or a narrower key range. The next call uses a new read scope. A range
-    /// that cannot shrink returns the same limit error.
-    pub(super) fn settle_verify_page(
-        &self,
-        run: &mut Run,
-        outcome: Result<(), SchemaError>,
-    ) -> Result<(), SchemaError> {
-        match outcome {
-            Ok(()) => {}
-            Err(SchemaError::ReadResourceLimit { .. }) => {
-                // The read hit the limit of one call. Ask for fewer rows or a
-                // narrower key range. The next call uses a new read scope.
-                run.report.page_retries += 1;
-                if !run.walk.read_too_big() {
-                    return Err(SchemaError::ReadResourceLimit {
-                        detail: "a key range is too dense to read in pieces".into(),
-                    });
-                }
-            }
-            Err(error) => return Err(error),
-        }
-        let stats = run.walk.take_stats();
-        run.report.range_reads.absorb(stats);
-        self.range_walks().add(stats);
-        Ok(())
     }
 }
 
@@ -130,24 +94,6 @@ fn new_run(request: &VerifyRequest) -> Run {
         .unwrap_or(DEFAULT_PAGE_ROWS)
         .clamp(16, MAX_PAGE_ROWS);
     Run::new(request, page_rows)
-}
-
-/// Move a run to `phase`, with a fresh walk of its range.
-pub(super) fn enter_phase(run: &mut Run, phase: Phase) {
-    run.phase = phase;
-    if let Some((start, end)) = phase_range(phase) {
-        run.walk = RangeWalk::new(&start, &end, run.page_rows);
-    }
-}
-
-/// Move a run whose walk is done to its next phase.
-fn next_phase(run: &mut Run) {
-    let next = match run.phase {
-        Phase::Blobs => Phase::BlobQueue,
-        // The queue phase ends in `finish_queue`, which picks the next phase.
-        Phase::Queue | Phase::BlobQueue | Phase::Done => Phase::Done,
-    };
-    enter_phase(run, next);
 }
 
 /// End a step: stamp the report, and complete the run when it is done.
