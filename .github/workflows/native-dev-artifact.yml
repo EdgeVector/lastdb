@@ -35,11 +35,27 @@ jobs:
         with:
           shared-key: native-dev-client-aarch64-apple-darwin
           save-if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      - name: Link the Homebrew openssl@3 that the installed Macs have
+        shell: bash
+        run: |
+          set -euo pipefail
+          # openssl-sys links the runner's default Homebrew OpenSSL. The
+          # runner image moved to openssl@4, and a pair linked to it does not
+          # start on a Mac that has only openssl@3.
+          brew list --versions openssl@3 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - name: Build the exact client source
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
           cargo build --release --locked --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd
+          for binary in lastdb lastdbd; do
+            path="target/$TARGET/release/$binary"
+            if otool -L "$path" | grep -E 'lib(ssl|crypto)\.' | grep -v '/opt/homebrew/opt/openssl@3/lib/'; then
+              echo "$path links an OpenSSL other than openssl@3" >&2
+              exit 1
+            fi
+          done
       - name: Save the client and source receipt
         run: |
           set -euo pipefail
