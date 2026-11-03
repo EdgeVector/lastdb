@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use app_identity_crypto::github_repo;
-use schema_types::{manifest_schema_definition, owned_catalog_definition, Schema};
+use schema_types::{manifest_schema_definition, owned_catalog_definition, FieldValueType, Schema};
 use serde_json::Value;
 
 use super::run::FeedRun;
@@ -46,8 +46,8 @@ fn unread_entries(state: &CatalogFeedState) -> Vec<FeedListEntry> {
 /// not normalize skips the whole manifest, as `lastdb app check` fails it.
 ///
 /// # Errors
-/// A different `app_id`, a `schemas` member that is not a list, or an
-/// entry the node would refuse.
+/// A different `app_id`, a `schemas` member that is not a list, an entry
+/// the node would refuse, or a field whose type names `Any`.
 pub(super) fn parse_manifest(app_id: &str, manifest: &Value) -> Result<Vec<Schema>, String> {
     let declared = manifest.get("app_id").and_then(Value::as_str);
     if declared != Some(app_id) {
@@ -71,10 +71,35 @@ pub(super) fn parse_manifest(app_id: &str, manifest: &Value) -> Result<Vec<Schem
             let schema = manifest_schema_definition(entry).map_err(|error| {
                 format!("manifest schema '{label}' is not a schema declaration: {error}")
             })?;
-            owned_catalog_definition(app_id, schema)
-                .map_err(|error| format!("manifest schema '{label}' cannot be declared: {error}"))
+            let schema = owned_catalog_definition(app_id, schema).map_err(|error| {
+                format!("manifest schema '{label}' cannot be declared: {error}")
+            })?;
+            if let Some(field) = schema.fields.iter().flatten().find(|field| {
+                schema
+                    .field_types
+                    .get(*field)
+                    .is_some_and(names_any)
+            }) {
+                return Err(format!(
+                    "manifest schema '{label}' field '{field}' has type Any; the catalog holds concrete types only"
+                ));
+            }
+            Ok(schema)
         })
         .collect()
+}
+
+/// The catalog holds no `Any` (decision A9), so a manifest that still declares
+/// it is skipped like any other entry the publish rule refuses. Delete this
+/// with the variant (step 11).
+fn names_any(kind: &FieldValueType) -> bool {
+    match kind {
+        FieldValueType::Any => true,
+        FieldValueType::Array(inner) | FieldValueType::Map(inner) => names_any(inner),
+        FieldValueType::Object(fields) => fields.values().any(names_any),
+        FieldValueType::OneOf(kinds) => kinds.iter().any(names_any),
+        _ => false,
+    }
 }
 
 impl FeedRun<'_> {
