@@ -87,16 +87,12 @@ impl FoldDB {
 
         Self::log_memory_budget();
 
-        let background_conflict_janitor =
-            Self::start_conflict_janitor(&db_ops, offline_maintenance);
-
         Ok(Self {
             schema_manager,
             db_ops: Arc::clone(&db_ops),
             query_executor,
             mutation_manager,
             pending_tasks,
-            background_conflict_janitor,
             background_field_history,
             mutation_log_capture,
         })

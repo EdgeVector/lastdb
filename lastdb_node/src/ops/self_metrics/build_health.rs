@@ -11,8 +11,8 @@ use super::*;
 /// (and projects the durable rollup through the same list). So a phase the
 /// daemon reports but the CLI has no field for is dropped on both paths, and
 /// a dropped phase renders byte-identically to a phase measured at zero. An
-/// operator reading `field_key_gate` as absent concludes "that gate is not
-/// contending" — the exact opposite of what the daemon measured.
+/// operator reading `cas_precondition` as absent concludes "that check costs
+/// nothing" — the exact opposite of what the daemon measured.
 ///
 /// The remedy is not a version comparison (versions are opaque strings, and
 /// "newer" does not tell you *which* phase went missing). The daemon
@@ -52,8 +52,8 @@ impl BuildHealth {
 ///    case. Those phases are dropped by `PhaseTimings`' permissive
 ///    deserialize *and* projected away by the rollup query, and a dropped
 ///    phase is visually identical to one measured at zero. Named explicitly,
-///    because "upgrade your CLI" without naming `field_key_gate` still leaves
-///    the operator to guess whether the number they just read was real.
+///    because "upgrade your CLI" without naming the phase still leaves the
+///    operator to guess whether the number they just read was real.
 /// 2. **This client knows phases the daemon does not report** — benign: the
 ///    daemon simply never measures them and they render as absent, with no
 ///    misleading label attached. Reported as a note, not a warning.

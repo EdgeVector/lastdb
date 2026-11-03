@@ -11,7 +11,7 @@ struct Reader {
     main: Arc<dyn KvStore>,
 }
 
-/// Validation reads the retention queue of `main` only. It opens no other
+/// Validation reads `main` only. It opens no other
 /// namespace, so it never repairs a missing one as a side effect.
 pub(super) fn open(runtime: Arc<PackRuntime>, main: Arc<dyn KvStore>) -> Arc<dyn NamespacedStore> {
     Arc::new(Reader { runtime, main })

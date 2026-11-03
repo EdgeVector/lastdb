@@ -26,8 +26,8 @@ def main():
                 current["fields"].append(line.rstrip())
             else:
                 current = None
-    if not layouts or not any("commit_rows" in name for name in layouts):
-        raise RuntimeError("The compiler output lacks the row commit layout")
+    if not layouts or not any("commit_guarded_deletes" in name for name in layouts):
+        raise RuntimeError("The compiler output lacks the guarded row commit layout")
     args.output.write_text(json.dumps({"revision": args.revision, "layouts": layouts},
                                      sort_keys=True, indent=2) + "\n")
     futures = [(name, row) for name, row in layouts.items()

@@ -1,15 +1,3 @@
-pub(crate) fn field_str(fields: &serde_json::Value, name: &str) -> Option<String> {
-    fields.get(name).and_then(|v| match v {
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Null => None,
-        other => other.as_str().map(str::to_string),
-    })
-}
-
-pub(crate) fn field_u64(fields: &serde_json::Value, name: &str) -> Option<u64> {
-    fields.get(name).and_then(serde_json::Value::as_u64)
-}
-
 pub(crate) fn op_kind_from_str(raw: &str) -> Option<lastdb_node::request_telemetry::OpKind> {
     match raw {
         "query" => Some(lastdb_node::request_telemetry::OpKind::Query),

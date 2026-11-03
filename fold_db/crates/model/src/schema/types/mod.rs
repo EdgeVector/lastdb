@@ -1,4 +1,3 @@
-pub mod aggregate;
 pub mod author_clock;
 pub mod cas;
 pub mod data_classification;
@@ -12,7 +11,6 @@ pub mod mutation;
 pub mod operations;
 pub mod query_cursor;
 pub mod schema;
-pub use aggregate::AggregateSet;
 pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
 pub use cas::CasExpectation;
 pub use data_classification::DataClassification;

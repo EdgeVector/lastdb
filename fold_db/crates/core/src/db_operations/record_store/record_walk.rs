@@ -39,12 +39,12 @@ use std::sync::Arc;
 
 /// The most rows (the offset and the page with its probe row) that one
 /// unfiltered walk takes. One request may examine 10,000 keys; the rest
-/// covers deleted records and the conflict reads of the page.
+/// covers deleted records.
 pub const RECORD_WALK_ROWS: usize = 8_192;
 
 /// The most record keys, live and deleted, that one page reads in one
 /// request. One request may examine 10,000 keys; the rest covers the reads
-/// by key around the page, such as the conflict markers of its rows.
+/// by key around the page.
 pub(crate) const PAGE_READ_KEYS: usize = RECORD_WALK_ROWS;
 
 /// The smallest and the largest number of keys one merge step reads from

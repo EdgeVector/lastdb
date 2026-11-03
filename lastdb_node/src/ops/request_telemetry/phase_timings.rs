@@ -24,10 +24,18 @@ macro_rules! phase_timings {
             /// rollup fields are `sum_<name>_us`. Keep names and order stable.
             pub const PHASE_NAMES: [&'static str; PHASE_COUNT] = [$($name),*];
 
-            /// Read durable interval sums; absent or non-u64 fields mean no measurement.
-            pub fn from_rollup_fields(fields: &serde_json::Value) -> Self {
-                Self { $($field: fields.get(concat!("sum_", $name, "_us"))
-                    .and_then(serde_json::Value::as_u64).unwrap_or(0)),* }
+            /// Read the durable interval sums of one rollup record. Every
+            /// `sum_<name>_us` field is required; a missing or non-integer
+            /// field is an error that names the field and `sample_id`.
+            pub fn from_rollup_fields(
+                fields: &serde_json::Value,
+                sample_id: &str,
+            ) -> Result<Self, String> {
+                Ok(Self { $($field: required_rollup_u64(
+                    fields,
+                    concat!("sum_", $name, "_us"),
+                    sample_id,
+                )?),* })
             }
 
             pub(super) fn as_array(&self) -> [u64; PHASE_COUNT] {
@@ -48,9 +56,9 @@ phase_timings! {
     /// The model half of mutation phase observability: once the mutation path
     /// reports them, these fields answer *where inside the node* a slow request
     /// spent its time — waiting in the socket queue, waiting at the QoS
-    /// admission gate, queueing at a write gate (`field_key_gate`), or doing parse /
-    /// schema-resolve / validate / cas-precondition / apply /
-    /// persist / flush / index-wait / change-record / response-envelope work.
+    /// admission gate, or doing parse / schema-resolve / validate /
+    /// cas-precondition / idempotency-check / grouping / apply / index-wait /
+    /// change-record / response-envelope work.
     /// This struct is the shared vocabulary; the recording sites land separately.
     ///
     /// Invariants downstream code depends on:
@@ -87,21 +95,16 @@ phase_timings! {
         schema_resolve_us => "schema_resolve",
         /// Mutation validation.
         validate_us => "validate",
-        /// Mutation: time blocked acquiring the Phase 3 per-`(field key, hash)`
-        /// write gate, held across the rest of the write including the deferred
-        /// durable persist.
-        field_key_gate_us => "field_key_gate",
-        /// Mutation: persisted-head reads verifying CAS expectations while the
-        /// batch holds those locks. Storage IO, not contention.
+        /// Mutation: persisted-head reads verifying CAS expectations inside the
+        /// native request gate. Storage IO, not contention.
         cas_precondition_us => "cas_precondition",
         /// Query: the exact row count read from the key index ahead of the
         /// push-down. Large relative to `hydrate` means the partition is being
         /// counted more expensively than the page is being served.
         count_us => "count",
-        /// Query: row materialization end to end — the PARENT total that the three
-        /// `hydrate_*` fields below partition exactly. Kept so rollup rows written
-        /// before 0.23.4 stay comparable with rows written after; read the
-        /// sub-steps to decide what to fix.
+        /// Query: record materialization end to end — the PARENT total that the
+        /// three `hydrate_*` fields below partition exactly. Read the sub-steps
+        /// to decide what to fix.
         hydrate_us => "hydrate",
         /// Query: the executor call — key-index resolution, window push-down and
         /// record-body materialization. The only hydrate sub-step that touches
@@ -114,55 +117,15 @@ phase_timings! {
         /// Query: the deterministic total-order sort that makes offset/limit
         /// pagination non-overlapping. `O(rows log rows)` JSON-keyed comparisons.
         hydrate_sort_us => "hydrate_sort",
-        /// Query: per-field merge-conflict annotation of the formatted rows.
-        annotate_us => "annotate",
-        /// In-memory application of the write — the RESIDUAL left after every
-        /// other named write phase below is subtracted from the batch's wall
-        /// time, not a sum of named steps. See
+        /// Mutation: the batch write's wall time less `idempotency_check` and
+        /// `grouping` — a residual, not a sum of named steps. See
         /// `fold_db::request_phases::RequestPhase::Apply`.
         apply_us => "apply",
-        /// Mutation: the in-memory apply loop itself — walking the batch's record
-        /// results onto the resident field keys. Sized by the field keys touched
-        /// rather than by the rows written, so read this first when one schema's
-        /// `apply` cost is orders of magnitude above another's on the same node.
-        apply_memory_us => "apply_memory",
-        /// Mutation: loading the schema at the top of the per-schema loop.
-        /// Distinct from `schema_resolve` (the handler's name lookup) and
-        /// `schema_reload` (the write-back afterwards).
-        schema_load_us => "schema_load",
         /// Mutation: the idempotency-duplicate filter pass at the top of the
-        /// batch pipeline. Previously folded into `apply_us` unreported outside
-        /// debug logging.
+        /// batch pipeline.
         idempotency_check_us => "idempotency_check",
         /// Mutation: grouping the batch's mutations by schema.
         grouping_us => "grouping",
-        /// Mutation: restoring field keys missing from the resident graph for the
-        /// keys this batch touches. Storage IO.
-        restore_field_keys_us => "restore_field_keys",
-        /// Mutation: spawning the background index-mutation task (the spawn call
-        /// itself, not the off-task indexing work).
-        spawn_indexing_us => "spawn_indexing",
-        /// Mutation: syncing in-memory field key UUIDs onto the schema before it
-        /// is stored/reloaded.
-        sync_uuids_us => "sync_uuids",
-        /// Mutation: schema reload back into the schema manager after a write.
-        schema_reload_us => "schema_reload",
-        /// Durable persist of the applied write, as a residual: the durable-store
-        /// time not attributed to one of the three named sub-steps below. In
-        /// practice the record batch store.
-        persist_us => "persist",
-        /// Mutation: the field key batch store. Sized by field key cardinality, not
-        /// by the write, so a schema whose field keys hold tens of thousands of
-        /// keys pays here on every mutation.
-        persist_field_keys_us => "persist_field_keys",
-        /// Mutation: persisting the schema after a write. Near zero once the
-        /// catalog's skip-if-unchanged path applies.
-        persist_schema_us => "persist_schema",
-        /// Mutation: storing the idempotency record for the applied batch.
-        persist_idempotency_us => "persist_idempotency",
-        /// Store flush. Near zero on default builds (background flusher);
-        /// meaningful only under synchronous-flush configurations.
-        flush_us => "flush",
         /// The handler's bounded wait for background index tasks — NOT the
         /// off-thread index/embedding work itself, which never blocks the
         /// request.

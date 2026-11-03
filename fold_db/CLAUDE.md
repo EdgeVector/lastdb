@@ -2,8 +2,8 @@
 
 Core library of the `EdgeVector/lastdb` workspace (`crates/{core,observability}`).
 Local database engine with disk format v2 storage and the core logical memory
-model. Cloud activation stays disabled for this round. Empty homes initialize
-directly; startup does not migrate older homes.
+model. Empty homes initialize in the current format, and startup opens only
+that format.
 **Library only — no UI, no React app, no desktop shell.**
 
 Product surface is LastDB Mini in sibling crate `lastdb_node` (`lastdb` +

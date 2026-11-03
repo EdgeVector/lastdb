@@ -8,19 +8,8 @@ use crate::schema::{Schema, SchemaError, SchemaState};
 use crate::storage::traits::KvStore;
 use crate::storage::TypedKvStore;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Durable janitor target written before a catalog cut.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub struct SchemaDropReceipt {
-    pub identity: String,
-    pub owner_app: Option<String>,
-    #[serde(default)]
-    pub field_key_ids: Vec<String>,
-    pub dropped_at_unix_ms: u64,
-}
 
 mod catalog_keys;
 mod claims_retention;
@@ -82,218 +71,120 @@ impl SchemaStore {
 
     /// Get all schemas.
     ///
-    /// **Won't-undo:** a single unreadable durable row must not take down the
-    /// whole catalog load. This runs on the boot path, and an aborting scan here
-    /// does not degrade one schema — it fails `open_existing_store` outright, so
-    /// the node exits with *"cannot open existing store — refusing to start
-    /// fresh over existing data"* and cannot be started again by any binary.
-    /// That is self-latching: the node cannot boot, so nothing can ever run the
-    /// write that would replace the bad row. Tom's primary reached exactly that
-    /// state on 2026-08-16 — a scribbled `BoardCards`/`Card` row left an
-    /// 11-hour-old process as the only thing standing between him and an
-    /// unbootable database, because it still held a good catalog in memory.
-    ///
-    /// Same class as the fix in `store_schema` (an unreadable body vetoing the
-    /// write that heals it), one layer down: there the *write* was blocked, here
-    /// the *boot* is. Paired with that fix, skipping is genuinely recoverable —
-    /// the next `store_schema` for the skipped name overwrites the bad row and
-    /// the catalog is whole again.
-    ///
-    /// Skipping is safe here specifically because `schemas` is a **re-derivable**
-    /// catalog. It is loud on purpose: every skipped key is logged at WARN with
-    /// its decode error, plus a summary count. Do not downgrade these to debug —
-    /// a silently short catalog reads as "that schema was never published", and
-    /// records under it become unqueryable until the healing write lands.
+    /// The read is strict: a row that does not decode, or whose payload names
+    /// another schema, fails the read.
     pub async fn get_all_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
-        let scan = self
-            .schemas_store
-            .scan_items_with_prefix_partition_undecodable::<Schema>("")
-            .await?;
-
-        let mut schemas = HashMap::with_capacity(scan.items.len() + scan.undecodable.len());
-        for (key, mut schema) in scan.items {
-            schema.populate_runtime_fields()?;
+        let rows =
+            read_catalog_range::<Schema>(&self.schemas_store, "schemas", b"", CATALOG_SCAN_END)
+                .await?;
+        let mut schemas = HashMap::with_capacity(rows.len());
+        for (key, mut schema) in rows {
+            if schema.name != key {
+                return Err(SchemaError::InvalidData(format!(
+                    "schema catalog row {key} names another schema: {}",
+                    schema.name
+                )));
+            }
+            schema.populate_runtime_fields().map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "schema catalog row {key} does not resolve: {error}"
+                ))
+            })?;
             schemas.insert(key, schema);
         }
-
-        let skipped = scan.undecodable.len();
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                schema = %key,
-                error = %error,
-                "durable schema row is unreadable; SKIPPING it so the node can boot \
-                 (the next write to this schema replaces the bad row). Records under \
-                 this schema are unqueryable until then."
-            );
-        }
-        if skipped > 0 {
-            tracing::warn!(
-                skipped,
-                loaded = schemas.len(),
-                "schema catalog loaded with unreadable rows skipped"
-            );
-        }
-
         Ok(schemas)
     }
 
-    /// Get all schemas for repair through strict, bounded catalog pages.
-    ///
-    /// The meter repair certifies a complete trust state from this catalog.
-    /// The boot reader [`Self::get_all_schemas`] skips unreadable rows so the
-    /// node can start; a repair that took that subset would publish
-    /// `Reconciled` over schemas it never measured
-    /// (papercut-meter-repair-tolerant-catalog-false-complete-20260925).
-    /// Keep the two policies separate: boot tolerates, repair refuses.
-    pub async fn get_all_schemas_strict(&self) -> Result<HashMap<String, Schema>, SchemaError> {
-        let mut cursor = Vec::new();
-        let mut rows_by_logical_key: HashMap<String, (String, Schema)> = HashMap::new();
-        loop {
-            let page = self
-                .schemas_store
-                .inner()
-                .scan_range_paged(&cursor, REPAIR_SCHEMA_SCAN_END, REPAIR_SCHEMA_PAGE_ROWS)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "scan schema catalog for isolated repair: {error}"
-                    ))
-                })?;
-            if page.is_empty() {
-                break;
-            }
-            if page.len() > REPAIR_SCHEMA_PAGE_ROWS
-                || page.windows(2).any(|pair| pair[0].0 >= pair[1].0)
-                || page.iter().any(|(key, _)| {
-                    key.as_slice() < cursor.as_slice() || key.as_slice() >= REPAIR_SCHEMA_SCAN_END
-                })
-            {
-                return Err(SchemaError::InvalidData(
-                    "schema catalog repair received an invalid or unordered page".to_string(),
-                ));
-            }
-
-            for (key_bytes, value_bytes) in &page {
-                let key = String::from_utf8(key_bytes.clone()).map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "schema catalog repair found a non-UTF-8 key: {error}"
-                    ))
-                })?;
-                let mut schema = decode_catalog_schema(value_bytes).map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "schema catalog row {key} is unreadable ({error}); a strict \
-                         catalog read cannot certify the complete catalog"
-                    ))
-                })?;
-                if schema.name != key {
-                    return Err(SchemaError::InvalidData(format!(
-                        "schema catalog repair found unresolved row {key}: payload names {}",
-                        schema.name
-                    )));
-                }
-                schema.populate_runtime_fields().map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "schema catalog repair cannot resolve row {key}: {error}"
-                    ))
-                })?;
-
-                rows_by_logical_key
-                    .entry(key.clone())
-                    .or_insert((key, schema));
-            }
-
-            let last_key = page.last().expect("non-empty page").0.clone();
-            if page.len() < REPAIR_SCHEMA_PAGE_ROWS {
-                let mut probe_start = last_key.clone();
-                probe_start.push(0);
-                let trailing = self
-                    .schemas_store
-                    .inner()
-                    .scan_range_paged(&probe_start, REPAIR_SCHEMA_SCAN_END, 1)
-                    .await?;
-                if !trailing.is_empty() {
-                    return Err(SchemaError::InvalidData(
-                        "schema catalog repair received a truncated page".to_string(),
-                    ));
-                }
-                break;
-            }
-            cursor = last_key;
-            cursor.push(0);
-        }
-
-        Ok(rows_by_logical_key
-            .into_values()
-            .map(|(_, schema)| (schema.name.clone(), schema))
-            .collect())
-    }
-
     /// Get all superseded-by mappings.
-    ///
-    /// Same skip contract as [`Self::get_all_schemas`]: an unreadable or
-    /// empty row must not fail boot (`SchemaCore::new` loads this map).
     pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {
-        self.load_catalog_map::<String>(&self.superseded_by_store, "superseded_by", &[])
-            .await
+        let rows = read_catalog_range::<String>(
+            &self.superseded_by_store,
+            "superseded_by",
+            b"",
+            CATALOG_SCAN_END,
+        )
+        .await?;
+        Ok(rows.into_iter().collect())
     }
 
     /// Get all schema states.
     ///
-    /// Boot (`SchemaCore::new`) calls this right after `get_all_schemas`. A
-    /// strict scan here would brick the node on the same unreadable or empty
-    /// row that the schemas collection already skips.
+    /// The node-local families that share this namespace (name claims and
+    /// retention rows) sit under keys that start with a zero byte, so the read
+    /// starts above them.
     pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
-        // Retention policies and name-claim records intentionally share this
-        // node-local namespace, but they are not schema-state rows. Do not
-        // mistake their deliberately different JSON shape for a corrupt state
-        // row during boot.
-        self.load_catalog_map::<SchemaState>(
+        let rows = read_catalog_range::<SchemaState>(
             &self.schema_states_store,
             "schema_states",
-            &[
-                NAME_CLAIM_KEY_PREFIX,
-                RETENTION_POLICY_KEY_PREFIX,
-                RETENTION_ANCHOR_KEY_PREFIX,
-            ],
+            CATALOG_STATE_SCAN_START,
+            CATALOG_SCAN_END,
         )
-        .await
+        .await?;
+        Ok(rows.into_iter().collect())
     }
+}
 
-    async fn load_catalog_map<T: DeserializeOwned + Send + Sync>(
-        &self,
-        store: &TypedKvStore<dyn KvStore>,
-        catalog: &'static str,
-        ignored_key_prefixes: &[&str],
-    ) -> Result<HashMap<String, T>, SchemaError> {
-        let scan = store
-            .scan_items_with_prefix_partition_undecodable::<T>("")
-            .await?;
-        let mut out = HashMap::with_capacity(scan.items.len() + scan.undecodable.len());
-        out.extend(scan.items);
-        let mut skipped = 0usize;
-        for (key, error) in &scan.undecodable {
-            if ignored_key_prefixes
+/// Read every row of one catalog namespace whose key falls in `start..end`.
+///
+/// The read walks the range in bounded pages, so it has no single unbounded
+/// scan. It is strict: a row that does not decrypt or decode fails the read,
+/// and so does a page that the backend returns out of order, or short while
+/// rows remain.
+async fn read_catalog_range<T: DeserializeOwned>(
+    store: &TypedKvStore<dyn KvStore>,
+    catalog: &'static str,
+    start: &[u8],
+    end: &[u8],
+) -> Result<Vec<(String, T)>, SchemaError> {
+    let mut cursor = start.to_vec();
+    let mut out = Vec::new();
+    loop {
+        let page = store
+            .inner()
+            .scan_range_paged(&cursor, end, CATALOG_PAGE_ROWS)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!("read the {catalog} catalog: {error}"))
+            })?;
+        if page.is_empty() {
+            break;
+        }
+        if page.len() > CATALOG_PAGE_ROWS
+            || page.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+            || page
                 .iter()
-                .any(|prefix| key.starts_with(prefix))
-            {
-                continue;
+                .any(|(key, _)| key.as_slice() < cursor.as_slice() || key.as_slice() >= end)
+        {
+            return Err(SchemaError::InvalidData(format!(
+                "the {catalog} catalog read received an invalid or unordered page"
+            )));
+        }
+        let full = page.len() == CATALOG_PAGE_ROWS;
+        let mut next = page.last().expect("non-empty page").0.clone();
+        next.push(0);
+        for (key_bytes, value_bytes) in page {
+            let key = String::from_utf8(key_bytes).map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "the {catalog} catalog has a non-UTF-8 key: {error}"
+                ))
+            })?;
+            let value = decode_catalog_json::<T>(&value_bytes).map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "{catalog} catalog row {key} is unreadable: {error}"
+                ))
+            })?;
+            out.push((key, value));
+        }
+        if !full {
+            let trailing = store.inner().scan_range_paged(&next, end, 1).await?;
+            if !trailing.is_empty() {
+                return Err(SchemaError::InvalidData(format!(
+                    "the {catalog} catalog read received a truncated page"
+                )));
             }
-            skipped += 1;
-            tracing::warn!(
-                catalog,
-                key = %key,
-                error = %error,
-                "durable catalog row is unreadable; SKIPPING it so the node can boot"
-            );
+            break;
         }
-        if skipped > 0 {
-            tracing::warn!(
-                catalog,
-                skipped,
-                loaded = out.len(),
-                "catalog loaded with unreadable rows skipped"
-            );
-        }
-        Ok(out)
+        cursor = next;
     }
+    Ok(out)
 }

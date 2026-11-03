@@ -75,16 +75,6 @@ pub struct OpAggregate {
     /// no matter what fraction reported phases.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub phased_sum_ms: u64,
-    /// Total field keys this key's requests handed to the durable store.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_field_keys_persisted: u64,
-    /// Total awaited durable field-key-store operations this key's requests
-    /// issued. Divide [`Self::sum_field_keys_persisted`] by this for the
-    /// field-keys-per-commit ratio — the contention-free way to see whether the
-    /// batch commit path is being taken, and how often eligibility rejects a
-    /// field key from it.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_field_key_store_commits: u64,
     /// Logical resident commits published across this window's requests.
     pub sum_resident_commits: u64,
     /// Operations those commits carried. Divide by
@@ -116,15 +106,9 @@ impl OpAggregate {
             return None;
         }
         // No recorded wall clock for the phased population means there is
-        // nothing to subtract FROM. Two ways to land here, both of which must
-        // render nothing rather than a residual:
-        //
-        // - a durable rollup row written before `phased_sum_ms` shipped, which
-        //   reads back as 0 — subtracting phases from it would report the
-        //   whole phase sum as `over=`, libelling an unmigrated row as
-        //   over-attributed;
-        // - a key whose phased requests all completed sub-millisecond, where
-        //   the true residual is under the 1 ms resolution anyway.
+        // nothing to subtract FROM: the key's phased requests all completed
+        // sub-millisecond, where the true residual is under the 1 ms
+        // resolution anyway. Render nothing rather than a residual.
         if self.phased_sum_ms == 0 {
             return None;
         }

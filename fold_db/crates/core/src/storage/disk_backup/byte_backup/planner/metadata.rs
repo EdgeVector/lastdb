@@ -18,7 +18,6 @@ pub(super) fn finish(
         begin_sha256: state.begin.input_sha256().map_err(protocol)?,
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
         native_files: Vec::new(),
-        external_dependencies: Vec::new(),
     };
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -55,13 +54,9 @@ pub(super) fn finish(
         begin_sha256: page.begin_sha256,
         descriptor_sha256: page.descriptor_sha256,
         native_root: state.native_root.clone(),
-        recovery: state
-            .recovery
-            .clone()
-            .ok_or_else(|| invalid("run recovery missing"))?,
+        recovery: state.recovery.clone(),
         native_file_count: files,
         native_bytes: bytes,
-        external_dependency_count: 0,
         pages,
         run: state.run.clone(),
     };
@@ -121,7 +116,7 @@ pub(in crate::storage::disk_backup::byte_backup) fn freeze(
         Object {
             sha256: bytes_sha256(&encrypted),
             bytes: DecimalU64::new(encrypted.len() as u64),
-            destination: Some(cloud_backup_protocol::v2::Destination::R2),
+            destination: cloud_backup_protocol::v2::Destination::R2,
         },
         request_id,
     )?;

@@ -10,8 +10,8 @@ pub(super) fn open_primary_store(
     path: &Path,
     node_key: &[u8; 32],
 ) -> FoldDbResult<Arc<dyn NamespacedStore>> {
-    // Native open creates only an empty home or reopens its own format. It
-    // refuses another format; startup never selects or migrates another engine.
+    // Native open creates an empty home or reopens a home in the current
+    // format.
     // A home derives its home key from the node key.
     Ok(Arc::new(PackNamespacedStore::open_keyed(
         path,

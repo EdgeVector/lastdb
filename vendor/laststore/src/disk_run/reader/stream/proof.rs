@@ -5,7 +5,6 @@ mod load;
 mod records;
 
 use super::RunReader;
-use crate::disk_run::value;
 use crate::{Error, Result};
 use std::fs::{File, Metadata};
 use std::ops::Range;
@@ -87,53 +86,17 @@ impl ProofBlock {
             return Ok(None);
         };
         let stored = &self.payload[body.clone()];
-        let bytes = stored.len().saturating_sub(1) as u64;
-        let limit = match stored.first() {
-            Some(&value::RAW) => {
-                if bytes > maximum.min(admission) {
-                    return Err(Error::ReadBudgetExceeded);
-                }
-                let mut result = Vec::new();
-                result
-                    .try_reserve_exact(bytes as usize)
-                    .map_err(|_| Error::ReadBudgetExceeded)?;
-                if result.capacity() as u64 > admission {
-                    return Err(Error::ReadBudgetExceeded);
-                }
-                result.extend_from_slice(&stored[1..]);
-                self.check()?;
-                return Ok(Some(result));
-            }
-            Some(&value::COMPACT_JSON) => {
-                // Keep the existing stream decoder's six-times workspace and
-                // one-quarter output admission, even though this cache needs less.
-                let decoded = lastdb_storage_policy::BACKUP_RESOURCES
-                    .decoded_values_bytes
-                    .min(admission);
-                if bytes.saturating_mul(6) > decoded {
-                    return Err(Error::ReadBudgetExceeded);
-                }
-                maximum.min(decoded / 4)
-            }
-            _ => return Err(corrupt("unknown stored value tag")),
-        };
-        let mut copy = Vec::new();
-        copy.try_reserve_exact(stored.len())
+        if stored.len() as u64 > maximum.min(admission) {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(stored.len())
             .map_err(|_| Error::ReadBudgetExceeded)?;
-        copy.extend_from_slice(stored);
-        let result = match value::decode(
-            copy,
-            usize::try_from(limit).map_err(|_| Error::ReadBudgetExceeded)?,
-        ) {
-            // A cache can reduce only this output allowance. Retry without it
-            // before classifying that one limit failure as malformed storage.
-            Err(Error::Corrupt(detail))
-                if limit < maximum && detail == "disk run: compact value exceeds its limit" =>
-            {
-                return Err(Error::ReadBudgetExceeded);
-            }
-            result => result?,
-        };
+        if result.capacity() as u64 > admission {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        result.extend_from_slice(stored);
         self.check()?;
         Ok(Some(result))
     }

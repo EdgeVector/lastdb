@@ -10,9 +10,3 @@ pub(crate) use mutation_fence::*;
 pub(crate) struct MutationLogCaptureRouter {
     activation_gate: Arc<tokio::sync::RwLock<()>>,
 }
-
-impl MutationLogCaptureRouter {
-    pub(crate) async fn fence_mutations(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
-        Arc::clone(&self.activation_gate).write_owned().await
-    }
-}

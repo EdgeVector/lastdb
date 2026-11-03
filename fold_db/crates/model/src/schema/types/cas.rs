@@ -11,8 +11,8 @@
 //! check-then-set client (e.g. a lastgit ref update: "advance `refs/heads/main`
 //! from `<old-sha>` to `<new-sha>` only if it still points at `<old-sha>`")
 //! reject a losing writer on a single node instead of silently last-write-wins.
-//! Cross-node divergence is handled elsewhere (append-only event schemas +
-//! conflict records at the app layer).
+//! Cross-node divergence is handled elsewhere: the field merge (the newer
+//! stamp wins for each field) and append-only event schemas at the app layer.
 //!
 //! ## Expectation shapes
 //!

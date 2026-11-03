@@ -460,13 +460,9 @@ field map. Each `QueryRow` (the SDK type name) carries:
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
 | `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
-This is the API 21 shape of `lastdbd`'s `/api/query`. Each item of `results`
-is one record: `{key, fields, metadata, has_conflicts}`.
+This is the API 25 shape of `lastdbd`'s `/api/query`. Each item of `results`
+is one record: `{key, fields, metadata}`.
 `metadata` is `{source_file_name, metadata?}` or `null`.
-`has_conflicts` is `true`, `false`, or `"unknown"`. When it is `true`,
-`conflicted_fields` names the returned fields that have a kept conflict.
-The page reports `conflict_flags` (`"known"` or `"unknown"`); a `false` flag
-is clean only when the page says `"known"`.
 The SDK surfaces the key, field, and metadata parts and invents none. A body
 without a `results` array, or a record without an object `key` and `fields`,
 throws `UnexpectedResponseError`.

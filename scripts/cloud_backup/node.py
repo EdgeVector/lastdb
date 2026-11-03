@@ -66,8 +66,7 @@ class OwnedNode:
     def offline(self):
         if self.backup_source:
             return
-        for name in ("cloud_sync.json", "cloud_sync.json.paused", "native_cloud_backup",
-                     "cloud-byte-backup-v2-manual.json"):
+        for name in ("cloud_sync.json.paused", "cloud-byte-backup-v2-manual.json"):
             require(not os.path.lexists(self.home / name), "restored_home_cloud_off")
         require(not os.path.lexists(self.home / "data/cloud-byte-backup-v2/active.json"),
                 "restored_no_active_backup")

@@ -341,10 +341,7 @@ fn is_disk_full_storage_event(event: &sentry::protocol::Event<'_>) -> bool {
             || lower.contains("storage full")
             || lower.contains("no space left on device")
             || lower.contains("enospc"))
-            && (lower.contains("sled")
-                || lower.contains("storage")
-                || lower.contains("db")
-                || lower.contains("database"))
+            && (lower.contains("storage") || lower.contains("db") || lower.contains("database"))
     })
 }
 

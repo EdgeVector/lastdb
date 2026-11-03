@@ -44,8 +44,6 @@ pub(super) fn finish(clock: Option<Clock>, sample: &OpSample) {
             "body_bytes": sample.body_bytes, "rows": sample.rows,
             "phases_us": sample.phases,
             "counts": {
-                "field_keys_persisted": sample.field_keys_persisted,
-                "field_key_store_commits": sample.field_key_store_commits,
                 "resident_commits": sample.resident_commits,
                 "resident_operations": sample.resident_operations,
             },

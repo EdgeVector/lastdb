@@ -39,29 +39,6 @@ pub struct ShareSubscription {
     pub share_e2e_secret: Vec<u8>,
     pub accepted_at: u64,
     pub active: bool,
-    /// Preserve an existing subscription's saved grant metadata.
-    /// The retired cloud read endpoint no longer consumes this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub share_grant: Option<ShareAccessGrant>,
-}
-
-/// Saved grant fields inside an existing local share subscription.
-///
-/// Keep the stored shape readable without enabling the retired cloud access
-/// endpoint or assigning current cloud authority to these fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShareAccessGrant {
-    /// The exact prefix this grant authorizes: `share:{sender_hash}:{opaque}`.
-    pub share_prefix: String,
-    /// Base64 Ed25519 public key of the issuing sender (same encoding used by
-    /// [`ShareInvite::sender_pubkey`]). Its SHA-256 must hash to the
-    /// `sender_hash` embedded in `share_prefix`.
-    pub sender_pubkey: String,
-    /// Original Unix-seconds expiry retained with the subscription.
-    pub expires_at: u64,
-    /// Original base64 Ed25519 signature, preserved without a new issuer.
-    #[serde(default)]
-    pub signature: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

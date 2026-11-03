@@ -1,4 +1,4 @@
-//! Catalog key framing, retention row shapes and tolerant JSON decoding for
+//! Catalog key framing, retention row shapes and JSON decoding for
 //! [`super::SchemaStore`].
 
 use crate::schema::types::KeyValue;
@@ -6,17 +6,19 @@ use crate::schema::Schema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// Maximum backend response for one strict repair catalog read.
-pub(super) const REPAIR_SCHEMA_PAGE_ROWS: usize = 32;
+/// Rows in one page of a catalog read.
+pub(super) const CATALOG_PAGE_ROWS: usize = 256;
 /// Schema names are UTF-8, so this byte is above every valid first byte.
-pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = &[0xff];
+pub(super) const CATALOG_SCAN_END: &[u8] = &[0xff];
+/// The first schema-state key. The node-local families in `schema_states`
+/// start with a zero byte, and a schema name never does.
+pub(super) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 
-// The retention and receipt prefixes are key shapes that the storage import
-// check also needs, so they live in `storage::current_keys::families`.
+// The retention prefixes are key shapes that the storage import check also
+// needs, so they live in `storage::current_keys::families`.
 pub(super) use crate::storage::current_keys::families::{
     RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_ANCHOR_KEY_PREFIX,
     RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
-    SCHEMA_DROP_RECEIPT_KEY_PREFIX,
 };
 /// Reserved internal key prefix for name-claim records in `schema_states`.
 ///
@@ -24,10 +26,6 @@ pub(super) use crate::storage::current_keys::families::{
 /// node-local operational state about an installed schema, so it lives in the
 /// node-local namespace rather than in the published schema artifact.
 pub(super) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
-
-pub(super) fn schema_drop_receipt_key(schema_name: &str) -> String {
-    format!("{SCHEMA_DROP_RECEIPT_KEY_PREFIX}{schema_name}")
-}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(super) struct SchemaRetentionAgeEntry {
@@ -121,8 +119,6 @@ pub(super) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
 }
 
 /// Decode a catalog value. Plain JSON is the only catalog row form.
-/// Never panics; callers must not turn a decode miss into a 400 that
-/// bricks list/query or boot.
 pub(super) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     serde_json::from_slice::<T>(bytes).map_err(|error| error.to_string())
 }

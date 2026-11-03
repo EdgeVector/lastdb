@@ -6,15 +6,12 @@ pub(super) fn classify_path(relative: &Path) -> HomeStorageBucketKind {
         _ => None,
     });
     match first {
-        Some(b"data" | b"lastgit-pack-cas" | b"lastgit-pack-manifests" | b"secondary") => {
-            HomeStorageBucketKind::DatabaseStore
-        }
-        Some(b"backup" | b"backups" | b"backup-cut-freeze" | b"backup_gc_jobs" | b".backup") => {
-            HomeStorageBucketKind::Backup
-        }
-        Some(b"recovery" | b"restore" | b"restores") => HomeStorageBucketKind::Recovery,
+        Some(b"data") => HomeStorageBucketKind::DatabaseStore,
+        Some(b"backup" | b"backups" | b"backup-cut-freeze") => HomeStorageBucketKind::Backup,
+        Some(b"recovery" | b"restore") => HomeStorageBucketKind::Recovery,
         Some(
             b"current"
+            | b"native-run-v2-programs"
             | b"bin"
             | b"bin-with-upload-cap"
             | b"lastdb"
@@ -25,7 +22,6 @@ pub(super) fn classify_path(relative: &Path) -> HomeStorageBucketKind {
         Some(name) if name == b"apps" || name.starts_with(b"admin-") => {
             HomeStorageBucketKind::RuntimeApp
         }
-        Some(b"ingestion_config.json") => HomeStorageBucketKind::RuntimeApp,
         Some(b"log" | b"logs" | b"crash-reports" | b"current-session.json" | b"sessions.jsonl") => {
             HomeStorageBucketKind::Log
         }
@@ -33,31 +29,18 @@ pub(super) fn classify_path(relative: &Path) -> HomeStorageBucketKind {
         Some(b"candidate" | b"candidates" | b".candidates" | b".lastdb-staged") => {
             HomeStorageBucketKind::Candidate
         }
-        Some(name) if name.starts_with(b"laststore_record_rewrite") => {
-            HomeStorageBucketKind::Recovery
-        }
-        Some(name)
-            if name.starts_with(b"laststore_backup_")
-                || name == b"laststore_chunk_sha_memo.json"
-                || name == b"laststore_high_water.json"
-                || name == b"laststore_pending_purged_record_retirements.json" =>
-        {
-            HomeStorageBucketKind::Backup
-        }
         Some(name) if name.starts_with(b"cloud_sync.") => HomeStorageBucketKind::DatabaseAuxiliary,
         None
         | Some(
-            b".bootstrap_done"
+            b".cloud_resume_required"
             | b".fastembed_cache"
             | b".metadata_never_index"
+            | b"cloud-byte-backup-v2-manual.json"
             | b"identity.key"
-            | b"at_rest_key"
             | b"autostart-enrolled"
             | b"config.json"
-            | b"data.app-sock"
             | b"folddb.sock"
             | b"install_id"
-            | b"lastdb.sock"
             | b"metering-webhook-secret-dev"
             | b"monitoring"
             | b"schema_resolver.json",

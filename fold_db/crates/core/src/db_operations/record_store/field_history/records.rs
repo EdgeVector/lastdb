@@ -4,11 +4,10 @@
 //! `{scope:}rh:{S}:{sha(record key)}:{field identity}:{id}`. `S` is the record
 //! space of the schema, and `id` is the SHA-256 of the record key, the field
 //! identity and the old stamp. The entry reuses the field policy (`ahp:`), the
-//! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb:`) of
+//! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb\0`) of
 //! the field key history.
 
 use super::*;
-use crate::db_operations::record_store::retention::RetentionEntry;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
 use crate::schema::types::field::build_storage_key;
@@ -16,6 +15,7 @@ use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::FieldStamp;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
@@ -32,6 +32,14 @@ pub(crate) struct RecordHistoryRows {
     pub(crate) released: u64,
     /// The change of the entry count of each record key.
     pub(super) counts: BTreeMap<String, i64>,
+}
+
+/// The value of one expiry queue entry: the history entry it ends, and its
+/// own key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct QueueEntry {
+    pub(super) history: String,
+    pub(super) queue: String,
 }
 
 /// One old field value that a write replaced or a delete removed.
@@ -112,7 +120,7 @@ impl RecordStore {
         let captures = self
             .history_captures(schema, scope, changes, purges)
             .await?;
-        let now = self.retention_state().clock_nanos();
+        let now = self.queue_clock().now_nanos();
         for capture in &captures {
             capture_value(&schema.name, capture, now, &mut out)?;
         }
@@ -249,7 +257,7 @@ impl RecordStore {
     /// entry is gone is deleted with the batch.
     pub(super) async fn expire_record_history(
         &self,
-        due: Vec<RetentionEntry>,
+        due: Vec<QueueEntry>,
         now: u64,
     ) -> Result<u64, SchemaError> {
         if due.is_empty() {
@@ -294,11 +302,9 @@ fn capture_value(
         Some(at) => {
             let id = digest(key.as_bytes());
             let queue_key = queue().entry_key(at, &id);
-            let queued = serde_json::to_value(RetentionEntry {
+            let queued = serde_json::to_value(QueueEntry {
                 history: key.clone(),
                 queue: queue_key.clone(),
-                slot: record.to_string(),
-                created: now,
             })
             .map_err(invalid)?;
             for (row, value) in queue().rows(at, &id, &queued) {

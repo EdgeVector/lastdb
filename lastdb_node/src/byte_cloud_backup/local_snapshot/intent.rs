@@ -30,7 +30,7 @@ impl Intent {
             || !self.begin.descriptor.as_value().is_null()
             || self.begin.predecessor.is_some()
             || self.begin.required_destinations != [Destination::R2, Destination::B2]
-            || self.begin.recovery_dependencies != Some(Vec::new())
+            || !self.begin.recovery_dependencies.is_empty()
             || self.begin.r2_multipart.is_some()
         {
             return Err(BackupError::Invalid);
@@ -90,7 +90,7 @@ pub(super) fn admit(
             descriptor: ClientDescriptor::empty(),
             required_destinations: vec![Destination::R2, Destination::B2],
             predecessor: None,
-            recovery_dependencies: Some(Vec::new()),
+            recovery_dependencies: Vec::new(),
             r2_multipart: None,
         },
     };

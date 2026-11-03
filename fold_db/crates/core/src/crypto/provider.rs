@@ -1,4 +1,4 @@
-use super::envelope::{decrypt_envelope_with_context, encrypt_envelope};
+use super::envelope::{decrypt_envelope, encrypt_envelope};
 use super::error::CryptoResult;
 use async_trait::async_trait;
 
@@ -42,6 +42,6 @@ impl CryptoProvider for LocalCryptoProvider {
     }
 
     async fn decrypt(&self, ciphertext: &[u8]) -> CryptoResult<Vec<u8>> {
-        decrypt_envelope_with_context(&self.key, ciphertext, &[])
+        decrypt_envelope(&self.key, ciphertext)
     }
 }

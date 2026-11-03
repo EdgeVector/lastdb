@@ -262,21 +262,12 @@ impl SchemaStore {
         schema_name: &str,
     ) -> Result<Vec<String>, SchemaError> {
         let anchor = self.retention_anchor(schema_name).await?;
-        let scan = self
+        let mut hashes: Vec<_> = self
             .schema_states_store
-            .scan_items_with_prefix_partition_undecodable::<SchemaRetentionHashPartition>(
+            .scan_items_with_prefix::<SchemaRetentionHashPartition>(
                 &retention_hash_partition_prefix(&anchor),
             )
-            .await?;
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                key = %key,
-                error = %error,
-                "unreadable schema retention HashRange partition; skipping"
-            );
-        }
-        let mut hashes: Vec<_> = scan
-            .items
+            .await?
             .into_iter()
             .map(|(_, entry)| entry.hash)
             .collect();
@@ -294,21 +285,12 @@ impl SchemaStore {
     pub async fn list_schema_retention_policies(
         &self,
     ) -> Result<Vec<(String, SchemaRetentionPolicy)>, SchemaError> {
-        let scan = self
+        let rows = self
             .schema_states_store
-            .scan_items_with_prefix_partition_undecodable::<SchemaRetentionPolicy>(
-                RETENTION_POLICY_KEY_PREFIX,
-            )
+            .scan_items_with_prefix::<SchemaRetentionPolicy>(RETENTION_POLICY_KEY_PREFIX)
             .await?;
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                key = %key,
-                error = %error,
-                "unreadable schema retention policy row; skipping"
-            );
-        }
-        let mut out = Vec::with_capacity(scan.items.len());
-        for (key, policy) in scan.items {
+        let mut out = Vec::with_capacity(rows.len());
+        for (key, policy) in rows {
             let Some(schema_name) = key.strip_prefix(RETENTION_POLICY_KEY_PREFIX) else {
                 continue;
             };

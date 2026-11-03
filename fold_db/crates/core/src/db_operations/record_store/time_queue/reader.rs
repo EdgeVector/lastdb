@@ -53,13 +53,6 @@ pub(crate) struct DuePage {
     stop: Option<(String, u64)>,
 }
 
-impl DuePage {
-    /// The page ended at a key that is not due. The bucket waits for its time.
-    pub(crate) fn waits(&self) -> bool {
-        self.stop.is_some()
-    }
-}
-
 /// The reader state of one queue.
 #[derive(Debug)]
 pub(crate) struct QueueReader {
@@ -189,11 +182,6 @@ impl QueueReader {
     /// lists it.
     pub(crate) fn forget(&mut self, bucket: u64) {
         self.buckets.remove(&bucket);
-    }
-
-    /// Buckets in the state.
-    pub(crate) fn len(&self) -> usize {
-        self.buckets.len()
     }
 
     /// Read the next entries of `bucket`: the entries of one non-empty read, up

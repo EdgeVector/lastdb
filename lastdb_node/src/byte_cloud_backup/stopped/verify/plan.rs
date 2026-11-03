@@ -124,7 +124,7 @@ fn check_spans(plan: &Plan, receipts: &BTreeMap<Digest, ObjectReceipt>) -> Resul
                 .object_offset
                 .checked_add(span.bytes)
                 .is_none_or(|end| end > receipt.object.bytes.get())
-                || receipt.object.destination != Some(span.destination)
+                || receipt.object.destination != span.destination
             {
                 return Err(BackupError::Identity);
             }

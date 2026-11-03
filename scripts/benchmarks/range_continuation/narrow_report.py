@@ -6,7 +6,7 @@ from process_counters import counter_delta
 from ranges import latency
 
 
-PHASES = ("hydrate_records_us", "hydrate_format_us", "hydrate_sort_us", "annotate_us", "response_envelope_us")
+PHASES = ("hydrate_records_us", "hydrate_format_us", "hydrate_sort_us", "response_envelope_us")
 RECEIPT_TIMINGS = ("query_storage_elapsed_nanos", "socket_queue_wait_nanos", "blocking_queue_wait_nanos",
                    "lock_wait_nanos", "read_nanos", "decode_nanos", "decrypt_nanos", "open_nanos", "metadata_nanos")
 
@@ -48,8 +48,8 @@ def slow_sample(ordinal, sample):
 
 def narrow_diagnostics(grouped, mode):
     lines = ["", "Narrow requests by run: p50 / p95 / p99 ms. Runs remain separate.", "",
-        "| Mode / source / pair | HTTP | Server | Core | Format | Sort | Annotate | Render |",
-        "|---|---|---|---|---|---|---|---|"]
+        "| Mode / source / pair | HTTP | Server | Core | Format | Sort | Render |",
+        "|---|---|---|---|---|---|---|"]
     slow = []
     for role, values in grouped.items():
         for value in values:

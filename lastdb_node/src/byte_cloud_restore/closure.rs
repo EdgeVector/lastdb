@@ -70,7 +70,7 @@ pub(super) async fn load(
         .receipt(&accepted.root_receipt_id)?
         .object
         .destination
-        != Some(cloud_backup_protocol::v2::Destination::R2)
+        != cloud_backup_protocol::v2::Destination::R2
     {
         return Err(RestoreError::Invalid("client root destination"));
     }

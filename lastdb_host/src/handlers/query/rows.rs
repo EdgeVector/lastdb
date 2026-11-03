@@ -4,33 +4,19 @@ use super::*;
 use fold_db::db_operations::PageEnd;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 
-/// The page flags of one request: how to read its page keys and whether its
-/// conflict coverage is known. See [`page_payload`].
-#[derive(Debug, Clone, Copy)]
+/// The page flags of one request: how to read its page keys. See
+/// [`page_payload`].
+#[derive(Debug, Clone, Copy, Default)]
 pub(in crate::handlers) struct PageFlags {
     /// How to read this page's `key.hash` values, or `None` when the query
     /// emitted no classifiable page key.
     pub(in crate::handlers) key_form: Option<fold_db::db_operations::KeyForm>,
-    /// `"known"` or `"unknown"`. The default is `"unknown"` so a forgotten
-    /// set cannot look clean. A row flag `has_conflicts: false` is clean only
-    /// when this field is `"known"`.
-    pub(in crate::handlers) conflict_flags: &'static str,
-}
-
-impl Default for PageFlags {
-    fn default() -> Self {
-        Self {
-            key_form: None,
-            conflict_flags: "unknown",
-        }
-    }
 }
 
 impl From<fold_db::db_operations::PageKeyForms> for PageFlags {
     fn from(forms: fold_db::db_operations::PageKeyForms) -> Self {
         Self {
             key_form: forms.key_form(),
-            conflict_flags: "unknown",
         }
     }
 }
@@ -114,7 +100,6 @@ async fn execute_rows_captured<H: HostNode>(
 ) -> Result<(Vec<Value>, PageFlags, PageEnd), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
-    let schema_name = query.schema_name.clone();
     let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
     // Scope the tally to this request. Record hydration happens inside
@@ -124,10 +109,7 @@ async fn execute_rows_captured<H: HostNode>(
     let executor = host.fold_db();
     let executor = executor.query_executor();
     // `hydrate` spans the executor call (where record bodies load) through
-    // response construction, total-order sort, and projection. Conflict annotation
-    // is deliberately NOT included: it is its own phase below, because it is
-    // the one step whose cost is a storage-plane artifact rather than a
-    // function of how many rows the caller asked for.
+    // response construction, total-order sort, and projection.
     //
     // Three sub-phases separate core reads, formatting and final ordering.
     // HydrateFilter is a nested detail inside the core's first-pass reads.
@@ -168,10 +150,5 @@ async fn execute_rows_captured<H: HostNode>(
     super::row_rules::remove_sort_helper(&mut results, sort_helper.as_deref());
     request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
 
-    let annotate_started = std::time::Instant::now();
-    let mut flags = PageFlags::from(forms);
-    flags.conflict_flags = annotate_conflict_flags(host, &schema_name, &mut results).await;
-    request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
-
-    Ok((results, flags, end))
+    Ok((results, PageFlags::from(forms), end))
 }

@@ -29,20 +29,15 @@ pub(super) struct State {
     pub terminal: Option<JobResult>,
     pub local_cancelled: bool,
     pub released: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recovery: Option<RecoveryDescriptor>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run: Option<super::RunBackupProfile>,
+    pub recovery: RecoveryDescriptor,
+    pub run: super::RunBackupProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
 impl State {
     pub fn validate(&self) -> StorageResult<()> {
         self.begin.validate().map_err(protocol)?;
-        // Every capture is a run capture: a v2 home has no other source.
-        let (Some(run), Some(recovery)) = (&self.run, &self.recovery) else {
-            return Err(invalid("byte source stored profile phase"));
-        };
+        let run = &self.run;
         run.validate_root(&self.native_root)?;
         if let Some(anchor) = &self.journal_anchor {
             anchor.position()?;
@@ -68,7 +63,7 @@ impl State {
         if !self.begin.descriptor.as_value().is_null() {
             return Err(invalid("byte source recovery profile differs"));
         }
-        recovery
+        self.recovery
             .validate_for(&self.begin.job.stream.scope)
             .map_err(protocol)?;
         if let Some(result) = &self.terminal {

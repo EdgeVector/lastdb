@@ -1,10 +1,10 @@
 //! The time that a job keeps other writers waiting, and how many write scopes
 //! it opened.
 //!
-//! A background job (the retention janitor) paces itself so that it takes
-//! only a share of the time. The share is of the time its batch keeps writers
+//! A background job (the TTL sweep) paces itself so that it takes only a
+//! share of the time. The share is of the time its batch keeps writers
 //! waiting, not of the wall time of the step: a step also reads pages of its
-//! queue before it takes the write gate, and a writer does not wait for that.
+//! work before it takes the write gate, and a writer does not wait for that.
 //!
 //! A batch keeps a writer waiting during logical preparation and acceptance.
 //! The immediate disk worker then seals its complete cohort and keeps later
@@ -62,8 +62,8 @@ pub(crate) async fn measure<F: Future>(work: F) -> (F::Output, Cost) {
 
 /// A write scope has finished and staged something. Count it for the process and for
 /// the job that runs in this task, if there is one. A scope that staged nothing (an
-/// ordering scope, such as the one `verify-refs` opens at the start of a run) is not
-/// counted, so a poll cannot make a background job treat the node as busy.
+/// ordering scope) is not counted, so a poll cannot make a background job treat the
+/// node as busy.
 pub(super) fn opened() {
     WRITE_SCOPES.fetch_add(1, Ordering::AcqRel);
     let _ = JOB.try_with(|job| job.scopes.fetch_add(1, Ordering::AcqRel));

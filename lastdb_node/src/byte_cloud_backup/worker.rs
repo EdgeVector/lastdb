@@ -142,7 +142,7 @@ async fn setup(
         predecessor,
         // Declared so the service can retire points that no kept point needs.
         // Every deployed V2 service package accepts this field.
-        recovery_dependencies: Some(saved.work.recovery_dependencies()),
+        recovery_dependencies: saved.work.recovery_dependencies(),
     };
     begin.validate()?;
     saved.begin = Some(begin);

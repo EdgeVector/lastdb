@@ -7,10 +7,9 @@
 //! | [`KvStore`] | Byte key/value ops. **Implement this** for a new backend. |
 //! | [`NamespacedStore`] | Open/list/delete logical trees. **Implement this** too. |
 //! | [`TypedKvStore`] | JSON serialize/deserialize helper on top of any `KvStore`. **Use, don't reimplement.** |
-//! | [`PartitionedScan`] | Result of poison-aware scans (encrypting backends). |
 //!
-//! Scan variants on [`KvStore`] (`scan_prefix`, `_keys`, `_paged`, `scan_range`,
-//! `_partition_undecryptable`) are **one family** with different
+//! Scan variants on [`KvStore`] (`scan_prefix`, `_keys`, `_paged`, `scan_range`)
+//! are **one family** with different
 //! failure/pagination contracts — not parallel APIs. Defaults are correct but
 //! unbounded; ordered backends (Last Store) should override for lazy iterators.
 //!

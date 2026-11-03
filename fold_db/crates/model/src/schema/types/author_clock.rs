@@ -11,10 +11,8 @@ pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MutationAuthorClockState {
     /// Highest physical nanosecond value emitted, observed, or reserved by this device.
-    #[serde(default)]
     pub physical_nanos: u64,
     /// Monotonic logical counter. It advances for every local operation.
-    #[serde(default)]
     pub logical_counter: u64,
 }
 

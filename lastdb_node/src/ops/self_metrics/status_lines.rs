@@ -297,10 +297,7 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 }
 
 fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let mut lines = local_retention_lines(snapshot);
-    lines.extend(verify_refs_status_lines(snapshot));
-    lines.extend(conflict_retention_status_lines(snapshot));
-    lines
+    local_retention_lines(snapshot)
 }
 
 pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {

@@ -67,26 +67,28 @@ pub(crate) fn file_row_change(
     })
 }
 
-/// The file paths that a drop of these stored rows releases: each record row
-/// with a file, and each record row that does not decode (its file, if any,
-/// goes too). Other rows hold no file.
+/// The file paths that a drop of these stored rows releases: one for each
+/// record row with a file. Other rows hold no file. A key that does not parse
+/// or a record row that does not decode fails the drop.
 pub(crate) fn dropped_file_paths<'a>(
     rows: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
-) -> Vec<Vec<u8>> {
+) -> Result<Vec<Vec<u8>>, SchemaError> {
     let mut paths = Vec::new();
     for (key, value) in rows {
-        let Ok(key) = std::str::from_utf8(key) else {
+        let key = std::str::from_utf8(key).map_err(|error| {
+            SchemaError::InvalidData(format!("a dropped row key is not UTF-8: {error}"))
+        })?;
+        let Some(path) = record_row_path(key)? else {
             continue;
         };
-        let Ok(Some(path)) = record_row_path(key) else {
-            continue;
-        };
-        let no_file = matches!(StoredRecord::decode(value), Ok(record) if record.file.is_none());
-        if !no_file {
+        let record = StoredRecord::decode(value).map_err(|error| {
+            SchemaError::InvalidData(format!("dropped record row {key} is unreadable: {error}"))
+        })?;
+        if record.file.is_some() {
             paths.push(path.into_bytes());
         }
     }
-    paths
+    Ok(paths)
 }
 
 /// The file path of a record row key, or `None` for a row of another family.

@@ -247,11 +247,10 @@ impl Inner {
     pub fn destination(
         &self,
         path: &Path,
-    ) -> StorageResult<Option<cloud_backup_protocol::v2::Destination>> {
+    ) -> StorageResult<cloud_backup_protocol::v2::Destination> {
         super::run_backup_destination(
             path.to_str()
                 .ok_or_else(|| invalid("run backup path encoding"))?,
         )
-        .map(Some)
     }
 }

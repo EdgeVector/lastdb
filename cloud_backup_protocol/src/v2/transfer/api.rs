@@ -127,7 +127,7 @@ pub enum TransferMode {
 }
 
 /// Temporary upload authority. Never save this URL in a durable record.
-/// Absent mode preserves the signed conditional PUT and exact Content-Length.
+/// Absent mode is the signed conditional PUT with an exact Content-Length.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UploadGrant {
@@ -148,15 +148,15 @@ impl UploadGrant {
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
     }
-    /// Allow an absent mode for R2 or an unbound destination, and multipart only for R2 or B2.
+    /// Allow an absent mode for R2, and multipart only for R2 or B2.
     pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
         self.validate()?;
         input.validate()?;
         if !matches!(
             (input.object.destination, self.transfer_mode),
-            (None | Some(Destination::R2), None)
+            (Destination::R2, None)
                 | (
-                    Some(Destination::R2 | Destination::B2),
+                    Destination::R2 | Destination::B2,
                     Some(TransferMode::MultipartPart)
                 )
         ) {

@@ -28,14 +28,6 @@ fn extend_bounded_rows(
     Ok(())
 }
 
-/// Exclusive upper bound for a walk of a whole collection.
-///
-/// Product keys are ASCII prefixes (`rk:`, `ak:`, `aloc:`, …). Four `0xFF`
-/// bytes sit past that keyspace without pretending an empty prefix has a
-/// string successor (it does not — see `FilterUtils::create_prefix_end`).
-/// `PackKvStore::range_rows` accepts it as the end of a range.
-pub(crate) const WHOLE_COLLECTION_END: &[u8] = &[0xFF, 0xFF, 0xFF, 0xFF];
-
 impl PackKvStore {
     pub(super) async fn prefix_rows(
         &self,
@@ -122,10 +114,9 @@ impl PackKvStore {
         let start_text = std::str::from_utf8(start).map_err(|_| {
             StorageError::InvalidOperation("native range requires a UTF-8 start".into())
         })?;
-        let end_is_limit = end == WHOLE_COLLECTION_END
-            || end
-                .strip_suffix(&[255])
-                .is_some_and(|prefix| std::str::from_utf8(prefix).is_ok());
+        let end_is_limit = end
+            .strip_suffix(&[255])
+            .is_some_and(|prefix| std::str::from_utf8(prefix).is_ok());
         if start_text.starts_with("b64:") || (std::str::from_utf8(end).is_err() && !end_is_limit) {
             return Err(StorageError::InvalidOperation(
                 "native range requires UTF-8 ids or a metadata limit marker".into(),

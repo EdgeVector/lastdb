@@ -21,6 +21,7 @@ import time
 import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format, UnixConnection  # noqa: E402
 import record_runs  # noqa: E402
 
@@ -434,7 +435,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker_format(marker) == 9, "the new home is not format 9: " + repr(marker))
+        require(marker_format(marker) == HOME_FORMAT, f"the new home is not format {HOME_FORMAT}: " + repr(marker))
         install(node)
         hash_records(node)
         alternate_keys(node)

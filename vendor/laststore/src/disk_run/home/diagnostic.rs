@@ -34,7 +34,7 @@ pub struct RunHomeDiagnostics {
     pub merging: RunPartDiagnostics,
     /// Oldest nonoverlapping base runs.
     pub base: RunPartDiagnostics,
-    /// All published keys and tagged stored values, before block compression.
+    /// All published keys and stored values, before block compression.
     pub published_record_bytes: u64,
     /// Tombstone records in all published runs, including hidden versions.
     pub published_tombstones: u64,

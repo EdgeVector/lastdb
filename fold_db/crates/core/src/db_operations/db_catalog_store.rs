@@ -216,7 +216,8 @@ async fn drop_scoped_source_rows(
     let removed = rows.len();
     let files = super::record_store::record_files::dropped_file_paths(
         rows.iter().map(|(_, key, value)| (&key[..], &value[..])),
-    );
+    )
+    .map_err(|error| StorageError::BackendError(error.to_string()))?;
     // The catalog's outer native scope stages the deletes. A refusal or process
     // stop before publication retains the rows, the files and the catalog row.
     for chunk in rows.chunks(2_048) {

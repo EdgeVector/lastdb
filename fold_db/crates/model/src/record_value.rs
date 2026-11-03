@@ -87,8 +87,7 @@ impl From<FieldStamp> for StampWire {
 #[derive(Clone, Debug, PartialEq)]
 pub enum FieldMerge {
     /// The write is newer. It set or removed the field. `old` and `old_stamp`
-    /// are the replaced value and stamp, when the record had them. A replaced
-    /// value from another device goes to a conflict record.
+    /// are the replaced value and stamp, when the record had them.
     Written {
         old: Option<Value>,
         old_stamp: Option<FieldStamp>,

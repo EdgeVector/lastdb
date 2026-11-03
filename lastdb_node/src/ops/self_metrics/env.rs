@@ -15,12 +15,10 @@ pub fn retention_max_samples_from_env() -> usize {
     max_rows_for_budget(max_bytes, SELF_METRIC_FIELDS.len())
 }
 
-/// Row cap derived from a byte budget and the plane's WORST-CASE per-row cost.
+/// Row cap derived from a byte budget and the plane's per-row cost.
 ///
-/// Worst case, not typical: the cap has to hold when every declared field is
-/// populated, so the divisor is the plane's full declared field count. That
-/// makes the derivation conservative in the safe direction — sparse rows (the
-/// norm, see `insert_if_nonzero`) use less than the budget, never more.
+/// Every telemetry record stores every declared field, so the divisor is the
+/// plane's full declared field count.
 ///
 /// The property this buys, which a row constant cannot: adding an
 /// observability field now *shrinks* the row cap in proportion, instead of

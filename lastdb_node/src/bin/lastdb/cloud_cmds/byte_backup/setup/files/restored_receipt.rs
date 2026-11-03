@@ -1,4 +1,4 @@
-//! Bind one completed V1 or V2 restore receipt throughout account reconnect.
+//! Bind the completed restore receipt throughout account reconnect.
 use super::super::{recovery_files, require_private_file};
 use cloud_backup_protocol::{bytes_sha256, Digest};
 use rustix::fs::{self, AtFlags, Mode, OFlags};
@@ -6,35 +6,31 @@ use std::fs::File;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::Path;
 
-const V1: &str = "native-cloud-restore-receipt.json";
-const V2: &str = "byte-cloud-restore-receipt.json";
+const RECEIPT: &str = "byte-cloud-restore-receipt.json";
+const VERSION: u8 = 2;
 const MAX_BYTES: u64 = 65_536;
 
 pub(super) struct Proof {
     file: File,
-    name: &'static str,
-    version: u8,
     digest: Digest,
 }
 
 impl Proof {
     pub fn open(directory: &File, home: &Path) -> Result<Self, String> {
-        let (name, version) = selected(directory)?;
+        selected(directory)?;
         let file = File::from(
             fs::openat(
                 directory,
-                name,
+                RECEIPT,
                 OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
                 Mode::empty(),
             )
             .map_err(|_| "cannot open completed restore receipt")?,
         );
         let bytes = contents(&file)?;
-        validate(&bytes, version, home)?;
+        validate(&bytes, home)?;
         let proof = Self {
             file,
-            name,
-            version,
             digest: bytes_sha256(&bytes),
         };
         proof.binding(directory)?;
@@ -50,11 +46,9 @@ impl Proof {
     }
 
     fn binding(&self, directory: &File) -> Result<(), String> {
-        if selected(directory)? != (self.name, self.version) {
-            return Err("restore receipt format changed during reconnect".into());
-        }
+        selected(directory)?;
         let held = fs::fstat(&self.file).map_err(|_| "cannot inspect held restore receipt")?;
-        let current = fs::statat(directory, self.name, AtFlags::SYMLINK_NOFOLLOW)
+        let current = fs::statat(directory, RECEIPT, AtFlags::SYMLINK_NOFOLLOW)
             .map_err(|_| "cannot inspect selected restore receipt")?;
         if held.st_dev != current.st_dev || held.st_ino != current.st_ino {
             return Err("restore receipt identity changed during reconnect".into());
@@ -63,14 +57,11 @@ impl Proof {
     }
 }
 
-fn selected(directory: &File) -> Result<(&'static str, u8), String> {
-    match (
-        recovery_files::entry_present(directory, V1)?,
-        recovery_files::entry_present(directory, V2)?,
-    ) {
-        (true, false) => Ok((V1, 1)),
-        (false, true) => Ok((V2, 2)),
-        _ => Err("restored reconnect requires exactly one completed restore receipt".into()),
+fn selected(directory: &File) -> Result<(), String> {
+    if recovery_files::entry_present(directory, RECEIPT)? {
+        Ok(())
+    } else {
+        Err("restored reconnect requires the completed restore receipt".into())
     }
 }
 
@@ -82,10 +73,10 @@ struct Receipt {
     report: lastdb_node::byte_cloud_restore::RestoreReport,
 }
 
-fn validate(bytes: &[u8], version: u8, home: &Path) -> Result<(), String> {
+fn validate(bytes: &[u8], home: &Path) -> Result<(), String> {
     let receipt: Receipt =
         serde_json::from_slice(bytes).map_err(|_| "invalid native restore receipt")?;
-    if receipt.version != version
+    if receipt.version != VERSION
         || receipt.session_id.is_nil()
         || receipt.report.destination != home
         || receipt.report.native_files == 0

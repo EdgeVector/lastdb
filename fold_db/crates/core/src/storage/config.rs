@@ -2,8 +2,7 @@ use std::path::PathBuf;
 
 /// Local primary storage engine for the FoldDB namespaced data path.
 ///
-/// Last Store names the native packed engine. Normal construction has no
-/// old-format backend selection or migration fallback.
+/// Last Store names the native packed engine.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StorageEngine {
     /// Native packed storage (the sole product engine).

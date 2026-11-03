@@ -74,9 +74,8 @@ fn error_response(status: u16, message: &str, ctx: &AccessContext) -> UdsRespons
 /// …), which re-wrapping the message would drop.
 ///
 /// This is only half the contract. The mapping can only classify what reaches
-/// it, so the core wrapper must not have flattened the fault into
-/// `FoldDbError::Database` first — see `admin_op_error` in
-/// `fold_db_core::fold_db::admin_db`.
+/// it, so a core admin wrapper must not flatten the fault into
+/// `FoldDbError::Database` first.
 fn mapped_error_response(
     operation: &str,
     err: fold_db::error::FoldDbError,
@@ -96,7 +95,6 @@ fn mapped_error_response(
 }
 
 mod byte_backup_routes;
-mod conflict_metadata;
 mod db_catalog;
 mod db_maintenance;
 mod file_blob;
@@ -104,7 +102,6 @@ mod file_blob_put;
 mod logical_sync_routes;
 mod query_batch;
 mod schema_declare;
-use self::conflict_metadata::*;
 use self::db_catalog::*;
 use self::db_maintenance::*;
 use self::file_blob::*;

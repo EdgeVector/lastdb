@@ -34,7 +34,7 @@ def usage(home):
                     raise RuntimeError("A generated home contains an unsupported disk entry")
                 parts = path.relative_to(home).parts
                 category = ("search_queue" if parts[:3] == ("apps", "search", "inbox") else
-                            "database" if parts[0] in ("data", "blobs") else "other_home")
+                            "database" if parts[0] == "data" else "other_home")
                 result[category]["logical_bytes"] += info.st_size
                 result[category]["allocated_bytes"] += info.st_blocks * 512
                 if category == "search_queue":

@@ -314,7 +314,6 @@ impl RunReader {
                         block,
                         bytes,
                         memory_available,
-                        tag: None,
                     })));
                 }
             }

@@ -228,7 +228,7 @@ fn reopen(
             held_root(&runtime, state.reference_id),
             key,
         )?;
-        if Some(source.profile()?) != state.run
+        if source.profile()? != state.run
             || source.files.len() as u64 != state.native_files
             || total_bytes(&source)? != state.native_bytes
         {
@@ -333,8 +333,8 @@ fn new_state(
         terminal: None,
         local_cancelled: false,
         released: false,
-        recovery: Some(recovery),
-        run: Some(profile),
+        recovery,
+        run: profile,
         journal_anchor: intent.journal_anchor,
     })
 }

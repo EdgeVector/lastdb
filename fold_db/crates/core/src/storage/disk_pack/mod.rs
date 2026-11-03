@@ -51,11 +51,12 @@ pub(crate) use read::memory::{
 };
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get};
 pub use read::PackReadScope;
-pub(crate) use rows::WHOLE_COLLECTION_END;
+pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
-pub(in crate::storage) const NODE_MARKER: &str = "laststore-pack-node-v1";
+/// File name of the clear node marker, which holds [`RECORD_NODE_BYTES`].
+pub const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
 const NAMESPACES: &str = "namespaces\0";
 
@@ -129,7 +130,7 @@ impl PackNamespacedStore {
     /// Open a node store with the node encryption key. An absent or empty
     /// home becomes a new v2 home, and a v2 creation that stopped before its
     /// node marker is created again. A v2 home needs the key: its run home
-    /// keys derive from it. The node marker check admits only format 9.
+    /// keys derive from it. The node marker check admits only [`HOME_FORMAT`].
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);

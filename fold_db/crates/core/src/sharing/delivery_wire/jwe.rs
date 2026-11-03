@@ -57,8 +57,7 @@ pub fn encrypt_signed_slice_jwe(
 ) -> Result<JweEnvelope, FoldDbError> {
     // Always gzip the signed JSON before A256GCM. Kanban full-board slices
     // exceed Exemem's ~64KB sealed-message cap without compress-before-encrypt.
-    // Protected header carries zip=gzip so receivers can gunzip after decrypt
-    // (legacy un-zipped envelopes still decrypt via decrypt_signed_slice_jwe).
+    // Protected header carries zip=gzip so receivers can gunzip after decrypt.
     let protected = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&serde_json::json!({
             "alg": "dir",

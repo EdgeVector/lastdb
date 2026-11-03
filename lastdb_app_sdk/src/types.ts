@@ -120,7 +120,7 @@ export interface RecordMetadata {
 /**
  * The full per-row envelope the node returns for `/api/query`. The node's
  * `results` array carries one object per result key shaped
- * `{ key, fields, metadata, has_conflicts }` — see `lastdb_host`
+ * `{ key, fields, metadata }` — see `lastdb_host`
  * `handlers::query::response::format_rows` (the `/api/query` row builder).
  *
  * A real app needs `key` to update/delete a specific row, and typically

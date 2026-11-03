@@ -57,7 +57,7 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
         default = fold_db::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES,
         absolute_max = fold_db::content_limit::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
         env = fold_db::content_limit::MAX_FIELD_VALUE_BYTES_ENV,
-        "peer field value size limit (LASTDB_MAX_FIELD_VALUE_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
+        "peer field value size limit (LASTDB_MAX_FIELD_VALUE_BYTES; growing lists → one record per entry; large opaque bytes → the record's file)"
     );
 }
 

@@ -78,7 +78,7 @@ pub(super) async fn remote(
         for ((_, hash, bytes), grant) in group.iter().zip(grants) {
             if &grant.sha256 != hash
                 || grant.bytes.get() != *bytes
-                || grant.destination != Some(Destination::R2)
+                || grant.destination != Destination::R2
             {
                 return Err(BackupError::Identity);
             }

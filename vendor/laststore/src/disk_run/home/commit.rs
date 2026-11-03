@@ -5,7 +5,7 @@ use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
 use crate::commit_timing as timing;
 use crate::disk_run::space::MergeSpace;
-use crate::disk_run::{merge_runs, value, RunReader, RunSummary, RunWriter};
+use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
 use crate::space::SpacePolicy;
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -128,12 +128,6 @@ impl RunHome {
         records.dedup_by(|later, first| later.0 == first.0);
         drop(sort_timing);
         super::mutation_counts::record(&records);
-        let value_timing = timing::stage("v2_value_encoding_us");
-        // The stored forms are made before the commit lock.
-        for (_, body) in &mut records {
-            *body = body.as_deref().map(value::encode);
-        }
-        drop(value_timing);
         let _commit = timing::during("v2_commit_lock_wait_us", || {
             self.commit.lock().unwrap_or_else(|e| e.into_inner())
         });

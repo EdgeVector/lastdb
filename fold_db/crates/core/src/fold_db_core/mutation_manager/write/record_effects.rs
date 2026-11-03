@@ -4,12 +4,9 @@
 //! - Field history (D5): a copy of each overwritten or deleted field value
 //!   whose field has a history policy (`field_history/records.rs`). A purge
 //!   captures nothing and releases the history of its record.
-//! - Delete audit: one `dellog:` row for each verb and caller of the group, as
+//! - Delete audit: one `dellog` row for each verb and caller of the group, as
 //!   the erase lane writes for a field key home. A TTL sweep delete keeps its
 //!   caller tag.
-//! - Conflict rows: a purge deletes the conflict rows of its record, their
-//!   queue entries and the marker (`record_conflicts/purge.rs`). A delete
-//!   keeps them until the end of their window.
 //! - Retention: a Hash or Single schema with a policy ages each live record by
 //!   its write time (the newest stamp) and drops the age rows of a deleted
 //!   record. A record holds its own stamps, so the rows go in this batch.
@@ -89,7 +86,6 @@ impl MutationManager {
             .record_share_copies(&schema.name, storage_prefix, &changes)
             .await?;
         entries.extend(history.rows);
-        entries.extend(self.purged_conflict_rows(changed, &changes).await?);
         let mut changes = changes;
         changes.extend(copies);
         self.db_ops
@@ -168,21 +164,6 @@ impl MutationManager {
             .records()
             .record_history_rows(schema, scope, changes, &purges)
             .await
-    }
-
-    /// The deletes of the conflict rows of each purged record of one group.
-    async fn purged_conflict_rows(
-        &self,
-        changed: &[ChangedRecord<'_>],
-        changes: &[RecordChange],
-    ) -> Result<Vec<KvMutation>, SchemaError> {
-        let purged: Vec<&str> = changed
-            .iter()
-            .zip(changes)
-            .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
-            .map(|(_, change)| change.key.as_str())
-            .collect();
-        self.db_ops.records().purged_record_conflicts(&purged).await
     }
 
     /// Stage the delete audit rows and the retention age rows of one group in

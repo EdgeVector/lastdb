@@ -2,7 +2,7 @@
 
 use super::keys::{prefix_end, run_key, storage_key};
 use super::read::{ReadBudget, RunRead, RunReadCosts};
-use crate::disk_run::{value, Found, MergeIter, MergeSource, RunSequence};
+use crate::disk_run::{Found, MergeIter, MergeSource, RunSequence};
 use crate::{Error, Result};
 use std::ops::Bound;
 use std::path::PathBuf;
@@ -252,11 +252,10 @@ impl OrdinaryRange<'_> {
                 return Err(Error::ReadBudgetExceeded);
             }
             self.costs.examined_keys += 1;
-            let Found::Value(stored) = found else {
+            let Found::Value(value) = found else {
                 last = yielding.map(|_| key);
                 continue;
             };
-            let value = value::decode(stored, super::MAX_VALUE_BYTES)?;
             let bytes = self
                 .costs
                 .budget_bytes

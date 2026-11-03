@@ -64,9 +64,8 @@ pub struct ReadGrant {
     pub expires_ms: DecimalU64,
     /// Temporary GET URL. This is not stored on a durable receipt.
     pub url: Text<8192>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Provider for this object. Absent keeps the original provider binding.
-    pub destination: Option<Destination>,
+    /// Provider for this object.
+    pub destination: Destination,
 }
 impl ReadGrant {
     /// Reject a zero byte length, a zero expiry, or oversized canonical JSON.
@@ -133,7 +132,7 @@ impl ReadGrantItemResult {
                 }
                 .validate()?,
                 ReadSelector::InventoryIndex { sha256 } => {
-                    if grant.destination == Some(Destination::B2)
+                    if grant.destination == Destination::B2
                         || sha256 != &accepted.inventory_root.sha256
                         || sha256 != &grant.sha256
                         || grant.bytes.get() > limits::INVENTORY_JSON_MAX_BYTES
@@ -142,7 +141,7 @@ impl ReadGrantItemResult {
                     }
                 }
                 ReadSelector::InventoryPage { sha256 } => {
-                    if grant.destination == Some(Destination::B2)
+                    if grant.destination == Destination::B2
                         || sha256 != &grant.sha256
                         || grant.bytes.get() > limits::INVENTORY_JSON_MAX_BYTES
                     {

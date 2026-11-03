@@ -21,7 +21,7 @@ pub struct PlanFile {
     pub id: usize,
     pub path: cloud_backup_protocol::RelativePath,
     pub bytes: u64,
-    pub destination: Option<cloud_backup_protocol::v2::Destination>,
+    pub destination: cloud_backup_protocol::v2::Destination,
 }
 /// One byte range of one frozen file inside an object.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

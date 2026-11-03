@@ -61,8 +61,8 @@ pub(super) async fn stage(
             .map_err(|_| RestoreError::Invalid("run client page"))?;
             root.validate_page(&page)
                 .map_err(|_| RestoreError::Invalid("run page context"))?;
-            if page.page_index != expected.page_index || !page.external_dependencies.is_empty() {
-                return Err(RestoreError::Invalid("run page identity or dependencies"));
+            if page.page_index != expected.page_index {
+                return Err(RestoreError::Invalid("run page identity"));
             }
             coverage.page(&page.native_files, &mut inventory)?;
             add_totals(&mut total, &page, root)?;

@@ -1,4 +1,4 @@
-//! Counts of the actual post-dedup mutations, before value encoding.
+//! Counts of the actual post-dedup mutations.
 //!
 //! Only fixed engine labels enter the report. Unknown collection names
 //! collapse to `other`; record keys and values never enter diagnostics.
@@ -23,27 +23,11 @@ pub(super) fn record(records: &[(Vec<u8>, Option<Vec<u8>>)]) {
             names[3],
             value.as_ref().map_or(0, |bytes| bytes.len()) as u64,
         );
-        if collection == "blob_counts" {
-            // A blob counter key starts with `bref:c:`; the dwell queue
-            // entries and its bucket directory hold the rest.
-            let tag = if key[at..].starts_with(b"bref:c:") {
-                ["v2_blob_counter_puts", "v2_blob_counter_deletes"]
-            } else {
-                ["v2_blob_queue_puts", "v2_blob_queue_deletes"]
-            };
-            timing::count(tag[usize::from(value.is_none())], 1);
-        }
     }
 }
 
 fn names(collection: &str) -> Names {
     match collection {
-        "blob_counts" => [
-            "v2_blob_counts_puts",
-            "v2_blob_counts_deletes",
-            "v2_blob_counts_key_bytes",
-            "v2_blob_counts_value_bytes",
-        ],
         "records" => [
             "v2_records_puts",
             "v2_records_deletes",

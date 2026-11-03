@@ -16,10 +16,6 @@ use super::RecordStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
-/// Bare key prefix for ledger rows. Rows sort in time order under a prefix scan
-/// because the timestamp component is fixed-width zero-padded nanoseconds.
-pub const RECORD_DELETE_LEDGER_PREFIX: &str = "dellog:";
-
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
@@ -122,18 +118,13 @@ impl RecordStore {
 
         let mut out = Vec::new();
         for (k, v) in rows {
-            match serde_json::from_slice::<RecordDeleteLedgerEntry>(&v) {
-                Ok(entry) => out.push(entry),
-                Err(e) => {
-                    // An unreadable audit row is worth knowing about, but must
-                    // not blank the rest of the ledger.
-                    tracing::warn!(
-                        ledger_key = %String::from_utf8_lossy(&k),
-                        error = %e,
-                        "delete ledger: skipping unreadable row"
-                    );
-                }
-            }
+            let entry = serde_json::from_slice::<RecordDeleteLedgerEntry>(&v).map_err(|e| {
+                SchemaError::InvalidData(format!(
+                    "delete ledger row {} is unreadable: {e}",
+                    String::from_utf8_lossy(&k)
+                ))
+            })?;
+            out.push(entry);
             if limit > 0 && out.len() >= limit {
                 break;
             }

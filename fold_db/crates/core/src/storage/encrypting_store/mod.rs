@@ -1,5 +1,5 @@
 use super::error::{StorageError, StorageResult};
-use super::traits::{KvMutation, KvStore, PartitionedScan, PhysicalScanCursor, PhysicalScanPage};
+use super::traits::{KvMutation, KvStore, PhysicalScanCursor, PhysicalScanPage};
 use crate::crypto::at_rest::{decode_binary_ciphertext, encode_binary_ciphertext};
 use crate::crypto::CryptoProvider;
 use async_trait::async_trait;
@@ -91,10 +91,6 @@ impl EncryptingKvStore {
             decrypted_rows.push((key, plaintext));
         }
         Ok(decrypted_rows)
-    }
-
-    fn lossy_derived_key(key: &[u8]) -> bool {
-        key.starts_with(b"emb:")
     }
 }
 

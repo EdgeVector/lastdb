@@ -47,10 +47,9 @@ A home (`disk_run::home::RunHome`) is a directory:
 
 ## Proofs
 
-The examples `disk_run_proof` and `run_home_proof` are CI-only proofs.
-`.github/workflows/disk-run-proof.yml` runs them.
+The example `run_home_proof` is a CI-only proof.
+`.github/workflows/disk-run-proof.yml` runs it.
 
-## Old engines
+## Scope
 
-The old LastStore segment engine (`store`) and the disk format v1 module (`disk_pack`) are deleted (decision D1, 2026-10-26).
-This crate holds only disk format v2 and the frame, space, and read-receipt code that it uses.
+This crate holds disk format v2 and the frame, space, and read-receipt code that it uses.

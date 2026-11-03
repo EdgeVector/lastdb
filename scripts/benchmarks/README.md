@@ -137,7 +137,7 @@ Missing observations from earlier artifacts remain unreported.
 The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
 The cold boundary purges clean records from the warm set after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
-A format 8 home keeps one warm entry per record, so each hot read requires at least one warm hit per requested key.
+A home keeps one warm entry per record, so each hot read requires at least one warm hit per requested key.
 The native unknown-path fallback does not always increment the logical miss counter.
 The cold control therefore uses the purge boundary and actual disk-read receipts.
 These checks reject invalid measurements. They do not form a test suite.
@@ -176,7 +176,7 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
-Every measured home is a format 8 home on disk format v2, with blinded hashes and typed ranges.
+Every measured home is a home in the current format on disk format v2, with blinded hashes and typed ranges.
 The driver reads the `format=` number of each node marker and reports it in the summary.
 The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
@@ -319,11 +319,11 @@ Inserts increase the record count. Memory allocators can retain space, and autom
 Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
 The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
 
-### Format 8 homes
+### Home format
 
 Each driver reads the home format from the node marker that the daemon writes when it creates the home.
-Every new home is format 8, and the program opens no other home format.
-A format 8 home stores one record per key. The speed lane then requires one warm hit per key, not per field.
+Every new home is in the current format (`home_format.py`), and the program opens no other home format.
+A home stores one record per key. The speed lane then requires one warm hit per key, not per field.
 The size passes use the stored record values as the logical measure. The record count must drop after each delete round.
 All checkpoints of one size case must show the same home format.
 Every summary states the home format of each version.
@@ -361,7 +361,7 @@ Historical programs that lack the Search-off status cannot satisfy this required
 
 The ratio is retained disk bytes divided by record bytes:
 
-- Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
+- Database disk uses the greater of file lengths and allocated blocks under `data/`.
   The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: the stored value bytes of the live records (`total_record_bytes`).
   Tombstones stay out. The report names this value `stored_record_bytes`.

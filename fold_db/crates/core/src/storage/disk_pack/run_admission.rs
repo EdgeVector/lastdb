@@ -12,22 +12,24 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-/// Format 9: the record model with its final disk names. One record lives at
-/// each primary key, and a record has at most one file, at a path made from
-/// its key (no shared file blobs, no blob counter). Every new home is format
-/// 9, and it is the only format this program opens. The format number names the whole layout, so the
-/// marker holds no feature versions.
-pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] = b"format=9\nhome=disk-run\ncas=disk-cas\n";
-/// The backup profile version of a format 9 home.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 7;
+/// The home format. One record lives at each primary key, a record has at
+/// most one file, at a path made from its key, and a run stores each value
+/// as given. Every new home has this format, and it is the only format this
+/// program opens. The format number names the whole layout, so the marker
+/// holds no feature versions. A layout change raises it.
+pub const HOME_FORMAT: u32 = 10;
+/// The node marker of a [`HOME_FORMAT`] home.
+pub const RECORD_NODE_BYTES: &[u8] = b"format=10\nhome=disk-run\ncas=disk-cas\n";
+/// The backup profile version of a [`HOME_FORMAT`] home.
+pub(in crate::storage) const RECORD_PROFILE: u16 = 8;
 
-/// The backup profile version of a node marker. Only the format 9 marker has
+/// The backup profile version of a node marker. Only the current marker has
 /// one; every other marker is unsupported.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
 }
 
-/// Admit a format 9 home with complete creation proofs.
+/// Admit a home of the current format with complete creation proofs.
 pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let marker = OpenOptions::new()
         .read(true)

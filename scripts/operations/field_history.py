@@ -17,6 +17,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format  # noqa: E402
 
 
@@ -70,20 +71,6 @@ def install(node):
         if name == "HistoryAlternate":
             definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
-
-
-def verify(node):
-    cursor = None
-    for _ in range(100):
-        request = {"max_pages": 128, "max_ms": 10000, "pause_ms": 0}
-        if cursor is not None:
-            request["cursor"] = cursor
-        result = node.call("/api/db/verify-refs", request)[0]["verify_refs"]
-        require(result["mismatches_total"] == 0, "reference verifier reported a mismatch: " + json.dumps(result))
-        if result["done"]:
-            return
-        cursor = result["next_cursor"]
-    raise RuntimeError("reference verification did not complete")
 
 
 def numeric_policy(node):
@@ -226,7 +213,6 @@ def expiry_body(node):
             "expiry worker did not drop the history copy from " + str(held)
             + " to " + str(held - 1) + "; last count " + str(last_count))
     absent(node, {"op": "get", "id": expired_id}, "HistoryExpiry", key, "note")
-    verify(node)
     print("ttl worker dropped the expired history copy", flush=True)
 
 
@@ -261,7 +247,6 @@ def exercise(node, binary):
     expected = page["current"]["mutation"]
     cli(node, binary, "restore", entry, "--expected-mutation", expected)
     cli(node, binary, "restore", entry, "--expected-mutation", expected, success=False)
-    verify(node)
     print("keep, canonical field policy, CLI fetch, restore, and stale-write refusal passed", flush=True)
     node.stop()
     node.start()
@@ -269,7 +254,6 @@ def exercise(node, binary):
     write(node, operation="delete")
     require(len(history(node, {"op": "list"})["entries"]) >= 3, "delete removed ordinary history")
     cli(node, binary, "restore", entry, "--absent")
-    verify(node)
     print("restart, delete retention, and restore of an absent key passed", flush=True)
     cli(node, binary, "policy", "ttl", "--seconds", "2")
     write(node, "short-lived-old")
@@ -281,7 +265,6 @@ def exercise(node, binary):
     after = history(node, {"op": "list"})
     require(not any(e["id"] in expiring for e in after["entries"]), "expired entries remain visible")
     require(any(e["id"] == entry for e in after["entries"]), "policy change changed old keep entries")
-    verify(node)
     print("per-field TTL and fixed expiry of existing entries passed", flush=True)
     cli(node, binary, "policy", "off")
     count = len(history(node, {"op": "list"})["entries"])
@@ -305,8 +288,7 @@ def exercise(node, binary):
     else:
         raise RuntimeError("bounded history purge did not complete")
     require(history(node, {"op": "list"})["entries"] == [], "purge retained selected history")
-    verify(node)
-    print("off policy, bounded history purge, and final reference verification passed", flush=True)
+    print("off policy and bounded history purge passed", flush=True)
     cli(node, binary, "policy", "keep")
     write(node, "before-delete")
     write(node, operation="delete")
@@ -325,8 +307,7 @@ def exercise(node, binary):
         require("Purge target not found" in str(error), "a second purge failed for another reason")
     else:
         raise RuntimeError("a purge of a key with no record and no history did not refuse")
-    verify(node)
-    print("compliance purge of a key with only history and final reference verification passed", flush=True)
+    print("compliance purge of a key with only history passed", flush=True)
     kept = [("HistoryById", {"hash": "capture-one"}), ("HistoryByBucket", {"hash": "bucket-one", "range": "one"}),
             ("HistoryAlternate", {"hash": "move-one"})]
     listed = sum(len(history(node, {"op": "list"}, schema, key)["entries"]) for schema, key in kept)
@@ -356,7 +337,7 @@ def main():
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        require(marker_format(marker) == 9, "the new home is not format 9: " + repr(marker))
+        require(marker_format(marker) == HOME_FORMAT, f"the new home is not format {HOME_FORMAT}: " + repr(marker))
         exercise(node, args.cli.resolve())
     finally:
         node.close()

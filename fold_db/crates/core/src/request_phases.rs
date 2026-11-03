@@ -3,17 +3,16 @@
 //! The request-ops telemetry (`lastdb_node::request_telemetry::PhaseTimings`)
 //! wants to know *where inside the node* a request spent its time. For a
 //! mutation that is QoS admission wait, parse, schema resolve, validate,
-//! write-gate `field_key_gate`, `cas_precondition`, apply,
-//! persist, flush, cloud-sync capture,
-//! background index wait, change recording, and response envelope rendering.
+//! `cas_precondition`, the idempotency check, grouping, apply, background
+//! index wait, change recording, and response envelope rendering.
 //! For a query it is admission wait, parse, schema resolve, the index
-//! `count`, row `hydrate`, and conflict `annotate`. For status it is the
+//! `count` and record `hydrate`. For status it is the
 //! snapshot components that can otherwise hide synchronous ops-surface work:
 //! durability marker evaluation, data-dir sizing,
 //! and request-ops snapshot copying.
 //! Those phases are measured in three different
 //! crates (`lastdb_node` parses, `lastdb_host` resolves/validates/admits,
-//! this crate applies/persists), so threading a collector parameter through
+//! this crate applies), so threading a collector parameter through
 //! every signature would churn public APIs for a diagnostic.
 //!
 //! Instead, the socket executor wraps request dispatch in
@@ -30,20 +29,16 @@
 //!
 //! # Counts, alongside the timings
 //!
-//! A phase total answers "how long", never "how much work". That gap is not
-//! academic: measured on the primary 2026-08-17, `persist_field_keys` for
-//! kanban BoardCards mutations read 7.80 s/req at 15:0xZ and 2.27 s/req at
-//! 17:1xZ — a 3.4x move with NO change to that code path in the running
-//! binary (fold #1546, which restructures it, is not an ancestor of the
-//! running build). Node state alone moves the wall clock by more than the
-//! optimisation being evaluated is expected to save, so a before/after read
-//! of the phase cannot attribute anything.
+//! A phase total answers "how long", never "how much work". Node state alone
+//! can move a phase's wall clock by more than the change being evaluated is
+//! expected to save, so a before/after read of the phase cannot attribute
+//! anything.
 //!
 //! [`RequestCounter`] is the companion: a small set of *counts of work
 //! issued*, accumulated over the same task-local seam. A count is immune to
 //! IO contention, page-cache state and concurrent load, so it answers
-//! structural questions ("did this mutation issue one durable field key
-//! commit or twenty-four?") that the clock cannot answer at all.
+//! structural questions ("did this request publish one resident commit or
+//! nine?") that the clock cannot answer at all.
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -115,8 +110,6 @@ pub fn add_counter(counter: RequestCounter, n: u64) {
     let _ = REQUEST_METRICS.try_with(|cell| {
         let mut metrics = cell.borrow_mut();
         let slot = match counter {
-            RequestCounter::FieldKeysPersisted => &mut metrics.counts.field_keys_persisted,
-            RequestCounter::FieldKeyStoreCommits => &mut metrics.counts.field_key_store_commits,
             RequestCounter::ResidentCommits => &mut metrics.counts.resident_commits,
             RequestCounter::ResidentOperations => &mut metrics.counts.resident_operations,
         };
@@ -148,28 +141,15 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::Parse => &mut totals.parse_us,
             RequestPhase::SchemaResolve => &mut totals.schema_resolve_us,
             RequestPhase::Validate => &mut totals.validate_us,
-            RequestPhase::FieldKeyGate => &mut totals.field_key_gate_us,
             RequestPhase::CasPrecondition => &mut totals.cas_precondition_us,
             RequestPhase::Count => &mut totals.count_us,
             RequestPhase::Hydrate => &mut totals.hydrate_us,
             RequestPhase::HydrateRecords => &mut totals.hydrate_records_us,
             RequestPhase::HydrateFormat => &mut totals.hydrate_format_us,
             RequestPhase::HydrateSort => &mut totals.hydrate_sort_us,
-            RequestPhase::Annotate => &mut totals.annotate_us,
             RequestPhase::Apply => &mut totals.apply_us,
-            RequestPhase::ApplyMemory => &mut totals.apply_memory_us,
-            RequestPhase::SchemaLoad => &mut totals.schema_load_us,
-            RequestPhase::SchemaReload => &mut totals.schema_reload_us,
-            RequestPhase::RestoreFieldKeys => &mut totals.restore_field_keys_us,
             RequestPhase::Grouping => &mut totals.grouping_us,
             RequestPhase::IdempotencyCheck => &mut totals.idempotency_check_us,
-            RequestPhase::SyncUuids => &mut totals.sync_uuids_us,
-            RequestPhase::SpawnIndexing => &mut totals.spawn_indexing_us,
-            RequestPhase::Persist => &mut totals.persist_us,
-            RequestPhase::PersistFieldKeys => &mut totals.persist_field_keys_us,
-            RequestPhase::PersistSchema => &mut totals.persist_schema_us,
-            RequestPhase::PersistIdempotency => &mut totals.persist_idempotency_us,
-            RequestPhase::Flush => &mut totals.flush_us,
             RequestPhase::IndexWait => &mut totals.index_wait_us,
             RequestPhase::ChangeRecord => &mut totals.change_record_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,

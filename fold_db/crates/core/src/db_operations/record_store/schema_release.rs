@@ -16,11 +16,9 @@
 //! batches (an error, a timeout) leaves the schema installed, and the next drop
 //! goes on: it passes the deleted keys and releases the rest.
 //!
-//! - A record's file path (`fb:{S}:`, in `cas_blobs`) goes with the record,
-//!   and its conflict rows, their queue entries and its conflict marker go in
-//!   the same batch, as a purge does (`purged_record_conflicts`). The path
-//!   comes from the record key (`record_files::dropped_file_paths`); a record
-//!   row that does not decode loses its path too.
+//! - A record's file path (`fb:{S}:`, in `cas_blobs`) goes with the record.
+//!   The path comes from the record key (`record_files::dropped_file_paths`).
+//!   A record row that does not decode fails the drop.
 //! - A field history entry goes with its queue entry and the entry count of
 //!   its record (`release_dropped_history`).
 //! - An alternate entry holds no file.
@@ -145,20 +143,13 @@ impl RecordStore {
             .map(|(key, _)| KvMutation::delete(key.as_bytes().to_vec()))
             .collect();
         let mut files = Vec::new();
-        let batch = match family {
-            Family::History | Family::Alternates => deletes,
-            Family::Records => {
-                files = dropped_file_paths(
-                    rows.iter()
-                        .map(|(key, value)| (key.as_bytes(), value.as_slice())),
-                );
-                let records: Vec<&str> = rows.iter().map(|(key, _)| key.as_str()).collect();
-                let mut batch = self.purged_record_conflicts(&records).await?;
-                batch.extend(deletes);
-                batch
-            }
-        };
-        self.raw().inner().batch_mutate(batch).await?;
+        if matches!(family, Family::Records) {
+            files = dropped_file_paths(
+                rows.iter()
+                    .map(|(key, value)| (key.as_bytes(), value.as_slice())),
+            )?;
+        }
+        self.raw().inner().batch_mutate(deletes).await?;
         self.stage_file_rows(files.into_iter().map(KvMutation::delete).collect())
             .await?;
         Ok(count)

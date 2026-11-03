@@ -161,7 +161,21 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/storage/liveness/explain` and the `blob_counters` block of
 /// `/api/status` are removed with the blob counter. `verify-refs` reports
 /// only the retention queue. The delete ledger names `file_records_erased`.
-pub const API_VERSION: u32 = 23;
+/// `24` (2026-11-03) removes the app blob routes
+/// `PUT|GET /api/app/blob/cas/sha256/{hash}`,
+/// `PUT|GET /api/app/org/{org_hash}/blob/cas/sha256/{hash}` and
+/// `GET /api/app/blob/footprint`. They had no backend and answered a
+/// content-free 404, which an unknown path still answers. No other request
+/// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// `25` (2026-11-03) removes the kept conflict rows. It removes
+/// `POST /api/conflicts/keys`, `GET|POST /api/db/verify-refs` and
+/// `GET /api/db/verify-refs/scopes`. A query record has no `has_conflicts`
+/// or `conflicted_fields`, and a query page has no `conflict_flags`.
+/// `/api/status` removes the `verify_refs` and `conflict_retention` blocks
+/// and the `annotate` request phase. `lastdb db recount` only raises the
+/// replay cutoff. No other request changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 25;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -287,12 +301,6 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
-        // The counter verifier: GET reads the last result, POST runs one step.
-        "/api/db/verify-refs" if owner => match method {
-            "GET" => ControlRoute::Data(DataRoute::DbVerifyRefsLast),
-            "POST" => ControlRoute::Data(DataRoute::DbVerifyRefs),
-            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
-        },
         "/api/db/catalog" if owner => match method {
             "GET" => ControlRoute::Data(DataRoute::DbCatalogGet),
             "POST" | "PUT" => ControlRoute::Data(DataRoute::DbCatalogPut),
@@ -347,38 +355,7 @@ fn route_prefixed(path: &str, method: &str, owner: bool) -> Option<ControlRoute>
             ControlRoute::Data(DataRoute::GetSchema),
         ));
     }
-    if one_segment(path, "/api/app/blob/cas/sha256/").is_some() {
-        return Some(blob_route(
-            method,
-            DataRoute::AppBlobPut,
-            DataRoute::AppBlobGet,
-        ));
-    }
-    let org_blob = path
-        .strip_prefix("/api/app/org/")
-        .and_then(|rest| rest.split_once("/blob/cas/sha256/"))
-        .is_some_and(|(org_hash, hash)| {
-            !org_hash.is_empty()
-                && !org_hash.contains('/')
-                && !hash.is_empty()
-                && !hash.contains('/')
-        });
-    if org_blob {
-        return Some(blob_route(
-            method,
-            DataRoute::AppOrgBlobPut,
-            DataRoute::AppOrgBlobGet,
-        ));
-    }
     None
-}
-
-fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
-    match method {
-        "PUT" => ControlRoute::Data(put),
-        "GET" => ControlRoute::Data(get),
-        _ => ControlRoute::MethodNotAllowed { allow: "GET, PUT" },
-    }
 }
 
 /// Owner-socket-only history route.

@@ -118,55 +118,6 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         Self::decode_rows(rows)
     }
 
-    /// Scan a prefix, **partitioning** rows into those that deserialize cleanly
-    /// and the keys of rows whose value is present but not decodable as `T`.
-    ///
-    /// This is the typed-layer analogue of
-    /// [`scan_prefix_partition_undecryptable`](KvStore::scan_prefix_partition_undecryptable):
-    /// the non-aborting, *reporting* counterpart to
-    /// [`Self::scan_items_with_prefix`], which fails the whole scan on the first
-    /// undecodable row. That layer partitions on **decrypt** failure; this one
-    /// partitions on **deserialize** failure, which is a distinct fault (an
-    /// empty row or a truncated segment decrypts fine and then fails
-    /// `serde_json`).
-    ///
-    /// **Won't-undo — this must stay opt-in, per call site.** Do not "fix" an
-    /// aborting scan by making [`Self::decode_rows`] skip bad rows globally: a
-    /// scan that silently returns fewer rows than exist is *selective record
-    /// hiding*, the exact shape of a read-integrity defect where callers are
-    /// served short with a `200 OK`. Callers of this method must surface what
-    /// was skipped — count it, log the keys, or both — never drop it quietly.
-    ///
-    /// Same fail-open/fail-closed rule as the decrypt-layer method: only use
-    /// this on namespaces that are **re-derivable**, where a temporarily missing
-    /// entry is recoverable. Never use it for capability, ACL, or revocation
-    /// records, where a dropped row silently grants access and must fail CLOSED.
-    pub async fn scan_items_with_prefix_partition_undecodable<T: DeserializeOwned + Send + Sync>(
-        &self,
-        prefix: &str,
-    ) -> StorageResult<PartitionedItems<T>> {
-        // Catalog boot walks the whole namespace with prefix "".
-        // `scan_prefix_partition_undecryptable` is the startup/admin walk.
-        let scan = self
-            .inner
-            .scan_prefix_partition_undecryptable(prefix.as_bytes())
-            .await?;
-        let mut items = Vec::with_capacity(scan.rows.len());
-        let mut undecodable = Vec::with_capacity(scan.undecryptable.len());
-        for key_bytes in scan.undecryptable {
-            let key = String::from_utf8_lossy(&key_bytes).into_owned();
-            undecodable.push((key, "undecryptable at-rest row".to_string()));
-        }
-        for (key_bytes, value_bytes) in scan.rows {
-            let key = String::from_utf8_lossy(&key_bytes).into_owned();
-            match serde_json::from_slice(&value_bytes) {
-                Ok(value) => items.push((key, value)),
-                Err(e) => undecodable.push((key, e.to_string())),
-            }
-        }
-        Ok(PartitionedItems { items, undecodable })
-    }
-
     /// Get at most `limit` items with a given prefix, in ascending key order —
     /// the bounded, paginated counterpart to [`Self::scan_items_with_prefix`].
     /// Backs a paginated list query so the read no longer materializes the whole

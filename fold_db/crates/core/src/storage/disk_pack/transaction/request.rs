@@ -50,8 +50,7 @@ where
     )
     .await;
     // A scope that staged nothing is not counted as a writer (`blocked::opened`): a poll
-    // that opens an empty scope (`verify-refs` does, at the start of a run) must not
-    // keep a background job in its duty-paced mode.
+    // that opens an empty scope must not keep a background job in its duty-paced mode.
     if !pending.is_empty().unwrap_or(false) {
         super::blocked::opened();
     }

@@ -6,9 +6,8 @@ use super::*;
 ///
 /// Zero-hide on both axes. As with the body-volume table, the table is ABSENT
 /// when no key reports phases. Within a row, zero phases are also omitted
-/// ([`PhaseTimings::detail`]). Flush in particular is ~0 by design
-/// on default builds (background flusher), so a printed `flush=0us` would
-/// read as broken instrumentation rather than a measurement.
+/// ([`PhaseTimings::detail`]): a printed `grouping=0us` on a query row would
+/// read as broken instrumentation rather than a phase the query never runs.
 ///
 /// The PHASED column uses `<reported>/<total>` as its honest denominator.
 /// Phase coverage is partial while only the mutation path reports, so a
@@ -84,9 +83,6 @@ pub(crate) fn phase_table_lines(aggregates: &[OpAggregate], labels: &SchemaLabel
     ));
     lines.push("  Phase details:".to_string());
     for (i, a) in selected.iter().enumerate() {
-        // `sum_field_keys_persisted` and `sum_field_key_store_commits` stay in
-        // the JSON and the rollup rows for their readers. The record model
-        // keeps both at zero, so the text output leaves them out.
         let mut tokens = phase_tokens(a.phase_sums);
         let resident = resident_commit_detail(a.sum_resident_operations, a.sum_resident_commits);
         if !resident.is_empty() {

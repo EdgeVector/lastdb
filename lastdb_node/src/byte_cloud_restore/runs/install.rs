@@ -34,10 +34,7 @@ pub(super) fn verify(
         lock.sync_all()?;
         File::open(&home)?.sync_all()?;
     }
-    let profile = root
-        .run
-        .as_ref()
-        .ok_or(RestoreError::Invalid("run profile"))?;
+    let profile = &root.run;
     let proof = run_restore::verify(&data, profile, &root.native_root, keys.content_key())
         .map_err(RestoreError::native_proof)?;
     for file in proof.files() {

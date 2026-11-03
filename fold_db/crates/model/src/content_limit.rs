@@ -26,6 +26,6 @@ pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
 /// (`record_value::MAX_RECORD_BYTES`). The `413` body `hint` and the error
 /// message both carry this text.
 pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
-    encoded value must fit the 64 KiB record cap. Move a large field to a file blob (CAS) and \
-    keep its pointer in the record, or write a list that grows as one record per entry in a \
-    HashRange schema (hash = partition, range = entry key).";
+    encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
+    (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \
+    (hash = partition, range = entry key).";

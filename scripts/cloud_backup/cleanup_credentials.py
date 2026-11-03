@@ -24,7 +24,7 @@ def pending_credential(name):
 
 
 def credential_names(directory):
-    yield from ("cloud_sync.json", "cloud_sync.json.paused")
+    yield "cloud_sync.json.paused"
     # The publisher uses these direct-child temporaries for both credentials
     # and its consent record. Never touch the published consent or identity.
     pending = []

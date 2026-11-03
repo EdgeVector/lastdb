@@ -11,9 +11,6 @@ pub(super) async fn dispatch_core(
     Some(match route {
         DataRoute::Query => heap_route!(execute_query_route, req, ctx, host).await,
         DataRoute::QueryBatch => heap_route!(execute_query_batch_route, req, ctx, host).await,
-        DataRoute::ConflictMetadata => {
-            heap_route!(execute_conflict_metadata_route, req, ctx, host).await
-        }
         DataRoute::Mutation => heap_route!(execute_mutation_route, req, ctx, host).await,
         DataRoute::MutationBatch => {
             heap_route!(execute_mutations_batch_route, req, ctx, host).await
@@ -31,17 +28,12 @@ pub(super) async fn dispatch_core(
             heap_route!(execute_retire_schema_name_claim_route, req, ctx, host).await
         }
         DataRoute::DropSchema => heap_route!(execute_drop_schema_route, req, ctx, host).await,
-        DataRoute::Status => heap_route!(execute_status_route, req, ctx, host).await,
+        DataRoute::Status => execute_status_route(req, ctx, host),
         DataRoute::AdminShed => heap_route_ctx_host!(execute_admin_shed_route, ctx, host).await,
         DataRoute::LogFilterGet => execute_log_filter_get_route(ctx),
         DataRoute::LogFilterSet => execute_log_filter_set_route(req, ctx),
         DataRoute::DbInventory => heap_route_ctx_host!(execute_db_inventory_route, ctx, host).await,
         DataRoute::DbSchemas => heap_route_ctx_host!(execute_db_schemas_route, ctx, host).await,
-        DataRoute::DbVerifyRefs => heap_route!(execute_db_verify_refs_route, req, ctx, host).await,
-        DataRoute::DbVerifyRefsLast => execute_db_verify_refs_last_route(ctx, host),
-        DataRoute::DbVerifyRefsScopes => {
-            heap_route_ctx_host!(execute_db_verify_refs_scopes_route, ctx, host).await
-        }
         _ => return None,
     })
 }
@@ -72,14 +64,6 @@ pub(super) async fn dispatch_search_app(
             heap_route!(execute_native_index_knn_route, req, ctx, host).await
         }
         DataRoute::FieldHistory => heap_route!(execute_field_history_route, req, ctx, host).await,
-        // No upload-storage backend in the minimal daemon; blob routes are
-        // structurally absent — content-free 404, exactly like an
-        // unrecognized path (I4).
-        DataRoute::AppBlobPut
-        | DataRoute::AppBlobGet
-        | DataRoute::AppOrgBlobPut
-        | DataRoute::AppOrgBlobGet
-        | DataRoute::AppBlobFootprint => content_free(404, "Not Found"),
         DataRoute::LocalWatch => execute_local_watch_route(req, ctx, host),
         DataRoute::AppChanges => heap_route!(execute_app_changes_route, req, ctx, host).await,
         _ => return None,

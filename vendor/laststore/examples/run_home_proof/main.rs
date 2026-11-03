@@ -6,9 +6,8 @@
 //! a read that holds an old CURRENT across merges, crash leftovers, kill -9
 //! of a writing child process, the owner lock, and a wrong key. The bound
 //! phases sample the disk size during commits and merges with values that do
-//! not compress. The values phase (V1b) checks that each stored value, in the
-//! compact form or as given, reads back with its exact bytes. It fails when
-//! the disk size is over 2x the live logical bytes. No primary or user data is
+//! not compress. It fails when the disk size is over 2x the live logical
+//! bytes. No primary or user data is
 //! opened.
 
 mod bound;
@@ -16,8 +15,6 @@ mod cleanup;
 mod compaction_space;
 mod crash;
 mod gen;
-mod value_gen;
-mod values;
 
 use gen::{apply, batch, logical_bytes, overwrite_batch, record_key, Model, RECORD_SCHEMAS};
 use laststore::disk_run::home::{HomeMutation, RangeBounds, ReadBudget, RunHome, RunRead};
@@ -98,7 +95,6 @@ fn run(scratch: &Path) -> Result<()> {
         return Err("no base merge step ran".into());
     }
     let (overwrites, overwrite_ratio) = check_overwrites(scratch, &key)?;
-    let (values_row, values_ratio) = values::check(scratch, &key)?;
     commit_us.sort_unstable();
     println!("| Check | Result |");
     println!("|---|---|");
@@ -120,7 +116,6 @@ fn run(scratch: &Path) -> Result<()> {
         "| Compaction space | {} |",
         compaction_space::run(scratch, &key)?
     );
-    println!("| Compact values (V1b) | {values_row} |");
     println!("| Read back | {checked} keys equal by key and by batch; {ranges} |");
     println!("| Held read across merges | {held_check} |");
     drop(home);
@@ -133,11 +128,7 @@ fn run(scratch: &Path) -> Result<()> {
         "| Owner lock and key | {} |",
         check_lock_and_key(&dir, &key)?
     );
-    let mut ratios = vec![
-        ("mixed", ratio),
-        ("overwrite-heavy", overwrite_ratio),
-        ("compact values", values_ratio),
-    ];
+    let mut ratios = vec![("mixed", ratio), ("overwrite-heavy", overwrite_ratio)];
     ratios.extend(bound::phases(scratch, &key)?);
     for (name, ratio) in ratios {
         if ratio > bound::LIMIT {
@@ -200,7 +191,7 @@ pub(crate) fn check_all(home: &RunHome, model: &Model) -> Result<usize> {
         }
     }
     for absent in ["never-written", "zz\0absent"] {
-        if read.get("blob_counts", absent)?.is_some() {
+        if read.get("metadata", absent)?.is_some() {
             return Err("an absent key returned a value".into());
         }
     }
@@ -243,17 +234,17 @@ fn check_ranges(home: &RunHome, model: &Model) -> Result<String> {
             records += got.len();
         }
     }
-    let mut cursor = read.administrative_range("blob_counts", b"", &[0xff])?;
-    let blob_counts = cursor.next_page(usize::MAX)?;
-    let live_blob_counts = model
+    let mut cursor = read.administrative_range("metadata", b"", &[0xff])?;
+    let metadata = cursor.next_page(usize::MAX)?;
+    let live_metadata = model
         .iter()
-        .filter(|((c, _), v)| c == "blob_counts" && v.is_some())
+        .filter(|((c, _), v)| c == "metadata" && v.is_some())
         .count();
-    if !blob_counts.exhausted || blob_counts.records.len() != live_blob_counts {
-        return Err("administrative range over blob counts differs".into());
+    if !metadata.exhausted || metadata.records.len() != live_metadata {
+        return Err("administrative range over metadata differs".into());
     }
     Ok(format!(
-        "{} ranges, {records} records equal; administrative range {live_blob_counts} blob counts equal",
+        "{} ranges, {records} records equal; administrative range {live_metadata} metadata entries equal",
         RECORD_SCHEMAS * 2
     ))
 }
@@ -322,7 +313,7 @@ fn check_lock_and_key(dir: &Path, key: &[u8; 32]) -> Result<String> {
     let home = RunHome::open(dir, key)?;
     let refused = home
         .commit(vec![HomeMutation {
-            collection: "blob_counts".into(),
+            collection: "metadata".into(),
             key: "x".repeat(70 * 1024),
             body: Some(b"too long".to_vec()),
         }])

@@ -1,19 +1,16 @@
 //! Mini-owned encrypted metadata. The byte service never interprets these values.
 //!
-//! Version 6 is the snapshot root of a format 9 home. Version 4 belongs to
-//! mutation-log roots.
+//! Version 7 is the snapshot root. Version 4 belongs to mutation-log roots.
 use super::{invalid, protocol, StorageResult};
 use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;
-use cloud_backup_protocol::{
-    DecimalU64, Digest, ExternalFileDependency, NativeRoot, RecoveryDescriptor,
-};
+use cloud_backup_protocol::{DecimalU64, Digest, NativeRoot, RecoveryDescriptor};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const CODEC_PLAINTEXT_MAX_BYTES: u64 = 256 * 1024;
 pub const CODEC_ENVELOPE_MAX_BYTES: u64 = CODEC_PLAINTEXT_MAX_BYTES + 29;
 /// New snapshot metadata; independent of the cloud protocol and disk versions.
-pub const CLIENT_VERSION: u16 = 6;
+pub const CLIENT_VERSION: u16 = 7;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
 
@@ -33,7 +30,6 @@ pub struct ClientPage {
     pub begin_sha256: Digest,
     pub descriptor_sha256: Digest,
     pub native_files: Vec<ClientNativeFile>,
-    pub external_dependencies: Vec<ExternalFileDependency>,
 }
 impl ClientPage {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
@@ -46,9 +42,8 @@ impl ClientPage {
         if self.page_index as usize >= MAX_CLIENT_PAGES
             || self.native_files.is_empty()
             || self.native_files.len() > MAX_PAGE_FILES
-            || !self.external_dependencies.is_empty()
         {
-            return Err(invalid("byte page unsupported entries or bounds"));
+            return Err(invalid("byte page bounds"));
         }
         let mut previous = None;
         for file in &self.native_files {
@@ -78,18 +73,12 @@ pub struct ClientRoot {
     pub recovery: RecoveryDescriptor,
     pub native_file_count: u64,
     pub native_bytes: u64,
-    pub external_dependency_count: u64,
     pub pages: Vec<ClientPageReference>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run: Option<super::RunBackupProfile>,
+    pub run: super::RunBackupProfile,
 }
 impl ClientRoot {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
-        if begin
-            .recovery_dependencies
-            .as_ref()
-            .is_some_and(|parents| !parents.is_empty())
-        {
+        if !begin.recovery_dependencies.is_empty() {
             return Err(invalid(
                 "a full snapshot cannot declare recovery dependencies",
             ));
@@ -100,10 +89,7 @@ impl ClientRoot {
             &self.descriptor_sha256,
             begin,
         )?;
-        let profile = self
-            .run
-            .as_ref()
-            .ok_or_else(|| invalid("run root profile missing"))?;
+        let profile = &self.run;
         profile.validate_root(&self.native_root)?;
         self.recovery
             .validate_for(&begin.job.stream.scope)
@@ -113,7 +99,6 @@ impl ClientRoot {
             || self.pages.is_empty()
             || self.pages.len() > MAX_CLIENT_PAGES
             || self.native_file_count > (self.pages.len() * MAX_PAGE_FILES) as u64
-            || self.external_dependency_count != 0
         {
             return Err(invalid("byte root identity or bounds"));
         }

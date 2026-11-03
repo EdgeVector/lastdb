@@ -214,32 +214,6 @@ pub trait KvStore: Send + Sync {
         scan::keyset_physical_page(self, start, end, cursor, limit, max_handles).await
     }
 
-    /// Scan a prefix, **partitioning** rows into those that read cleanly and
-    /// the keys of rows whose at-rest value cannot be decrypted.
-    ///
-    /// This is the non-aborting, *reporting* counterpart to
-    /// [`scan_prefix`](Self::scan_prefix), which fails the whole scan on the
-    /// first undecryptable row. It underpins the two maintenance paths that
-    /// must survive local at-rest "poison" rows without either aborting or
-    /// hiding them: a snapshot backup that skips + counts undecryptable rows,
-    /// and an explicit scrub that enumerates (and optionally deletes) them.
-    ///
-    /// The default implementation is for backends with no decrypt step: every
-    /// row is returned as good and `undecryptable` is empty. The encrypting
-    /// decorator overrides it to attempt decryption per row and collect the
-    /// keys it cannot read. A decorator that merely forwards reads must forward
-    /// this too, or its inherited default would shadow the encrypting override
-    /// and silently re-abort on a poison row.
-    async fn scan_prefix_partition_undecryptable(
-        &self,
-        prefix: &[u8],
-    ) -> StorageResult<PartitionedScan> {
-        Ok(PartitionedScan {
-            rows: self.scan_prefix(prefix).await?,
-            undecryptable: Vec::new(),
-        })
-    }
-
     /// Apply a batch of puts with the backend's documented failure and crash guarantees.
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()>;
 

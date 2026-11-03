@@ -20,29 +20,10 @@ pub struct OpSample {
     /// unchanged. Fixed-size `Copy` by design — see [`PhaseTimings`].
     #[serde(default, skip_serializing_if = "PhaseTimings::is_empty")]
     pub phases: PhaseTimings,
-    /// Field keys this request handed to the durable store.
-    ///
-    /// The denominator `phases.persist_field_keys_us` lacks. Request-scoped and
-    /// exact: this is counted at the site that issues the work, so it is never
-    /// charged for a concurrent caller.
-    /// Zero (and omitted) on every non-mutating request.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub field_keys_persisted: u64,
-    /// Awaited durable field-key-store operations this request issued.
-    ///
-    /// Read against [`Self::field_keys_persisted`] as a ratio: `24/24` is the
-    /// per-field-key store path, `24/1` is the shared batch commit. A wall-clock
-    /// read of `persist_field_keys_us` cannot separate those two — it moved 3.4x
-    /// on the primary in two hours with no change to the code path at all —
-    /// which is why the count exists.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub field_key_store_commits: u64,
     /// Logical resident commits this request published — one per caller batch
     /// that reached the apply gates.
     ///
-    /// Zero (and omitted) on every non-mutating request, and on a row written
-    /// by a binary before this counter existed. That is unmigrated, not
-    /// measured-as-zero.
+    /// Zero (and omitted) on every non-mutating request.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub resident_commits: u64,
     /// Operations carried by those commits: created + updated + deleted +
@@ -74,9 +55,8 @@ pub struct OpSample {
     /// HTTP method + path without query/fragment (e.g. `GET /api/schemas`).
     ///
     /// Forensic detail for ONE sample, never an aggregation key: several
-    /// routes carry caller data in the path (`/api/schema/<name>`,
-    /// `/api/app/blob/cas/sha256/<digest>`), so keying on it would mint a
-    /// telemetry key per schema and per digest. Use
+    /// routes carry caller data in the path (`/api/schema/<name>`), so
+    /// keying on it would mint a telemetry key per schema. Use
     /// [`Self::route`] for identity. Omitted when not recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,

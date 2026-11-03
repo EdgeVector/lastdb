@@ -35,7 +35,7 @@ def logical_storage(node):
 
 
 def validate_logical(report, home_format):
-    """A format 8 home stores one record per key. Its logical bytes are the stored record values."""
+    """A home stores one record per key. Its logical bytes are the stored record values."""
     rows = report["per_schema"]
     if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]
@@ -234,7 +234,7 @@ def render(comparison):
     lines.extend(["", "The ceiling is 1.5× logical bytes. Equality is within the budget.",
                   "Logical bytes use GET /api/db/schemas, the same measure as lastdb db schemas: "
                   "the stored record values of the home.",
-                  "Database disk is the greater of file lengths and allocated blocks under data/ and blobs/.",
+                  "Database disk is the greater of file lengths and allocated blocks under data/.",
                   "The Search queue includes apps/search/inbox/; other home files and the whole home remain explicit.",
                   "Each category retains both file lengths and allocated blocks; its raw totals add exactly to the whole home.",
                   "Each checkpoint follows durable flush and verified keyed reads, then three stable seconds, with a 90-second deadline.",

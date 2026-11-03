@@ -114,7 +114,7 @@ fn clamp_field_value_limit(n: usize) -> usize {
             requested = n,
             absolute_max = ABSOLUTE_MAX_FIELD_VALUE_BYTES,
             env = MAX_FIELD_VALUE_BYTES_ENV,
-            "field value limit above absolute max; clamping (use file-blob/CAS for larger payloads)"
+            "field value limit above absolute max; clamping (use the record's file for larger payloads)"
         );
         return ABSOLUTE_MAX_FIELD_VALUE_BYTES;
     }

@@ -26,9 +26,9 @@
 //! CURRENT does not name when it opens the home. Nothing is replayed: the
 //! last CURRENT is the complete state.
 //!
-//! A commit stores each value in its [`crate::disk_run::value`] form, and a
-//! read returns the value as given. The block seal of every run is the
-//! encryption at rest; the home key protects every run and CURRENT.
+//! A commit stores each value as given, and a read returns those bytes. The
+//! block seal of every run is the encryption at rest; the home key protects
+//! every run and CURRENT.
 
 mod capture;
 mod cleanup;
@@ -80,14 +80,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use uuid::Uuid;
 
-/// File name of the clear home descriptor. Its presence selects format v2.
+/// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-/// `LDRHOME3`: values in their tagged stored form.
-const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME3";
+/// `LDRHOME4`: every value is stored as given.
+const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
 const DESCRIPTOR_BYTES: usize = 64;
 
-/// Largest value that a commit accepts: its stored form adds one tag byte.
-pub const MAX_VALUE_BYTES: usize = super::MAX_RUN_VALUE_BYTES - 1;
+/// Largest value that a commit accepts.
+pub const MAX_VALUE_BYTES: usize = super::MAX_RUN_VALUE_BYTES;
 
 /// Level and size facts of the published CURRENT.
 #[derive(Debug, Clone, PartialEq, Eq)]

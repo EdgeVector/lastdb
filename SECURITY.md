@@ -14,12 +14,13 @@ material that clears from memory after use.
 
 Current state, in short:
 
-- A format 8 home encrypts every block of its run files with AES-256-GCM.
+- A home encrypts every block of its run files with AES-256-GCM.
   Records, alternate entries, field key metadata, and all other entries are
   inside those blocks.
 - Each hash in storage is blinded with the blind key of its field key.
-- Each file blob has its own key. Local file blobs also have an envelope under
-  the account content key.
+- Each record file has its own key, derived from the account key and the
+  file's plaintext SHA-256. The sealed file is a row in the `cas_blobs` run
+  home, so its bytes are also inside the encrypted run file blocks.
 - All data keys come from the plaintext `identity.key` seed (owner-only file
   permissions). A person who obtains the seed can derive every data key.
 - With Search on, searchable field values go to the Search inbox as plain JSON
@@ -30,5 +31,5 @@ Current state, in short:
 - **One key root.** A home opens only with the key that wrote its account-key
   proof. A wrong key gets a refusal; the program does not make a new key.
 - **No silent key rotation.** No fallback path writes over an existing key.
-- **E2E before egress.** The cloud backup sends the encrypted run files, and
-  file blob uploads are encrypted on the client. The cloud stores ciphertext only.
+- **E2E before egress.** The cloud backup sends the encrypted run files,
+  record files included. The cloud stores ciphertext only.

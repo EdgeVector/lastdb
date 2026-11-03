@@ -23,7 +23,7 @@ pub(super) fn build(
             id,
             path: file.path.clone(),
             bytes: file.bytes,
-            destination: Some(destination(file)),
+            destination: destination(file),
         })
         .collect();
     files.sort_by(|a, b| a.path.as_str().cmp(b.path.as_str()));

@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 struct KeyCount {
-    version: u8,
     records: u64,
 }
 type CountRows = (Vec<(String, Value)>, Vec<Vec<u8>>);
@@ -57,13 +56,7 @@ impl RecordStore {
             if count == 0 {
                 deletes.push(key.into_bytes());
             } else {
-                rows.push((
-                    key,
-                    serde_json::json!(KeyCount {
-                        version: 1,
-                        records: count
-                    }),
-                ));
+                rows.push((key, serde_json::json!(KeyCount { records: count })));
             }
         }
         Ok((rows, deletes))

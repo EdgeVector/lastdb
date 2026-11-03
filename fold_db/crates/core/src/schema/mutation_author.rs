@@ -20,8 +20,8 @@ pub fn sign_mutation_author_clock(mutation: &Mutation, keypair: &Ed25519KeyPair)
 /// Verify the mutation author signature.
 ///
 /// Version zero is the independent unsigned-input contract: it carries no
-/// logical counter or author signature. Signed input uses only the current
-/// domain and framed content hash; older signature versions receive a refusal.
+/// logical counter or author signature. Signed input uses the current domain
+/// and framed content hash. Every other version fails verification.
 /// Field key signature version one remains independent and unchanged.
 #[must_use]
 pub fn verify_mutation_author_clock(mutation: &Mutation) -> bool {

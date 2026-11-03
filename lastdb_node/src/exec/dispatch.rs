@@ -76,9 +76,9 @@ where
 
     // Phase accumulator scope: mutation-path recording sites (parse here in
     // exec, resolve/validate/admission/index-wait in `lastdb_host::handlers`,
-    // apply/persist/flush lifted from fold_db core's timing breakdown) add
-    // into this request's totals. Non-mutation routes add nothing, so their
-    // samples keep an absent phase set by construction.
+    // grouping/idempotency-check/apply lifted from fold_db core's timing
+    // breakdown) add into this request's totals. Non-mutation routes add
+    // nothing, so their samples keep an absent phase set by construction.
     let (resp, phase_totals, work_counts) = Box::pin(fold_db::request_phases::run_with_phases(
         fold_db::user_context::run_with_user(&user_hash, work),
     ))
@@ -109,8 +109,6 @@ where
         rows,
         body_bytes,
         phases: phase_timings(queue_wait_us, &phase_totals),
-        field_keys_persisted: work_counts.field_keys_persisted,
-        field_key_store_commits: work_counts.field_key_store_commits,
         resident_commits: work_counts.resident_commits,
         resident_operations: work_counts.resident_operations,
         uds_in_flight: uds_snapshot.map(|snap| snap.in_flight),
@@ -149,9 +147,8 @@ fn attribute_client(
 /// Bounded identity label for the route the router already matched.
 ///
 /// `OpSample::path` is the raw target, so it cannot be an aggregation key:
-/// `/api/schema/<name>` and `/api/app/blob/cas/sha256/<digest>` put caller
-/// data in the path and would mint one telemetry key per schema and per
-/// digest.
+/// `/api/schema/<name>` puts caller data in the path and would mint one
+/// telemetry key per schema.
 /// [`DataRoute`] is the opposite by construction — its own doc says the
 /// variant "carries only route identity, with no caller data" — so the set of
 /// labels is bounded by the route table and a label is safe in a key.
@@ -218,7 +215,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::Query | DataRoute::ListRecordKeys => OpKind::Query,
         DataRoute::Mutation => OpKind::Mutation,
         DataRoute::MutationBatch => OpKind::MutationBatch,
-        DataRoute::QueryBatch | DataRoute::ConflictMetadata => OpKind::QueryBatch,
+        DataRoute::QueryBatch => OpKind::QueryBatch,
         DataRoute::Status
         | DataRoute::AutoIdentity
         | DataRoute::BootIdentity

@@ -22,7 +22,7 @@ The daemon version must contain its selected source revision.
 
 Each variant receives 16,384 records with four fields and 1 KiB generated bodies.
 Create mutations use batches of 128. Complete known-key reads use batches of 256.
-Two matched pairs run on format 8 homes: blinded hash keys and typed range keys.
+Two matched pairs run on fresh homes: blinded hash keys and typed range keys.
 Pair order reverses in the second pair.
 Automatic maintenance is off for both variants; the warm budget uses the product default.
 
@@ -99,7 +99,7 @@ Every returned value and the record metadata block must match the same-home refe
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
 The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary record metadata contract.
 The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields.
-Every record retains exactly `key`, `fields`, `metadata`, and `has_conflicts` (plus `conflicted_fields` on a conflicted record).
+Every record retains exactly `key`, `fields`, and `metadata`.
 The key retains both hash and range coordinates. `metadata` is one block for the record, or `null`.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.

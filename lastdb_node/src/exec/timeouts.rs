@@ -11,7 +11,7 @@ use super::*;
 pub const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
 
 /// Longer budget for owner DB admin scans (`/api/db/inventory`,
-/// `/api/db/verify-refs`) — full-prefix walks over multi-GiB stores.
+/// `/api/db/schemas`) — full-prefix walks over multi-GiB stores.
 /// Override with `LASTDB_UDS_ADMIN_TIMEOUT_SECS`.
 pub const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
 
@@ -126,7 +126,7 @@ where
 }
 
 /// Dispatch a data route with the right wall-clock budget (admin scans and
-/// schema-mutation declare get the longer inventory/verify-refs timeout).
+/// schema-mutation declare get the longer inventory timeout).
 ///
 /// `POST /api/schemas/declare` falls back to Schema Service register when the
 /// live resolver is cold; that path solves node-key proof-of-work (diff 18 can
@@ -181,7 +181,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         // Owner admin work that walks the store, or blocks on a remote service.
         // Full-prefix scans over a multi-GiB home; minutes, not seconds.
         DataRoute::DbInventory
-        | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
@@ -206,12 +205,9 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbFlush
         | DataRoute::DbCleanup
         | DataRoute::DbNativeStatus
-        | DataRoute::DbVerifyRefsLast
-        | DataRoute::DbVerifyRefsScopes
         | DataRoute::Mutation
         | DataRoute::MutationBatch
         | DataRoute::QueryBatch
-        | DataRoute::ConflictMetadata
         | DataRoute::ListSchemas
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema
@@ -226,11 +222,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
         | DataRoute::SeedSystemSchema
-        | DataRoute::AppBlobPut
-        | DataRoute::AppBlobGet
-        | DataRoute::AppOrgBlobPut
-        | DataRoute::AppOrgBlobGet
-        | DataRoute::AppBlobFootprint
         | DataRoute::HomeStorage
         | DataRoute::HomeStorageReconcile
         | DataRoute::DbCatalogGet

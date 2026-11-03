@@ -127,7 +127,6 @@ fn print_since_rollup(
         }
         Ok(RollupRead::Rows {
             snapshot: rollup,
-            omitted,
             truncated,
         }) => {
             for line in lastdb_node::request_telemetry::rollup_lines_with_schema_labels(
@@ -135,29 +134,6 @@ fn print_since_rollup(
                 schema_labels,
             ) {
                 println!("{line}");
-            }
-            // Say what the numbers above cannot account for. A narrowed
-            // projection still produces a well-formed table, so without
-            // this line a partial aggregate is indistinguishable from a
-            // complete one — the same unearned-confidence failure the
-            // empty-window ladder below exists to prevent.
-            if !omitted.is_empty() {
-                let width = rollup_projection().len();
-                println!(
-                    "  ^ PARTIAL: the registered schema declares {} of the {} columns this \
-                         build reads.",
-                    width.saturating_sub(omitted.len()),
-                    width
-                );
-                println!(
-                    "    Not projected, so reported as zero: {}",
-                    omitted.join(", ")
-                );
-                println!(
-                    "    The rollup schema is upgraded only by the durable writer, so a store \
-                         whose sink has been off lags the binary. Run with \
-                         LASTDB_SELF_METRICS_TO_DB=1 to let the daemon add them."
-                );
             }
             if truncated {
                 println!(
@@ -184,7 +160,9 @@ fn print_since_rollup(
                 }
             }
         }
-        Err(e) => println!("Request ops rollup: unavailable ({e})"),
+        // `--since` asked for the durable window; a read that cannot
+        // produce it, including a malformed record, fails the command.
+        Err(e) => return Err(format!("request ops rollup: {e}")),
     }
     Ok(())
 }
@@ -221,22 +199,16 @@ pub(crate) fn rollup_empty_reason(
     }
 }
 
-/// What a `--since` rollup read found, including how much of it the registered
-/// schema was able to answer.
+/// What a `--since` rollup read found.
 ///
-/// The read has three outcomes, and collapsing them loses the one the operator
-/// needs. `SchemaAbsent` is not an error and not an idle window — it is the
-/// signature of a daemon whose durable sink has never run, which the empty-window
-/// ladder already knows how to explain.
+/// `SchemaAbsent` is not an error and not an idle window — it is the
+/// signature of a daemon whose durable sink has never run, which the
+/// empty-window ladder already knows how to explain.
 pub(crate) enum RollupRead {
     /// `lastdb_telemetry/RequestOpsRollup` is not registered on this daemon.
     SchemaAbsent,
     Rows {
         snapshot: lastdb_node::request_telemetry::RequestOpsRollupSnapshot,
-        /// Fields this build wants that the registered schema does not declare.
-        /// Projected away so the query can run at all — and reported, because
-        /// the resulting aggregate is narrower than the one the code describes.
-        omitted: Vec<String>,
         /// The server capped the page and said there was more.
         truncated: bool,
     },

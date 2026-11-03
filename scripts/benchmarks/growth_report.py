@@ -174,7 +174,7 @@ def render(output, manifest, comparison):
                   "|---|---:|---:|---:|"])
     for case, item in comparison.items():
         lines.append(f"| {case} | {pair(item, 'search_queue_bytes')} | {pair(item, 'other_home_bytes')} | {pair(item, 'whole_home_disk_bytes')} |")
-    lines.extend(["", "Database figures include data/ and blobs/. Search delivery files stay separate under apps/search/inbox/.",
+    lines.extend(["", "Database figures include data/. Search delivery files stay separate under apps/search/inbox/.",
                   "Every checkpoint records file lengths and allocated blocks for each category and the whole home.",
                   "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
                   "Each checkpoint requires a durable flush. A v2 home has no explicit compaction.",
