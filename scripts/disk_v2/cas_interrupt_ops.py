@@ -1,14 +1,15 @@
-"""Owner-socket blob and record operations on one fresh generated CI node."""
+"""Owner-socket record file operations on one fresh generated CI node."""
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
-import time
 
 from node import UnixConnection
 
-COUNT, FILE_BYTES, SCHEMA = 256, 8192, "CasInterruptionLifecycle"
+COUNT, FILE_BYTES, SCHEMA, NOTE = 256, 8192, "CasInterruptionLifecycle", "generated record with one file"
+# Each purge batch is one native write, so one CAS deletion window.
+PURGE_BATCH = 4
 
 
 def require(value, message):
@@ -21,109 +22,130 @@ def parallel(function, items):
         return list(pool.map(function, items))
 
 
-def upload(node, number):
-    payload = hashlib.shake_256(f"generated CAS interruption file {number}".encode()).digest(FILE_BYTES)
-    result = node.call("/api/db/put-blob-local", {"bytes_b64": base64.b64encode(payload).decode()})[0]["file_blob"]
-    require(result["bytes"] == FILE_BYTES, "local blob upload size changed")
-    return {"pointer": result["pointer"], "sha256": hashlib.sha256(payload).hexdigest()}
+def key(number):
+    return f"file-{number:04d}"
 
 
-def mutate(node, pointers, operation):
-    rows = []
-    for number, pointer in enumerate(pointers):
-        key = f"file-{number:04d}"
-        fields = {"id": key}
-        if operation == "create":
-            fields.update(note="shared immutable value", file=pointer["pointer"])
-        rows.append({"type": "mutation", "schema": SCHEMA, "mutation_type": operation,
-                     "durability": "durable", "key_value": {"hash": key}, "fields_and_values": fields})
+def payload(number):
+    # The last two records hold equal bytes, each at its own path.
+    return hashlib.shake_256(f"generated CAS interruption file {min(number, COUNT)}".encode()).digest(FILE_BYTES)
+
+
+def put(node, number):
+    data = payload(number)
+    reply = node.call("/api/db/put-blob", {
+        "schema": SCHEMA, "key": {"hash": key(number)}, "bytes_b64": base64.b64encode(data).decode(),
+        "fields": {"id": key(number), "note": NOTE}})[0]
+    sha256 = hashlib.sha256(data).hexdigest()
+    require(reply["file"]["size_bytes"] == FILE_BYTES and reply["file"]["sha256"] == sha256,
+            "put-blob marker differs from the bytes")
+    return sha256
+
+
+def seed(node):
+    """Put COUNT + 2 records, each with one file. Return the expected state."""
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
+        "key": {"hash_field": "id"}, "fields": ["id", "note"], "field_types": {"id": "String"},
+        "field_descriptions": {field: SCHEMA + " " + field for field in ("id", "note")}}})
+    expected = parallel(lambda number: put(node, number), range(COUNT + 2))
+    records(node, expected)
+    files(node, expected)
+    return expected
+
+
+def purge(node, numbers):
+    rows = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "purge", "durability": "durable",
+             "key_value": {"hash": key(number)}, "fields_and_values": {"id": key(number)}}
+            for number in numbers]
     reply = node.call("/api/mutations/batch", {"mutations": rows})[0]
     require(len(reply["mutation_ids"]) == len(rows), "real mutation batch did not acknowledge every key")
 
 
-def seed(node):
-    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
-        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
-        "key": {"hash_field": "id"}, "fields": ["id", "note", "file"], "field_types": {"id": "String"},
-        "field_descriptions": {field: SCHEMA + " " + field for field in ("id", "note", "file")}}})
-    files = parallel(lambda number: upload(node, number), range(COUNT + 1))
-    # Two remaining keys share one pointer and one immutable field value.
-    pointers = [*files, files[-1]]
-    mutate(node, pointers, "create")
-    records(node, pointers, False)
-    mutate(node, pointers[:COUNT], "purge")
-    records(node, pointers, True)
-    return pointers
+def purge_all(node, stop):
+    """Purge the first COUNT records in small batches until done or stopped."""
+    for start in range(0, COUNT, PURGE_BATCH):
+        if stop.is_set():
+            return
+        try:
+            purge(node, range(start, start + PURGE_BATCH))
+        except Exception:
+            # The deliberate stop breaks the request in flight.
+            if stop.is_set():
+                return
+            raise
 
 
-def records(node, pointers, deleted):
-    queries = [{"schema_name": SCHEMA, "fields": ["id", "note", "file"],
-                "filter": {"HashKey": f"file-{number:04d}"}, "limit": 2}
-               for number in range(len(pointers))]
+def read(node, count):
+    queries = [{"schema_name": SCHEMA, "fields": ["id", "note"],
+                "filter": {"HashKey": key(number)}, "limit": 2}
+               for number in range(count)]
     batches = [queries[start:start + 32] for start in range(0, len(queries), 32)]
     groups = parallel(lambda batch: node.call("/api/queries/batch", {"queries": batch})[0]["results"], batches)
     replies = [reply for group in groups for reply in group]
-    require(len(replies) == len(pointers), "keyed read batch was incomplete")
-    for number, (reply, pointer) in enumerate(zip(replies, pointers)):
+    require(len(replies) == count, "keyed read batch was incomplete")
+    rows = []
+    for reply in replies:
         value = reply["response"]
         require(reply["status"] == 200 and value["ok"] is True
                 and not value.get("has_more", False),
                 "keyed read failed or returned incomplete data")
-        present = not deleted or number >= COUNT
-        rows = value["results"]
-        require(value["returned_count"] == int(present) and len(rows) == int(present),
-                "record presence differs from the durable purge")
-        if present:
-            key = f"file-{number:04d}"
-            require(rows[0]["key"] == {"hash": key, "range": None}
-                    and rows[0]["fields"] == {"id": key, "note": "shared immutable value", "file": pointer["pointer"]},
-                    "live shared record changed")
+        require(value["returned_count"] == len(value["results"]) <= 1, "one key returned more than one record")
+        rows.append(value["results"])
+    return rows
 
 
-def blob(node, file):
+def finish_purge(node):
+    """After the cut, purge the records that the stopped run did not reach."""
+    left = [number for number, rows in enumerate(read(node, COUNT)) if rows]
+    for start in range(0, len(left), 64):
+        purge(node, left[start:start + 64])
+
+
+def records(node, expected):
+    """`expected[n]` is None for an absent record, "" for a record with no
+    file, or the SHA-256 of the record's file."""
+    for number, (rows, want) in enumerate(zip(read(node, len(expected)), expected)):
+        require(len(rows) == int(want is not None), "record presence differs from the durable writes")
+        if want is not None:
+            marker = (rows[0].get("metadata") or {}).get("file") or {}
+            require(rows[0]["key"] == {"hash": key(number), "range": None}
+                    and rows[0]["fields"] == {"id": key(number), "note": NOTE}
+                    and marker.get("sha256", "") == want,
+                    "live record or its file marker changed")
+
+
+def fetch(node, number):
+    """The file of one record, or None when the record has no file."""
     connection = UnixConnection(node.socket)
     try:
-        raw = json.dumps({"pointer": file["pointer"]}).encode()
-        connection.request("POST", "/api/db/fetch-file-blob", raw,
+        raw = json.dumps({"schema": SCHEMA, "key": {"hash": key(number)}}).encode()
+        connection.request("POST", "/api/db/fetch-blob", raw,
                            {"Content-Type": "application/json", "Accept": "application/octet-stream",
                             "X-LastDB-Client": "cas-interruption-ci"})
         response = connection.getresponse()
         body = response.read(FILE_BYTES + 1)
         if response.status == 404:
-            # The ordinary owner-socket error renderer returns a plain body.
-            # Require its exact message, rather than accept any unrelated 404.
-            require(body == b"file blob was not found locally", "unrelated file refusal")
-            return False
-        require(response.status == 200 and len(body) == FILE_BYTES
-                and hashlib.sha256(body).hexdigest() == file["sha256"], "live file bytes changed")
-        return True
+            # Require the route's own message rather than accept any 404.
+            require(b"the record has no file" in body, "unrelated file refusal")
+            return None
+        require(response.status == 200, f"fetch-blob failed: HTTP {response.status}")
+        return body
     finally:
         connection.close()
 
 
-def files_after_recovery(node, pointers):
-    remaining = list(pointers[:COUNT])
-    deadline = time.monotonic() + 180
-    while remaining:
-        present = parallel(lambda file: blob(node, file), remaining)
-        remaining = [file for file, exists in zip(remaining, present) if exists]
-        require(time.monotonic() < deadline, "deleted file blobs remain after recovery and dwell")
-        if remaining:
-            time.sleep(1)
-    require(blob(node, pointers[-1]), "shared live file disappeared")
+def files(node, expected):
+    """Every record with a file fetches its exact bytes; no other record has one."""
+    bodies = parallel(lambda number: fetch(node, number), range(len(expected)))
+    for body, want in zip(bodies, expected):
+        if want:
+            require(body is not None and len(body) == FILE_BYTES
+                    and hashlib.sha256(body).hexdigest() == want, "live file bytes changed")
+        else:
+            require(body is None, "a record without a file returned bytes")
 
 
-def counters(node):
-    cursor, identity = None, None
-    for _step in range(64):
-        report = node.call("/api/db/verify-refs", {"cursor": cursor, "max_pages": 64, "max_ms": 30000})[0]["verify_refs"]
-        require(identity in (None, report["run_id"]), "counter verifier identity changed")
-        identity = report["run_id"]
-        if report["done"]:
-            require(report["next_cursor"] is None and report["mismatches_total"] == 0
-                    and not report["notes"],
-                    "reference verification did not prove exact blob counters")
-            return {"complete": True, "faults": 0}
-        require(report["next_cursor"] and report["next_cursor"] != cursor, "counter verifier cursor did not advance")
-        cursor = report["next_cursor"]
-    raise RuntimeError("counter verification exceeded the operation bound")
+def delete_file(node, number):
+    reply = node.call("/api/db/delete-blob", {"schema": SCHEMA, "key": {"hash": key(number)}})[0]
+    require(reply["deleted"] is True, "delete-blob did not remove the file")

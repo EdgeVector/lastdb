@@ -2,32 +2,39 @@
 """CI-only real process interruption during native CAS deletion and normal reopen."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import signal
 import sys
+import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from node import Node, file_hash, save
-from cas_interrupt_ops import COUNT, FILE_BYTES, require, seed, records, files_after_recovery, counters
+from cas_interrupt_ops import (COUNT, FILE_BYTES, require, seed, purge_all, finish_purge, records, files,
+                               delete_file)
 from cleanup import request_and_wait, verify_saved
 
 ATTEMPTS = 4
 
 
-def interrupt(node):
-    """Observe real file publication; never write or synthesize native state."""
+def interrupt(node, purging, stop):
+    """Observe real file publication while the purges run; never write or
+    synthesize native state. A record purge deletes the record's file in the
+    same native write, so each purge batch opens one window: main published,
+    CAS deletion pending."""
     intent = node.home / "data/disk-run/CAS_DELETE"
     current = node.home / "data/disk-run/CURRENT"
-    started, deadline = time.monotonic(), time.monotonic() + 210
-    while time.monotonic() < deadline:
+    started = time.monotonic()
+    while not purging.done():
         require(node.process.poll() is None, "owned writer exited before deliberate interruption")
         try:
             pending = intent.stat()
             published = current.stat()
             if published.st_mtime_ns > pending.st_mtime_ns and intent.exists():
+                stop.set()
                 process = node.process
                 process.kill()
                 process.wait(timeout=10)
@@ -37,13 +44,10 @@ def interrupt(node):
                 node.log = None
                 return {"signal": "SIGKILL", "owned_pid": process.pid,
                         "intent_present_after_stop": intent.exists(),
-                        "intent_sha256_after_stop": file_hash(intent) if intent.exists() else None,
                         "wait_seconds": round(time.monotonic() - started, 3)}
         except FileNotFoundError:
             pass
-        # The ordinary 120-second dwell stays in force. Poll closely only
-        # near its due boundary, rather than consume a CPU during that wait.
-        time.sleep(0.1 if time.monotonic() - started < 118 else 0.0002)
+        time.sleep(0.0001)
     return {"signal": None, "intent_present_after_stop": False,
             "wait_seconds": round(time.monotonic() - started, 3)}
 
@@ -53,15 +57,19 @@ def attempt(args, number):
     output.mkdir()
     node = Node(args.candidate, args.candidate_revision, output, environment={
         "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
-        "LASTDB_TTL_SWEEP": "0", "LASTDB_BLOB_DWELL_SECS": "120", "LASTDB_BLOB_DWELL_CHUNK": "64",
-        "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "EXEMEM_API_URL": "http://127.0.0.1:9",
-        "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
+        "LASTDB_TTL_SWEEP": "0", "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
+        "EXEMEM_API_URL": "http://127.0.0.1:9", "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
     complete = False
     result = {"observed_completed_recovery": False}
     try:
         node.start()
-        pointers = seed(node)
-        result["interruption"] = interrupt(node)
+        expected = seed(node)
+        stop = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            purging = pool.submit(purge_all, node, stop)
+            result["interruption"] = interrupt(node, purging, stop)
+            # The purge thread ends before any request can reach a new boot.
+            purging.result()
         if node.process is not None:
             node.stop()
         node.start()
@@ -81,17 +89,17 @@ def attempt(args, number):
         if result["interruption"]["intent_present_after_stop"]:
             require(recovered is not None and recovered["intent_released"] is True,
                     "normal open did not release the saved intent")
-            # Other due dwell chunks resume after normal open. A new intent
-            # has a fresh authenticated frame id; it must not be the saved one.
-            try:
-                current_intent = file_hash(intent)
-            except FileNotFoundError:
-                current_intent = None
-            require(current_intent != result["interruption"]["intent_sha256_after_stop"],
-                    "reopen retained the original deletion intent")
-        records(node, pointers, True)
-        files_after_recovery(node, pointers)
-        result["counters"] = counters(node)
+        # Nothing else deletes a file, so an idle node holds no intent.
+        require(not intent.exists(), "reopen retained the deletion intent")
+        finish_purge(node)
+        expected[:COUNT] = [None] * COUNT
+        records(node, expected)
+        files(node, expected)
+        # Two records with equal bytes hold two files: deleting one keeps the other.
+        delete_file(node, COUNT)
+        expected[COUNT] = ""
+        records(node, expected)
+        files(node, expected)
         receipt = request_and_wait(node)
         node.stop()
         require(not intent.exists(), "completed cleanup retained a deletion intent")
@@ -99,12 +107,11 @@ def attempt(args, number):
         node.start()
         require(node.call("/api/db/native-status")[0]["native_disk"]["cas_delete_recovery"] is None,
                 "a second normal boot repeated the deletion recovery")
-        records(node, pointers, True)
-        files_after_recovery(node, pointers)
+        records(node, expected)
+        files(node, expected)
         verify_saved(node, receipt)
-        result.update(observed_completed_recovery=observed, deleted_records=COUNT,
-                      deleted_blobs=COUNT, live_records=2, live_blobs=1,
-                      live_file_bytes=FILE_BYTES, live_file_sha256=pointers[-1]["sha256"],
+        result.update(observed_completed_recovery=observed, deleted_records=COUNT, live_records=2,
+                      live_files=1, live_file_bytes=FILE_BYTES, live_file_sha256=expected[-1],
                       cleanup=receipt, complete_cleanup=True, normal_reopened_boots=2, no_forged_state=True)
         result["intent_absent_after_cleanup"] = True
         node.stop()
@@ -152,7 +159,9 @@ def main():
             break
     save(args.output / "operation.json", summary)
     require(summary["complete"], "no authenticated main-published/CAS-pending interruption cut was captured")
-    print("PASS: real interrupted CAS deletion recovered; 256 deleted blobs absent, two live records share one exact file; counters and cleanup complete; second boot does not replay", flush=True)
+    print(f"PASS: real interrupted CAS deletion recovered; {COUNT} purged records have no file; "
+          "two records with equal bytes hold separate files, and deleting one keeps the other; "
+          "cleanup complete; second boot does not replay", flush=True)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ use super::physical::{V2Home, CAS_COLLECTION};
 use super::*;
 use serde::{Deserialize, Serialize};
 
-/// Recovery performed by the normal open during this boot. No blob keys enter it.
+/// Recovery performed by the normal open during this boot. No file keys enter it.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct CasDeleteRecovery {
     pub outcome: CasDeleteRecoveryOutcome,
@@ -140,7 +140,7 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
     {
         return Err(invalid("CAS deletion intent identity or frontier mismatch"));
     }
-    // No main publication: retain every blob. No accepted reference was removed.
+    // No main publication: keep every file row. No record lost its file.
     // A CAS-only batch whose additions did not commit is also incomplete.
     let committed = main == intent.main_after && cas >= intent.cas_after_add;
     let intent_keys = intent.keys.len() as u64;
