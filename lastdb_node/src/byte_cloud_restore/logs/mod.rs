@@ -135,15 +135,7 @@ fn finish(
     let (files, bytes) = proof
         .totals()
         .map_err(|_| RestoreError::Invalid("replayed native totals"))?;
-    context(session, &root).finish_run(
-        keys,
-        super::NativeInventory {
-            files,
-            bytes,
-            dependencies: 0,
-        },
-        &proof,
-    )
+    context(session, &root).finish_run(keys, super::NativeInventory { files, bytes }, &proof)
 }
 
 async fn replay_checkpoint(

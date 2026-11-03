@@ -210,11 +210,9 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
     root, identifier = selection(home, baseline)
     commit = digest(baseline["commit_sha256"])
     require(report["commit_sha256"] == commit and report["destination"] == str(home)
-            and report["file_dependencies_verified"] is True
             and nonnegative(report["native_files"]) > 0
             and nonnegative(report["native_bytes"]) > 0
-            and nonnegative(report["verified_records"]) >= 0
-            and nonnegative(report["verified_external_files"]) == 0, "restore_report_binding")
+            and nonnegative(report["verified_records"]) >= 0, "restore_report_binding")
     receipt_path = owned(home, "byte-cloud-restore-receipt.json")
     receipt = read_json(receipt_path, max_bytes=65536)
     require(isinstance(receipt, dict) and set(receipt) == {"version", "session_id", "report"}

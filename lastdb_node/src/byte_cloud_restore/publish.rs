@@ -31,7 +31,6 @@ pub(super) fn published_context(
         || receipt.session_id != session.session_id
         || receipt.report.commit_sha256 != session.commit_sha256.as_str()
         || receipt.report.destination != *destination
-        || !receipt.report.file_dependencies_verified
     {
         return Err(RestoreError::Invalid("published receipt"));
     }
@@ -60,7 +59,7 @@ pub(super) fn finish_run_context(
     let (files, bytes) = proof
         .totals()
         .map_err(|_| RestoreError::Invalid("verified run totals"))?;
-    if files != inventory.files || bytes != inventory.bytes || inventory.dependencies != 0 {
+    if files != inventory.files || bytes != inventory.bytes {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
     publish_context(session, keys, inventory, proof.verified_records())
@@ -82,8 +81,6 @@ fn publish_context(
         native_files: inventory.files,
         native_bytes: inventory.bytes,
         verified_records: records,
-        file_dependencies_verified: true,
-        verified_external_files: inventory.dependencies,
         destination: session.destination.to_path_buf(),
     };
     report::atomic_json(

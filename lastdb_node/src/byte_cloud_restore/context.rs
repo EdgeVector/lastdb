@@ -17,7 +17,6 @@ pub(crate) struct VerifiedNativeContext<'a> {
 pub(crate) struct NativeInventory {
     pub files: u64,
     pub bytes: u64,
-    pub dependencies: u64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

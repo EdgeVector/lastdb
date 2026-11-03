@@ -88,7 +88,6 @@ fn validate(bytes: &[u8], version: u8, home: &Path) -> Result<(), String> {
     if receipt.version != version
         || receipt.session_id.is_nil()
         || receipt.report.destination != home
-        || !receipt.report.file_dependencies_verified
         || receipt.report.native_files == 0
         || receipt.report.native_bytes == 0
         || Digest::try_from(receipt.report.commit_sha256).is_err()
