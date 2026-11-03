@@ -344,7 +344,7 @@ jobs:
         run: |
           cargo clippy --locked -p lastdb_node --bin lastdb-format-spike -- -D warnings
           cargo build --locked -p lastdb_node --bin lastdb-format-spike
-      - name: Write complete records and read them from later processes
+      - name: Run both injected formats through replacement and native maintenance
         shell: bash
         run: |
           set -euo pipefail
@@ -353,21 +353,34 @@ jobs:
           {
             echo '## Whole-record format writer spike'
             echo "Source: $(git rev-parse HEAD)"
-            "$spike_program" --home "$spike_root/home" init
-            printf '%s\n' '{"title":"first","obsolete":"remove me"}' |
-              "$spike_program" --home "$spike_root/home" put notes one
-            "$spike_program" --home "$spike_root/home" get notes one
-            printf '%s\n' '{"title":"second"}' |
-              "$spike_program" --home "$spike_root/home" put notes one
-            "$spike_program" --home "$spike_root/home" get notes one
-            printf '%s\n' '{"title":"independent"}' |
-              "$spike_program" --home "$spike_root/home" put notes two
-            "$spike_program" --home "$spike_root/home" get notes one
-            "$spike_program" --home "$spike_root/home" get notes two
-            printf '%s\n' '{}' |
-              "$spike_program" --home "$spike_root/home" put notes one
-            "$spike_program" --home "$spike_root/home" get notes one
-            "$spike_program" --home "$spike_root/home" get notes absent
+            for selected_format in plain nested; do
+              echo "### $selected_format format"
+              spike_args=(--home "$spike_root/$selected_format" --format "$selected_format")
+              "$spike_program" "${spike_args[@]}" init
+              printf '%s\n' '{"title":"first","obsolete":"remove me"}' |
+                "$spike_program" "${spike_args[@]}" put notes one
+              "$spike_program" "${spike_args[@]}" get notes one
+              printf '%s\n' '{"title":"second"}' |
+                "$spike_program" "${spike_args[@]}" put notes one
+              "$spike_program" "${spike_args[@]}" get notes one
+              printf '%s\n' '{"title":"independent"}' |
+                "$spike_program" "${spike_args[@]}" put notes two
+              "$spike_program" "${spike_args[@]}" get notes one
+              "$spike_program" "${spike_args[@]}" get notes two
+              printf '%s\n' '{}' |
+                "$spike_program" "${spike_args[@]}" put notes one
+              "$spike_program" "${spike_args[@]}" get notes one
+              "$spike_program" "${spike_args[@]}" get notes absent
+              # Successive revisions of one key exercise the native tier lifecycle.
+              for revision in {1..12}; do
+                printf '{"revision":%s}\n' "$revision" |
+                  "$spike_program" "${spike_args[@]}" put notes one
+              done
+              "$spike_program" "${spike_args[@]}" maintain --steps 0
+              "$spike_program" "${spike_args[@]}" maintain --steps 16
+              "$spike_program" "${spike_args[@]}" get notes one
+              "$spike_program" "${spike_args[@]}" get notes two
+            done
           } | tee "$RUNNER_TEMP/record-format-spike.txt"
           cat "$RUNNER_TEMP/record-format-spike.txt" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7

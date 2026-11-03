@@ -2,7 +2,8 @@
 mod format;
 mod writer;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use format::Format;
 use lastdb_model::record_replacement::RecordReplacement;
 use serde_json::{Map, Value};
 use std::io::Read;
@@ -15,8 +16,16 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 struct Cli {
     #[arg(long)]
     home: PathBuf,
+    #[arg(long, value_enum, default_value = "nested")]
+    format: FormatChoice,
     #[command(subcommand)]
     action: Action,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum FormatChoice {
+    Plain,
+    Nested,
 }
 
 #[derive(Subcommand)]
@@ -27,31 +36,50 @@ enum Action {
     Put { kind: String, key: String },
     /// Read one complete record; a missing key returns null.
     Get { kind: String, key: String },
+    /// Perform at most this many native merge steps; zero reports current state.
+    Maintain {
+        #[arg(long, default_value_t = 8)]
+        steps: u8,
+    },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    match cli.format {
+        FormatChoice::Plain => run(cli, format::PLAIN),
+        FormatChoice::Nested => run(cli, format::NESTED),
+    }
+}
+
+fn run(cli: Cli, format: impl Format) -> Result<()> {
     match cli.action {
         Action::Init => {
-            writer::Store::create(&cli.home)?;
-            println!("{}", serde_json::json!({"ok": true, "created": true}));
+            let definition: Value = serde_json::from_slice(&format.marker()?)?;
+            writer::Store::create(&cli.home, format)?;
+            println!(
+                "{}",
+                serde_json::json!({"ok": true, "created": true, "format": definition})
+            );
         }
         Action::Put { kind, key } => {
-            let fields = read_record()?;
+            let fields = read_record(format.layout().max_record_bytes)?;
             let record = RecordReplacement::new(kind, key, fields);
-            let frontier = writer::Store::open(&cli.home)?.replace(&record)?;
+            let frontier = writer::Store::open(&cli.home, format)?.replace(&record)?;
             println!("{}", serde_json::json!({"ok": true, "frontier": frontier}));
         }
         Action::Get { kind, key } => {
-            let record = writer::Store::open(&cli.home)?.get(&kind, &key)?;
+            let record = writer::Store::open(&cli.home, format)?.get(&kind, &key)?;
             println!("{}", serde_json::to_string(&record)?);
+        }
+        Action::Maintain { steps } => {
+            let report = writer::Store::open(&cli.home, format)?.maintain(steps)?;
+            println!("{}", serde_json::to_string(&report)?);
         }
     }
     Ok(())
 }
 
-fn read_record() -> Result<Map<String, Value>> {
-    let limit = format::HOME.max_record_bytes;
+fn read_record(limit: usize) -> Result<Map<String, Value>> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
