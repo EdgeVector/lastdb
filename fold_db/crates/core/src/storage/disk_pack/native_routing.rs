@@ -12,7 +12,7 @@ use crate::storage::error::{StorageError, StorageResult};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use key_routing::*;
 
-const RECORDS_COLLECTION: &str = "records";
+use crate::storage::format::RECORDS_COLLECTION;
 
 pub(in crate::storage) fn collection_for_key(key: &[u8]) -> &'static str {
     main_collection_for_key(key)

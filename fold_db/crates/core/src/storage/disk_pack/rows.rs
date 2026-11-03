@@ -57,7 +57,7 @@ impl PackKvStore {
         let observed = Arc::clone(&context);
         let result = run_blocking(move || {
             let mut combined = Vec::new();
-            let collections = if namespace == "main" {
+            let collections = if namespace == crate::storage::format::MAIN_NAMESPACE {
                 native_routing::prefix_collections(prefix.as_bytes())
                     .into_iter()
                     .map(str::to_string)
@@ -91,7 +91,7 @@ impl PackKvStore {
 
     /// A main namespace spans the routed collections. Any other namespace stays one collection.
     pub(super) fn owned_range_collections(&self, start: &[u8], end: &[u8]) -> Vec<String> {
-        if self.namespace == "main" {
+        if self.namespace == crate::storage::format::MAIN_NAMESPACE {
             native_routing::range_collections(start, end)
                 .into_iter()
                 .map(str::to_string)

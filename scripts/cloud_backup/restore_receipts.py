@@ -23,7 +23,7 @@ UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
 # Every home of this release has the current format (`RECORD_NODE_BYTES` and
-# `RECORD_PROFILE` in the node store). Only that marker is accepted. Kept recovery hashes the restored bytes in
+# `RECORD_PROFILE` in storage/format.rs). Only that marker is accepted. Kept recovery hashes the restored bytes in
 # place; it does not upgrade the marker.
 NODE_PROFILE = {NODE_MARKER: (BACKUP_PROFILE, HOME_FORMAT)}
 MAX_FILES = 4096

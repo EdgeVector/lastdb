@@ -19,7 +19,10 @@ from support import OperationError, canonical_uuid, require
 # A kept stream from a source with another profile holds an older home format,
 # which this client does not open. The service still keeps that stream until a
 # newer successful CI stream replaces it.
-PROFILE_FILE = "fold_db/crates/core/src/storage/disk_pack/run_admission.rs"
+PROFILE_FILES = (
+    "fold_db/crates/core/src/storage/format.rs",
+    "fold_db/crates/core/src/storage/disk_pack/run_admission.rs",
+)
 PROFILE = re.compile(r"const RECORD_PROFILE: u16 = ([0-9]+);")
 MAIN = "refs/remotes/origin/main"
 
@@ -54,18 +57,22 @@ def profile(text):
 
 def client_profile():
     root = Path(__file__).resolve().parents[2]
-    value = profile((root / PROFILE_FILE).read_text(encoding="utf-8"))
+    value = profile((root / PROFILE_FILES[0]).read_text(encoding="utf-8"))
     require(value is not None, "ci_client_backup_profile")
     return value
 
 
 def source_profile(source):
     """The backup profile that the client at main commit `source` writes."""
-    result = git("show", source + ":" + PROFILE_FILE, fetch=True)
-    require(result.returncode == 0, "ci_kept_source_profile")
-    value = profile(result.stdout.decode("utf-8", "replace"))
-    require(value is not None, "ci_kept_source_profile")
-    return value
+    # Historical Git sources predate the constant's relocation. Inspect their
+    # original definition, not today's profile; no old home is opened here.
+    for path in PROFILE_FILES:
+        result = git("show", source + ":" + path, fetch=True)
+        if result.returncode == 0:
+            value = profile(result.stdout.decode("utf-8", "replace"))
+            require(value is not None, "ci_kept_source_profile")
+            return value
+    require(False, "ci_kept_source_profile")
 
 
 def legacy_format(kept):

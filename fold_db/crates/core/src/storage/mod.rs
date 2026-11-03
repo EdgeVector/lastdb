@@ -33,6 +33,7 @@ pub(crate) mod encrypting_store;
 pub mod error;
 /// per-field-key key bundles: the storage key material behind field key hashes.
 pub mod field_key_store;
+pub(crate) mod format;
 pub mod traits;
 
 // Re-exports for convenience

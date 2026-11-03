@@ -56,10 +56,8 @@ pub use run_node::{CAS_DIR, RUN_DIR};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
-/// File name of the clear node marker, which holds [`RECORD_NODE_BYTES`].
-pub const NODE_MARKER: &str = "laststore-pack-node-v1";
-const REGISTRY: &str = "__native_home";
-const NAMESPACES: &str = "namespaces\0";
+pub use crate::storage::format::NODE_MARKER;
+use crate::storage::format::{NAMESPACES, REGISTRY};
 
 /// Shared v2 run homes and their complete published root.
 /// Only the complete root advances the readable frontier and write protection.

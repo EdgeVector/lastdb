@@ -1,7 +1,7 @@
 """The home format of this release, for every script.
 
 The source is `HOME_FORMAT`, `RECORD_NODE_BYTES` and `RECORD_PROFILE` in the
-node store (`fold_db/crates/core/src/storage/disk_pack/run_admission.rs`). A
+format definition (`fold_db/crates/core/src/storage/format.rs`). A
 layout change raises them there and here, and nowhere else. The file names
 below name their Rust definition.
 """

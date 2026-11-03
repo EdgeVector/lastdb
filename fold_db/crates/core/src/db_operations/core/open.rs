@@ -4,6 +4,7 @@ use super::super::record_store::RecordStore;
 use super::super::schema_store::SchemaStore;
 use super::DbOperations;
 use crate::storage::field_key_store::FieldKeyStore;
+use crate::storage::format;
 use crate::storage::traits::*;
 use crate::storage::TypedKvStore;
 use std::sync::Arc;
@@ -20,12 +21,14 @@ struct CoreNamespaces {
 
 impl CoreNamespaces {
     async fn open(store: &Arc<dyn NamespacedStore>) -> Result<Self, crate::storage::StorageError> {
-        let main_kv = store.open_namespace("main").await?;
-        let metadata_kv = store.open_namespace("metadata").await?;
-        let schema_states_kv = store.open_namespace("schema_states").await?;
-        let schemas_kv = store.open_namespace("schemas").await?;
-        let field_keys_kv = store.open_namespace("field_keys").await?;
-        let change_feed_kv = store.open_namespace("change_feed").await?;
+        let main_kv = store.open_namespace(format::MAIN_NAMESPACE).await?;
+        let metadata_kv = store.open_namespace(format::METADATA_NAMESPACE).await?;
+        let schema_states_kv = store
+            .open_namespace(format::SCHEMA_STATES_NAMESPACE)
+            .await?;
+        let schemas_kv = store.open_namespace(format::SCHEMAS_NAMESPACE).await?;
+        let field_keys_kv = store.open_namespace(format::FIELD_KEYS_NAMESPACE).await?;
+        let change_feed_kv = store.open_namespace(format::CHANGE_FEED_NAMESPACE).await?;
         Ok(Self {
             main_kv,
             metadata_kv,

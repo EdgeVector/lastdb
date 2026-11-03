@@ -32,14 +32,10 @@ use std::io::Write;
 
 mod creation;
 
-/// Directory of the main run home inside the node data directory.
-pub const RUN_DIR: &str = "disk-run";
-/// Directory of the file run home inside the node data directory.
-pub const CAS_DIR: &str = "disk-cas";
-const INTENT: &str = "laststore-run-initializing";
-const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
-const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
-const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
+pub use crate::storage::format::{CAS_DIR, RUN_DIR};
+use crate::storage::format::{
+    CAS_KEY_LABEL, CREATION_INTENT as INTENT, HOME_KEY_LABEL, STAGED_NODE_MARKER as STAGED_MARKER,
+};
 
 /// True when `path` is absent or empty: a new node home, which is v2.
 pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
