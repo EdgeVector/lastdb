@@ -179,11 +179,14 @@ jobs:
             --exclude generate_validated_schema_org_seeds \
             --exclude schema_service_worker \
             -- -D warnings
-      - name: cargo clippy the Lambda with the catalog feed on
+      # The production feature set (schema-infra builds the Lambda with
+      # --features fastembed). It loads ONNX Runtime at run time, so this
+      # lane neither downloads nor links it.
+      - name: cargo clippy the Lambda with its production features
         run: |
           ulimit -n 8192 || true
           cargo clippy --locked -p schema_service_server_lambda --bins \
-            --features catalog-feed -- -D warnings
+            --features fastembed -- -D warnings
       - name: cargo clippy off-lane fastembed bins
         run: |
           ulimit -n 8192 || true

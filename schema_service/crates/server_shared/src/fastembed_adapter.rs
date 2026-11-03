@@ -3,7 +3,8 @@
 //! Local/dev tools can opt into the normal FastEmbed HuggingFace cache path via
 //! the `fastembed` feature. Lambda opts into `fastembed-layer`, which builds the
 //! same all-MiniLM-L6-v2 text model from bundled layer files and does not enable
-//! FastEmbed's `hf-hub` downloader feature.
+//! FastEmbed's `hf-hub` downloader feature. It also loads ONNX Runtime from the
+//! layer at run time (`ORT_DYLIB_PATH`) instead of linking it in.
 
 #[cfg(feature = "fastembed")]
 use fastembed_crate::EmbeddingModel;
@@ -124,7 +125,29 @@ fn lambda_fastembed_dir() -> PathBuf {
     )
 }
 
+/// With `fastembed-layer`, `ort` opens ONNX Runtime from `ORT_DYLIB_PATH` and
+/// panics when the file is missing; under the Lambda's `panic = "abort"` that
+/// ends the process. Check first, so a layer without the runtime fails
+/// embedder init like any other missing layer file.
+#[cfg(feature = "fastembed-layer")]
+fn check_onnx_runtime() -> Result<(), String> {
+    let path = std::env::var_os("ORT_DYLIB_PATH")
+        .filter(|path| !path.is_empty())
+        .ok_or("ORT_DYLIB_PATH is not set; the fastembed layer must provide ONNX Runtime")?;
+    let path = Path::new(&path);
+    if path.is_file() {
+        Ok(())
+    } else {
+        Err(format!(
+            "ONNX Runtime is missing at ORT_DYLIB_PATH {}",
+            path.display()
+        ))
+    }
+}
+
 fn load_local_layer_model(root: &Path) -> Result<TextEmbedding, String> {
+    #[cfg(feature = "fastembed-layer")]
+    check_onnx_runtime()?;
     let model_dir = resolve_model_dir(root)?;
     let read = |name: &str| -> Result<Vec<u8>, String> {
         fastembed_crate::read_file_to_bytes(&model_dir.join(name))

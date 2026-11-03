@@ -28,7 +28,6 @@
 #![allow(clippy::result_large_err)]
 
 mod api_key;
-#[cfg(feature = "catalog-feed")]
 mod catalog_feed;
 mod cors;
 mod dispatch;
