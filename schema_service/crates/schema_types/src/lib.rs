@@ -24,8 +24,9 @@ pub use data_classification::{DataClassification, MAX_SENSITIVITY_LEVEL};
 pub use declarative_schemas::{
     compute_identity_hash_parts, derive_transform_metadata, hash_expression,
     manifest_schema_definition, owned_catalog_definition, parse_canonical_name,
-    refuses_identity_downgrade, DeclarativeSchemaDefinition, IdentityRecompute, OwnedDeclaration,
-    SchemaSource, TransformMetadata, IDENTITY_HASH_ALGO_VERSION, LEGACY_IDENTITY_HASH_ALGO_VERSION,
+    refuses_identity_downgrade, schema_from_value, DeclarativeSchemaDefinition, IdentityRecompute,
+    OwnedDeclaration, SchemaSource, TransformMetadata, IDENTITY_HASH_ALGO_VERSION,
+    LEGACY_IDENTITY_HASH_ALGO_VERSION,
 };
 pub use error::{FoldDbError, FoldDbResult};
 pub use field_identity::{

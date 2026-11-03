@@ -2,7 +2,7 @@
 //! image write. Nothing partial is published: a failed run leaves the stored
 //! image as it was, and the next run starts again from it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{HashMap, HashSet};
 
 use app_identity_crypto::{verifying_key_from_base64, VerifyingKey, REGISTRY_LIST_PUBKEY_B64};
 use schema_types::{FoldDbError, FoldDbResult, Schema};
@@ -27,7 +27,8 @@ pub(super) struct FeedRun<'a> {
 /// New-field candidates from the touched definitions. The first definition
 /// of a name wins; a later different one is left to admission next time.
 fn vocabulary_candidates(touched: &[Schema]) -> Vec<(String, CanonicalField)> {
-    let mut candidates: BTreeMap<String, CanonicalField> = BTreeMap::new();
+    let mut names = HashSet::new();
+    let mut candidates = Vec::new();
     for schema in touched {
         for name in schema_field_names(schema) {
             let (Some(description), Some(field_type)) = (
@@ -36,19 +37,23 @@ fn vocabulary_candidates(touched: &[Schema]) -> Vec<(String, CanonicalField)> {
             ) else {
                 continue;
             };
-            candidates
-                .entry(name.clone())
-                .or_insert_with(|| CanonicalField {
+            if !names.insert(name.clone()) {
+                continue;
+            }
+            candidates.push((
+                name.clone(),
+                CanonicalField {
                     description: description.clone(),
                     field_type: field_type.clone(),
                     version: schema.field_versions.get(name).copied().unwrap_or(1),
                     name_policy_version: NAME_POLICY_VERSION,
                     classification: schema.field_data_classifications.get(name).cloned(),
                     interest_category: schema.field_interest_categories.get(name).cloned(),
-                });
+                },
+            ));
         }
     }
-    candidates.into_iter().collect()
+    candidates
 }
 
 impl SchemaServiceState {
@@ -76,20 +81,24 @@ impl SchemaServiceState {
         }
         let expected_revision = stored.as_ref().map(|image| image.revision);
         let mut image = stored.unwrap_or_default();
-        let before = image.clone();
         let mut run = FeedRun {
             source,
             trust,
             now: self.clock.rfc3339_secs(),
             report: CatalogFeedReport::default(),
         };
-        let changed_lists = run.refresh_lists(&mut image.state).await;
+        run.refresh_lists(&mut image.state).await;
         let definitions = run.read_manifests(&mut image.state).await;
+        // Records change only through a changed list or a manifest read, so
+        // the image changed exactly when one of the two happened.
+        let changed = !run.report.lists_changed.is_empty()
+            || !run.report.manifests_read.is_empty()
+            || !run.report.manifest_errors.is_empty();
         let touched = upsert_definitions(&mut image, definitions, &run.now, &mut run.report);
-        relist(&mut image, &changed_lists, &run.now, &mut run.report);
+        relist(&mut image, &run.now, &mut run.report);
         self.admit_feed_vocabulary(&touched, &mut run.report)
             .await?;
-        if image != before {
+        if changed {
             image.revision = expected_revision.unwrap_or(0) + 1;
             backend.save_catalog_feed(&image, expected_revision).await?;
             run.report.image_written = true;

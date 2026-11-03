@@ -7,7 +7,7 @@
 //! namespace = `app_id`. The catalog therefore computes the identity hash and
 //! field hashes every node computes when it installs the app.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::HashSet;
 
 use app_identity_crypto::github_repo;
 use schema_types::{manifest_schema_definition, owned_catalog_definition, Schema};
@@ -29,16 +29,17 @@ enum Read {
     StopRun,
 }
 
-/// Every listed `(app_id, sha)` the feed has not read, once each, in key order.
+/// Every listed `(app_id, sha)` the feed has not read, once each, in list order.
 fn unread_entries(state: &CatalogFeedState) -> Vec<FeedListEntry> {
-    let mut unread = BTreeMap::new();
+    let mut keys = HashSet::new();
+    let mut unread = Vec::new();
     for entry in state.lists.values().flat_map(|list| &list.entries) {
         let key = manifest_key(&entry.app_id, &entry.sha);
-        if !state.manifests.contains_key(&key) {
-            unread.entry(key).or_insert_with(|| entry.clone());
+        if !state.manifests.contains_key(&key) && keys.insert(key) {
+            unread.push(entry.clone());
         }
     }
-    unread.into_values().collect()
+    unread
 }
 
 /// The catalog definitions of one manifest of `app_id`. Any entry that does
@@ -83,13 +84,11 @@ pub(super) fn parse_manifest(app_id: &str, bytes: &[u8]) -> Result<Vec<Schema>, 
 
 impl FeedRun<'_> {
     /// Read the manifests of newly listed commits, up to the per-run cap.
-    /// A transient failure ends the reads for this run. Returns the
-    /// definitions read, by identity hash.
-    pub(super) async fn read_manifests(
-        &mut self,
-        state: &mut CatalogFeedState,
-    ) -> BTreeMap<String, Schema> {
-        let mut definitions = BTreeMap::new();
+    /// A transient failure leaves that commit for the next run; a rate limit
+    /// ends the reads for this run. Returns the definitions read, in read
+    /// order.
+    pub(super) async fn read_manifests(&mut self, state: &mut CatalogFeedState) -> Vec<Schema> {
+        let mut definitions = Vec::new();
         let unread = unread_entries(state);
         let mut pending = unread.len();
         for entry in unread.into_iter().take(MAX_MANIFESTS_PER_RUN) {
@@ -144,20 +143,23 @@ impl FeedRun<'_> {
         &mut self,
         entry: &FeedListEntry,
         result: Result<Vec<Schema>, String>,
-        definitions: &mut BTreeMap<String, Schema>,
+        definitions: &mut Vec<Schema>,
     ) -> FeedManifestState {
         let label = manifest_key(&entry.app_id, &entry.sha);
         let (identity_hashes, error) = match result {
             Ok(schemas) => {
-                let mut hashes = BTreeSet::new();
+                let mut hashes = Vec::new();
                 for schema in schemas {
-                    if let Some(identity) = schema.identity_hash.clone() {
-                        hashes.insert(identity.clone());
-                        definitions.insert(identity, schema);
+                    let Some(identity) = schema.identity_hash.clone() else {
+                        continue;
+                    };
+                    if !hashes.contains(&identity) {
+                        hashes.push(identity);
                     }
+                    definitions.push(schema);
                 }
                 self.report.manifests_read.push(label);
-                (hashes.into_iter().collect(), None)
+                (hashes, None)
             }
             Err(error) => {
                 tracing::warn!(

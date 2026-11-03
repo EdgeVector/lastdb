@@ -153,7 +153,7 @@ pub(crate) async fn post_schemas(
             &schema_service_core::error_only_body("Missing 'schema' field"),
         );
     };
-    let schema: schema_types::Schema = match serde_json::from_value(schema_value.clone()) {
+    let schema = match schema_types::schema_from_value(schema_value.clone()) {
         Ok(schema) => schema,
         Err(e) => {
             return json_response(
