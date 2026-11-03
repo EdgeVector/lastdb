@@ -161,7 +161,13 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/storage/liveness/explain` and the `blob_counters` block of
 /// `/api/status` are removed with the blob counter. `verify-refs` reports
 /// only the retention queue. The delete ledger names `file_records_erased`.
-pub const API_VERSION: u32 = 23;
+/// `24` (2026-11-03) removes the app blob routes
+/// `PUT|GET /api/app/blob/cas/sha256/{hash}`,
+/// `PUT|GET /api/app/org/{org_hash}/blob/cas/sha256/{hash}` and
+/// `GET /api/app/blob/footprint`. They had no backend and answered a
+/// content-free 404, which an unknown path still answers. No other request
+/// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 24;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
