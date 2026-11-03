@@ -51,17 +51,18 @@ impl DeclarativeSchemaDefinition {
         schema
     }
 
-    /// Get the declared type for a field. Returns `Any` if no type is declared.
-    pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
-        static ANY: FieldValueType = FieldValueType::Any;
-        self.field_types.get(field_name).unwrap_or(&ANY)
+    /// The declared type of a field. `None` only for a name the schema does not
+    /// declare, since `validate_definition` refuses a field with no type.
+    pub fn get_field_type(&self, field_name: &str) -> Option<&FieldValueType> {
+        self.field_types.get(field_name)
     }
 
     /// Mint/attach `field_hashes` from each field's description, type, and version.
     ///
     /// Uses existing `field_hashes` entries when present; otherwise computes from
     /// `field_descriptions` / `field_types` / `field_versions` (version default 1).
-    /// Empty description is allowed (still hashed).
+    /// Empty description is allowed (still hashed). A name with no type gets no
+    /// hash.
     pub fn ensure_field_hashes(&mut self) {
         let names: Vec<String> = self
             .fields
@@ -84,7 +85,9 @@ impl DeclarativeSchemaDefinition {
                 .get(&name)
                 .cloned()
                 .unwrap_or_default();
-            let field_type = self.get_field_type(&name).clone();
+            let Some(field_type) = self.get_field_type(&name).cloned() else {
+                continue;
+            };
             let version = *self.field_versions.get(&name).unwrap_or(&1);
             let hash = crate::compute_field_hash(&name, &description, &field_type, version);
             self.field_versions.entry(name.clone()).or_insert(version);

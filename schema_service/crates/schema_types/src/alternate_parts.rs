@@ -32,7 +32,7 @@ pub(crate) fn validate(
     if key.omit_empty_hash
         && (key.missing != crate::MissingAlternateKey::Omit
             || key.hash_literal.is_some()
-            || schema.key_field_type(&key.hash_field) != FieldValueType::String)
+            || schema.key_field_type(&key.hash_field) != Some(FieldValueType::String))
     {
         return Err("omit_empty_hash requires an optional text hash field".into());
     }
@@ -62,11 +62,14 @@ pub(crate) fn validate(
     for part in &key.range_parts {
         let kind = schema.key_field_type(&part.field);
         match part.format {
-            PartFormat::Text if kind == FieldValueType::String => {}
+            PartFormat::Text if kind == Some(FieldValueType::String) => {}
             PartFormat::PaddedText { width }
-                if (1..=64).contains(&width) && kind == FieldValueType::String => {}
+                if (1..=64).contains(&width) && kind == Some(FieldValueType::String) => {}
             PartFormat::ReverseTimeMillis
-                if matches!(kind, FieldValueType::String | FieldValueType::DateTime) => {}
+                if matches!(
+                    kind,
+                    Some(FieldValueType::String | FieldValueType::DateTime)
+                ) => {}
             _ => return Err("compound range format does not match its field type".into()),
         }
     }

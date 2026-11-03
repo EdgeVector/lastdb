@@ -32,10 +32,8 @@ pub(super) fn verify(
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
         let range = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref())
-            .map(|path| schema.key_field_type(path));
+            .range_key_type()
+            .map_err(|_| invalid("run backup range field has no declared type"))?;
         let profile = FieldRangeProfile::for_field_type(range.as_ref())
             .map_err(|_| invalid("run backup range field has no typed profile"))?;
         let mut field_keys = schema

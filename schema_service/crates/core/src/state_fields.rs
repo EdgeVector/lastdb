@@ -185,7 +185,7 @@ impl SchemaServiceState {
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         let field_names: Vec<String> = schema.fields.clone().unwrap_or_default();
         Self::apply_canonical_field_map(&fields, &field_names, &mut schema.field_types, |c| {
-            (c.field_type != FieldValueType::Any).then(|| c.field_type.clone())
+            Some(c.field_type.clone())
         });
         // Newly introduced reference fields do not exist in the registry yet.
         for field_name in field_names {

@@ -91,7 +91,7 @@ fn parse_put_blob_local(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, LocalBlobMet
 ///
 /// WARNING: nothing here writes a record or checks that one exists. The blob is
 /// kept only while a record holds the pointer as the WHOLE value of a field of
-/// type `Any`. A pointer inside a JSON string is not a reference, so the dwell
+/// type `File`. A pointer inside a JSON string is not a reference, so the dwell
 /// pass deletes that blob once its dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
 /// default) has passed with no reference.
 pub(super) async fn execute_db_put_blob_local_route(

@@ -244,10 +244,8 @@ pub(crate) fn schema_field_key_profiles(
 ) -> StorageResult<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>> {
     use schema_types::field_range_profile::FieldRangeProfile;
     let kind = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.range_field.as_deref())
-        .map(|name| schema.key_field_type(name));
+        .range_key_type()
+        .map_err(StorageError::InvalidOperation)?;
     let primary =
         FieldRangeProfile::for_field_type(kind.as_ref()).map_err(StorageError::InvalidOperation)?;
     let mut result: Vec<_> = schema

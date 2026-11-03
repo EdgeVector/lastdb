@@ -4,8 +4,43 @@ impl DeclarativeSchemaDefinition {
     /// Shared admission checks for wire and programmatic definitions.
     pub fn validate_definition(&self) -> Result<(), String> {
         self.validate_field_names()?;
+        self.validate_field_types()?;
         self.validate_key_field_types()?;
         self.validate_alternate_keys()
+    }
+
+    /// Every field names its type, and every primary and alternate key path
+    /// resolves to one (`decision-2026-11-02-field-types-no-any`).
+    pub fn validate_field_types(&self) -> Result<(), String> {
+        let untyped: Vec<&str> = self
+            .fields
+            .iter()
+            .flatten()
+            .filter(|field| !self.field_types.contains_key(*field))
+            .map(String::as_str)
+            .collect();
+        if !untyped.is_empty() {
+            return Err(format!(
+                "every field needs a type in field_types; these fields have none: {}",
+                untyped.join(", ")
+            ));
+        }
+        let primary = self
+            .key
+            .iter()
+            .flat_map(|key| key.hash_field.iter().chain(key.range_field.iter()))
+            .map(String::as_str);
+        let alternate = self
+            .alternate_keys
+            .values()
+            .flat_map(crate::AlternateKey::fields);
+        if let Some(path) = primary
+            .chain(alternate)
+            .find(|path| self.key_field_type(path).is_none())
+        {
+            return Err(format!("key field '{path}' has no declared type"));
+        }
+        Ok(())
     }
 
     /// Reject reserved names and characters that make field identities ambiguous.

@@ -54,7 +54,7 @@ impl AlternateKey {
         if self.range_parts.is_empty() {
             self.range_field
                 .as_deref()
-                .map(|field| schema.key_field_type(field))
+                .and_then(|field| schema.key_field_type(field))
         } else {
             Some(crate::FieldValueType::String)
         }
@@ -140,7 +140,10 @@ impl DeclarativeSchemaDefinition {
                 if !fields.iter().any(|name| name == field) {
                     return Err("an alternate key names an undeclared field".into());
                 }
-                FieldRangeProfile::for_field_type(Some(&self.key_field_type(field)))?;
+                let kind = self
+                    .key_field_type(field)
+                    .ok_or("an alternate key field has no declared type")?;
+                FieldRangeProfile::for_field_type(Some(&kind))?;
             }
         }
         Ok(())

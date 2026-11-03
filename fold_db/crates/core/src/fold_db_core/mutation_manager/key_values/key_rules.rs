@@ -106,18 +106,19 @@ pub(super) fn validated_materialized_key_field(
         return Ok(None);
     }
 
-    let value = materialized_key_value(schema.get_field_type(field_name), coordinate).ok_or_else(
-        || {
-            SchemaError::InvalidData(format!(
-                "Schema '{schema_name}' cannot materialize key field '{field_name}' with type {} from coordinate {coordinate:?}",
-                schema.get_field_type(field_name)
-            ))
-        },
-    )?;
+    let field_type = schema.get_field_type(field_name).ok_or_else(|| {
+        SchemaError::InvalidData(format!(
+            "Schema '{schema_name}' key field '{field_name}' has no declared type"
+        ))
+    })?;
+    let value = materialized_key_value(field_type, coordinate).ok_or_else(|| {
+        SchemaError::InvalidData(format!(
+            "Schema '{schema_name}' cannot materialize key field '{field_name}' with type {field_type} from coordinate {coordinate:?}"
+        ))
+    })?;
     if scalar_key_coordinate(&value).as_deref() != Some(coordinate) {
         return Err(SchemaError::InvalidData(format!(
-            "Schema '{schema_name}' key field '{field_name}' type {} cannot preserve coordinate {coordinate:?}",
-            schema.get_field_type(field_name)
+            "Schema '{schema_name}' key field '{field_name}' type {field_type} cannot preserve coordinate {coordinate:?}"
         )));
     }
     Ok(Some(value))
@@ -130,7 +131,7 @@ fn materialized_key_value(
     use serde_json::Value;
 
     match field_type {
-        FieldValueType::Any | FieldValueType::String => Some(Value::String(coordinate.to_string())),
+        FieldValueType::String => Some(Value::String(coordinate.to_string())),
         FieldValueType::Date | FieldValueType::DateTime => {
             let value = Value::String(coordinate.to_string());
             field_type.validate(&value).ok().map(|()| value)

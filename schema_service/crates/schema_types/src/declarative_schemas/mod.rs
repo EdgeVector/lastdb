@@ -110,7 +110,8 @@ pub struct DeclarativeSchemaDefinition {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub ref_fields: HashMap<String, String>,
     /// Strongly typed field value types from the canonical field registry.
-    /// Maps field_name -> FieldValueType. Fields not in this map default to Any.
+    /// Maps field_name -> FieldValueType. Every field has an entry
+    /// (`validate_definition`).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_types: HashMap<String, FieldValueType>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

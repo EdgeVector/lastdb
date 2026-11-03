@@ -129,18 +129,6 @@ pub(crate) fn normalize_direct_declare_proposal(
     if fields.is_empty() || fields.iter().any(|f| f.trim().is_empty()) {
         return Err("schema.fields must be non-empty without blank names".into());
     }
-    // Every field names its type (`decision-2026-11-02-field-types-no-any`).
-    let untyped: Vec<&str> = fields
-        .iter()
-        .filter(|field| !schema.field_types.contains_key(*field))
-        .map(String::as_str)
-        .collect();
-    if !untyped.is_empty() {
-        return Err(format!(
-            "every field needs a type in schema.field_types; these fields have none: {}",
-            untyped.join(", ")
-        ));
-    }
 
     Ok(DirectDeclareProposal {
         namespace,

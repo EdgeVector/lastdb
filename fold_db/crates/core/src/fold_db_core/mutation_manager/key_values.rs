@@ -73,7 +73,11 @@ pub(in crate::fold_db_core::mutation_manager) fn validate_field_value(
             "field '{field_name}' is not declared in schema '{schema_name}'"
         )));
     }
-    let field_type = schema.get_field_type(field_name);
+    let Some(field_type) = schema.get_field_type(field_name) else {
+        return Err(SchemaError::InvalidData(format!(
+            "field '{field_name}' of schema '{schema_name}' has no declared type"
+        )));
+    };
     if let Err(type_err) = field_type.validate(value) {
         return Err(SchemaError::InvalidData(format!(
             "Type error in field '{}' of schema '{}': {}. Expected {}, got {}",

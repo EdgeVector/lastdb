@@ -71,6 +71,7 @@ pub(crate) fn derive_key(
             Some(value) => {
                 schema
                     .get_field_type(field)
+                    .ok_or_else(|| invalid("alternate key field has no declared type"))?
                     .validate(value)
                     .map_err(|_| invalid("alternate key field has an invalid type"))?;
                 coordinates.insert(

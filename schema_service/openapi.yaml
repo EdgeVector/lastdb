@@ -1985,7 +1985,7 @@ components:
         `https://github.com/EdgeVector/fold/blob/main/fold_db/src/schema/types/field_value_type.rs`.
       oneOf:
         - type: string
-          description: 'Primitive variant serialized as a tag string (e.g. `"String"`, `"Integer"`, `"Boolean"`, `"Any"`).'
+          description: 'Primitive variant serialized as a tag string (e.g. `"String"`, `"Integer"`, `"Boolean"`, `"File"`).'
         - type: object
           description: 'Parameterized variants (e.g. `{ "Array": <FieldValueType> }`) serialized as tagged objects.'
           additionalProperties: true
