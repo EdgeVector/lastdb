@@ -160,6 +160,16 @@ jobs:
         with:
           key: nightly-release-${{ matrix.target }}
           save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Link the Homebrew openssl@3 that the installed Macs have
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # openssl-sys links the runner's default Homebrew OpenSSL. The
+          # runner image moved to openssl@4, and a pair linked to it does not
+          # start on a Mac that has only openssl@3.
+          brew list --versions openssl@3 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - name: Build the exact release CLI and daemon
         shell: bash
         env:
@@ -174,6 +184,10 @@ jobs:
             if [ '${{ runner.os }}' = macOS ]; then
               codesign --force --sign - "$path"
               codesign --verify --strict "$path"
+              if otool -L "$path" | grep -E 'lib(ssl|crypto)\.' | grep -v '/opt/homebrew/opt/openssl@3/lib/'; then
+                echo "$path links an OpenSSL other than openssl@3" >&2
+                exit 1
+              fi
             fi
           done
       - name: Package the matched pair with exact versions and hashes
