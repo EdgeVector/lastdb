@@ -13,7 +13,6 @@ ed25519-dalek = { version = "2.0", features = ["rand_core", "serde"] }
 aes-gcm = "0.10"
 openssl = "0.10.76"
 hkdf = "0.12"
-hmac = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }
 # gzip for consent-gated delivery JWE plaintext (compress-before-encrypt)
@@ -22,11 +21,6 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# Inline id lists in the warm set slot and source tables.
-smallvec = "1"
-# Id-only indexes for the warm set source and slot tables.
-hashbrown = { version = "0.17", default-features = false }
 
 # Storage
 laststore = { path = "../../../vendor/laststore" }
@@ -45,7 +39,6 @@ tracing = { workspace = true }
 # Async runtime
 # `rt` is required by `tokio::task::spawn_blocking` (CPU-bound work off the reactor).
 tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt"] }
-tokio-util = { version = "0.7", features = ["io"] }
 futures = { workspace = true }
 async-trait = { workspace = true }
 

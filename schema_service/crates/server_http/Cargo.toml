@@ -39,7 +39,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-actix-web = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-opentelemetry = { workspace = true }
 http = { workspace = true }
 futures-util = { workspace = true }
 
