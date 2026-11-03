@@ -83,7 +83,7 @@ class OwnedNode:
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binaries / "lastdbd"), "--data-dir", str(self.home),
-             "--socket-path", str(self.socket), "--full-socket-path", str(self.home / "data" / "full.sock")],
+             "--socket-path", str(self.socket)],
             env=self.environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:

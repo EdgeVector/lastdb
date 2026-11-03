@@ -10,20 +10,11 @@
 //! - Retention: a Hash or Single schema with a policy ages each live record by
 //!   its write time (the newest stamp) and drops the age rows of a deleted
 //!   record. A record holds its own stamps, so the rows go in this batch.
-//! - Share copies: a personal write to a schema with an active share rule
-//!   puts each changed record in the scope of each rule too
-//!   (`share:{recipient}:{opaque}`). The copy is the whole record after the
-//!   merge, delete floor included, so a delete or a purge reaches the copy in
-//!   the same batch. A copy has no alternate entries, field history or audit
-//!   rows: this node reads no share scope by an alternate key, and the
-//!   personal record keeps the history. A copy carries no file: a record's
-//!   file stays at the record's own path.
 
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
 use crate::db_operations::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 use crate::fold_db_core::purge::describe_key;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
@@ -73,86 +64,33 @@ impl MutationManager {
     pub(super) async fn stage_records_with_effects(
         &self,
         schema: &Schema,
-        (storage_prefix, scope): (Option<&str>, Option<&str>),
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
         mut entries: Vec<KvMutation>,
     ) -> Result<(), SchemaError> {
-        let history = self
-            .record_history_rows(schema, scope, changed, &changes)
-            .await?;
+        let history = self.record_history_rows(schema, changed, &changes).await?;
         let outcomes = record_outcomes(&changes);
-        let copies = self
-            .record_share_copies(&schema.name, storage_prefix, &changes)
-            .await?;
         entries.extend(history.rows);
-        let mut changes = changes;
-        changes.extend(copies);
         self.db_ops
             .records()
             .stage_records(changes, entries)
             .await?;
-        if storage_prefix.is_none() {
-            // A live record below a floor of the TTL sweep removes the floor.
-            let live = changed
-                .iter()
-                .zip(&outcomes)
-                .filter(|(_, outcome)| outcome.live);
-            self.db_ops
-                .schemas()
-                .note_live_writes(schema, live.map(|(record, _)| record.key))?;
-        }
-        self.stage_record_side_rows(schema, storage_prefix, changed, &outcomes, history.released)
-            .await
-    }
-
-    /// The copy of each changed personal record in the scope of each active
-    /// share rule of the schema, without its file. One batch read gives the
-    /// stored copies.
-    async fn record_share_copies(
-        &self,
-        schema_name: &str,
-        storage_prefix: Option<&str>,
-        changes: &[RecordChange],
-    ) -> Result<Vec<RecordChange>, SchemaError> {
-        if changes.is_empty() {
-            return Ok(Vec::new());
-        }
-        let prefixes = self
-            .active_share_prefixes(schema_name, storage_prefix)
-            .await?;
-        let keys: Vec<String> = prefixes
+        // A live record below a floor of the TTL sweep removes the floor.
+        let live = changed
             .iter()
-            .flat_map(|prefix| {
-                changes
-                    .iter()
-                    .map(move |change| build_storage_key(Some(prefix.as_str()), &change.key))
-            })
-            .collect();
-        let stored = self.db_ops.records().read_records(&keys).await?;
-        Ok(keys
-            .into_iter()
-            .zip(stored)
-            .zip(changes.iter().cycle())
-            .map(|((key, before), change)| {
-                let mut after = change.after.clone();
-                after.file = None;
-                RecordChange {
-                    key,
-                    before,
-                    after,
-                    cap_deferred: change.cap_deferred,
-                    file_row: None,
-                }
-            })
-            .collect())
+            .zip(&outcomes)
+            .filter(|(_, outcome)| outcome.live);
+        self.db_ops
+            .schemas()
+            .note_live_writes(schema, live.map(|(record, _)| record.key))?;
+        self.stage_record_side_rows(schema, changed, &outcomes, history.released)
+            .await
     }
 
     /// The field history rows of the changed records of one group.
     async fn record_history_rows(
         &self,
         schema: &Schema,
-        scope: Option<&str>,
         changed: &[ChangedRecord<'_>],
         changes: &[RecordChange],
     ) -> Result<RecordHistoryRows, SchemaError> {
@@ -162,7 +100,7 @@ impl MutationManager {
             .collect();
         self.db_ops
             .records()
-            .record_history_rows(schema, scope, changes, &purges)
+            .record_history_rows(schema, changes, &purges)
             .await
     }
 
@@ -171,19 +109,16 @@ impl MutationManager {
     async fn stage_record_side_rows(
         &self,
         schema: &Schema,
-        storage_prefix: Option<&str>,
         changed: &[ChangedRecord<'_>],
         outcomes: &[RecordOutcome],
         history_released: u64,
     ) -> Result<(), SchemaError> {
         self.stage_record_delete_audit(&schema.name, changed, outcomes, history_released)
             .await?;
-        if storage_prefix.is_some()
-            || !matches!(
-                schema.schema_type,
-                DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
-            )
-        {
+        if !matches!(
+            schema.schema_type,
+            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
+        ) {
             return Ok(());
         }
         let schemas = self.db_ops.schemas();
@@ -251,7 +186,7 @@ impl MutationManager {
             if verb == LEDGER_VERB_PURGE {
                 entry.history_rows_deleted = history_released;
             }
-            record_store.record_record_delete_audit(None, entry).await?;
+            record_store.record_record_delete_audit(entry).await?;
         }
         Ok(())
     }

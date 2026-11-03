@@ -6,7 +6,6 @@ use fold_db::db_operations::PageResume;
 /// The request-level inputs every query shape reads.
 pub(super) struct QueryRun<'a, H: HostNode> {
     pub(super) host: &'a H,
-    pub(super) ctx: &'a AccessContext,
     pub(super) limit: usize,
     pub(super) offset: usize,
     pub(super) cursor: Option<KeyValue>,
@@ -54,7 +53,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             return Err(HostError::new(400, "count replies require keyed live reads without conditions, value ordering, or continuation"));
         }
         let _permit = acquire_read_permit(self.host, Lane::Bulk).await?;
-        let count = count_rows(self.host, &query, self.ctx)
+        let count = count_rows(self.host, &query)
             .await?
             .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
         if query
@@ -72,7 +71,7 @@ impl<H: HostNode> QueryRun<'_, H> {
     /// A caller-supplied bare `Page` filter is already the requested bounded
     /// fetch. `Ok(None)` means this shape does not apply.
     async fn caller_supplied_page(&self, query: &Query) -> Result<Option<Value>, HostError> {
-        let (host, ctx) = (self.host, self.ctx);
+        let host = self.host;
         let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) else {
             return Ok(None);
         };
@@ -85,7 +84,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 limit: INTERNAL_FETCH_CAP,
             });
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (rows, flags, _) = execute_query_rows_windowed(host, complete, None, ctx).await?;
+            let (rows, flags, _) = execute_query_rows_windowed(host, complete, None).await?;
             return Ok(Some(materialized_page_payload(
                 rows,
                 page_limit,
@@ -94,10 +93,9 @@ impl<H: HostNode> QueryRun<'_, H> {
                 false,
             )));
         }
-        if let Some(total) = count_rows(host, query, ctx).await? {
+        if let Some(total) = count_rows(host, query).await? {
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (page, flags, _) =
-                execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
+            let (page, flags, _) = execute_query_rows_windowed(host, query.clone(), None).await?;
             return Ok(Some(counted_page_payload(
                 page,
                 total,
@@ -111,10 +109,10 @@ impl<H: HostNode> QueryRun<'_, H> {
 
     /// Count only when required, select the page, admit the read, and render it.
     async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
-        let (host, ctx) = (self.host, self.ctx);
+        let host = self.host;
         let (limit, offset) = (self.limit, self.offset);
         let total = if rules::key_restricted_count_is_required(&query, self.cursor.as_ref()) {
-            count_rows(host, &query, ctx).await?
+            count_rows(host, &query).await?
         } else {
             None
         };
@@ -128,8 +126,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // below, which admits on `total` because it may hydrate that many rows.
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
-        let (page, flags, end) =
-            execute_query_rows_windowed(host, query, Some(window), ctx).await?;
+        let (page, flags, end) = execute_query_rows_windowed(host, query, Some(window)).await?;
         Ok(match (uses_cursor, total) {
             (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset, flags),
             (_, total) => {
@@ -146,7 +143,7 @@ impl<H: HostNode> QueryRun<'_, H> {
     /// Unfiltered "list all", no value filters: count rows cheaply, then fetch
     /// ONLY the requested page. `Ok(None)` means a view or unknown schema.
     async fn unfiltered_pushdown(&self, query: &Query) -> Result<Option<Value>, HostError> {
-        let (host, ctx) = (self.host, self.ctx);
+        let host = self.host;
         let (limit, offset) = (self.limit, self.offset);
         let mut query = query.clone();
         if matches!(query.sort_order, Some(SortOrder::Desc)) {
@@ -155,7 +152,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Unfiltered "list all", no value filters → paginated push-down: count rows
         // cheaply for an exact `total_count`, then fetch ONLY the requested page.
         // `count == None` ⇒ a view (or unknown schema): fall through.
-        if let Some(total) = count_rows(host, &query, ctx).await? {
+        if let Some(total) = count_rows(host, &query).await? {
             // Full-enumeration consistency: a client listing the WHOLE set
             // (offset 0, limit at the ceiling — fkanban list/search) materializes
             // it in ONE snapshot so a concurrent insert can't shift page
@@ -170,7 +167,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 });
                 let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (all_results, flags, _) =
-                    execute_query_rows_windowed(host, query, None, ctx).await?;
+                    execute_query_rows_windowed(host, query, None).await?;
                 // `total_count` is the counted set on every shape, so two limits
                 // seconds apart cannot disagree about how big the set is. If the
                 // snapshot came up short of the count, `has_more` says so —
@@ -194,7 +191,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 limit,
             ));
             let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-            let (page, flags, _) = execute_query_rows_windowed(host, query, None, ctx).await?;
+            let (page, flags, _) = execute_query_rows_windowed(host, query, None).await?;
             return Ok(Some(counted_page_payload(
                 page, total, limit, offset, flags,
             )));
@@ -204,7 +201,7 @@ impl<H: HostNode> QueryRun<'_, H> {
 
     /// Fallback / filtered / value-filtered path.
     async fn bounded_fallback(&self, mut query: Query) -> Result<Value, HostError> {
-        let (host, ctx) = (self.host, self.ctx);
+        let host = self.host;
         let (limit, offset) = (self.limit, self.offset);
         // Fallback / filtered / value-filtered path: a no-filter query here (a view,
         // or one carrying value_filters) gets a bounded `Page` fetch capped at
@@ -232,7 +229,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Interactive.
         let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
-        let (all_results, flags, end) = execute_query_rows_windowed(host, query, None, ctx).await?;
+        let (all_results, flags, end) = execute_query_rows_windowed(host, query, None).await?;
         // A sample that a run of deleted records ended early is not complete,
         // and its reply says so (`rules::sample_resumes`).
         if let Some(PageResume::Record(stopped)) = end.resume {

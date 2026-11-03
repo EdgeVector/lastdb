@@ -6,7 +6,7 @@
 use super::storage_breakdown::{SchemaStorage, StorageBreakdown};
 use super::RecordStore;
 
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::FilterUtils;
 use crate::schema::SchemaError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

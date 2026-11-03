@@ -7,7 +7,6 @@
 //! receiver that needs the bytes asks for them and writes them with `put-blob`
 //! under its own record.
 
-use crate::access::AccessContext;
 use crate::error::FoldDbError;
 use crate::fold_db_core::FoldDB;
 use crate::schema::types::field::HashRangeFilter;
@@ -49,7 +48,6 @@ impl QuerySliceLeg {
 pub async fn materialize_query_slice(
     db: &FoldDB,
     legs: &[QuerySliceLeg],
-    access: &AccessContext,
     provenance_source: impl Into<String>,
     sender_public_key: impl Into<String>,
 ) -> Result<LastDbSlicePayload, FoldDbError> {
@@ -61,7 +59,7 @@ pub async fn materialize_query_slice(
 
     let mut builder = SliceBuilder::default();
     for leg in legs {
-        builder.add_leg(db, leg, access).await?;
+        builder.add_leg(db, leg).await?;
     }
     let SliceBuilder {
         schemas,

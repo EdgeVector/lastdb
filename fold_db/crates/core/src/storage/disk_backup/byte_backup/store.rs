@@ -16,22 +16,29 @@ pub(super) struct Store {
     policy: laststore::space::SpacePolicy,
     space_root: PathBuf,
 }
+/// Create a private directory once (fsync its parent), then check it.
+pub(super) fn private_directory(path: &Path) -> StorageResult<()> {
+    match fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => File::open(
+            path.parent()
+                .ok_or_else(|| invalid("byte backup directory parent"))?,
+        )?
+        .sync_all()?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+        return Err(invalid("byte backup directory ownership"));
+    }
+    Ok(())
+}
 impl Store {
     pub fn open(home: &Path, policy: &laststore::space::SpacePolicy) -> StorageResult<Self> {
-        let root = home.join("cloud-byte-source-v2");
-        match fs::DirBuilder::new().mode(0o700).create(&root) {
-            Ok(()) => File::open(
-                root.parent()
-                    .ok_or_else(|| invalid("byte source directory parent"))?,
-            )?
-            .sync_all()?,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        let meta = fs::symlink_metadata(&root)?;
-        if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-            return Err(invalid("byte source directory ownership"));
-        }
+        let backup = home.join(laststore::disk_run::home::BACKUP_DIR);
+        let root = backup.join(super::SOURCE_DIR);
+        private_directory(&backup)?;
+        private_directory(&root)?;
         let mut total = 0u64;
         for (index, entry) in fs::read_dir(&root)?.enumerate() {
             if index >= MAX_FILES {

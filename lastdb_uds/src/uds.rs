@@ -24,12 +24,6 @@ use std::path::{Path, PathBuf};
 /// File name of the node's Unix-domain control socket within its data dir.
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 
-/// File name of the node's full-surface setup socket within its data dir.
-///
-/// Named here (not just at its bind site) so [`preflight_data_dir`] can reject a
-/// data dir up front for EVERY socket the node will bind, not only the first.
-pub const FULL_SOCKET_FILE_NAME: &str = "folddb-full.sock";
-
 /// Suffix of the temporary sibling [`UdsSocket::bind_at`] binds before the
 /// atomic rename into place.
 ///
@@ -94,10 +88,10 @@ fn tmp_socket_path(path: &Path) -> PathBuf {
     path.with_file_name(tmp_file_name)
 }
 
-/// Reject a data dir whose sockets cannot be bound, BEFORE any boot work runs.
+/// Reject a data dir whose socket cannot be bound, BEFORE any boot work runs.
 ///
 /// Pure and I/O-free — it measures path lengths only — so the node can call it
-/// the moment the data dir is resolved. That ordering matters for three reasons,
+/// the moment the data dir is resolved. That ordering matters for two reasons,
 /// all of which bit a real run (a copy-on-write proof, 2026-08-03):
 ///
 /// 1. **Cost.** `bind` currently happens after `Host::boot`, so a data dir that
@@ -106,27 +100,19 @@ fn tmp_socket_path(path: &Path) -> PathBuf {
 ///    before the bind, so a bind refusal leaves no clean-shutdown record and the
 ///    NEXT boot reports "previous session ended UNCLEANLY" — promoting a static
 ///    configuration error to Sentry as a crash.
-/// 3. **Partial serving.** The full-surface socket is bound later still, so a
-///    data dir in the narrow band where only the shorter name fits would serve
-///    the narrow socket and then die — a half-up node.
 ///
-/// Checks every socket the node binds under `data_dir`, and each one's temporary
-/// rename sibling, reporting the LONGEST offender with the budget a caller can
-/// actually act on.
+/// Checks the socket and its temporary rename sibling, and reports the budget
+/// a caller can actually act on.
 pub fn preflight_data_dir(data_dir: &Path) -> io::Result<()> {
     // The temp sibling is the binding constraint, so measure it — but report the
     // real socket path, which is the thing an operator can shorten.
-    let worst = [SOCKET_FILE_NAME, FULL_SOCKET_FILE_NAME]
-        .into_iter()
-        .map(|name| data_dir.join(name))
-        .max_by_key(|p| tmp_socket_path(p).as_os_str().len())
-        .expect("socket name list is non-empty");
+    let worst = socket_path(data_dir);
     if tmp_socket_path(&worst).as_os_str().len() <= MAX_SOCKET_PATH_LEN {
         return Ok(());
     }
-    // Budget for the data dir itself: the limit, less the longest socket file
-    // name, its temp suffix, and the path separator joining them.
-    let overhead = FULL_SOCKET_FILE_NAME.len() + SOCKET_TMP_SUFFIX.len() + 1;
+    // Budget for the data dir itself: the limit, less the socket file name, its
+    // temp suffix, and the path separator joining them.
+    let overhead = SOCKET_FILE_NAME.len() + SOCKET_TMP_SUFFIX.len() + 1;
     let max_data_dir = MAX_SOCKET_PATH_LEN.saturating_sub(overhead);
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,

@@ -2,7 +2,6 @@
 
 use fold_db::schema::types::KeyValuePageOrder;
 
-use fold_db::access::AccessContext;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{FileWrite, KeyValue, Query};
@@ -18,7 +17,7 @@ use super::{
     MutationComponents,
 };
 
-/// Execute `POST /api/mutation` under the caller's access context. Schema
+/// Execute `POST /api/mutation`. Schema
 /// resolution precedes pure request rules, field validation, and the write.
 ///
 /// # Errors
@@ -27,7 +26,6 @@ use super::{
 pub async fn execute_mutation<H: HostNode>(
     host: &H,
     components: MutationComponents,
-    ctx: &AccessContext,
 ) -> Result<Value, HostError> {
     let canonical = resolve_mutation_schema(host, &components.schema)?;
     let plan = MutationPlan::new(components, canonical)?;
@@ -58,7 +56,6 @@ pub async fn execute_mutation<H: HostNode>(
                     .clone()
                     .expect("validated hash"),
                 prefix.clone(),
-                ctx,
             )
             .await?
         }
@@ -69,7 +66,7 @@ pub async fn execute_mutation<H: HostNode>(
     }
 
     let convergence = plan.components.convergence;
-    let receipt = commit_mutation(host, plan, key_values, ctx, payload_bytes).await?;
+    let receipt = commit_mutation(host, plan, key_values, payload_bytes).await?;
     let mutation_id = receipt
         .mutation_ids
         .last()
@@ -97,7 +94,6 @@ async fn resolve_delete_prefix_keys<H: HostNode>(
     schema: String,
     hash: String,
     prefix: String,
-    ctx: &AccessContext,
 ) -> Result<Vec<KeyValue>, HostError> {
     let query = Query::new_with_filter(
         schema,
@@ -107,7 +103,7 @@ async fn resolve_delete_prefix_keys<H: HostNode>(
     let rows = host
         .fold_db()
         .query_executor()
-        .query_with_access(query, ctx)
+        .query(query)
         .await
         .map_err(HostError::from)?;
     let mut keys: Vec<_> = rows.into_keys().collect();

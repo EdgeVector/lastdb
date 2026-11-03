@@ -5,10 +5,9 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
 use std::sync::Arc;
 
-pub(super) struct NativeRequest<'a> {
+pub(super) struct NativeRequest {
     pub runtime: Arc<PackRuntime>,
     pub mutations: Vec<Mutation>,
-    pub storage_prefix: Option<&'a str>,
     pub author_clock: Option<super::super::author_clock::AuthorClockPersistBarrier>,
 }
 
@@ -20,7 +19,7 @@ struct NativeCommit {
 impl MutationManager {
     pub(super) async fn write_native_batch(
         &self,
-        request: NativeRequest<'_>,
+        request: NativeRequest,
         operations: ResidentCommitOperations,
         start: std::time::Instant,
         mut state: super::create_update_batch::BatchState,
@@ -48,7 +47,7 @@ impl MutationManager {
 
     async fn commit_native_request(
         &self,
-        request: NativeRequest<'_>,
+        request: NativeRequest,
         state: &mut super::create_update_batch::BatchState,
     ) -> Result<NativeCommit, SchemaError> {
         // The clock queue uses native storage too. Complete its barrier before
@@ -73,9 +72,7 @@ impl MutationManager {
                 already_seen_ids,
                 mutations,
                 hashes,
-            } = self
-                .filter_idempotent_mutations(request.mutations, request.storage_prefix)
-                .await?;
+            } = self.filter_idempotent_mutations(request.mutations).await?;
             Self::add_timing(
                 &mut state.timing_breakdown,
                 "idempotency_check",
@@ -98,8 +95,7 @@ impl MutationManager {
                     mutation_ids,
                 });
             }
-            self.check_batch_preconditions(&mutations, request.storage_prefix)
-                .await?;
+            self.check_batch_preconditions(&mutations).await?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
@@ -107,7 +103,6 @@ impl MutationManager {
                 .stage_record_groups(
                     mutations,
                     hashes,
-                    request.storage_prefix,
                     &mut state.timing_breakdown,
                     &mut state.stages,
                     &request.runtime,

@@ -4,12 +4,7 @@
 
 use super::*;
 
-pub(super) async fn execute(
-    host: &Host,
-    ctx: &AccessContext,
-    request: Request,
-) -> Result<Value, HostError> {
-    let scope = ctx.storage_prefix.as_deref();
+pub(super) async fn execute(host: &Host, request: Request) -> Result<Value, HostError> {
     let db = host.db.db_ops();
     let location = &request.location;
     let schema = db
@@ -29,11 +24,9 @@ pub(super) async fn execute(
     match request.action {
         Action::Policy { policy } => {
             if let Some(policy) = policy {
-                records
-                    .set_field_history_policy(&identity, policy, scope)
-                    .await?;
+                records.set_field_history_policy(&identity, policy).await?;
             }
-            let policy = records.field_history_policy(&identity, scope).await?;
+            let policy = records.field_history_policy(&identity).await?;
             Ok(serde_json::json!({"field_identity": identity, "policy": policy}))
         }
         Action::List { cursor, limit } => {
@@ -42,18 +35,17 @@ pub(super) async fn execute(
                     &schema,
                     key,
                     (&location.field, &identity),
-                    scope,
                     (cursor.as_deref(), limit.unwrap_or(32)),
                 )
                 .await?;
             serde_json::to_value(page).map_err(|e| HostError::new(500, e.to_string()))
         }
         Action::Get { id } => records
-            .record_history_value(&schema, key, &identity, scope, &id)
+            .record_history_value(&schema, key, &identity, &id)
             .await?
             .ok_or_else(|| HostError::new(404, "history entry is absent or expired")),
         Action::Purge { cursor } => Ok(records
-            .purge_record_history(&schema, key, &identity, scope, cursor.as_deref())
+            .purge_record_history(&schema, key, &identity, cursor.as_deref())
             .await?),
         Action::Restore {
             id,
@@ -62,10 +54,10 @@ pub(super) async fn execute(
         } => {
             require_restore_guard(expected_mutation.as_deref(), absent)?;
             let value = records
-                .record_history_value(&schema, key, &identity, scope, &id)
+                .record_history_value(&schema, key, &identity, &id)
                 .await?
                 .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
-            restore(host, ctx, request.location, &value, expected_mutation).await
+            restore(host, request.location, &value, expected_mutation).await
         }
     }
 }

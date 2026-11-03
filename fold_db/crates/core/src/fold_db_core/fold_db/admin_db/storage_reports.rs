@@ -14,7 +14,7 @@ impl FoldDB {
         let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
         self.db_ops()
             .records()
-            .db_inventory(&names, None)
+            .db_inventory(&names)
             .await
             .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))
     }
@@ -36,7 +36,7 @@ impl FoldDB {
         let mut breakdown = self
             .db_ops()
             .records()
-            .record_storage_breakdown(&names, None)
+            .record_storage_breakdown(&names)
             .await
             .map_err(|e| FoldDbError::Database(format!("schema record storage: {e}")))?;
         let mut display = HashMap::new();

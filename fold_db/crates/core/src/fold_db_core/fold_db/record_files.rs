@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use crate::db_operations::record_store::record_scope;
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
 use crate::schema::SchemaError;
@@ -62,7 +61,7 @@ impl FoldDB {
     ) -> Result<(String, RecordFileState), FoldDbError> {
         let schema = self.schema_manager().require_schema_metadata(schema_name)?;
         let records = self.db_ops().records();
-        let record_key = records.record_key(&schema, key, record_scope(&schema).as_deref())?;
+        let record_key = records.record_key(&schema, key)?;
         let record = records
             .read_records(std::slice::from_ref(&record_key))
             .await?

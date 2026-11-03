@@ -12,7 +12,6 @@
 
 use super::record_files::file_row_change;
 use super::RecordStore;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::record_warm::WrittenRecord;
@@ -27,9 +26,9 @@ const READ_CHUNK: usize = 10_000;
 
 /// One record that a native write changes.
 pub(crate) struct RecordChange {
-    /// The storage key, scope included.
+    /// The storage key.
     pub key: String,
-    /// The stored value that the write read in the same scope.
+    /// The stored value that the write read.
     pub before: Option<Arc<StoredRecord>>,
     /// The merged value that the write puts.
     pub after: StoredRecord,
@@ -41,17 +40,6 @@ pub(crate) struct RecordChange {
     pub file_row: Option<Arc<Vec<u8>>>,
 }
 
-/// The storage scope of the records of a schema: the prefix that its fields
-/// carry in an org database, as the alternate entries of the field key path
-/// use. `None` is the personal database.
-pub(crate) fn record_scope(schema: &Schema) -> Option<String> {
-    schema
-        .runtime_fields
-        .values()
-        .find_map(|field| field.common().storage_prefix())
-        .map(str::to_owned)
-}
-
 impl RecordStore {
     /// The storage key of the record at one canonical primary key. The record
     /// space codec of the schema blinds the hash and types the range.
@@ -59,18 +47,15 @@ impl RecordStore {
         &self,
         schema: &Schema,
         key: &KeyValue,
-        scope: Option<&str>,
     ) -> Result<String, SchemaError> {
         let space = record_space_uuid(&schema.name);
         let hash = key
             .hash
             .as_deref()
             .ok_or_else(|| SchemaError::InvalidData("a record key requires a hash".into()))?;
-        let record = self
-            .key_codec_for_field_key(&space)?
+        self.key_codec_for_field_key(&space)?
             .api_record_key(&space, hash, key.range.as_deref().unwrap_or_default())
-            .map_err(|error| SchemaError::InvalidData(format!("invalid record key: {error}")))?;
-        Ok(build_storage_key(scope, &record))
+            .map_err(|error| SchemaError::InvalidData(format!("invalid record key: {error}")))
     }
 
     /// The stored records at these storage keys, in the order given. Memory

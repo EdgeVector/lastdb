@@ -5,10 +5,24 @@ use std::io::Read;
 use std::{fs::File, path::PathBuf};
 use tokenizers::{AddedToken, PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
-const DEFAULT_CACHE_DIR: &str = ".fastembed_cache";
-
+/// The model cache: `FASTEMBED_CACHE_DIR`, else
+/// `${XDG_CACHE_HOME:-$HOME/.cache}/fastembed`, else the system temporary
+/// directory. Never the working directory, so a process started inside a
+/// database home adds no cache folder to it.
 pub fn get_cache_dir() -> String {
-    std::env::var("FASTEMBED_CACHE_DIR").unwrap_or(DEFAULT_CACHE_DIR.into())
+    if let Ok(dir) = std::env::var("FASTEMBED_CACHE_DIR") {
+        return dir;
+    }
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| PathBuf::from(home).join(".cache"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("fastembed").to_string_lossy().into_owned()
 }
 
 /// Type alias for the embedding vector

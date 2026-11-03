@@ -8,8 +8,6 @@ use crate::error::FoldDbError;
 
 use std::collections::HashMap;
 
-use crate::access::AccessContext;
-
 use super::FoldDB;
 
 mod repair;

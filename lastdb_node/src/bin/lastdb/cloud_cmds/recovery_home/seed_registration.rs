@@ -6,10 +6,7 @@ use std::path::Path;
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
-use lastdb_node::cloud::{
-    register_dev_recovery_device, SavedCredentials, CLOUD_RESUME_REQUIRED_FILE,
-    CLOUD_SYNC_PAUSED_FILE,
-};
+use lastdb_node::cloud::{register_dev_recovery_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
 use super::files::FreshHome;
@@ -75,8 +72,8 @@ pub(super) fn command(
         Ok(recovered) => serde_json::json!({
             "schema": "lastdb.dev-credentials-recovery.v1", "ok": true, "environment": "dev",
             "user_hash_matches_expected": true, "fresh_device_id": recovered.device_id,
-            "credentials_only": true, "cloud_sync_off": true, "cloud_resume_required": true,
-            "data_directory_created": false, "files": 3, "home_mode": "0700", "file_mode": "0600",
+            "credentials_only": true, "cloud_sync_off": true,
+            "data_directory_created": false, "files": 2, "home_mode": "0700", "file_mode": "0600",
             "identity_seed_output": false, "api_key_output": false, "local_store_opened": false,
             "cloud_data_published": false, "device_registered": true,
             "remote_key_rotation_policy_verified": false,
@@ -229,8 +226,7 @@ fn commit_credentials(
             Failure::after_registration("cannot_encode_protected_credentials", device_id)
         })?;
     target
-        .write(CLOUD_SYNC_PAUSED_FILE, &bytes)
-        .and_then(|()| target.write(CLOUD_RESUME_REQUIRED_FILE, b""))
+        .write(CLOUD_CREDENTIALS_FILE, &bytes)
         .and_then(|()| target.commit())
         .map_err(|_| Failure::after_registration("cannot_commit_protected_credentials", device_id))
 }

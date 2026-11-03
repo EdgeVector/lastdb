@@ -1,10 +1,8 @@
 //! Metadata domain store.
 //!
-//! Owns the `metadata` and `idempotency` namespaces.
-//! External callers reach these via `DbOperations::metadata()`.
-//!
-//! Responsibilities:
-//! - Idempotency cache for mutations
+//! Owns the `metadata` namespace. The mutation retry cache lives there as
+//! the `retry-cache:{xx}` key family.
+//! External callers reach it via `DbOperations::metadata()`.
 
 use std::sync::Arc;
 
@@ -18,28 +16,20 @@ use crate::storage::traits::KvStore;
 use crate::storage::StorageError;
 use crate::storage::TypedKvStore;
 
-/// Domain store for node metadata / idempotency persistence.
+/// Domain store for node metadata and the mutation retry cache.
 #[derive(Clone)]
 pub struct MetadataStore {
     metadata_store: Arc<TypedKvStore<dyn KvStore>>,
-    idempotency_store: Arc<TypedKvStore<dyn KvStore>>,
 }
 
 impl MetadataStore {
-    pub(crate) fn new(
-        metadata_store: Arc<TypedKvStore<dyn KvStore>>,
-        idempotency_store: Arc<TypedKvStore<dyn KvStore>>,
-    ) -> Self {
-        Self {
-            metadata_store,
-            idempotency_store,
-        }
+    pub(crate) fn new(metadata_store: Arc<TypedKvStore<dyn KvStore>>) -> Self {
+        Self { metadata_store }
     }
 
-    /// Flush every metadata-owned namespace to durable storage.
+    /// Flush the metadata namespace to durable storage.
     pub(crate) async fn flush(&self) -> Result<(), SchemaError> {
         self.metadata_store.inner().flush().await?;
-        self.idempotency_store.inner().flush().await?;
         Ok(())
     }
 
@@ -88,7 +78,7 @@ impl MetadataStore {
         Ok(())
     }
 
-    // ===== Idempotency store =====
+    // ===== Retry cache (`retry-cache:{xx}` keys) =====
 
     /// Read the bounded cache limits, without keys or values.
     pub fn retry_cache_status(&self) -> serde_json::Value {
@@ -100,7 +90,7 @@ impl MetadataStore {
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<String>>, SchemaError> {
-        idempotency::get_many(&self.idempotency_store, keys)
+        idempotency::get_many(&self.metadata_store, keys)
             .await
             .map_err(Into::into)
     }
@@ -110,7 +100,7 @@ impl MetadataStore {
         &self,
         entries: Vec<(String, String)>,
     ) -> Result<(), SchemaError> {
-        idempotency::put(&self.idempotency_store, entries)
+        idempotency::put(&self.metadata_store, entries)
             .await
             .map_err(Into::into)
     }

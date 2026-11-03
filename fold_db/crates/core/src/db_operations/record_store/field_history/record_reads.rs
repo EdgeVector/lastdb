@@ -17,9 +17,8 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
         field_identity: &str,
-        scope: Option<&str>,
     ) -> Result<(String, String), SchemaError> {
-        let record = self.record_key(schema, key, scope)?;
+        let record = self.record_key(schema, key)?;
         let prefix = record_prefix(&record, Some(field_identity))?;
         Ok((record, prefix))
     }
@@ -31,10 +30,9 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
         (field, field_identity): (&str, &str),
-        scope: Option<&str>,
         (cursor, limit): (Option<&str>, usize),
     ) -> Result<FieldHistoryPage, SchemaError> {
-        let (record, prefix) = self.record_history_location(schema, key, field_identity, scope)?;
+        let (record, prefix) = self.record_history_location(schema, key, field_identity)?;
         self.record_read_scope(async {
             let mut walk = prefix_walk(&prefix, cursor, limit)?;
             let step = self.walk_step(&mut walk).await?;
@@ -73,11 +71,10 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
         field_identity: &str,
-        scope: Option<&str>,
         id: &str,
     ) -> Result<Option<Value>, SchemaError> {
         validate_id(id)?;
-        let (_, prefix) = self.record_history_location(schema, key, field_identity, scope)?;
+        let (_, prefix) = self.record_history_location(schema, key, field_identity)?;
         self.record_read_scope(async {
             let key = format!("{prefix}{id}");
             let Some(entry) = self.main_store.get_item::<RecordHistoryEntry>(&key).await? else {
@@ -100,10 +97,9 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
         field_identity: &str,
-        scope: Option<&str>,
         cursor: Option<&str>,
     ) -> Result<Value, SchemaError> {
-        let (_, prefix) = self.record_history_location(schema, key, field_identity, scope)?;
+        let (_, prefix) = self.record_history_location(schema, key, field_identity)?;
         self.in_background_scope(async move {
             let mut walk = prefix_walk(&prefix, cursor, 32)?;
             let mut entries = Vec::new();

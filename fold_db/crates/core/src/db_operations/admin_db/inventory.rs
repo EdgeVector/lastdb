@@ -42,18 +42,14 @@ impl RecordStore {
     }
 
     /// Scan `main` by known key prefixes and sum live key+value sizes.
-    pub async fn inventory_main_key_classes(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<MainKeyClass>, SchemaError> {
+    pub async fn inventory_main_key_classes(&self) -> Result<Vec<MainKeyClass>, SchemaError> {
         // Prefixes must be ordered longest-first for classification; we scan
         // each prefix independently (they don't nest).
         let classes = MAIN_KEY_CLASSES;
 
         let mut out = Vec::with_capacity(classes.len() + 1);
-        for (class, bare_prefix, label) in classes {
-            let prefix = build_storage_key(storage_prefix, bare_prefix);
-            let (keys, bytes) = self.inventory_accumulate_prefix(&prefix, class).await?;
+        for (class, prefix, label) in classes {
+            let (keys, bytes) = self.inventory_accumulate_prefix(prefix, class).await?;
             if keys > 0 {
                 out.push(MainKeyClass {
                     class: (*class).to_string(),
@@ -70,19 +66,13 @@ impl RecordStore {
     /// Build a full inventory: the main key classes and the live records of
     /// each schema. `schema_names` names the record rows (see
     /// [`RecordStore::add_record_storage`]).
-    pub async fn db_inventory(
-        &self,
-        schema_names: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<DbInventory, SchemaError> {
+    pub async fn db_inventory(&self, schema_names: &[String]) -> Result<DbInventory, SchemaError> {
         let walks_before = self.range_walks().snapshot();
-        let main_classes = self.inventory_main_key_classes(storage_prefix).await?;
+        let main_classes = self.inventory_main_key_classes().await?;
         let main_total_keys = main_classes.iter().map(|c| c.keys).sum();
         let main_total_bytes = main_classes.iter().map(|c| c.bytes).sum();
 
-        let records = self
-            .record_storage_breakdown(schema_names, storage_prefix)
-            .await?;
+        let records = self.record_storage_breakdown(schema_names).await?;
 
         let scan = self.range_walks().snapshot().since(walks_before);
         let notes = inventory_notes();

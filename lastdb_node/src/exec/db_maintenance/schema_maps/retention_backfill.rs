@@ -15,13 +15,6 @@ pub(super) async fn execute(
             ctx,
         );
     }
-    if ctx.storage_prefix.is_some() || ctx.db_locator.is_some() {
-        return error_response(
-            400,
-            "retention backfill currently requires the personal scope",
-            ctx,
-        );
-    }
     let mut audit = crate::retention_audit::RetentionAuditEvent::new(
         "db_schema_retention",
         &crate::request_telemetry::client_from_request(req),

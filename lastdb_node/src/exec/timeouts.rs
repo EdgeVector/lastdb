@@ -222,12 +222,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
         | DataRoute::SeedSystemSchema
-        | DataRoute::HomeStorage
-        | DataRoute::HomeStorageReconcile
-        | DataRoute::DbCatalogGet
-        | DataRoute::DbCatalogPut
-        | DataRoute::DbCatalogDelete
-        | DataRoute::DbCatalogShare
         | DataRoute::DbSchemaRetention
         | DataRoute::DbPutBlob
         | DataRoute::DbFetchBlob

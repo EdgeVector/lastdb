@@ -4,7 +4,7 @@ use crate::storage::disk_backup::byte_backup::RunBackupHome;
 use crate::storage::disk_pack::run_node;
 use crate::storage::disk_pack::NODE_MARKER;
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
-use laststore::disk_run::home::{RunRead, RUN_HOME_MARKER};
+use laststore::disk_run::home::{RunRead, CURRENT, LOCK, RUNS, RUN_HOME_MARKER};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -22,8 +22,8 @@ impl HomeBinding {
     pub(super) fn check(&self, root: &Path, name: &str) -> StorageResult<()> {
         let path = root.join(name);
         same_entry(&self.home, &path)?;
-        same_entry(&self.runs, &path.join("runs"))?;
-        same_entry(&self.lock, &path.join("LOCK"))
+        same_entry(&self.runs, &path.join(RUNS))?;
+        same_entry(&self.lock, &path.join(LOCK))
     }
 }
 
@@ -100,10 +100,8 @@ pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore name"))?;
-        if !matches!(
-            name.as_str(),
-            "laststore-pack-node-v1" | "disk-run" | "disk-cas"
-        ) || !names.insert(name)
+        if ![NODE_MARKER, run_node::RUN_DIR, run_node::CAS_DIR].contains(&name.as_str())
+            || !names.insert(name)
         {
             return Err(invalid("run restore wrapper closure"));
         }
@@ -125,7 +123,7 @@ pub(super) fn home(
     let mut entries = Vec::new();
     for (file, digest) in [
         (RUN_HOME_MARKER, &expected.descriptor_sha256),
-        ("CURRENT", &expected.current_sha256),
+        (CURRENT, &expected.current_sha256),
     ] {
         let bytes = hash(&path.join(file), digest)?;
         if file == RUN_HOME_MARKER && bytes != 64 {
@@ -138,7 +136,7 @@ pub(super) fn home(
     }
     let expected_runs: BTreeMap<_, _> = reader.referenced_runs().collect();
     let mut seen = BTreeSet::new();
-    for entry in fs::read_dir(path.join("runs"))? {
+    for entry in fs::read_dir(path.join(RUNS))? {
         let entry = entry?;
         let name = entry
             .file_name()
@@ -180,8 +178,8 @@ pub(super) fn home(
 pub(super) fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding> {
     let path = root.join(name);
     let home = directory(&path)?;
-    let runs = directory(&path.join("runs"))?;
-    let lock = regular(&path.join("LOCK"), false)?;
+    let runs = directory(&path.join(RUNS))?;
+    let lock = regular(&path.join(LOCK), false)?;
     if regular(&path.join(RUN_HOME_MARKER), false)?
         .metadata()?
         .len()
@@ -190,7 +188,7 @@ pub(super) fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding
     {
         return Err(invalid("run restore descriptor or ephemeral lock length"));
     }
-    regular(&path.join("CURRENT"), false)?;
+    regular(&path.join(CURRENT), false)?;
     require_home_members(&path)?;
     Ok(HomeBinding { home, runs, lock })
 }
@@ -198,7 +196,7 @@ pub(super) fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding
 fn root_name(path: &Path) -> StorageResult<String> {
     path.file_name()
         .and_then(|name| name.to_str())
-        .map(|name| format!("{name}/runs"))
+        .map(|name| format!("{name}/{RUNS}"))
         .ok_or_else(|| invalid("run restore home name"))
 }
 
@@ -209,11 +207,7 @@ fn require_home_members(path: &Path) -> StorageResult<()> {
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore home member"))?;
-        if !matches!(
-            name.as_str(),
-            "laststore-run-home-v2" | "CURRENT" | "LOCK" | "runs"
-        ) || !names.insert(name)
-        {
+        if ![RUN_HOME_MARKER, CURRENT, LOCK, RUNS].contains(&name.as_str()) || !names.insert(name) {
             return Err(invalid("run restore home closure"));
         }
     }
@@ -250,7 +244,7 @@ pub(super) fn backup_profile(
 fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResult<RunBackupHome> {
     let path = root.join(name);
     let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
-    let (current_sha256, current_bytes) = inspect(&path.join("CURRENT"))?;
+    let (current_sha256, current_bytes) = inspect(&path.join(CURRENT))?;
     let mut files = 2u64;
     let mut bytes = descriptor_bytes
         .checked_add(current_bytes)

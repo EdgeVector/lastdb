@@ -248,11 +248,9 @@ pub(super) async fn materialize_nonempty(
     legs: &[QuerySliceLeg],
     ctx: &AccessContext,
 ) -> Result<LastDbSlicePayload, UdsResponse> {
-    let owner = AccessContext::owner(host.public_key());
     let payload = materialize_query_slice(
         &host.db,
         legs,
-        &owner,
         legs.first()
             .map_or_else(|| "query".into(), |l| format!("query: {}", l.schema_name)),
         host.public_key(),

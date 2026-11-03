@@ -11,6 +11,8 @@ use std::sync::{
     Arc, Mutex,
 };
 
+/// The automatic backup policy inside [`Store::base`].
+pub(crate) const AUTOMATIC_FILE: &str = "automatic.json";
 const MAX_JSON: u64 = cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 static WRITE: Mutex<()> = Mutex::new(());
 

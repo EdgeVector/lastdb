@@ -3,15 +3,14 @@
 use super::*;
 
 impl MutationManager {
-    /// [`Self::write_mutations_batch_async`] answering with the full
-    /// [`ResidentCommitReceipt`] instead of only the mutation ids.
+    /// Write a batch of mutations and answer with the full
+    /// [`ResidentCommitReceipt`].
     ///
     /// This is the real body; the id-returning entry point is a thin
     /// projection of it, so the two cannot drift.
-    pub async fn write_mutations_batch_with_receipt(
+    pub async fn write_mutations_receipt(
         &self,
         mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         // The write owns the complete mutation pipeline. Keep that future off
         // callers' default request and maintenance thread stacks. Erase its
@@ -22,7 +21,7 @@ impl MutationManager {
         let future: futures::future::BoxFuture<'_, Result<ResidentCommitReceipt, SchemaError>> =
             Box::pin(async move {
                 let now = crate::clock::unix_nanos();
-                self.write_mutations_batch_with_receipt_admitted(mutations, storage_prefix, now)
+                self.write_mutations_batch_with_receipt_admitted(mutations, now)
                     .await
             });
         future.await

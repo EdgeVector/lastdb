@@ -35,17 +35,6 @@ pub enum StorageError {
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
-    /// A named database attempted to resolve a schema that its catalog does
-    /// not contain. Keep this distinct from backend failures so the data path
-    /// can reject the request without falling back to another keyspace.
-    #[error(
-        "database catalog membership denied: database '{db_locator}' does not contain schema '{schema_name}'"
-    )]
-    CatalogMembershipDenied {
-        db_locator: String,
-        schema_name: String,
-    },
-
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -129,13 +118,6 @@ impl From<StorageError> for SchemaError {
             StorageError::ReadResourceLimit { detail } => Self::ReadResourceLimit { detail },
             StorageError::WriteResourceLimit { detail }
             | StorageError::MutationLimit { detail } => Self::WriteResourceLimit { detail },
-            StorageError::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            } => Self::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            },
             // A full disk keeps its identity across the boundary. Folding it
             // into `InvalidData` here is what made every storage path report a
             // host condition as a malformed request.

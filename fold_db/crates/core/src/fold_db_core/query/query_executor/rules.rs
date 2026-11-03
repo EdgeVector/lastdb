@@ -1,4 +1,4 @@
-//! Storage-free projection validation and request-local field scope.
+//! Storage-free projection validation.
 
 use crate::schema::{Schema, SchemaError};
 
@@ -22,15 +22,4 @@ pub(super) fn reject_unknown_projection(
         schema.name,
         unknown.join(", ")
     )))
-}
-
-/// Change only the request-local schema clone, never the schema registry.
-pub(super) fn scope_fields(schema: &mut Schema, prefix: Option<&str>) {
-    if let Some(prefix) = prefix {
-        for field in schema.runtime_fields.values_mut() {
-            field
-                .common_mut()
-                .set_storage_prefix(Some(prefix.to_string()));
-        }
-    }
 }

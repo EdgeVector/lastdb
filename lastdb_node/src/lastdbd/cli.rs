@@ -24,11 +24,6 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) socket_path: Option<PathBuf>,
 
-    /// Full-surface worker socket path. The default is
-    /// `<home>/data/folddb-full.sock`.
-    #[arg(long)]
-    pub(crate) full_socket_path: Option<PathBuf>,
-
     /// Enable bounded change delivery to LastSeek/Search. Off by default.
     /// A new or interrupted Search corpus needs a full rebuild from LastDB.
     #[arg(long)]

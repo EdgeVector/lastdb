@@ -44,7 +44,7 @@ pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};
 pub use record_walk::RECORD_WALK_ROWS;
 pub(crate) use record_walk::{WalkWindow, PAGE_READ_KEYS};
-pub(crate) use records::{record_scope, RecordChange};
+pub(crate) use records::RecordChange;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
@@ -70,11 +70,6 @@ pub struct RecordStore {
     content_key: Option<[u8; 32]>,
     /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
     field_keys: Option<crate::db_operations::FieldKeyStore>,
-    /// Per-field-key guards. Schema delete and schema share take the guards
-    /// of every field key of a schema in sorted order, so the two cannot
-    /// interleave on one field key or deadlock.
-    field_key_commit_locks:
-        Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
     /// The clock of the field history expiry queue. Shared by clones.
     queue_clock: Arc<time_queue::QueueClock>,
     /// Wake expiry after a history policy activation attempt. Shared by clones.
@@ -112,7 +107,8 @@ impl RecordStore {
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for
-    /// code paths that need generic typed access (field loading, org purge).
+    /// code paths that need generic typed access (field loading, the delete
+    /// ledger, alternate entries).
     pub(crate) fn raw(&self) -> &Arc<TypedKvStore<dyn KvStore>> {
         &self.main_store
     }

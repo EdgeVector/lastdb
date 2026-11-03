@@ -43,7 +43,6 @@ pub(super) async fn execute_query_route(
             limit,
             offset,
             cursor,
-            ctx,
             allow_full_scan,
         )),
     )
@@ -75,7 +74,7 @@ pub(super) async fn execute_mutation_route(
             return reject.response();
         }
     };
-    let result = commit_mutation_components(host, components, ctx).await;
+    let result = commit_mutation_components(host, components).await;
     let response_started = std::time::Instant::now();
     let response = render(result, ctx);
     fold_db::request_phases::add_phase(
@@ -90,7 +89,6 @@ pub(super) async fn execute_mutation_route(
 pub(super) async fn commit_mutation_components(
     host: &Host,
     components: handlers::MutationComponents,
-    ctx: &AccessContext,
 ) -> Result<Value, HostError> {
     let hint = MutationWatchHint::from(&components);
     let change_feed_reservation = host
@@ -105,7 +103,7 @@ pub(super) async fn commit_mutation_components(
                 .unwrap_or_else(|| hint.schema.clone()),
             hint.event(String::new(), &Value::Null, fold_db::clock::unix_millis()),
         )],
-        handlers::execute_mutation(host, components, ctx),
+        handlers::execute_mutation(host, components),
     )
     .await;
     result.and_then(|value| {

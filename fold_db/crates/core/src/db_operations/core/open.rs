@@ -1,5 +1,4 @@
 use super::super::change_feed::ChangeFeedStore;
-use super::super::db_catalog_store::DbCatalogStore;
 use super::super::metadata_store::MetadataStore;
 use super::super::record_store::RecordStore;
 use super::super::schema_store::SchemaStore;
@@ -15,10 +14,7 @@ struct CoreNamespaces {
     metadata_kv: Arc<dyn KvStore>,
     schema_states_kv: Arc<dyn KvStore>,
     schemas_kv: Arc<dyn KvStore>,
-    db_catalog_kv: Arc<dyn KvStore>,
     field_keys_kv: Arc<dyn KvStore>,
-    idempotency_kv: Arc<dyn KvStore>,
-    superseded_by_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
 }
 
@@ -28,20 +24,14 @@ impl CoreNamespaces {
         let metadata_kv = store.open_namespace("metadata").await?;
         let schema_states_kv = store.open_namespace("schema_states").await?;
         let schemas_kv = store.open_namespace("schemas").await?;
-        let db_catalog_kv = store.open_namespace("db_catalog").await?;
         let field_keys_kv = store.open_namespace("field_keys").await?;
-        let idempotency_kv = store.open_namespace("idempotency").await?;
-        let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
         Ok(Self {
             main_kv,
             metadata_kv,
             schema_states_kv,
             schemas_kv,
-            db_catalog_kv,
             field_keys_kv,
-            idempotency_kv,
-            superseded_by_kv,
             change_feed_kv,
         })
     }
@@ -75,10 +65,7 @@ impl DbOperations {
             metadata_kv,
             schema_states_kv,
             schemas_kv,
-            db_catalog_kv,
             field_keys_kv,
-            idempotency_kv,
-            superseded_by_kv,
             change_feed_kv,
         } = CoreNamespaces::open(&store).await?;
 
@@ -86,19 +73,11 @@ impl DbOperations {
         let metadata_typed = Arc::new(TypedKvStore::new(metadata_kv));
         let schema_states_store = Arc::new(TypedKvStore::new(schema_states_kv));
         let schemas_store = Arc::new(TypedKvStore::new(schemas_kv));
-        let db_catalog_store = Arc::new(TypedKvStore::new(db_catalog_kv));
         let field_keys_store = Arc::new(TypedKvStore::new(field_keys_kv));
-        let idempotency_typed = Arc::new(TypedKvStore::new(idempotency_kv));
-        let superseded_by_store = Arc::new(TypedKvStore::new(superseded_by_kv));
 
         // Domain stores
-        let schema_store = SchemaStore::new(
-            schemas_store,
-            schema_states_store,
-            superseded_by_store,
-            Arc::clone(&runtime),
-        );
-        let db_catalog = DbCatalogStore::new(db_catalog_store, Arc::clone(&runtime));
+        let schema_store =
+            SchemaStore::new(schemas_store, schema_states_store, Arc::clone(&runtime));
         let field_keys =
             FieldKeyStore::new(field_keys_store, field_key_wrap_key, Arc::clone(&runtime));
         let record_store = Self::open_record_store(
@@ -109,13 +88,12 @@ impl DbOperations {
             content_key.or(field_key_wrap_key),
         )
         .await?;
-        let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
+        let metadata_store = MetadataStore::new(metadata_typed);
         let change_feed = ChangeFeedStore::new(change_feed_kv, Arc::clone(&runtime)).await?;
 
         Ok(Self {
             store,
             schema_store,
-            db_catalog,
             field_keys,
             record_store,
             metadata_store,

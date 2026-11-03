@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::RecordStore;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
 /// Which path performed the delete.
@@ -84,13 +83,9 @@ impl RecordStore {
     /// key-addressed record, and the prefix bounds it to ledger rows alone.
     pub async fn list_record_delete_ledger(
         &self,
-        storage_prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<RecordDeleteLedgerEntry>, SchemaError> {
-        let prefix = build_storage_key(
-            storage_prefix,
-            &lastdb_model::kind_partition::anchored("dellog", ""),
-        );
+        let prefix = lastdb_model::kind_partition::anchored("dellog", "");
         let rows = self
             .raw()
             .inner()

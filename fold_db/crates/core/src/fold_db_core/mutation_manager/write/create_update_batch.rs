@@ -26,7 +26,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn write_create_update_batch_async(
         &self,
         mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
@@ -50,7 +49,6 @@ impl MutationManager {
             super::native::NativeRequest {
                 runtime: self.db_ops.namespaced_store().disk_pack_runtime(),
                 mutations,
-                storage_prefix,
                 author_clock: author_clock_barrier,
             },
             operations,
@@ -62,11 +60,11 @@ impl MutationManager {
 
     fn log_batch_start(batch_len: usize) {
         tracing::info!(
-            "write_mutations_batch_async: Starting batch of {} mutations",
+            "write_create_update_batch_async: Starting batch of {} mutations",
             batch_len
         );
         tracing::debug!(
-            "DEBUG: MutationManager::write_mutations_batch_async started for {} mutations",
+            "DEBUG: MutationManager::write_create_update_batch_async started for {} mutations",
             batch_len
         );
     }
@@ -98,7 +96,7 @@ impl MutationManager {
         operations.no_op = operations.no_op.saturating_add(duplicates);
 
         tracing::info!(
-            "write_mutations_batch_async: Completed {} mutations ({} new, {} cached) in {:.2}ms",
+            "write_create_update_batch_async: Completed {} mutations ({} new, {} cached) in {:.2}ms",
             all_ids.len(),
             mutation_ids.len(),
             all_ids.len() - mutation_ids.len(),

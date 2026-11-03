@@ -165,26 +165,6 @@ pub enum DataRoute {
     NativeIndexKnn,
     /// `POST /api/field-history` — owner-only field policies, lookup, purge and restore.
     FieldHistory,
-    /// `GET /api/storage/home` — the latest persisted unique physical ledger
-    /// for the configured LastDB home. OWNER socket only. The read performs
-    /// one metadata point-get and never inventories the filesystem.
-    HomeStorage,
-    /// `POST /api/storage/home/reconcile` — process one bounded page of the
-    /// configured home inventory and persist its resume cursor. OWNER only.
-    HomeStorageReconcile,
-    /// `GET /api/db/catalog` — point-get one `(db_locator, schema_name)`
-    /// membership row. OWNER socket only. Never enumerates the catalog.
-    DbCatalogGet,
-    /// `POST`/`PUT` `/api/db/catalog` — insert or replace one membership row.
-    /// OWNER socket only. Point put; no scan.
-    DbCatalogPut,
-    /// `DELETE /api/db/catalog` — delete one exact membership row.
-    /// OWNER socket only.
-    DbCatalogDelete,
-    /// `POST /api/db/catalog/share` — zero-copy share: catalog entry reuses
-    /// the source instance_id and grants target-domain key wraps.
-    /// OWNER socket only.
-    DbCatalogShare,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{environment_for_exemem_api_url, exemem_api_url_for, Environment};
-use lastdb_node::cloud::{SavedCredentials, CLOUD_SYNC_PAUSED_FILE};
+use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use serde::Deserialize;
 use zeroize::Zeroizing;
@@ -67,7 +67,7 @@ fn account(home: &Path) -> Result<Account, String> {
         .map_err(|_| "cannot derive saved native account identity")?;
     let bytes = Zeroizing::new(files::read_private_file(
         &directory,
-        CLOUD_SYNC_PAUSED_FILE,
+        CLOUD_CREDENTIALS_FILE,
         RESPONSE_LIMIT as u64,
     )?);
     let credentials =

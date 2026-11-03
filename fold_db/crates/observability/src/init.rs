@@ -14,7 +14,7 @@
 //!
 //! | helper                  | FMT target               | RELOAD | RING | Sentry |
 //! |-------------------------|--------------------------|--------|------|--------|
-//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (`LASTDB_HOME` ▸ `~/.lastdb`) | yes | yes | env-gated |
+//! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<state>/lastdb/<service>/observability.jsonl` | yes | yes | env-gated |
 //! | [`init_lambda`]         | stdout                   | yes    | no   | env-gated |
 //!
 //! ## Single-init invariant
@@ -172,8 +172,8 @@ impl Drop for ObsGuard {
 ///
 /// Layers (always wired): redacting JSON FMT writing to the node log file
 /// resolved by [`default_node_log_path`] (`OBS_FILE_PATH` ▸
-/// `<node-home>/observability.jsonl`, where the node home is `LASTDB_HOME` ▸
-/// `~/.lastdb` — the same dir the data lives in) +
+/// `${XDG_STATE_HOME:-~/.local/state}/lastdb/<service>/observability.jsonl`,
+/// outside every node home) +
 /// RELOAD + RING + a `tracing-opentelemetry` layer riding a no-op
 /// [`opentelemetry_sdk::trace::TracerProvider`] that stamps W3C `trace_id` /
 /// `span_id` onto every span.
@@ -190,7 +190,7 @@ pub fn init_node(service_name: &'static str, _version: &str) -> Result<ObsGuard,
     try_claim_init(&INIT_ONCE)?;
     install_log_tracer();
 
-    let path = default_node_log_path()?;
+    let path = default_node_log_path(service_name)?;
     let (writer, fmt_guard) = build_fmt_writer(FmtTarget::File(path))?;
     let (reload_layer, reload) = build_reload_layer::<Registry>(default_env_filter());
     let (ring_layer, ring) = build_ring_layer(OBS_RING_CAPACITY);

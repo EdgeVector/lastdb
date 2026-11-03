@@ -45,7 +45,10 @@ pub(super) fn admit(home: &Path, request: &StoppedBackupRequest) -> Result<Owner
     let node = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(home.join("data/laststore-pack-node-v1"))?;
+        .open(
+            home.join("data")
+                .join(fold_db::storage::disk_pack::NODE_MARKER),
+        )?;
     let metadata = node.metadata()?;
     if !metadata.is_file()
         || metadata.uid() != unsafe { libc::geteuid() }
@@ -67,7 +70,7 @@ pub(super) fn admit(home: &Path, request: &StoppedBackupRequest) -> Result<Owner
 }
 
 fn check_session(home: &Path, request: &StoppedBackupRequest) -> Result<()> {
-    crate::offline_home::preflight_read_only_home(home, &home.join("data"))
+    crate::offline_home::preflight_stopped_home(home, &home.join("data"))
         .map_err(|_| BackupError::Busy)?;
     let session = crate::session_ledger::read_last_record(home).ok_or(BackupError::Missing)?;
     let receipt = crate::session_ledger::read_shutdown_flush_receipt(home)
@@ -84,7 +87,10 @@ fn check_session(home: &Path, request: &StoppedBackupRequest) -> Result<()> {
 }
 
 fn current(home: &Path, name: &str) -> Result<Digest> {
-    let path = home.join("data").join(name).join("CURRENT");
+    let path = home
+        .join("data")
+        .join(name)
+        .join(laststore::disk_run::home::CURRENT);
     let parent = path.parent().ok_or(BackupError::Identity)?;
     if parent.canonicalize()? != parent {
         return Err(BackupError::Identity);
@@ -123,7 +129,10 @@ fn current(home: &Path, name: &str) -> Result<Digest> {
 }
 
 fn currents(home: &Path) -> Result<[Digest; 2]> {
-    Ok([current(home, "disk-run")?, current(home, "disk-cas")?])
+    Ok([
+        current(home, fold_db::storage::disk_pack::RUN_DIR)?,
+        current(home, fold_db::storage::disk_pack::CAS_DIR)?,
+    ])
 }
 
 impl Ownership {
@@ -141,7 +150,8 @@ impl Ownership {
         }
         if node_identity(&self._node.metadata()?) != self.node_identity
             || node_identity(&std::fs::symlink_metadata(
-                home.join("data/laststore-pack-node-v1"),
+                home.join("data")
+                    .join(fold_db::storage::disk_pack::NODE_MARKER),
             )?) != self.node_identity
         {
             return Err(BackupError::Identity);
@@ -150,7 +160,7 @@ impl Ownership {
             return Err(BackupError::Identity);
         }
         if let Some(policy) = super::super::store::read::<serde_json::Value>(
-            &Store::base(home).join("automatic.json"),
+            &Store::base(home).join(super::super::store::AUTOMATIC_FILE),
         )? {
             if policy["version"].as_u64() != Some(2)
                 || policy["account"].as_str() != Some(request.account_id.as_str())
@@ -174,7 +184,7 @@ impl Ownership {
     ) -> Result<()> {
         self.check(home, request)?;
         if let Some(policy) = super::super::store::read::<serde_json::Value>(
-            &Store::base(home).join("automatic.json"),
+            &Store::base(home).join(super::super::store::AUTOMATIC_FILE),
         )? {
             if policy["source_home"].as_str() != Some(profile.main.home_id.as_str()) {
                 return Err(BackupError::Identity);

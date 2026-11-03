@@ -12,17 +12,11 @@ use crate::schema::SchemaCore;
 
 mod accessors;
 mod admin_db;
-mod catalog_gc;
-mod catalog_membership;
-mod catalog_share;
 mod init;
 mod init_boot;
 mod lifecycle;
 mod record_files;
 mod schema_drop;
-
-pub use catalog_gc::CatalogDeleteReclaimResult;
-pub use catalog_share::DbSchemaShareResult;
 
 pub use init::FoldDbInit;
 pub use record_files::RecordFileState;

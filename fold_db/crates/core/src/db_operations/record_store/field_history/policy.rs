@@ -1,15 +1,14 @@
 use super::*;
 use crate::db_operations::record_store::RecordStore;
-use crate::schema::types::field::build_storage_key;
+
 use crate::schema::SchemaError;
 
 impl RecordStore {
     pub async fn field_history_policy(
         &self,
         field: &str,
-        scope: Option<&str>,
     ) -> Result<FieldHistoryPolicy, SchemaError> {
-        let key = build_storage_key(scope, &format!("ahp:{field}"));
+        let key = format!("ahp:{field}");
         Ok(self.main_store.get_item(&key).await?.unwrap_or_default())
     }
 
@@ -17,7 +16,6 @@ impl RecordStore {
         &self,
         field: &str,
         policy: FieldHistoryPolicy,
-        scope: Option<&str>,
     ) -> Result<(), SchemaError> {
         if let FieldHistoryPolicy::Ttl { seconds } = policy {
             if seconds == 0 || seconds.checked_mul(1_000_000_000).is_none() {
@@ -39,7 +37,7 @@ impl RecordStore {
         }
         self.in_background_scope(async {
             let mut writes = vec![crate::storage::KvMutation::put(
-                build_storage_key(scope, &format!("ahp:{field}")).into_bytes(),
+                format!("ahp:{field}").into_bytes(),
                 serde_json::to_vec(&policy).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
             )];
             if policy != FieldHistoryPolicy::Off {

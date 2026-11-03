@@ -6,7 +6,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn write_mutations_batch_inner_with_clock(
         &self,
         mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
@@ -26,7 +25,7 @@ impl MutationManager {
         // delete or a purge merges as the delete floor, in caller order with
         // the other writes (write/records.rs).
         let mut receipt = self
-            .write_create_update_batch_async(mutations, storage_prefix, author_clock_barrier)
+            .write_create_update_batch_async(mutations, author_clock_barrier)
             .await?;
         // Identities describe the accepted caller inputs, including idempotent
         // repeats. Internal grouping and filtering cannot change the positional

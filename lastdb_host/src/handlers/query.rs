@@ -36,7 +36,6 @@ pub async fn execute_query<H: HostNode>(
     limit: Option<usize>,
     offset: Option<usize>,
     cursor: Option<QueryCursor>,
-    ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
     let store = host.fold_db().db_ops().namespaced_store();
@@ -50,7 +49,6 @@ pub async fn execute_query<H: HostNode>(
             limit,
             offset,
             cursor,
-            ctx,
             allow_full_scan,
         )))
         .await
@@ -62,7 +60,6 @@ async fn execute_query_scoped<H: HostNode>(
     limit: Option<usize>,
     offset: Option<usize>,
     cursor: Option<QueryCursor>,
-    ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
     // Resolve descriptive names → canonical. Bare unknown names still fall
@@ -113,7 +110,7 @@ async fn execute_query_scoped<H: HostNode>(
     }
 
     if query.key_name.is_some() {
-        return alternate::execute(host, query, limit, offset, cursor, ctx).await;
+        return alternate::execute(host, query, limit, offset, cursor).await;
     }
     let walk = walk::walks_records(&query);
     let (limit, offset) = walk::page_request(&mut query, walk, limit, offset);
@@ -125,10 +122,9 @@ async fn execute_query_scoped<H: HostNode>(
         record,
         binding,
         sample,
-    } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref(), walk)?;
+    } = rules::prepare_comparison(query, cursor, comparison.as_deref(), walk)?;
     let run = execute::QueryRun {
         host,
-        ctx,
         limit: clamp_request_limit(limit),
         offset: offset.unwrap_or(0),
         cursor,
@@ -185,7 +181,6 @@ pub(super) fn is_app_owned_schema_ref(name: &str) -> bool {
 pub(super) async fn count_rows<H: HostNode>(
     host: &H,
     query: &Query,
-    ctx: &AccessContext,
 ) -> Result<Option<usize>, HostError> {
     let started = std::time::Instant::now();
     let _permit = if query
@@ -200,7 +195,7 @@ pub(super) async fn count_rows<H: HostNode>(
     let counted = host
         .fold_db()
         .query_executor()
-        .count_query_rows(query, ctx)
+        .count_query_rows(query)
         .await
         .map_err(HostError::from);
     request_phases::add_phase(RequestPhase::Count, started.elapsed());

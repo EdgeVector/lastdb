@@ -45,17 +45,7 @@ pub(super) fn receive_with_budget(
         }
     };
     let peer_pid = peer_pid_from_stream(stream);
-    let base = base.with_peer_pid(peer_pid);
-    let context = match base.with_db_handle(request.header(fold_db::access::LASTDB_DB_HEADER)) {
-        Ok(context) => context,
-        Err(message) => {
-            let response = UdsResponse::new(400, "Bad Request", message.into_bytes())
-                .with_header("Content-Type", "text/plain; charset=utf-8");
-            finish_with_budget(stream, &response, budget)?;
-            return Ok(None);
-        }
-    };
-    Ok(Some((request, context)))
+    Ok(Some((request, base.with_peer_pid(peer_pid))))
 }
 
 /// Write one final response with a fresh deadline and an explicit EOF.

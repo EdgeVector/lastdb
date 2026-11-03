@@ -24,7 +24,6 @@ modules = [
   "byte_cloud_log",
   "change_feed_queue",
   "distribution",
-  "home_storage",
   "local_outbox",
   "log_rotation",
   "retention_audit",

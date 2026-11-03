@@ -3,7 +3,7 @@
 use super::*;
 
 /// The Exemem environment this home is connected to, from the `api_url`
-/// that explicit backup enrollment saved in `cloud_sync.json.paused`.
+/// that explicit backup enrollment saved in `cloud-credentials.json`.
 /// `None` when the home has no cloud connection or points at a custom URL.
 /// A credential file that fails the private owner-file check also gives
 /// `None` with one warning, so daemon boot never fails because of it.
@@ -45,7 +45,7 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
             schema_service_url = %schema_url,
             expected_schema_service_url = %expected_url,
             "ENVIRONMENT MISMATCH: this home syncs to the {cloud_env} Exemem cloud \
-             (cloud_sync.json.paused), but schema resolve/register go to {schema_url}. \
+             (cloud-credentials.json), but schema resolve/register go to {schema_url}. \
              An env var (ENVIRONMENT / EXEMEM_ENV / FOLD_SCHEMA_SERVICE_URL) overrides \
              the home. Unset it, or reconnect the home to the matching environment."
         );

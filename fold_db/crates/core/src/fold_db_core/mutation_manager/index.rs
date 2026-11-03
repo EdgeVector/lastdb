@@ -64,15 +64,6 @@ impl MutationManager {
         })
     }
 
-    /// Deliver a prepared Search batch. A configured sink error keeps the
-    /// schema-lane envelope at its FIFO head.
-    pub(crate) async fn deliver_index_change_batch(
-        &self,
-        batch: &IndexChangeBatch,
-    ) -> Result<(), crate::schema::SchemaError> {
-        SearchOutboxSink::deliver(self.search_outbox_inbox.clone(), batch.clone()).await
-    }
-
     /// Send one batch after a native commit. A sink error becomes a storage error.
     pub(crate) async fn deliver_search_outbox(
         inbox: Option<std::path::PathBuf>,

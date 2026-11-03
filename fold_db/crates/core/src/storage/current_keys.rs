@@ -17,10 +17,8 @@ pub(crate) mod families;
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
-/// - `idem`: the idempotency keys. They live in the `idempotency`
-///   namespace; the family stays so that a scoped key parses.
 const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout", "idem",
+    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout",
 ];
 
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
@@ -28,17 +26,18 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         return Ok(());
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
-    let bare = source_key(key)?;
-    let family = bare.split([':', '\0']).next().unwrap_or_default();
+    let family = key.split([':', '\0']).next().unwrap_or_default();
     if !CURRENT_FAMILIES.contains(&family) {
         return Err(unsupported("unknown key family"));
     }
-    if let Some(rest) = bare
-        .strip_prefix("ak:")
-        .or_else(|| bare.strip_prefix("rk:"))
+    if let Some(rest) = key
+        .strip_prefix(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX)
+        .or_else(|| key.strip_prefix(lastdb_model::record_space::RECORD_PREFIX))
     {
         validate_record(rest)?;
-    } else if let Some(rest) = bare.strip_prefix("rh:") {
+    } else if let Some(rest) =
+        key.strip_prefix(crate::records::field_history::RECORD_HISTORY_PREFIX)
+    {
         validate_digest_key(rest, 3, "invalid record history key")?;
     }
     Ok(())
@@ -72,80 +71,8 @@ fn validate_suffix(suffix: &str) -> StorageResult<()> {
     Ok(())
 }
 
-/// Scope components precede a structural family. The first family owns the
-/// complete remainder, so a hash or record placement cannot become another scope.
-pub(in crate::storage) fn source_key(key: &str) -> StorageResult<&str> {
-    let mut bare = fixed_scope(key).unwrap_or(key);
-    loop {
-        let family_end = bare.find([':', '\0']).unwrap_or(bare.len());
-        let family = &bare[..family_end];
-        if main_family(family) {
-            let scope_end = key.len() - bare.len();
-            if scope_end != 0 {
-                validate_scope(&key[..scope_end - 1])?;
-            }
-            return Ok(bare);
-        }
-        match bare.as_bytes().get(family_end) {
-            Some(b':') => {
-                if family.is_empty() {
-                    return Err(unsupported("empty storage scope component"));
-                }
-                let next = &bare[family_end + 1..];
-                bare = fixed_scope(next).unwrap_or(next);
-            }
-            Some(&0) => return Err(unsupported("ambiguous storage scope separator")),
-            _ => return Ok(key),
-        }
-    }
-}
-
-/// The exact owner before the first structural family, including nested scopes.
-pub(crate) fn exact_scope(key: &str) -> StorageResult<Option<&str>> {
-    let bare = source_key(key)?;
-    let scope_end = key.len() - bare.len();
-    Ok((scope_end != 0).then(|| &key[..scope_end - 1]))
-}
-
-/// A scope must remain distinguishable from every native key family.
-pub(crate) fn validate_scope(scope: &str) -> StorageResult<()> {
-    if hex_identity(scope, 64) {
-        return Ok(());
-    }
-    if let Some(sender) = scope.strip_prefix("from:") {
-        return if hex_identity(sender, 32) {
-            Ok(())
-        } else {
-            Err(unsupported("invalid receive storage scope"))
-        };
-    }
-    if scope.split(':').any(|component| {
-        component.is_empty()
-            || component.contains('\0')
-            || main_family(component)
-            || component == "from"
-    }) {
-        return Err(unsupported("ambiguous reserved storage scope"));
-    }
-    Ok(())
-}
-
 fn hex_identity(value: &str, width: usize) -> bool {
     value.len() == width && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn fixed_scope(key: &str) -> Option<&str> {
-    if let Some((_, bare)) = lastdb_model::kind_partition::split_org_storage_prefix(key) {
-        return Some(bare);
-    }
-    let (sender, bare) = key.strip_prefix("from:")?.split_once(':')?;
-    hex_identity(sender, 32).then_some(bare)
-}
-
-/// A structural family of the `main` namespace. A key names its scope before
-/// the first such family.
-pub(in crate::storage) fn main_family(family: &str) -> bool {
-    CURRENT_FAMILIES.contains(&family)
 }
 
 fn validate_field_key(field_key: &str) -> StorageResult<()> {

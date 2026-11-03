@@ -1,7 +1,10 @@
 //! Read-only physical file totals for one stable published home.
 
 use super::manifest::{Manifest, RunFile, CURRENT};
-use super::{RunHome, RUNS, RUN_HOME_MARKER, RUN_SUFFIX};
+use super::{
+    RunHome, BACKUP_DIR, CAS_DELETE, LOCK, MUTATION_LOG_DIR, NODE_CLEANUP, RUNS, RUN_HOME_MARKER,
+    RUN_SUFFIX,
+};
 use crate::{Error, Result};
 use serde::Serialize;
 use std::fs::{self, Metadata};
@@ -45,11 +48,11 @@ pub struct FileDiagnostics {
     pub unreferenced_allocated_bytes: u64,
     /// Regular files with no known reference or native role.
     pub unreferenced_files: u64,
-    /// Length of the descriptor, CURRENT, and owner lock.
+    /// Length of the descriptor, CURRENT, owner lock, and checkpoints.
     pub other_home_file_bytes: u64,
-    /// Allocated bytes of the descriptor, CURRENT, and owner lock.
+    /// Allocated bytes of the descriptor, CURRENT, owner lock, and checkpoints.
     pub other_home_allocated_bytes: u64,
-    /// Descriptor, CURRENT, and owner-lock files.
+    /// Descriptor, CURRENT, owner-lock, and checkpoint files.
     pub other_home_files: u64,
     /// Length of every regular file in the two native home directories.
     pub total_file_bytes: u64,
@@ -105,7 +108,7 @@ pub(super) fn inspect(
     before_deadline(deadline)?;
     if totals.published_runs != selected.published.len() as u64
         || totals.retired_held_runs != selected.retired.len() as u64
-        || totals.other_home_files != 3
+        || !(3..=5).contains(&totals.other_home_files)
     {
         return Err(invalid("required file is absent"));
     }
@@ -203,7 +206,14 @@ fn enumerate(
         let name = entry.file_name();
         let metadata =
             fs::symlink_metadata(entry.path()).map_err(|_| invalid("file metadata unavailable"))?;
-        if root && name == RUNS && metadata.is_dir() {
+        // `runs/` is read next. The owner directories hold owner state, and a
+        // backup hold hard-links runs that `runs/` already counts.
+        if root
+            && [RUNS, MUTATION_LOG_DIR, BACKUP_DIR]
+                .iter()
+                .any(|dir| name == *dir)
+            && metadata.is_dir()
+        {
             continue;
         }
         if !metadata.is_file() {
@@ -219,16 +229,20 @@ fn classify(name: Option<&str>, root: bool, selected: &SelectedFiles) -> Kind {
         return Kind::Unreferenced;
     };
     if root {
-        if [CURRENT, RUN_HOME_MARKER, "LOCK"].contains(&name) {
+        if [CURRENT, RUN_HOME_MARKER, LOCK, NODE_CLEANUP, CAS_DELETE].contains(&name) {
             return Kind::Other;
         }
-        return if name
+        let current_temporary = name
             .strip_prefix(".CURRENT.")
             .and_then(|name| name.strip_suffix(".tmp"))
             .is_some_and(|text| {
                 text.parse::<u64>()
                     .is_ok_and(|number| text == number.to_string())
-            }) {
+            });
+        let checkpoint_temporary = [NODE_CLEANUP, CAS_DELETE]
+            .iter()
+            .any(|file| canonical_uuid(name, &format!(".{file}."), ".tmp").is_some());
+        return if current_temporary || checkpoint_temporary {
             Kind::Temporary
         } else {
             Kind::Unreferenced

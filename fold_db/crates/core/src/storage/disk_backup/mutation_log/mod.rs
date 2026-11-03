@@ -48,7 +48,10 @@ pub(in crate::storage) struct MutationLog {
 impl MutationLog {
     pub fn new(v2: &V2Home) -> Self {
         Self {
-            root: v2.home.path().join("mutation-log-v1"),
+            root: v2
+                .home
+                .path()
+                .join(laststore::disk_run::home::MUTATION_LOG_DIR),
             main_home: Id::try_from(v2.home.identity().to_string()).expect("native main UUID"),
             cas_home: Id::try_from(v2.cas.identity().to_string()).expect("native CAS UUID"),
             cache: Mutex::default(),

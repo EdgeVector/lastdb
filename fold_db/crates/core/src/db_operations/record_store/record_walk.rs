@@ -21,20 +21,15 @@
 //! request. A walk that reaches that allowance before its window is full
 //! stops and names the last key it examined (`WalkPage::stopped`): a deleted
 //! record has no API key, so the next page starts after that record key.
-//!
-//! The walk merges the own scope with the received scopes by record key, as a
-//! range under one hash does (`records/received_range.rs`): at each key the
-//! first scope with a live record gives the row. Every scope uses the codec of
-//! one record space, so one API key has one record key suffix in every scope.
 
 use super::record_reads::{decode, space_prefix, walk_key};
 use super::{KeyedRecord, RecordStore};
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::FilterUtils;
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use lastdb_model::record_value::StoredRecord;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 /// The most rows (the offset and the page with its probe row) that one
@@ -47,8 +42,7 @@ pub const RECORD_WALK_ROWS: usize = 8_192;
 /// by key around the page.
 pub(crate) const PAGE_READ_KEYS: usize = RECORD_WALK_ROWS;
 
-/// The smallest and the largest number of keys one merge step reads from
-/// each scope.
+/// The smallest and the largest number of keys one step reads.
 const MIN_STEP: usize = 32;
 const MAX_STEP: usize = 1024;
 
@@ -99,22 +93,22 @@ impl WalkPage {
     }
 }
 
-/// The unread records of one scope, in record key order.
-struct ScopeWalk {
-    /// `{scope}:rk:{S}:`, the part of each key before its record key suffix.
+/// The unread records of the walked record space, in record key order.
+struct SpaceWalk {
+    /// `rk:{S}:`, the part of each key before its record key suffix.
     base: String,
     /// The next key to read (inclusive).
     start: String,
     end: String,
     rows: VecDeque<(String, StoredRecord)>,
-    /// The suffix of the last key this scope examined.
+    /// The suffix of the last key this walk examined.
     examined: Option<String>,
     done: bool,
 }
 
-impl ScopeWalk {
-    fn new(space: &str, scope: Option<&str>, after: Option<&str>) -> Result<Self, SchemaError> {
-        let base = build_storage_key(scope, space);
+impl SpaceWalk {
+    fn new(space: &str, after: Option<&str>) -> Result<Self, SchemaError> {
+        let base = space.to_owned();
         let end = FilterUtils::create_prefix_end(&base)?;
         // The smallest key after the cursor.
         let start = after.map_or_else(|| base.clone(), |suffix| format!("{base}{suffix}\0"));
@@ -129,7 +123,7 @@ impl ScopeWalk {
     }
 
     /// Hold at least `wanted` rows, or every row that remains, with a read
-    /// of at most `room` keys. Deleted records are rows too; the merge drops
+    /// of at most `room` keys. Deleted records are rows too; the step drops
     /// them. Returns the number of rows read.
     async fn fill(
         &mut self,
@@ -172,7 +166,7 @@ impl ScopeWalk {
             .ok_or_else(|| SchemaError::InvalidData("a record key is outside its space".into()))
     }
 
-    /// The suffix of the last key this scope examined while it has unread
+    /// The suffix of the last key the walk examined while it has unread
     /// keys. `Some(None)` when it examined no key yet, `None` when done.
     fn bound(&self) -> Option<Option<&str>> {
         (!self.done).then_some(self.examined.as_deref())
@@ -180,8 +174,8 @@ impl ScopeWalk {
 }
 
 impl RecordStore {
-    /// One window of the live records of a schema over `scopes` (the own
-    /// scope first), in record key order. `keep` drops a row before the
+    /// One window of the live records of a schema, in record key
+    /// order. `keep` drops a row before the
     /// window counts it. A walk that stops at its read allowance returns a
     /// short page and the last key it examined; it cannot stop inside the
     /// offset of an offset page.
@@ -190,7 +184,6 @@ impl RecordStore {
         schema: &Schema,
         comparison: &KeyComparisonContext,
         window: WalkWindow<'_>,
-        scopes: &[Option<String>],
         keep: impl Fn(&StoredRecord) -> bool,
     ) -> Result<WalkPage, SchemaError> {
         let WalkWindow {
@@ -208,10 +201,7 @@ impl RecordStore {
             )));
         }
         let space = space_prefix(schema);
-        let mut walks = scopes
-            .iter()
-            .map(|scope| ScopeWalk::new(&space, scope.as_deref(), after))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut walk = SpaceWalk::new(&space, after)?;
         let mut page = WalkPage::default();
         let mut room = PAGE_READ_KEYS;
         // A step that finds no row (a run of deleted records) doubles the next.
@@ -221,17 +211,17 @@ impl RecordStore {
                 .saturating_add(take - page.rows.len())
                 .saturating_mul(wide)
                 .clamp(MIN_STEP, MAX_STEP);
-            let share = room / walks.iter().filter(|walk| !walk.done).count().max(1);
-            let read = futures::future::try_join_all(
-                walks.iter_mut().map(|walk| walk.fill(self, step, share)),
-            )
-            .await?;
-            room = room.saturating_sub(read.into_iter().sum());
-            let Some(records) = next_rows(&mut walks, step) else {
-                if walks.iter().all(|walk| walk.done) {
+            let read = walk.fill(self, step, room).await?;
+            room = room.saturating_sub(read);
+            let Some(records) = next_rows(&mut walk, step) else {
+                if walk.done {
                     break;
                 }
-                page.stopped = least_examined(&walks).filter(|stop| Some(stop.as_str()) > after);
+                page.stopped = walk
+                    .bound()
+                    .flatten()
+                    .map(str::to_owned)
+                    .filter(|stop| Some(stop.as_str()) > after);
                 if skip > 0 || page.stopped.is_none() {
                     return Err(walk_limit_error());
                 }
@@ -270,7 +260,7 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
     ) -> Result<String, SchemaError> {
-        let record = self.record_key(schema, key, None).map_err(|error| {
+        let record = self.record_key(schema, key).map_err(|error| {
             SchemaError::InvalidCursor(format!(
                 "the query cursor is not a key of this schema: {error}"
             ))
@@ -284,58 +274,36 @@ impl RecordStore {
     }
 }
 
-/// The live winners of the next record keys of the merged order: at most
-/// `step` keys, each at or below the last key that every scope with unread
-/// keys examined, so no unread key comes before a key taken. At each key the
-/// first scope with a live record wins; a key with no live record gives no
-/// row, so a step of deleted records takes keys and gives no row. The taken
-/// rows leave the scopes. `None` when no key can be taken.
-fn next_rows(walks: &mut [ScopeWalk], step: usize) -> Option<Vec<(String, StoredRecord)>> {
-    let mut bound: Option<&str> = None;
-    for examined in walks.iter().filter_map(ScopeWalk::bound) {
-        let examined = examined?;
-        bound = Some(bound.map_or(examined, |bound| bound.min(examined)));
-    }
-    let mut keys: Vec<&str> = walks
+/// The live rows of the next record keys: at most `step` keys, each at or
+/// below the last key the walk examined, so no unread key comes before a key
+/// taken. A deleted record gives no row, so a step of deleted records takes
+/// keys and gives no row. The taken rows leave the walk. `None` when no key
+/// can be taken.
+fn next_rows(walk: &mut SpaceWalk, step: usize) -> Option<Vec<(String, StoredRecord)>> {
+    let bound = match walk.bound() {
+        Some(None) => return None,
+        Some(Some(examined)) => Some(examined.to_owned()),
+        None => None,
+    };
+    let count = walk
+        .rows
         .iter()
-        .flat_map(|walk| walk.rows.iter().map(|(suffix, _)| suffix.as_str()))
-        .filter(|suffix| bound.is_none_or(|bound| *suffix <= bound))
-        .collect();
-    keys.sort_unstable();
-    keys.dedup();
-    let last = keys.into_iter().take(step).next_back().map(str::to_owned)?;
-    let mut merged: BTreeMap<String, Option<StoredRecord>> = BTreeMap::new();
-    for walk in &mut *walks {
-        while walk
-            .rows
-            .front()
-            .is_some_and(|(suffix, _)| suffix.as_str() <= last.as_str())
-        {
-            let Some((suffix, record)) = walk.rows.pop_front() else {
-                break;
-            };
-            let slot = merged.entry(suffix).or_insert(None);
-            if slot.is_none() && record.is_live() {
-                *slot = Some(record);
-            }
-        }
+        .take(step)
+        .take_while(|(suffix, _)| {
+            bound
+                .as_deref()
+                .is_none_or(|bound| suffix.as_str() <= bound)
+        })
+        .count();
+    if count == 0 {
+        return None;
     }
     Some(
-        merged
-            .into_iter()
-            .filter_map(|(suffix, record)| record.map(|record| (suffix, record)))
+        walk.rows
+            .drain(..count)
+            .filter(|(_, record)| record.is_live())
             .collect(),
     )
-}
-
-/// The least last-examined suffix of the scopes with unread keys.
-fn least_examined(walks: &[ScopeWalk]) -> Option<String> {
-    walks
-        .iter()
-        .filter_map(ScopeWalk::bound)
-        .map(|examined| examined.map(str::to_owned))
-        .min()
-        .flatten()
 }
 
 fn walk_limit_error() -> SchemaError {

@@ -10,7 +10,6 @@ use fold_db::process_cpu::CpuProbe;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use fold_db::access::{AccessContext, CallerTransport};
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::operations::{Mutation, MutationType, Query};

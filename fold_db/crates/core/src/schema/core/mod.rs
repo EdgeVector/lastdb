@@ -29,8 +29,6 @@ pub struct SchemaCore {
     schemas: Arc<RwLock<HashMap<String, Schema>>>,
     /// Storage for all schemas known to the system and their load state
     schema_states: Arc<Mutex<HashMap<String, SchemaState>>>,
-    /// Maps blocked/superseded schema names to their replacement schema names
-    superseded_by: Arc<Mutex<HashMap<String, String>>>,
     /// Schema names whose claim on their `descriptive_name` is retired.
     ///
     /// A member is still `Available` and still resolves by canonical name and

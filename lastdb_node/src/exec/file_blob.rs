@@ -147,7 +147,7 @@ pub(super) async fn execute_db_delete_blob_route(
                     FileWrite::Clear,
                     Some(true),
                 );
-                let value = commit_mutation_components(host, components, ctx).await?;
+                let value = commit_mutation_components(host, components).await?;
                 Ok(serde_json::json!({
                     "deleted": true,
                     "mutation_id": value.get("mutation_id").cloned().unwrap_or(Value::Null),

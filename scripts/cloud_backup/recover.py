@@ -25,7 +25,7 @@ from restore_receipts import restored
 from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
                      dev_endpoint, failure, private_directory, require, save_json)
-from support import read_json
+from support import CREDENTIALS_FILE, read_json
 
 
 class Operation:
@@ -101,9 +101,9 @@ class Operation:
                 and all(ord(character) >= 32 and ord(character) != 127 for character in key),
                 "dev_api_key")
         home = self.root / "credentials"
-        save_json(home / "cloud_sync.json.paused", {"api_url": dev_endpoint(), "api_key": key})
+        save_json(home / CREDENTIALS_FILE, {"api_url": dev_endpoint(), "api_key": key})
         self.api_key = key.encode()
-        require(set(path.name for path in home.iterdir()) == {"cloud_sync.json.paused"},
+        require(set(path.name for path in home.iterdir()) == {CREDENTIALS_FILE},
                 "credential_only_home")
         del key
         return home

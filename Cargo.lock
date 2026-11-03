@@ -3531,7 +3531,6 @@ dependencies = [
 name = "observability"
 version = "0.1.0"
 dependencies = [
- "folddb_profile",
  "http 1.4.0",
  "once_cell",
  "opentelemetry",

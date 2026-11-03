@@ -14,11 +14,8 @@ use zeroize::Zeroizing;
 
 mod files;
 mod model;
-use crate::cloud::SavedCredentials;
-use model::ManualConnectionRecord;
+use crate::cloud::{SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 pub use model::{ManualConnectionStatus, SensitiveConnectionRequest};
-
-const RECORD: &str = "cloud-byte-backup-v2-manual.json";
 
 pub async fn connect_existing(
     host: &crate::host::Host,
@@ -59,29 +56,40 @@ pub async fn connect_existing(
     }
     let _permit = Store::lock(&host.home)?;
     let directory = files::Directory::open(&host.home)?;
-    let credentials =
-        SavedCredentials::new(exemem_api_url_for(environment), request.api_key.clone());
-    let bytes = credential_bytes(&directory, &credentials)?;
-    let record = ManualConnectionRecord {
-        version: 1,
+    let previous = directory.read(CLOUD_CREDENTIALS_FILE)?;
+    let mut credentials = match &previous {
+        Some(bytes) => {
+            let saved = SavedCredentials::parse(bytes).map_err(|_| BackupError::Invalid)?;
+            if saved.api_url != exemem_api_url_for(environment)
+                || saved.api_key.as_str() != request.api_key.as_str()
+            {
+                return Err(BackupError::Identity);
+            }
+            saved
+        }
+        None => SavedCredentials::new(exemem_api_url_for(environment), request.api_key.clone()),
+    };
+    let connection = SavedConnection {
         account_id: identity_before.0,
         source_home: identity_before.1,
         environment: request.environment.clone(),
         endpoint: client.canonical_endpoint(),
-        credential_sha256: digest(&bytes)?,
-        origin: "imported".to_owned(),
-        registration_attempted: false,
-        automatic_backup_enabled: false,
     };
-    let encoded = serde_json::to_vec(&record).map_err(|_| BackupError::Invalid)?;
-    // The record is the commit marker. A crash after credentials grants no manual consent.
-    if let Some(previous) = directory.read(RECORD)? {
-        if previous.as_slice() != encoded {
-            return Err(BackupError::Identity);
-        }
+    if credentials
+        .connection
+        .as_ref()
+        .is_some_and(|saved| saved != &connection)
+    {
+        return Err(BackupError::Identity);
     }
-    directory.publish(crate::cloud::CLOUD_SYNC_PAUSED_FILE, &bytes)?;
-    directory.publish(RECORD, &encoded)?;
+    credentials.connection = Some(connection);
+    let encoded = credentials.to_json().map_err(|_| BackupError::Invalid)?;
+    // One atomic replace commits the key and the consent together.
+    directory.publish(
+        CLOUD_CREDENTIALS_FILE,
+        previous.as_deref().map(Vec::as_slice),
+        &encoded,
+    )?;
     let (saved, _) = load(host)?.ok_or(BackupError::Identity)?;
     Ok(saved.into())
 }
@@ -102,21 +110,6 @@ fn preflight(host: &crate::host::Host) -> Result<()> {
     Ok(())
 }
 
-fn credential_bytes(
-    directory: &files::Directory,
-    supplied: &SavedCredentials,
-) -> Result<Zeroizing<Vec<u8>>> {
-    if let Some(bytes) = directory.read(crate::cloud::CLOUD_SYNC_PAUSED_FILE)? {
-        let saved = SavedCredentials::parse(&bytes).map_err(|_| BackupError::Invalid)?;
-        if saved.api_url != supplied.api_url || saved.api_key.as_str() != supplied.api_key.as_str()
-        {
-            return Err(BackupError::Identity);
-        }
-        return Ok(bytes);
-    }
-    supplied.to_json().map_err(|_| BackupError::Invalid)
-}
-
 pub(super) fn status(host: &crate::host::Host) -> Result<Option<ManualConnectionStatus>> {
     let mut status: Option<ManualConnectionStatus> = load(host)?.map(|(record, _)| record.into());
     if let Some(status) = &mut status {
@@ -126,15 +119,21 @@ pub(super) fn status(host: &crate::host::Host) -> Result<Option<ManualConnection
     Ok(status)
 }
 
+/// The connected account, source home and endpoint, and the digest of the
+/// saved key, which changes only when the key or its URL changes.
 pub(super) fn automatic_binding(
     host: &crate::host::Host,
 ) -> Result<(AccountId, Id, String, Digest)> {
-    let (record, _) = load(host)?.ok_or(BackupError::Disabled)?;
+    let (account, source) = identity(host)?;
+    let directory = files::Directory::open(&host.home)?;
+    let (connection, credentials) =
+        read_connection(&directory, &account, &source)?.ok_or(BackupError::Disabled)?;
+    let key = credentials.key_json().map_err(|_| BackupError::Invalid)?;
     Ok((
-        record.account_id,
-        record.source_home,
-        record.endpoint,
-        record.credential_sha256,
+        connection.account_id,
+        connection.source_home,
+        connection.endpoint,
+        digest(&key)?,
     ))
 }
 
@@ -154,40 +153,50 @@ pub(super) fn client_for_host(host: &crate::host::Host) -> Result<ByteBackupClie
     super::credentials::client_for_recovery(&host.home).map_err(|_| BackupError::Identity)
 }
 
-fn load(host: &crate::host::Host) -> Result<Option<(ManualConnectionRecord, ByteBackupClient)>> {
+fn load(host: &crate::host::Host) -> Result<Option<(SavedConnection, ByteBackupClient)>> {
     let (account, source) = identity(host)?;
     load_identity(&host.home, &account, &source)
+}
+
+/// The saved consent for this account and source home, with its credentials.
+/// `None` when the home has no credentials or no consent.
+fn read_connection(
+    directory: &files::Directory,
+    account: &AccountId,
+    source: &Id,
+) -> Result<Option<(SavedConnection, SavedCredentials)>> {
+    let Some(bytes) = directory.read(CLOUD_CREDENTIALS_FILE)? else {
+        return Ok(None);
+    };
+    let mut credentials = SavedCredentials::parse(&bytes).map_err(|_| BackupError::Invalid)?;
+    let Some(connection) = credentials.connection.take() else {
+        return Ok(None);
+    };
+    if &connection.account_id != account || &connection.source_home != source {
+        return Err(BackupError::Identity);
+    }
+    let environment = environment(&connection.environment)?;
+    if credentials.api_url != exemem_api_url_for(environment) || credentials.api_key.is_empty() {
+        return Err(BackupError::Identity);
+    }
+    Ok(Some((connection, credentials)))
 }
 
 fn load_identity(
     home: &std::path::Path,
     account: &AccountId,
     source: &Id,
-) -> Result<Option<(ManualConnectionRecord, ByteBackupClient)>> {
+) -> Result<Option<(SavedConnection, ByteBackupClient)>> {
     let directory = files::Directory::open(home)?;
-    let Some(bytes) = directory.read(RECORD)? else {
+    let Some((connection, credentials)) = read_connection(&directory, account, source)? else {
         return Ok(None);
     };
-    let record: ManualConnectionRecord =
-        serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid)?;
-    record.validate(account, source)?;
-    let bytes = directory
-        .read(crate::cloud::CLOUD_SYNC_PAUSED_FILE)?
-        .ok_or(BackupError::Identity)?;
-    if digest(&bytes)? != record.credential_sha256 {
-        return Err(BackupError::Identity);
-    }
-    let credentials = SavedCredentials::parse(&bytes).map_err(|_| BackupError::Invalid)?;
-    let environment = environment(&record.environment)?;
-    if credentials.api_url != exemem_api_url_for(environment) || credentials.api_key.is_empty() {
-        return Err(BackupError::Identity);
-    }
-    let client = client(environment, &credentials.api_key)?;
-    if client.canonical_endpoint() != record.endpoint {
+    let client = client(environment(&connection.environment)?, &credentials.api_key)?;
+    if client.canonical_endpoint() != connection.endpoint {
         return Err(BackupError::Identity);
     }
     directory.check()?;
-    Ok(Some((record, client)))
+    Ok(Some((connection, client)))
 }
 
 pub(super) fn client_for_stopped(

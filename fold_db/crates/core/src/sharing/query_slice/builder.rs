@@ -18,7 +18,6 @@ impl SliceBuilder {
         &mut self,
         db: &FoldDB,
         leg: &QuerySliceLeg,
-        access: &AccessContext,
     ) -> Result<(), FoldDbError> {
         if leg.fields.is_empty() {
             return Err(FoldDbError::Other(format!(
@@ -49,7 +48,7 @@ impl SliceBuilder {
 
         // A keyed leg reads in pages, so a run of deleted records does not
         // end the delivery at the read limit (`pages.rs`).
-        let result = super::pages::read_leg(db, &schema, leg.to_query(), access).await?;
+        let result = super::pages::read_leg(db, &schema, leg.to_query()).await?;
 
         for (key, record) in &result {
             let record_key = key.to_storage_key();

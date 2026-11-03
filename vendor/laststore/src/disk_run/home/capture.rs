@@ -1,7 +1,7 @@
 //! Durable flat holds of unchanged run-home files. Never a second owner.
 use super::{
-    manifest::Manifest, read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts,
-    RUN_HOME_MARKER,
+    manifest::Manifest, read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts, CURRENT,
+    RUNS, RUN_HOME_MARKER,
 };
 use crate::durability::sync_directory;
 use crate::{Error, Result};
@@ -98,10 +98,10 @@ impl RunHome {
             CapturedRunKind::Descriptor,
             64,
         )?;
-        let current = self.root.join("CURRENT");
+        let current = self.root.join(CURRENT);
         capture.link(
             &current,
-            "CURRENT",
+            CURRENT,
             "current",
             CapturedRunKind::Current,
             fs::metadata(&current)?.len(),
@@ -246,7 +246,7 @@ impl CapturedRunHome {
                 .files
                 .windows(2)
                 .any(|pair| pair[0].path >= pair[1].path)
-            || self.files[0].path != Path::new("CURRENT")
+            || self.files[0].path != Path::new(CURRENT)
             || self.files[0].held != "current"
             || self.files[1].path != Path::new(RUN_HOME_MARKER)
             || self.files[1].held != "descriptor"
@@ -255,7 +255,7 @@ impl CapturedRunHome {
         }
         let runs = &self.files[2..];
         for file in runs {
-            if file.path.parent() != Some(Path::new("runs"))
+            if file.path.parent() != Some(Path::new(RUNS))
                 || file.path.file_name() != Some(std::ffi::OsStr::new(&file.held))
             {
                 return Err(invalid("run capture exact file closure"));

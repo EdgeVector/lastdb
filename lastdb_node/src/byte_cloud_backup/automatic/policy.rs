@@ -2,7 +2,7 @@ use super::*;
 use cloud_backup_protocol::{AccountId, Digest};
 use serde::{Deserialize, Serialize};
 
-const FILE: &str = "automatic.json";
+use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
 const MAX_INTERVAL: u64 = 7 * 86400;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

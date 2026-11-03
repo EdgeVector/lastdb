@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // global tracing subscriber + W3C `TraceContextPropagator` so the
     // `W3CParentContext` middleware's `set_parent` call flows trace ids
     // through the FMT JSON layer + RING buffer. Reads `OBS_FILE_PATH` for
-    // the JSON sink (defaults to `~/.lastdb/observability.jsonl`).
+    // the JSON sink (defaults to `~/.local/state/lastdb/schema_service/observability.jsonl`).
     //
     // Held for the binary lifetime — dropping it would stop the
     // tracing-appender worker mid-flush.

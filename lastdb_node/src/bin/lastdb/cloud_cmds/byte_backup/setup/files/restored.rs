@@ -75,9 +75,6 @@ impl PreparedHome {
             }),
         };
         prepared.verify_entries()?;
-        if !recovery_files::entry_present(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE)? {
-            prepared.write_new(CLOUD_RESUME_REQUIRED_FILE, b"")?;
-        }
         Ok(prepared)
     }
 }
@@ -89,9 +86,6 @@ impl Validation {
             .check_binding()
             .map_err(|_| "restored native home changed during reconnect")?;
         self.seed(prepared)?;
-        if recovery_files::entry_present(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE)? {
-            recovery_files::read_private_file(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE, 0)?;
-        }
         self.receipt.check(&prepared.directory)
     }
 
@@ -158,10 +152,10 @@ fn refuse_daemon(home: &Path) -> Result<(), String> {
     if lastdb_node::crash_attribution::live_daemon_pid_alive(home) {
         return Err("stop the restored home's daemon before account reconnect".into());
     }
-    for name in ["folddb.sock", "folddb-full.sock"] {
-        if std::os::unix::net::UnixStream::connect(home.join("data").join(name)).is_ok() {
-            return Err("stop the restored home's daemon before account reconnect".into());
-        }
+    if std::os::unix::net::UnixStream::connect(lastdb_uds::uds::socket_path(&home.join("data")))
+        .is_ok()
+    {
+        return Err("stop the restored home's daemon before account reconnect".into());
     }
     Ok(())
 }

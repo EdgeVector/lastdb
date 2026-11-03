@@ -12,9 +12,7 @@ use super::record_walk::{WalkWindow, PAGE_READ_KEYS};
 use super::RecordStore;
 use crate::db_operations::{note_page_key_forms, note_page_resume, page_can_resume, PageResume};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
-use crate::schema::types::field::{
-    build_storage_key, FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP,
-};
+use crate::schema::types::field::{FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, KeyValuePageOrder, Schema};
@@ -42,14 +40,13 @@ impl RecordStore {
         schema: &Schema,
         comparison: &KeyComparisonContext,
         filter: Option<&HashRangeFilter>,
-        scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         use HashRangeFilter as F;
         let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
         let mut page = None;
         let mut rows = match filter {
             Some(F::HashRangeKey { hash, range }) => {
-                self.records_at(schema, &[api_key(ranged, hash, range)], scope)
+                self.records_at(schema, &[api_key(ranged, hash, range)])
                     .await?
             }
             Some(F::HashRangeKeys(keys)) => {
@@ -57,13 +54,13 @@ impl RecordStore {
                     .iter()
                     .map(|(hash, range)| api_key(ranged, hash, range))
                     .collect();
-                self.records_at(schema, &keys, scope).await?
+                self.records_at(schema, &keys).await?
             }
             // A Hash schema has one record for each hash.
             Some(
                 F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. },
             ) if !ranged => {
-                self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)], scope)
+                self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)])
                     .await?
             }
             // A sample is the first live records in record key order. The
@@ -71,18 +68,18 @@ impl RecordStore {
             // records do not use up the sample.
             Some(F::SampleN(count)) => {
                 let take = (*count).min(SAMPLE_PEEK_CAP);
-                self.walk_first(schema, comparison, take, scope).await?
+                self.walk_first(schema, comparison, take).await?
             }
             // A `Page` is a window over every live record in page order: the
             // count and the condition reads need the complete set. The read
             // allowance of the request bounds it.
             Some(F::Page { offset, limit }) => {
                 page = Some((*offset, *limit));
-                self.walk_records(schema, comparison, scope).await?
+                self.walk_records(schema, comparison).await?
             }
             // The first page of the default size, in record key order.
             None => {
-                self.walk_first(schema, comparison, DEFAULT_UNFILTERED_PAGE_LIMIT, scope)
+                self.walk_first(schema, comparison, DEFAULT_UNFILTERED_PAGE_LIMIT)
                     .await?
             }
             Some(_) => {
@@ -104,7 +101,6 @@ impl RecordStore {
         &self,
         schema: &Schema,
         keys: &[KeyValue],
-        scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let mut seen = HashSet::new();
         let keys: Vec<KeyValue> = keys
@@ -114,7 +110,7 @@ impl RecordStore {
             .collect();
         let storage_keys = keys
             .iter()
-            .map(|key| self.record_key(schema, key, scope))
+            .map(|key| self.record_key(schema, key))
             .collect::<Result<Vec<_>, _>>()?;
         let records = self.read_records(&storage_keys).await?;
         Ok(keys
@@ -124,31 +120,27 @@ impl RecordStore {
             .collect())
     }
 
-    /// The first `take` live records of one scope in record key order
+    /// The first `take` live records of a schema in record key order
     /// (`record_walk.rs`).
     ///
     /// A run of deleted records can use the read allowance before `take`
     /// records are found. A caller that continues a page that ends early
     /// gets the short page and the record key position where the walk
     /// stopped (`PageResume::Record`); any other caller gets a read limit
-    /// error, never a short page that looks complete. The query path reads a
-    /// sample through `HashRangeQueryProcessor::sample_rows`, which merges the
-    /// scopes in one walk; this read serves one scope.
+    /// error, never a short page that looks complete.
     async fn walk_first(
         &self,
         schema: &Schema,
         comparison: &KeyComparisonContext,
         take: usize,
-        scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let window = WalkWindow {
             after: None,
             skip: 0,
             take,
         };
-        let scopes = [scope.map(str::to_owned)];
         let mut page = self
-            .walk_record_window(schema, comparison, window, &scopes, |_| true)
+            .walk_record_window(schema, comparison, window, |_| true)
             .await?;
         if let Some(stopped) = page.stopped.take() {
             if !page_can_resume() {
@@ -170,9 +162,8 @@ impl RecordStore {
         &self,
         schema: &Schema,
         comparison: &KeyComparisonContext,
-        scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let prefix = build_storage_key(scope, &space_prefix(schema));
+        let prefix = space_prefix(schema);
         let rows = self
             .main_store
             .inner()
@@ -204,7 +195,6 @@ impl RecordStore {
         limit: usize,
         after: Option<&str>,
         hash: Option<&str>,
-        scope: Option<&str>,
     ) -> Result<RecordKeyPage, SchemaError> {
         if limit == 0 {
             return Ok((Vec::new(), None, false));
@@ -220,19 +210,17 @@ impl RecordStore {
             }
             None => space_prefix(schema),
         };
-        let scope_prefix = build_storage_key(scope, "");
-        let prefix = build_storage_key(scope, &base);
-        let start = match after.map(|cursor| cursor.strip_prefix(&scope_prefix).unwrap_or(cursor)) {
+        let start = match after {
             Some(cursor) if !cursor.starts_with(&base) => {
                 return Err(SchemaError::InvalidCursor(
                     "cursor is not in this schema's records".into(),
                 ))
             }
             // The smallest key after the cursor.
-            Some(cursor) => build_storage_key(scope, &format!("{cursor}\0")),
-            None => prefix.clone(),
+            Some(cursor) => format!("{cursor}\0"),
+            None => base.clone(),
         };
-        let end = FilterUtils::create_prefix_end(&prefix)?;
+        let end = FilterUtils::create_prefix_end(&base)?;
         let rows = self
             .main_store
             .inner()
@@ -255,7 +243,7 @@ impl RecordStore {
         Ok((keys, cursor.filter(|_| has_more), has_more))
     }
 
-    /// Whether the personal record space of one schema may hold a live
+    /// Whether the record space of one schema may hold a live
     /// record. One bounded read of at most `RECORD_PROBE_ROWS` records, never
     /// a walk of the space. When that page holds only deleted records and
     /// more follow, the answer is `true`: the callers guard against data

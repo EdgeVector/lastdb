@@ -13,7 +13,7 @@ pub(super) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(dir.join("LOCK"))?;
+        .open(dir.join(LOCK))?;
     sync_dirty_file(&lock)?;
     let identity = Uuid::new_v4();
     let mut descriptor = [0u8; DESCRIPTOR_BYTES];

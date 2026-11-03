@@ -12,24 +12,18 @@ struct KeyCount {
 }
 type CountRows = (Vec<(String, Value)>, Vec<Vec<u8>>);
 
-fn count_key(slot: &str) -> Result<String, SchemaError> {
-    let scope = crate::storage::current_keys::exact_scope(slot)?;
-    Ok(crate::schema::types::field::build_storage_key(
-        scope,
-        &format!("ahk:{}", digest(slot.as_bytes())),
-    ))
+fn count_key(slot: &str) -> String {
+    format!("ahk:{}", digest(slot.as_bytes()))
 }
 
 /// The deletes of the entry counts of `records`. The drop of a schema releases
 /// every field history entry of its records, so each of their counts ends.
 pub(super) fn history_count_deletes<'a>(
     records: impl IntoIterator<Item = &'a String>,
-) -> Result<Vec<crate::storage::KvMutation>, SchemaError> {
+) -> Vec<crate::storage::KvMutation> {
     records
         .into_iter()
-        .map(|record| {
-            count_key(record).map(|key| crate::storage::KvMutation::delete(key.into_bytes()))
-        })
+        .map(|record| crate::storage::KvMutation::delete(count_key(record).into_bytes()))
         .collect()
 }
 
@@ -70,7 +64,7 @@ impl RecordStore {
     ) -> Result<Vec<crate::storage::KvMutation>, SchemaError> {
         let mut keyed = BTreeMap::<String, i64>::new();
         for (record, delta) in deltas {
-            *keyed.entry(count_key(&record)?).or_default() += delta;
+            *keyed.entry(count_key(&record)).or_default() += delta;
         }
         let (rows, deletes) = self.history_count_rows(keyed).await?;
         let mut mutations = Vec::with_capacity(rows.len() + deletes.len());
@@ -88,10 +82,7 @@ impl RecordStore {
         &self,
         records: &[&str],
     ) -> Result<Vec<u64>, SchemaError> {
-        let keys = records
-            .iter()
-            .map(|record| count_key(record))
-            .collect::<Result<Vec<_>, _>>()?;
+        let keys: Vec<String> = records.iter().map(|record| count_key(record)).collect();
         let rows: Vec<Option<KeyCount>> = self.main_store.get_items(&keys).await?;
         Ok(rows
             .into_iter()

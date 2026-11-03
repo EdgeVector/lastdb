@@ -9,7 +9,6 @@ pub(super) async fn execute<H: HostNode>(
     limit: Option<usize>,
     offset: Option<usize>,
     cursor: Option<QueryCursor>,
-    context: &AccessContext,
 ) -> Result<Value, HostError> {
     if offset.unwrap_or_default() != 0 {
         return Err(HostError::new(
@@ -35,7 +34,7 @@ pub(super) async fn execute<H: HostNode>(
         let count = host
             .fold_db()
             .query_executor()
-            .count_alternate_rows(&query, context)
+            .count_alternate_rows(&query)
             .await
             .map_err(HostError::from)?;
         return Ok(serde_json::json!({"total_count": count, "exact": true}));
@@ -45,7 +44,7 @@ pub(super) async fn execute<H: HostNode>(
     let page = host
         .fold_db()
         .query_executor()
-        .query_alternate_page(query, limit, cursor, context)
+        .query_alternate_page(query, limit, cursor)
         .await
         .map_err(HostError::from)?;
     let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;

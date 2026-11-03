@@ -131,7 +131,7 @@ fn one_operation(scratch: &Path, key: &[u8; 32], operation: Operation) -> Result
 
 fn refuse(home: &RunHome, operation: Operation, policy: &SpacePolicy, model: &Model) -> Result<()> {
     let before = files(home.path())?;
-    let current = fs::read(home.path().join("CURRENT"))?;
+    let current = fs::read(home.path().join(laststore::disk_run::home::CURRENT))?;
     let status = home.status();
     match operation.step(home, policy) {
         Err(laststore::Error::Io(error))
@@ -143,7 +143,7 @@ fn refuse(home: &RunHome, operation: Operation, policy: &SpacePolicy, model: &Mo
     if home.is_poisoned()
         || after.generation != status.generation
         || after.frontier != status.frontier
-        || fs::read(home.path().join("CURRENT"))? != current
+        || fs::read(home.path().join(laststore::disk_run::home::CURRENT))? != current
         || files(home.path())? != before
     {
         return Err("compaction space refusal changed CURRENT or left output files".into());

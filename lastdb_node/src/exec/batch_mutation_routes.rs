@@ -39,7 +39,7 @@ pub(super) async fn execute_mutations_batch_route(
                 )
             })
             .collect(),
-        handlers::execute_mutations_batch(host, components, ctx),
+        handlers::execute_mutations_batch(host, components),
     )
     .await;
     let result = result.and_then(|value| {

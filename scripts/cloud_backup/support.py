@@ -7,7 +7,11 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 import uuid
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from home_format import BACKUP_DIR, CREDENTIALS_FILE  # noqa: E402,F401
 
 
 ACCOUNT = "2a81c95623f2445854a794b5b48471d6"

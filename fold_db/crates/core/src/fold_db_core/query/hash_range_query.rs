@@ -4,10 +4,6 @@
 //! records that its key selector names (`records.rs`), applies the
 //! conditions, the order and the window to whole records, then returns the
 //! selected fields of each record.
-//!
-//! Share namespaces: while the node receives data from other users, the read
-//! merges each active `from:{sender_hash}` scope with the own scope by key.
-//! The own record wins on a collision (`records/received.rs`).
 
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
@@ -24,10 +20,8 @@ mod filter;
 mod predicates;
 mod records;
 mod redacted_filter;
-mod shares;
 
 pub use condition_rules::FieldQueryOptions;
-pub(crate) use shares::preload_receiver_controls;
 
 /// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
 /// [`redacted_filter::RedactedHashRangeFilter`] view.

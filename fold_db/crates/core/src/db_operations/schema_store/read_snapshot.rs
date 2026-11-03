@@ -8,7 +8,6 @@ mod names;
 pub(crate) struct SchemaReadSnapshot {
     pub(crate) schema: Option<Schema>,
     pub(crate) state: SchemaState,
-    pub(crate) successor: Option<String>,
 }
 
 impl SchemaStore {
@@ -22,7 +21,7 @@ impl SchemaStore {
             return Ok((**snapshot).clone());
         }
         // An ordinary record write does not change these catalog sources.
-        // A private or accepted catalog/state/successor change refuses reuse,
+        // A private or accepted catalog/state change refuses reuse,
         // so the existing captured storage path remains authoritative.
         if let Some(snapshot) =
             crate::storage::disk_pack::core_memory_get_for_write::<SchemaReadSnapshot>(
@@ -53,22 +52,7 @@ impl SchemaStore {
             .transpose()
             .map_err(|error| SchemaError::StorageRead { detail: error })?
             .unwrap_or_default();
-        let successor = if state == SchemaState::Blocked {
-            self.superseded_by_store
-                .inner()
-                .get(name.as_bytes())
-                .await?
-                .map(|bytes| decode_catalog_json::<String>(&bytes))
-                .transpose()
-                .map_err(|error| SchemaError::StorageRead { detail: error })?
-        } else {
-            None
-        };
-        Ok(SchemaReadSnapshot {
-            schema,
-            state,
-            successor,
-        })
+        Ok(SchemaReadSnapshot { schema, state })
     }
 
     async fn snapshot_state_bytes(

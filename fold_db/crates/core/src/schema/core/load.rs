@@ -1,7 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
-
-use super::locks::lock_map;
 use super::SchemaCore;
 
 mod field_key_map;
@@ -18,11 +14,9 @@ impl SchemaCore {
         self.load_schema_internal(schema.clone()).await
     }
 
-    /// Fetches a schema by name, checking both in-memory cache and database,
-    /// **following the `superseded_by` chain** (max 5 hops) when the named
-    /// schema is `Blocked` and has an active successor. This is the
-    /// resolution the executor uses, so any field/owner-validation gate that
-    /// runs alongside the executor must use this method — not
+    /// Fetches a schema by name, checking both in-memory cache and database.
+    /// This is the resolution the executor uses, so any field/owner-validation
+    /// gate that runs alongside the executor must use this method — not
     /// [`Self::get_schema_metadata`] — or it will disagree with what the
     /// executor actually serves (see #618).
     ///
@@ -31,7 +25,7 @@ impl SchemaCore {
         &self,
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {
-        self.get_schema_resolved(schema_name, 0, false).await
+        self.get_schema_resolved(schema_name, false).await
     }
 
     /// Read-path variant of [`Self::get_schema_following_supersession`]. The
@@ -43,102 +37,63 @@ impl SchemaCore {
         &self,
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {
-        self.get_schema_resolved(schema_name, 0, true).await
+        self.get_schema_resolved(schema_name, true).await
     }
 
-    /// Internal helper that follows superseded-by chains with a hop counter.
-    /// When `for_read` is set, the in-memory hit is a
-    /// [`Schema::clone_for_read_shared`] copy under a shared read lock (the
-    /// hot query path); otherwise it comes from the metadata lookup.
-    pub(super) fn get_schema_resolved(
+    /// Internal resolution helper. When `for_read` is set, the in-memory hit
+    /// is a [`Schema::clone_for_read_shared`] copy under a shared read lock
+    /// (the hot query path); otherwise it comes from the metadata lookup.
+    async fn get_schema_resolved(
         &self,
         schema_name: &str,
-        depth: usize,
         for_read: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<Schema>, SchemaError>> + Send + '_>> {
-        let schema_name = schema_name.to_string();
-        Box::pin(async move {
-            let schema_name = schema_name.as_str();
-            const MAX_REDIRECT_HOPS: usize = 5;
+    ) -> Result<Option<Schema>, SchemaError> {
+        if self.native_read_snapshot_active() {
+            return self.resolve_native_schema(schema_name, for_read).await;
+        }
 
-            if depth > MAX_REDIRECT_HOPS {
-                return Err(SchemaError::InvalidData(format!(
-                    "Superseded-by chain for schema '{schema_name}' exceeds maximum depth of {MAX_REDIRECT_HOPS}"
-                )));
+        // 1. Try exact match in memory
+        if for_read {
+            // Hot query path: `clone_for_read_shared` takes `&self`, so
+            // this runs under a SHARED read lock — N concurrent readers
+            // resolve their schema in parallel instead of serializing
+            // through one exclusive lock.
+            let stripped = self.cached_schema_for_read(schema_name)?;
+            if let Some(schema) = stripped {
+                return Ok(Some(schema));
             }
+        } else if let Some(schema) = self.get_schema_metadata(schema_name)? {
+            return Ok(Some(schema));
+        }
 
-            if self.native_read_snapshot_active() {
-                return self
-                    .resolve_native_schema(schema_name, depth, for_read)
-                    .await;
-            }
-
-            // Check if this schema is blocked and has a successor
-            let successor = {
-                let state = self.get_schema_state_cached(schema_name)?;
-                if state == SchemaState::Blocked {
-                    lock_map(&self.superseded_by, "superseded_by")?
-                        .get(schema_name)
-                        .cloned()
-                } else {
-                    None
-                }
-            };
-
-            if let Some(new_name) = successor {
-                tracing::info!(
-                    "Schema '{}' is blocked with successor, redirecting to '{}'",
-                    schema_name,
-                    new_name
-                );
-                return self
-                    .get_schema_resolved(&new_name, depth + 1, for_read)
-                    .await;
-            }
-
-            // 1. Try exact match in memory
+        // 2. Try exact match in database (refresh cache if found)
+        if let Some(schema) = self
+            .db_ops
+            .get_schema(schema_name)
+            .await
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?
+        {
+            // Update memory
+            let cached_name = schema.name.clone();
+            self.load_schema_internal(schema.clone()).await?;
+            tracing::info!(
+                "Refreshed schema '{}' from database (stale cache)",
+                cached_name
+            );
             if for_read {
-                // Hot query path: `clone_for_read_shared` takes `&self`, so
-                // this runs under a SHARED read lock — N concurrent readers
-                // resolve their schema in parallel instead of serializing
-                // through one exclusive lock.
-                let stripped = self.cached_schema_for_read(schema_name)?;
-                if let Some(schema) = stripped {
-                    return Ok(Some(schema));
+                // Return the cached copy, as the in-memory hot path does.
+                // `load_schema_internal` populated runtime_fields on the
+                // cache entry. Shared read lock + `&self` clone, same as
+                // the in-memory hot path above.
+                let stripped = self.cached_schema_for_read(&cached_name)?;
+                if let Some(stripped) = stripped {
+                    return Ok(Some(stripped));
                 }
-            } else if let Some(schema) = self.get_schema_metadata(schema_name)? {
-                return Ok(Some(schema));
             }
+            return Ok(Some(schema));
+        }
 
-            // 2. Try exact match in database (refresh cache if found)
-            if let Some(schema) = self
-                .db_ops
-                .get_schema(schema_name)
-                .await
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-            {
-                // Update memory
-                let cached_name = schema.name.clone();
-                self.load_schema_internal(schema.clone()).await?;
-                tracing::info!(
-                    "Refreshed schema '{}' from database (stale cache)",
-                    cached_name
-                );
-                if for_read {
-                    // Return the cached copy, as the in-memory hot path does.
-                    // `load_schema_internal` populated runtime_fields on the
-                    // cache entry. Shared read lock + `&self` clone, same as
-                    // the in-memory hot path above.
-                    let stripped = self.cached_schema_for_read(&cached_name)?;
-                    if let Some(stripped) = stripped {
-                        return Ok(Some(stripped));
-                    }
-                }
-                return Ok(Some(schema));
-            }
-
-            Ok(None)
-        }) // end Box::pin
+        Ok(None)
     }
 
     /// Prepare definitions, keep local field key ownership, write durable metadata,

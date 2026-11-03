@@ -69,7 +69,6 @@ async fn collect_schema_records(
         return Ok(vec![]);
     }
     let comparison = ops.records().key_comparison_context(schema).await?;
-    let scopes: [Option<String>; 1] = [None];
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
     let mut after: Option<String> = None;
     loop {
@@ -80,7 +79,7 @@ async fn collect_schema_records(
         };
         let walk = ops
             .records()
-            .walk_record_window(schema, &comparison, window, &scopes, |_| true);
+            .walk_record_window(schema, &comparison, window, |_| true);
         let scope = ops.read_scope().await?;
         let page = Arc::clone(&comparison).run(scope.run_result(walk)).await?;
         // A page that stopped in a run of deleted records goes on after the

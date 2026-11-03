@@ -20,7 +20,7 @@ impl EncryptingNamespacedStore {
     }
 
     pub(crate) fn should_encrypt(&self, namespace: &str) -> bool {
-        namespace == "cas_blobs"
+        namespace == crate::storage::disk_pack::CAS_COLLECTION
     }
 }
 

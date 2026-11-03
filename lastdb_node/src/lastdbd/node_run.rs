@@ -9,7 +9,6 @@ pub(crate) struct NodeRun {
     pub(crate) session_ledger: Option<lastdb_node::session_ledger::Ledger>,
     pub(crate) session_heartbeat: Option<lastdb_node::session_ledger::SessionHeartbeat>,
     pub(crate) socket_path: Option<std::path::PathBuf>,
-    pub(crate) full_socket_path: Option<std::path::PathBuf>,
 }
 
 /// Tokio's default worker stack is 2 MiB. A debug build keeps the write

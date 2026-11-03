@@ -115,15 +115,14 @@ pub fn mark_never_indexed(home: &Path) {
 #[cfg(not(target_os = "macos"))]
 pub fn mark_never_indexed(_home: &Path) {}
 
-/// The node marker. Every node home has it.
-pub(super) const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
-
 /// Whether `<home>/data` already holds a store: a home with the node marker.
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 /// The refuse-to-start-fresh contract below rests on this structural answer,
 /// not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
-    data_path.join(NODE_MARKER_FILE).is_file()
+    data_path
+        .join(fold_db::storage::disk_pack::NODE_MARKER)
+        .is_file()
 }
 
 pub(super) fn is_decrypt_boot_failure(msg: &str) -> bool {

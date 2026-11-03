@@ -4,7 +4,7 @@ import os
 import stat
 from uuid import UUID
 
-from support import require
+from support import CREDENTIALS_FILE, require
 
 MAX_HOME_NAMES = 128
 
@@ -24,9 +24,9 @@ def pending_credential(name):
 
 
 def credential_names(directory):
-    yield "cloud_sync.json.paused"
-    # The publisher uses these direct-child temporaries for both credentials
-    # and its consent record. Never touch the published consent or identity.
+    yield CREDENTIALS_FILE
+    # The publisher writes the one credentials file through these direct-child
+    # temporaries. Never touch the identity.
     pending = []
     with os.scandir(directory) as entries:
         for number, entry in enumerate(entries):

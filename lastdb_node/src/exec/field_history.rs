@@ -11,8 +11,6 @@ mod records;
 #[serde(deny_unknown_fields)]
 struct Request {
     location: HistoryLocation,
-    #[serde(default)]
-    database: Option<String>,
     action: Action,
 }
 
@@ -49,26 +47,14 @@ pub(super) async fn execute_field_history_route(
         Ok(request) => request,
         Err(error) => return Reject::from_serde_error(&error, None).response(),
     };
-    render(execute(host, ctx, request).await, ctx)
+    render(execute(host, request).await, ctx)
 }
 
-async fn execute(
-    host: &Host,
-    ctx: &AccessContext,
-    mut request: Request,
-) -> Result<Value, HostError> {
-    let scoped = match &request.database {
-        Some(db) => ctx
-            .clone()
-            .with_db_handle(Some(db))
-            .map_err(|e| HostError::new(400, e))?,
-        None => ctx.clone(),
-    };
-    let ctx = &scoped;
+async fn execute(host: &Host, mut request: Request) -> Result<Value, HostError> {
     request.location.schema = handlers::resolve_schema_name(host, &request.location.schema)?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
     // A home keeps copies of old values at record history keys.
-    records::execute(host, ctx, request).await
+    records::execute(host, request).await
 }
 
 fn require_restore_guard(expected_mutation: Option<&str>, absent: bool) -> Result<(), HostError> {
@@ -85,7 +71,6 @@ fn require_restore_guard(expected_mutation: Option<&str>, absent: bool) -> Resul
 /// current mutation of the field or by its absence.
 async fn restore(
     host: &Host,
-    ctx: &AccessContext,
     location: HistoryLocation,
     value: &Value,
     expected_mutation: Option<String>,
@@ -123,5 +108,5 @@ async fn restore(
         key_range_prefix: None,
         file_write: None,
     };
-    handlers::execute_mutation(host, components, ctx).await
+    handlers::execute_mutation(host, components).await
 }

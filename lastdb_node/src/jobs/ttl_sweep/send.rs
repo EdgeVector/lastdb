@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use fold_db::schema::types::operations::Mutation;
 use fold_db::schema::types::KeyValue;
 
-use super::owner_context;
 use super::verb::SweepVerb;
 use crate::host::Host;
 
@@ -91,7 +90,7 @@ async fn purge_keys(
         .collect();
     host.db
         .mutation_manager()
-        .write_mutations_with_access(mutations, &owner_context(host))
+        .write_mutations(mutations)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())

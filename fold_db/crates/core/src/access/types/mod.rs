@@ -62,18 +62,6 @@ pub struct AccessContext {
     /// did not report a pid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_pid: Option<i32>,
-    /// Canonical DB locator this request targets (`lastdb://personal`,
-    /// `lastdb://org/…`, or `lastdb://db/<64-hex>`). `None` means personal.
-    ///
-    /// Set from `X-LastDB-Db` at the UDS edge. Apps must not invent this —
-    /// org fills handles; the SDK forwards them; Mini scopes storage.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub db_locator: Option<String>,
-    /// Local storage prefix (64-hex `db_hash`) for field keys under this
-    /// request. `None` = personal unprefixed home. Derived from
-    /// [`Self::db_locator`] via [`super::db_handle::storage_prefix_for`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_prefix: Option<String>,
 }
 
 impl AccessContext {
@@ -85,8 +73,6 @@ impl AccessContext {
             transport: CallerTransport::default(),
             verification: CallerVerification::default(),
             peer_pid: None,
-            db_locator: None,
-            storage_prefix: None,
         }
     }
 
@@ -98,8 +84,6 @@ impl AccessContext {
             transport: CallerTransport::default(),
             verification: CallerVerification::default(),
             peer_pid: None,
-            db_locator: None,
-            storage_prefix: None,
         }
     }
 
@@ -118,29 +102,6 @@ impl AccessContext {
     /// Record the UDS peer pid for ops attribution (builder-style).
     pub fn with_peer_pid(mut self, peer_pid: Option<i32>) -> Self {
         self.peer_pid = peer_pid;
-        self
-    }
-
-    /// Attach a client DB handle (`X-LastDB-Db` value). Invalid locators error.
-    ///
-    /// `None` / empty → personal (clears any prior prefix). Prefer calling once
-    /// at the UDS edge after peer-cred identity is stamped.
-    pub fn with_db_handle(mut self, raw: Option<&str>) -> Result<Self, String> {
-        let (canonical, prefix) = super::db_handle::resolve_db_handle_header(raw)?;
-        if prefix.is_none() {
-            self.db_locator = None;
-            self.storage_prefix = None;
-        } else {
-            self.db_locator = Some(canonical);
-            self.storage_prefix = prefix;
-        }
-        Ok(self)
-    }
-
-    /// Direct storage-prefix injection (tests / in-process callers). Prefer
-    /// [`Self::with_db_handle`] on the request path.
-    pub fn with_storage_prefix(mut self, storage_prefix: Option<String>) -> Self {
-        self.storage_prefix = storage_prefix;
         self
     }
 

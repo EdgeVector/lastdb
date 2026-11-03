@@ -68,12 +68,9 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,
         new_mutations: &[Mutation],
-        storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let cas_precondition_start = std::time::Instant::now();
-        let cas_result = self
-            .check_record_preconditions(new_mutations, storage_prefix)
-            .await;
+        let cas_result = self.check_record_preconditions(new_mutations).await;
         crate::request_phases::add_phase(
             crate::request_phases::RequestPhase::CasPrecondition,
             cas_precondition_start.elapsed(),
@@ -91,7 +88,6 @@ impl MutationManager {
         &self,
         new_mutations: Vec<Mutation>,
         new_hashes: Vec<String>,
-        storage_prefix: Option<&str>,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
         stages: &mut ResidentCommitStages,
         runtime: &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
@@ -123,13 +119,7 @@ impl MutationManager {
                     let hash = hash_by_uuid
                         .remove(&mutation.uuid)
                         .expect("new mutation has a matching idempotency hash");
-                    (
-                        crate::schema::types::field::build_storage_key(
-                            storage_prefix,
-                            &format!("idem:{hash}"),
-                        ),
-                        mutation.uuid.clone(),
-                    )
+                    (format!("idem:{hash}"), mutation.uuid.clone())
                 })
                 .collect();
             deferred.extend(
@@ -137,7 +127,6 @@ impl MutationManager {
                     &schema_name,
                     schema_mutations,
                     idempotency_entries,
-                    storage_prefix,
                     repeated.get(&schema_name),
                     runtime,
                 )

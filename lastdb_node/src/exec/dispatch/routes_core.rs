@@ -47,10 +47,6 @@ pub(super) async fn dispatch_search_app(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::HomeStorage => heap_route_ctx_host!(execute_home_storage_route, ctx, host).await,
-        DataRoute::HomeStorageReconcile => {
-            heap_route!(execute_home_storage_reconcile_route, req, ctx, host).await
-        }
         DataRoute::AutoIdentity => execute_auto_identity_route(host),
         DataRoute::BootIdentity => execute_boot_identity_route(host),
         DataRoute::BootLedger => execute_boot_ledger_route(host),

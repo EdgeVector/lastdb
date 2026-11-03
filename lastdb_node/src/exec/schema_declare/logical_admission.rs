@@ -1,8 +1,7 @@
 use super::*;
 
 /// Public schema admission is narrower than catalog metadata decoding. An owned
-/// schema, with or without alternate keys, is admitted to the personal database
-/// and to an org database alike; the storage scope keeps their records apart.
+/// schema, with or without alternate keys, is admitted.
 pub(crate) fn logical_layout_error(
     ctx: &AccessContext,
     schema: &DeclarativeSchemaDefinition,

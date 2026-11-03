@@ -121,7 +121,7 @@ class Node:
             LASTDB_HOME=str(self.home), RUST_MIN_STACK="16777216")
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen([str(self.binary), "--data-dir", str(self.home),
-            "--socket-path", str(self.socket), "--full-socket-path", str(self.root / "f.sock")],
+            "--socket-path", str(self.socket)],
             env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
         self.remember({"operation": "start", "pid": self.process.pid, "settings": self.settings})
         deadline = min(self.deadline, time.monotonic() + 120)
@@ -199,7 +199,7 @@ def cleanup(root, owner, output):
             or stat.S_IMODE(info.st_mode) != 0o700
             or json.loads((root / "owner.json").read_text()) != owner):
         raise RuntimeError("The exact owned home identity differs; refuse cleanup")
-    for path in (root / "q.sock", root / "f.sock"):
+    for path in (root / "q.sock",):
         probe = socket.socket(socket.AF_UNIX)
         probe.settimeout(0.25)
         try:
@@ -220,7 +220,7 @@ def cleanup(root, owner, output):
             item = path.lstat()
             if (item.st_uid != owner["uid"] or item.st_dev != owner["device"]
                     or not (stat.S_ISDIR(item.st_mode) or stat.S_ISREG(item.st_mode)
-                            or (stat.S_ISSOCK(item.st_mode) and path in (root / "q.sock", root / "f.sock")))):
+                            or (stat.S_ISSOCK(item.st_mode) and path == root / "q.sock"))):
                 raise RuntimeError("The exact owned home contains a linked or foreign object")
             files.append((path, item))
             size += item.st_size if stat.S_ISREG(item.st_mode) else 0

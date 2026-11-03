@@ -2,13 +2,13 @@
 //!
 //! The file lives in `cas_blobs`, the CAS run home that the backup sends to
 //! B2, at a path made from the record key:
-//! `{scope:}fb:{S}:{sha256(record storage key)}`. One record has one path, so
+//! `fb:{S}:{sha256(record storage key)}`. One record has one path, so
 //! two records never share bytes and nothing counts references. The marker of
 //! the record (`StoredRecord::file`) says whether the path holds a file.
 //!
 //! Every write that changes the marker changes the path in the same native
 //! request: `put-blob` puts the sealed row, and `delete-blob`, a record
-//! delete, a schema release and a database drop delete it.
+//! delete and a schema release delete it.
 //!
 //! The row is the envelope `0x01 ‖ nonce ‖ AES-256-GCM ciphertext and tag`.
 //! The key comes from the account key and the marker's plaintext SHA-256
@@ -30,13 +30,13 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// The namespace of the file rows: its own run home, sent to B2.
-pub(crate) const CAS_BLOB_TREE: &str = "cas_blobs";
+pub(crate) const CAS_BLOB_TREE: &str = crate::storage::disk_pack::CAS_COLLECTION;
 
 const FILE_KEY_SALT: &[u8] = b"lastdb-file-blob-account-v2";
 const FILE_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
 const ENVELOPE_VERSION: u8 = 0x01;
 
-/// The file path of the record at one storage key, scope included.
+/// The file path of the record at one storage key.
 pub(crate) fn file_path(record: &str) -> Result<String, SchemaError> {
     Ok(crate::storage::current_keys::families::record_file_path(
         record,
@@ -93,9 +93,7 @@ pub(crate) fn dropped_file_paths<'a>(
 
 /// The file path of a record row key, or `None` for a row of another family.
 fn record_row_path(key: &str) -> Result<Option<String>, SchemaError> {
-    let scope = crate::storage::current_keys::exact_scope(key)?;
-    let bare = scope.map_or(key, |scope| key.get(scope.len() + 1..).unwrap_or(key));
-    if !bare.starts_with(RECORD_PREFIX) {
+    if !key.starts_with(RECORD_PREFIX) {
         return Ok(None);
     }
     file_path(key).map(Some)

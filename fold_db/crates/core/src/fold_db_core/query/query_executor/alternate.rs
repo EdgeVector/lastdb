@@ -16,23 +16,15 @@ pub struct AlternatePage {
 impl QueryExecutor {
     /// Count one explicitly keyed alternate selection in one captured root.
     /// Pages retain bounded memory; native read admission refuses excess work.
-    pub async fn count_alternate_rows(
-        &self,
-        query: &Query,
-        context: &AccessContext,
-    ) -> Result<usize, SchemaError> {
+    pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
         scope
-            .run_result(Box::pin(self.count_alternate_scoped(query, context)))
+            .run_result(Box::pin(self.count_alternate_scoped(query)))
             .await
     }
 
-    async fn count_alternate_scoped(
-        &self,
-        query: &Query,
-        context: &AccessContext,
-    ) -> Result<usize, SchemaError> {
-        let (schema, scope) = self.scoped_alternate_schema(query, context).await?;
+    async fn count_alternate_scoped(&self, query: &Query) -> Result<usize, SchemaError> {
+        let schema = self.alternate_schema(query).await?;
         let name = query
             .key_name
             .as_deref()
@@ -52,20 +44,13 @@ impl QueryExecutor {
             let entries = self
                 .db_ops
                 .records()
-                .select_alternate_entries(
-                    &schema,
-                    name,
-                    filter,
-                    after.as_ref(),
-                    128,
-                    scope.as_deref(),
-                )
+                .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
                 .await?;
             let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
             let fields = self
                 .db_ops
                 .records()
-                .schema_fields_at_keys(&schema, &keys, scope.as_deref(), &names)
+                .schema_fields_at_keys(&schema, &keys, &names)
                 .await?;
             for (entry, fields) in entries.iter().zip(fields) {
                 if alternate_keys::derive_key(&schema, definition, &fields)?.as_ref()
@@ -91,13 +76,10 @@ impl QueryExecutor {
         query: Query,
         limit: usize,
         cursor: Option<QueryCursor>,
-        context: &AccessContext,
     ) -> Result<AlternatePage, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
         scope
-            .run_result(Box::pin(
-                self.read_alternate_page(query, limit, cursor, context),
-            ))
+            .run_result(Box::pin(self.read_alternate_page(query, limit, cursor)))
             .await
     }
 
@@ -106,10 +88,8 @@ impl QueryExecutor {
         mut query: Query,
         limit: usize,
         cursor: Option<QueryCursor>,
-        context: &AccessContext,
     ) -> Result<AlternatePage, SchemaError> {
-        // The primary read below resolves the same scope from `context`.
-        let (schema, scope) = self.scoped_alternate_schema(&query, context).await?;
+        let schema = self.alternate_schema(&query).await?;
         let name = query
             .key_name
             .take()
@@ -140,7 +120,6 @@ impl QueryExecutor {
                 &filter,
                 after.as_ref(),
                 limit.saturating_add(1),
-                scope.as_deref(),
             )
             .await?;
         let has_more = entries.len() > limit;
@@ -162,7 +141,7 @@ impl QueryExecutor {
         let mut values = if keys.is_empty() {
             QueryRecords::new()
         } else {
-            self.query_current(query, None, Some(context)).await?
+            self.query_current(query, None).await?
         };
         validate_entries(&schema, &name, &entries, &values)?;
         if !projection.is_empty() {
@@ -179,29 +158,14 @@ impl QueryExecutor {
         })
     }
 
-    /// The schema and the storage scope of the caller's database: `None` for
-    /// the personal database, the instance prefix for an org database.
-    async fn scoped_alternate_schema(
-        &self,
-        query: &Query,
-        context: &AccessContext,
-    ) -> Result<(crate::schema::Schema, Option<String>), SchemaError> {
+    /// The prepared schema of an alternate read.
+    async fn alternate_schema(&self, query: &Query) -> Result<crate::schema::Schema, SchemaError> {
         let schema = self
             .prepare_query_schema(query)
             .await?
             .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
-        let scope = self
-            .db_ops
-            .db_catalog()
-            .resolve_storage_prefix(
-                context.db_locator.as_deref(),
-                &schema.name,
-                context.storage_prefix.as_deref(),
-            )
-            .await?;
         validate_controls(query)?;
-        self.hash_range_processor.refuse_received_data().await?;
-        Ok((schema, scope))
+        Ok(schema)
     }
 }
 

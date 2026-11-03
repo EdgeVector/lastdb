@@ -11,17 +11,16 @@ use crate::schema::types::schema::DeclarativeSchemaType;
 /// Access is enforced cryptographically at the operation layer (capability
 /// tokens / caller identity), not by a generic schema-state gate, so there is
 /// no separate "approved" review state: a schema is usable as soon as it is
-/// installed. The only state that changes behavior is `Blocked`, which is used
-/// by schema expansion to retire a superseded schema and redirect its queries.
+/// installed. The only state that changes behavior is `Blocked`, which a
+/// schema drop stores before it releases the schema's records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SchemaState {
     /// Schema is installed and usable — can be queried, mutated, field-mapped,
     /// and have transforms run against it.
     #[default]
     Available,
-    /// Schema blocked by the system (typically superseded during schema
-    /// expansion): cannot be queried, but field-mapping and transforms still
-    /// run so the successor schema can adopt its field keys.
+    /// Schema blocked by the system (a drop is running): cannot be queried
+    /// or mutated.
     Blocked,
 }
 
@@ -41,7 +40,7 @@ pub enum SchemaState {
 /// mutated and read when a caller names it by canonical name or identity hash.
 /// It is only removed from the candidate set when a caller names it by
 /// `descriptive_name`. That is the difference from [`SchemaState::Blocked`],
-/// which redirects every lookup — including a by-hash one — to the successor.
+/// which refuses every query — including a by-hash one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaNameClaim {
     /// True when this schema is excluded from descriptive-name resolution.
@@ -249,9 +248,6 @@ pub struct SchemaListEntry {
     /// SHA256 identity hash for the schema.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_hash: Option<String>,
-    /// Successor schema for superseded entries, when present.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub superseded_by: Option<String>,
     /// Owning app namespace, when app-owned.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub owner_app_id: Option<String>,
@@ -276,7 +272,6 @@ impl SchemaListEntry {
             transform_fields: schema.transform_fields.clone(),
             hash: schema.hash.clone(),
             identity_hash: schema.identity_hash.clone(),
-            superseded_by: schema.superseded_by.clone(),
             owner_app_id: schema.owner_app_id.clone(),
             source: schema.source,
             state,

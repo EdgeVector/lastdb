@@ -92,12 +92,6 @@ libmimalloc-sys = { version = "=0.1.49", optional = true, features = ["extended"
 [target.'cfg(target_os = "macos")'.dependencies]
 mach2 = "0.4"
 
-[[bin]]
-bench = false
-test = false
-name = "received_range_seed"
-path = "src/bin/received_range_seed.rs"
-
 [lib]
 test = false
 doctest = false

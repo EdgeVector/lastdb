@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
-use lastdb_node::cloud::{SavedCredentials, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE};
+use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 
 #[path = "recovery_home/files.rs"]
@@ -105,22 +105,23 @@ fn run(
     if api_key.is_empty() || api_key.as_str() != credentials.api_key.as_str() {
         return Err("stdin API key does not match the source cloud credentials".into());
     }
+    // The backup consent names the source home, so the copy omits it.
     let bytes = credentials
+        .without_connection()
         .to_json_pretty()
         .map_err(|_| "cannot encode recovery credentials")?;
     let mut target = target.create()?;
     target.write(IDENTITY_KEY_FILE, &seed)?;
-    target.write(CLOUD_SYNC_PAUSED_FILE, &bytes)?;
-    target.write(CLOUD_RESUME_REQUIRED_FILE, b"")?;
+    target.write(CLOUD_CREDENTIALS_FILE, &bytes)?;
     target.commit()?;
     print_receipt(environment, json)
 }
 
 fn read_credentials(source: &std::fs::File) -> Result<SavedCredentials, String> {
-    if !files::entry_present(source, CLOUD_SYNC_PAUSED_FILE)? {
+    if !files::entry_present(source, CLOUD_CREDENTIALS_FILE)? {
         return Err("source requires saved paused cloud credentials".into());
     }
-    let bytes = zeroize::Zeroizing::new(read_private_file(source, CLOUD_SYNC_PAUSED_FILE, 65_536)?);
+    let bytes = zeroize::Zeroizing::new(read_private_file(source, CLOUD_CREDENTIALS_FILE, 65_536)?);
     SavedCredentials::parse(&bytes).map_err(|_| "invalid source cloud credentials".into())
 }
 
@@ -149,9 +150,8 @@ fn print_receipt(environment: Environment, json: bool) -> Result<(), String> {
             "api_key_matches_source": true,
             "saved_url_matches_environment": true,
             "cloud_sync_off": true,
-            "cloud_resume_required": true,
             "data_directory_created": false,
-            "files": 3,
+            "files": 2,
             "home_mode": "0700",
             "file_mode": "0600"
         });

@@ -16,7 +16,7 @@ use super::*;
 /// canonical definition. Existing data requires an explicit conversion before
 /// any incompatible declaration.
 ///
-/// Served on the owner data socket AND the full-surface setup socket so Mini
+/// Served on the owner socket so Mini
 /// first-run init can load exact catalog identities without storing a local
 /// schema dialect.
 pub async fn execute_apps_declare_schema_route(

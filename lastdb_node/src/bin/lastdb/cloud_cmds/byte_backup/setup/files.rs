@@ -1,9 +1,6 @@
 //! Descriptor-bound fresh-home enrollment; retain one device identity across retries.
 
-use super::{
-    recovery_files, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE, IDENTITY_KEY_FILE,
-    PHRASE_FILE,
-};
+use super::{recovery_files, CLOUD_CREDENTIALS_FILE, IDENTITY_KEY_FILE, PHRASE_FILE};
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::ffi::OsString;
 use std::fs::File;
@@ -106,13 +103,13 @@ impl PreparedHome {
 
     pub(super) fn finish_saved_credentials(&self, api_url: &str) -> Result<bool, String> {
         self.verify_entries()?;
-        let paused = recovery_files::entry_present(&self.directory, CLOUD_SYNC_PAUSED_FILE)?;
+        let paused = recovery_files::entry_present(&self.directory, CLOUD_CREDENTIALS_FILE)?;
         let pending = recovery_files::entry_present(&self.directory, PENDING_FILE)?;
         if paused && pending {
             return Err("native enrollment credential state is ambiguous".into());
         }
         let name = if paused {
-            CLOUD_SYNC_PAUSED_FILE
+            CLOUD_CREDENTIALS_FILE
         } else if pending {
             PENDING_FILE
         } else {
@@ -148,14 +145,14 @@ impl PreparedHome {
 
     fn publish(&self) -> Result<(), String> {
         self.verify_entries()?;
-        if recovery_files::entry_present(&self.directory, CLOUD_SYNC_PAUSED_FILE)? {
+        if recovery_files::entry_present(&self.directory, CLOUD_CREDENTIALS_FILE)? {
             return Err("refusing to replace paused native credentials".into());
         }
         fs::renameat(
             &self.directory,
             PENDING_FILE,
             &self.directory,
-            CLOUD_SYNC_PAUSED_FILE,
+            CLOUD_CREDENTIALS_FILE,
         )
         .map_err(|_| "cannot publish paused native credentials")?;
         self.sync()
@@ -221,11 +218,10 @@ fn verify_contents(directory: &File) -> Result<(), String> {
     let allowed = [
         IDENTITY_KEY_FILE,
         PHRASE_FILE,
-        CLOUD_RESUME_REQUIRED_FILE,
         DEVICE_FILE,
         LOCK_FILE,
         PENDING_FILE,
-        CLOUD_SYNC_PAUSED_FILE,
+        CLOUD_CREDENTIALS_FILE,
     ];
     let mut count = 0;
     for entry in
@@ -240,11 +236,6 @@ fn verify_contents(directory: &File) -> Result<(), String> {
         if count > allowed.len() || !allowed.iter().any(|allowed| allowed.as_bytes() == name) {
             return Err("native enrollment home contains a store or an unexpected entry".into());
         }
-    }
-    if !recovery_files::entry_present(directory, CLOUD_RESUME_REQUIRED_FILE)?
-        || !recovery_files::read_private_file(directory, CLOUD_RESUME_REQUIRED_FILE, 0)?.is_empty()
-    {
-        return Err("native enrollment requires the fresh Cloud Sync Off marker".into());
     }
     Ok(())
 }
