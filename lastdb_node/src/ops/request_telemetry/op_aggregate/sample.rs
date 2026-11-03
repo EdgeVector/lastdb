@@ -74,9 +74,8 @@ pub struct OpSample {
     /// HTTP method + path without query/fragment (e.g. `GET /api/schemas`).
     ///
     /// Forensic detail for ONE sample, never an aggregation key: several
-    /// routes carry caller data in the path (`/api/schema/<name>`,
-    /// `/api/app/blob/cas/sha256/<digest>`), so keying on it would mint a
-    /// telemetry key per schema and per digest. Use
+    /// routes carry caller data in the path (`/api/schema/<name>`), so
+    /// keying on it would mint a telemetry key per schema. Use
     /// [`Self::route`] for identity. Omitted when not recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,

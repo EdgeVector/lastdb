@@ -167,18 +167,6 @@ pub enum DataRoute {
     NativeIndexKnn,
     /// `POST /api/field-history` — owner-only field policies, lookup, purge and restore.
     FieldHistory,
-    /// `PUT /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob write.
-    AppBlobPut,
-    /// `GET /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob read.
-    AppBlobGet,
-    /// `PUT /api/app/org/{org_hash}/blob/cas/sha256/{hash}` — org-scoped,
-    /// app-namespaced raw blob write.
-    AppOrgBlobPut,
-    /// `GET /api/app/org/{org_hash}/blob/cas/sha256/{hash}` — org-scoped,
-    /// app-namespaced raw blob read.
-    AppOrgBlobGet,
-    /// `GET /api/app/blob/footprint` — local app namespace byte footprint.
-    AppBlobFootprint,
     /// `GET /api/storage/home` — the latest persisted unique physical ledger
     /// for the configured LastDB home. OWNER socket only. The read performs
     /// one metadata point-get and never inventories the filesystem.

@@ -1,16 +1,14 @@
 name: Disk run proof
 
-# Disk format v2, phases V1, V2, and V2b (docs/design-lastdb-disk-size-20261024.md in the
-# EdgeVector workspace). Tom approved the plan on 2026-10-24: "Prove it works
-# and then I want to use it." The proof writes a synthetic seed through
-# laststore::disk_run, reads it back, and fails over 2x the logical bytes.
-# The V2b step runs the node store (fold_db disk_pack) on a synthetic v2 home.
+# Disk format v2 on synthetic data. Tom approved the plan on 2026-10-24:
+# "Prove it works and then I want to use it." The run home proof drives
+# laststore::disk_run::home, and the node store proof runs fold_db disk_pack
+# on a synthetic home. Neither opens a real LastDB home.
 on:
   pull_request:
     paths:
       # Every laststore source file is disk format v2 code since D1.
       - 'vendor/laststore/src/**'
-      - 'vendor/laststore/examples/disk_run_proof/**'
       - 'vendor/laststore/examples/run_home_proof/**'
       - 'vendor/laststore/Cargo.toml'
       - 'fold_db/crates/core/src/storage/disk_pack/**'
@@ -45,18 +43,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Lint and run the disk run proof
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo clippy --locked -p laststore --example disk_run_proof -- -D warnings
-          cargo run --locked --release -p laststore --example disk_run_proof \
-            | tee "$RUNNER_TEMP/disk-run-proof.txt"
-          {
-            echo '## Disk run proof'
-            echo "Source: $(git rev-parse HEAD)"
-            cat "$RUNNER_TEMP/disk-run-proof.txt"
-          } >> "$GITHUB_STEP_SUMMARY"
       - name: Lint and run the run home proof
         shell: bash
         run: |
@@ -86,7 +72,6 @@ jobs:
         with:
           name: disk-run-proof-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/disk-run-proof.txt
             ${{ runner.temp }}/run-home-proof.txt
             ${{ runner.temp }}/node-v2-proof.txt
           if-no-files-found: ignore

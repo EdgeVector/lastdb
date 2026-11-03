@@ -149,9 +149,8 @@ fn attribute_client(
 /// Bounded identity label for the route the router already matched.
 ///
 /// `OpSample::path` is the raw target, so it cannot be an aggregation key:
-/// `/api/schema/<name>` and `/api/app/blob/cas/sha256/<digest>` put caller
-/// data in the path and would mint one telemetry key per schema and per
-/// digest.
+/// `/api/schema/<name>` puts caller data in the path and would mint one
+/// telemetry key per schema.
 /// [`DataRoute`] is the opposite by construction — its own doc says the
 /// variant "carries only route identity, with no caller data" — so the set of
 /// labels is bounded by the route table and a label is safe in a key.

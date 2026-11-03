@@ -1,7 +1,7 @@
 //! The file marker of one record (design `design-lastdb-no-shared-file-blobs`).
 //!
 //! A record has at most one file. The marker says that the record has one and
-//! describes it. It holds no path, no blob reference and no key: the file lives
+//! describes it. It holds no path and no key: the file lives
 //! at a path made from the schema and the record key. Only the file routes set
 //! or remove the marker, so a record write cannot name another record's file.
 //!

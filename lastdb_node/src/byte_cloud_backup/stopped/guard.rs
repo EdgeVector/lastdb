@@ -77,7 +77,6 @@ fn check_session(home: &Path, request: &StoppedBackupRequest) -> Result<()> {
         || receipt.pid != request.stopped_pid
         || receipt.start_ts != request.stopped_start_ts
         || !receipt.flush_ok
-        || home.join("cloud_sync.json").try_exists()?
     {
         return Err(BackupError::Identity);
     }

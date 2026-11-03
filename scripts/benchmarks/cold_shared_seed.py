@@ -256,7 +256,7 @@ def main():
         manifest["boot_append_bytes"] = boot_sizes[0]
         # The last settle open observed the live root of the stopped seed. An older
         # program writes one clean header commit on shutdown and one re-arm header
-        # commit on boot (the bounded boot append); format 8 writes neither.
+        # commit on boot (the bounded boot append); the current format writes neither.
         opens = json.loads((seed_output / "settle.json").read_text())["opens"]
         settled = json.loads((seed_output / f"settle-{opens - 1}.json").read_text())[-1]
         publications = 2 if boot_sizes[0] else 0

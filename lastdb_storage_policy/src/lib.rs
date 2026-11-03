@@ -1,21 +1,10 @@
-//! One source for native format sizes and local backup resource policy.
+//! One source for native size bounds and local backup resource policy.
 //!
-//! Native V1 sizes are format identity, not live environment settings. A new
-//! size requires a versioned format and compatible reader/publication changes.
 //! Resource sizes bound buffers and metadata, never a user file's total bytes.
 #![warn(missing_docs)]
 
-/// Bounds that live code still reads from the removed native V1 format.
-pub mod native_v1 {
-    /// Native V1 block size, in bytes.
-    pub const BLOCK_BYTES: usize = 4_096;
-    /// Maximum dependency parts in the removed native V1 format.
-    pub const MAX_DEPENDENCY_PARTS: usize = 65_536;
-    /// Backup file cap: `MAX_DEPENDENCY_PARTS` plus 16.
-    pub const MAX_BACKUP_FILES: usize = MAX_DEPENDENCY_PARTS + 16;
-    /// Largest native V1 record body, `u32::MAX` bytes.
-    pub const RECORD_BODY_MAX_BYTES: u64 = u32::MAX as u64;
-}
+/// Maximum native files in one backup.
+pub const BACKUP_FILES_MAX: usize = 65_552;
 
 /// Change the allocation policy here. File length is deliberately absent.
 #[derive(Clone, Copy, Debug)]
@@ -62,11 +51,9 @@ pub mod native_read {
     /// Eager work includes stored frames, decoded blocks, returned records and
     /// their plans. Cumulative work is distinct from retained memory admission.
     pub const EAGER_WORK_BYTES: u64 = 4 * super::native_write::PENDING_MEMORY_BYTES;
-    /// One eager read can decode the complete pending-write byte allowance.
-    /// An unaligned record can span one additional existing payload block.
-    pub const EAGER_BLOCKS: u64 = super::native_write::PENDING_MEMORY_BYTES
-        .div_ceil(super::native_v1::BLOCK_BYTES as u64)
-        + 1;
+    /// One eager read can decode the complete pending-write byte allowance in
+    /// 4 KiB blocks, plus one block that an unaligned record can span.
+    pub const EAGER_BLOCKS: u64 = super::native_write::PENDING_MEMORY_BYTES.div_ceil(4_096) + 1;
 }
 
 /// Pending native writes share this memory allowance across complete requests.
@@ -74,12 +61,7 @@ pub mod native_write {
     /// Shared memory allowance, in bytes, for pending native writes.
     pub const PENDING_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
     /// Refuse impossible local-file inputs before any file-sized allocation.
-    pub const LOCAL_FILE_INPUT_MEMORY_BYTES: u64 =
-        if PENDING_MEMORY_BYTES < super::native_v1::RECORD_BODY_MAX_BYTES {
-            PENDING_MEMORY_BYTES
-        } else {
-            super::native_v1::RECORD_BODY_MAX_BYTES
-        };
+    pub const LOCAL_FILE_INPUT_MEMORY_BYTES: u64 = PENDING_MEMORY_BYTES;
 }
 
 /// Small control values and proof identities have their own memory bounds.

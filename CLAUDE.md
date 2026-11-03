@@ -50,10 +50,10 @@ This rule supersedes the local build commands and coordination rules below.
 > | Multi-get | K exact keys | **O(K)** |
 > | Full scan | — | **not supported** |
 >
-> Storage ladder: **schema → record → file blob**. A schema is a catalog, not
+> Storage ladder: **schema → record → file**. A schema is a catalog, not
 > a table. Each primary key holds one record: all fields of the schema in one
-> stored value, with a stamp for each field. A large field goes in a file blob
-> that the record names. A named alternate key finds the same record through
+> stored value, with a stamp for each field. A record can own one file,
+> stored at a path made from its schema and key. A named alternate key finds the same record through
 > declared fields. A relationship with different data uses its own schema.
 >
 > **Read before you design** (the brain records are canonical; if a code
@@ -166,9 +166,10 @@ their clean core memory publication before the ack. No collection timer delays t
   a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
-- Empty homes initialize as format 8 (marker `format=8`, backup profile 6). This program opens only format 8.
-  Copy records from an older home into a fresh home. No command upgrades an older home in place.
-  Startup refuses a stored schema that does not own its values. Startup does not convert data. Cloud activation stays disabled for this round.
+- Empty homes initialize in the current format: `HOME_FORMAT`, `RECORD_NODE_BYTES` and `RECORD_PROFILE` in
+  `fold_db/crates/core/src/storage/disk_pack/run_admission.rs` (scripts read `scripts/benchmarks/home_format.py`).
+  This program opens only that format. A format change copies records from the old home into a fresh home.
+  Startup refuses a stored schema that does not own its values. Startup does not convert data.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 

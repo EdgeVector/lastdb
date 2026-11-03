@@ -1,14 +1,11 @@
 use super::*;
 
 impl Host {
-    /// Create the node home and data dir, refuse a stopped backup copy, and
-    /// clear the prior shutdown proof. Returns the data dir.
+    /// Create the node home and data dir and clear the prior shutdown proof.
+    /// Returns the data dir.
     pub(super) fn prepare_boot_home(home: &Path) -> Result<PathBuf, String> {
         ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
-        if crate::cloud::cloud_backup_source_copy_path(home).exists() {
-            return Err("a stopped backup copy cannot boot as a daemon".into());
-        }
         crate::session_ledger::clear_shutdown_flush_receipt(home)
             .map_err(|error| format!("could not clear prior shutdown proof: {error}"))?;
         if crate::cloud::cloud_credentials_path(home).exists() {

@@ -68,7 +68,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/local-watch", Scope::Both, "GET", DataRoute::LocalWatch),
     row("/api/app/changes", Scope::Both, "POST", DataRoute::AppChanges),
     row("/api/app/search", Scope::Both, "POST", DataRoute::AppSearch),
-    row("/api/app/blob/footprint", Scope::Both, "GET", DataRoute::AppBlobFootprint),
     row("/api/storage/home", Scope::Owner, "GET", DataRoute::HomeStorage),
     row("/api/storage/home/reconcile", Scope::Owner, "POST", DataRoute::HomeStorageReconcile),
     row("/api/system/auto-identity", Scope::Owner, "GET", DataRoute::AutoIdentity),

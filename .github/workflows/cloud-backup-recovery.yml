@@ -2,9 +2,9 @@ name: Cloud backup recovery
 
 # Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
-# The manual `baseline` mode cuts the fixed baseline: once on format 8, later
-# only for an approved cloud contract change. A local format change must keep
-# the baseline restorable (scripts/cloud_backup/baseline_inputs.py).
+# The manual `baseline` mode cuts the fixed baseline once for each home format
+# (scripts/cloud_backup/baseline.py), because a client restores only a
+# snapshot of its own home format.
 # A baseline run also points the two protected inputs at the new baseline.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.

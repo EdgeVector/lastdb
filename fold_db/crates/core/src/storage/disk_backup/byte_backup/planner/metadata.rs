@@ -18,7 +18,6 @@ pub(super) fn finish(
         begin_sha256: state.begin.input_sha256().map_err(protocol)?,
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
         native_files: Vec::new(),
-        external_dependencies: Vec::new(),
     };
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -61,7 +60,6 @@ pub(super) fn finish(
             .ok_or_else(|| invalid("run recovery missing"))?,
         native_file_count: files,
         native_bytes: bytes,
-        external_dependency_count: 0,
         pages,
         run: state.run.clone(),
     };

@@ -15,7 +15,7 @@
 //! - A queue entry and the directory row of its bucket in the retention queue
 //!   (`retention`), as for the conflict records of the field key path. At the
 //!   end of the window the janitor deletes the row, and the marker when no
-//!   entry of it is left. A row holds no record or file blob reference.
+//!   entry of it is left. A row holds no record reference.
 
 mod purge;
 mod read;

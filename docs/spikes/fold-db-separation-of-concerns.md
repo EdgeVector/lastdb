@@ -320,7 +320,7 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 | PR | Change |
 |---|---|
 | 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and field value limit. |
-| 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, blob dwell, and conflict retention. |
+| 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, and conflict retention. |
 | 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, `LASTDB_ENGINE`, attribution events, and the conflict index flags. |
 | 2d | Move the other process state into the `FoldDB` instance (appendix list). Keep a static only with a written reason, for example the process start time in `footprint.rs`. |
 
@@ -354,7 +354,7 @@ The engine list is a subset of the `schema_service_core` list:
 | PR | Change | Done when |
 |---|---|---|
 | 5a | Move the fetch code out of `schema::types::field` (`variant::read*`, `filter_utils::fetch*`) into the engine query layer. | `schema` has no reference to `storage`, `db_operations`, or `fold_db_core`. |
-| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `record::file_pointer` gets the cipher suite constant from the model. `record::history_event_memo` moves to the engine. | `record` and `crypto` have no engine reference. |
+| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `record::history_event_memo` moves to the engine. | `record` and `crypto` have no engine reference. |
 | 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs` and its commit type). | The pack rule runs on a file list without a store. |
 | 5d | Create `lastdb_model` with `record`, `schema::types`, the mutation type, key values, `canonical`, `kind_partition`, `json_order`, and the codecs. Its manifest has `uuid` without `v4`, `chrono` without `clock` and `now`, and no `tokio`, `reqwest`, or `laststore`. Its `clippy.toml` uses the full `schema_service_core` list. | A CI job runs `cargo check -p lastdb_model` alone, and the job passes. |
 | 5e | `lastdb_host` uses `lastdb_model` for its 33 `schema::types` references. | |

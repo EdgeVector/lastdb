@@ -48,7 +48,7 @@ Only dependency downloads use the cache.
 
 ## Home format
 
-A current release creates only format 8 homes, which store one record per key.
+A release creates homes only in its own format, which store one record per key.
 The run reads the `format=` number from the home marker of each run.
 The summary names the home format of each run.
 
@@ -64,7 +64,7 @@ An unexpected error or an incomplete candidate operation fails the workflow.
 
 Both variants receive a complete known-key prefill immediately before the latency sample, after the broad walks.
 The latency comparison uses 32 identical 128-key intervals with 64-record pages.
-Two matched pairs use typed range keys and fresh format 8 homes.
+Two matched pairs use typed range keys and fresh homes.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.

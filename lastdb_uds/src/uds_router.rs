@@ -347,38 +347,7 @@ fn route_prefixed(path: &str, method: &str, owner: bool) -> Option<ControlRoute>
             ControlRoute::Data(DataRoute::GetSchema),
         ));
     }
-    if one_segment(path, "/api/app/blob/cas/sha256/").is_some() {
-        return Some(blob_route(
-            method,
-            DataRoute::AppBlobPut,
-            DataRoute::AppBlobGet,
-        ));
-    }
-    let org_blob = path
-        .strip_prefix("/api/app/org/")
-        .and_then(|rest| rest.split_once("/blob/cas/sha256/"))
-        .is_some_and(|(org_hash, hash)| {
-            !org_hash.is_empty()
-                && !org_hash.contains('/')
-                && !hash.is_empty()
-                && !hash.contains('/')
-        });
-    if org_blob {
-        return Some(blob_route(
-            method,
-            DataRoute::AppOrgBlobPut,
-            DataRoute::AppOrgBlobGet,
-        ));
-    }
     None
-}
-
-fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
-    match method {
-        "PUT" => ControlRoute::Data(put),
-        "GET" => ControlRoute::Data(get),
-        _ => ControlRoute::MethodNotAllowed { allow: "GET, PUT" },
-    }
 }
 
 /// Owner-socket-only history route.

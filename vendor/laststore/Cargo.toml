@@ -34,15 +34,8 @@ zeroize.workspace = true
 sha2 = { version = "0.10", features = ["asm"] }
 
 # Tom approved the disk format v2 plan on 2026-10-24 ("Prove it works and
-# then I want to use it"). This CI-only proof is its V1 read-back gate.
-[[example]]
-bench = false
-test = false
-name = "disk_run_proof"
-path = "examples/disk_run_proof/main.rs"
-
-# The same approval covers the V2 gate: commits, merges, held reads, crash
-# leftovers, and kill -9 recovery of laststore::disk_run::home. CI only.
+# then I want to use it"). This CI-only proof covers commits, merges, held
+# reads, crash leftovers, and kill -9 recovery of laststore::disk_run::home.
 [[example]]
 bench = false
 test = false

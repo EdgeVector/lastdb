@@ -72,14 +72,6 @@ pub(super) async fn dispatch_search_app(
             heap_route!(execute_native_index_knn_route, req, ctx, host).await
         }
         DataRoute::FieldHistory => heap_route!(execute_field_history_route, req, ctx, host).await,
-        // No upload-storage backend in the minimal daemon; blob routes are
-        // structurally absent — content-free 404, exactly like an
-        // unrecognized path (I4).
-        DataRoute::AppBlobPut
-        | DataRoute::AppBlobGet
-        | DataRoute::AppOrgBlobPut
-        | DataRoute::AppOrgBlobGet
-        | DataRoute::AppBlobFootprint => content_free(404, "Not Found"),
         DataRoute::LocalWatch => execute_local_watch_route(req, ctx, host),
         DataRoute::AppChanges => heap_route!(execute_app_changes_route, req, ctx, host).await,
         _ => return None,

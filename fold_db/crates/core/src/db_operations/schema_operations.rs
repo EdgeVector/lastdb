@@ -124,9 +124,9 @@ impl DbOperations {
     /// behind the release walk.
     ///
     /// The release goes next, in bounded batches with one write scope each
-    /// (`RecordStore::release_schema_rows`): the records, their conflict rows,
-    /// the field history and the alternate entries of the schema, with their
-    /// blob counts. A schema installed again under the same name gets the same
+    /// (`RecordStore::release_schema_rows`): the records and their files, their
+    /// conflict rows, the field history and the alternate entries of the
+    /// schema. A schema installed again under the same name gets the same
     /// record space, so a record that the drop left would come back in it. A
     /// release that stops leaves the schema record and the state `Blocked`: no
     /// write lands while the drop is unfinished, and the next drop goes on.
