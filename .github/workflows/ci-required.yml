@@ -326,3 +326,54 @@ jobs:
             exit 1
           fi
           echo "All required jobs passed."
+
+  record_format_spike:
+    name: Whole-record format writer spike
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/spike/format-writer-record-replacement-20261103'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install --profile minimal --component clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fmt-clippy
+          save-if: false
+      - name: Lint and build the spike CLI
+        run: |
+          cargo clippy --locked -p lastdb_node --bin lastdb-format-spike -- -D warnings
+          cargo build --locked -p lastdb_node --bin lastdb-format-spike
+      - name: Write complete records and read them from later processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          spike_root="$(mktemp -d "$RUNNER_TEMP/record-format-spike.XXXXXX")"
+          spike_program="$PWD/target/debug/lastdb-format-spike"
+          {
+            echo '## Whole-record format writer spike'
+            echo "Source: $(git rev-parse HEAD)"
+            "$spike_program" --home "$spike_root/home" init
+            printf '%s\n' '{"title":"first","obsolete":"remove me"}' |
+              "$spike_program" --home "$spike_root/home" put notes one
+            "$spike_program" --home "$spike_root/home" get notes one
+            printf '%s\n' '{"title":"second"}' |
+              "$spike_program" --home "$spike_root/home" put notes one
+            "$spike_program" --home "$spike_root/home" get notes one
+            printf '%s\n' '{"title":"independent"}' |
+              "$spike_program" --home "$spike_root/home" put notes two
+            "$spike_program" --home "$spike_root/home" get notes one
+            "$spike_program" --home "$spike_root/home" get notes two
+            printf '%s\n' '{}' |
+              "$spike_program" --home "$spike_root/home" put notes one
+            "$spike_program" --home "$spike_root/home" get notes one
+            "$spike_program" --home "$spike_root/home" get notes absent
+          } | tee "$RUNNER_TEMP/record-format-spike.txt"
+          cat "$RUNNER_TEMP/record-format-spike.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: record-format-spike-${{ github.sha }}
+          path: ${{ runner.temp }}/record-format-spike.txt
+          if-no-files-found: ignore
+          retention-days: 14

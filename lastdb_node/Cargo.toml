@@ -27,6 +27,12 @@ test = false
 name = "lastdb"
 path = "src/bin/lastdb.rs"
 
+[[bin]]
+bench = false
+test = false
+name = "lastdb-format-spike"
+path = "src/bin/lastdb_format_spike/main.rs"
+
 [features]
 # Sentry crash/unclean-exit telemetry is compiled in by default (DSN-gated at
 # runtime: no OBS_SENTRY_DSN ⇒ no client ⇒ every send is a structural no-op),
@@ -46,6 +52,7 @@ cloud_backup_client = { workspace = true }
 cloud_backup_plan = { workspace = true }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
+lastdb_model = { workspace = true }
 env_flag = { workspace = true }
 laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
