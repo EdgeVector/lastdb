@@ -57,7 +57,6 @@ fn verify_once(
     let proof = Proof {
         main,
         cas,
-        key: account_key,
         key_heads,
     };
     phase(Stage::Account, verify_account(main, account_key, version))?;
@@ -134,7 +133,6 @@ pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> St
 struct Proof<'a> {
     main: &'a RunRead,
     cas: &'a RunRead,
-    key: &'a [u8; 32],
     key_heads: bool,
 }
 
