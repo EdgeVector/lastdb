@@ -111,7 +111,9 @@ pub(crate) fn build_schema_snapshot_artifact(
             fields.push(ResolverFieldRecord {
                 field_id,
                 field_name: field_name.clone(),
-                field_type: schema.get_field_type(&field_name).to_string(),
+                field_type: schema
+                    .get_field_type(&field_name)
+                    .map_or_else(String::new, ToString::to_string),
                 description,
                 canonical_field_ids,
             });

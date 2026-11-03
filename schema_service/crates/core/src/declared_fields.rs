@@ -193,7 +193,7 @@ impl DeclaredFieldError {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeclareFieldInput {
     pub name: String,
-    /// Every declaration supplies its type; omission cannot introduce `Any`.
+    /// Every declaration supplies its type.
     pub field_type: FieldValueType,
     #[serde(default)]
     pub description: String,

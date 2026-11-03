@@ -15,7 +15,7 @@ pub fn compute_field_hash(
     field_type: &FieldValueType,
     version: u32,
 ) -> String {
-    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "\"Any\"".to_string());
+    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "null".to_string());
     // Fixed key order — do not use HashMap.
     let payload = format!(
         r#"{{"description":{},"name":{},"type":{},"version":{}}}"#,
@@ -52,7 +52,7 @@ pub fn compute_declared_field_identity(
     field_type: &FieldValueType,
     version: u32,
 ) -> String {
-    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "\"Any\"".to_string());
+    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "null".to_string());
     // Fixed key order — do not use HashMap. `algo` is inside the digest so a
     // future version cannot collide with this one even on identical inputs.
     let payload = format!(

@@ -160,7 +160,9 @@ impl SchemaServiceState {
         let field_names = schema.fields.clone().unwrap_or_default();
         for field_name in &field_names {
             let field_id = format!("{schema_id}#{field_name}");
-            let ftype = schema.get_field_type(field_name).to_string();
+            let ftype = schema
+                .get_field_type(field_name)
+                .map_or_else(String::new, ToString::to_string);
             out.fields.push(RegistryFieldHandle {
                 field_id: field_id.clone(),
                 schema_id: schema_id.to_string(),

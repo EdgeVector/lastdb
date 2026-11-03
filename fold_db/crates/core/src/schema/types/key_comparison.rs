@@ -40,8 +40,11 @@ impl KeyComparisonContext {
             .key
             .as_ref()
             .and_then(|key| key.range_field.as_deref());
-        let hash_type = hash.map(|path| schema.key_field_type(path));
-        let range_type = range.map_or(FieldValueType::String, |path| schema.key_field_type(path));
+        let hash_type = hash.and_then(|path| schema.key_field_type(path));
+        let range_type = schema
+            .range_key_type()
+            .map_err(SchemaError::InvalidData)?
+            .unwrap_or(FieldValueType::String);
         let range_comparison =
             RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
         let profile =

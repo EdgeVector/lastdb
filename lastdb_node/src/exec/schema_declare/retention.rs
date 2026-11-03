@@ -110,7 +110,7 @@ fn retention_layout(schema: &DeclarativeSchemaDefinition) -> Result<RetentionLay
 
 fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
     match kind {
-        FieldValueType::String | FieldValueType::Any => true,
+        FieldValueType::String => true,
         FieldValueType::OneOf(variants) => variants.iter().any(can_hold_time_prefix),
         _ => false,
     }

@@ -6,9 +6,8 @@ pub(crate) mod temporal;
 /// Strongly typed value types for schema fields.
 ///
 /// Every declared field names one of these types, and every write is checked
-/// against it. A declaration with a field that has no type is refused.
-/// `Any` remains only until Brain's two file pointer fields move to `File`;
-/// then it is deleted (`decision-2026-11-02-field-types-no-any`).
+/// against it. A schema with a field that has no type is refused
+/// (`decision-2026-11-02-field-types-no-any`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 pub enum FieldValueType {
     // ── Primitives ──────────────────────────────────────
@@ -40,12 +39,7 @@ pub enum FieldValueType {
     /// Common use: `OneOf([String, Null])` for nullable strings.
     OneOf(Vec<Self>),
 
-    // ── Escape hatch ────────────────────────────────────
-    /// Accepts any JSON value. Used for backward compatibility
-    /// with existing schemas that have no type declarations.
-    Any,
-
-    // Append new variants to retain the existing enum discriminants.
+    // ── Dates and files ─────────────────────────────────
     /// Gregorian calendar date, encoded as a strict `YYYY-MM-DD` JSON string.
     Date,
     /// RFC 3339 instant with an offset and at most nine fractional digits.
@@ -64,7 +58,6 @@ impl FieldValueType {
     /// Err with a human-readable message if not.
     pub fn validate(&self, value: &serde_json::Value) -> Result<(), String> {
         match self {
-            Self::Any => Ok(()),
             Self::File => validate_file_pointer(value),
             Self::Date => temporal::validate_date(value),
             Self::DateTime => temporal::validate_datetime(value),
@@ -249,7 +242,6 @@ impl std::fmt::Display for FieldValueType {
                 }
                 Ok(())
             }
-            Self::Any => write!(f, "Any"),
         }
     }
 }

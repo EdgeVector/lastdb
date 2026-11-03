@@ -221,20 +221,15 @@ fn migrate_field_metadata(schema: &mut Schema, old_name: &str, canonical: &str) 
     // future matches and persists a stale entry for a field that no
     // longer exists in `fields`.
     migrate_entry(&mut schema.field_descriptions, old_name, canonical);
-    // ref_fields migrates with the rename. `state_fields::infer_field_type`
-    // reads `ref_fields` by field name, so a stale key under `old_name` makes
-    // the renamed field look like a plain value field (`FieldValueType::Any`)
-    // and the schema persists with a ref entry pointing at a field that no
-    // longer exists in `fields`.
+    // ref_fields migrates with the rename. `apply_canonical_types` reads
+    // `ref_fields` by field name, so a stale key under `old_name` loses the
+    // renamed field's reference type and the schema persists with a ref entry
+    // pointing at a field that no longer exists in `fields`.
     migrate_entry(&mut schema.ref_fields, old_name, canonical);
-    // field_types must migrate too. `state_fields::infer_field_type`
-    // reads `schema.field_types` by field name to decide the type of
-    // every new canonical-registry entry (and `Schema::get_field_type`
-    // reads it on every later type check). Leaving the declared type
-    // under `old_name` means the renamed field falls back to
-    // `FieldValueType::Any` — so `register_canonical_fields` then seeds
-    // the canonical registry with `Any` for what the caller explicitly
-    // declared as e.g. `String` or `Integer`. The stale entry under
+    // field_types must migrate too. `Schema::get_field_type` reads it by
+    // field name on every type check, and `validate_definition` refuses a
+    // field with no type, so leaving the declared type under `old_name`
+    // would refuse the renamed field. The stale entry under
     // `old_name` also persists a type for a field absent from `fields`
     // and (because `apply_canonical_types` only fills in *missing*
     // entries) lets a later canonical lookup silently overwrite the

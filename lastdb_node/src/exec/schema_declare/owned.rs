@@ -2,7 +2,6 @@
 //! advice only and is not asked (`design-lastdb-advisory-schema-service`).
 
 use super::*;
-use schema_types::FieldValueType;
 use std::collections::BTreeSet;
 
 pub(super) struct DirectDeclarePlan {
@@ -31,36 +30,9 @@ impl Installed {
     }
 }
 
-/// The fields a primary or alternate key reads. A nested key path also names
-/// its root field.
-fn key_fields(schema: &Schema) -> BTreeSet<&str> {
-    let primary = schema
-        .key
-        .iter()
-        .flat_map(|key| key.hash_field.iter().chain(key.range_field.iter()))
-        .map(String::as_str);
-    let alternate = schema
-        .alternate_keys
-        .values()
-        .flat_map(schema_types::AlternateKey::fields);
-    primary
-        .chain(alternate)
-        .flat_map(|path| [path, path.split('.').next().unwrap_or(path)])
-        .collect()
-}
-
-/// Until `Any` is deleted (`decision-2026-11-02-field-types-no-any`), a repeat
-/// declare may give an `Any` or untyped field a concrete type in place. Old
-/// values are not re-checked; the next write of the field must match.
-fn retypes_any(stored: Option<&FieldValueType>, proposed: Option<&FieldValueType>) -> bool {
-    matches!(stored, None | Some(FieldValueType::Any))
-        && proposed.is_some_and(|kind| *kind != FieldValueType::Any)
-}
-
 /// `Some(true)` when `proposed` adds fields or equals `stored`, `Some(false)`
 /// when it declares a subset. A field in both must keep its type and
-/// description, except that a non-key field may leave `Any`. `None` for any
-/// other change.
+/// description. `None` for any other change.
 fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
     let stored_fields: BTreeSet<&str> =
         stored.fields.iter().flatten().map(String::as_str).collect();
@@ -70,12 +42,8 @@ fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
         .flatten()
         .map(String::as_str)
         .collect();
-    let key_fields = key_fields(stored);
     let equal_definitions = stored_fields.intersection(&proposed_fields).all(|field| {
-        let stored_type = stored.field_types.get(*field);
-        let proposed_type = proposed.field_types.get(*field);
-        (stored_type == proposed_type
-            || (!key_fields.contains(field) && retypes_any(stored_type, proposed_type)))
+        stored.field_types.get(*field) == proposed.field_types.get(*field)
             && stored.field_descriptions.get(*field) == proposed.field_descriptions.get(*field)
     });
     if !equal_definitions {

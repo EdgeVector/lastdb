@@ -55,10 +55,9 @@ impl SchemaServiceState {
 ///    `add_schema`-time invariant that every entry in `fields` has a
 ///    description, and downstream `build_field_description` falls
 ///    back to a low-signal stub that lowers semantic-match quality.
-///  - `field_types` missing makes `Schema::get_field_type` fall back
-///    to `Any` whenever the canonical registry doesn't already
-///    carry the field (e.g. legacy entries with `field_type == Any`),
-///    losing the type the existing schema's caller had declared.
+///  - `field_types` missing loses the type the existing schema's caller
+///    had declared, and `validate_definition` refuses a field with no
+///    type unless the canonical registry carries it.
 pub(super) fn merge_existing_metadata(schema: &mut Schema, existing: &Schema) {
     for (field, classifications) in &existing.field_classifications {
         schema

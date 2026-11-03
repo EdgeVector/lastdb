@@ -18,7 +18,10 @@ fn require_typed_range_retention(schema: &Schema) -> Result<(), SchemaError> {
         .ok_or_else(|| {
             SchemaError::InvalidData("range TTL requires a declared range field".into())
         })?;
-    if RangeStorageProfile::typed(&schema.key_field_type(path)).map_err(SchemaError::InvalidData)?
+    let kind = schema.key_field_type(path).ok_or_else(|| {
+        SchemaError::InvalidData(format!("range key field '{path}' has no declared type"))
+    })?;
+    if RangeStorageProfile::typed(&kind).map_err(SchemaError::InvalidData)?
         != RangeStorageProfile::StringUtf8V1
     {
         return Err(SchemaError::InvalidData(

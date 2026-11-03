@@ -36,10 +36,8 @@ impl FieldKeyStore {
             .validate_key_field_types()
             .map_err(StorageError::InvalidOperation)?;
         let field_type = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref())
-            .map(|path| schema.key_field_type(path));
+            .range_key_type()
+            .map_err(StorageError::InvalidOperation)?;
         FieldRangeProfile::for_field_type(field_type.as_ref())
             .map_err(StorageError::InvalidOperation)
     }
