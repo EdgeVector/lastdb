@@ -1,9 +1,12 @@
 use super::*;
 
+#[path = "app_cmds/advice.rs"]
+mod advice;
 #[path = "app_cmds/arg_groups.rs"]
 mod arg_groups;
 #[path = "app_cmds/managed.rs"]
 mod managed;
+use self::advice::print_schema_advice;
 pub(crate) use self::arg_groups::*;
 #[path = "app_cmds/check.rs"]
 mod check;
@@ -73,8 +76,15 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             json,
             sync,
             confirm_expire_existing,
-            schema_url: _,
-        }) => app_check_command(&home, &manifest, json, sync, confirm_expire_existing),
+            schema_url,
+        }) => app_check_command(
+            &home,
+            &manifest,
+            json,
+            sync,
+            confirm_expire_existing,
+            schema_url,
+        ),
         AppCommand::Lifecycle(AppLifecycleCommand::RegisterSchemas { manifest, .. }) => {
             app_register_schemas(&home, &manifest)
         }

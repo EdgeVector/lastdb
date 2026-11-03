@@ -72,6 +72,16 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
     if !registry::valid_app_id(app_id) {
         return Err("invalid app_id".into());
     }
+    // Advice prints before the publishing rule, so a refusal comes with it.
+    let environment = input.environment.as_deref().unwrap_or("prod");
+    print_schema_advice(
+        resolve_schema_service_url(None, Some(environment)),
+        app_id,
+        manifest
+            .get("schemas")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice),
+    );
     let listed = listed_schemas(&manifest, app_id)?;
     let version = manifest
         .get("version")

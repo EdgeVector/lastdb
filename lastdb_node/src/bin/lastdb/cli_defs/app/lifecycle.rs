@@ -29,6 +29,11 @@ pub(crate) enum AppLifecycleCommand {
     /// TTL would delete existing records. `--sync` applies it. The node refuses
     /// a TTL on a catalog schema that another app owns or another schema is
     /// bound to. A TTL deletes records for good.
+    ///
+    /// It also sends each manifest schema to Schema Service advice
+    /// (`POST /v1/advice/schema`) and prints the findings on stderr. Advice
+    /// never changes the result; when the service does not answer, it prints
+    /// `advice unavailable: <reason>`.
     Check {
         /// App manifest (JSON: app_id, metadata, uses[], schemas[]).
         #[arg(long)]
@@ -45,7 +50,9 @@ pub(crate) enum AppLifecycleCommand {
         /// or a TTL shorter than the manifest TTL running.
         #[arg(long)]
         confirm_expire_existing: bool,
-        /// Legacy compatibility option. Mini owns schema synchronization.
+        /// Schema Service base URL for advice (default: the DEV Schema
+        /// Service). Mini owns schema synchronization; this URL only gives
+        /// advice.
         #[arg(long)]
         schema_url: Option<String>,
     },
@@ -71,10 +78,18 @@ pub(crate) enum AppLifecycleCommand {
         api_key: Option<String>,
     },
     /// Publish this clean git commit for the running node's exact API version.
+    ///
+    /// Before it signs, publish prints Schema Service advice for each
+    /// manifest schema on stderr, then refuses unless the manifest lists every
+    /// schema the app declares, typed: `schemas` is present (an empty list
+    /// when the running node holds no schema of the app), every field has a
+    /// type, and every schema the running node holds for the app is listed by
+    /// name and identity hash. Advice never stops a publish.
     Publish {
         #[arg(long)]
         manifest: PathBuf,
-        /// Target registry environment (dev | prod). Default: prod.
+        /// Target registry environment (dev | prod). Default: prod. It also
+        /// picks the Schema Service that gives advice.
         #[arg(long)]
         env: Option<String>,
         /// Retired schema-service option; refused for registry publish.
