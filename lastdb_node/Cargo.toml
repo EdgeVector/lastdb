@@ -84,7 +84,6 @@ hkdf = "0.12"
 sha2 = "0.10"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 base64 = "0.22"
-tempfile = { workspace = true }
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 mimalloc = { version = "=0.1.52", optional = true, features = ["extended"] }
