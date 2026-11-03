@@ -110,8 +110,8 @@ use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_put::*;
 use self::query_batch::*;
-pub use self::schema_declare::execute_apps_declare_schema_route;
 use self::schema_declare::*;
+pub use self::schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
 
 /// Heap future for one data route.
 ///
