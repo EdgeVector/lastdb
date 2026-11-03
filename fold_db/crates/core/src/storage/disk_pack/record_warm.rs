@@ -44,7 +44,7 @@ impl WrittenRecord {
     /// `value` is the encoded record that the request puts at `key`.
     pub(crate) fn new(key: &str, record: Arc<StoredRecord>, value: &[u8]) -> Self {
         Self {
-            coordinate: kv::coordinate("main", key.as_bytes()),
+            coordinate: kv::coordinate(crate::storage::format::MAIN_NAMESPACE, key.as_bytes()),
             record,
             bytes: value.len(),
             digest: digest(value),
@@ -59,13 +59,21 @@ impl WrittenRecord {
 impl PackRuntime {
     /// Look up records by storage key in memory. `None` when this read must
     /// read disk only.
-    pub(crate) fn warm_records(&self, keys: &[String]) -> StorageResult<Option<WarmRecordRead>> {
+    pub(crate) fn warm_records<K: AsRef<str>>(
+        &self,
+        keys: &[K],
+    ) -> StorageResult<Option<WarmRecordRead>> {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(None);
         }
         let coordinates: Vec<_> = keys
             .iter()
-            .map(|key| kv::coordinate("main", key.as_bytes()))
+            .map(|key| {
+                kv::coordinate(
+                    crate::storage::format::MAIN_NAMESPACE,
+                    key.as_ref().as_bytes(),
+                )
+            })
             .collect();
         let (revision, found) = if let Some(context) = read::ReadContext::captured(self) {
             let Some(mut held) = logical_paths::lock_current_receipt(
@@ -80,7 +88,7 @@ impl PackRuntime {
             // A memory hit costs the call the same read allowance as disk.
             for (key, hit) in keys.iter().zip(&found) {
                 if let Some((_, bytes)) = hit {
-                    context.account_memory_record(&mut held.call, key.len(), *bytes)?;
+                    context.account_memory_record(&mut held.call, key.as_ref().len(), *bytes)?;
                 }
             }
             (context.revision, found)

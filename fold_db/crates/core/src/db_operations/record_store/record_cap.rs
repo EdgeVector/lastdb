@@ -7,31 +7,9 @@
 //! (`RecordChange::cap_deferred`): only the final record of the request must
 //! fit, and `require_records_fit` checks it after the last group.
 
-use super::records::RecordChange;
 use super::RecordStore;
 use crate::schema::SchemaError;
-use lastdb_model::record_value::{RecordValueError, MAX_RECORD_BYTES};
-
-/// The typed error of a record value that the store refuses.
-fn record_value_error(error: RecordValueError) -> SchemaError {
-    match error {
-        RecordValueError::TooLarge { bytes } => SchemaError::RecordTooLarge {
-            size: bytes,
-            limit: MAX_RECORD_BYTES,
-        },
-        other => SchemaError::InvalidData(format!("the record write is refused: {other}")),
-    }
-}
-
-/// The stored bytes of one change. A deferred change skips the cap here.
-pub(super) fn record_bytes(change: &RecordChange) -> Result<Vec<u8>, SchemaError> {
-    let encoded = if change.cap_deferred {
-        change.after.encode_uncapped()
-    } else {
-        change.after.encode()
-    };
-    encoded.map_err(record_value_error)
-}
+use crate::storage::format::records::require_record_fits;
 
 impl RecordStore {
     /// Check the cap on the final records at these storage keys. One read by
@@ -41,7 +19,7 @@ impl RecordStore {
             return Ok(());
         }
         for record in self.read_records(keys).await?.into_iter().flatten() {
-            record.encode().map_err(record_value_error)?;
+            require_record_fits(&record)?;
         }
         Ok(())
     }

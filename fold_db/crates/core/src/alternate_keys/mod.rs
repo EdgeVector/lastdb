@@ -3,7 +3,6 @@
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -15,12 +14,8 @@ mod write;
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
 pub(crate) const PREFIX: &str = lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AlternateEntry {
-    pub primary: KeyValue,
-    pub matched: KeyValue,
-}
+use crate::storage::format::records::AlternateAddress;
+pub use crate::storage::format::records::AlternateEntry;
 
 pub(crate) type RecordFields = BTreeMap<String, Value>;
 
@@ -91,16 +86,21 @@ pub(crate) fn storage_key(
     name: &str,
     key: &KeyValue,
 ) -> Result<String, SchemaError> {
+    storage_address(records, schema, name, key).map(AlternateAddress::into_string)
+}
+
+pub(crate) fn storage_address(
+    records: &crate::db_operations::record_store::RecordStore,
+    schema: &Schema,
+    name: &str,
+    key: &KeyValue,
+) -> Result<AlternateAddress, SchemaError> {
     let field_key = field_key(schema, name);
-    let encoded = records
-        .key_codec_for_field_key(&field_key)?
-        .api_hash_range_record_key(
-            &field_key,
-            key.hash.as_deref().unwrap_or_default(),
-            key.range.as_deref().unwrap_or_default(),
-        )
-        .map_err(|_| invalid("alternate key coordinate has an invalid type"))?;
-    Ok(format!("{PREFIX}{encoded}"))
+    AlternateAddress::new(
+        &records.key_codec_for_field_key(&field_key)?,
+        &field_key,
+        key,
+    )
 }
 
 pub(crate) fn invalid(message: &str) -> SchemaError {

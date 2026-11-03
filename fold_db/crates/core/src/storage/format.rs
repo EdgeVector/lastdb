@@ -4,10 +4,12 @@
 //! admission, namespace opening and native routing share these definitions.
 //! LastStore's internal run/block grammar remains owned by LastStore.
 //!
-//! This is the first extraction, not the closed write boundary: record/key
-//! codecs in lastdb_model, domain value encoders, file/backup sidecars and raw
-//! writer handles still need their later migrations. No startup key audit is
-//! introduced by centralizing these facts.
+//! The record writer composes the existing model codecs through typed inputs
+//! and an opaque batch. Other domain encoders, file/backup sidecars and raw
+//! writer handles still need their later migrations. This partial boundary
+//! introduces no startup key audit.
+
+pub(crate) mod records;
 
 /// The home format: one stored record per primary key and record-owned files.
 pub const HOME_FORMAT: u32 = 11;
