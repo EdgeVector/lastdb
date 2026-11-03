@@ -9,8 +9,6 @@ pub(super) struct HistoryArgs {
     key_hash: Option<String>,
     #[arg(long)]
     key_range: Option<String>,
-    #[arg(long)]
-    database: Option<String>,
     #[command(subcommand)]
     action: HistoryAction,
 }
@@ -78,7 +76,7 @@ pub(super) fn run(data_dir: Option<PathBuf>, args: HistoryArgs) -> Result<(), St
     let body = serde_json::json!({
         "location": {"schema": args.schema, "field": args.field,
             "key": {"hash": args.key_hash, "range": args.key_range}},
-        "database": args.database, "action": action,
+        "action": action,
     });
     let result = db_post_json(&socket, "/api/field-history", &body)?;
     println!(

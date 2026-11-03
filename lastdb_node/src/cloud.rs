@@ -1,5 +1,5 @@
 //! Account identity, the saved credentials loader, and explicit backup enrollment.
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use fold_db::security::Ed25519KeyPair;
 
