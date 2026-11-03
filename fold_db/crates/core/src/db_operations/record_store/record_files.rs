@@ -43,30 +43,6 @@ pub(crate) fn file_path(record: &str) -> Result<String, SchemaError> {
     )?)
 }
 
-/// The file row change of one record write: the new row when the write set the
-/// file, a delete of the path when the record lost its file. `row` is the
-/// sealed row of the mutation that wrote the record, if it set a file.
-pub(crate) fn file_row_change(
-    key: &str,
-    before: Option<&StoredRecord>,
-    after: &StoredRecord,
-    row: Option<Arc<Vec<u8>>>,
-) -> Result<Option<KvMutation>, SchemaError> {
-    let had = before.is_some_and(|record| record.file.is_some());
-    let stamp_of = |record: Option<&StoredRecord>| {
-        record.and_then(|record| record.file.as_ref().map(|file| file.stamp.clone()))
-    };
-    let set = after.file.is_some() && stamp_of(before) != stamp_of(Some(after));
-    Ok(match row {
-        Some(row) if set => Some(KvMutation::put(
-            file_path(key)?.into_bytes(),
-            Arc::try_unwrap(row).unwrap_or_else(|row| row.as_ref().clone()),
-        )),
-        _ if had && after.file.is_none() => Some(KvMutation::delete(file_path(key)?.into_bytes())),
-        _ => None,
-    })
-}
-
 /// The file paths that a drop of these stored rows releases: one for each
 /// record row with a file. Other rows hold no file. A key that does not parse
 /// or a record row that does not decode fails the drop.

@@ -9,13 +9,13 @@
 //! separately in that same request and are outside this partial boundary.
 
 mod alternates;
+mod files;
 mod keys;
 
 pub(crate) use alternates::AlternateChange;
 pub use alternates::AlternateEntry;
 pub(crate) use keys::{AlternateAddress, RecordAddress};
 
-use crate::db_operations::record_store::record_files::file_row_change;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
 use crate::storage::{KvMutation, KvStore, StorageError};
@@ -54,8 +54,8 @@ pub(crate) fn encode(
     let mut files = Vec::new();
     let mut written = Vec::with_capacity(changes.len());
     for mut change in changes {
-        files.extend(file_row_change(
-            change.key.as_str(),
+        files.extend(files::encode(
+            &change.key,
             change.before.as_deref(),
             &change.after,
             change.file_row.take(),
