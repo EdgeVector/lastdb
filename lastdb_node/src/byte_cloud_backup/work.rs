@@ -1,6 +1,6 @@
 //! A saved request keeps its recovery base and exact log predecessor across every retry.
 use super::{BackupError, Result};
-use cloud_backup_protocol::v2::{AcceptedBackup, Begin};
+use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Head};
 use fold_db::storage::disk_pack::mutation_log::{Frontiers, LogAnchor, LogPosition};
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,21 @@ impl Work {
         match self {
             Self::Snapshot { .. } => "snapshot",
             Self::MutationLog { .. } => "mutation_log",
+        }
+    }
+    /// The accepted points a restore of this work needs, in ordinal order.
+    /// A snapshot needs none. A log checkpoint needs its base snapshot and,
+    /// when different, its previous checkpoint (the rule `MutationLogRoot` checks).
+    pub fn recovery_dependencies(&self) -> Vec<Head> {
+        match self {
+            Self::Snapshot { .. } => Vec::new(),
+            Self::MutationLog { context } => {
+                let mut heads = vec![context.base.head()];
+                if context.previous != context.base {
+                    heads.push(context.previous.head());
+                }
+                heads
+            }
         }
     }
     pub fn validate(&self, begin: Option<&Begin>) -> Result<()> {
