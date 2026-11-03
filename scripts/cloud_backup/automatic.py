@@ -78,7 +78,7 @@ class Automatic:
         source.node.start()
         source.node.verify_records(self.baseline)
         source.connect(operation.api_key)
-        lifecycle = Lifecycle(source, self.baseline)
+        lifecycle = Lifecycle(source)
         lifecycle.seed()
         operation.summary["stage"] = "automatic-snapshot"
         source.configure()

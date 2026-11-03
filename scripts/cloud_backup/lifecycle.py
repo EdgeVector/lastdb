@@ -1,6 +1,8 @@
 """Real TTL mutations across a frozen snapshot and its accepted log successor.
 
-The lifecycle records hold no file. The baseline file stays on its own record."""
+The lifecycle records hold no file. The caller's keyed reads check the record
+file at each cut: the automatic phase replaces the baseline file at its path,
+so the baseline file exists only at the base cut."""
 
 import time
 
@@ -9,8 +11,8 @@ from support import OperationError, require
 
 
 class Lifecycle:
-    def __init__(self, source, baseline):
-        self.source, self.baseline = source, baseline
+    def __init__(self, source):
+        self.source = source
         self.schema = "CloudRecordLifecycle" + source.source[:12]
         self.expired = [f"{1:020d}-expired-{n}" for n in range(4)]
         self.live = f"{int(time.time()) + 604800:020d}-live"
@@ -58,12 +60,10 @@ class Lifecycle:
                         and rows[0]["fields"] == {"bucket": "lifecycle", "id": key,
                             "note": "immutable lifecycle value"},
                         "lifecycle_live_exact_value")
-        node.verify_file(self.baseline)
         return {"expired_absent": 0 if initial else 4, "expired_present_at_base": 2 if initial else 0,
                 "ttl_erased_records": 0 if initial else (4 if after_second else 2),
                 "not_yet_created": 0 if after_second else 2,
-                "live_exact": 1, "file_bytes": self.baseline["file_bytes"],
-                "file_sha256": self.baseline["file_sha256"], "ttl_worker_disabled": not node.ttl_sweep}
+                "live_exact": 1, "ttl_worker_disabled": not node.ttl_sweep}
 
     def await_expiry(self, count):
         deadline = time.monotonic() + 180
