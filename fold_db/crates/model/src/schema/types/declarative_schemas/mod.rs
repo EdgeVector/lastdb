@@ -90,23 +90,14 @@ impl DeclarativeSchemaDefinition {
     #[must_use]
     pub fn to_wire(&self) -> schema_types::DeclarativeSchemaDefinition {
         let mut wire = self.wire.clone();
-        Self::normalize_wire(&mut wire);
+        wire.normalize_wire();
         wire
-    }
-
-    fn normalize_wire(wire: &mut schema_types::DeclarativeSchemaDefinition) {
-        wire.hash = None;
-        wire.superseded_by = None;
-        wire.regenerate_metadata();
-        if wire.identity_hash.is_none() && wire.owner_app_id.is_some() {
-            wire.compute_identity_hash();
-        }
     }
 }
 
 impl From<schema_types::DeclarativeSchemaDefinition> for DeclarativeSchemaDefinition {
     fn from(mut base: schema_types::DeclarativeSchemaDefinition) -> Self {
-        Self::normalize_wire(&mut base);
+        base.normalize_wire();
         Self::with_wire(base)
     }
 }

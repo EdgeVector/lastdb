@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use super::{DEFAULT_INDEX_BASE_URL, HTTP_TIMEOUT, INDEX_LOCATION_ENV};
+use super::{validate_channel, DEFAULT_INDEX_BASE_URL, HTTP_TIMEOUT, INDEX_LOCATION_ENV};
 
 // ─── Location / fetch ─────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ impl IndexLocation {
     /// Address of the list for one exact interface version.
     #[must_use]
     pub fn describe_interface(&self, channel: &str, api: u32) -> String {
-        let path = format!("{channel}/api/{api}.json");
+        let path = app_identity_crypto::interface_list_path(channel, api);
         match self {
             Self::Secret(locator) => format!("{locator}/{path}"),
             Self::Url(base) => format!("{base}/{path}"),
@@ -171,21 +171,6 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
-}
-
-/// A channel name is one path segment: lowercase letters, digits, `-`.
-///
-/// # Errors
-/// Returns a message naming the offending channel.
-pub fn validate_channel(channel: &str) -> Result<(), String> {
-    let ok = channel == "stable" || channel == "next";
-    if ok {
-        Ok(())
-    } else {
-        Err(format!(
-            "invalid channel '{channel}' (expected stable or next)"
-        ))
-    }
 }
 
 fn private_base(locator: &str) -> Result<String, String> {

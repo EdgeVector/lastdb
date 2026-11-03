@@ -22,6 +22,20 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
             .await
     }
 
+    async fn load_catalog_feed(
+        &self,
+    ) -> FoldDbResult<Option<schema_service_core::catalog_feed::CatalogFeedImage>> {
+        self.load_catalog_feed_image().await
+    }
+
+    async fn save_catalog_feed(
+        &self,
+        image: &schema_service_core::catalog_feed::CatalogFeedImage,
+        expected_revision: Option<u64>,
+    ) -> FoldDbResult<()> {
+        self.save_catalog_feed_image(image, expected_revision).await
+    }
+
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
         Ok(self.load_definition_set().await?.schemas)
     }

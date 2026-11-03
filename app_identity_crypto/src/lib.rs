@@ -22,6 +22,7 @@ mod envelope;
 mod error;
 mod hex;
 mod jcs;
+mod registry_list;
 
 pub use dev_cert::{
     root_key_id, verify_dev_cert, DevCert, ALG_ES256, DEV_CERT_VERSION, PURPOSE_DEV_CERT,
@@ -37,3 +38,8 @@ pub use envelope::{
 pub use error::{CanonicalizeError, DevCertVerifyError, KeyParseError, SignError, VerifyError};
 pub use hex::hex_lower;
 pub use jcs::canonicalize;
+pub use registry_list::{
+    github_repo, interface_list_path, sign_index_bytes, valid_app_id, valid_source,
+    validate_channel, verify_index_bytes, IndexSignature, InterfaceList, ListEntry, LIST_CHANNELS,
+    MAX_LIST_APPS, MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
+};

@@ -28,6 +28,12 @@ impl CanonicalVocabularyWrite {
     }
 }
 
+/// True for the conflict a stale admission snapshot gets. The caller repeats
+/// admission against the new durable vocabulary.
+pub(crate) fn is_vocabulary_conflict(error: &FoldDbError) -> bool {
+    matches!(error, FoldDbError::Config(message) if message.starts_with(VOCABULARY_CONFLICT))
+}
+
 pub(crate) enum VocabularyCommit<'a> {
     Schemas(&'a [Schema]),
     Declaration {

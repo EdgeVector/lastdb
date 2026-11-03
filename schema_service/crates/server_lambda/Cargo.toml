@@ -66,6 +66,15 @@ serde_json = { workspace = true }
 
 tracing = { workspace = true }
 
+# Catalog feed (advisory Schema Service, section 8): the HTTPS source for the
+# registry lists and `api.github.com`. reqwest 0.13 with only its `rustls`
+# feature uses rustls with aws-lc-rs, the TLS stack the AWS SDK already brings,
+# so the Lambda gains no OpenSSL and no second crypto provider.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+async-trait = { workspace = true }
+# The registry list base per environment.
+folddb_profile = { workspace = true }
+
 # Shared observability stack: JSON FMT to stdout (Lambda → CloudWatch).
 # Workspace dep is default-features=false; leave `otel` off so the Lambda
 # graph drops OTel/reqwest (diet cut #4). `init_lambda` still works as
