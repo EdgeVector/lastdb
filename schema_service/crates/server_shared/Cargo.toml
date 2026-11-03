@@ -18,9 +18,12 @@ fastembed = [
     "fastembed_crate/hf-hub-native-tls",
     "fastembed_crate/ort-download-binaries",
 ]
-# Lambda uses a pre-bundled /opt model layer and must not compile the
-# HuggingFace runtime downloader into the production binary.
-fastembed-layer = ["dep:fastembed_crate", "fastembed_crate/ort-download-binaries"]
+# Lambda uses a pre-bundled /opt layer and must not compile the HuggingFace
+# runtime downloader into the production binary. The layer also carries ONNX
+# Runtime (schema-infra `ensure-layer.sh`), loaded at run time from
+# `ORT_DYLIB_PATH`: linked in, it was about 7 MB of the 15 MiB bootstrap.zip
+# bar. Keep the layer's ONNX Runtime minor equal to what `ort` expects.
+fastembed-layer = ["dep:fastembed_crate", "fastembed_crate/ort-load-dynamic"]
 
 [dependencies]
 schema_service_core = { path = "../core" }
