@@ -94,66 +94,20 @@ pub fn normalize_app_manifest_schema(
         .map(|proposal| proposal.catalog_schema)
 }
 
+/// The owned normalization lives in `schema_types`, shared with the Schema
+/// Service catalog feed; the node adds its runtime fields.
 pub(crate) fn normalize_direct_declare_proposal(
     namespace_label: &str,
     namespace: &str,
     mut schema: DeclarativeSchemaDefinition,
 ) -> Result<DirectDeclareProposal, String> {
-    let namespace = namespace.trim().to_string();
-    if namespace.is_empty() || namespace.contains('/') {
-        return Err(format!(
-            "{namespace_label} must be non-empty and must not contain '/'"
-        ));
-    }
-    let raw_name = schema.name.trim().to_string();
-    if raw_name.is_empty() {
-        return Err("schema.name must be non-empty".into());
-    }
-    let local_name = match raw_name.split_once('/') {
-        Some((owner, local)) if owner == namespace && !local.is_empty() => local.to_string(),
-        Some((_owner, _local)) => {
-            return Err(format!(
-                "schema.name namespace must match request.{namespace_label}"
-            ))
-        }
-        None => raw_name,
-    };
-    let local_schema_id = format!("{namespace}/{local_name}");
-    schema.owner_app_id = Some(namespace.clone());
-    if schema
-        .descriptive_name
-        .as_deref()
-        .is_none_or(|name| name.trim().is_empty())
-    {
-        schema.descriptive_name = Some(local_schema_id.rsplit('/').next().unwrap().to_string());
-    }
-    schema.name = local_schema_id.clone();
-    schema.validate_owned_schema()?;
-    schema.compute_identity_hash();
+    let schema_types::OwnedDeclaration {
+        namespace,
+        local_schema_id,
+    } = schema.normalize_owned_declaration(namespace_label, namespace)?;
     schema
         .populate_runtime_fields()
         .map_err(|e| e.to_string())?;
-    if schema.get_identity_hash().is_none() {
-        return Err("schema identity hash missing after compute_identity_hash".into());
-    }
-
-    let fields = schema.fields.clone().unwrap_or_default();
-    if fields.is_empty() || fields.iter().any(|f| f.trim().is_empty()) {
-        return Err("schema.fields must be non-empty without blank names".into());
-    }
-    // Every field names its type (`decision-2026-11-02-field-types-no-any`).
-    let untyped: Vec<&str> = fields
-        .iter()
-        .filter(|field| !schema.field_types.contains_key(*field))
-        .map(String::as_str)
-        .collect();
-    if !untyped.is_empty() {
-        return Err(format!(
-            "every field needs a type in schema.field_types; these fields have none: {}",
-            untyped.join(", ")
-        ));
-    }
-
     Ok(DirectDeclareProposal {
         namespace,
         local_schema_id,

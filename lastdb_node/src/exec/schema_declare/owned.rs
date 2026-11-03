@@ -147,8 +147,7 @@ fn owned_schema(
     installed: Option<&Schema>,
 ) -> Result<Schema, String> {
     let mut schema = declare.catalog_schema.clone();
-    schema.field_hashes.clear();
-    schema.field_key_ids = None;
+    schema.reset_field_hashes();
     if let Some(installed) = installed {
         let unchanged: Vec<String> = schema
             .fields

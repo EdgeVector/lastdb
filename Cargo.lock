@@ -4579,13 +4579,17 @@ dependencies = [
 name = "schema_service_server_lambda"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-s3",
  "aws-sdk-sqs",
+ "env_flag",
+ "folddb_profile",
  "http 1.4.0",
  "lambda_http",
  "observability",
+ "reqwest 0.13.3",
  "schema_service_core",
  "schema_service_s3",
  "schema_service_server_shared",

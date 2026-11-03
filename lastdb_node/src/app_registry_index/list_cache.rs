@@ -4,8 +4,8 @@ use app_identity_crypto::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use super::interface_list::InterfaceList;
 use super::IndexLocation;
+use super::InterfaceList;
 
 #[derive(Serialize, Deserialize)]
 struct StoredList {

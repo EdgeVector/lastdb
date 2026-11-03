@@ -12,6 +12,7 @@ mod identity;
 mod key_type_resolution;
 mod key_types;
 mod metadata;
+mod owned;
 mod validation;
 
 pub use identity::{
@@ -22,6 +23,7 @@ pub use identity::{
 /// type in the monorepo — including `fold_db`'s, which is a distinct struct —
 /// calls these, so the algorithm cannot be forked back apart.
 pub use metadata::{derive_transform_metadata, hash_expression, TransformMetadata};
+pub use owned::{manifest_schema_definition, owned_catalog_definition, OwnedDeclaration};
 
 /// Origin of a schema in the service.
 ///

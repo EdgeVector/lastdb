@@ -6,7 +6,6 @@
 use std::time::Duration;
 
 mod install;
-mod interface_list;
 mod list_cache;
 mod location;
 pub mod managed;
@@ -20,18 +19,21 @@ mod resolve_local;
 mod signing;
 mod version_constraint;
 
+pub use app_identity_crypto::{
+    sign_index_bytes, valid_app_id, valid_source, validate_channel, verify_index_bytes,
+    IndexSignature, InterfaceList, ListEntry, REGISTRY_LIST_PUBKEY_B64,
+};
 pub use install::{
     install_pinned, upgrade_pinned, PinnedInstallOutcome, PinnedUpgradeOutcome, RECEIPT_FILE,
 };
-pub use interface_list::{valid_app_id, valid_source, InterfaceList, ListEntry};
 pub use list_cache::fetch_list;
-pub use location::{validate_channel, IndexLocation};
+pub use location::IndexLocation;
 pub use node_version::{running_lastdb_version, running_node};
 pub use resolve::{fetch_verified, pick_row, resolve, ContractVersions, NodeVersion, Resolution};
 pub use resolve_local::resolve_local;
 pub use signing::{
-    load_verified_index, parse_index, resolve_list_trust_key, resolve_trust_key, sign_index_bytes,
-    verify_index_bytes, CompatRow, IndexApp, IndexSignature, RegistryIndex, TrustSource,
+    load_verified_index, parse_index, resolve_list_trust_key, resolve_trust_key, CompatRow,
+    IndexApp, RegistryIndex, TrustSource,
 };
 pub use version_constraint::{check_constraint, check_manifest_constraint, Constraint, Version};
 
@@ -44,9 +46,6 @@ pub const DEFAULT_CHANNEL: &str = "stable";
 /// Public list base. Fetch `<base>/<channel>/api/<api_version>.json` and `.sig`.
 pub const DEFAULT_INDEX_BASE_URL: &str =
     folddb_profile::endpoints::registry_index_url_for(folddb_profile::endpoints::Environment::Prod);
-
-/// Registry KMS Ed25519 public key. The private half never leaves AWS KMS.
-pub const REGISTRY_LIST_PUBKEY_B64: &str = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=";
 
 /// The Ed25519 verifying key that signs the public index. Generated
 /// 2026-09-20 (`lastdb app dev-init --key-file ~/.lastdb/registry-index-signing.key`

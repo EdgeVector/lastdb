@@ -1,17 +1,14 @@
-//! Index types, detached signature sign/verify, and trust-key resolution.
+//! Legacy index types, verified index load, and trust-key resolution.
+//! Detached signature sign/verify lives in `app_identity_crypto`.
 
 use std::path::Path;
 
-use app_identity_crypto::{
-    key_id, sign as ed25519_sign, verify as ed25519_verify, verifying_key_from_base64, SigningKey,
-    VerifyingKey, SIGNATURE_LEN,
-};
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine as _;
-use fold_db::hex::sha256_hex;
+use app_identity_crypto::{verifying_key_from_base64, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-use super::{INDEX_VERSION, RELEASE_INDEX_PUBKEY_B64, TRUST_KEY_ENV};
+use super::{
+    verify_index_bytes, IndexSignature, INDEX_VERSION, RELEASE_INDEX_PUBKEY_B64, TRUST_KEY_ENV,
+};
 
 // ─── Index types ──────────────────────────────────────────────────────────
 
@@ -67,74 +64,7 @@ pub struct RegistryIndex {
     pub apps: Vec<IndexApp>,
 }
 
-/// The detached signature file next to an index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IndexSignature {
-    pub alg: String,
-    pub key_id: String,
-    /// Lowercase hex SHA-256 of the exact index bytes.
-    pub payload_sha256: String,
-    /// Base64 Ed25519 signature over the ASCII bytes of `payload_sha256`.
-    pub sig: String,
-}
-
-// ─── Sign / verify ────────────────────────────────────────────────────────
-
-/// Sign the exact bytes of an index file.
-///
-/// The digest covers the bytes; the signature covers the digest. A reader
-/// hashes what it downloaded and refuses on either mismatch, so a signature
-/// cannot be moved onto a different file.
-#[must_use]
-pub fn sign_index_bytes(key: &SigningKey, index_bytes: &[u8]) -> IndexSignature {
-    let payload_sha256 = sha256_hex(index_bytes);
-    let sig = ed25519_sign(key, payload_sha256.as_bytes());
-    IndexSignature {
-        alg: "ed25519".to_string(),
-        key_id: key_id(&key.verifying_key()),
-        payload_sha256,
-        sig: BASE64.encode(sig),
-    }
-}
-
-/// Verify a detached signature against the exact index bytes under `trust`.
-///
-/// # Errors
-/// Names the first check that fails: algorithm, key id, digest, or signature.
-pub fn verify_index_bytes(
-    trust: &VerifyingKey,
-    index_bytes: &[u8],
-    signature: &IndexSignature,
-) -> Result<(), String> {
-    if signature.alg != "ed25519" {
-        return Err(format!(
-            "index signature alg is '{}', expected ed25519",
-            signature.alg
-        ));
-    }
-    let expected_key_id = key_id(trust);
-    if signature.key_id != expected_key_id {
-        return Err(format!(
-            "index is signed by key {} but this binary trusts {}",
-            signature.key_id, expected_key_id
-        ));
-    }
-    let digest = sha256_hex(index_bytes);
-    if signature.payload_sha256 != digest {
-        return Err(format!(
-            "index bytes hash to {digest} but the signature names {}",
-            signature.payload_sha256
-        ));
-    }
-    let raw = BASE64
-        .decode(signature.sig.trim())
-        .map_err(|e| format!("index signature is not valid base64: {e}"))?;
-    let sig: [u8; SIGNATURE_LEN] = raw
-        .try_into()
-        .map_err(|_| "index signature is not 64 bytes".to_string())?;
-    ed25519_verify(trust, &sig, digest.as_bytes())
-        .map_err(|_| "index signature does not verify".to_string())
-}
+// ─── Verify ───────────────────────────────────────────────────────────────
 
 /// Parse and verify an index from its bytes and its detached signature.
 ///

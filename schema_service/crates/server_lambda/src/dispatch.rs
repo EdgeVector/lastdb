@@ -246,6 +246,10 @@ async fn dispatch_admin(
         ("POST", "/v1/admin/deprecate-schemas") => {
             routes::admin::post_admin_deprecate_schemas(state, event).await
         }
+        // Reached only by the schedule's synthetic event (see `catalog_feed`).
+        ("POST", crate::catalog_feed::CATALOG_FEED_PATH) => {
+            crate::catalog_feed::post_catalog_feed(state, event).await
+        }
         ("GET", "/v1/admin/schema-match-telemetry") => {
             routes::admin::get_admin_schema_match_telemetry(state)
         }
