@@ -19,12 +19,14 @@ pub(crate) struct BlobTargetArgs {
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbBlobCommand {
     /// Store the file of one record, with the record, in one write.
-    PutBlob(PutBlobArgs),
+    #[command(name = "put-blob")]
+    Put(PutBlobArgs),
     /// Fetch the file of one record by schema and key.
     ///
     /// The command writes the verified bytes to --out or stdout. A record
     /// without a file returns 404.
-    FetchBlob {
+    #[command(name = "fetch-blob")]
+    Fetch {
         #[command(flatten)]
         target: BlobTargetArgs,
         /// Write fetched bytes to this path instead of stdout.
@@ -35,5 +37,6 @@ pub(crate) enum DbBlobCommand {
         json: bool,
     },
     /// Remove the file and the file marker of one record. The record stays.
-    DeleteBlob(BlobTargetArgs),
+    #[command(name = "delete-blob")]
+    Delete(BlobTargetArgs),
 }
