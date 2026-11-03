@@ -55,6 +55,7 @@ fn v1_schema_routes(scope: actix_web::Scope) -> actix_web::Scope {
             "/schemas/mutation-challenge",
             web::post().to(handlers::issue_schema_mutation_challenge),
         )
+        .route("/advice/schema", web::post().to(handlers::schema_advice))
         .route(
             "/schemas/batch-check-reuse",
             web::post().to(handlers::batch_check_reuse),

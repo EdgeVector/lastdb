@@ -41,6 +41,7 @@
 // The ban list is `clippy.toml` in this crate, so it does not apply to the workspace.
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
+pub mod advice;
 pub mod app_identity;
 pub mod app_release;
 pub mod blocking_runtime;

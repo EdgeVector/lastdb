@@ -130,6 +130,16 @@ pub(crate) fn semantic_candidate(
         && overlap(&field.description, &other.description) >= 0.35
 }
 
+/// The name overlap of a canonical name close enough to suggest in advice:
+/// the name test of [`semantic_candidate`], with no description to compare.
+pub(crate) fn name_overlap(name: &str, other_name: &str) -> Option<f32> {
+    if name == other_name || different_qualifiers(name, other_name) {
+        return None;
+    }
+    let score = overlap(name, other_name);
+    (score >= 0.5).then_some(score)
+}
+
 pub(crate) fn reuse_error(name: &str, other_name: &str) -> FoldDbError {
     FoldDbError::Config(format!(
         "canonical_field_reuse_required: '{name}' duplicates '{other_name}'; reuse that concept or describe a distinct subject and property"
