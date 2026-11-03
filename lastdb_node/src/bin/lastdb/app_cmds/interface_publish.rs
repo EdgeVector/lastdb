@@ -54,6 +54,38 @@ fn signing_key(
     app_publish::load_dev_key(&path)
 }
 
+/// Every field of every schema the manifest lists names a type
+/// (`decision-2026-11-02-field-types-no-any`). The node refuses the same
+/// declaration, so publish refuses it first and names the fields.
+fn require_typed_fields(manifest: &Value) -> Result<(), String> {
+    let untyped: Vec<String> = manifest
+        .get("schemas")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|schema| {
+            let name = schema.get("name").and_then(Value::as_str).unwrap_or("?");
+            let typed = schema.get("field_types").and_then(Value::as_object);
+            schema
+                .get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(move |field| !typed.is_some_and(|map| map.contains_key(*field)))
+                .map(move |field| format!("{name}.{field}"))
+        })
+        .collect();
+    if untyped.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "every schema field needs a type in field_types; these fields have none: {}",
+            untyped.join(", ")
+        ))
+    }
+}
+
 fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, String> {
     let manifest_path = input.manifest.canonicalize().map_err(|e| e.to_string())?;
     let parent = manifest_path.parent().ok_or("manifest parent is missing")?;
@@ -64,6 +96,7 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
     let manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
+    require_typed_fields(&manifest)?;
     let app_id = manifest
         .get("app_id")
         .and_then(Value::as_str)

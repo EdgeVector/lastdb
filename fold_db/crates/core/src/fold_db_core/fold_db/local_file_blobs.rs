@@ -18,7 +18,7 @@ use super::FoldDB;
 #[derive(Debug, Clone)]
 pub struct LocalFileBlobPut {
     /// The `$lastdb_file` field value. Write it as the whole value of a field
-    /// of type `Any`; a pointer inside a JSON string is not a reference.
+    /// of type `File`; a pointer inside a JSON string is not a reference.
     pub pointer: Value,
     pub blob_ref: String,
     pub file_hash: String,
