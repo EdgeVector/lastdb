@@ -397,7 +397,19 @@ cloud_backup_plan = { path = "cloud_backup_plan" }
 laststore = { path = "vendor/laststore" }
 
 # External — copied verbatim from schema_service's workspace.dependencies
-actix-web = "4.3"
+# Every actix-web default feature except `http2`: the schema service binds
+# plain HTTP/1.1 only, and `http2` pulls h2 0.3, which has RUSTSEC-2026-0258
+# with no 0.3 fix.
+actix-web = { version = "4.13", default-features = false, features = [
+  "macros",
+  "compress-brotli",
+  "compress-gzip",
+  "compress-zstd",
+  "cookies",
+  "unicode",
+  "compat",
+  "ws",
+] }
 actix-cors = "0.7"
 tracing = "0.1"
 tracing-actix-web = "0.7"

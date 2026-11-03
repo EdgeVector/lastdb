@@ -1,20 +1,13 @@
-//! One owned app schema. Schema Service supplies definitions, never value aliases.
+//! One owned app schema. The node declares it locally; Schema Service gives
+//! advice only and is not asked (`design-lastdb-advisory-schema-service`).
 
 use super::*;
+use schema_types::FieldValueType;
 use std::collections::BTreeSet;
 
 pub(super) struct DirectDeclarePlan {
     pub(super) resolution: DirectDeclareResolution,
     pub(super) register_reason: Option<&'static str>,
-}
-
-fn client(host: &Host) -> Result<schema_service_client::SchemaServiceClient, String> {
-    crate::schema_resolver_host::schema_service_client_with_node_identity(
-        &host.home,
-        schema_service_client::SchemaServiceClient::new(
-            &folddb_profile::endpoints::schema_service_url(),
-        ),
-    )
 }
 
 const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
@@ -38,9 +31,36 @@ impl Installed {
     }
 }
 
+/// The fields a primary or alternate key reads. A nested key path also names
+/// its root field.
+fn key_fields(schema: &Schema) -> BTreeSet<&str> {
+    let primary = schema
+        .key
+        .iter()
+        .flat_map(|key| key.hash_field.iter().chain(key.range_field.iter()))
+        .map(String::as_str);
+    let alternate = schema
+        .alternate_keys
+        .values()
+        .flat_map(schema_types::AlternateKey::fields);
+    primary
+        .chain(alternate)
+        .flat_map(|path| [path, path.split('.').next().unwrap_or(path)])
+        .collect()
+}
+
+/// Until `Any` is deleted (`decision-2026-11-02-field-types-no-any`), a repeat
+/// declare may give an `Any` or untyped field a concrete type in place. Old
+/// values are not re-checked; the next write of the field must match.
+fn retypes_any(stored: Option<&FieldValueType>, proposed: Option<&FieldValueType>) -> bool {
+    matches!(stored, None | Some(FieldValueType::Any))
+        && proposed.is_some_and(|kind| *kind != FieldValueType::Any)
+}
+
 /// `Some(true)` when `proposed` adds fields or equals `stored`, `Some(false)`
 /// when it declares a subset. A field in both must keep its type and
-/// description. `None` for any other change.
+/// description, except that a non-key field may leave `Any`. `None` for any
+/// other change.
 fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
     let stored_fields: BTreeSet<&str> =
         stored.fields.iter().flatten().map(String::as_str).collect();
@@ -50,8 +70,12 @@ fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
         .flatten()
         .map(String::as_str)
         .collect();
+    let key_fields = key_fields(stored);
     let equal_definitions = stored_fields.intersection(&proposed_fields).all(|field| {
-        stored.field_types.get(*field) == proposed.field_types.get(*field)
+        let stored_type = stored.field_types.get(*field);
+        let proposed_type = proposed.field_types.get(*field);
+        (stored_type == proposed_type
+            || (!key_fields.contains(field) && retypes_any(stored_type, proposed_type)))
             && stored.field_descriptions.get(*field) == proposed.field_descriptions.get(*field)
     });
     if !equal_definitions {
@@ -112,51 +136,89 @@ fn reuse(installed: &Schema) -> DirectDeclareResolution {
     }
 }
 
-/// Keep exact field meanings and the primary key. Resolver expansions do not
-/// authorize any change to an owned app record.
+/// The schema to load, built on the node from the declaration alone. Field
+/// versions and classifications come from the declaration. A field whose type,
+/// description, and version equal the installed field keeps its installed
+/// hash and fills missing classifications from it; every other field hash is
+/// computed here with the catalog's `compute_field_hash`. The installed schema
+/// keeps its runtime name and field keys.
 fn owned_schema(
     declare: &DirectDeclareProposal,
-    definition: schema_types::DeclarativeSchemaDefinition,
     installed: Option<&Schema>,
 ) -> Result<Schema, String> {
-    let requested = &declare.catalog_schema;
-    let mut actual_fields = definition.fields.clone().unwrap_or_default();
-    let mut requested_fields = requested.fields.clone().unwrap_or_default();
-    actual_fields.sort();
-    requested_fields.sort();
-    if definition.identity_hash != requested.identity_hash
-        || definition.owner_app_id != requested.owner_app_id
-        || definition.descriptive_name != requested.descriptive_name
-        || definition.schema_type != requested.schema_type
-        || definition.key != requested.key
-        || actual_fields != requested_fields
-        || definition.field_descriptions != requested.field_descriptions
-        || requested
-            .field_types
-            .iter()
-            .any(|(field, kind)| definition.field_types.get(field) != Some(kind))
-    {
-        return Err("Schema Service returned a different field or primary-key definition; refusing an implicit app conversion".into());
-    }
-    let mut schema = requested.clone();
-    // Only definition metadata crosses this boundary. No service field key ID,
-    // predecessor, transform, or alternate layout owns local values.
-    schema.field_types = definition.field_types;
-    schema.field_hashes = definition.field_hashes;
-    schema.field_versions = definition.field_versions;
-    schema.field_declarations = definition.field_declarations;
-    schema.field_classifications = definition.field_classifications;
-    schema.field_data_classifications = definition.field_data_classifications;
-    schema.field_interest_categories = definition.field_interest_categories;
-    schema.field_key_ids = installed.and_then(|schema| schema.field_key_ids.clone());
+    let mut schema = declare.catalog_schema.clone();
+    schema.field_hashes.clear();
+    schema.field_key_ids = None;
     if let Some(installed) = installed {
+        let unchanged: Vec<String> = schema
+            .fields
+            .iter()
+            .flatten()
+            .filter(|field| {
+                installed.field_types.get(*field) == schema.field_types.get(*field)
+                    && installed.field_descriptions.get(*field)
+                        == schema.field_descriptions.get(*field)
+                    && schema
+                        .field_versions
+                        .get(*field)
+                        .is_none_or(|version| installed.field_versions.get(*field) == Some(version))
+            })
+            .cloned()
+            .collect();
+        for field in unchanged {
+            if let Some(hash) = installed.field_hashes.get(&field) {
+                schema.field_hashes.insert(field.clone(), hash.clone());
+            }
+            if let Some(version) = installed.field_versions.get(&field) {
+                schema.field_versions.insert(field.clone(), *version);
+            }
+            if let Some(id) = installed.field_declarations.get(&field) {
+                schema
+                    .field_declarations
+                    .entry(field.clone())
+                    .or_insert_with(|| id.clone());
+            }
+            if let Some(tags) = installed.field_classifications.get(&field) {
+                schema
+                    .field_classifications
+                    .entry(field.clone())
+                    .or_insert_with(|| tags.clone());
+            }
+            if let Some(label) = installed.field_data_classifications.get(&field) {
+                schema
+                    .field_data_classifications
+                    .entry(field.clone())
+                    .or_insert_with(|| label.clone());
+            }
+            if let Some(category) = installed.field_interest_categories.get(&field) {
+                schema
+                    .field_interest_categories
+                    .entry(field)
+                    .or_insert_with(|| category.clone());
+            }
+        }
+        schema.field_key_ids = installed.field_key_ids.clone();
         schema.name = installed.name.clone();
     }
+    schema.ensure_field_hashes();
     schema
         .populate_runtime_fields()
         .map_err(|error| error.to_string())?;
     schema.validate_owned_schema()?;
     Ok(schema)
+}
+
+/// `reuse` when the installed schema has this identity, `register` otherwise.
+fn resolution(
+    runtime: &str,
+    declare: &DirectDeclareProposal,
+    installed: Option<&Schema>,
+) -> DirectDeclareResolution {
+    DirectDeclareResolution {
+        runtime_schema: runtime.to_string(),
+        reused: installed
+            .is_some_and(|schema| schema.identity_hash == declare.catalog_schema.identity_hash),
+    }
 }
 
 pub(super) async fn plan(
@@ -175,25 +237,12 @@ pub(super) async fn plan(
     let runtime = installed.map_or(declare.local_schema_id.as_str(), |schema| {
         schema.name.as_str()
     });
-    let identity = declare
-        .catalog_schema
-        .identity_hash
-        .as_deref()
-        .ok_or("missing definition identity")?;
-    let found = client(host)?
-        .find_schema(identity)
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Some(envelope) = &found {
-        owned_schema(declare, envelope.schema.clone(), installed)?;
-    }
+    owned_schema(declare, installed)?;
     precheck_declare_retention(host, declare, runtime).await?;
+    let resolution = resolution(runtime, declare, installed);
     Ok(DirectDeclarePlan {
-        resolution: DirectDeclareResolution {
-            runtime_schema: runtime.to_string(),
-            reused: found.is_some(),
-        },
-        register_reason: found.is_none().then_some("independent_definition"),
+        register_reason: (!resolution.reused).then_some("independent_definition"),
+        resolution,
     })
 }
 
@@ -211,45 +260,11 @@ pub(super) async fn load(
         schema.name.as_str()
     });
     precheck_declare_retention(host, declare, runtime).await?;
-    let identity = declare
-        .catalog_schema
-        .identity_hash
-        .as_deref()
-        .ok_or("missing definition identity")?;
-    let client = client(host)?;
-    let found = client
-        .find_schema(identity)
-        .await
-        .map_err(|error| error.to_string())?;
-    let reused = found.is_some();
-    let definition = if let Some(envelope) = found {
-        envelope.schema
-    } else {
-        let mut definition =
-            schema_types::DeclarativeSchemaDefinition::from(&declare.catalog_schema);
-        // Alternate declarations are node-owned. Older services can supply
-        // the same canonical field definitions.
-        definition.alternate_keys.clear();
-        definition.field_key_ids = None;
-        client
-            .add_schema_with_match_source(
-                &definition,
-                HashMap::new(),
-                "independent_definition",
-                None,
-            )
-            .await
-            .map_err(|error| error.to_string())?
-            .schema
-    };
-    let schema = owned_schema(declare, definition, installed)?;
+    let schema = owned_schema(declare, installed)?;
     host.db
         .schema_manager()
         .load_schema_internal(schema)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(DirectDeclareResolution {
-        runtime_schema: runtime.to_string(),
-        reused,
-    })
+    Ok(resolution(runtime, declare, installed))
 }

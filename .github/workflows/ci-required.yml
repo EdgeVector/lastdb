@@ -4,7 +4,8 @@ name: CI required
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
 # this tree. Tests stay retired. The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
-# secret scan, builds, and the field history product proof.
+# secret scan, the cargo-deny supply-chain check, the cargo-machete unused
+# dependency check, builds, and the field history product proof.
 # No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
@@ -249,6 +250,29 @@ jobs:
       - name: Scan tracked text files for secrets
         run: python3 scripts/lints/lint-secrets.py
 
+  # Both tools read Cargo.lock, the manifests, and the RustSec advisory DB.
+  # Neither compiles. A newly published advisory fails this job on every PR
+  # until a compatible `cargo update -p` fixes it or deny.toml ignores it
+  # with a reason. The versions are pinned to the ones that triaged main.
+  supply_chain:
+    name: supply chain (cargo-deny + cargo-machete)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup toolchain install --profile minimal
+          rustup show active-toolchain
+      - name: Install cargo-deny and cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.19.7,cargo-machete@0.9.2
+      - name: cargo deny (advisories, bans, licenses, sources)
+        run: cargo deny --locked --workspace check
+      - name: cargo machete (unused dependencies)
+        run: cargo-machete --skip-target-dir
+
   field_history:
     name: Field history product proof
     permissions:
@@ -275,6 +299,7 @@ jobs:
       - full_workspace_check
       - diff_file_size
       - secret_scan
+      - supply_chain
       - field_history
       - record_home
     if: ${{ always() }}
@@ -288,7 +313,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

@@ -2,6 +2,9 @@
 autotests = false
 name = "laststore"
 version = "0.1.0"
+# Its path dependency lastdb_storage_policy is unpublished, so this crate cannot
+# be published either. cargo-deny allows wildcard path deps only in private crates.
+publish = false
 edition.workspace = true
 rust-version = "1.75"
 description = "Last Store — the LastDB disk engine (disk format v2: sorted, encrypted run files)"

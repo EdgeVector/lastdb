@@ -140,9 +140,9 @@ async fn setup(
         required_destinations: vec![Destination::R2, Destination::B2],
         r2_multipart: env_flag::var_truthy("LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS").then_some(true),
         predecessor,
-        // The current service does not advertise accepted-backup retirement.
-        // Preserve the legacy hash and conservative dependency rule until it does.
-        recovery_dependencies: None,
+        // Declared so the service can retire points that no kept point needs.
+        // Every deployed V2 service package accepts this field.
+        recovery_dependencies: Some(saved.work.recovery_dependencies()),
     };
     begin.validate()?;
     saved.begin = Some(begin);

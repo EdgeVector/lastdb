@@ -5,9 +5,12 @@ pub(crate) mod temporal;
 
 /// Strongly typed value types for schema fields.
 ///
-/// Types are declared on canonical fields in the schema service and
-/// enforced at mutation time. Every field in every schema has a concrete
-/// type — `Any` is reserved for backward compatibility only.
+/// Every declared field names one of these types, and every write is checked
+/// against it. A declaration with a field that has no type is refused.
+/// `Any` remains only until no stored schema names it; then it is deleted
+/// (`decision-2026-11-02-field-types-no-any`). Its last users were Brain's two
+/// file pointer fields, which format 9 removes: a file is the record's own
+/// `file` member, not a field value.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 pub enum FieldValueType {
     // ── Primitives ──────────────────────────────────────
