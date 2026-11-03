@@ -1,39 +1,7 @@
-//! Strict scalar encodings for the version-one wire contract.
+//! Strict scalar encodings shared by the wire types.
 
 use crate::ProtocolError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-/// The numeric wire version. Version one accepts only the JSON integer `1`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Version;
-
-impl Version {
-    /// The only version-one value. It serializes as the JSON integer 1.
-    pub const V1: Self = Self;
-
-    #[must_use]
-    /// Return `1`.
-    pub const fn get(self) -> u8 {
-        1
-    }
-}
-
-impl Serialize for Version {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u8(1)
-    }
-}
-
-impl<'de> Deserialize<'de> for Version {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match u8::deserialize(deserializer)? {
-            1 => Ok(Self::V1),
-            _ => Err(serde::de::Error::custom(ProtocolError::invalid(
-                "unsupported protocol version",
-            ))),
-        }
-    }
-}
 
 /// An exact unsigned integer encoded as a canonical decimal JSON string.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -113,10 +113,6 @@ impl PackRuntime {
 
     fn require_cleanup_safe(&self) -> StorageResult<()> {
         self.require_initialized()?;
-        self.require_restore_validated()?;
-        if self.restore_validation_pending() {
-            return Err(invalid("native cleanup requires verified restore counters"));
-        }
         if self.requires_recovery()
             || self.physical.home.is_poisoned()
             || self.physical.cas.is_poisoned()

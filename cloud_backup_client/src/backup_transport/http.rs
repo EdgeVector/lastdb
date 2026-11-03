@@ -5,7 +5,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[derive(Deserialize)]
 struct ErrorTag<'a> {
     result: Option<&'a str>,
-    status: Option<&'a str>,
 }
 
 impl BackupTransport {
@@ -48,7 +47,7 @@ impl BackupTransport {
         if !status.is_success() {
             let tagged = serde_json::from_slice::<ErrorTag<'_>>(&body)
                 .ok()
-                .is_some_and(|tag| tag.result == Some("error") || tag.status == Some("error"));
+                .is_some_and(|tag| tag.result == Some("error"));
             if !tagged {
                 return Err(BackupTransportError::Http(status.as_u16()));
             }

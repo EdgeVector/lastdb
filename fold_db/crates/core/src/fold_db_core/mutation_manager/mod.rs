@@ -62,11 +62,6 @@ pub struct MutationManager {
     /// before resident apply, so overload rejects without changing product
     /// state. The worker owns a pending-task guard until the row lands.
     author_clock_persist: Option<author_clock::AuthorClockPersistQueue>,
-    /// Sync engine used by administrative capture status and direct callers.
-    /// Bounded post-ack capture queue shared with the serving store wrapper.
-    ///
-    capture_router:
-        std::sync::RwLock<Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>>,
 }
 
 impl MutationManager {
@@ -100,27 +95,7 @@ impl MutationManager {
             defer_gauge,
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
-            capture_router: std::sync::RwLock::new(None),
         }
-    }
-
-    pub(crate) fn set_capture_router(
-        &self,
-        router: std::sync::Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>,
-    ) {
-        *self
-            .capture_router
-            .write()
-            .expect("capture router lock poisoned") = Some(router);
-    }
-
-    pub(crate) fn capture_router(
-        &self,
-    ) -> Option<std::sync::Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>> {
-        self.capture_router
-            .read()
-            .expect("capture router lock poisoned")
-            .clone()
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

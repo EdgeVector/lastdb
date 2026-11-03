@@ -32,13 +32,11 @@ pub struct RecordDeleteLedgerEntry {
     /// `"admin-api"`. Not authenticated — evidence of provenance, not identity.
     pub caller: String,
     /// The schema whose records were erased.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema: Option<String>,
+    pub schema: String,
     /// SHA-256 hex over `{schema}\0{described key}`. See the module docs for
     /// why the key itself is not stored.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key_fingerprint: Option<String>,
-    /// `history:` rows removed (purge only).
+    pub key_fingerprint: String,
+    /// `rh:` field history rows removed (purge only).
     pub history_rows_deleted: u64,
     /// Records the batch erased.
     pub records_erased: u64,
@@ -49,28 +47,18 @@ pub struct RecordDeleteLedgerEntry {
 }
 
 impl RecordDeleteLedgerEntry {
-    /// All-zero row for `verb`, stamped now. Constructors below customize it;
-    /// keeping the zeroing in one place is what lets a new counter field land
-    /// as one struct field + one line here instead of an edit per verb.
-    fn base(verb: &str, caller: &str) -> Self {
+    /// A hard-erasure row (`delete` or `purge`) with zero counts, stamped now,
+    /// before the delete batch runs. The caller sets the counts.
+    pub fn erasure(verb: &str, caller: &str, schema: &str, described_key: &str) -> Self {
         Self {
             verb: verb.to_string(),
             at: Utc::now().to_rfc3339(),
             caller: caller.to_string(),
-            schema: None,
-            key_fingerprint: None,
+            schema: schema.to_string(),
+            key_fingerprint: key_fingerprint(schema, described_key),
             history_rows_deleted: 0,
             records_erased: 0,
             file_records_erased: 0,
-        }
-    }
-
-    /// A hard-erasure row (`delete` or `purge`), before the delete batch runs.
-    pub fn erasure(verb: &str, caller: &str, schema: &str, described_key: &str) -> Self {
-        Self {
-            schema: Some(schema.to_string()),
-            key_fingerprint: Some(key_fingerprint(schema, described_key)),
-            ..Self::base(verb, caller)
         }
     }
 }

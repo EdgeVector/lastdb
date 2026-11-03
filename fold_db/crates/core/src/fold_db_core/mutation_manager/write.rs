@@ -13,13 +13,13 @@ use super::MutationManager;
 use super::helpers::apply_storage_prefix_to_schema;
 
 mod access_entry;
-mod admission;
 mod batch_inner;
 mod create_update_batch;
 mod erase_guards;
 mod field_keys;
 mod layout;
 mod native;
+mod receipt_entry;
 mod record_effects;
 mod record_rules;
 mod records;

@@ -121,10 +121,3 @@ pub struct TerminalFailure {
     /// Protocol field the failure refers to, at most 128 bytes.
     pub field: Text<128>,
 }
-
-impl TerminalFailure {
-    /// Reject a failure whose canonical JSON exceeds `RECEIPT_JSON_MAX_BYTES`.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        crate::limits::encoded_json_bytes(self, crate::limits::RECEIPT_JSON_MAX_BYTES).map(|_| ())
-    }
-}

@@ -117,7 +117,6 @@ impl PackRuntime {
             return pending.stage(operations);
         }
         let gate = self.enter_write().await;
-        self.require_restore_validated()?;
         let runtime = Arc::clone(self);
         super::run_blocking(move || {
             let result = runtime.commit(operations);

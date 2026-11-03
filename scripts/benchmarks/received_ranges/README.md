@@ -94,13 +94,8 @@ Source-specific Delete, Purge, and local/received updates precede a graceful reo
 Complete known-key reads then verify every generated coordinate, including deleted coordinates.
 The candidate repeats the broad selectors after the reopen.
 
-A further candidate reopen requests schema preload.
-Only actual ready-domain, key-count, and memory-selection counters support a preload result.
-Otherwise the summary states that received preload selection remains unproved.
 Linux process memory and native memory status remain separate observations.
 No total-memory cap, power-loss recovery, cloud transport, or concurrent mutation result is claimed.
-The public mutation path rejects reserved body tombstone values.
-The recipe does not manufacture legacy tombstone bytes. Body-drop accounting remains source review only.
 
 ## Keyed field conditions
 
@@ -108,7 +103,7 @@ The recipe also seeds at most 128 keys under the named hash `condition-reuse` in
 Local values replace every sixteenth key. Source-specific field values and file metadata identify the selected source.
 A source-zero Delete exposes source one at key 2. A local Delete exposes source zero at key 0.
 A source-one Purge leaves the source-zero value at key 3.
-The condition comparison runs after those changes and a graceful reopen, before candidate-only preload.
+The condition comparison runs after those changes and a graceful reopen.
 It uses the [shared condition method](../range_continuation/README.md#keyed-field-condition-comparison):
 eight cases, 32 warm requests per case, and one fresh-process request per case after separate restarts.
 Only this fixed hash uses nested JSON bodies below 9 KiB and 64-record seed batches.

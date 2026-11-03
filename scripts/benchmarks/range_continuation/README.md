@@ -58,9 +58,6 @@ Delete, Purge, and an update precede a durable flush and graceful reopen.
 Known-key reads verify every seeded coordinate, including absent deleted keys.
 The candidate repeats its broad range after the reopen.
 
-A further candidate reopen requests schema preload.
-The report claims preload coverage only when actual ready-domain, key-count, and memory-selection counters confirm it.
-Otherwise the result states that preload coverage remains unproved.
 Linux process memory and native status remain separate observations.
 Process `VmHWM` can include startup and seed work. No total-memory cap is claimed.
 The recipe makes no power-loss, complete-merge, cross-device sync, cloud, or concurrent-mutation result.
@@ -93,7 +90,7 @@ Missing numeric values pass the numeric filter. Concrete null and string values 
 Equal numeric scores use ascending range keys as their tie order.
 
 Each case has 32 warm requests per run after a complete condition reference read.
-Each case also has one request after its own process restart, with schema preload off.
+Each case also has one request after its own process restart.
 The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
 Every returned value and the record metadata block must match the same-home reference.
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
@@ -109,7 +106,6 @@ The core query phase includes the value copy. The format phase measures the late
 These status calls stay outside the timed and memory windows. Absent phase fields remain unreported; the report does not use zero.
 The request counter does not measure the native guard's examined-key count.
 Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
-The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
 
 ## Narrow-request tail diagnostics
 

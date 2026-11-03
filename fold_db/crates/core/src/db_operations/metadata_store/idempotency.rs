@@ -25,17 +25,22 @@ fn coordinate(key: &str) -> (String, String) {
     (format!("{PREFIX}{:02x}", digest[0]), format!("{digest:x}"))
 }
 
-fn decode(bytes: Option<&[u8]>) -> Bucket {
-    bytes
-        .filter(|bytes| bytes.len() <= BUCKET_BYTES)
-        .and_then(|bytes| serde_json::from_slice::<Bucket>(bytes).ok())
+/// An absent bucket is empty. A stored bucket that does not decode or breaks
+/// its bounds is refused.
+fn decode(bytes: Option<&[u8]>) -> StorageResult<Bucket> {
+    let Some(bytes) = bytes else {
+        return Ok(Vec::new());
+    };
+    let entries = (bytes.len() <= BUCKET_BYTES)
+        .then(|| serde_json::from_slice::<Bucket>(bytes).ok())
+        .flatten()
         .filter(|entries| {
             entries.len() <= ENTRIES
                 && entries
                     .iter()
                     .all(|(hash, id)| hash.len() == 64 && id.len() <= ID_BYTES)
-        })
-        .unwrap_or_default()
+        });
+    entries.ok_or_else(|| StorageError::SerializationError("invalid retry-cache bucket".into()))
 }
 
 pub(super) async fn get_many(
@@ -55,7 +60,7 @@ pub(super) async fn get_many(
         ));
     }
     for (bucket, bytes) in buckets.values_mut().zip(bytes) {
-        *bucket = decode(bytes.as_deref());
+        *bucket = decode(bytes.as_deref())?;
     }
     Ok(coordinates
         .into_iter()
@@ -95,7 +100,7 @@ pub(super) async fn put(
         .into_iter()
         .zip(old)
         .map(|((key, added), bytes)| {
-            let mut bucket = decode(bytes.as_deref());
+            let mut bucket = decode(bytes.as_deref())?;
             for (fingerprint, id) in added {
                 bucket.retain(|(hash, _)| *hash != fingerprint);
                 bucket.push((fingerprint, id));

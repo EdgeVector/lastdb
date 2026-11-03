@@ -230,19 +230,6 @@ pub trait KvStore: Send + Sync {
         )))
     }
 
-    /// Apply one photograph-restore batch without requiring a durability
-    /// barrier before this call returns.
-    ///
-    /// The restore owner MUST call
-    /// [`NamespacedStore::restore_durability_barrier`] after every batch
-    /// succeeds and before it exposes the restored store. Backends without a
-    /// deferred write path keep the safe default and use their normal
-    /// [`Self::batch_put`] contract. This method does not change normal
-    /// acknowledged writes.
-    async fn restore_batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
-        self.batch_put(items).await
-    }
-
     /// Batch delete operations
     async fn batch_delete(&self, keys: Vec<Vec<u8>>) -> StorageResult<()>;
 

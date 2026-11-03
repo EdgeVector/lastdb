@@ -4,7 +4,6 @@
 mod cancel;
 mod capture;
 mod codec;
-mod counters;
 mod model;
 mod planner;
 mod reader;
@@ -175,7 +174,7 @@ impl ByteBackupCapture {
     }
     fn require_export(&self, state: &model::State) -> StorageResult<()> {
         if !state.released && !state.local_cancelled && state.terminal.is_none() {
-            counters::require_validated(&self.inner)?;
+            self.inner.require_available()?;
         }
         Ok(())
     }

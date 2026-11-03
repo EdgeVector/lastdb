@@ -57,9 +57,6 @@ impl RestoreSession {
         let mut routes = 0usize;
         for folder in ["cache", "entries", "chain"] {
             let path = self.root.join(folder);
-            if folder == "chain" && !path.try_exists()? {
-                continue;
-            }
             local::directory(&path)?;
             for entry in fs::read_dir(path)? {
                 let path = entry?.path();

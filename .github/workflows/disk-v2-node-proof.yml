@@ -1,8 +1,8 @@
 name: Disk v2 node proof
 
 # Disk format v2, phase V3 (docs/design-lastdb-disk-size-20261024.md in the
-# EdgeVector workspace). A real lastdbd starts on an empty home, which must be
-# v2 from the first start, and writes a seed with the shape of the primary
+# EdgeVector workspace). A real lastdbd starts on an empty home in the current
+# format and writes a seed with the shape of the primary
 # (scripts/disk_v2). The proof fails when the v2 node folder is above 2.0x of
 # the record bytes at any sample, or when a key list, a read, or the records
 # of a seed schema change.

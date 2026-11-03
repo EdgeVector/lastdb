@@ -8,12 +8,11 @@ families or (b) holds a raw store handle, and it compares the set with
 scripts/lints/store-writers.allow.
 
 The check is per function, not per file. A function is a writer when its body
-has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
+has a write verb (put, delete, batch_mutate, ...) and one of:
 
 - a key family token (family H, a field history row);
-- a raw handle token: `.raw()`, `main_store`, `open_namespace(`, a generic row
-  restore (`restore_batch_put(`), or a scan (`scan_prefix(`, `scan_range(`, ...)
-  next to a delete, which is a range delete of rows of every family.
+- a raw handle token: `.raw()`, `main_store`, `open_namespace(`, or a scan
+  (`scan_prefix(`, `scan_range(`, ...) next to a delete, which is a range delete of rows of every family.
 
 Each writer needs an allow-list line `path|function|families|reason`. The
 families on the line must cover the families the function names. `*` as the
@@ -37,11 +36,10 @@ ALLOW = "scripts/lints/store-writers.allow"
 
 WRITE = re.compile(
     r"\.(?:put_item|batch_put_items|batch_delete_keys|delete_item|batch_mutate|batch_put|"
-    r"batch_delete|restore_batch_put|put|delete)\s*\(|KvMutation::(?:put|delete)\s*\(|"
-    r"\brestore_batch_put\s*\("
+    r"batch_delete|put|delete)\s*\(|KvMutation::(?:put|delete)\s*\("
 )
 RAW = re.compile(
-    r"\.raw\(\)|\bmain_store\b|\bopen_namespace\s*\(|\brestore_batch_put\s*\(|"
+    r"\.raw\(\)|\bmain_store\b|\bopen_namespace\s*\(|"
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {

@@ -29,7 +29,7 @@ impl DbCatalogStore {
     }
 
     pub async fn put_membership_batch(&self, entries: &[DbCatalogEntry]) -> StorageResult<()> {
-        let mut puts = Vec::with_capacity(entries.len() * 2);
+        let mut puts = Vec::with_capacity(entries.len());
         for entry in entries {
             validate_entry(entry)?;
             let bytes = serde_json::to_vec(entry).map_err(|_| {
@@ -37,11 +37,6 @@ impl DbCatalogStore {
             })?;
             puts.push((
                 entry_key(&entry.db_locator, &entry.schema_name).into_bytes(),
-                bytes.clone(),
-            ));
-            let locator_hash = Sha256::digest(entry.db_locator.as_bytes());
-            puts.push((
-                format!("membership:{locator_hash:x}\0{}", entry.schema_name).into_bytes(),
                 bytes,
             ));
         }

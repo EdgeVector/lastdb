@@ -17,5 +17,5 @@ pub use common::*;
 pub use digest::{bytes_sha256, canonical_bytes, input_digest};
 pub use error::{ErrorCode, PendingReason, ProtocolError, TerminalFailure, TerminalFailureCode};
 pub use manifest::*;
-pub use primitives::{AccountId, DecimalU64, Digest, Id, RelativePath, Text, Version};
+pub use primitives::{AccountId, DecimalU64, Digest, Id, RelativePath, Text};
 pub use recovery::*;

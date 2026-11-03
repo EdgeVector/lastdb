@@ -67,13 +67,7 @@ impl BackupTransport {
     pub(crate) fn api_endpoint(&self, operation: &str) -> Url {
         let mut url = self.base.clone();
         let base = self.base.path().trim_end_matches('/');
-        let api = if base.ends_with("/api") {
-            base.to_owned()
-        } else {
-            format!("{base}/api")
-        };
-        let path = format!("{api}/{operation}");
-        url.set_path(&path);
+        url.set_path(&format!("{base}/api/{operation}"));
         url
     }
 

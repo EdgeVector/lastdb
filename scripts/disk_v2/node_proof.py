@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Disk format v2 node proof (phase V3): a real lastdbd on a new home.
 
-The candidate starts on an empty home. The home must be v2 from the first
-start, with no v1 file. The candidate writes a seed with the shape of the
+The candidate starts on an empty home in the current format. It writes a seed with the shape of the
 primary (seed.py) under the engine settings of the primary job, so the
 records have the envelope forms of the primary (compressed and raw). Then:
 
@@ -63,8 +62,7 @@ PRIMARY_SETTINGS = {
     "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
 }
 CASE = "new-home"
-# The generator number of the seed: the number this case had among the four
-# cases of the conversion proof, so the seed data stays the same.
+# The generator number of the seed. It stays fixed so the seed data stays the same.
 SEED_NUMBER = 2
 PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.

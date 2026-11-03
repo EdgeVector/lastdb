@@ -26,7 +26,6 @@ impl FoldDB {
             db_ops,
             signer,
             search_outbox_inbox,
-            mutation_log_capture,
             offline_maintenance,
         } = init;
         // Initialize pending task tracker
@@ -70,9 +69,6 @@ impl FoldDB {
             search_outbox_inbox,
             author_clock_state,
         ));
-        if let Some(router) = mutation_log_capture.as_ref() {
-            mutation_manager.set_capture_router(Arc::clone(router));
-        }
 
         info!("Created MutationManager for mutation operations");
 
@@ -94,7 +90,6 @@ impl FoldDB {
             mutation_manager,
             pending_tasks,
             background_field_history,
-            mutation_log_capture,
         })
     }
 }
@@ -110,6 +105,4 @@ pub struct FoldDbInit {
     pub db_ops: Arc<DbOperations>,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
-    pub(crate) mutation_log_capture:
-        Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>,
 }

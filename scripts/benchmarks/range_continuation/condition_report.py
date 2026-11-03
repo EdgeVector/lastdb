@@ -54,7 +54,7 @@ def condition_summary(grouped, mode):
         "Every condition row retains its exact four-key envelope and both key coordinates. Its author is null or a projected metadata writer.",
         "Nested bodies retain signed/unsigned integer boundaries, an integer above2^53, float types, and negative zero.",
         "Only the fixed128-key hash uses nested JSON bodies below9KiB. Original large-range bodies and eight timed selectors stay unchanged.",
-        "Public Delete/Purge removes records; legacy body tombstones and concurrent mutations remain outside this recipe."])
+        "Public Delete/Purge removes records; concurrent mutations remain outside this recipe."])
     return lines
 
 

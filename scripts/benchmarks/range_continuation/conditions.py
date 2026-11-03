@@ -72,7 +72,6 @@ class Conditions:
             for label, spec in cases(self.schema):
                 if phase == "fresh-process":
                     self.node.stop()
-                    self.node.settings.pop("LASTDB_SCHEMA_PRELOAD_SCHEMAS", None)
                     self.node.start()
                 before = self.node.status("condition-" + phase + "-" + label + "-before")
                 count = 32 if phase == "warm" else 1
@@ -108,7 +107,7 @@ class Conditions:
                 "projection_controls": controls,
                 "metadata_reference": "Same-home full projection with only predicate_limit; no reusable secondary pass A fields",
                 "all_values_and_metadata_verified": True, "offset_limit_verified": True,
-                "scope": "Warm repeats32/cell; fresh-process1/cell, each after restart; OS cache uncontrolled; no legacy body tombstone or concurrent mutation claim"}
+                "scope": "Warm repeats32/cell; fresh-process1/cell, each after restart; OS cache uncontrolled; no concurrent mutation claim"}
 
 
 def paired_conditions_match(first, last):

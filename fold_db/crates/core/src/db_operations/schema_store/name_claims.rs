@@ -24,8 +24,7 @@ impl SchemaStore {
         if self
             .schema_states_store
             .get_item::<SchemaNameClaim>(&key)
-            .await
-            .unwrap_or(None)
+            .await?
             == Some(claim)
         {
             return Ok(false);

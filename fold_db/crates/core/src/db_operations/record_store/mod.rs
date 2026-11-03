@@ -6,7 +6,7 @@
 //!
 //! Layout:
 //! - [`construct`] — `RecordStore` constructors and builder hooks
-//! - [`counter`] — the guarded row delete, the offline recount and the restore check
+//! - [`counter`] — the guarded row delete
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
 //! - [`schema_release`] — the release of the rows of a dropped schema

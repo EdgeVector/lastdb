@@ -101,8 +101,7 @@ impl SchemaStore {
                 .await?,
         );
         // No policy is left, so the manifest names that pointed here have
-        // nothing to share. Dropping the alias rows also leaves the plane with
-        // nothing an older build cannot read.
+        // nothing to share. The alias rows go with the policy.
         keys.extend(
             self.retention_aliases_of(schema_name)
                 .await?

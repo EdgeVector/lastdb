@@ -94,7 +94,7 @@ modules = [
 
 [[layer]]
 name = "engine"
-doc = "The database engine: FoldDB, the mutation manager and its admission fence, query, purge, drains, and the factory that builds a node."
+doc = "The database engine: FoldDB, the mutation manager, query, purge, drains, and the factory that builds a node."
 modules = [
   "fold_db_core",
 ]

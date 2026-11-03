@@ -1,12 +1,10 @@
-//! Frozen version-one policy limits, below the source and provider ceilings.
+//! Policy limits, below the source and provider ceilings.
 
 use crate::{canonical_bytes, ProtocolError};
 use serde::Serialize;
 
-/// Maximum canonical JSON bytes of a version-one request.
+/// Maximum canonical JSON bytes of a request.
 pub const REQUEST_JSON_MAX_BYTES: u64 = 256 * 1024;
-/// Maximum canonical JSON bytes of a version-one receipt.
-pub const RECEIPT_JSON_MAX_BYTES: u64 = 16 * 1024;
 /// Maximum native files, taken from the storage-policy backup file cap.
 pub const NATIVE_FILES_MAX: usize = lastdb_storage_policy::BACKUP_FILES_MAX;
 /// Maximum decoded-value bytes, taken from `BACKUP_RESOURCES`.

@@ -3,13 +3,6 @@
 use super::*;
 
 impl RecordStore {
-    pub(crate) fn new(
-        main_store: Arc<TypedKvStore<dyn KvStore>>,
-        namespaced_store: Arc<dyn NamespacedStore>,
-    ) -> Self {
-        Self::new_with_content_key(main_store, namespaced_store, None)
-    }
-
     pub(crate) fn new_with_content_key(
         main_store: Arc<TypedKvStore<dyn KvStore>>,
         namespaced_store: Arc<dyn NamespacedStore>,
