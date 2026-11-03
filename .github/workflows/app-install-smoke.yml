@@ -72,13 +72,17 @@ jobs:
           target/debug/lastdb --version
           target/debug/lastdbd --version
 
-      - name: Set up test environment
+      - name: Set up an isolated CI home
         run: |
-          # Fresh isolated home for this test
+          # Fresh generated home for real app operations
           export TEST_HOME="${HOME}/app-smoke-test-$$"
           mkdir -p "$TEST_HOME"
-          echo "TEST_HOME=$TEST_HOME" >> "$GITHUB_ENV"
-          echo "LASTDB_HOME=$TEST_HOME/.lastdb" >> "$GITHUB_ENV"
+          {
+            echo "TEST_HOME=$TEST_HOME"
+            echo "LASTDB_HOME=$TEST_HOME/.lastdb"
+            echo "LASTDB_APPS_ROOT=$TEST_HOME/managed-apps"
+          } >> "$GITHUB_ENV"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           
           # Add built binaries to PATH
           echo "$(pwd)/target/debug" >> "$GITHUB_PATH"
@@ -158,6 +162,7 @@ jobs:
                   ;;
                 *)
                   echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
+                  echo "SKIP_APP=true" >> "$GITHUB_ENV"
                   echo "INSTALLED=false" >> "$GITHUB_ENV"
                   exit 0
                   ;;
@@ -168,115 +173,27 @@ jobs:
           lastdb app list --channel "$CHANNEL" | tee "$PROOF_DIR/registry-apps.txt"
           lastdb app resolve "$APP" --json --channel "$CHANNEL" | tee "$PROOF_DIR/${APP}-resolve.json"
 
-      - name: Install ${{ matrix.app }} from registry
-        if: always() && env.SKIP_REGISTRY != 'true'
+      - name: Install ${{ matrix.app }} from the signed registry
+        if: env.SKIP_REGISTRY != 'true'
         run: |
-          set -o pipefail  # Make pipe failures detectable
-          cd "$TEST_HOME"
-
-          # Resolve and install against the running node's exact API.
-          if lastdb app install ${{ matrix.app }} --channel "$REGISTRY_CHANNEL" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
-            echo "INSTALLED=true" >> "$GITHUB_ENV"
-
-            # Verify install receipt
-            if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
-              cat "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" | tee "$PROOF_DIR/${{ matrix.app }}-install-receipt.json"
-            fi
-
-            # Set APP_SOURCE for registry-installed apps
-            if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
-              echo "APP_SOURCE=$LASTDB_HOME/apps/${{ matrix.app }}/source" >> "$GITHUB_ENV"
-              echo "Using registry-installed source: $LASTDB_HOME/apps/${{ matrix.app }}/source"
-            fi
-          else
-            echo "INSTALLED=false" >> "$GITHUB_ENV"
-            echo "❌ App ${{ matrix.app }} could not be installed from registry"
-            echo "This is expected if the app is not yet published. Continuing with source checkout..."
-          fi
-
-      - name: Checkout app source (fallback if not in registry)
-        if: env.INSTALLED == 'false' && env.SKIP_REGISTRY != 'true'
-        run: |
-          cd "$TEST_HOME"
-          mkdir -p apps-source
-          SKIP_APP_LOCAL=false
-          
-          case "${{ matrix.app }}" in
-            brain)
-              git clone --depth 1 https://github.com/EdgeVector/brain.git apps-source/brain
-              ;;
-            lastsecrets)
-              git clone --depth 1 https://github.com/EdgeVector/lastsecrets.git apps-source/lastsecrets
-              ;;
-            lastseek)
-              if [ -n "${{ secrets.APP_REPOS_TOKEN }}" ]; then
-                git clone --depth 1 https://x-access-token:${{ secrets.APP_REPOS_TOKEN }}@github.com/EdgeVector/lastseek.git apps-source/lastseek 2>&1 | tee "$PROOF_DIR/lastseek-clone.log" || {
-                  echo "❌ lastseek clone failed even with APP_REPOS_TOKEN"
-                  SKIP_APP_LOCAL=true
-                  echo "SKIP_APP=true" >> "$GITHUB_ENV"
-                }
-              else
-                echo "⚠️  lastseek is private and secrets.APP_REPOS_TOKEN is not configured"
-                echo "Configure APP_REPOS_TOKEN secret with a PAT that has access to EdgeVector/lastseek"
-                SKIP_APP_LOCAL=true
-                echo "SKIP_APP=true" >> "$GITHUB_ENV"
-              fi
-              ;;
-            search)
-              git clone --depth 1 https://github.com/EdgeVector/search.git apps-source/search
-              ;;
-          esac
-          
-          if [ "$SKIP_APP_LOCAL" != "true" ] && [ -d "apps-source/${{ matrix.app }}" ]; then
-            echo "APP_SOURCE=$TEST_HOME/apps-source/${{ matrix.app }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Verify app source available
-        if: env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
-        run: |
-          # Verify APP_SOURCE was set by either registry install or source checkout
-          if [ -z "$APP_SOURCE" ]; then
-            echo "❌ FATAL: APP_SOURCE not set - app install and source checkout both failed"
-            echo "This job must fail because the app was supposed to be tested but is not available"
-            exit 1
-          fi
-          
-          # Verify the source directory exists
-          if [ ! -d "$APP_SOURCE" ]; then
-            echo "❌ FATAL: APP_SOURCE=$APP_SOURCE does not exist"
-            exit 1
-          fi
-          
-          echo "✓ App source available at: $APP_SOURCE"
+          set -euo pipefail
+          # The first-party install manifests and their source commits were
+          # reviewed for this CI flow. Required installs never fall back.
+          lastdb app install '${{ matrix.app }}' --channel "$REGISTRY_CHANNEL" --accept-install \
+            2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
+          active="$LASTDB_APPS_ROOT/${{ matrix.app }}/current"
+          test -d "$active/source"
+          test -f "$active/lastdb-app-install.json"
+          cp "$active/lastdb-app-install.json" "$PROOF_DIR/${{ matrix.app }}-install-receipt.json"
+          echo "INSTALLED=true" >> "$GITHUB_ENV"
+          echo "APP_SOURCE=$active/source" >> "$GITHUB_ENV"
 
       # === Brain (HTTP API) ===
-      - name: Set up Brain dependencies
+      - name: Use the registry-installed Brain command
         if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
-          set -o pipefail
-          cd "$APP_SOURCE"
-          
-          # Use the pinned CI Bun runtime
-          bun --version
-          
-          # Install dependencies
-          bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/brain-deps-install.log"
-          
-          # bun link only registers the package name. It does not install the
-          # command. Later steps call `brain`, so put bin/brain on PATH.
-          chmod +x "$PWD/bin/brain"
-          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
-          mkdir -p "$BUN_BIN"
-          ln -sfn "$PWD/bin/brain" "$BUN_BIN/brain"
-          if [ ! -x "$BUN_BIN/brain" ]; then
-            echo "brain command is not executable at $BUN_BIN/brain"
-            exit 1
-          fi
-          echo "$BUN_BIN" >> "$GITHUB_PATH"
-          "$BUN_BIN/brain" --version 2>&1 | tee "$PROOF_DIR/brain-link.log"
-        env:
-          # Brain reads socket path from this env var
-          FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
+          command -v brain
+          brain --version
 
       - name: Initialize Brain schemas
         if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
@@ -350,31 +267,9 @@ jobs:
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       # === LastSecrets (HTTP API) ===
-      - name: Set up LastSecrets dependencies
+      - name: Use the registry-installed LastSecrets command
         if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
-        run: |
-          set -o pipefail
-          cd "$APP_SOURCE"
-          
-          # Use the pinned CI Bun runtime
-          bun --version
-          
-          # Install dependencies
-          bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/lastsecrets-deps-install.log"
-          
-          # lastsecrets uses package.json bin pointing to src/cli.ts (not a compiled bin/ file)
-          # bun link registers the command based on package.json bin config
-          bun link 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log"
-          
-          # Add Bun's global bin directory to PATH
-          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
-          echo "$BUN_BIN" >> "$GITHUB_PATH"
-          
-          # Verify the command is available
-          "$BUN_BIN/lastsecrets" --version 2>&1 || echo "No version flag"
-        env:
-          # LastSecrets reads socket path from this env var
-          LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
+        run: command -v lastsecrets
 
       - name: Initialize LastSecrets
         if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
@@ -454,8 +349,8 @@ jobs:
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
         run: |
           set -euo pipefail
-          lastdb app install brain --channel "$REGISTRY_CHANNEL"
-          source_dir="$LASTDB_HOME/apps/brain/source"
+          lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install
+          source_dir="$LASTDB_APPS_ROOT/brain/current/source"
           bun "$source_dir/src/cli.ts" init
           printf '%s\n' 'CI app delivery record' | bun "$source_dir/src/cli.ts" put ci-app-delivery --type concept
           bun "$source_dir/src/cli.ts" get ci-app-delivery --type concept > "$PROOF_DIR/delivery-record.txt"
@@ -481,23 +376,9 @@ jobs:
           lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" | tee "$PROOF_DIR/lastseek-ingest-test.txt"
 
       # === Search (Outbox) ===
-      - name: Set up Search dependencies
+      - name: Use the registry-installed Search command
         if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
-        run: |
-          cd "$APP_SOURCE"
-          
-          # Use the pinned CI Bun runtime
-          bun --version
-          
-          # Add Bun's global bin directory to PATH
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-          
-          # Install dependencies
-          # The verified registry manifest already ran npm ci and npm run build.
-          npm --version | tee "$PROOF_DIR/search-deps-install.log"
-          
-          # Link command globally so 'search' is on PATH
-          bun link 2>&1 | tee "$PROOF_DIR/search-link.log"
+        run: command -v search
 
       - name: Index real LastDB delivery with Search
         if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
