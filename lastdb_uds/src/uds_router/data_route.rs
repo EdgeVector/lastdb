@@ -225,9 +225,6 @@ pub enum DataRoute {
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
     /// order-log walks) but still a heavy admin scan.
     DbSchemas,
-    /// `POST /api/storage/liveness/explain` — point-read the counter of one
-    /// file blob, and its dwell queue state.
-    LivenessExplain,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,

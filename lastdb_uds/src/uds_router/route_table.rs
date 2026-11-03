@@ -48,7 +48,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/inventory", Scope::Owner, "GET", DataRoute::DbInventory),
     row("/api/db/verify-refs/scopes", Scope::Owner, "GET", DataRoute::DbVerifyRefsScopes),
     row("/api/db/schemas", Scope::Owner, "GET", DataRoute::DbSchemas),
-    row("/api/storage/liveness/explain", Scope::Owner, "POST", DataRoute::LivenessExplain),
     row("/api/db/flush", Scope::Owner, "POST", DataRoute::DbFlush),
     row("/api/db/delete-ledger", Scope::Owner, "GET", DataRoute::DbDeleteLedger),
     row("/api/db/schema-retention", Scope::Owner, "POST", DataRoute::DbSchemaRetention),

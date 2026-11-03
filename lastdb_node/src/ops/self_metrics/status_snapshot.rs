@@ -119,9 +119,6 @@ pub struct StatusSnapshot {
     /// The reference verifier: the last run of `lastdb db verify-refs` and a
     /// run in progress.
     pub verify_refs: fold_db::db_operations::VerifySummary,
-    /// The blob counters: totals, the dwell queue at the last pass, counter
-    /// faults.
-    pub blob_counters: fold_db::db_operations::BlobCounterReport,
     /// The retention window of kept conflict records, the janitor's last run
     /// and the queue depth.
     pub conflict_retention: fold_db::db_operations::ConflictRetentionReport,

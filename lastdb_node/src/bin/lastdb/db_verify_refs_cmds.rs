@@ -1,5 +1,4 @@
-//! `lastdb db verify-refs`: report faults in the retention queue and the blob
-//! counters. Read-only.
+//! `lastdb db verify-refs`: report faults in the retention queue. Read-only.
 
 use super::*;
 use serde_json::{json, Value};
@@ -209,16 +208,7 @@ fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
 }
 
 /// The fault kinds, in the order the report prints them.
-const KINDS: [&str; 8] = [
-    "queue_entry_without_directory",
-    "blob_zero_without_dwell",
-    "blob_dwell_with_refs",
-    "zero_blob_without_queue_entry",
-    "blob_stale_queue_entry",
-    "blob_suspect",
-    "unreadable_blob_counter",
-    "blob_counter_without_blob",
-];
+const KINDS: [&str; 1] = ["queue_entry_without_directory"];
 
 fn print_report(report: &Value, complete: bool) {
     let scope = report.get("scope").and_then(Value::as_str);
@@ -229,20 +219,14 @@ fn print_report(report: &Value, complete: bool) {
         if complete { "complete" } else { "in progress" }
     );
     println!(
-        "  pages {}  steps {}  time {} ms  page retries {}",
+        "  pages {}  steps {}  time {} ms",
         u64_of(report, "pages"),
         u64_of(report, "steps"),
-        u64_of(report, "elapsed_ms"),
-        u64_of(report, "page_retries")
+        u64_of(report, "elapsed_ms")
     );
     println!(
         "  retention queue: {} entries read",
         u64_of(report, "queue_entries_read")
-    );
-    println!(
-        "  blobs: {} counters, {} queue entries",
-        u64_of(report, "blob_counters_read"),
-        u64_of(report, "blob_queue_read")
     );
     println!("  faults: {}", u64_of(report, "mismatches_total"));
     if let Some(kinds) = report.get("mismatches") {
@@ -263,7 +247,7 @@ fn print_samples(report: &Value) {
     for sample in samples.iter().take(20) {
         let text = |key: &str| sample.get(key).and_then(Value::as_str).unwrap_or("?");
         // The JSON key `record` keeps its name for its readers. It holds the
-        // blob, the blob counter id or the queue key that the fault names.
+        // queue key that the fault names.
         println!(
             "  e.g. {} {} — {}",
             text("kind"),

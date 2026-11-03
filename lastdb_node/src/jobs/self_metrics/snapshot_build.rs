@@ -65,7 +65,6 @@ pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSna
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
         verify_refs: host.db.verify_refs_summary(),
-        blob_counters: host.db.blob_counter_report().await,
         conflict_retention: host.db.conflict_retention_report().await,
         at_rest_compression: AtRestCompressionHealth::current(),
     }
