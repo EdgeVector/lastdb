@@ -6,9 +6,7 @@ impl SchemaStore {
     /// Get a specific schema by name.
     ///
     /// Query falls back here on a cache miss (`get_schema_following_supersession_for_read`).
-    /// A row that does not decode is treated as missing (same as boot-skip)
-    /// and logged — never returned as a serde error, which would become HTTP
-    /// 400 `expected value at line 1 column 1` and blind `kanban list`.
+    /// A row that does not decode is an error.
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         if let Some(snapshot) = self.prepared_snapshot(schema_name)? {
             return Ok(snapshot.schema.clone());
@@ -22,34 +20,17 @@ impl SchemaStore {
             return Ok(None);
         };
 
-        let mut schema = match decode_catalog_schema(&bytes) {
-            Ok(schema) => schema,
-            Err(e) => {
-                tracing::warn!(
-                    schema = %schema_name,
-                    error = %e,
-                    "durable schema row is unreadable; treating as missing so \
-                     query does not 400 (boot-skip already left it out of cache)"
-                );
-                return Ok(None);
-            }
-        };
+        let mut schema =
+            decode_catalog_schema(&bytes).map_err(|error| SchemaError::StorageRead {
+                detail: format!("schema catalog row {schema_name} is unreadable: {error}"),
+            })?;
         schema.populate_runtime_fields()?;
 
         Ok(Some(schema))
     }
 
-    /// Get the state of a specific schema.
-    ///
-    /// Same contract as [`Self::get_schema`] and the boot scan
-    /// ([`Self::get_all_schema_states`]): a row that does not decode is
-    /// treated as missing and logged, never returned as a serde error.
-    ///
-    /// Every hard-erasure finalize reloads its schema through
-    /// `load_schema_internal`, which reads this row. A strict read here would
-    /// make every Delete on a schema with an unreadable state row fail with
-    /// `Serialization error: expected value at line 1 column 1` after its
-    /// destructive step, on every retry, until the persist lane quarantined it.
+    /// Get the state of a specific schema. A row that does not decode is an
+    /// error.
     pub async fn get_schema_state(
         &self,
         schema_name: &str,
@@ -62,18 +43,11 @@ impl SchemaStore {
         else {
             return Ok(None);
         };
-        let state = match decode_catalog_json::<SchemaState>(&bytes) {
-            Ok(state) => state,
-            Err(e) => {
-                tracing::warn!(
-                    schema = %schema_name,
-                    error = %e,
-                    "durable schema state row is unreadable; treating it as missing \
-                     (boot-skip already left it out of the state cache)"
-                );
-                return Ok(None);
+        let state = decode_catalog_json::<SchemaState>(&bytes).map_err(|error| {
+            SchemaError::StorageRead {
+                detail: format!("schema state row {schema_name} is unreadable: {error}"),
             }
-        };
+        })?;
         Ok(Some(state))
     }
 

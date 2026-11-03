@@ -1,5 +1,5 @@
 use super::error::{StorageError, StorageResult};
-use super::traits::{KvMutation, KvStore, PartitionedScan, PhysicalScanCursor, PhysicalScanPage};
+use super::traits::{KvMutation, KvStore, PhysicalScanCursor, PhysicalScanPage};
 use crate::crypto::at_rest::{decode_binary_ciphertext, encode_binary_ciphertext};
 use crate::crypto::CryptoProvider;
 use async_trait::async_trait;

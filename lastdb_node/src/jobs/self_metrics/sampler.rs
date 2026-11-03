@@ -61,11 +61,11 @@ pub fn spawn_sampler(
 /// Bring an ALREADY-REGISTERED telemetry schema up to this binary's field list.
 ///
 /// This is the other half of the writer that must not live inside the writer.
-/// `ensure_schema` — which carries the additive migration — is reachable only
+/// `ensure_schema` — which upgrades the schema in place — is reachable only
 /// through `record_sample_to_db`, and that is gated on
 /// `LASTDB_SELF_METRICS_TO_DB`, off by default. So a store whose sink was on
 /// under an older binary and is off now keeps that older binary's field list
-/// forever, while every newer reader widens its projection past it.
+/// forever, while the reader projects this binary's full field list.
 ///
 /// The consequence is not a degraded read, it is no read at all: a field the
 /// schema does not declare is a hard `400 Invalid field` for the whole query,
@@ -155,7 +155,7 @@ pub(super) async fn heal_registered_telemetry_schemas(host: &Host) {
                 target: "lastdbd::self_metrics",
                 schema = name,
                 error = %e,
-                "telemetry schema heal failed; `--since` reads will stay narrowed"
+                "telemetry schema heal failed; `--since` reads fail until the schema declares every field"
             );
         }
     }

@@ -14,25 +14,25 @@ pub struct Begin {
     pub job: Job,
     /// Opaque client JSON stored with the job. The transport does not interpret it.
     pub descriptor: ClientDescriptor,
-    /// An empty list preserves legacy admission and provider identities.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// The providers that hold the objects of this job. The list is not empty.
     pub required_destinations: Vec<Destination>,
-    /// Explicit terminal-upload contract for new CI R2 allocations. Omission
-    /// preserves legacy admission and hashes; false is never an opt-in.
+    /// Multipart R2 uploads for a CI stream. Absent selects the conditional
+    /// PUT upload; `false` is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r2_multipart: Option<bool>,
     /// Previous accepted head. Absent starts a stream. The same commit id or a max ordinal is rejected.
     pub predecessor: Option<Head>,
-    /// Exact recovery dependencies, separate from publication order. None is
-    /// legacy and conservatively protects the predecessor chain. Some([])
-    /// declares an independent recovery base. Emit only after capability admission.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recovery_dependencies: Option<Vec<Head>>,
+    /// Exact recovery dependencies, separate from publication order. An empty
+    /// list declares an independent recovery base.
+    pub recovery_dependencies: Vec<Head>,
 }
 impl Begin {
     /// Reject `r2_multipart: false`, a bad job or descriptor, a bad predecessor or dependency list, or oversized JSON.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         super::common::validate_destinations(&self.required_destinations)?;
+        if self.required_destinations.is_empty() {
+            return Err(ProtocolError::invalid("v2.begin.required_destinations"));
+        }
         if self.r2_multipart == Some(false) {
             return Err(ProtocolError::invalid("v2.begin.r2_multipart"));
         }
@@ -49,9 +49,7 @@ impl Begin {
     }
 
     fn validate_dependencies(&self) -> Result<(), ProtocolError> {
-        let Some(dependencies) = &self.recovery_dependencies else {
-            return Ok(());
-        };
+        let dependencies = &self.recovery_dependencies;
         if dependencies.len() > 2 {
             return Err(ProtocolError::limit("v2.begin.recovery_dependencies"));
         }
@@ -74,11 +72,8 @@ impl Begin {
     }
 
     /// A retention planner must keep these exact accepted points recursively.
-    /// Legacy omission never means an independent snapshot.
     pub fn dependencies(&self) -> &[Head] {
-        self.recovery_dependencies
-            .as_deref()
-            .unwrap_or(self.predecessor.as_slice())
+        &self.recovery_dependencies
     }
     /// Domain-separated SHA-256 of this begin value, after validation.
     pub fn input_sha256(&self) -> Result<Digest, ProtocolError> {

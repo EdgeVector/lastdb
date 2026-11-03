@@ -59,7 +59,6 @@ impl RunBackupProfile {
             current_sha256: self.main.current_sha256.clone(),
             generation: self.main.generation,
             frontier: self.main.frontier,
-            required_features: DecimalU64::new(crate::storage::disk_pack::physical::V2_FEATURES),
         })
     }
     pub fn validate_root(&self, root: &NativeRoot) -> StorageResult<()> {

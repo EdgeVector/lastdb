@@ -7,9 +7,7 @@
 //! home, so they are separate files that a backup can send to a different
 //! store than the rest of the data.
 
-pub(in crate::storage) use super::physical_v2::{
-    V2Home, V2Read, V2Root, CAS_COLLECTION, V2_FEATURES,
-};
+pub(in crate::storage) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLLECTION};
 use super::*;
 use laststore::disk_run::home::RangeBounds;
 use laststore::disk_run::home::RunHashRange;

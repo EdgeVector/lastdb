@@ -3,7 +3,6 @@ use crate::db_operations::record_store::time_queue::QueueReader;
 use crate::db_operations::record_store::RecordStore;
 use crate::records::field_history::RecordHistoryEntry;
 use crate::schema::SchemaError;
-use crate::storage::KvMutation;
 
 impl RecordStore {
     /// One bounded cleanup step. A failed step never advances the cursor.
@@ -52,27 +51,19 @@ impl RecordStore {
     /// not lowered: an entry of the record in a later batch deletes the gone
     /// count again, and a count that drifted cannot stop the drop. The caller
     /// read the rows by key in its write scope. A row that does not decode
-    /// names no record or queue entry: it is deleted.
+    /// fails the release.
     pub(crate) async fn release_dropped_history(
         &self,
         rows: &[(String, Vec<u8>)],
     ) -> Result<u64, SchemaError> {
         let mut out = super::records::RecordHistoryRows::default();
-        let mut unreadable = 0usize;
         for (key, bytes) in rows {
-            if let Ok(entry) = serde_json::from_slice::<RecordHistoryEntry>(bytes) {
-                super::records::release(key, &entry, &mut out);
-            } else {
-                unreadable += 1;
-                out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
-            }
-        }
-        if unreadable > 0 {
-            tracing::warn!(
-                target: "fold_node::database",
-                unreadable,
-                "field history rows of a dropped schema do not decode; they are deleted"
-            );
+            let entry = serde_json::from_slice::<RecordHistoryEntry>(bytes).map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "field history row {key} of a dropped schema is unreadable: {error}"
+                ))
+            })?;
+            super::records::release(key, &entry, &mut out);
         }
         if out.rows.is_empty() {
             return Ok(0);
@@ -80,6 +71,6 @@ impl RecordStore {
         let mut batch = out.rows;
         batch.extend(super::key_counts::history_count_deletes(out.counts.keys())?);
         self.main_store.inner().batch_mutate(batch).await?;
-        Ok(out.released + unreadable as u64)
+        Ok(out.released)
     }
 }

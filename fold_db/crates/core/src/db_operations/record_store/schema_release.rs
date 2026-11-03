@@ -17,8 +17,8 @@
 //! goes on: it passes the deleted keys and releases the rest.
 //!
 //! - A record's file path (`fb:{S}:`, in `cas_blobs`) goes with the record.
-//!   The path comes from the record key (`record_files::dropped_file_paths`);
-//!   a record row that does not decode loses its path too.
+//!   The path comes from the record key (`record_files::dropped_file_paths`).
+//!   A record row that does not decode fails the drop.
 //! - A field history entry goes with its queue entry and the entry count of
 //!   its record (`release_dropped_history`).
 //! - An alternate entry holds no file.
@@ -147,7 +147,7 @@ impl RecordStore {
             files = dropped_file_paths(
                 rows.iter()
                     .map(|(key, value)| (key.as_bytes(), value.as_slice())),
-            );
+            )?;
         }
         self.raw().inner().batch_mutate(deletes).await?;
         self.stage_file_rows(files.into_iter().map(KvMutation::delete).collect())

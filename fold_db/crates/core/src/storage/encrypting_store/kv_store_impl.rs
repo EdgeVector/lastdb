@@ -1,13 +1,7 @@
 //! The `KvStore` trait implementation for `EncryptingKvStore`.
 
 use super::*;
-use crate::storage::disk_pack::WHOLE_COLLECTION_END;
 use crate::storage::traits::YieldedScan;
-
-/// Rows one page of a whole-namespace walk reads.
-const WALK_PAGE_ROWS: usize = 256;
-/// Physical handles one page of a whole-namespace walk resolves.
-const WALK_PAGE_HANDLES: usize = 1;
 
 #[async_trait]
 impl KvStore for EncryptingKvStore {
@@ -128,60 +122,6 @@ impl KvStore for EncryptingKvStore {
         Ok(PhysicalScanPage {
             rows: self.decrypt_rows(page.rows).await?,
             next_cursor: page.next_cursor,
-        })
-    }
-
-    // Non-aborting, *reporting* scan: unlike `scan_prefix` (fails the whole
-    // scan on the first poison row), this returns the cleanly-decrypted rows
-    // and the keys of every row it could not decrypt. The caller can report
-    // them loudly (snapshot backup) or scrub them (maintenance delete). It
-    // never re-derives or withholds a good row. The partition is exact.
-    async fn scan_prefix_partition_undecryptable(
-        &self,
-        prefix: &[u8],
-    ) -> StorageResult<PartitionedScan> {
-        // An empty prefix is a startup/admin walk of the whole namespace
-        // (boot decrypt proof, snapshot scrub). Page the physical range
-        // primitive over the whole namespace.
-        let results = if prefix.is_empty() {
-            let mut rows = Vec::new();
-            let mut cursor = None;
-            loop {
-                let page = self
-                    .inner
-                    .scan_range_physical_paged(
-                        &[],
-                        WHOLE_COLLECTION_END,
-                        cursor.as_ref(),
-                        WALK_PAGE_ROWS,
-                        WALK_PAGE_HANDLES,
-                    )
-                    .await?;
-                rows.extend(page.rows);
-                match page.next_cursor {
-                    Some(next) => cursor = Some(next),
-                    None => break,
-                }
-            }
-            rows
-        } else {
-            self.inner.scan_prefix(prefix).await?
-        };
-        let mut rows = Vec::with_capacity(results.len());
-        let mut undecryptable = Vec::new();
-
-        for (key, stored) in results {
-            match self.open_value(&key, stored).await {
-                Ok(plaintext) => {
-                    rows.push((key, plaintext));
-                }
-                Err(_) => undecryptable.push(key),
-            }
-        }
-
-        Ok(PartitionedScan {
-            rows,
-            undecryptable,
         })
     }
 

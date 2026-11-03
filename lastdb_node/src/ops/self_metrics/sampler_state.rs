@@ -348,19 +348,9 @@ impl SamplerRuntimeState {
                     phased_sum_ms: aggregate.phased_sum_ms.saturating_sub(prev.phased_sum_ms),
                     // Cumulative sums, so they delta honestly — and they must
                     // be delta'd rather than copied, because the ratio between
-                    // them is the whole reading: a cumulative pair carried into
-                    // an interval row would average this interval's write shape
-                    // together with every interval before it.
-                    sum_field_keys_persisted: aggregate
-                        .sum_field_keys_persisted
-                        .saturating_sub(prev.sum_field_keys_persisted),
-                    sum_field_key_store_commits: aggregate
-                        .sum_field_key_store_commits
-                        .saturating_sub(prev.sum_field_key_store_commits),
-                    // Same reasoning as the field key pair above: the ratio
-                    // between these two IS the reading, so a cumulative pair
-                    // carried into an interval row would average this
-                    // interval's commit shape with every interval before it.
+                    // these two IS the reading: a cumulative pair carried into
+                    // an interval row would average this interval's commit
+                    // shape with every interval before it.
                     sum_resident_commits: aggregate
                         .sum_resident_commits
                         .saturating_sub(prev.sum_resident_commits),

@@ -48,8 +48,6 @@ impl Inner {
             phase_sums: PhaseTimings::default(),
             phase_count: 0,
             phased_sum_ms: 0,
-            sum_field_keys_persisted: 0,
-            sum_field_key_store_commits: 0,
             sum_resident_commits: 0,
             sum_resident_operations: 0,
         });
@@ -59,12 +57,6 @@ impl Inner {
         agg.last_ts_ms = sample.ts_ms;
         agg.sum_body_bytes = agg.sum_body_bytes.saturating_add(sample.body_bytes);
         agg.max_body_bytes = agg.max_body_bytes.max(sample.body_bytes);
-        agg.sum_field_keys_persisted = agg
-            .sum_field_keys_persisted
-            .saturating_add(sample.field_keys_persisted);
-        agg.sum_field_key_store_commits = agg
-            .sum_field_key_store_commits
-            .saturating_add(sample.field_key_store_commits);
         agg.sum_resident_commits = agg
             .sum_resident_commits
             .saturating_add(sample.resident_commits);

@@ -17,7 +17,7 @@ mod validation;
 
 pub use identity::{
     compute_identity_hash_parts, parse_canonical_name, refuses_identity_downgrade,
-    IdentityRecompute, IDENTITY_HASH_ALGO_VERSION, LEGACY_IDENTITY_HASH_ALGO_VERSION,
+    IdentityRecompute, IDENTITY_HASH_ALGO_VERSION,
 };
 /// The schema identity algorithm lives here and nowhere else. Every schema
 /// type in the monorepo — including `fold_db`'s, which is a distinct struct —
@@ -141,13 +141,11 @@ pub struct DeclarativeSchemaDefinition {
     /// SHA256 hash of sorted field names — unique fingerprint of schema structure
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_hash: Option<String>,
-    /// Version of the algorithm that minted `identity_hash`.
-    ///
-    /// `None` means the row predates stamping and is treated as
-    /// [`identity::LEGACY_IDENTITY_HASH_ALGO_VERSION`]. A node refuses to
-    /// replace an identity stamped with a version **newer** than the one it
-    /// implements, so an old binary meeting new data reconciles loudly instead
-    /// of silently downgrading.
+    /// Version of the algorithm that minted `identity_hash`. Whoever computes
+    /// the hash stamps it; an incoming definition that carries no hash has no
+    /// stamp. A node refuses to replace an identity stamped with a version
+    /// **newer** than the one it implements, so an old binary meeting new data
+    /// reconciles loudly instead of silently downgrading.
     ///
     /// Deliberately **not** part of `PartialEq`: it describes the provenance of
     /// the hash, not the schema's content, so an unstamped row and a freshly

@@ -18,6 +18,4 @@ pub struct NativeRoot {
     pub generation: DecimalU64,
     /// Native frontier.
     pub frontier: DecimalU64,
-    /// Feature bits of the run home that wrote this root.
-    pub required_features: DecimalU64,
 }

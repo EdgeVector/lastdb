@@ -234,7 +234,7 @@ impl SchemaCore {
         }
 
         // Second downgrade guard, for the case the first cannot see: the
-        // incoming definition carries no identity (or a legacy one) but the row
+        // incoming definition carries no identity (or an unstamped one) but the row
         // already on disk was stamped by a newer binary. Recomputing above is
         // harmless; *persisting* it over the stored row would be the downgrade.
         // Adopt the stored identity instead.

@@ -66,14 +66,14 @@ impl ObjectRecord {
                     .offset
                     .checked_add(segment.bytes)
                     .is_none_or(|end| end > file.bytes)
-                || self.input.object.destination != Some(destination(file))
+                || self.input.object.destination != destination(file)
             {
                 return Err(BackupError::Identity);
             }
             bytes = bytes.checked_add(segment.bytes).ok_or(BackupError::Limit)?;
         }
         if self.payload.is_some() {
-            if self.input.object.destination != Some(cloud_backup_protocol::v2::Destination::R2)
+            if self.input.object.destination != cloud_backup_protocol::v2::Destination::R2
                 || self.input.object.bytes.get()
                     > fold_db::storage::disk_pack::byte_backup::CODEC_ENVELOPE_MAX_BYTES
             {

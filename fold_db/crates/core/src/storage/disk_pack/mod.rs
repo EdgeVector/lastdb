@@ -51,7 +51,6 @@ pub(crate) use read::memory::{
 };
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get};
 pub use read::PackReadScope;
-pub(crate) use rows::WHOLE_COLLECTION_END;
 pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;

@@ -1,40 +1,7 @@
-//! Partitioned-scan results and the batch mutation enum.
+//! Scan pages, cursors, and the batch mutation enum.
 
 use super::KvStore;
 use crate::storage::error::StorageResult;
-
-/// The result of [`KvStore::scan_prefix_partition_undecryptable`]: rows that
-/// read (decrypt) cleanly, separated from the keys of rows whose at-rest value
-/// could not be decrypted with any registered key ("poison" / undecryptable
-/// rows).
-///
-/// Unlike [`KvStore::scan_prefix`] (which fails the whole scan on the first
-/// undecryptable row), this keeps the undecryptable keys so the caller can *report* them
-/// loudly — a snapshot backup that must not abort on a handful of unrecoverable
-/// poison rows — or *scrub* them (an explicit maintenance delete).
-#[derive(Debug, Default, Clone)]
-pub struct PartitionedScan {
-    /// Rows that decrypted cleanly: `(key, plaintext value)`.
-    pub rows: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Keys of rows that could not be decrypted. Their values are withheld
-    /// (they are unreadable). Non-encrypting backends never populate this.
-    pub undecryptable: Vec<Vec<u8>>,
-}
-
-/// Typed-layer counterpart to [`PartitionedScan`]: rows that deserialized
-/// cleanly, plus the keys that did not and why.
-///
-/// Returned by
-/// [`TypedKvStore::scan_items_with_prefix_partition_undecodable`]. `undecodable`
-/// carries `(key, serde error)` so a caller can log exactly which record is
-/// poisoned — an operator grepping for one bad key should not have to guess.
-#[derive(Debug)]
-pub struct PartitionedItems<T> {
-    /// Items that deserialized cleanly: `(key, value)`.
-    pub items: Vec<(String, T)>,
-    /// `(key, error)` for rows present in storage but not decodable as `T`.
-    pub undecodable: Vec<(String, String)>,
-}
 
 /// One ordered mutation in a mixed durable batch.
 ///

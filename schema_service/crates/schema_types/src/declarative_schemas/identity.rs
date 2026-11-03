@@ -8,28 +8,7 @@ use sha2::{Digest, Sha256};
 /// their order, the separators, or the empty-value handling in
 /// [`compute_identity_hash_parts`]. A change without a bump is exactly the
 /// failure this constant exists to prevent.
-///
-/// **Why the current algorithm is 2, not 1.** At least two hash-input shapes
-/// have been persisted on the primary, and git history dates the split:
-/// Schema Service gained the `:key:` segment in `05a5691d1`, and the node did
-/// not get it until `859f8f13f`. Between those commits the node computed a
-/// different hash for the same keyed schema and, because
-/// `load_schema_internal` recomputed unconditionally, **persisted** it over the
-/// service's answer. That window is what left 43 rows on the primary carrying a
-/// stale hash — keyed-readable but scan-invisible (Papercut 2026-08-06).
-///
-/// Version 1 is therefore "minted before stamping existed, provenance
-/// unknown": it may be pre-`:key:`, pre-`app:`, or in fact the current shape.
-/// The variants cannot be told apart after the fact because none of them were
-/// stamped, which is the point of stamping from here on.
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 2;
-
-/// The version assumed for a row that carries an `identity_hash` but no
-/// `identity_hash_algo_version` — every row written before this stamping
-/// shipped. Such a row may be freely upgraded: recomputing at the current
-/// version either reproduces the same hash (the row was already correct) or
-/// repairs it (the row was one of the stale ones).
-pub const LEGACY_IDENTITY_HASH_ALGO_VERSION: u32 = 1;
 
 /// What a gated recompute did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,16 +44,16 @@ impl IdentityRecompute {
 /// persisted unconditionally, so a downgrade was indistinguishable from an
 /// upgrade and left no trace.
 ///
-/// A row with no stored hash has nothing to protect, and an unversioned row is
-/// [`LEGACY_IDENTITY_HASH_ALGO_VERSION`] and may be upgraded.
+/// A row with no stored hash has nothing to protect, and a definition with no
+/// stamp may be recomputed.
 #[must_use]
 pub fn refuses_identity_downgrade(
     stored_hash: Option<&str>,
     stored_version: Option<u32>,
 ) -> Option<u32> {
-    let stored = stored_version.unwrap_or(LEGACY_IDENTITY_HASH_ALGO_VERSION);
-    (stored_hash.is_some_and(|h| !h.is_empty()) && stored > IDENTITY_HASH_ALGO_VERSION)
-        .then_some(stored)
+    stored_version.filter(|stored| {
+        stored_hash.is_some_and(|h| !h.is_empty()) && *stored > IDENTITY_HASH_ALGO_VERSION
+    })
 }
 
 /// **The** schema identity-hash algorithm. One implementation, network-wide.
@@ -226,15 +205,6 @@ impl DeclarativeSchemaDefinition {
             self.key.as_ref(),
         ));
         self.identity_hash_algo_version = Some(IDENTITY_HASH_ALGO_VERSION);
-    }
-
-    /// The algorithm version that minted this schema's `identity_hash`.
-    ///
-    /// An unstamped row reports [`LEGACY_IDENTITY_HASH_ALGO_VERSION`].
-    #[must_use]
-    pub fn identity_hash_algo_version(&self) -> u32 {
-        self.identity_hash_algo_version
-            .unwrap_or(LEGACY_IDENTITY_HASH_ALGO_VERSION)
     }
 
     /// True when this schema's identity was minted by an algorithm newer than

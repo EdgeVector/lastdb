@@ -106,7 +106,7 @@ impl MutationManager {
         );
 
         Self::log_timing_breakdown(&timing_breakdown, total_time);
-        Self::report_phase_totals(&timing_breakdown, total_time, std::time::Duration::ZERO);
+        Self::report_phase_totals(&timing_breakdown, total_time);
         Self::report_resident_commit_counts(&operations);
 
         ResidentCommitReceipt {

@@ -21,12 +21,11 @@
 //! than an omission.
 //!
 //! The phase set is a *partition* of the request's wall clock: `apply` is
-//! computed as the residual of every other named bucket, and
+//! computed as the residual of the batch's named write buckets, and
 //! `PhaseTimings::within_wall_us` sums the set to derive the `unattributed=`
 //! remainder every operator surface prints. These stages overlap phases that
-//! already exist — preparation spans `restore_field_keys_us` and
-//! `schema_load_us`, and the acknowledgment spans the whole request. Adding
-//! them as phase buckets would
+//! already exist — preparation lies inside the `apply_us` residual, and the
+//! acknowledgment spans the whole request. Adding them as phase buckets would
 //! double-count those microseconds, drive the residual to zero and then
 //! underflow it, and corrupt `unattributed` on every request the node serves —
 //! not just resident commits.

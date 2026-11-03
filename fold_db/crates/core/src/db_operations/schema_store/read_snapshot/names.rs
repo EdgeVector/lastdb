@@ -7,7 +7,7 @@ const MAX_NAMES: usize = 10_000;
 
 impl SchemaStore {
     pub(crate) async fn read_name_directory(&self) -> Result<Vec<SchemaWithState>, SchemaError> {
-        let schemas = self.get_all_schemas_strict().await?;
+        let schemas = self.get_all_schemas().await?;
         if schemas.len() > MAX_NAMES {
             return Err(SchemaError::StorageRead {
                 detail: "captured schema name directory exceeds its call limit".into(),

@@ -36,22 +36,6 @@ pub use reader::RunReader;
 pub(crate) use writer::PreparedRun;
 pub use writer::{RunSummary, RunWriter};
 
-/// The base bit of the fixed feature set. It names no structure: the
-/// structure that it first named is gone, and no current writer depends on it.
-/// The value stays because the byte backup manifest and the service carry the
-/// fixed set.
-///
-/// This bit and the two below are the fixed feature set of every disk format
-/// v2 home (`V2_FEATURES` in the node store). A v2 home stores no feature
-/// bits; only the byte backup manifest records the set.
-pub const FEATURE_BASE: u64 = 16;
-
-/// Native batches admit 16,384 ordered storage operations.
-pub const FEATURE_LARGE_BATCHES: u64 = 32;
-
-/// The record key layout. The bit fences a home from a program that predates it.
-pub const FEATURE_RECORD_LAYOUT: u64 = 128;
-
 /// File name suffix of a complete run.
 pub const RUN_SUFFIX: &str = ".ldrun";
 

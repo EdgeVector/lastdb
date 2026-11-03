@@ -15,21 +15,10 @@ impl SchemaStore {
     /// Every retention alias row: `(manifest name, anchor)`. Reads only the
     /// reserved alias prefix, never product rows.
     pub async fn retention_aliases(&self) -> Result<Vec<(String, String)>, SchemaError> {
-        let scan = self
+        Ok(self
             .schema_states_store
-            .scan_items_with_prefix_partition_undecodable::<SchemaRetentionAnchor>(
-                RETENTION_ANCHOR_KEY_PREFIX,
-            )
-            .await?;
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                key = %key,
-                error = %error,
-                "unreadable schema retention anchor row; skipping"
-            );
-        }
-        Ok(scan
-            .items
+            .scan_items_with_prefix::<SchemaRetentionAnchor>(RETENTION_ANCHOR_KEY_PREFIX)
+            .await?
             .into_iter()
             .filter_map(|(key, row)| {
                 let name = key.strip_prefix(RETENTION_ANCHOR_KEY_PREFIX)?;

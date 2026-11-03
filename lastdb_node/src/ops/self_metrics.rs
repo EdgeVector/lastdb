@@ -56,6 +56,7 @@ pub use build_health::*;
 pub use constants::*;
 pub use durability::*;
 pub use env::*;
+pub use fields::REQUEST_OPS_ROLLUP_FIELDS;
 pub(crate) use fields::*;
 pub use footprint_governor::*;
 pub(crate) use format::*;

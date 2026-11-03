@@ -66,9 +66,8 @@ pub struct Object {
     pub sha256: Digest,
     /// Stored object length, in bytes. Zero is rejected.
     pub bytes: DecimalU64,
-    /// Absence preserves the original immutable provider binding and V2 identity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub destination: Option<Destination>,
+    /// The provider that stores the object.
+    pub destination: Destination,
 }
 impl Object {
     /// Reject a zero byte length.

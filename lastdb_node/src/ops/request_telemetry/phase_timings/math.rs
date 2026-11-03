@@ -10,13 +10,13 @@ impl PhaseTimings {
 
     /// Flat fold over all [`PHASE_COUNT`] fields, INCLUDING pre-service waits
     /// AND `hydrate_us`, which its three `hydrate_*` children partition. On a
-    /// post-0.23.4 query row that parent is therefore counted twice, so this
-    /// sum is ~2x the real phase cost.
+    /// query row that parent is therefore counted twice, so this sum is ~2x
+    /// the real phase cost.
     ///
     /// It is the WRONG number to rank keys by — use [`Self::disjoint_us`] —
     /// and the WRONG number to subtract from `duration_ms` — use
     /// [`Self::within_wall_us`]. It is kept because the wire vocabulary is
-    /// a flat 50-field array and a caller that genuinely wants the raw fold
+    /// a flat array and a caller that genuinely wants the raw fold
     /// (a serialization round-trip check, for one) should not have to
     /// reimplement it.
     #[must_use]
@@ -34,8 +34,8 @@ impl PhaseTimings {
     /// whole materialization span while `hydrate_records` / `hydrate_format` /
     /// `hydrate_sort` partition that same span exactly
     /// (an invariant of the phase recorder). Every other phase surface
-    /// in this node treats its buckets as disjoint — `apply` and `persist`
-    /// are residuals for precisely this reason — so summing the parent beside
+    /// in this node treats its buckets as disjoint — `apply` is a residual
+    /// for precisely this reason — so summing the parent beside
     /// its own parts inflated every query row while every mutation row was
     /// ranked honestly.
     ///
@@ -46,21 +46,17 @@ impl PhaseTimings {
     /// `duration_ms`, placed above it. One command's output contradicted
     /// itself and whichever table was read first was the one acted on.
     ///
-    /// The subtraction is GUARDED on the children, which handles both eras
-    /// with no schema change: a rollup row written before the 0.23.4 carve
-    /// carries `hydrate` with zero children and stays whole; a row written
-    /// after it carries the children and drops the parent. The parent itself
-    /// is never rewritten — `handlers.rs` keeps it so rollup series written
-    /// before the carve stay comparable, and that argument is sound.
+    /// The subtraction is GUARDED on the children: a set that carries
+    /// `hydrate` with zero children stays whole, and a set that carries the
+    /// children drops the parent.
     #[must_use]
     pub fn disjoint_us(&self) -> u64 {
         self.total_us().saturating_sub(self.double_counted_us())
     }
 
     /// Phase time that [`Self::total_us`] counts twice: the sum of every
-    /// parent phase whose children reported. Zero on mutation rows, on
-    /// pre-carve rollup rows, and on any query that reported `hydrate`
-    /// without a sub-step.
+    /// parent phase whose children reported. Zero on mutation rows and on
+    /// any query that reported `hydrate` without a sub-step.
     #[must_use]
     pub(super) fn double_counted_us(&self) -> u64 {
         let hydrate_children = self
@@ -134,7 +130,7 @@ impl PhaseTimings {
         Self::from_array(values)
     }
 
-    /// Rendered breakdown like ` phases[apply=3400us persist=90us]`. Zero
+    /// Rendered breakdown like ` phases[apply=3400us grouping=90us]`. Zero
     /// phases are omitted and an empty set renders as the empty string, so
     /// lines for requests that reported nothing stay byte-identical to what
     /// operators already read.

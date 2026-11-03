@@ -154,14 +154,57 @@ pub fn rollup_lines_with_schema_labels(
         lines.extend(calls_table(&snap.top_by_count, labels, now));
     }
 
-    // Merged interval phase SUMS from the persisted rollup rows — the same
+    // Merged interval phase SUMS from the persisted rollup records — the same
     // table shape as the live view, so an operator pivots between `lastdb
-    // ops` and `--since` without relearning the vocabulary. Absent until a
-    // row in the window carries phase fields (rows written before phase
-    // persistence read back as an absent phase set).
+    // ops` and `--since` without relearning the vocabulary. Absent when no
+    // key in the window reported a phase.
     lines.extend(phase_table_lines(&snap.top_by_total_ms, labels));
 
     lines
+}
+
+/// Read one required field of a `RequestOpsRollup` record.
+///
+/// The writer stores every declared field on every record, so a missing field
+/// is a defect, not a zero. The error names the field and the record.
+fn required_rollup_field<'a>(
+    fields: &'a serde_json::Value,
+    name: &str,
+    sample_id: &str,
+) -> Result<&'a serde_json::Value, String> {
+    fields
+        .get(name)
+        .ok_or_else(|| format!("request-ops rollup record {sample_id}: field `{name}` is missing"))
+}
+
+/// Read one required unsigned integer field of a `RequestOpsRollup` record.
+/// A missing or wrongly typed field is an error that names the field and
+/// `sample_id`.
+pub fn required_rollup_u64(
+    fields: &serde_json::Value,
+    name: &str,
+    sample_id: &str,
+) -> Result<u64, String> {
+    let value = required_rollup_field(fields, name, sample_id)?;
+    value.as_u64().ok_or_else(|| {
+        format!(
+            "request-ops rollup record {sample_id}: field `{name}` is not an unsigned integer: \
+             {value}"
+        )
+    })
+}
+
+/// Read one required string field of a `RequestOpsRollup` record. A missing
+/// or wrongly typed field is an error that names the field and `sample_id`.
+pub fn required_rollup_str<'a>(
+    fields: &'a serde_json::Value,
+    name: &str,
+    sample_id: &str,
+) -> Result<&'a str, String> {
+    let value = required_rollup_field(fields, name, sample_id)?;
+    value.as_str().ok_or_else(|| {
+        format!("request-ops rollup record {sample_id}: field `{name}` is not a string: {value}")
+    })
 }
 
 pub(super) fn sanitize_label(raw: &str, max_len: usize, empty: &str) -> String {

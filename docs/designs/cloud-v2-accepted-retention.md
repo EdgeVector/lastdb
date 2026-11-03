@@ -27,20 +27,13 @@ Publication order and recovery dependencies serve separate purposes.
 The existing `predecessor` controls conditional publication order.
 It does not say whether a later full snapshot needs an older backup.
 
-The optional `Begin.recovery_dependencies` becomes part of the existing begin and commit hashes.
+Every `Begin` carries `recovery_dependencies`, and the field is part of the begin and commit hashes.
 An independent full snapshot declares an empty list.
 A mutation-log checkpoint declares its base snapshot and previous checkpoint, once each, in ordinal order.
 The client authenticates that declaration against its encrypted recovery root.
 The service verifies each named accepted identity in the same account, generation, and stream.
 Each dependency has an earlier ordinal.
-
-Omission means legacy behavior, not an independent snapshot.
-Legacy backups conservatively depend on their publication predecessor.
-No old hash changes because the absent field remains absent on serialization.
-The automatic client declares the field on every new job: `[]` for a snapshot, and `[base]` or `[base, previous]` for a log checkpoint.
-Every deployed service package (DEV and PROD, protocol from `558926c35`) accepts and stores the field.
-Jobs saved before this client keep their legacy omission.
-An older service rejects the unsupported field instead of ignoring it.
+The protocol has no form without the field: a job that omits it does not decode.
 
 The pure `recovery_closure` operation classifies the frozen accepted directory.
 It checks exact identities, complete dependencies, resource bounds, and all selected roots.

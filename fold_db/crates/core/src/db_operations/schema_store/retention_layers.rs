@@ -13,35 +13,17 @@ use crate::schema::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
 use crate::schema::{RetentionSource, SchemaError, SchemaRetentionPolicy};
-use crate::storage::StorageError;
 
 impl SchemaStore {
     /// The schema that holds the retention state for `schema_name`: the alias
     /// target when a manifest declare recorded one, otherwise the name itself.
-    ///
-    /// An alias row that cannot be decoded reads as no alias, with an error in
-    /// the log. This runs in the persist lane for every write: a failed read
-    /// there is retried and then quarantines the write, so one bad row must not
-    /// block the durability of a schema's writes. Reading no alias deletes
-    /// nothing: the schema simply stops being tracked.
+    /// An alias row that does not decode is an error.
     pub async fn retention_anchor(&self, schema_name: &str) -> Result<String, SchemaError> {
-        let key = retention_anchor_key(schema_name);
-        match self
+        let row = self
             .schema_states_store
-            .get_item::<SchemaRetentionAnchor>(&key)
-            .await
-        {
-            Ok(row) => Ok(row.map_or_else(|| schema_name.to_string(), |row| row.anchor)),
-            Err(StorageError::SerializationError(error)) => {
-                tracing::error!(
-                    schema = %schema_name,
-                    error = %error,
-                    "unreadable schema retention anchor row; treating the schema as its own anchor"
-                );
-                Ok(schema_name.to_string())
-            }
-            Err(error) => Err(error.into()),
-        }
+            .get_item::<SchemaRetentionAnchor>(&retention_anchor_key(schema_name))
+            .await?;
+        Ok(row.map_or_else(|| schema_name.to_string(), |row| row.anchor))
     }
 
     /// Read what a manifest TTL of `ttl_seconds` would do to `schema_name`

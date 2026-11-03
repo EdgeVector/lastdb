@@ -116,7 +116,7 @@ pub(in crate::storage::disk_backup::byte_backup) fn freeze(
         Object {
             sha256: bytes_sha256(&encrypted),
             bytes: DecimalU64::new(encrypted.len() as u64),
-            destination: Some(cloud_backup_protocol::v2::Destination::R2),
+            destination: cloud_backup_protocol::v2::Destination::R2,
         },
         request_id,
     )?;

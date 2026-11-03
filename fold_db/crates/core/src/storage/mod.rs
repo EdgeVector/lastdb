@@ -41,4 +41,4 @@ pub use config::{DatabaseConfig, StorageEngine};
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::EncryptingNamespacedStore;
-pub use traits::{KvMutation, KvStore, NamespacedStore, PartitionedScan, TypedKvStore};
+pub use traits::{KvMutation, KvStore, NamespacedStore, TypedKvStore};

@@ -113,7 +113,6 @@ fn report(
     }
     Ok(serde_json::json!({
         "selected": root, "retained_points": closure.retained.len(),
-        "legacy_points": directory.iter().filter(|b| b.begin.recovery_dependencies.is_none()).count(),
         "dependency_edges": directory.iter().map(|b| b.begin.dependencies().len()).sum::<usize>(),
         "accepted_hashes_verified": true, "metadata_bytes": bytes,
         "directory_sha256": closure.directory_sha256,

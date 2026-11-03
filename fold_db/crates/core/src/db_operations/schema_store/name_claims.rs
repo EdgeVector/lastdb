@@ -40,19 +40,12 @@ impl SchemaStore {
     /// Read once at boot by `SchemaCore::new`, exactly like the schema-state
     /// and superseded-by maps.
     pub async fn list_retired_name_claims(&self) -> Result<Vec<String>, SchemaError> {
-        let scan = self
+        let rows = self
             .schema_states_store
-            .scan_items_with_prefix_partition_undecodable::<SchemaNameClaim>(NAME_CLAIM_KEY_PREFIX)
+            .scan_items_with_prefix::<SchemaNameClaim>(NAME_CLAIM_KEY_PREFIX)
             .await?;
-        for (key, error) in &scan.undecodable {
-            tracing::warn!(
-                key = %key,
-                error = %error,
-                "unreadable schema name-claim row; skipping"
-            );
-        }
         let mut out = Vec::new();
-        for (key, claim) in scan.items {
+        for (key, claim) in rows {
             if !claim.retired {
                 continue;
             }

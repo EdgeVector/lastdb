@@ -31,11 +31,7 @@ impl MutationManager {
         );
         // The idempotency scan was real work; report it even though the
         // batch turned out to be all duplicates. No schema group ran.
-        Self::report_phase_totals(
-            timing_breakdown,
-            start_time.elapsed(),
-            std::time::Duration::ZERO,
-        );
+        Self::report_phase_totals(timing_breakdown, start_time.elapsed());
         // Every requested operation was recognised as already applied, so
         // the whole batch moves to `no_op`. The commit still counts: it
         // paid a real idempotency scan, and reporting zero here would make
@@ -64,12 +60,11 @@ impl MutationManager {
     /// CAS-guarded mutation cannot be rejected as a conflict against a value
     /// its own earlier attempt already produced.
     ///
-    /// Reported separately from the lock wait: this is storage IO (one batch
-    /// read of the guarded records), not queueing, and the two have opposite
-    /// remedies. The same window also carries the `must_exist` update gate and
-    /// the loud erasure gate: the same class of work under the same native
-    /// gate, so they share the phase rather than minting a second name for
-    /// the same number.
+    /// Reported as its own phase: this is storage IO (one batch read of the
+    /// guarded records), not queueing. The same window also carries the
+    /// `must_exist` update gate and the loud erasure gate: the same class of
+    /// work under the same native gate, so they share the phase rather than
+    /// minting a second name for the same number.
     pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,
         new_mutations: &[Mutation],

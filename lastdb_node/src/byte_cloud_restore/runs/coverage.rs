@@ -44,7 +44,7 @@ impl Coverage {
     }
 
     fn metadata(&mut self, id: &Digest, inventory: &mut Inventory) -> Result<()> {
-        if inventory.receipt(id)?.object.destination != Some(Destination::R2) {
+        if inventory.receipt(id)?.object.destination != Destination::R2 {
             return Err(RestoreError::Invalid("run metadata destination"));
         }
         inventory.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
@@ -76,7 +76,7 @@ impl Coverage {
             for extent in &file.extents {
                 let receipt = inventory.receipt(&extent.receipt_id)?;
                 let id = digest(&extent.receipt_id)?;
-                if self.metadata.contains(&id) || receipt.object.destination != Some(destination) {
+                if self.metadata.contains(&id) || receipt.object.destination != destination {
                     return Err(RestoreError::Invalid("run native receipt destination"));
                 }
                 let bytes = receipt.object.bytes.get();
