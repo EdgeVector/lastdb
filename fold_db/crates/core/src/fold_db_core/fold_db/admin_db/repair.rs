@@ -14,7 +14,7 @@ impl FoldDB {
     ) -> Result<Vec<RecordDeleteLedgerEntry>, FoldDbError> {
         self.db_ops()
             .records()
-            .list_record_delete_ledger(None, limit)
+            .list_record_delete_ledger(limit)
             .await
             .map_err(|e| FoldDbError::Database(format!("list_record_delete_ledger: {e}")))
     }

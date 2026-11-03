@@ -5,6 +5,10 @@
 //! <root>/LOCK                    exclusive owner lock (flock)
 //! <root>/CURRENT                 sealed list of runs + frontier
 //! <root>/runs/<run id>.ldrun     immutable run files
+//! <root>/NODE_CLEANUP            optional node-cleanup checkpoint
+//! <root>/CAS_DELETE              optional cross-home deletion intent
+//! <root>/mutation-log-v1/        the owner's mutation log
+//! <root>/cloud-byte-v2/          the owner's backup source and run holds
 //! ```
 //!
 //! A commit writes one level-0 run with all of its records, makes the run
@@ -70,7 +74,8 @@ use super::{RunOptions, RUN_SUFFIX};
 use crate::durability::sync_directory;
 use crate::{Error, Result};
 use create::build_empty;
-use manifest::{Manifest, RunFile, RUNS};
+use manifest::{Manifest, RunFile};
+pub use manifest::{CURRENT, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
@@ -80,6 +85,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use uuid::Uuid;
 
+/// File name of the exclusive owner lock (flock).
+pub const LOCK: &str = "LOCK";
+/// File name of the authenticated node-cleanup checkpoint.
+pub const NODE_CLEANUP: &str = "NODE_CLEANUP";
+/// File name of the authenticated cross-home deletion intent.
+pub const CAS_DELETE: &str = "CAS_DELETE";
+/// Directory of the home owner's mutation log, beside `runs/`.
+pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
+/// Directory of the home owner's cloud backup: the capture source and the
+/// run holds. A hold hard-links run files, so it stays beside `runs/`.
+pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 /// `LDRHOME4`: every value is stored as given.
@@ -348,9 +364,9 @@ fn remove_leftovers(root: &Path, runs: &Path, manifest: &Manifest) -> Result<()>
     for entry in fs::read_dir(root)? {
         let name = entry?.file_name();
         let name = name.to_string_lossy();
-        if (name.starts_with(".CURRENT.")
-            || name.starts_with(".NODE_CLEANUP.")
-            || name.starts_with(".CAS_DELETE."))
+        if [CURRENT, NODE_CLEANUP, CAS_DELETE]
+            .iter()
+            .any(|file| name.starts_with(&format!(".{file}.")))
             && name.ends_with(".tmp")
         {
             fs::remove_file(root.join(&*name))?;

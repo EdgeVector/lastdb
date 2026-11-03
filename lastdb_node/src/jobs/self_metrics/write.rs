@@ -106,14 +106,10 @@ pub(super) async fn write_mutation(
     );
     host.db
         .mutation_manager()
-        .write_mutations_with_access(vec![mutation], &owner_context(host))
+        .write_mutations(vec![mutation])
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())
-}
-
-pub(super) fn owner_context(host: &Host) -> AccessContext {
-    AccessContext::owner(host.user_hash.clone()).with_transport(CallerTransport::InProcess)
 }
 
 // lint:file-size-ok moved verbatim from self_metrics.rs; cohesive unit, split further in a later pass

@@ -1,7 +1,6 @@
 //! Mutation Manager — handles all mutation operations.
 //!
 //! Layout:
-//! - [`helpers`] — free helpers (storage prefix, derived guard)
 //! - [`write`] — public write entry points and the record batch pipeline
 //! - [`key_values`] — primary keys and declared field values of a mutation
 //! - [`cas_rules`] — write preconditions; [`cas_idempotency`] — retry filter
@@ -12,7 +11,6 @@ mod author_clock;
 mod cas_idempotency;
 mod cas_preconditions;
 mod cas_rules;
-pub(super) mod helpers;
 mod index;
 mod key_values;
 pub mod receipt;

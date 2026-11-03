@@ -1,7 +1,7 @@
 //! Schema domain store.
 //!
-//! Owns the storage namespaces for schemas, schema states, and
-//! schema supersede-by mappings. External callers access schema
+//! Owns the storage namespaces for schemas and schema states.
+//! External callers access schema
 //! operations through this type via `DbOperations::schemas()`.
 
 use crate::schema::{Schema, SchemaError, SchemaState};
@@ -39,7 +39,6 @@ use catalog_keys::*;
 pub struct SchemaStore {
     schemas_store: Arc<TypedKvStore<dyn KvStore>>,
     schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
-    superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
     runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     /// The floors of the TTL sweep, in process memory (`retention_floors.rs`).
     retention_floors: Arc<RetentionFloors>,
@@ -49,13 +48,11 @@ impl SchemaStore {
     pub(crate) fn new(
         schemas_store: Arc<TypedKvStore<dyn KvStore>>,
         schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
-        superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
         runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Self {
         Self {
             schemas_store,
             schema_states_store,
-            superseded_by_store,
             runtime,
             retention_floors: Arc::default(),
         }
@@ -65,7 +62,6 @@ impl SchemaStore {
     pub(crate) async fn flush(&self) -> Result<(), SchemaError> {
         self.schemas_store.inner().flush().await?;
         self.schema_states_store.inner().flush().await?;
-        self.superseded_by_store.inner().flush().await?;
         Ok(())
     }
 
@@ -93,18 +89,6 @@ impl SchemaStore {
             schemas.insert(key, schema);
         }
         Ok(schemas)
-    }
-
-    /// Get all superseded-by mappings.
-    pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {
-        let rows = read_catalog_range::<String>(
-            &self.superseded_by_store,
-            "superseded_by",
-            b"",
-            CATALOG_SCAN_END,
-        )
-        .await?;
-        Ok(rows.into_iter().collect())
     }
 
     /// Get all schema states.

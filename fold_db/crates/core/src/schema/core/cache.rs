@@ -41,7 +41,7 @@ impl SchemaCore {
     }
 
     /// Returns only active (non-Blocked) schemas for UI listings.
-    /// Blocked schemas have been superseded and should not appear in the Data Browser.
+    /// A Blocked schema is being dropped and should not appear in the Data Browser.
     pub fn get_active_schemas_with_states(&self) -> Result<Vec<SchemaWithState>, SchemaError> {
         let all = self.get_schemas_with_states()?;
         Ok(all
@@ -61,15 +61,14 @@ impl SchemaCore {
             .collect())
     }
 
-    /// Raw, as-named lookup — does **NOT** follow the `superseded_by` chain.
-    /// Returns exactly the schema the caller named (or `None`), even if it is
-    /// `Blocked` and has an active successor.
+    /// Raw, as-named lookup from the cache. Returns exactly the schema the
+    /// caller named (or `None`), even if it is `Blocked`.
     ///
     /// Use this for *inspection* paths that report on the named schema as it
-    /// stands. For any runtime/executor data path — where the executor will
-    /// transparently redirect a `Blocked` name to its successor — use
-    /// [`Self::get_schema_following_supersession`] so the gate and the
-    /// executor agree on which schema's fields/owner are authoritative.
+    /// stands. For any runtime/executor data path use
+    /// [`Self::get_schema_following_supersession`], which also refreshes a
+    /// stale cache from the database, so the gate and the executor agree on
+    /// which schema's fields/owner are authoritative.
     pub fn get_schema_metadata(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         if self.native_read_snapshot_active() {
             if let Some(schema) = self.captured_schema_metadata(schema_name)? {

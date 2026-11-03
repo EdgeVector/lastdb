@@ -34,9 +34,8 @@ pub(super) fn verify_records(proof: &Proof<'_>) -> StorageResult<u64> {
 fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     let raw = native_routing::decode(key)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;
-    let bare = crate::storage::current_keys::source_key(raw)?;
-    let history = bare.starts_with(RECORD_HISTORY_PREFIX);
-    if !history && !bare.starts_with(RECORD_PREFIX) {
+    let history = raw.starts_with(RECORD_HISTORY_PREFIX);
+    if !history && !raw.starts_with(RECORD_PREFIX) {
         crate::storage::current_keys::validate("main", raw.as_bytes())?;
         return Ok(false);
     }
@@ -77,8 +76,12 @@ fn file_in_backup(proof: &Proof<'_>, path: &str) -> StorageResult<()> {
         proof.cas,
         read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1),
     )?;
-    read.copy_body_to("cas_blobs", key.as_bytes(), &mut std::io::sink())
-        .map_err(map)?
-        .ok_or_else(|| invalid("run backup record file missing"))?;
+    read.copy_body_to(
+        crate::storage::disk_pack::CAS_COLLECTION,
+        key.as_bytes(),
+        &mut std::io::sink(),
+    )
+    .map_err(map)?
+    .ok_or_else(|| invalid("run backup record file missing"))?;
     Ok(())
 }

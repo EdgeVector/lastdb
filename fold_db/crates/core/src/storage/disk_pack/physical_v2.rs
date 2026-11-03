@@ -7,7 +7,7 @@ use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunRoot};
 
 /// The collection that holds the CAS files. In format v2 it has its own run home.
-pub(in crate::storage) const CAS_COLLECTION: &str = "cas_blobs";
+pub const CAS_COLLECTION: &str = "cas_blobs";
 
 /// The v2 run homes (main and CAS) and their background merge thread.
 pub(in crate::storage) struct V2Home {

@@ -4,8 +4,8 @@
 //! no write path uses it.
 //!
 //! The home is protected before anything is opened: no daemon is alive for it,
-//! neither socket accepts a connection, the last session ended cleanly with a
-//! shutdown flush receipt, and this process holds the offline maintenance lock.
+//! its socket accepts no connection, and the last session ended cleanly with a
+//! shutdown flush receipt. The store open takes the run home owner lock.
 //! A home that a daemon serves is refused. The primary home is refused unless
 //! the caller passes `--i-know-this-is-primary`.
 
@@ -57,12 +57,16 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         refuse_primary(args.home).map_err(|e| format!("{e}; or pass --i-know-this-is-primary"))?;
     }
     let store_root = args.home.join("data");
-    if !store_root.join("laststore-pack-node-v1").is_file() {
-        return Err(
-            "recount requires a native LastDB node home (data/laststore-pack-node-v1)".into(),
-        );
+    if !store_root
+        .join(fold_db::storage::disk_pack::NODE_MARKER)
+        .is_file()
+    {
+        return Err(format!(
+            "recount requires a native LastDB node home (data/{})",
+            fold_db::storage::disk_pack::NODE_MARKER
+        ));
     }
-    let (preflight, _lock) = preflight_stopped_home(args.home, &store_root)?;
+    let preflight = preflight_stopped_home(args.home, &store_root)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         // Unoptimized builds keep the factory's futures on the stack.

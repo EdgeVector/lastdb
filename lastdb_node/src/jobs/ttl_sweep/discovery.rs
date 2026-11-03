@@ -29,7 +29,7 @@ use fold_db::schema::types::KeyValue;
 use fold_db::schema::types::KeyValuePageOrder;
 
 use super::backlog::Backlog;
-use super::{key_is_expired, owner_context, partition_then_age, AGE_KEY_DIGITS};
+use super::{key_is_expired, partition_then_age, AGE_KEY_DIGITS};
 use crate::host::Host;
 
 pub(super) enum Source {
@@ -182,22 +182,13 @@ async fn range_page(
     limit: usize,
 ) -> Result<RangePage, String> {
     let query = Query::new_with_filter(schema.to_string(), vec![field.to_string()], Some(filter));
-    let access = owner_context(host);
     let executor = host.db.query_executor();
     // The page tally lets the read end early in a run of deleted records and
     // name where it ended, where a read without it fails at the read limit.
     let (rows, _, end) = with_query_page_tally(async {
         match after {
-            Some(cursor) => {
-                executor
-                    .query_with_access_keyset_windowed(query, cursor, limit, &access)
-                    .await
-            }
-            None => {
-                executor
-                    .query_with_access_windowed(query, (0, limit), &access)
-                    .await
-            }
+            Some(cursor) => executor.query_keyset_windowed(query, cursor, limit).await,
+            None => executor.query_windowed(query, (0, limit)).await,
         }
     })
     .await;

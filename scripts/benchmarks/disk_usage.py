@@ -30,7 +30,10 @@ def usage(home):
                 if stat.S_ISDIR(info.st_mode):
                     stack.append((path, depth + 1))
                     continue
-                if not stat.S_ISREG(info.st_mode) or not hasattr(info, "st_blocks"):
+                # Runtime sockets belong to the home too. Count their reported
+                # bytes while still refusing links, devices, and FIFOs.
+                if (not (stat.S_ISREG(info.st_mode) or stat.S_ISSOCK(info.st_mode))
+                        or not hasattr(info, "st_blocks")):
                     raise RuntimeError("A generated home contains an unsupported disk entry")
                 parts = path.relative_to(home).parts
                 category = ("search_queue" if parts[:3] == ("apps", "search", "inbox") else

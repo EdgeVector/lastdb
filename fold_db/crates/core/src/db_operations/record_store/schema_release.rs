@@ -1,8 +1,7 @@
 //! The release of the stored rows of a dropped schema.
 //!
 //! A drop removes the schema record from the catalog. Before that, it releases
-//! what the schema stored in its record scope (`record_scope`, the personal
-//! scope for a catalog schema): the records and their tombstones
+//! what the schema stored: the records and their tombstones
 //! (`rk:{S}:`), the field history entries (`rh:{S}:`), and the entries of each
 //! declared alternate key (`ak:{F}:`). Each family is one exact key prefix of
 //! this schema, so the release reads only the keyed ranges of this schema and
@@ -23,11 +22,6 @@
 //!   its record (`release_dropped_history`).
 //! - An alternate entry holds no file.
 //!
-//! Two kinds of rows are not in the record scope. The rows of a database
-//! binding live in the scope of its instance, and the catalog drop releases
-//! that scope (`drop_prefixed_rows_for_instance`). The records that another
-//! user sent live in a `from:` scope that belongs to the share.
-//!
 //! No write lands behind the walk. The drop stores the state `Blocked` before
 //! the first batch (`DbOperations::drop_schema`), and every write reads the
 //! state inside the native write gate, so a write during the drop is refused.
@@ -42,9 +36,8 @@
 //! the schema had, and this release must then read the `ak:{F}:` prefix of each.
 
 use super::record_files::dropped_file_paths;
-use super::{record_scope, RangeWalk, RecordStore};
+use super::{RangeWalk, RecordStore};
 use crate::records::field_history::RECORD_HISTORY_PREFIX;
-use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
@@ -72,28 +65,21 @@ enum Family {
 
 impl RecordStore {
     /// Release every record, field history entry and alternate entry that
-    /// `schema` stored in its record scope, in bounded batches. The caller
+    /// `schema` stored, in bounded batches. The caller
     /// holds no write scope: each batch opens its own.
     pub(crate) async fn release_schema_rows(
         &self,
         schema: &Schema,
     ) -> Result<SchemaRelease, SchemaError> {
-        let scope = record_scope(schema);
         let space = record_space_uuid(&schema.name);
         let mut out = SchemaRelease::default();
-        let history = build_storage_key(
-            scope.as_deref(),
-            &format!("{RECORD_HISTORY_PREFIX}{space}:"),
-        );
+        let history = format!("{RECORD_HISTORY_PREFIX}{space}:");
         out.history = self.release_family(&history, Family::History).await?;
-        let records = build_storage_key(scope.as_deref(), &format!("{RECORD_PREFIX}{space}:"));
+        let records = format!("{RECORD_PREFIX}{space}:");
         out.records = self.release_family(&records, Family::Records).await?;
         for name in schema.alternate_keys.keys() {
             let field_key = alternate_field_key_id(schema, name);
-            let alternates = build_storage_key(
-                scope.as_deref(),
-                &format!("{ALTERNATE_ENTRY_PREFIX}{field_key}:"),
-            );
+            let alternates = format!("{ALTERNATE_ENTRY_PREFIX}{field_key}:");
             out.alternates += self.release_family(&alternates, Family::Alternates).await?;
         }
         Ok(out)

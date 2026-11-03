@@ -5,7 +5,6 @@ use std::os::unix::net::UnixStream;
 
 pub(super) fn serve(
     server: &Server,
-    surface: Surface,
     stream: UnixStream,
     transport: CallerTransport,
     verification: CallerVerification,
@@ -13,33 +12,18 @@ pub(super) fn serve(
 ) -> std::io::Result<()> {
     // Workers never wait for byte permits: queued responses must stay runnable.
     if let Some(body) = server.body_budget.try_reserve() {
-        return serve_reserved(
-            server,
-            surface,
-            stream,
-            transport,
-            verification,
-            completion,
-            body,
-        );
+        return serve_reserved(server, stream, transport, verification, completion, body);
     }
     let server = server.clone();
     server.handle.clone().spawn(async move {
         match server.body_budget.reserve().await {
             Ok(body) => completion.resume(stream, move |stream, completion| {
-                let result = serve_reserved(
-                    &server,
-                    surface,
-                    stream,
-                    transport,
-                    verification,
-                    completion,
-                    body,
-                );
-                log_result(result, surface);
+                let result =
+                    serve_reserved(&server, stream, transport, verification, completion, body);
+                log_result(result);
                 collect_finished_request_heap();
             }),
-            Err(error) => log_result(Err(error), surface),
+            Err(error) => log_result(Err(error)),
         }
     });
     Ok(())
@@ -47,7 +31,6 @@ pub(super) fn serve(
 
 fn serve_reserved(
     server: &Server,
-    surface: Surface,
     mut stream: UnixStream,
     transport: CallerTransport,
     verification: CallerVerification,
@@ -80,12 +63,11 @@ fn serve_reserved(
                     completion,
                 },
                 route,
-                surface,
             );
             return Ok(());
         }
     }
-    let response = route_request(surface, &server.handle, &server.host, &request, &context);
+    let response = route_request(&server.handle, &server.host, &request, &context);
     uds_http::finish_connection(&mut stream, &response)
 }
 
@@ -97,7 +79,7 @@ struct Pending {
     completion: ConnectionWork,
 }
 
-fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surface: Surface) {
+fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute) {
     let host = Arc::clone(&server.host);
     let replies = Arc::clone(&server.mutation_replies);
     let queued_at = std::time::Instant::now();
@@ -127,14 +109,14 @@ fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surfac
             let result = uds_http::finish_connection(&mut stream, &response);
             drop(response);
             drop(reply_slot);
-            log_result(result, surface);
+            log_result(result);
             collect_finished_request_heap();
         });
     });
 }
 
-pub(super) fn log_result(result: std::io::Result<()>, surface: Surface) {
+pub(super) fn log_result(result: std::io::Result<()>) {
     if let Err(error) = result {
-        tracing::debug!(error = %error, socket = surface.label(), "socket connection ended with error");
+        tracing::debug!(error = %error, "socket connection ended with error");
     }
 }

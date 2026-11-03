@@ -123,21 +123,19 @@ impl BatchShape {
             return shape;
         }
         for operation in operations {
-            // A key of a database scope or a share starts with the scope. The
-            // structural family follows it.
             let key = operation.key.as_str();
-            let key = super::super::super::current_keys::source_key(key).unwrap_or(key);
-            let (puts, deletes) = if operation.collection == "cas_blobs" {
-                (&mut shape.file_puts, &mut shape.file_deletes)
-            } else if key.starts_with("rk:") {
-                (&mut shape.record_puts, &mut shape.record_deletes)
-            } else if key.starts_with("ak:") {
-                (&mut shape.alternate_puts, &mut shape.alternate_deletes)
-            } else if key.starts_with("rh:") {
-                (&mut shape.history_puts, &mut shape.history_deletes)
-            } else {
-                continue;
-            };
+            let (puts, deletes) =
+                if operation.collection == crate::storage::disk_pack::physical_v2::CAS_COLLECTION {
+                    (&mut shape.file_puts, &mut shape.file_deletes)
+                } else if key.starts_with(lastdb_model::record_space::RECORD_PREFIX) {
+                    (&mut shape.record_puts, &mut shape.record_deletes)
+                } else if key.starts_with(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX) {
+                    (&mut shape.alternate_puts, &mut shape.alternate_deletes)
+                } else if key.starts_with(crate::records::field_history::RECORD_HISTORY_PREFIX) {
+                    (&mut shape.history_puts, &mut shape.history_deletes)
+                } else {
+                    continue;
+                };
             let slot = if operation.body.is_some() {
                 puts
             } else {

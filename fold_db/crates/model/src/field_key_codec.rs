@@ -1,9 +1,8 @@
 //! Native per-key field key storage codec.
 //!
 //! The field key part of a key is `{F}:{esc(hash)}\0{range}`. Alternate keys
-//! (`ak:`) build their keys with it and add their own family prefix.
-//! Callers add an optional storage scope with `build_storage_key`. Hash fields
-//! use an empty range; HashRange fields use both coordinates.
+//! (`ak:`) build their keys with it and add their own family prefix. Hash
+//! fields use an empty range; HashRange fields use both coordinates.
 //!
 //! The supplied field key UUID is an exact identity. Reads and writes never
 //! substitute a hex or base64url spelling. Hash blinding binds that same

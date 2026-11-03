@@ -1,13 +1,10 @@
-//! A range read under one hash that merges the own scope with the received
-//! scopes. A node with no sender reads the own scope alone through the same
-//! pages.
+//! A range read under one hash.
 //!
-//! Each scope reads its records one bounded page at a time, in storage order.
-//! A merge step takes the keys that no unread key can precede: every key up to
-//! the least key that a scope with unread keys examined last. At each key the
-//! first scope with a live record gives the row. The step size follows the
-//! window, and the read ends when the window has its rows. A long range costs
-//! its window, not its length.
+//! The read takes the records of the range one bounded page at a time, in
+//! storage order. A step takes the keys up to the last key the read examined;
+//! each live record gives a row. The step size follows the window, and the
+//! read ends when the window has its rows. A long range costs its window, not
+//! its length.
 //!
 //! The rows that the window keeps are read once more by key, through the
 //! record warm set (decision D2): a warm read answers from memory, and a cold
@@ -27,26 +24,26 @@ use crate::db_operations::record_store::{
 };
 use crate::db_operations::{note_page_resume, page_can_resume, PageResume};
 use crate::fold_db_core::query::hash_range_query::HashRangeQueryProcessor;
-use crate::schema::types::field::KeyWindow;
+use crate::schema::types::field::{HashRangeFilter, KeyWindow};
+use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, KeyValuePageOrder};
 use crate::schema::{Schema, SchemaError};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 
-/// The smallest and the largest number of keys one merge step reads from
-/// each scope.
+/// The smallest and the largest number of keys one step reads.
 const MIN_STEP: usize = 32;
 const MAX_STEP: usize = 1024;
 
-/// The unread records of one scope.
-struct ScopeKeys {
+/// The unread records of the range.
+struct RangeKeys {
     span: Option<RecordSpan>,
     keys: VecDeque<SpanKey>,
-    /// The physical key of the last key this scope examined.
+    /// The physical key of the last key the read examined.
     cursor: Option<String>,
     done: bool,
 }
 
-impl ScopeKeys {
+impl RangeKeys {
     fn new(span: Option<RecordSpan>) -> Self {
         Self {
             done: span.is_none(),
@@ -83,9 +80,9 @@ impl ScopeKeys {
         Ok(read)
     }
 
-    /// The storage range of the last key this scope examined while it has
+    /// The storage range of the last key the read examined while it has
     /// unread keys: no key at or below it is unread. `Some(None)` when the
-    /// scope examined no key yet, `None` when it has no unread key.
+    /// read examined no key yet, `None` when it has no unread key.
     fn examined(&self) -> Option<Option<&str>> {
         let span = self.span.as_ref().filter(|_| !self.done)?;
         Some(
@@ -97,14 +94,13 @@ impl ScopeKeys {
 }
 
 impl HashRangeQueryProcessor {
-    /// The rows of one range under one hash over `scopes`, in page order and
+    /// The rows of one range under one hash, in page order and
     /// bounded by the window.
-    pub(super) async fn received_range(
+    pub(super) async fn range_rows(
         &self,
         schema: &Schema,
         hash: &str,
         bound: RecordBound<'_>,
-        scopes: &[Option<String>],
         selected: &[String],
         window: Option<KeyWindow>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
@@ -117,11 +113,7 @@ impl HashRangeQueryProcessor {
         };
         let records = self.db_ops.records();
         let from_range = after.as_ref().and_then(|after| after.range.as_deref());
-        let mut sources = Vec::with_capacity(scopes.len());
-        for scope in scopes {
-            let span = records.record_span(schema, hash, bound, from_range, scope.as_deref())?;
-            sources.push(ScopeKeys::new(span));
-        }
+        let mut source = RangeKeys::new(records.record_span(schema, hash, bound, from_range)?);
         let mut rows = Vec::new();
         let mut room = PAGE_READ_KEYS;
         // A step that finds no row (a run of deleted records) doubles the next.
@@ -131,27 +123,21 @@ impl HashRangeQueryProcessor {
                 .saturating_add(limit - rows.len())
                 .saturating_mul(wide)
                 .clamp(MIN_STEP, MAX_STEP);
-            let share = room / sources.iter().filter(|s| !s.done).count().max(1);
-            let read = futures::future::try_join_all(
-                sources
-                    .iter_mut()
-                    .map(|source| source.fill(records, step, share)),
-            )
-            .await?;
-            room = room.saturating_sub(read.into_iter().sum());
-            let Some(taken) = next_keys(&mut sources, step) else {
-                if sources.iter().all(|source| source.done) {
+            let read = source.fill(records, step, room).await?;
+            room = room.saturating_sub(read);
+            let Some(taken) = next_keys(&mut source, step) else {
+                if source.done {
                     break;
                 }
-                // A scope with unread keys has nothing left to read in this
-                // request: end the page after the least key it examined. The
+                // Unread keys remain but nothing is left to read in this
+                // request: end the page after the last key examined. The
                 // next page must start past the cursor of this one.
                 let moved = |stop: &KeyValue| {
                     after
                         .as_ref()
                         .is_none_or(|after| stop.cmp_page_order(after).is_gt())
                 };
-                match stop_key(records, &sources)? {
+                match stop_key(records, &source)? {
                     Some(stop) if resumable && skip == 0 && moved(&stop) => {
                         note_page_resume(PageResume::Key(stop));
                         break;
@@ -191,43 +177,37 @@ impl HashRangeQueryProcessor {
     }
 }
 
-/// The live winners of the next keys of the merged order: at most `step`
-/// keys, each at or below the least key that a scope with unread keys
-/// examined, so no unread key comes before a key taken. At each key the first
-/// scope with a live record wins; a key with no live record gives no row, so a
-/// step of deleted records takes keys and gives no row. The taken keys leave
-/// the scopes. `None` when no key can be taken.
-fn next_keys(sources: &mut [ScopeKeys], step: usize) -> Option<Vec<SpanKey>> {
-    let mut bound: Option<&str> = None;
-    for examined in sources.iter().filter_map(ScopeKeys::examined) {
-        let examined = examined?;
-        bound = Some(bound.map_or(examined, |bound| bound.min(examined)));
-    }
-    let mut ranges: Vec<&str> = sources
+/// The live keys of the next step: at most `step` keys, each at or below the
+/// last key the read examined, so no unread key comes before a key taken. A
+/// deleted record gives no row, so a step of deleted records takes keys and
+/// gives no row. The taken keys leave the source. `None` when no key can be
+/// taken.
+fn next_keys(source: &mut RangeKeys, step: usize) -> Option<Vec<SpanKey>> {
+    let bound = match source.examined() {
+        Some(None) => return None,
+        Some(Some(examined)) => Some(examined.to_owned()),
+        None => None,
+    };
+    let count = source
+        .keys
         .iter()
-        .flat_map(|source| source.keys.iter().map(|key| key.range.as_str()))
-        .filter(|range| bound.is_none_or(|bound| *range <= bound))
-        .collect();
-    ranges.sort_unstable();
-    ranges.dedup();
-    let last = ranges
-        .into_iter()
         .take(step)
-        .next_back()
-        .map(str::to_owned)?;
-    let mut merged: BTreeMap<String, Option<SpanKey>> = BTreeMap::new();
-    for source in sources.iter_mut() {
-        while source.keys.front().is_some_and(|key| key.range <= last) {
-            let Some(key) = source.keys.pop_front() else {
-                break;
-            };
-            let slot = merged.entry(key.range.clone()).or_default();
-            if slot.is_none() && key.record.is_live() {
-                *slot = Some(key);
-            }
-        }
+        .take_while(|key| {
+            bound
+                .as_deref()
+                .is_none_or(|bound| key.range.as_str() <= bound)
+        })
+        .count();
+    if count == 0 {
+        return None;
     }
-    Some(merged.into_values().flatten().collect())
+    Some(
+        source
+            .keys
+            .drain(..count)
+            .filter(|key| key.record.is_live())
+            .collect(),
+    )
 }
 
 /// The rows that one step keeps, read once more by key through the record
@@ -258,24 +238,16 @@ async fn read_kept(
         .collect())
 }
 
-/// The API key of the least key that a scope with unread keys examined last.
-/// `None` when such a scope examined no key.
-fn stop_key(records: &RecordStore, sources: &[ScopeKeys]) -> Result<Option<KeyValue>, SchemaError> {
-    let mut least: Option<(&str, &RecordSpan, &str)> = None;
-    for source in sources {
-        let Some(span) = source.span.as_ref().filter(|_| !source.done) else {
-            continue;
-        };
-        let Some(cursor) = source.cursor.as_deref() else {
-            return Ok(None);
-        };
-        let range = span.storage_range(cursor);
-        if least.is_none_or(|(least, _, _)| range < least) {
-            least = Some((range, span, cursor));
-        }
-    }
-    least
-        .map(|(_, span, cursor)| records.span_key(span, cursor))
+/// The API key of the last key the read examined while unread keys remain.
+/// `None` when the read examined no key or has no unread key.
+fn stop_key(records: &RecordStore, source: &RangeKeys) -> Result<Option<KeyValue>, SchemaError> {
+    let Some(span) = source.span.as_ref().filter(|_| !source.done) else {
+        return Ok(None);
+    };
+    source
+        .cursor
+        .as_deref()
+        .map(|cursor| records.span_key(span, cursor))
         .transpose()
 }
 
@@ -299,4 +271,26 @@ fn record_cursor_error() -> SchemaError {
          with the next_cursor of that read"
             .into(),
     )
+}
+
+/// The API hash and the range bound of a selector that reads one range under
+/// one hash. A Hash schema has one record for each hash, so its selectors
+/// read by key.
+pub(super) fn range_under_hash<'a>(
+    schema: &Schema,
+    filter: Option<&'a HashRangeFilter>,
+) -> Option<(&'a str, RecordBound<'a>)> {
+    if schema.schema_type != DeclarativeSchemaType::HashRange {
+        return None;
+    }
+    match filter? {
+        HashRangeFilter::HashKey(hash) => Some((hash.as_str(), RecordBound::All)),
+        HashRangeFilter::HashRangePrefix { hash, prefix } => {
+            Some((hash.as_str(), RecordBound::Prefix(prefix)))
+        }
+        HashRangeFilter::HashRangeRange { hash, start, end } => {
+            Some((hash.as_str(), RecordBound::Between(start, end)))
+        }
+        _ => None,
+    }
 }

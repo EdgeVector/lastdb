@@ -3,18 +3,16 @@
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,
 //! then the projection returns the selected fields of each record and its
-//! one metadata block (decision D7). While the node receives data from other
-//! users, the read merges the received scopes by key (`records/received.rs`).
+//! one metadata block (decision D7).
 
-mod received;
-mod received_range;
+mod range;
 
 use super::condition_rules::{
     condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
     order_condition_keys,
 };
 use super::*;
-use crate::db_operations::record_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
+use crate::db_operations::record_store::{KeyedRecord, WalkWindow, PAGE_READ_KEYS};
 use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
 use crate::fold_db_core::query::{QueryRecords, Record, RecordMetadata};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
@@ -96,14 +94,12 @@ impl HashRangeQueryProcessor {
             .len())
     }
 
-    /// The rows of one selector in page order: the live records of the own
-    /// scope with one of the selected fields, bounded by the window. While a
-    /// sender is active, the received scopes join the read; a node with no
-    /// sender reads only its own scope. A range under one hash reads its keys
-    /// in bounded pages of each scope (`records/received_range.rs`), so the
-    /// window ends the read in the own scope too. An unfiltered read walks
-    /// the records of every scope in record key order, and its window is a
-    /// window of that walk (`record_store/record_walk.rs`).
+    /// The rows of one selector in page order: the live records of the
+    /// schema with one of the selected fields, bounded by the window.
+    /// A range under one hash reads its keys in bounded pages
+    /// (`records/range.rs`), so the window ends the read. An unfiltered read
+    /// walks the records in record key order, and its window is a window of
+    /// that walk (`record_store/record_walk.rs`).
     async fn select_rows(
         &self,
         schema: &Schema,
@@ -117,47 +113,27 @@ impl HashRangeQueryProcessor {
                 "a record walk cursor continues only an unfiltered read".into(),
             ));
         }
-        let mut scopes = vec![record_scope(schema)];
-        for namespace in self
-            .collect_received_from_namespaces()
-            .await?
-            .into_iter()
-            .map(Some)
-        {
-            if !scopes.contains(&namespace) {
-                scopes.push(namespace);
-            }
-        }
         if filter.is_none() {
             return self
-                .walk_rows(schema, comparison, window.as_ref(), selected, &scopes)
+                .walk_rows(schema, comparison, window.as_ref(), selected)
                 .await;
         }
         if let Some(HashRangeFilter::SampleN(count)) = filter {
             let rows = self
-                .sample_rows(schema, comparison, *count, selected, &scopes)
+                .sample_rows(schema, comparison, *count, selected)
                 .await?;
             return Ok(match window {
                 Some(window) => bound(rows, window),
                 None => rows,
             });
         }
-        if let Some((hash, bound)) = received::range_under_hash(schema, filter) {
-            return self
-                .received_range(schema, hash, bound, &scopes, selected, window)
-                .await;
+        if let Some((hash, bound)) = range::range_under_hash(schema, filter) {
+            return self.range_rows(schema, hash, bound, selected, window).await;
         }
-        if scopes.len() > 1 {
-            return self
-                .select_received(schema, comparison, filter, window, selected, &scopes)
-                .await;
-        }
-        // The own scope is the only scope.
-        let own = scopes.pop().flatten();
         let mut rows = self
             .db_ops
             .records()
-            .select_records(schema, comparison, filter, own.as_deref())
+            .select_records(schema, comparison, filter)
             .await?;
         rows.retain(|(_, record)| has_any(record, selected));
         Ok(match window {
@@ -168,7 +144,7 @@ impl HashRangeQueryProcessor {
 }
 
 impl HashRangeQueryProcessor {
-    /// One window of the unfiltered walk over `scopes`, in record key order.
+    /// One window of the unfiltered walk of the schema, in record key order.
     /// No window reads the first page of the default size. A cursor names a
     /// row by its API key or a record key position (`AfterRecord`). The page
     /// notes the record key position of each row for the reply, and where it
@@ -179,7 +155,6 @@ impl HashRangeQueryProcessor {
         comparison: &KeyComparisonContext,
         window: Option<&KeyWindow>,
         selected: &[String],
-        scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let records = self.db_ops.records();
         let (after, skip, take) = match window {
@@ -198,9 +173,7 @@ impl HashRangeQueryProcessor {
             take,
         };
         let mut page = records
-            .walk_record_window(schema, comparison, walk, scopes, |record| {
-                has_any(record, selected)
-            })
+            .walk_record_window(schema, comparison, walk, |record| has_any(record, selected))
             .await?;
         if let Some(stopped) = page.stopped.take() {
             if !resumable {
@@ -222,11 +195,9 @@ impl HashRangeQueryProcessor {
         Ok(page.into_keyed())
     }
 
-    /// A sample over `scopes`: the first `count` live records (at most
+    /// A sample of the schema: the first `count` live records (at most
     /// `SAMPLE_PEEK_CAP`) with one of the selected fields, in record key
-    /// order, in page order in the result. One walk merges the scopes, as the
-    /// unfiltered walk does, so a received record fills the place of a record
-    /// that the own scope deleted.
+    /// order, in page order in the result.
     ///
     /// A run of deleted records can use the read allowance of the walk before
     /// the sample is full. A caller that continues a page that ends early
@@ -240,7 +211,6 @@ impl HashRangeQueryProcessor {
         comparison: &KeyComparisonContext,
         count: usize,
         selected: &[String],
-        scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let walk = WalkWindow {
             after: None,
@@ -250,9 +220,7 @@ impl HashRangeQueryProcessor {
         let mut page = self
             .db_ops
             .records()
-            .walk_record_window(schema, comparison, walk, scopes, |record| {
-                has_any(record, selected)
-            })
+            .walk_record_window(schema, comparison, walk, |record| has_any(record, selected))
             .await?;
         if let Some(stopped) = page.stopped.take() {
             if !page_can_resume() {

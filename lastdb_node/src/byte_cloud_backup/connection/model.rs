@@ -1,5 +1,5 @@
-use super::{BackupError, Result};
-use cloud_backup_protocol::{AccountId, Digest, Id};
+use crate::cloud::SavedConnection;
+use cloud_backup_protocol::{AccountId, Id};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -18,35 +18,6 @@ impl Drop for SensitiveConnectionRequest {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManualConnectionRecord {
-    pub version: u32,
-    pub account_id: AccountId,
-    pub source_home: Id,
-    pub environment: String,
-    pub endpoint: String,
-    pub credential_sha256: Digest,
-    pub origin: String,
-    pub registration_attempted: bool,
-    pub automatic_backup_enabled: bool,
-}
-
-impl ManualConnectionRecord {
-    pub fn validate(&self, account: &AccountId, source: &Id) -> Result<()> {
-        if self.version != 1
-            || &self.account_id != account
-            || &self.source_home != source
-            || self.origin != "imported"
-            || self.registration_attempted
-            || self.automatic_backup_enabled
-        {
-            return Err(BackupError::Identity);
-        }
-        Ok(())
-    }
-}
-
 /// Public connection state contains no credentials and starts no work.
 #[derive(Clone, Debug, Serialize)]
 pub struct ManualConnectionStatus {
@@ -58,8 +29,8 @@ pub struct ManualConnectionStatus {
     pub registration_attempted: bool,
 }
 
-impl From<ManualConnectionRecord> for ManualConnectionStatus {
-    fn from(record: ManualConnectionRecord) -> Self {
+impl From<SavedConnection> for ManualConnectionStatus {
+    fn from(record: SavedConnection) -> Self {
         Self {
             account_id: record.account_id,
             source_home: record.source_home,

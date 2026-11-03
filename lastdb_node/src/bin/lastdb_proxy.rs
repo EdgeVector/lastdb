@@ -1,7 +1,7 @@
 //! LastDB Mini public-socket proxy for prepared worker cutovers.
 //!
-//! The proxy owns the stable public sockets. A `lastdbd` worker binds private
-//! sockets with `lastdbd --socket-path ... --full-socket-path ...` and keeps
+//! The proxy owns the stable public socket. A `lastdbd` worker binds a private
+//! socket with `lastdbd --socket-path ...` and keeps
 //! the one-process database ownership rule. The proxy sends each new request
 //! to the current worker. A control socket changes the worker target after a
 //! replacement worker passes its health checks.
@@ -30,7 +30,7 @@ const UNAVAILABLE_RESPONSE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nConten
 #[derive(Parser, Debug)]
 #[command(
     name = "lastdb-proxy",
-    about = "Stable public sockets for LastDB worker cutovers"
+    about = "Stable public socket for LastDB worker cutovers"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -53,17 +53,9 @@ struct ServeArgs {
     #[arg(long)]
     socket: PathBuf,
 
-    /// Stable full-surface socket path. Omit when callers do not use it.
-    #[arg(long)]
-    full_socket: Option<PathBuf>,
-
     /// Private owner-socket path of the current worker.
     #[arg(long)]
     target: PathBuf,
-
-    /// Private full-surface socket path of the current worker.
-    #[arg(long)]
-    target_full_socket: Option<PathBuf>,
 
     /// Proxy control socket path.
     #[arg(long)]
@@ -93,16 +85,11 @@ struct SetTargetArgs {
     /// Private owner-socket path of the ready worker.
     #[arg(long)]
     target: PathBuf,
-
-    /// Private full-surface socket path of the ready worker.
-    #[arg(long)]
-    target_full_socket: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Target {
     socket: PathBuf,
-    full_socket: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -111,19 +98,10 @@ struct State {
     active: AtomicUsize,
 }
 
-#[derive(Debug)]
-struct Connection {
-    stream: UnixStream,
-    full: bool,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
 enum ControlRequest {
-    SetTarget {
-        target: PathBuf,
-        full_target: Option<PathBuf>,
-    },
+    SetTarget { target: PathBuf },
     Status,
 }
 
@@ -141,7 +119,6 @@ fn main() -> Result<(), String> {
         Command::SetTarget(args) => {
             let request = ControlRequest::SetTarget {
                 target: args.target,
-                full_target: args.target_full_socket,
             };
             send_control(&args.control.control_socket, &request)
         }
@@ -153,32 +130,20 @@ fn serve(args: ServeArgs) -> Result<(), String> {
     if args.workers == 0 || args.queue == 0 {
         return Err("--workers and --queue must be greater than zero".to_string());
     }
-    if args.full_socket.is_some() != args.target_full_socket.is_some() {
-        return Err(
-            "--full-socket and --target-full-socket must be set together, or both omitted"
-                .to_string(),
-        );
-    }
     let public = bind_socket(&args.socket, "public")?;
-    let public_full = args
-        .full_socket
-        .as_ref()
-        .map(|path| bind_socket(path, "full public"))
-        .transpose()?;
     let control = bind_socket(&args.control_socket, "control")?;
     let state = Arc::new(State {
         target: RwLock::new(Target {
             socket: args.target,
-            full_socket: args.target_full_socket,
         }),
         active: AtomicUsize::new(0),
     });
     let shutdown = Arc::new(AtomicBool::new(false));
     register_shutdown(&shutdown)?;
 
-    let (sender, receiver) = mpsc::sync_channel::<Connection>(args.queue);
+    let (sender, receiver) = mpsc::sync_channel::<UnixStream>(args.queue);
     let receiver = Arc::new(std::sync::Mutex::new(receiver));
-    let mut threads = Vec::with_capacity(args.workers + 3);
+    let mut threads = Vec::with_capacity(args.workers + 2);
     for _ in 0..args.workers {
         let receiver = Arc::clone(&receiver);
         let state = Arc::clone(&state);
@@ -200,18 +165,9 @@ fn serve(args: ServeArgs) -> Result<(), String> {
 
     threads.push(spawn_accept_loop(
         public,
-        false,
         sender.clone(),
         Arc::clone(&shutdown),
     ));
-    if let Some(public_full) = public_full {
-        threads.push(spawn_accept_loop(
-            public_full,
-            true,
-            sender.clone(),
-            Arc::clone(&shutdown),
-        ));
-    }
     threads.push(spawn_control_loop(
         control,
         Arc::clone(&state),
@@ -239,8 +195,7 @@ fn bind_socket(path: &Path, label: &str) -> Result<UdsSocket, String> {
 
 fn spawn_accept_loop(
     socket: UdsSocket,
-    full: bool,
-    sender: mpsc::SyncSender<Connection>,
+    sender: mpsc::SyncSender<UnixStream>,
     shutdown: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -251,11 +206,10 @@ fn spawn_accept_loop(
         while !shutdown.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    let connection = Connection { stream, full };
-                    if let Err(error) = sender.try_send(connection) {
+                    if let Err(error) = sender.try_send(stream) {
                         let mut stream = match error {
-                            mpsc::TrySendError::Full(connection)
-                            | mpsc::TrySendError::Disconnected(connection) => connection.stream,
+                            mpsc::TrySendError::Full(stream)
+                            | mpsc::TrySendError::Disconnected(stream) => stream,
                         };
                         let _ = stream.write_all(BUSY_RESPONSE);
                     }

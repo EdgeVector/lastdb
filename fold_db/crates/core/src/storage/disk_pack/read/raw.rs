@@ -119,10 +119,7 @@ fn trace_families(coordinates: &[(String, String)]) {
         let family = match collection.as_str() {
             "schemas" => "schema",
             "schema_states" => "schema_state",
-            "schema_superseded_by" => "schema_successor",
             "field_keys" => "field_key_encryption_keys",
-            "share_subscriptions" => "receiver_registry",
-            "db_catalog" => "database_membership",
             _ => record_family(key),
         };
         *counts.entry(family).or_insert(0usize) += 1;
@@ -133,14 +130,12 @@ fn trace_families(coordinates: &[(String, String)]) {
     }
 }
 
-/// The fixed name of the record family of one `main` key. A scope that
-/// precedes the family is not part of the name.
+/// The fixed name of the record family of one `main` key.
 fn record_family(key: &str) -> &'static str {
     let raw = crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
     let family = std::str::from_utf8(&raw)
         .ok()
-        .and_then(|key| crate::storage::current_keys::source_key(key).ok())
-        .and_then(|bare| bare.split([':', '\0']).next());
+        .and_then(|key| key.split([':', '\0']).next());
     match family {
         Some("rk") => "record",
         Some("ak") => "alternate_key",

@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use fold_db::access::AccessContext;
 use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
     MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
@@ -291,13 +290,11 @@ fn configure_mutation(
     mutation
 }
 
-/// Build, admit, and commit the selected mutations under the caller's access
-/// context.
+/// Build, admit, and commit the selected mutations.
 async fn commit_mutation<H: HostNode>(
     host: &H,
     plan: MutationPlan,
     key_values: Vec<KeyValue>,
-    ctx: &AccessContext,
     payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
     let mutations = build_mutations(host, key_values, plan);
@@ -308,7 +305,7 @@ async fn commit_mutation<H: HostNode>(
     request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     let _permit = permit?;
     let manager = host.fold_db().mutation_manager();
-    start_core_commit(manager, mutations, ctx)
+    start_core_commit(manager, mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))
 }
@@ -323,7 +320,6 @@ type CoreCommitFuture<'a> =
 fn start_core_commit<'a>(
     manager: &'a MutationManager,
     mutations: Vec<Mutation>,
-    ctx: &'a AccessContext,
 ) -> CoreCommitFuture<'a> {
-    Box::pin(manager.write_mutations_with_access_receipt(mutations, ctx))
+    Box::pin(manager.write_mutations_receipt(mutations))
 }

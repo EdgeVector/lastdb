@@ -18,24 +18,14 @@ impl MutationManager {
     pub(super) async fn filter_idempotent_mutations(
         &self,
         mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
     ) -> Result<FilteredMutations, SchemaError> {
         let mut already_seen_ids: Vec<String> = Vec::new();
         let mut new_mutations: Vec<Mutation> = Vec::new();
         let mut new_hashes: Vec<String> = Vec::new();
 
         let hashes: Vec<_> = mutations.iter().map(Mutation::content_hash).collect();
-        let keys: Vec<_> = hashes
-            .iter()
-            .map(|hash| {
-                crate::schema::types::field::build_storage_key(
-                    storage_prefix,
-                    &format!("idem:{hash}"),
-                )
-            })
-            .collect();
-        // The fingerprint includes the exact DB scope. All selected cache
-        // buckets are fetched together; a cache failure is a safe miss.
+        let keys: Vec<_> = hashes.iter().map(|hash| format!("idem:{hash}")).collect();
+        // All selected cache buckets are fetched together; a cache failure is a safe miss.
         let cached = self
             .db_ops
             .metadata()

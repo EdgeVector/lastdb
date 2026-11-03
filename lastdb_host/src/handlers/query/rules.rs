@@ -1,6 +1,5 @@
 //! Query selection, admission, and keyed-page rules.
 
-use fold_db::access::AccessContext;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::{Query, SortOrder};
@@ -78,23 +77,17 @@ pub(super) fn sample_resumes(query: &Query) -> bool {
 }
 
 /// The cursor binding of the record walk of `query` with no filter: the
-/// unfiltered read of the same fields, order and database. A sample that a
+/// unfiltered read of the same fields and order. A sample that a
 /// run of deleted records ends early gives a record cursor with this binding,
 /// so that unfiltered read continues the sample after the last key the walk
 /// examined. It is the binding that [`prepare_comparison`] gives a walk.
-fn walk_binding(
-    comparison: &KeyComparisonContext,
-    query: &Query,
-    ctx: &AccessContext,
-) -> Result<String, HostError> {
+fn walk_binding(comparison: &KeyComparisonContext, query: &Query) -> Result<String, HostError> {
     let unfiltered: Option<HashRangeFilter> = None;
     let request = (
         &unfiltered,
         &query.fields,
         query.include_tombstones,
         &query.sort_order,
-        &ctx.db_locator,
-        &ctx.storage_prefix,
     );
     comparison
         .cursor_binding(&(RECORD_WALK_BINDING, request))
@@ -108,7 +101,6 @@ fn walk_binding(
 pub(super) fn prepare_comparison(
     mut query: Query,
     cursor: Option<QueryCursor>,
-    ctx: &AccessContext,
     comparison: Option<&KeyComparisonContext>,
     walk: bool,
 ) -> Result<PreparedQuery, HostError> {
@@ -124,8 +116,6 @@ pub(super) fn prepare_comparison(
                 &query.fields,
                 query.include_tombstones,
                 &query.sort_order,
-                &ctx.db_locator,
-                &ctx.storage_prefix,
             );
             if walk {
                 comparison.cursor_binding(&(RECORD_WALK_BINDING, request))
@@ -136,7 +126,7 @@ pub(super) fn prepare_comparison(
         })
         .transpose()?;
     let sample = match comparison {
-        Some(comparison) if sample_resumes(&query) => Some(walk_binding(comparison, &query, ctx)?),
+        Some(comparison) if sample_resumes(&query) => Some(walk_binding(comparison, &query)?),
         _ => None,
     };
     if let Some(cursor) = cursor.as_ref() {

@@ -9,10 +9,10 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use uuid::Uuid;
 
-const NAME: &str = "NODE_CLEANUP";
+use super::NODE_CLEANUP as NAME;
 const MAGIC: &[u8; 8] = b"LDRCLN1\0";
 const MAX_BYTES: usize = 16 * 1024;
-const CAS_NAME: &str = "CAS_DELETE";
+use super::CAS_DELETE as CAS_NAME;
 const CAS_MAGIC: &[u8; 8] = b"LDRCAS1\0";
 /// Maximum encrypted cross-home deletion intent payload.
 pub const MAX_CAS_DELETE_CHECKPOINT_BYTES: usize = 8 * 1024 * 1024;

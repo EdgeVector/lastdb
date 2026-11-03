@@ -17,11 +17,11 @@ use std::path::Path;
 /// as given. Every new home has this format, and it is the only format this
 /// program opens. The format number names the whole layout, so the marker
 /// holds no feature versions. A layout change raises it.
-pub const HOME_FORMAT: u32 = 10;
+pub const HOME_FORMAT: u32 = 11;
 /// The node marker of a [`HOME_FORMAT`] home.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=10\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=11\nhome=disk-run\ncas=disk-cas\n";
 /// The backup profile version of a [`HOME_FORMAT`] home.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 8;
+pub(in crate::storage) const RECORD_PROFILE: u16 = 9;
 
 /// The backup profile version of a node marker. Only the current marker has
 /// one; every other marker is unsupported.

@@ -1,22 +1,50 @@
-//! The saved cloud credentials (`cloud_sync.json.paused`): one shape, one
+//! The saved cloud credentials (`cloud-credentials.json`): one shape, one
 //! parse, and one private owner-file loader. Readers that already hold a
 //! descriptor-checked byte read parse those bytes here.
 
+use cloud_backup_protocol::{AccountId, Id};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
-/// `{"api_url","api_key"}`. The key zeroizes on drop. Do not derive `Debug`:
-/// `Zeroizing` prints its contents.
+/// The saved account credentials file of a home.
+pub fn cloud_credentials_path(home: &Path) -> PathBuf {
+    home.join(super::CLOUD_CREDENTIALS_FILE)
+}
+
+/// `{"api_url","api_key"}`, plus `connection` once the owner consents to
+/// manual backup of this home. The key zeroizes on drop. Do not derive
+/// `Debug`: `Zeroizing` prints its contents.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SavedCredentials {
     pub api_url: String,
     #[serde(serialize_with = "write_key", deserialize_with = "read_key")]
     pub api_key: Zeroizing<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<SavedConnection>,
+}
+
+/// The owner's manual backup consent: the account and the source home it
+/// binds, and the backup environment and endpoint. It lives in the same file
+/// as the key it uses, so one atomic replace commits both.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SavedConnection {
+    pub account_id: AccountId,
+    pub source_home: Id,
+    pub environment: String,
+    pub endpoint: String,
+}
+
+/// The credential part alone, for a digest that the consent does not change.
+#[derive(Serialize)]
+struct KeyOnly<'a> {
+    api_url: &'a str,
+    api_key: &'a str,
 }
 
 /// The saved bytes are not the credential JSON. Carries no file content.
@@ -28,7 +56,23 @@ impl SavedCredentials {
         Self {
             api_url: api_url.into(),
             api_key: Zeroizing::new(api_key),
+            connection: None,
         }
+    }
+
+    /// The same credentials without the backup consent. A credentials-only
+    /// copy (a recovery home) carries no consent for another home.
+    pub fn without_connection(&self) -> Self {
+        Self::new(self.api_url.clone(), self.api_key.as_str().to_owned())
+    }
+
+    /// Compact JSON of `api_url` and `api_key` only.
+    pub fn key_json(&self) -> serde_json::Result<Zeroizing<Vec<u8>>> {
+        serde_json::to_vec(&KeyOnly {
+            api_url: &self.api_url,
+            api_key: self.api_key.as_str(),
+        })
+        .map(Zeroizing::new)
     }
 
     /// The serde error can quote a value, so the error drops it.

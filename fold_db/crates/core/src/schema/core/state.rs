@@ -17,7 +17,6 @@ impl SchemaCore {
         let schema_core = Self {
             schemas,
             schema_states: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            superseded_by: Arc::new(Mutex::new(std::collections::HashMap::new())),
             retired_name_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             db_ops: db_ops.clone(),
             catalog_ready: AtomicBool::new(false),
@@ -29,7 +28,6 @@ impl SchemaCore {
             super::load::owned::admit_stored_schema(schema)?;
         }
         let schema_states = db_ops.get_all_schema_states().await?;
-        let superseded_by = db_ops.get_all_superseded_by().await?;
         let retired_name_claims = db_ops.list_retired_name_claims().await?;
 
         {
@@ -39,10 +37,6 @@ impl SchemaCore {
         {
             let mut guard = lock_map(&schema_core.schema_states, "schema_states")?;
             *guard = schema_states;
-        }
-        {
-            let mut guard = lock_map(&schema_core.superseded_by, "superseded_by")?;
-            *guard = superseded_by;
         }
         {
             let mut guard = lock_set(&schema_core.retired_name_claims, "retired_name_claims")?;
@@ -113,10 +107,9 @@ impl SchemaCore {
     ///   `compute_identity_hash_parts`, so re-declaring under another name
     ///   mints a NEW schema and leaves the old one Available under the old
     ///   name — the duplicate claim survives, now with a sibling.
-    /// - [`Self::block_schema`] retires too much. A `Blocked` schema is
-    ///   redirected by [`Self::get_schema_following_supersession`] for EVERY
-    ///   lookup, including one that names it by identity hash, so it breaks
-    ///   every by-hash pin that deliberately addresses the predecessor.
+    /// - [`Self::block_schema`] retires too much. A `Blocked` schema refuses
+    ///   EVERY query, including one that names it by identity hash, so it
+    ///   breaks every by-hash pin that deliberately addresses the predecessor.
     ///
     /// Retiring the name claim changes exactly one thing: descriptive-name
     /// resolution stops offering this schema as a candidate. Its identity
@@ -174,10 +167,6 @@ impl SchemaCore {
         {
             let mut claims = lock_set(&self.retired_name_claims, "retired_name_claims")?;
             claims.remove(schema_name);
-        }
-        {
-            let mut superseded = lock_map(&self.superseded_by, "superseded_by")?;
-            superseded.remove(schema_name);
         }
         Ok(existed)
     }

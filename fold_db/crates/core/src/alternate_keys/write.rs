@@ -29,7 +29,6 @@ impl RecordStore {
         keys: &[KeyValue],
         before: &[RecordFields],
         after: &[RecordFields],
-        scope: Option<&str>,
     ) -> Result<Vec<KvMutation>, SchemaError> {
         if schema.alternate_keys.is_empty() || keys.is_empty() {
             return Ok(Vec::new());
@@ -37,7 +36,7 @@ impl RecordStore {
         if before.len() != keys.len() || after.len() != keys.len() {
             return Err(invalid("alternate change batch is incomplete"));
         }
-        let (puts, mut leaves) = self.entry_moves(schema, keys, before, after, scope)?;
+        let (puts, mut leaves) = self.entry_moves(schema, keys, before, after)?;
         if puts.len() + leaves.len() > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate change batch exceeds 4096 entries"));
         }
@@ -63,7 +62,6 @@ impl RecordStore {
         keys: &'a [KeyValue],
         before: &[RecordFields],
         after: &[RecordFields],
-        scope: Option<&str>,
     ) -> Result<EntryMoves<'a>, SchemaError> {
         let mut puts = BTreeMap::new();
         let mut leaves = Vec::new();
@@ -75,7 +73,7 @@ impl RecordStore {
                     continue;
                 }
                 if let Some(key) = old.get(name) {
-                    let storage = build_storage_key(scope, &storage_key(self, schema, name, key)?);
+                    let storage = storage_key(self, schema, name, key)?;
                     leaves.push((storage, primary));
                 }
                 if let Some(key) = new.get(name) {
@@ -84,7 +82,7 @@ impl RecordStore {
                         matched: key.clone(),
                     };
                     puts.insert(
-                        build_storage_key(scope, &storage_key(self, schema, name, key)?),
+                        storage_key(self, schema, name, key)?,
                         serde_json::to_vec(&entry)
                             .map_err(|_| invalid("encode alternate entry"))?,
                     );
@@ -130,8 +128,8 @@ impl RecordStore {
             let Some(bytes) = bytes else { continue };
             let entry: AlternateEntry =
                 serde_json::from_slice(&bytes).map_err(|_| invalid("invalid alternate entry"))?;
-            let leaving = self.record_key(schema, primary, None)?;
-            let named = self.record_key(schema, &entry.primary, None).ok();
+            let leaving = self.record_key(schema, primary)?;
+            let named = self.record_key(schema, &entry.primary).ok();
             if named.as_deref() == Some(leaving.as_str()) {
                 owned.push(key);
             }

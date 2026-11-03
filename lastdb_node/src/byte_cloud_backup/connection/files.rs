@@ -1,4 +1,4 @@
-//! Descriptor-relative private publication. A record is published after its credentials.
+//! Descriptor-relative private publication by one atomic rename.
 use super::{BackupError, Result};
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::fs::{File, Metadata};
@@ -88,16 +88,21 @@ impl Directory {
         Ok(Some(bytes))
     }
 
-    pub fn publish(&self, name: &str, bytes: &[u8]) -> Result<()> {
+    /// Write `bytes` to a private temporary, fsync it, and rename it over
+    /// `name`, then fsync the directory. `expected` is the content the caller
+    /// read: `None` requires that `name` is still absent; any other current
+    /// content refuses.
+    pub fn publish(&self, name: &str, expected: Option<&[u8]>, bytes: &[u8]) -> Result<()> {
         if bytes.len() as u64 > MAX_BYTES {
             return Err(BackupError::Limit);
         }
-        if let Some(current) = self.read(name)? {
-            return if current.as_slice() == bytes {
-                Ok(())
-            } else {
-                Err(BackupError::Identity)
-            };
+        let current = self.read(name)?;
+        let current = current.as_deref().map(Vec::as_slice);
+        if current == Some(bytes) {
+            return Ok(());
+        }
+        if current != expected {
+            return Err(BackupError::Identity);
         }
         self.check()?;
         let temporary = format!(".byte-backup-connection-{}.pending", uuid::Uuid::new_v4());
@@ -114,14 +119,13 @@ impl Directory {
             file.write_all(bytes)?;
             file.sync_all()?;
             self.check()?;
-            fs::renameat_with(
-                &self.file,
-                temporary.as_str(),
-                &self.file,
-                name,
-                fs::RenameFlags::NOREPLACE,
-            )
-            .map_err(std::io::Error::from)?;
+            let flags = if expected.is_some() {
+                fs::RenameFlags::empty()
+            } else {
+                fs::RenameFlags::NOREPLACE
+            };
+            fs::renameat_with(&self.file, temporary.as_str(), &self.file, name, flags)
+                .map_err(std::io::Error::from)?;
             Ok(())
         })();
         if result.is_err() {

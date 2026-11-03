@@ -3,9 +3,7 @@ use super::files::FreshHome;
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
-use lastdb_node::cloud::{
-    register_native_device, SavedCredentials, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
-};
+use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use std::io::Read;
 use std::path::Path;
@@ -43,7 +41,6 @@ pub(super) fn command(
     }))
     .map_err(|_| "cannot encode registration intent")?;
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
-    target.write(CLOUD_RESUME_REQUIRED_FILE, b"")?;
     target.write(INTENT, &intent)?;
     // Flush the stable device intent before the first possible remote effect.
     // Later failures retain this directory; reruns cannot register a new device.
@@ -64,7 +61,7 @@ pub(super) fn command(
         .to_json()
         .map_err(|_| "cannot encode paused credentials; retain the device intent")?;
     target
-        .write(CLOUD_SYNC_PAUSED_FILE, &bytes)
+        .write(CLOUD_CREDENTIALS_FILE, &bytes)
         .and_then(|()| target.commit_registered())
         .map_err(|_| "cannot commit paused credentials; retain the device intent")?;
     if json {
@@ -73,7 +70,7 @@ pub(super) fn command(
             &serde_json::json!({
                 "schema": "lastdb.credentials-recovery.v1", "ok": true,
                 "environment": environment.as_str(), "account_id": account, "device_id": device,
-                "credentials_only": true, "cloud_sync_off": true, "cloud_resume_required": true,
+                "credentials_only": true, "cloud_sync_off": true,
                 "data_directory_created": false, "local_store_opened": false,
                 "api_key_output": false, "identity_seed_output": false,
             }),

@@ -1,4 +1,4 @@
-//! Write scopes and field key guards.
+//! Write scopes.
 
 use super::*;
 use futures::{future::BoxFuture, FutureExt};
@@ -31,31 +31,5 @@ impl RecordStore {
             work,
         )
         .boxed()
-    }
-
-    /// Take the guard of one field key. See
-    /// [`RecordStore::field_key_commit_locks`].
-    pub(crate) async fn lock_field_key_commit(
-        &self,
-        field_key_id: &str,
-        storage_prefix: Option<&str>,
-    ) -> tokio::sync::OwnedRwLockWriteGuard<()> {
-        self.field_key_commit_lock(field_key_id, storage_prefix)
-            .write_owned()
-            .await
-    }
-
-    /// The map lock ends before the caller waits on the field key lock.
-    fn field_key_commit_lock(
-        &self,
-        field_key_id: &str,
-        storage_prefix: Option<&str>,
-    ) -> Arc<tokio::sync::RwLock<()>> {
-        let lock_key = format!("{}\u{1f}{field_key_id}", storage_prefix.unwrap_or_default());
-        let mut map = self
-            .field_key_commit_locks
-            .lock()
-            .expect("field_key_commit_locks poisoned");
-        Arc::clone(map.entry(lock_key).or_default())
     }
 }

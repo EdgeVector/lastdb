@@ -29,13 +29,6 @@ pub enum SchemaError {
         cutoff_nanos: u64,
     },
     PermissionDenied(String),
-    /// A named database has no catalog membership for the requested schema.
-    /// This is a distinct failure so callers never infer authorization from an
-    /// empty result or fall back to a legacy storage prefix.
-    CatalogMembershipDenied {
-        db_locator: String,
-        schema_name: String,
-    },
     /// A legacy owner-transport denial that re-pairing the caller's surface
     /// would fix.
     ///
@@ -158,13 +151,6 @@ impl fmt::Display for SchemaError {
                 "replay_cutoff_requires_resync: original write time is missing or at/before {cutoff_nanos}; restore a current snapshot before replay"),
             Self::InvalidCursor(msg) => write!(f, "Invalid resume cursor: {msg}"),
             Self::PermissionDenied(msg) => write!(f, "Permission denied: {msg}"),
-            Self::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            } => write!(
-                f,
-                "Database catalog membership denied: database '{db_locator}' does not contain schema '{schema_name}'"
-            ),
             Self::TransportNotAttested { verb } => write!(
                 f,
                 "transport not attested: a governed namespace was denied to an owner \

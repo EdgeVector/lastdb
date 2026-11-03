@@ -20,8 +20,10 @@ mod bounded;
 mod reader;
 
 const MAGIC: &[u8; 8] = b"LDRCUR2\0";
-pub(super) const CURRENT: &str = "CURRENT";
-pub(super) const RUNS: &str = "runs";
+/// File name of the sealed list of runs and the frontier.
+pub const CURRENT: &str = "CURRENT";
+/// Directory name of the immutable run files.
+pub const RUNS: &str = "runs";
 /// Most levels one CURRENT may name.
 pub(super) const MAX_LEVELS: usize = 32;
 /// Most runs one level, the merging runs, or the base may hold. Merges keep

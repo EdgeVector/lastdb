@@ -123,7 +123,7 @@ pub(super) async fn execute_db_put_blob_route(
         };
         let marker = marker.clone();
         let components = file_mutation(schema, target.key, metadata.fields, file_write, None);
-        let value = commit_mutation_components(host, components, ctx).await?;
+        let value = commit_mutation_components(host, components).await?;
         Ok(serde_json::json!({
             "file": marker,
             "mutation_id": value.get("mutation_id").cloned().unwrap_or(Value::Null),

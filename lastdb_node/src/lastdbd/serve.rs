@@ -1,5 +1,5 @@
-//! Owner and full-surface socket serving: request routing, the accept
-//! handler shared by both sockets, and worker-pool backpressure logging.
+//! Owner socket serving: request routing, the accept handler, and
+//! worker-pool backpressure logging.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -13,24 +13,6 @@ use lastdb_uds::uds_router::{self, SocketKind};
 use lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
 mod body_budget;
 mod deferred;
-
-/// Which listener a connection arrived on.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Surface {
-    /// The narrow data socket.
-    Owner,
-    /// The full-surface setup socket: the data surface plus `schemas/load`.
-    Full,
-}
-
-impl Surface {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Owner => "owner",
-            Self::Full => "full",
-        }
-    }
-}
 
 /// Shared state every accept handler needs.
 #[derive(Clone)]
@@ -47,7 +29,7 @@ fn collect_finished_request_heap() {
     lastdb_node::allocator::collect_request_heap_if_over_slack();
 }
 
-/// App verbs served on both sockets. `None` means "not one of these".
+/// App verbs served on the owner socket. `None` means "not one of these".
 fn route_app_verb(
     handle: &tokio::runtime::Handle,
     host: &Arc<Host>,
@@ -84,7 +66,6 @@ fn route_app_verb(
 }
 
 fn route_request(
-    surface: Surface,
     handle: &tokio::runtime::Handle,
     host: &Arc<Host>,
     req: &UdsRequest,
@@ -94,11 +75,9 @@ fn route_request(
     if req.method == "GET" && path == Some("/health") {
         return storage_health_response(host);
     }
-    // Setup verbs first on the full socket; everything else shares the narrow
-    // socket's dispatch table. Local app-schema declaration is also on the
-    // owner socket so collapsed Mini nodes can run `brain init` without the
-    // schema_service path.
-    if surface == Surface::Full && req.method == "POST" && path == Some("/api/schemas/load") {
+    // Schema loads (`brain init`, `kanban init`) and local app-schema
+    // declaration share the owner socket and its owner-only peer-cred gate.
+    if req.method == "POST" && path == Some("/api/schemas/load") {
         return exec::block_on_route(
             handle,
             ctx,
@@ -145,7 +124,7 @@ fn storage_health_response(host: &Host) -> UdsResponse {
 }
 
 /// The pool already wrote the 503 on `QueueFull` and `ShutDown`; log why.
-fn log_submit_error(pool: &UdsWorkerPool, err: SubmitError, surface: Surface) {
+fn log_submit_error(pool: &UdsWorkerPool, err: SubmitError) {
     match err {
         SubmitError::QueueFull => {
             tracing::warn!(
@@ -153,15 +132,11 @@ fn log_submit_error(pool: &UdsWorkerPool, err: SubmitError, surface: Surface) {
                 queue_capacity = pool.queue_capacity(),
                 in_flight = pool.in_flight(),
                 rejects = pool.queue_full_rejects(),
-                socket = surface.label(),
                 "uds worker queue full; rejecting peer with 503"
             );
         }
         SubmitError::ShutDown => {
-            tracing::error!(
-                socket = surface.label(),
-                "uds worker pool shut down; rejecting peer"
-            );
+            tracing::error!("uds worker pool shut down; rejecting peer");
         }
     }
 }
@@ -185,7 +160,6 @@ impl Server {
 
     fn on_accept(
         &self,
-        surface: Surface,
         stream: std::os::unix::net::UnixStream,
         transport: CallerTransport,
         verification: CallerVerification,
@@ -194,23 +168,17 @@ impl Server {
         let submitted =
             self.worker_pool
                 .try_submit_owned_connection(stream, move |stream, completion| {
-                    let result = deferred::serve(
-                        &server,
-                        surface,
-                        stream,
-                        transport,
-                        verification,
-                        completion,
-                    );
-                    deferred::log_result(result, surface);
+                    let result =
+                        deferred::serve(&server, stream, transport, verification, completion);
+                    deferred::log_result(result);
                     collect_finished_request_heap();
                 });
         if let Err(err) = submitted {
-            log_submit_error(&self.worker_pool, err, surface);
+            log_submit_error(&self.worker_pool, err);
         }
     }
 
-    /// Run the accept loop for one socket until `shutdown` is set.
+    /// Run the owner socket accept loop until `shutdown` is set.
     ///
     /// No macOS code-signature verifier in the minimal daemon: every
     /// same-user peer keeps the base `Unverified` posture, which the owner
@@ -218,7 +186,6 @@ impl Server {
     /// applies on this socket today).
     pub(crate) fn serve(
         &self,
-        surface: Surface,
         socket: &UdsSocket,
         owner_uid: u32,
         shutdown: &AtomicBool,
@@ -228,7 +195,7 @@ impl Server {
             shutdown,
             |_handle| CallerVerification::Unverified,
             |stream, transport, verification| {
-                self.on_accept(surface, stream, transport, verification);
+                self.on_accept(stream, transport, verification);
             },
         )
     }

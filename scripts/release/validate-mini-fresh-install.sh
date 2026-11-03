@@ -509,7 +509,7 @@ cat > "$REPORT_DIR/apps-declare-request.json" <<'JSON'
   }
 }
 JSON
-# Prefer owner socket; full-surface sibling is also fine when present.
+# The owner socket serves app-schema declaration.
 if ! C -H 'Content-Type: application/json' \
   --data-binary "@$REPORT_DIR/apps-declare-request.json" \
   "http://lastdb/api/apps/declare-schema" > "$REPORT_DIR/apps-declare.json"; then

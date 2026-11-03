@@ -9,42 +9,10 @@ use lastdb_model::record_space::record_space_uuid;
 type KeyPage = (Vec<(String, String)>, Option<String>, bool);
 
 impl FoldDB {
-    /// Return a personal schema's live API keys, with a physical-key cursor.
+    /// Return a schema's live API keys, with a physical-key cursor.
     pub async fn list_schema_record_keys(
         &self,
-        requested: &str,
-        schema_id: &str,
-        limit: usize,
-        cursor: Option<&str>,
-        hash_filter: Option<&str>,
-    ) -> Result<SchemaRecordKeysReport, FoldDbError> {
-        self.list_schema_record_keys_read(
-            SchemaRecordKeysRequest {
-                requested,
-                schema_id,
-                limit,
-                cursor,
-                hash_filter,
-            },
-            None,
-        )
-        .await
-    }
-
-    /// Resolve the caller's database membership within the same captured read.
-    pub async fn list_schema_record_keys_with_access(
-        &self,
         request: SchemaRecordKeysRequest<'_>,
-        access: &AccessContext,
-    ) -> Result<SchemaRecordKeysReport, FoldDbError> {
-        self.list_schema_record_keys_read(request, Some(access))
-            .await
-    }
-
-    async fn list_schema_record_keys_read(
-        &self,
-        request: SchemaRecordKeysRequest<'_>,
-        access: Option<&AccessContext>,
     ) -> Result<SchemaRecordKeysReport, FoldDbError> {
         let scope = self
             .db_ops()
@@ -52,7 +20,7 @@ impl FoldDB {
             .await
             .map_err(SchemaError::from)?;
         scope
-            .run_result(self.list_schema_record_keys_captured(request, access))
+            .run_result(self.list_schema_record_keys_captured(request))
             .await
             .map_err(FoldDbError::Schema)
     }
@@ -60,7 +28,6 @@ impl FoldDB {
     async fn list_schema_record_keys_captured(
         &self,
         request: SchemaRecordKeysRequest<'_>,
-        access: Option<&AccessContext>,
     ) -> Result<SchemaRecordKeysReport, SchemaError> {
         let SchemaRecordKeysRequest {
             requested,
@@ -68,20 +35,7 @@ impl FoldDB {
             hash_filter,
             ..
         } = request;
-        let storage_prefix = match access {
-            Some(access) => {
-                self.db_ops()
-                    .db_catalog()
-                    .resolve_storage_prefix(
-                        access.db_locator.as_deref(),
-                        schema_id,
-                        access.storage_prefix.as_deref(),
-                    )
-                    .await?
-            }
-            None => None,
-        };
-        let mut schema = self
+        let schema = self
             .schema_manager()
             .get_schema_following_supersession_for_read(schema_id)
             .await?
@@ -89,11 +43,6 @@ impl FoldDB {
         self.schema_manager()
             .require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
-        for field in schema.runtime_fields.values_mut() {
-            field
-                .common_mut()
-                .set_storage_prefix(storage_prefix.clone());
-        }
         let hash_field = schema
             .key
             .as_ref()
@@ -107,9 +56,8 @@ impl FoldDB {
         let key_field = hash_field.as_ref().cloned().ok_or_else(|| {
             SchemaError::InvalidField(format!("schema '{requested}' has no hash_field to list"))
         })?;
-        let (field_key, (pairs, next_cursor, has_more)) = self
-            .schema_key_page(&schema, &request, storage_prefix.as_deref())
-            .await?;
+        let (field_key, (pairs, next_cursor, has_more)) =
+            self.schema_key_page(&schema, &request).await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
             schema_id: schema.name.clone(),
@@ -134,7 +82,6 @@ impl FoldDB {
         &self,
         schema: &Schema,
         request: &SchemaRecordKeysRequest<'_>,
-        storage_prefix: Option<&str>,
     ) -> Result<(String, KeyPage), SchemaError> {
         let records = self.db_ops().records();
         let comparison = records.key_comparison_context(schema).await?;
@@ -145,7 +92,6 @@ impl FoldDB {
                 request.limit,
                 request.cursor,
                 request.hash_filter,
-                storage_prefix,
             )
             .await?;
         Ok((record_space_uuid(&schema.name), page))

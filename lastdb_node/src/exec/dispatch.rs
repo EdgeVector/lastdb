@@ -183,9 +183,6 @@ pub(super) async fn dispatch_data_route(
     if let Some(response) = dispatch_blob_identity(route, req, ctx, host).await {
         return response;
     }
-    if let Some(response) = dispatch_org_catalog(route, req, ctx, host).await {
-        return response;
-    }
     if let Some(response) = dispatch_sync_deliver(route, req, ctx, host).await {
         return response;
     }

@@ -36,10 +36,9 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     host: &H,
     query: Query,
     window: Option<KeyWindow>,
-    ctx: &AccessContext,
 ) -> Result<(Vec<Value>, PageFlags, PageEnd), HostError> {
     let comparison = super::capture_key_comparison(host, &query.schema_name).await?;
-    let future = execute_rows_captured(host, query, window, ctx);
+    let future = execute_rows_captured(host, query, window);
     match comparison {
         Some(comparison) => comparison.run(future).await,
         None => future.await,
@@ -55,7 +54,6 @@ async fn read_records(
     executor: &fold_db::fold_db_core::query::QueryExecutor,
     query: Query,
     window: Option<KeyWindow>,
-    ctx: &AccessContext,
 ) -> (
     Result<fold_db::fold_db_core::query::QueryRecords, fold_db::schema::SchemaError>,
     fold_db::db_operations::PageKeyForms,
@@ -67,26 +65,21 @@ async fn read_records(
     };
     match window {
         Some(window) if resumable => {
-            fold_db::db_operations::with_query_page_tally(
-                executor.query_with_access_window(query, window, ctx),
-            )
-            .await
+            fold_db::db_operations::with_query_page_tally(executor.query_window(query, window))
+                .await
         }
         Some(window) => {
-            let (result, forms) = fold_db::db_operations::with_query_tally(
-                executor.query_with_access_window(query, window, ctx),
-            )
-            .await;
+            let (result, forms) =
+                fold_db::db_operations::with_query_tally(executor.query_window(query, window))
+                    .await;
             (result, forms, PageEnd::default())
         }
         None if resumable => {
-            fold_db::db_operations::with_query_page_tally(executor.query_with_access(query, ctx))
-                .await
+            fold_db::db_operations::with_query_page_tally(executor.query(query)).await
         }
         None => {
             let (result, forms) =
-                fold_db::db_operations::with_query_tally(executor.query_with_access(query, ctx))
-                    .await;
+                fold_db::db_operations::with_query_tally(executor.query(query)).await;
             (result, forms, PageEnd::default())
         }
     }
@@ -96,14 +89,13 @@ async fn execute_rows_captured<H: HostNode>(
     host: &H,
     query: Query,
     window: Option<KeyWindow>,
-    ctx: &AccessContext,
 ) -> Result<(Vec<Value>, PageFlags, PageEnd), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
     let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
     // Scope the tally to this request. Record hydration happens inside
-    // `query_with_access`, so the scope has to wrap that call and nothing
+    // `query`, so the scope has to wrap that call and nothing
     // wider — a node-lifetime counter sampled before/after would attribute
     // the page keys of concurrent requests to this one.
     let executor = host.fold_db();
@@ -114,7 +106,7 @@ async fn execute_rows_captured<H: HostNode>(
     // Three sub-phases separate core reads, formatting and final ordering.
     // HydrateFilter is a nested detail inside the core's first-pass reads.
     let hydrate_started = std::time::Instant::now();
-    let (result, forms, end) = read_records(executor, query, window, ctx).await;
+    let (result, forms, end) = read_records(executor, query, window).await;
     // Charge the hydration that DID happen before propagating a failure —
     // otherwise a slow query that ends in an error reports no phases at all,
     // which is exactly the case an operator most wants decomposed.

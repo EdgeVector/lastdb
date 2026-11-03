@@ -13,7 +13,7 @@ pub(super) async fn execute(
     let result = match host.db.db_ops().read_scope().await {
         Ok(scope) => {
             scope
-                .run_result(Box::pin(keyed_page(host, ctx, request, canonical)))
+                .run_result(Box::pin(keyed_page(host, request, canonical)))
                 .await
         }
         Err(error) => Err(HostError::from(error)),
@@ -29,7 +29,6 @@ pub(super) async fn execute(
 
 async fn keyed_page(
     host: &Host,
-    ctx: &AccessContext,
     request: &ListRecordKeysRequest,
     canonical: &str,
 ) -> Result<Value, HostError> {
@@ -71,7 +70,7 @@ async fn keyed_page(
         })
         .transpose()?;
     let page =
-        handlers::execute_query(host, query, Some(request.limit), None, cursor, ctx, false).await?;
+        handlers::execute_query(host, query, Some(request.limit), None, cursor, false).await?;
     let rows = page["results"]
         .as_array()
         .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;

@@ -69,7 +69,7 @@ impl RecordStore {
             return Ok(0);
         }
         let mut batch = out.rows;
-        batch.extend(super::key_counts::history_count_deletes(out.counts.keys())?);
+        batch.extend(super::key_counts::history_count_deletes(out.counts.keys()));
         self.main_store.inner().batch_mutate(batch).await?;
         Ok(out.released)
     }

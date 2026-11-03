@@ -39,27 +39,17 @@ pub(super) fn handle_control(stream: &mut UnixStream, state: &State) {
             target: state.target.read().expect("proxy target lock").clone(),
             active: state.active.load(Ordering::Relaxed),
         }),
-        Ok(ControlRequest::SetTarget {
-            target,
-            full_target,
-        }) => {
-            let probe = UnixStream::connect(&target);
-            let full_probe = full_target.as_ref().map(UnixStream::connect).transpose();
-            match (probe, full_probe) {
-                (Ok(_), Ok(Some(_) | None)) => {
-                    *state.target.write().expect("proxy target lock") = Target {
-                        socket: target,
-                        full_socket: full_target,
-                    };
-                    serde_json::to_vec(&serde_json::json!({ "ok": true }))
-                }
-                (Err(error), _) | (_, Err(error)) => serde_json::to_vec(&serde_json::json!({
-                    "ok": false,
-                    "error": "target_unavailable",
-                    "detail": error.to_string(),
-                })),
+        Ok(ControlRequest::SetTarget { target }) => match UnixStream::connect(&target) {
+            Ok(_) => {
+                *state.target.write().expect("proxy target lock") = Target { socket: target };
+                serde_json::to_vec(&serde_json::json!({ "ok": true }))
             }
-        }
+            Err(error) => serde_json::to_vec(&serde_json::json!({
+                "ok": false,
+                "error": "target_unavailable",
+                "detail": error.to_string(),
+            })),
+        },
         Err(error) => serde_json::to_vec(&serde_json::json!({
             "ok": false,
             "error": "invalid_control_request",
@@ -72,7 +62,7 @@ pub(super) fn handle_control(stream: &mut UnixStream, state: &State) {
     }
 }
 
-pub(super) fn forward(connection: Connection, state: &State) {
+pub(super) fn forward(connection: UnixStream, state: &State) {
     state.active.fetch_add(1, Ordering::Relaxed);
     let result = forward_inner(connection, state);
     state.active.fetch_sub(1, Ordering::Relaxed);
@@ -81,22 +71,15 @@ pub(super) fn forward(connection: Connection, state: &State) {
     }
 }
 
-pub(super) fn forward_inner(connection: Connection, state: &State) -> io::Result<()> {
+pub(super) fn forward_inner(mut client: UnixStream, state: &State) -> io::Result<()> {
     let target = state.target.read().expect("proxy target lock").clone();
-    let path = if connection.full {
-        target.full_socket.as_ref().unwrap_or(&target.socket)
-    } else {
-        &target.socket
-    };
-    let mut worker = match UnixStream::connect(path) {
+    let mut worker = match UnixStream::connect(&target.socket) {
         Ok(worker) => worker,
         Err(error) => {
-            let mut client = connection.stream;
             client.write_all(UNAVAILABLE_RESPONSE)?;
             return Err(error);
         }
     };
-    let mut client = connection.stream;
     let mut worker_read = worker.try_clone()?;
     let mut client_read = client.try_clone()?;
     thread::scope(|scope| {

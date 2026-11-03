@@ -1,18 +1,17 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// Setup surface (full socket only)
+// Setup surface (owner socket)
 // ---------------------------------------------------------------------------
 
 /// `POST /api/schemas/load` — fetch the published schema catalog from the
 /// schema service and load it (optionally scoped by name) into the node.
 ///
-/// This is a SETUP verb, served only on the full-surface socket
-/// (`folddb-full.sock`), never on the narrow data socket — matching the full
-/// node, whose clients (fkanban init, fbrain bootstrap) probe for the full
-/// socket for first-time schema loads. Same request (`{ schemas: [...] }`,
-/// optional) and response (`{ available_schemas_loaded, schemas_loaded_to_db,
-/// failed_schemas }` in the envelope) as the full node's route.
+/// This is a SETUP verb (first-time schema loads for `brain init` and
+/// `kanban init`), served on the owner socket behind its owner-only peer-cred
+/// gate. Same request (`{ schemas: [...] }`, optional) and response
+/// (`{ available_schemas_loaded, schemas_loaded_to_db, failed_schemas }` in
+/// the envelope) as the full node's route.
 ///
 /// When every requested name looks like a 64-hex identity hash, each schema is
 /// fetched via `GET /v1/schema/{hash}` (fast) instead of downloading the full

@@ -17,7 +17,6 @@ pub mod deliver;
 pub mod distribution;
 pub mod ephemeral;
 pub mod exec;
-pub mod home_storage;
 pub mod host;
 pub mod jobs;
 pub mod local_outbox;

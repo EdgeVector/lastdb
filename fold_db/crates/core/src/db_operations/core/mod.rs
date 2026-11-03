@@ -1,5 +1,4 @@
 use super::change_feed::ChangeFeedStore;
-use super::db_catalog_store::DbCatalogStore;
 use super::metadata_store::MetadataStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
@@ -28,15 +27,13 @@ pub struct DbOperations {
     /// Primary namespace backend used to open side stores that are not one of
     /// the pre-wired domain stores below.
     store: Arc<dyn NamespacedStore>,
-    /// Schema / schema-state / superseded-by namespaces
+    /// Schema / schema-state namespaces
     schema_store: SchemaStore,
-    /// Database/schema references into the node-universal field key store.
-    db_catalog: DbCatalogStore,
     /// per-field-key key bundles and access-domain wraps.
     field_keys: FieldKeyStore,
     /// Main namespace: records, alternate keys, field history.
     record_store: RecordStore,
-    /// Metadata + idempotency + process results
+    /// Metadata namespace, including the mutation retry cache
     metadata_store: MetadataStore,
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
@@ -49,11 +46,6 @@ impl DbOperations {
     /// Access the schema domain store.
     pub fn schemas(&self) -> &SchemaStore {
         &self.schema_store
-    }
-
-    /// Access the exact-key database catalog.
-    pub fn db_catalog(&self) -> &DbCatalogStore {
-        &self.db_catalog
     }
 
     /// Access durable per-field-key key bundles and domain wraps.
@@ -78,7 +70,7 @@ impl DbOperations {
         crate::storage::disk_pack::PackReadScope::for_store(&self.store).await
     }
 
-    /// Access the metadata / idempotency / process-results domain store.
+    /// Access the metadata domain store (including the retry cache).
     pub fn metadata(&self) -> &MetadataStore {
         &self.metadata_store
     }
@@ -105,7 +97,6 @@ impl DbOperations {
     /// Flush all pending writes to durable storage
     pub async fn flush(&self) -> Result<(), SchemaError> {
         self.schema_store.flush().await?;
-        self.db_catalog.flush().await?;
         self.field_keys.flush().await?;
         self.record_store.flush().await?;
         self.metadata_store.flush().await?;

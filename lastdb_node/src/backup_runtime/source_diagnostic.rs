@@ -21,7 +21,6 @@ pub(super) fn report(error: &StorageError) {
         }
         StorageError::MutationLimit { detail } => ("mutation_limit", Some(detail.as_str())),
         StorageError::InvalidOperation(detail) => ("invalid_operation", Some(detail.as_str())),
-        StorageError::CatalogMembershipDenied { .. } => ("catalog_membership_denied", None),
         StorageError::IoError(_) => ("io", None),
         StorageError::StorageFull { detail } => ("storage_full", Some(detail.as_str())),
         StorageError::ConfigurationError(detail) => ("configuration", Some(detail.as_str())),

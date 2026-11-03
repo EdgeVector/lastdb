@@ -3,8 +3,8 @@
 //! A field key's three-key bundle is minted once; its blind-index key blinds
 //! the field key hashes. The plaintext bundle stays only in the process cache.
 //! Durable rows contain a small metadata record (`fkb:`) and one encrypted
-//! wrap per access domain (`fkw:`). Catalog sharing adds a wrap; it never
-//! reseals field key data.
+//! wrap per access domain (`fkw:`). The node domain is the only domain that
+//! writes a wrap.
 
 use crate::crypto::{seal_at_rest_utf8, AT_REST_ENC_PREFIX};
 use crate::schema::types::Schema;
@@ -27,7 +27,6 @@ mod contracts;
 mod establish;
 mod frozen;
 mod metadata_batch;
-mod share;
 
 pub(crate) use frozen::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,

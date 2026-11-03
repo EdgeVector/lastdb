@@ -4,55 +4,9 @@ use super::*;
 use crate::schema::types::MutationType;
 
 impl MutationManager {
-    /// Write mutations with local caller context.
-    ///
-    /// Local callers approved by the host consent layer get full local DB write
-    /// access. Trust tiers, capability quotas, payment gates, and namespace walls
-    /// no longer gate this path (consent-only local control).
-    ///
-    /// When `access_context.storage_prefix` is set (org multi-DB handle from
-    /// `X-LastDB-Db`), record keys land under `{prefix}:…` so cohabiting DBs
-    /// on one Mini node stay isolated.
-    pub async fn write_mutations_with_access_receipt(
-        &self,
-        mutations: Vec<Mutation>,
-        access_context: &crate::access::AccessContext,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let mut resolved_prefix = None;
-        let mut schema_names: Vec<&str> =
-            mutations.iter().map(|m| m.schema_name.as_str()).collect();
-        schema_names.sort_unstable();
-        schema_names.dedup();
-        for schema_name in schema_names {
-            let prefix = self
-                .db_ops
-                .db_catalog()
-                .resolve_storage_prefix(
-                    access_context.db_locator.as_deref(),
-                    schema_name,
-                    access_context.storage_prefix.as_deref(),
-                )
-                .await?;
-            if let Some(existing) = &resolved_prefix {
-                if existing != &prefix {
-                    return Err(SchemaError::InvalidData(
-                        "one mutation batch resolved to multiple catalog instances; split the batch by schema instance"
-                            .to_string(),
-                    ));
-                }
-            } else {
-                resolved_prefix = Some(prefix);
-            }
-        }
-        let resolved_prefix = resolved_prefix.flatten();
-        self.write_mutations_batch_with_receipt(mutations, resolved_prefix.as_deref())
-            .await
-    }
-
     pub(super) async fn write_mutations_batch_with_receipt_admitted(
         &self,
         mut mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
         now: u64,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
@@ -101,7 +55,7 @@ impl MutationManager {
             }
         }
         let mut receipt = self
-            .write_mutations_batch_inner_with_clock(mutations, storage_prefix, author_clock_barrier)
+            .write_mutations_batch_inner_with_clock(mutations, author_clock_barrier)
             .await?;
         receipt.revision = revision;
         Ok(receipt)

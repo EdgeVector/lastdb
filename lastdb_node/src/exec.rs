@@ -12,8 +12,8 @@
 //! daemon serves in its own way:
 //! - Request/response wire parsing (shared `lastdb_host::wire`) + the final
 //!   envelope/error render (shared `lastdb_host::handlers::render`).
-//! - `POST /api/schemas/load` — a SETUP verb served only on the full-surface
-//!   socket (first-time schema loads for fkanban init / fbrain bootstrap).
+//! - `POST /api/schemas/load` — a setup verb on the owner socket (first-time
+//!   schema loads for brain bootstrap).
 //! - `GET /api/schemas` / `GET /api/schema/{name}` / `POST /api/schemas/declare`
 //!   — the catalog listing (with record counts), the single-schema fetch, and
 //!   the owner direct-declare, which resolve schema names via the shared
@@ -25,8 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use base64::Engine as _;
-use fold_db::access::{parse_db_locator, storage_prefix_for, AccessContext, DbLocator};
-use fold_db::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
+use fold_db::access::AccessContext;
 use fold_db::schema::schema_types::SchemaWithState;
 use fold_db::schema::types::declarative_schemas::SchemaSource;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
@@ -70,8 +69,8 @@ fn error_response(status: u16, message: &str, ctx: &AccessContext) -> UdsRespons
 ///
 /// Only a genuine 500 takes the operation prefix, mirroring the mutation path
 /// in `lastdb_host::handlers`: a 4xx keeps the status the mapping assigned and
-/// any structured body it carries (`cas_conflict`, `catalog_membership_denied`,
-/// …), which re-wrapping the message would drop.
+/// any structured body it carries (`cas_conflict`, …), which re-wrapping the
+/// message would drop.
 ///
 /// This is only half the contract. The mapping can only classify what reaches
 /// it, so a core admin wrapper must not flatten the fault into
@@ -95,14 +94,12 @@ fn mapped_error_response(
 }
 
 mod byte_backup_routes;
-mod db_catalog;
 mod db_maintenance;
 mod file_blob;
 mod file_blob_put;
 mod logical_sync_routes;
 mod query_batch;
 mod schema_declare;
-use self::db_catalog::*;
 use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_put::*;
@@ -166,7 +163,6 @@ mod schema_list_rows;
 mod schema_routes;
 mod setup_routes;
 mod socket_queue;
-mod storage_routes;
 mod timeouts;
 pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
@@ -182,5 +178,4 @@ use query_filters::*;
 use query_mutation_routes::*;
 use schema_routes::*;
 pub use setup_routes::*;
-use storage_routes::*;
 pub use timeouts::*;

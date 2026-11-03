@@ -25,12 +25,6 @@ otel = [
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [dependencies]
-# Single source of truth for the node-home resolution
-# (`LASTDB_HOME` ▸ `~/.lastdb`). `default_node_log_path` calls `folddb_home()` so the log
-# writer and the data dir agree on a fresh install — see the cycle note below.
-# `folddb_profile` is a std + `dirs` leaf crate and does NOT depend on
-# `observability`, so this adds no dependency cycle.
-folddb_profile = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "fmt"] }
 tracing-appender = "0.2"

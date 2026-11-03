@@ -1,17 +1,16 @@
-//! Paged record reads under one hash in one storage scope.
+//! Paged record reads under one hash.
 //!
-//! A read that merges the records of several scopes (the own scope and the
-//! scopes of data received from other users) takes the records of each scope
-//! one bounded page at a time, in storage order. The typed range codec keeps
-//! the storage order of one hash in page order, so the merge needs no read
-//! past the keys of its window. A page carries each record with its key, so
-//! a deleted record costs one examined key. The merge reads the records it
-//! keeps by key once more, through the record warm set (decision D2), so a
-//! warm read answers from memory.
+//! A range read takes the records of its hash one bounded page at a time,
+//! in storage order (`hash_range_query/records/range.rs`). The typed range
+//! codec keeps the storage order of one hash in page order, so the read needs
+//! no read past the keys of its window. A page carries each record with its
+//! key, so a deleted record costs one examined key. The read takes the
+//! records it keeps by key once more, through the record warm set (decision
+//! D2), so a warm read answers from memory.
 
 use super::record_reads::decode;
 use super::RecordStore;
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::FilterUtils;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use lastdb_model::field_key_codec::FieldKeyCodec;
@@ -26,8 +25,7 @@ pub(crate) enum RecordBound<'a> {
     Between(&'a str, &'a str),
 }
 
-/// The physical key interval `[start, end)` of one bound under one hash in
-/// one scope.
+/// The physical key interval `[start, end)` of one bound under one hash.
 pub(crate) struct RecordSpan {
     hash: String,
     codec: FieldKeyCodec,
@@ -62,7 +60,7 @@ impl RecordSpan {
 }
 
 impl RecordStore {
-    /// The span of one bound under one API hash in one scope. `from_range`
+    /// The span of one bound under one API hash. `from_range`
     /// moves the start to that API range (inclusive), when the codec can
     /// encode it. `None` when the span is empty.
     pub(crate) fn record_span(
@@ -71,12 +69,11 @@ impl RecordStore {
         hash: &str,
         bound: RecordBound<'_>,
         from_range: Option<&str>,
-        scope: Option<&str>,
     ) -> Result<Option<RecordSpan>, SchemaError> {
         let space = record_space_uuid(&schema.name);
         let codec = self.key_codec_for_field_key(&space)?;
         let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
-        let base = build_storage_key(scope, &record_hash_prefix(&space, &storage_hash));
+        let base = record_hash_prefix(&space, &storage_hash);
         let stored = |range: &str| {
             codec
                 .storage_range(&space, range)

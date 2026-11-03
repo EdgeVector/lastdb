@@ -117,7 +117,6 @@ impl SchemaStore {
                 .await?,
         );
         let _ = self.schemas_store.delete_item(schema_name).await?;
-        let _ = self.superseded_by_store.delete_item(schema_name).await?;
         self.schema_states_store
             .batch_delete_keys(state_keys)
             .await?;

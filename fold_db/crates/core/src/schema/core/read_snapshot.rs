@@ -57,15 +57,9 @@ impl SchemaCore {
     pub(super) async fn resolve_native_schema(
         &self,
         name: &str,
-        depth: usize,
         for_read: bool,
     ) -> Result<Option<Schema>, SchemaError> {
         let snapshot = self.native_schema_snapshot(name).await?;
-        if let Some(successor) = &snapshot.successor {
-            return self
-                .get_schema_resolved(successor, depth + 1, for_read)
-                .await;
-        }
         Ok(snapshot.schema.as_ref().map(|schema| {
             if for_read {
                 schema.clone_for_read_shared()

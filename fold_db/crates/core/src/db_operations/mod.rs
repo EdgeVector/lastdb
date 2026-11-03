@@ -1,7 +1,6 @@
 // Core database operations
 pub mod change_feed;
 pub mod core;
-pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
 pub mod delete_ledger;
@@ -25,10 +24,6 @@ pub use core::{
     note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
     with_query_page_tally, with_query_tally, DbOperations, KeyForm, PageEnd, PageKeyForms,
     PageResume,
-};
-pub use db_catalog_store::{
-    drop_prefixed_rows_for_instance, referenced_instance_ids, DbCatalogEntry,
-    DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
     key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,

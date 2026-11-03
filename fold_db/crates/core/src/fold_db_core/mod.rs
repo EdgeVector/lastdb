@@ -24,4 +24,4 @@ pub use query::QueryExecutor;
 
 pub use mutation_manager::MutationManager;
 
-pub use fold_db::{CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB};
+pub use fold_db::FoldDB;

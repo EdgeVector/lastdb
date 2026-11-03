@@ -2,8 +2,11 @@
 use super::{
     invalid, protocol, Inner, PackRuntime, RunBackupHome, RunBackupProfile, StorageResult,
 };
+use crate::storage::disk_pack::{CAS_DIR, NODE_MARKER, RUN_DIR};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
-use laststore::disk_run::home::{CapturedRunHome, ReadBudget, RunRead, SnapshotFile};
+use laststore::disk_run::home::{
+    CapturedRunHome, ReadBudget, RunRead, SnapshotFile, CURRENT, RUN_HOME_MARKER,
+};
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
@@ -76,10 +79,10 @@ impl RunSource {
             .try_reserve_exact(count)
             .map_err(|_| invalid("run inventory allocation"))?;
         files.push(SnapshotFile {
-            path: "laststore-pack-node-v1".into(),
+            path: NODE_MARKER.into(),
             bytes: marker_bytes,
         });
-        for (prefix, source) in [("disk-run", &main), ("disk-cas", &cas)] {
+        for (prefix, source) in [(RUN_DIR, &main), (CAS_DIR, &cas)] {
             for file in &source.files {
                 files.push(SnapshotFile {
                     path: Path::new(prefix).join(&file.path),
@@ -105,13 +108,13 @@ impl RunSource {
         Ok(OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(root.join("node"))?)
+            .open(root.join(super::HELD_NODE_FILE))?)
     }
     pub fn reader(&self, path: &Path) -> StorageResult<File> {
-        if path == Path::new("laststore-pack-node-v1") {
+        if path == Path::new(NODE_MARKER) {
             return Self::node_file(&self.root);
         }
-        for (prefix, source) in [("disk-run", &self.main), ("disk-cas", &self.cas)] {
+        for (prefix, source) in [(RUN_DIR, &self.main), (CAS_DIR, &self.cas)] {
             if let Ok(tail) = path.strip_prefix(prefix) {
                 return source.reader(tail).map_err(crate::storage::disk_pack::map);
             }
@@ -121,8 +124,8 @@ impl RunSource {
     pub fn profile(&self) -> StorageResult<RunBackupProfile> {
         let profile = RunBackupProfile {
             version: self.version,
-            main: self.home_profile("disk-run", &self.main)?,
-            cas: self.home_profile("disk-cas", &self.cas)?,
+            main: self.home_profile(RUN_DIR, &self.main)?,
+            cas: self.home_profile(CAS_DIR, &self.cas)?,
         };
         profile.validate()?;
         Ok(profile)
@@ -137,10 +140,8 @@ impl RunSource {
             home_id: Id::try_from(home.home_id.to_string()).map_err(protocol)?,
             generation: DecimalU64::new(home.generation),
             frontier: DecimalU64::new(home.frontier),
-            descriptor_sha256: hash(
-                self.reader(&Path::new(prefix).join("laststore-run-home-v2"))?,
-            )?,
-            current_sha256: hash(self.reader(&Path::new(prefix).join("CURRENT"))?)?,
+            descriptor_sha256: hash(self.reader(&Path::new(prefix).join(RUN_HOME_MARKER))?)?,
+            current_sha256: hash(self.reader(&Path::new(prefix).join(CURRENT))?)?,
             files: home.files.len() as u64,
             bytes,
         })
@@ -179,7 +180,7 @@ impl RunSource {
             .map_err(crate::storage::disk_pack::map)?;
         CapturedRunHome::release_saved(&root.join("cas"))
             .map_err(crate::storage::disk_pack::map)?;
-        for name in ["node", "pair-ready", "pair-ready.pending"] {
+        for name in [super::HELD_NODE_FILE, "pair-ready", "pair-ready.pending"] {
             match fs::remove_file(root.join(name)) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}

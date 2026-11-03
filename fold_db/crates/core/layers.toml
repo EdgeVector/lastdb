@@ -45,10 +45,9 @@ modules = [
 
 [[layer]]
 name = "wire"
-doc = "Sharing wire formats: the delivery slice and signed share types. Pure codecs over the model."
+doc = "Sharing wire formats: the delivery slice and its descriptor types. Pure codecs over the model."
 modules = [
   "sharing::delivery_wire",
-  "sharing::signing",
   "sharing::types",
 ]
 
@@ -72,10 +71,9 @@ modules = [
 
 [[layer]]
 name = "operations"
-doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
+doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, and the blob CAS."
 modules = [
   "db_operations",
-  "sharing::store",
 ]
 
 [[layer]]

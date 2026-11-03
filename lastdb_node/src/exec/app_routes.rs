@@ -162,10 +162,9 @@ pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option
     }
 
     let query = fold_db::schema::types::Query::new(canonical.to_string(), Vec::new());
-    let ctx = AccessContext::owner(host.user_hash.clone());
     host.db
         .query_executor()
-        .count_query_rows(&query, &ctx)
+        .count_query_rows(&query)
         .await
         .ok()
         .flatten()
@@ -200,16 +199,13 @@ pub(super) async fn execute_list_record_keys_route(
 
     match host
         .db
-        .list_schema_record_keys_with_access(
-            fold_db::db_operations::SchemaRecordKeysRequest {
-                requested: &request.requested,
-                schema_id: &canonical,
-                limit: request.limit,
-                cursor: request.cursor.as_deref(),
-                hash_filter: request.hash_filter.as_deref(),
-            },
-            ctx,
-        )
+        .list_schema_record_keys(fold_db::db_operations::SchemaRecordKeysRequest {
+            requested: &request.requested,
+            schema_id: &canonical,
+            limit: request.limit,
+            cursor: request.cursor.as_deref(),
+            hash_filter: request.hash_filter.as_deref(),
+        })
         .await
     {
         Ok(report) => json_ok(&envelope(

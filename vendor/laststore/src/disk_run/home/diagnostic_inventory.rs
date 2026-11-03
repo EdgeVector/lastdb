@@ -237,10 +237,7 @@ fn collection_label(name: &[u8]) -> &'static str {
         "metadata",
         "schema_states",
         "schemas",
-        "db_catalog",
         "field_keys",
-        "idempotency",
-        "schema_superseded_by",
         "change_feed",
         "cas_blobs",
     ];

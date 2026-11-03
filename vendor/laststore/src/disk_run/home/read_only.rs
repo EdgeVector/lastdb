@@ -81,7 +81,7 @@ impl RunRead {
         let lock = OpenOptions::new()
             .read(true)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
-            .open(root.join("LOCK"))?;
+            .open(root.join(super::LOCK))?;
         if !lock.metadata()?.is_file() {
             return Err(Error::Config(
                 "disk run snapshot: LOCK is not a file".into(),
@@ -92,8 +92,8 @@ impl RunRead {
         let identity = read_descriptor(&root)?;
         let manifest = Arc::new(match maximum {
             Some(bytes) => Manifest::load_paths_bounded(
-                &root.join("CURRENT"),
-                &root.join("runs"),
+                &root.join(super::CURRENT),
+                &root.join(super::RUNS),
                 key,
                 identity,
                 bytes,

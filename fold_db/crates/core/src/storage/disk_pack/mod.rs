@@ -45,12 +45,14 @@ pub use crate::storage::disk_cleanup::{
 };
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
+pub use physical_v2::CAS_COLLECTION;
 pub(crate) use read::memory::{
     core_memory_get, core_memory_get_for_write, core_memory_insert, core_memory_sources,
 };
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get};
 pub use read::PackReadScope;
 pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
+pub use run_node::{CAS_DIR, RUN_DIR};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 

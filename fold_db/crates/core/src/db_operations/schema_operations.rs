@@ -105,10 +105,6 @@ impl DbOperations {
         self.schemas().get_all_schemas().await
     }
 
-    pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {
-        self.schemas().get_all_superseded_by().await
-    }
-
     pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
         self.schemas().get_all_schema_states().await
     }

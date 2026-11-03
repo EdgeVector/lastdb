@@ -59,7 +59,7 @@ impl<H: HostNode> QueryRun<'_, H> {
     /// the record key position of the last row the caller receives, or of
     /// the last key that an early end examined.
     pub(super) async fn record_walk(&self, query: Query) -> Result<Value, HostError> {
-        let (host, ctx, limit, offset) = (self.host, self.ctx, self.limit, self.offset);
+        let (host, limit, offset) = (self.host, self.limit, self.offset);
         let probe = limit.saturating_add(1);
         let window = match (&self.record, &self.cursor) {
             (Some(record), _) => KeyWindow::after_record(record.clone(), probe),
@@ -76,8 +76,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             (None, None) => KeyWindow::offset(offset, probe),
         };
         let _permit = acquire_read_permit(host, Lane::for_read_rows(probe)).await?;
-        let (rows, flags, end) =
-            execute_query_rows_windowed(host, query, Some(window), ctx).await?;
+        let (rows, flags, end) = execute_query_rows_windowed(host, query, Some(window)).await?;
         let positions: HashMap<KeyValue, String> = end.walk.into_iter().collect();
         let placed = rows
             .into_iter()

@@ -13,7 +13,6 @@
 //! Another leg keeps one read. A condition, an order or a limit decides its
 //! rows after the key set is read, and needs the complete key set.
 
-use crate::access::AccessContext;
 use crate::db_operations::{with_query_page_tally, PageResume};
 use crate::fold_db_core::query::QueryRecords;
 use crate::fold_db_core::FoldDB;
@@ -31,7 +30,6 @@ pub(super) async fn read_leg(
     db: &FoldDB,
     schema: &Schema,
     query: Query,
-    access: &AccessContext,
 ) -> Result<QueryRecords, SchemaError> {
     let paged = query
         .filter
@@ -39,20 +37,16 @@ pub(super) async fn read_leg(
         .is_some_and(HashRangeFilter::is_key_restricted)
         && !query.requires_post_key_work();
     if !paged {
-        return db.query_executor().query_with_access(query, access).await;
+        return db.query_executor().query(query).await;
     }
     let comparison = db.db_ops().records().key_comparison_context(schema).await?;
-    comparison.run(read_pages(db, query, access)).await
+    comparison.run(read_pages(db, query)).await
 }
 
 /// Read the pages of a keyed leg until a page has no row and did not end
 /// early. Each page starts after the greatest key of the page before it: its
 /// last row, or the last key that a run of deleted records let it examine.
-async fn read_pages(
-    db: &FoldDB,
-    query: Query,
-    access: &AccessContext,
-) -> Result<QueryRecords, SchemaError> {
+async fn read_pages(db: &FoldDB, query: Query) -> Result<QueryRecords, SchemaError> {
     let executor = db.query_executor();
     let mut rows = QueryRecords::new();
     let mut after: Option<KeyValue> = None;
@@ -62,8 +56,7 @@ async fn read_pages(
             |after| KeyWindow::after(after, LEG_PAGE_ROWS),
         );
         let (page, _, end) =
-            with_query_page_tally(executor.query_with_access_window(query.clone(), window, access))
-                .await;
+            with_query_page_tally(executor.query_window(query.clone(), window)).await;
         let page = page?;
         let resume = match end.resume {
             Some(PageResume::Key(key)) => Some(key),

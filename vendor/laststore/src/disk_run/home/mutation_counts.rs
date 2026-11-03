@@ -58,12 +58,6 @@ fn names(collection: &str) -> Names {
             "v2_sstates_key_bytes",
             "v2_sstates_value_bytes",
         ],
-        "db_catalog" => [
-            "v2_catalog_puts",
-            "v2_catalog_deletes",
-            "v2_catalog_key_bytes",
-            "v2_catalog_value_bytes",
-        ],
         "metadata" => [
             "v2_metadata_puts",
             "v2_metadata_deletes",

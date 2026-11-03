@@ -1,7 +1,6 @@
 //! Batch request steps, mutation construction, commit, and response rendering.
 //! Pure batch rules live in `rules`; host work stays explicit in the request.
 
-use fold_db::access::AccessContext;
 use fold_db::fold_db_core::mutation_manager::ResidentCommitReceipt;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::Mutation;
@@ -20,8 +19,7 @@ mod rules;
 use self::rules::{batch_convergence, validate_batch_options};
 
 /// Execute `POST /api/mutations/batch`: resolve each schema, build all
-/// mutations with the node's public key, and write them in one access-checked
-/// batch.
+/// mutations with the node's public key, and write them in one batch.
 ///
 /// # Errors
 /// [`HostError`] `400` for invalid batch rules or fields, `404` when any schema
@@ -29,7 +27,6 @@ use self::rules::{batch_convergence, validate_batch_options};
 pub async fn execute_mutations_batch<H: HostNode>(
     host: &H,
     components: Vec<MutationComponents>,
-    ctx: &AccessContext,
 ) -> Result<Value, HostError> {
     let convergence = batch_convergence(&components)?;
     let mut mutations = Vec::with_capacity(components.len());
@@ -60,7 +57,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
     }
 
     let count = mutations.len();
-    let receipt = write_batch(host, mutations, ctx, payload_bytes).await?;
+    let receipt = write_batch(host, mutations, payload_bytes).await?;
     let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
 
     Ok(batch_response(&receipt, count, background_tasks_drained))
@@ -89,7 +86,6 @@ fn batch_response(
 async fn write_batch<H: HostNode>(
     host: &H,
     mutations: Vec<Mutation>,
-    ctx: &AccessContext,
     payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
     // Admit the whole batch on the lane its combined payload size implies, held
@@ -102,7 +98,7 @@ async fn write_batch<H: HostNode>(
     request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     host.fold_db()
         .mutation_manager()
-        .write_mutations_with_access_receipt(mutations, ctx)
+        .write_mutations_receipt(mutations)
         .await
         .map_err(|e| super::prefix_core_failure(e, "Mutation batch failed"))
 }

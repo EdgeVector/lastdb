@@ -21,6 +21,16 @@ use cloud_backup_protocol::v2::{
     Begin,
 };
 use cloud_backup_protocol::{Digest, ProtocolError};
+/// The backup capture source inside [`laststore::disk_run::home::BACKUP_DIR`].
+pub const SOURCE_DIR: &str = "source";
+/// The run holds inside [`laststore::disk_run::home::BACKUP_DIR`], one
+/// directory per paired capture.
+pub const HOLDS_DIR: &str = "holds";
+/// The saved capture intent inside [`SOURCE_DIR`].
+pub const RUN_INTENT_FILE: &str = "run-intent.json";
+/// The hard link to the node marker inside one run hold.
+pub const HELD_NODE_FILE: &str = "node";
+
 pub use codec::*;
 pub use reader::ByteBackupReader;
 pub use run_codec::*;

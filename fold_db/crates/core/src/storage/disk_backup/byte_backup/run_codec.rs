@@ -71,28 +71,31 @@ impl RunBackupProfile {
 
 /// Native V2 paths are a fixed client-owned allowlist, never cloud metadata.
 pub fn run_backup_destination(path: &str) -> StorageResult<cloud_backup_protocol::v2::Destination> {
+    use crate::storage::disk_pack::{CAS_DIR, NODE_MARKER, RUN_DIR};
     use cloud_backup_protocol::v2::Destination;
-    if path == "laststore-pack-node-v1" {
+    use laststore::disk_run::home::{CURRENT, RUNS, RUN_HOME_MARKER};
+    if path == NODE_MARKER {
         return Ok(Destination::R2);
     }
     let (home, tail) = path
         .split_once('/')
         .ok_or_else(|| invalid("run backup path"))?;
-    if !matches!(home, "disk-run" | "disk-cas") {
+    if home != RUN_DIR && home != CAS_DIR {
         return Err(invalid("run backup home path"));
     }
-    if matches!(tail, "CURRENT" | "laststore-run-home-v2") {
+    if tail == CURRENT || tail == RUN_HOME_MARKER {
         return Ok(Destination::R2);
     }
     let id = tail
-        .strip_prefix("runs/")
+        .strip_prefix(RUNS)
+        .and_then(|s| s.strip_prefix('/'))
         .and_then(|s| s.strip_suffix(".ldrun"))
         .ok_or_else(|| invalid("run backup file path"))?;
     let parsed = uuid::Uuid::parse_str(id).map_err(|_| invalid("run backup file identity"))?;
     if parsed.is_nil() || parsed.to_string() != id {
         return Err(invalid("run backup canonical file identity"));
     }
-    Ok(if home == "disk-cas" {
+    Ok(if home == CAS_DIR {
         Destination::B2
     } else {
         Destination::R2

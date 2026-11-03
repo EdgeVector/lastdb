@@ -60,7 +60,7 @@ impl ByteBackupCapture {
             }
             let root = super::run_capture::held_root(&self.inner.runtime, state.reference_id);
             super::run_source::RunSource::release_saved(&root)?;
-            self.inner.store.remove("run-intent.json")?;
+            self.inner.store.remove(super::RUN_INTENT_FILE)?;
             let mut released = state.clone();
             released.released = true;
             self.inner.store.write("job.json", &released)?;

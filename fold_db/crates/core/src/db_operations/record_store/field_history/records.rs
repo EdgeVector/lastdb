@@ -1,7 +1,7 @@
 //! Field history of a home (decision D5).
 //!
 //! An entry keeps its own copy of one old field value and its stamp, at
-//! `{scope:}rh:{S}:{sha(record key)}:{field identity}:{id}`. `S` is the record
+//! `rh:{S}:{sha(record key)}:{field identity}:{id}`. `S` is the record
 //! space of the schema, and `id` is the SHA-256 of the record key, the field
 //! identity and the old stamp. The entry reuses the field policy (`ahp:`), the
 //! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb\0`) of
@@ -10,7 +10,7 @@
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
-use crate::schema::types::field::build_storage_key;
+
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use lastdb_model::record_space::RECORD_PREFIX;
@@ -56,12 +56,10 @@ fn invalid(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("record history: {error}"))
 }
 
-/// `{scope:}rh:{S}:{sha(record key)}:`, and the field identity when given.
+/// `rh:{S}:{sha(record key)}:`, and the field identity when given.
 pub(super) fn record_prefix(record: &str, field: Option<&str>) -> Result<String, SchemaError> {
-    let scope = crate::storage::current_keys::exact_scope(record)?;
-    let bare = scope.map_or(Some(record), |scope| record.get(scope.len() + 1..));
-    let space = bare
-        .and_then(|bare| bare.strip_prefix(RECORD_PREFIX))
+    let space = record
+        .strip_prefix(RECORD_PREFIX)
         .and_then(|rest| rest.split(':').next())
         .filter(|space| !space.is_empty())
         .ok_or_else(|| invalid("the location is not a record key"))?;
@@ -73,16 +71,12 @@ pub(super) fn record_prefix(record: &str, field: Option<&str>) -> Result<String,
         base.push_str(field);
         base.push(':');
     }
-    Ok(build_storage_key(scope, &base))
+    Ok(base)
 }
 
 /// True for the key of a field history entry of a home.
 pub(super) fn is_record_history(key: &str) -> bool {
-    let Ok(scope) = crate::storage::current_keys::exact_scope(key) else {
-        return false;
-    };
-    let bare = scope.map_or(Some(key), |scope| key.get(scope.len() + 1..));
-    bare.is_some_and(|bare| bare.starts_with(RECORD_HISTORY_PREFIX))
+    key.starts_with(RECORD_HISTORY_PREFIX)
 }
 
 /// Delete one entry and its queue entry, and lower the
@@ -103,7 +97,6 @@ impl RecordStore {
     pub(crate) async fn record_history_rows(
         &self,
         schema: &Schema,
-        scope: Option<&str>,
         changes: &[RecordChange],
         purges: &[bool],
     ) -> Result<RecordHistoryRows, SchemaError> {
@@ -117,9 +110,7 @@ impl RecordStore {
         if !purged.is_empty() {
             self.release_purged_history(&purged, &mut out).await?;
         }
-        let captures = self
-            .history_captures(schema, scope, changes, purges)
-            .await?;
+        let captures = self.history_captures(schema, changes, purges).await?;
         let now = self.queue_clock().now_nanos();
         for capture in &captures {
             capture_value(&schema.name, capture, now, &mut out)?;
@@ -135,7 +126,6 @@ impl RecordStore {
     async fn history_captures<'a>(
         &self,
         schema: &'a Schema,
-        scope: Option<&str>,
         changes: &'a [RecordChange],
         purges: &[bool],
     ) -> Result<Vec<Capture<'a>>, SchemaError> {
@@ -175,7 +165,7 @@ impl RecordStore {
         identities.dedup();
         let keys: Vec<String> = identities
             .iter()
-            .map(|identity| build_storage_key(scope, &format!("ahp:{identity}")))
+            .map(|identity| format!("ahp:{identity}"))
             .collect();
         let policies: Vec<Option<FieldHistoryPolicy>> = self.main_store.get_items(&keys).await?;
         let policies: HashMap<&str, FieldHistoryPolicy> = identities

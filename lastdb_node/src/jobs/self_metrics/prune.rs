@@ -40,7 +40,7 @@ pub(super) async fn purge_series_rows(
         .collect();
     host.db
         .mutation_manager()
-        .write_mutations_with_access(mutations, &owner_context(host))
+        .write_mutations(mutations)
         .await
         .map_err(|e| e.to_string())?;
     // Auto reclaim does not delete order-log rows. Explicit compact does.
@@ -131,7 +131,7 @@ pub(super) async fn query_sample_ids(host: &Host) -> Result<Vec<String>, String>
     let rows = host
         .db
         .query_executor()
-        .query_with_access(query, &owner_context(host))
+        .query(query)
         .await
         .map_err(|e| e.to_string())?;
     let mut ids: Vec<String> = rows
@@ -154,7 +154,7 @@ pub(super) async fn query_request_ops_rollup_ids(host: &Host) -> Result<Vec<Stri
     let rows = host
         .db
         .query_executor()
-        .query_with_access(query, &owner_context(host))
+        .query(query)
         .await
         .map_err(|e| e.to_string())?;
     let mut ids: Vec<String> = rows

@@ -3,9 +3,7 @@
 use super::*;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
-use lastdb_node::cloud::{
-    register_dev_native_device, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
-};
+use lastdb_node::cloud::{register_dev_native_device, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use std::io::Read;
 
@@ -106,7 +104,6 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     let mut target = target.create()?;
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(PHRASE_FILE, phrase.as_bytes())?;
-    target.write(CLOUD_RESUME_REQUIRED_FILE, b"")?;
     target.commit()?;
     print(
         &serde_json::json!({
@@ -206,7 +203,7 @@ fn connected(
     print(
         &serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
-            "account_id": account, "home": home, "credential_file": CLOUD_SYNC_PAUSED_FILE,
+            "account_id": account, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
             "cloud_sync_off": true, "local_store_opened": restored,
             "local_store_read_only": restored, "database_writer_opened": false,
             "registration_attempted": registered, "credentials_saved": true,

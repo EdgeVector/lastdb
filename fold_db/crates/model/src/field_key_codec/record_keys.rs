@@ -16,8 +16,7 @@ pub fn hash_range_scan_prefix_for_hash(field_key_id: &str, hash: &str) -> String
 
 /// Parse the part of a key that follows its family prefix and `{F}:` (the
 /// `esc(hash)\0range` suffix) back into `(hash, range)`. Use this when the
-/// caller has already stripped the full — possibly `{storage_prefix}:`-prefixed —
-/// record prefix from a scan. `None` if the escape is malformed or the suffix
+/// caller has already stripped the full record prefix from a scan. `None` if the escape is malformed or the suffix
 /// is not unified (no `\0` delimiter).
 #[must_use]
 pub fn decode_hash_range_suffix(suffix: &str) -> Option<(String, String)> {

@@ -12,7 +12,8 @@ import socket
 import subprocess
 import time
 
-from support import ACCOUNT, CHUNK, OperationError, canonical_uuid, decode_json, read_json, require
+from support import (ACCOUNT, BACKUP_DIR, CHUNK, CREDENTIALS_FILE, OperationError, canonical_uuid, decode_json,
+                     read_json, require)
 
 
 class Connection(http.client.HTTPConnection):
@@ -40,7 +41,8 @@ class OwnedNode:
         # A restore must prove the selected bytes before any TTL worker can
         # erase an expired key and conceal a missing journal deletion.
         self.ttl_sweep = False
-        require(len(str(home / "data/folddb-full.sock").encode()) < 104, "socket_path_size")
+        # The daemon binds `folddb.sock.tmp` first, then renames it.
+        require(len(str(self.socket).encode()) + len(".tmp") < 104, "socket_path_size")
 
     def call(self, path, body=None, binary=False):
         connection = Connection(self.socket)
@@ -66,12 +68,10 @@ class OwnedNode:
     def offline(self):
         if self.backup_source:
             return
-        for name in ("cloud_sync.json.paused", "cloud-byte-backup-v2-manual.json"):
-            require(not os.path.lexists(self.home / name), "restored_home_cloud_off")
+        require(not os.path.lexists(self.home / CREDENTIALS_FILE), "restored_home_cloud_off")
         require(not os.path.lexists(self.home / "data/cloud-byte-backup-v2/active.json"),
                 "restored_no_active_backup")
-        for name in ("cloud-byte-backup-v2", "cloud-byte-source-v2"):
-            require(not (self.home / "data/disk-run" / name).exists(), "restored_no_backup_job")
+        require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
     def start(self):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")

@@ -7,8 +7,7 @@ impl HashRangeQueryProcessor {
     /// would return -- the exact `total_count` for the paginated list path.
     ///
     /// A deleted record does not count. A record counts when it has the key
-    /// field or one of the selected fields, as the page does. While a sender
-    /// is active, the received scopes join the count.
+    /// field or one of the selected fields, as the page does.
     ///
     /// `filter` scopes the count to the same rows the page path will read.
     /// `None` counts the schema's whole live record set. Passing a

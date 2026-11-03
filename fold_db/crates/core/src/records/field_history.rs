@@ -48,7 +48,7 @@ pub(crate) const RECORD_HISTORY_PREFIX: &str = "rh:";
 
 /// One field history entry of a home (decision D5): its own copy of
 /// one old field value and the stamp of that value. The key is
-/// `{scope:}rh:{S}:{sha(record key)}:{field identity}:{id}`.
+/// `rh:{S}:{sha(record key)}:{field identity}:{id}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RecordHistoryEntry {

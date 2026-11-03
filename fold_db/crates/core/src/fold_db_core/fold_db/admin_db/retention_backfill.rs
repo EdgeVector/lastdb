@@ -41,7 +41,13 @@ impl FoldDB {
             .into());
         }
         let page = self
-            .list_schema_record_keys(name, name, limit.clamp(1, 64).min(bound), cursor, None)
+            .list_schema_record_keys(crate::db_operations::SchemaRecordKeysRequest {
+                requested: name,
+                schema_id: name,
+                limit: limit.clamp(1, 64).min(bound),
+                cursor,
+                hash_filter: None,
+            })
             .await?;
         if page.schema_id != schema.name {
             return Err(SchemaError::InvalidData(

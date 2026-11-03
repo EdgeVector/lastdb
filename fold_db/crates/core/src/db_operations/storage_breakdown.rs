@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 /// One schema's contribution to local logical storage.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaStorage {
-    /// Canonical runtime schema name (identity hash, possibly
-    /// `{storage_prefix}:{hash}`) — the name the record space derives from.
+    /// Canonical runtime schema name (identity hash) — the name the record
+    /// space derives from.
     pub schema_name: String,
     /// Catalog `descriptive_name` (or a more human catalog key) when one
     /// exists and differs from `schema_name`. Display join only — never an
@@ -55,15 +55,14 @@ pub struct StorageBreakdown {
 
 impl RecordStore {
     /// The per-schema logical storage breakdown: the live records of each
-    /// schema in `schema_names`, under `storage_prefix`. Rows are sorted by
+    /// schema in `schema_names`. Rows are sorted by
     /// `bytes` descending.
     pub async fn record_storage_breakdown(
         &self,
         schema_names: &[String],
-        storage_prefix: Option<&str>,
     ) -> Result<StorageBreakdown, SchemaError> {
         let mut breakdown = StorageBreakdown::default();
-        self.add_record_storage(&mut breakdown, schema_names, storage_prefix)
+        self.add_record_storage(&mut breakdown, schema_names)
             .await?;
         Ok(breakdown)
     }

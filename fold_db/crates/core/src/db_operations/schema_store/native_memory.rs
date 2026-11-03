@@ -46,23 +46,16 @@ impl SchemaStore {
 pub(crate) fn snapshot_sources(name: &str) -> Vec<CoreMemorySource> {
     let mut sources = core_memory_sources("schemas", name.as_bytes());
     sources.extend(core_memory_sources("schema_states", name.as_bytes()));
-    sources.extend(core_memory_sources("schema_superseded_by", name.as_bytes()));
     sources
 }
 
 pub(crate) fn snapshot_bytes(snapshot: &SchemaReadSnapshot) -> Result<usize, SchemaError> {
-    let bytes = snapshot
+    Ok(snapshot
         .schema
         .as_ref()
         .map(schema_bytes)
         .transpose()?
-        .unwrap_or(1024);
-    Ok(bytes.saturating_add(
-        snapshot
-            .successor
-            .as_ref()
-            .map_or(0, |name| name.len().saturating_mul(2)),
-    ))
+        .unwrap_or(1024))
 }
 
 pub(crate) fn schema_bytes(schema: &Schema) -> Result<usize, SchemaError> {

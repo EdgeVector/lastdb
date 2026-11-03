@@ -10,8 +10,6 @@ use super::receipt::{
 };
 use super::MutationManager;
 
-use super::helpers::apply_storage_prefix_to_schema;
-
 mod access_entry;
 mod batch_inner;
 mod create_update_batch;
@@ -28,47 +26,21 @@ mod schema_delta_helpers;
 mod timing;
 
 impl MutationManager {
-    /// [`Self::write_mutations_with_access_receipt`] returning only the
-    /// accepted input mutation ids, in caller order.
+    /// [`Self::write_mutations_receipt`] returning only the accepted input
+    /// mutation ids, in caller order.
     ///
     /// The future is boxed here. A caller that spawns a task on it would
     /// otherwise make the compiler prove `Send` through the whole write graph
     /// from the spawn site, and that proof overflows the recursion limit.
-    pub fn write_mutations_with_access<'a>(
-        &'a self,
-        mutations: Vec<Mutation>,
-        access_context: &'a crate::access::AccessContext,
-    ) -> futures::future::BoxFuture<'a, Result<Vec<String>, SchemaError>> {
-        use futures::FutureExt;
-        async move {
-            Ok(self
-                .write_mutations_with_access_receipt(mutations, access_context)
-                .await?
-                .mutation_ids)
-        }
-        .boxed()
-    }
-
-    /// Write multiple mutations in a batch for improved performance (async version)
-    /// Groups mutations by schema to minimize schema reloads and uses true batching
-    ///
-    /// This is the preferred async version that avoids deadlocks.
-    /// All storage operations use direct async/await instead of run_async.
-    ///
-    /// `storage_prefix`: when `Some`, scopes field key/idempotency keys to that
-    /// org/db hash (see design-org-db-handle-platform-gap). `None` is personal.
-    pub async fn write_mutations_batch_async(
+    pub fn write_mutations(
         &self,
         mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<String>, SchemaError> {
-        Ok(self
-            .write_mutations_batch_with_receipt(mutations, storage_prefix)
-            .await?
-            .mutation_ids)
+    ) -> futures::future::BoxFuture<'_, Result<Vec<String>, SchemaError>> {
+        use futures::FutureExt;
+        async move { Ok(self.write_mutations_receipt(mutations).await?.mutation_ids) }.boxed()
     }
 
-    // --- Helpers for write_mutations_batch_async ---
+    // --- Helpers for the batch write ---
 
     pub(super) fn reject_blocked_mutation_targets(
         &self,
@@ -83,7 +55,7 @@ impl MutationManager {
                 == SchemaState::Blocked
             {
                 return Err(SchemaError::Blocked(format!(
-                    "Schema '{}' is blocked and cannot be mutated (superseded, or a drop is running)",
+                    "Schema '{}' is blocked and cannot be mutated (a drop is running)",
                     mutation.schema_name
                 )));
             }

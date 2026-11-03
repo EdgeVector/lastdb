@@ -1,7 +1,7 @@
 //! Paired owner capture. No second home owner or storage-format conversion.
 use super::{
-    invalid, model::State, protocol, run_source::RunSource, store::Store, ByteBackupCapture, Inner,
-    PackRuntime, StorageResult,
+    invalid, model::State, protocol, run_source::RunSource, store::private_directory, store::Store,
+    ByteBackupCapture, Inner, PackRuntime, StorageResult, RUN_INTENT_FILE,
 };
 use cloud_backup_protocol::{bytes_sha256, v2::Begin, Digest, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
@@ -20,26 +20,14 @@ struct Intent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
+/// A hold hard-links run files, so it lives in the run home directory.
 pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
     runtime
         .physical
         .path()
-        .join("cloud-byte-holds-v2")
+        .join(laststore::disk_run::home::BACKUP_DIR)
+        .join(super::HOLDS_DIR)
         .join(id.to_string())
-}
-fn directory(path: &Path) -> StorageResult<()> {
-    match fs::DirBuilder::new().mode(0o700).create(path) {
-        Ok(()) => {
-            File::open(path.parent().ok_or_else(|| invalid("run hold parent"))?)?.sync_all()?;
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e.into()),
-    }
-    let meta = fs::symlink_metadata(path)?;
-    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
-        return Err(invalid("run capture private directory"));
-    }
-    Ok(())
 }
 pub(super) async fn prepare(
     runtime: &Arc<PackRuntime>,
@@ -81,8 +69,8 @@ pub(super) async fn prepare(
             }
             super::capture::clear_previous(&store, &old)?;
         }
-        let mut intent = if store.exists("run-intent.json")? {
-            let saved: Intent = store.read("run-intent.json")?;
+        let mut intent = if store.exists(RUN_INTENT_FILE)? {
+            let saved: Intent = store.read(RUN_INTENT_FILE)?;
             if saved.begin != begin
                 || saved.key_sha256 != bytes_sha256(key.as_ref())
                 || saved.reference_id.is_nil()
@@ -97,7 +85,7 @@ pub(super) async fn prepare(
                 reference_id: uuid::Uuid::new_v4(),
                 journal_anchor: runtime.mutation_log.snapshot_anchor(&runtime.physical)?,
             };
-            store.write("run-intent.json", &intent)?;
+            store.write(RUN_INTENT_FILE, &intent)?;
             intent
         };
         let root = held_root(&runtime, intent.reference_id);
@@ -151,11 +139,17 @@ fn renew_intent(
     // held directory, transfer input, or remote begin exists for this request.
     // Old journal epochs remain retained until the replacement snapshot is accepted.
     intent.journal_anchor = runtime.mutation_log.snapshot_anchor(&runtime.physical)?;
-    store.write("run-intent.json", intent)
+    store.write(RUN_INTENT_FILE, intent)
 }
 fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     let homes = &runtime.physical;
-    directory(root.parent().ok_or_else(|| invalid("run capture parent"))?)?;
+    let holds = root.parent().ok_or_else(|| invalid("run capture parent"))?;
+    private_directory(
+        holds
+            .parent()
+            .ok_or_else(|| invalid("run capture parent"))?,
+    )?;
+    private_directory(holds)?;
     fs::DirBuilder::new().mode(0o700).create(root)?;
     homes
         .home
@@ -170,7 +164,7 @@ fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         .path()
         .parent()
         .ok_or_else(|| invalid("run node parent"))?
-        .join("laststore-pack-node-v1");
+        .join(crate::storage::disk_pack::NODE_MARKER);
     let meta = fs::symlink_metadata(&node)?;
     if !meta.is_file()
         || meta.len() > 128
@@ -178,7 +172,7 @@ fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     {
         return Err(invalid("run source node marker"));
     }
-    fs::hard_link(&node, root.join("node"))?;
+    fs::hard_link(&node, root.join(super::HELD_NODE_FILE))?;
     ready::publish(root)?;
     File::open(root.parent().ok_or_else(|| invalid("run capture parent"))?)?.sync_all()?;
     Ok(())
@@ -294,10 +288,10 @@ fn cancel_intent(
     key: &[u8; 32],
     previous_reference: Option<uuid::Uuid>,
 ) -> StorageResult<()> {
-    if !store.exists("run-intent.json")? {
+    if !store.exists(RUN_INTENT_FILE)? {
         return Ok(());
     }
-    let intent: Intent = store.read("run-intent.json")?;
+    let intent: Intent = store.read(RUN_INTENT_FILE)?;
     if intent.begin != *begin
         || intent.key_sha256 != bytes_sha256(key)
         || intent.reference_id.is_nil()
@@ -306,7 +300,7 @@ fn cancel_intent(
         return Err(invalid("run cancel intent"));
     }
     RunSource::release_saved(&held_root(runtime, intent.reference_id))?;
-    store.remove("run-intent.json")
+    store.remove(RUN_INTENT_FILE)
 }
 
 fn new_state(

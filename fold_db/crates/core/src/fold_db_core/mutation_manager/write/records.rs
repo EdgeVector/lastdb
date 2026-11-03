@@ -8,7 +8,7 @@
 //! hold are refused here, before any byte is staged.
 
 use super::*;
-use crate::db_operations::record_store::{record_scope, RecordChange};
+use crate::db_operations::record_store::RecordChange;
 use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
@@ -35,22 +35,18 @@ impl MutationManager {
         schema_name: &str,
         mut mutations: Vec<Mutation>,
         idempotency_entries: Vec<(String, String)>,
-        storage_prefix: Option<&str>,
         repeated: Option<&HashSet<KeyValue>>,
         runtime: &Arc<PackRuntime>,
     ) -> Result<Vec<String>, SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
-        let schema = self
-            .load_schema_for_delta(schema_name, storage_prefix)
-            .await?;
-        let scope = record_scope(&schema);
+        let schema = self.load_schema_for_delta(schema_name).await?;
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut record_keys = Vec::with_capacity(mutations.len());
         for mutation in &mut mutations {
             let key = self.resolve_mutation_key_value(schema_name, &schema, mutation)?;
             self.materialize_key_fields(schema_name, &schema, mutation, &key)?;
-            record_keys.push(records.record_key(&schema, &key, scope.as_deref())?);
+            record_keys.push(records.record_key(&schema, &key)?);
             keys.push(key);
         }
         let stored = records.read_records(&record_keys).await?;
@@ -65,23 +61,11 @@ impl MutationManager {
             repeated,
         )?;
         let entries = records
-            .alternate_entry_changes(
-                &schema,
-                &group.keys,
-                &group.before,
-                &group.after,
-                scope.as_deref(),
-            )
+            .alternate_entry_changes(&schema, &group.keys, &group.before, &group.after)
             .await?;
         let deferred = group.deferred();
-        self.stage_records_with_effects(
-            &schema,
-            (storage_prefix, scope.as_deref()),
-            &group.changed,
-            group.changes,
-            entries,
-        )
-        .await?;
+        self.stage_records_with_effects(&schema, &group.changed, group.changes, entries)
+            .await?;
         runtime.record_read_stage("record-stores-done", keys.len());
 
         if !idempotency_entries.is_empty() {
@@ -92,7 +76,7 @@ impl MutationManager {
         }
         // The retention hash partitions are the keys a later TTL pass reads
         // by hash.
-        if storage_prefix.is_none() && schema.schema_type == DeclarativeSchemaType::HashRange {
+        if schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops
                 .schemas()
                 .record_schema_retention_hash_partitions(schema_name, &keys)
@@ -114,7 +98,6 @@ impl MutationManager {
     pub(super) async fn check_record_preconditions(
         &self,
         mutations: &[Mutation],
-        storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let guarded: Vec<&Mutation> = mutations
             .iter()
@@ -131,7 +114,7 @@ impl MutationManager {
         for &mutation in &guarded {
             let name = mutation.schema_name.as_str();
             if let std::collections::hash_map::Entry::Vacant(slot) = schemas.entry(name) {
-                slot.insert(self.load_schema_for_delta(name, storage_prefix).await?);
+                slot.insert(self.load_schema_for_delta(name).await?);
             }
         }
         let record_store = self.db_ops.records();
@@ -139,7 +122,7 @@ impl MutationManager {
         for &mutation in &guarded {
             let schema = &schemas[mutation.schema_name.as_str()];
             let key = self.resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
-            keys.push(record_store.record_key(schema, &key, record_scope(schema).as_deref())?);
+            keys.push(record_store.record_key(schema, &key)?);
         }
         let records = record_store.read_records(&keys).await?;
         // A purge of a deleted record finds the record while its field history

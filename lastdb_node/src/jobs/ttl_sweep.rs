@@ -33,7 +33,6 @@ use fold_db::clock::unix_secs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::Instrument;
 
-use fold_db::access::{AccessContext, CallerTransport};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 use fold_db::schema::SchemaRetentionPolicy;
@@ -293,8 +292,4 @@ fn key_is_expired(key: &KeyValue, schema_type: &DeclarativeSchemaType, cutoff: u
         DeclarativeSchemaType::HashRange => key.hash.is_some(),
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => false,
     }
-}
-
-fn owner_context(host: &Host) -> AccessContext {
-    AccessContext::owner(host.user_hash.clone()).with_transport(CallerTransport::InProcess)
 }

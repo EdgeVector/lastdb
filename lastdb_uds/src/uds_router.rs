@@ -175,7 +175,15 @@ const API_VERSION_PATH: &str = "/api/version";
 /// and the `annotate` request phase. `lastdb db recount` only raises the
 /// replay cutoff. No other request changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 25;
+/// `26` (2026-11-03) removes the org database catalog: the owner-only routes
+/// `GET|POST|PUT|DELETE /api/db/catalog` and `POST /api/db/catalog/share`, the
+/// `catalog_membership_denied` error, and the `database` key of
+/// `POST /api/field-history`. The node no longer reads the `X-LastDB-Db`
+/// header. It also removes the
+/// owner-only routes `GET /api/storage/home` and
+/// `POST /api/storage/home/reconcile`. No other request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 26;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -300,14 +308,6 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
         "/api/db/cleanup" if owner => match method {
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
-        },
-        "/api/db/catalog" if owner => match method {
-            "GET" => ControlRoute::Data(DataRoute::DbCatalogGet),
-            "POST" | "PUT" => ControlRoute::Data(DataRoute::DbCatalogPut),
-            "DELETE" => ControlRoute::Data(DataRoute::DbCatalogDelete),
-            _ => ControlRoute::MethodNotAllowed {
-                allow: "GET, POST, PUT, DELETE",
-            },
         },
         // Owner control plane: present ONLY on the owner socket. On the app
         // socket the path is unrecognized → NotFound (the structural no-mint

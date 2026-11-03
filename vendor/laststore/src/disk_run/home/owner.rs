@@ -16,7 +16,7 @@ pub(super) fn open(root: &Path, create: bool) -> Result<File> {
             rustix::fs::OFlags::NOFOLLOW.bits() as i32 | rustix::fs::OFlags::NONBLOCK.bits() as i32,
         );
     }
-    let lock = options.open(root.join("LOCK"))?;
+    let lock = options.open(root.join(super::LOCK))?;
     if !create {
         let info = lock.metadata()?;
         if !info.is_file()

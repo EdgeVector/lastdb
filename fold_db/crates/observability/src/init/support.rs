@@ -162,37 +162,33 @@ impl SpanProcessor for ResourceProbe {
     }
 }
 
-/// Path the node binary appends JSON events to.
+/// Path a long-running service appends JSON events to.
 ///
-/// Order of resolution:
 /// 1. `$OBS_FILE_PATH` if set — used as-is, with no parent-directory
 ///    creation. The caller chose the path; the caller is responsible.
-/// 2. `<node-home>/observability.jsonl` — the directory is created if absent.
-///    The node home is resolved by [`folddb_profile::paths::folddb_home`], the
-///    SAME resolver the data dir uses, so the log writer and the data dir
-///    always agree: `LASTDB_HOME` ▸ `~/.lastdb`. `~`-prefixed env values are
-///    expanded against `$HOME` by `folddb_home`, so a literal `~/.lastdb`
-///    never leaks a `<cwd>/~/` directory.
-///
-/// Delegating to `folddb_home` is the single-source-of-truth that keeps this
-/// writer from re-diverging from the data dir / the `folddb logs` reader
-/// ([`fold_db_node::utils::paths::observability_log_path`]).
-pub(super) fn default_node_log_path() -> Result<PathBuf, ObsError> {
+/// 2. `${XDG_STATE_HOME:-$HOME/.local/state}/lastdb/<service>/observability.jsonl`
+///    — the directory is created if absent. It is never inside a node home,
+///    so a service log adds no file to a database home.
+pub(super) fn default_node_log_path(service_name: &str) -> Result<PathBuf, ObsError> {
     if let Ok(p) = std::env::var(OBS_FILE_PATH_ENV) {
         return Ok(PathBuf::from(p));
     }
-    let home = folddb_profile::paths::folddb_home().map_err(|e| {
-        ObsError::Io(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!(
-                "could not resolve node home for the observability log path \
-                 ({e}); set OBS_FILE_PATH or LASTDB_HOME to choose a log \
-                 path explicitly",
-            ),
-        ))
-    })?;
-    fs::create_dir_all(&home)?;
-    Ok(home.join("observability.jsonl"))
+    let state = match std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
+        Some(state) => PathBuf::from(state),
+        None => std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .map(|home| PathBuf::from(home).join(".local/state"))
+            .ok_or_else(|| {
+                ObsError::Io(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "could not resolve the state directory for the observability log \
+                     path; set OBS_FILE_PATH, XDG_STATE_HOME or HOME",
+                ))
+            })?,
+    };
+    let directory = state.join("lastdb").join(service_name);
+    fs::create_dir_all(&directory)?;
+    Ok(directory.join("observability.jsonl"))
 }
 
 pub(super) fn install_subscriber<S>(subscriber: S) -> Result<(), ObsError>
@@ -222,7 +218,3 @@ pub(super) fn install_globals() {
 pub(super) fn install_log_tracer() {
     let _ = LogTracer::init();
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------

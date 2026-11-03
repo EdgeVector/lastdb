@@ -5,7 +5,7 @@ use fold_db::storage::disk_pack::{NativeCleanupPhase, NativeCleanupStatus, PackR
 
 const COUNT: usize = 512;
 const MAIN: &str = "cleanup-proof";
-const CAS: &str = "cas_blobs";
+const CAS: &str = fold_db::storage::disk_pack::CAS_COLLECTION;
 
 pub(super) async fn run() -> Result<()> {
     let folder = tempfile::TempDir::new()?;

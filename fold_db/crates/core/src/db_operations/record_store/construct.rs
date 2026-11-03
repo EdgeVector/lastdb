@@ -14,7 +14,6 @@ impl RecordStore {
             namespaced_store,
             content_key,
             field_keys: None,
-            field_key_commit_locks: Arc::default(),
             queue_clock: Arc::default(),
             history_activation: Arc::default(),
             range_walks: Arc::default(),

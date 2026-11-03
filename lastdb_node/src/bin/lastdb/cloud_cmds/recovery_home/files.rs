@@ -271,11 +271,11 @@ impl FreshHome {
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), String> {
-        self.commit_count(3)
+        self.commit_count(2)
     }
 
     pub(super) fn commit_registered(&mut self) -> Result<(), String> {
-        self.commit_count(4)
+        self.commit_count(3)
     }
 
     fn commit_count(&mut self, expected_count: usize) -> Result<(), String> {

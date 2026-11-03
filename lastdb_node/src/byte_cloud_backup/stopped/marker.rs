@@ -14,11 +14,18 @@ pub(super) fn check(
         2 => {}
         _ => return Err(BackupError::Identity),
     }
-    let data = home.join("data/disk-run");
-    let source = data.join("cloud-byte-source-v2");
+    use fold_db::storage::disk_backup::byte_backup::{
+        HELD_NODE_FILE, HOLDS_DIR, RUN_INTENT_FILE, SOURCE_DIR,
+    };
+    let backup = home
+        .join("data")
+        .join(fold_db::storage::disk_pack::RUN_DIR)
+        .join(laststore::disk_run::home::BACKUP_DIR);
+    let source = backup.join(SOURCE_DIR);
+    private_directory(&backup)?;
     private_directory(&source)?;
     let saved: serde_json::Value =
-        super::super::store::read(&source.join("run-intent.json"))?.ok_or(BackupError::Missing)?;
+        super::super::store::read(&source.join(RUN_INTENT_FILE))?.ok_or(BackupError::Missing)?;
     if saved["sha256"].as_str() != Some(bytes_sha256(&canonical_bytes(&saved["value"])?).as_str()) {
         return Err(BackupError::Identity);
     }
@@ -37,11 +44,11 @@ pub(super) fn check(
     if parsed.is_nil() || parsed.to_string() != id {
         return Err(BackupError::Identity);
     }
-    let parent = data.join("cloud-byte-holds-v2");
+    let parent = backup.join(HOLDS_DIR);
     let held = parent.join(id);
     private_directory(&parent)?;
     private_directory(&held)?;
-    let link = std::fs::symlink_metadata(held.join("node"))?;
+    let link = std::fs::symlink_metadata(held.join(HELD_NODE_FILE))?;
     if !link.is_file()
         || (
             link.dev(),

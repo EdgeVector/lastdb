@@ -32,8 +32,10 @@ use std::io::Write;
 
 mod creation;
 
-pub(in crate::storage) const RUN_DIR: &str = "disk-run";
-pub(in crate::storage) const CAS_DIR: &str = "disk-cas";
+/// Directory of the main run home inside the node data directory.
+pub const RUN_DIR: &str = "disk-run";
+/// Directory of the file run home inside the node data directory.
+pub const CAS_DIR: &str = "disk-cas";
 const INTENT: &str = "laststore-run-initializing";
 const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";

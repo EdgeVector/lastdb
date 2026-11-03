@@ -13,7 +13,7 @@ use super::{sort_rows, SchemaStorage, StorageBreakdown};
 use crate::db_operations::admin_db::{inventory_next_page_rows, INVENTORY_PAGE_ROWS_MIN};
 use crate::db_operations::record_store::RangeWalk;
 use crate::db_operations::RecordStore;
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::FilterUtils;
 use crate::schema::SchemaError;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use lastdb_model::record_value::StoredRecord;
@@ -26,7 +26,7 @@ impl RecordStore {
     /// Add the live records of a home to `breakdown`, one row per
     /// schema.
     ///
-    /// One paged walk reads the whole record plane under `storage_prefix`, so
+    /// One paged walk reads the whole record plane, so
     /// the cost is O(all records). `schema_names` maps
     /// each record space back to its schema: it names the rows, it does not
     /// narrow the walk. A space that no listed schema owns keeps its `rk:{S}`
@@ -35,14 +35,13 @@ impl RecordStore {
         &self,
         breakdown: &mut StorageBreakdown,
         schema_names: &[String],
-        storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let spaces: HashMap<String, &str> = schema_names
             .iter()
             .map(|name| (record_space_uuid(name), name.as_str()))
             .collect();
-        let start = build_storage_key(storage_prefix, RECORD_PREFIX);
-        let end = FilterUtils::create_prefix_end(&start)?;
+        let start = RECORD_PREFIX;
+        let end = FilterUtils::create_prefix_end(start)?;
         let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), INVENTORY_PAGE_ROWS_MIN);
         let mut totals = RecordTotals::new();
         while !walk.done() {

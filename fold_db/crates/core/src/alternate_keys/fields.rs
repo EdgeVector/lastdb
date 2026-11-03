@@ -9,7 +9,6 @@ impl RecordStore {
         &self,
         schema: &Schema,
         keys: &[KeyValue],
-        scope: Option<&str>,
         names: &BTreeSet<&str>,
     ) -> Result<Vec<RecordFields>, SchemaError> {
         if names.len().saturating_mul(keys.len()) > MAX_ALTERNATE_ENTRIES {
@@ -18,7 +17,7 @@ impl RecordStore {
         // One record holds every field of its key.
         let storage = keys
             .iter()
-            .map(|key| self.record_key(schema, key, scope))
+            .map(|key| self.record_key(schema, key))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(self
             .read_records(&storage)

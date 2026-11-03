@@ -8,9 +8,6 @@ impl Host {
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
         crate::session_ledger::clear_shutdown_flush_receipt(home)
             .map_err(|error| format!("could not clear prior shutdown proof: {error}"))?;
-        if crate::cloud::cloud_credentials_path(home).exists() {
-            crate::cloud::mark_cloud_resume_required(home)?;
-        }
         let data_path = home.join("data");
         std::fs::create_dir_all(&data_path)
             .map_err(|e| format!("failed to create data dir {}: {e}", data_path.display()))?;

@@ -78,19 +78,6 @@ impl From<SchemaError> for HostError {
             SchemaError::Blocked(msg) | SchemaError::PermissionDenied(msg) => {
                 Self::new(400, msg.clone())
             }
-            schema_err @ SchemaError::CatalogMembershipDenied {
-                db_locator,
-                schema_name,
-            } => Self::structured(
-                403,
-                schema_err.to_string(),
-                serde_json::json!({
-                    "error": "catalog_membership_denied",
-                    "db_locator": db_locator,
-                    "schema_name": schema_name,
-                    "message": schema_err.to_string(),
-                }),
-            ),
             SchemaError::InvalidPermission(msg) => Self::new(401, msg.clone()),
             // A caller-supplied resume cursor that names no key in the walked
             // keyspace. Typed separately from `InvalidData` (which this

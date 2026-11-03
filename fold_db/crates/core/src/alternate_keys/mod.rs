@@ -1,6 +1,5 @@
 //! Alternate field keys select primary records. Canonical field reuse is independent.
 
-use crate::schema::types::field::build_storage_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
