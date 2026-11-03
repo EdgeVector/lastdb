@@ -7,8 +7,8 @@
 #
 # State sits below the host and work over the host sits above it: the host
 # holds the sampler state, request telemetry and backup runtime (ops, leaf),
-# and the jobs that take `&Host` (sampler, TTL sweep, blob dwell, footprint
-# relief) live in `jobs`, above the node features they report on.
+# and the jobs that take `&Host` (sampler, TTL sweep, footprint relief) live
+# in `jobs`, above the node features they report on.
 
 # The daemon binary (main.rs with its private lastdbd and shutdown_runtime
 # modules) and the bin/ tools are separate crates. They reach this library
@@ -76,7 +76,7 @@ modules = [
 
 [[layer]]
 name = "jobs"
-doc = "Background and on-demand work over a booted host: the self-metrics sampler and status snapshot build, the TTL sweep, blob dwell, and footprint relief."
+doc = "Background and on-demand work over a booted host: the self-metrics sampler and status snapshot build, the TTL sweep, and footprint relief."
 modules = [
   "jobs",
 ]

@@ -122,10 +122,4 @@ pub struct StatusSnapshot {
     /// The retention window of kept conflict records, the janitor's last run
     /// and the queue depth.
     pub conflict_retention: fold_db::db_operations::ConflictRetentionReport,
-    /// Process-lifetime effectiveness of plaintext compression before sealing.
-    ///
-    /// All-zero counters mean nothing sealed yet. The enabled bit separately
-    /// distinguishes a cold process from the compression kill switch being
-    /// engaged.
-    pub at_rest_compression: AtRestCompressionHealth,
 }

@@ -117,7 +117,6 @@ pub(super) fn status_json(
             .as_str()
             .to_string()
     });
-    let at_rest_compression = snapshot.as_ref().map(|s| s.at_rest_compression);
     let payload = serde_json::json!({
         "home": home.display().to_string(),
         "socket": socket.display().to_string(),
@@ -134,7 +133,6 @@ pub(super) fn status_json(
         "daemon_build": daemon_build,
         "cli_build": lastdb_node::crash_attribution::build_version(),
         "build_agreement": build_agreement,
-        "at_rest_compression": at_rest_compression,
         "notes": [
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
              null daemon_build = no status reply, build unknown — not agreement",

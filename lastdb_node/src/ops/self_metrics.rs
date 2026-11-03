@@ -27,7 +27,6 @@ use super::gauge::{Gauge, Unit, Window};
 #[macro_use]
 mod gauge_health;
 
-mod at_rest;
 mod build_health;
 mod conflict_retention_lines;
 mod constants;
@@ -55,7 +54,6 @@ mod ttl_backoff;
 mod ttl_pass;
 mod verify_ref_lines;
 
-pub use at_rest::*;
 pub use build_health::*;
 pub use conflict_retention_lines::*;
 pub use constants::*;
