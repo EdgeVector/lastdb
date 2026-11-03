@@ -71,7 +71,8 @@ where
         .map_err(|e| e.to_string())?
     {
         let missing = missing_of(&existing);
-        if missing.is_empty() {
+        // A schema with a missing field or a stale field type reloads in place.
+        if missing.is_empty() && existing.field_types == current.field_types {
             return Ok(());
         }
         log_upgrade(&missing);
@@ -125,9 +126,10 @@ fn telemetry_hash_range_schema(
         ),
         None,
     );
-    schema.field_types = ["series", "sample_id"]
-        .map(|field| (field.to_string(), FieldValueType::String))
-        .into();
+    schema.field_types = fields
+        .iter()
+        .map(|field| (field.to_string(), telemetry_field_type(field)))
+        .collect();
     schema.descriptive_name = Some(descriptive_name.to_string());
     schema.purpose_statement = Some(purpose.to_string());
     schema.owner_app_id = Some(TELEMETRY_NAMESPACE.to_string());
@@ -136,6 +138,28 @@ fn telemetry_hash_range_schema(
         .populate_runtime_fields()
         .map_err(|e| e.to_string())?;
     Ok(schema)
+}
+
+/// Every telemetry field names the type its writer stores. A gauge that the
+/// platform does not serve is written as null.
+fn telemetry_field_type(field: &str) -> FieldValueType {
+    match field {
+        "series" | "sample_id" | "governor_state" | "host_pressure" | "allocator_name"
+        | "client" | "kind" | "schema" | "route" => FieldValueType::String,
+        "sampler_last_error" => {
+            FieldValueType::OneOf(vec![FieldValueType::String, FieldValueType::Null])
+        }
+        "footprint_sticky"
+        | "purge_failed"
+        | "backup_v2_observed"
+        | "backup_v2_accepted_backup_recorded"
+        | "backup_automatic_enabled" => FieldValueType::Boolean,
+        "backup_durability_degraded" => {
+            FieldValueType::OneOf(vec![FieldValueType::Boolean, FieldValueType::Null])
+        }
+        "backup_durability_reasons" => FieldValueType::Array(Box::new(FieldValueType::String)),
+        _ => FieldValueType::OneOf(vec![FieldValueType::Number, FieldValueType::Null]),
+    }
 }
 
 pub(super) fn missing_self_metric_fields(

@@ -1,4 +1,4 @@
-//! The installed schema owns values; the service supplies its definition.
+//! The installed schema owns values; the node builds its definition locally.
 
 use super::*;
 
