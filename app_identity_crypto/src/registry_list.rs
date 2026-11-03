@@ -205,6 +205,10 @@ impl InterfaceList {
     ///
     /// # Errors
     /// A registry or publisher signature failure, invalid grammar, or a different interface.
+    // Inline so the JSON parse compiles in the calling crate, which already
+    // holds a byte-slice parser; an out-of-line copy here adds a second one
+    // to the Schema Service Lambda (15 MiB zip bar).
+    #[inline]
     pub fn load(
         bytes: &[u8],
         signature_bytes: &[u8],

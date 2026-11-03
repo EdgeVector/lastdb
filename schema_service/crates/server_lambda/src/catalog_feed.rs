@@ -80,8 +80,8 @@ pub(crate) async fn post_catalog_feed(
     };
     match state.run_catalog_feed(&source).await {
         Ok(report) => {
-            let summary = serde_json::to_string(&report).unwrap_or_default();
-            tracing::info!(target: "schema_service::catalog_feed", report = %summary, "catalog feed run complete");
+            let report = serde_json::to_value(&report).unwrap_or_default();
+            tracing::info!(target: "schema_service::catalog_feed", report = %report, "catalog feed run complete");
             json_response(200, &json!({ "enabled": true, "report": report }))
         }
         Err(error) => {

@@ -139,10 +139,23 @@ pub fn manifest_schema_definition(entry: &Value) -> Result<DeclarativeSchemaDefi
     if let Some(object) = entry.as_object_mut() {
         object.remove("retention");
     }
-    let mut schema: DeclarativeSchemaDefinition =
-        serde_json::from_value(entry).map_err(|error| error.to_string())?;
+    let mut schema = schema_from_value(entry).map_err(|error| error.to_string())?;
     schema.normalize_wire();
     Ok(schema)
+}
+
+/// Parse one schema definition from a JSON value.
+///
+/// Every caller in the Schema Service Lambda parses a definition from a
+/// `Value` through this one function. A generic `from_value` call in each
+/// crate compiles its own copy of the definition deserializer (about 48 KB),
+/// and the Lambda zip has a 15 MiB bar, so this stays out of line.
+///
+/// # Errors
+/// The value is not a schema definition.
+#[inline(never)]
+pub fn schema_from_value(value: Value) -> Result<DeclarativeSchemaDefinition, serde_json::Error> {
+    serde_json::from_value(value)
 }
 
 /// The definition a fresh install of `app_id`'s declaration loads: the owned

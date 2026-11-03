@@ -13,7 +13,7 @@
 //! new field name to the vocabulary through the admission policy the seeds
 //! use, and skips a field that admission refuses.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use schema_types::{FoldDbError, FoldDbResult, Schema};
@@ -51,7 +51,7 @@ pub enum CatalogOrigin {
 }
 
 /// One place a definition is listed.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogListing {
     pub channel: String,
     pub api_version: u32,
@@ -68,8 +68,9 @@ pub struct CatalogRecord {
     /// computed from the declaration alone.
     pub definition: Schema,
     pub owner_app_id: String,
-    /// The current lists that carry this definition.
-    pub listings: BTreeSet<CatalogListing>,
+    /// The current lists that carry this definition: each listing once, in
+    /// list order.
+    pub listings: Vec<CatalogListing>,
     /// True while at least one current list carries the definition.
     pub listed: bool,
     pub first_seen: String,

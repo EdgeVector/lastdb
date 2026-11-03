@@ -5,7 +5,6 @@
 //! the exact bytes, then each publisher signature. A list that fails keeps
 //! its previous state and its previous ETag, so the next run reads it again.
 
-use std::collections::BTreeSet;
 use std::ops::RangeInclusive;
 
 use app_identity_crypto::{
@@ -93,22 +92,19 @@ fn accept_list(
 }
 
 impl FeedRun<'_> {
-    /// Read every list key once. Returns the keys whose verified content
-    /// changed in this run.
-    pub(super) async fn refresh_lists(&mut self, state: &mut CatalogFeedState) -> BTreeSet<String> {
-        let mut changed = BTreeSet::new();
+    /// Read every list key once. The keys whose verified content changed
+    /// in this run go to `report.lists_changed`.
+    pub(super) async fn refresh_lists(&mut self, state: &mut CatalogFeedState) {
         for channel in LIST_CHANNELS {
             for api_version in probe_versions(state) {
                 let key = interface_list_path(channel, api_version);
                 let refreshed = self.refresh_list(state, channel, api_version, &key).await;
                 if let Some(list) = refreshed {
                     state.lists.insert(key.clone(), list);
-                    self.report.lists_changed.push(key.clone());
-                    changed.insert(key);
+                    self.report.lists_changed.push(key);
                 }
             }
         }
-        changed
     }
 
     /// The new state of one key, or `None` when it keeps its previous state.

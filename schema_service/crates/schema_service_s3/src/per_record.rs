@@ -68,13 +68,13 @@ impl S3BlobPersistence {
     }
 
     /// Encode one record for an S3 put.
-    fn encode_json<T: Serialize>(key: &str, record: &T) -> FoldDbResult<Vec<u8>> {
+    pub(crate) fn encode_json<T: Serialize>(key: &str, record: &T) -> FoldDbResult<Vec<u8>> {
         serde_json::to_vec(record)
             .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))
     }
 
     /// Start one JSON put. The caller adds the match condition.
-    fn start_put(&self, key: &str, body: Vec<u8>) -> PutRequest {
+    pub(crate) fn start_put(&self, key: &str, body: Vec<u8>) -> PutRequest {
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -84,7 +84,10 @@ impl S3BlobPersistence {
     }
 
     /// The shared S3 text for a failed put.
-    fn put_s3_error<E, R>(key: &str, error: &aws_sdk_s3::error::SdkError<E, R>) -> FoldDbError
+    pub(crate) fn put_s3_error<E, R>(
+        key: &str,
+        error: &aws_sdk_s3::error::SdkError<E, R>,
+    ) -> FoldDbError
     where
         E: aws_sdk_s3::error::ProvideErrorMetadata,
     {
@@ -118,7 +121,7 @@ impl S3BlobPersistence {
     }
 
     /// Read one definition object. `None` means the key is absent.
-    async fn get_stored_object(&self, key: &str) -> FoldDbResult<Option<StoredObject>> {
+    pub(crate) async fn get_stored_object(&self, key: &str) -> FoldDbResult<Option<StoredObject>> {
         match self
             .client
             .get_object()
@@ -142,7 +145,7 @@ impl S3BlobPersistence {
     }
 
     /// Read and parse one object body.
-    async fn decode_json_body<T>(key: &str, body: ByteStream) -> FoldDbResult<T>
+    pub(crate) async fn decode_json_body<T>(key: &str, body: ByteStream) -> FoldDbResult<T>
     where
         T: DeserializeOwned,
     {
