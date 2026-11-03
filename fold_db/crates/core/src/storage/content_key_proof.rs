@@ -1,6 +1,6 @@
 //! Explicit account-key proof, independent of storage wrapper policy.
 
-use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
+use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
 use crate::storage::{NamespacedStore, StorageError};
 
 pub(crate) const NAMESPACE: &str = "metadata";
@@ -13,6 +13,12 @@ pub(crate) fn create(key: &[u8; 32]) -> Result<Vec<u8>, StorageError> {
 }
 
 pub(crate) fn verify(key: &[u8; 32], stored: &[u8]) -> Result<(), StorageError> {
+    // `create` writes only the `ENB:` form of `seal_at_rest_raw`.
+    if !stored.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
+        return Err(StorageError::EncryptionError(
+            "content key proof is not a binary encrypted value".into(),
+        ));
+    }
     let plain = open_at_rest_bounded(key, stored, 4096)
         .map_err(|error| StorageError::EncryptionError(format!("content key proof: {error}")))?;
     if plain != VALUE {

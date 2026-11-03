@@ -6,7 +6,6 @@ label=""
 home_dir=""
 dsn_locator="${LASTDBD_SECONDARY_OBS_SENTRY_DSN_LOCATOR:-lastsecrets://obs-sentry-dsn-rust}"
 environment=""
-install_id=""
 lastdbd_bin="${LASTDBD_BIN:-}"
 lastsecrets_bin="${LASTSECRETS_BIN:-}"
 plist_dir="${LASTDBD_LAUNCH_AGENT_DIR:-$HOME/Library/LaunchAgents}"
@@ -30,7 +29,6 @@ Options:
   --home PATH              LastDB home (default: ~/.lastdb-NAME)
   --dsn-locator LOCATOR    LastSecrets locator (default: lastsecrets://obs-sentry-dsn-rust)
   --environment NAME       OBS_SENTRY_ENVIRONMENT (default: --name)
-  --install-id ID          OBS_SENTRY_INSTALL_ID (default: --name)
   --bin PATH               lastdbd binary (default: command -v lastdbd, then /opt/homebrew/bin/lastdbd)
   --lastsecrets-bin PATH   lastsecrets binary (default: command -v lastsecrets, then ~/.bun/bin/lastsecrets)
   --plist-dir DIR          LaunchAgents directory (default: ~/Library/LaunchAgents)
@@ -71,11 +69,6 @@ while [ "$#" -gt 0 ]; do
     --environment)
       [ "$#" -ge 2 ] || die "missing value for --environment"
       environment="$2"
-      shift 2
-      ;;
-    --install-id)
-      [ "$#" -ge 2 ] || die "missing value for --install-id"
-      install_id="$2"
       shift 2
       ;;
     --bin)
@@ -147,9 +140,6 @@ fi
 if [ -z "$environment" ]; then
   environment="$name"
 fi
-if [ -z "$install_id" ]; then
-  install_id="$name"
-fi
 if [ -z "$lastdbd_bin" ]; then
   lastdbd_bin="$(command -v lastdbd 2>/dev/null || true)"
 fi
@@ -198,7 +188,6 @@ fi
 
 export OBS_SENTRY_DSN="\$dsn"
 export OBS_SENTRY_ENVIRONMENT=$(shell_quote "$environment")
-export OBS_SENTRY_INSTALL_ID=$(shell_quote "$install_id")
 export LASTDB_HOME=$(shell_quote "$home_dir")
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
 

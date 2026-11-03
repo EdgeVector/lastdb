@@ -36,7 +36,6 @@ where
     }
     let mut timing = super::super::timing::start();
     let gate = runtime.enter_prepare().await;
-    runtime.require_restore_validated()?;
     super::super::timing::mark(&mut timing, "admission_us");
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));

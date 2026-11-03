@@ -24,7 +24,6 @@ pub(in crate::storage) mod physical_v2;
 mod queue;
 mod read;
 pub(crate) mod record_warm;
-pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
 pub(in crate::storage) mod run_admission;
@@ -69,14 +68,12 @@ pub struct PackRuntime {
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
-    restore_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
-    restore_blocked: AtomicBool,
     pub(in crate::storage) serving: AtomicBool,
     // A failed commit retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
@@ -187,13 +184,11 @@ impl PackNamespacedStore {
                     revision: 0,
                 })),
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
-                restore_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 failed: AtomicBool::new(false),
-                restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
                 initializing: AtomicBool::new(initializing),
                 failed_write: Mutex::new(None),

@@ -49,20 +49,14 @@ pub enum StorageError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("Download failed: {0}")]
-    DownloadFailed(String),
-
-    #[error("Upload failed: {0}")]
-    UploadFailed(String),
-
     /// The filesystem holding the database is out of space, so the write did
     /// not land.
     ///
     /// Carried as its own variant (not a stringly-typed [`Self::BackendError`])
-    /// for the same reason as [`Self::LockContention`]: a full disk is not a
-    /// backend defect and not something the caller can fix by changing its
-    /// request. Every retry fails identically until an operator frees space, so
-    /// the condition needs an operator-facing message and a status of its own.
+    /// because a full disk is not a backend defect and not something the
+    /// caller can fix by changing its request. Every retry fails identically
+    /// until an operator frees space, so the condition needs an
+    /// operator-facing message and a status of its own.
     ///
     /// Flattening it is what let a disk-full episode reach the caller as
     /// `400 Bad Request` / "Invalid data" — telling the writer its payload was
@@ -80,20 +74,6 @@ pub enum StorageError {
 
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
-
-    /// The database file lock could not be acquired before the retry
-    /// deadline because another process holds it. Almost always a duplicate
-    /// node (a second `lastdbd` / sidebin primary / stray Mini) running
-    /// against the same data dir. Callers should surface the message rather
-    /// than panic.
-    #[error(
-        "database is locked by another process at {path} — another LastDB \
-         instance is already running and holding the database lock. Quit the \
-         duplicate instance(s) (look for extra 'fold-app', 'lastdb_server', or \
-         'folddb_server' processes — e.g. `pgrep -fl fold-app` / Activity \
-         Monitor) and try again. Waited {waited_ms}ms for the lock to release."
-    )]
-    LockContention { path: String, waited_ms: u128 },
 
     #[error("Encryption error: {0}")]
     EncryptionError(String),

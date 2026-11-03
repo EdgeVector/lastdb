@@ -231,6 +231,10 @@ impl Inner {
     pub fn available(&self) -> bool {
         self.run.is_some()
     }
+    /// An active capture exports only while it holds its run files.
+    pub fn require_available(&self) -> StorageResult<()> {
+        self.files().map(|_| ())
+    }
     pub fn files(&self) -> StorageResult<&[SnapshotFile]> {
         self.run
             .as_ref()

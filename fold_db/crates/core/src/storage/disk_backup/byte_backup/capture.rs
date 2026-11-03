@@ -58,20 +58,12 @@ pub(super) fn finish(
         inner.store.write("job.json", &*state)?;
     }
     let active = state.terminal.is_none() && !state.local_cancelled && !state.released;
-    let eligible = if active {
-        let validation = super::counters::require_validated(&inner);
-        if admit_export {
-            validation?;
-            true
-        } else {
-            validation.is_ok()
-        }
-    } else {
-        true
-    };
+    if active && admit_export {
+        inner.require_available()?;
+    }
     // Recovery must still obtain a handle for exact terminal/local cancellation.
     // Content APIs recheck eligibility before they expose the retained cut.
-    if !state.ready && active && eligible && inner.available() {
+    if !state.ready && active && inner.available() {
         super::run_source::certify(&inner, key)?;
         super::planner::build(&inner, &mut state, key)?;
     }

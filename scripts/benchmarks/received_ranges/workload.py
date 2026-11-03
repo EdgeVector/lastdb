@@ -65,22 +65,6 @@ class Workload:
         cases.extend((label, {**request, "fields": fields}) for label, request, fields in projections)
         return [walk(self.node, self.seed.expected(), request, label) for label, request in cases]
 
-    def preload(self):
-        if self.baseline:
-            return None
-        self.node.stop()
-        self.node.settings["LASTDB_SCHEMA_PRELOAD_SCHEMAS"] = SCHEMA
-        self.node.start()
-        before = self.node.status("preload-before")["native"]["native_disk"].get("schema_keys") or {}
-        broad = self.broad("preload-reopened")
-        after = self.node.status("preload-after")["native"]["native_disk"].get("schema_keys") or {}
-        ready = bool(after) and (after["enabled"] and after["ready"] > 0 and after["disk_only"] == 0
-                 and after["keys"] >= len(self.seed.expected())
-                 and after["memory_selections"] > before.get("memory_selections", 0))
-        return {"actual_ready_selection_verified": ready, "before": before, "after": after,
-                "broad": broad, "scope": "Ready preload selected actual keys" if ready else
-                "Policy requested but ready received selection remains unproved"}
-
     def run(self):
         self.seed.populate()
         separate = [self.separate_values()]
@@ -109,11 +93,10 @@ class Workload:
         known.append(self.keyed("delete-purge-update-and-reopened"))
         reopened = self.broad("changed-reopened")
         conditions = Conditions(self.node, SCHEMA, self.seed.expected()).run()
-        preload = self.preload()
         return {"received_records_per_source": COUNT, "sources": 2, "overlap_records": 8192,
             "known_key_passes": known, "separate_schema_values": separate,
             "broad": broad, "boundaries": boundaries,
-            "reopened": reopened, "preload": preload, "narrow_latency": latency(measured),
+            "reopened": reopened, "narrow_latency": latency(measured),
             "narrow_samples": measured, "ordered_mutation_sha256": self.seed.offered.hexdigest(),
             "narrow_phase_coverage": narrow_coverage,
             "narrow_memory_before": memory_before, "narrow_memory_after": memory_after,

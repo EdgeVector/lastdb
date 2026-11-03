@@ -6,8 +6,7 @@ The `src/v2` module defines the active backup protocol.
 The service consumes this source through its pinned LastDB submodule.
 Do not duplicate the wire types in the service.
 
-Shared recovery types and saved V1 state validators remain where V2 still uses them.
-Those types do not enable a V1 capture, upload, restore, or scheduler.
+The crate root holds the scalar, recovery and limit types that `src/v2` uses.
 Keep completion checks, retained bytes, and unresolved provider obligations until their exact saved state proves release is safe.
 
 Builds, lint, and required benchmarks run in GitHub CI.

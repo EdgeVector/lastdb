@@ -15,7 +15,7 @@ use std::sync::Arc;
 mod membership;
 mod memory;
 
-/// Sentinel local storage prefix for the legacy unprefixed personal instance.
+/// Sentinel local storage prefix for the default unprefixed personal instance.
 /// Catalog `instance_id` stays `None`; org-sync `storage_prefixes` uses this
 /// token so unprefixed keys can route to an org cloud head.
 pub const UNPREFIXED_INSTANCE_ID: &str = "unprefixed";
@@ -34,11 +34,10 @@ pub enum DbCatalogKeySelection {
 pub struct DbCatalogEntry {
     pub db_locator: String,
     pub schema_name: String,
-    /// Storage instance namespace. `None` references the legacy unprefixed
-    /// personal instance without migrating or copying its field keys and records.
+    /// Storage instance namespace. `None` references the default unprefixed
+    /// personal instance without copying its field keys and records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
-    #[serde(default)]
     pub key_selection: DbCatalogKeySelection,
 }
 
@@ -81,13 +80,9 @@ impl DbCatalogStore {
         validate_identity(db_locator, schema_name)?;
         let key = entry_key(db_locator, schema_name);
         let deleted = self.entries.inner().get(key.as_bytes()).await?.is_some();
-        let locator_hash = Sha256::digest(db_locator.as_bytes());
         self.entries
             .inner()
-            .batch_delete(vec![
-                key.into_bytes(),
-                format!("membership:{locator_hash:x}\0{schema_name}").into_bytes(),
-            ])
+            .batch_delete(vec![key.into_bytes()])
             .await?;
         self.entries.inner().flush().await?;
         Ok(deleted)
@@ -96,9 +91,9 @@ impl DbCatalogStore {
     /// Resolve the storage instance for a request.
     ///
     /// An entry wins even when it selects `None`: that is how an org/database
-    /// handle references legacy personal data without copying it. A named
-    /// database with no entry fails closed; it must never fall back to the
-    /// historical DB-hash prefix supplied by the request edge.
+    /// handle references the default personal instance without copying it. A
+    /// named database with no entry fails closed; it must never fall back to
+    /// the DB-hash prefix supplied by the request edge.
     pub async fn resolve_storage_prefix(
         &self,
         db_locator: Option<&str>,

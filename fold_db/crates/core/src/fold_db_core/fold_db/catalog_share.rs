@@ -24,7 +24,7 @@ impl FoldDB {
     /// Access-domain wraps land before catalog membership. A partial wrap failure
     /// therefore cannot expose data through the target database handle.
     ///
-    /// A personal source (`lastdb://personal` / empty) uses the implicit legacy
+    /// A personal source (`lastdb://personal` / empty) uses the default
     /// instance (`instance_id = None`). A named source must already be a member.
     pub async fn share_schema(
         &self,

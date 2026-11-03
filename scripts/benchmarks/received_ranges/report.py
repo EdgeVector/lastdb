@@ -108,20 +108,16 @@ def main():
             limitations = [case["http_status"] for value in grouped["baseline"] for case in value["broad"]
                            if case.get("outcome") == "expected_baseline_limitation"]
             lines.extend(["", mode + ": baseline broad-range/prefix refusal statuses " + str(limitations) + ". These are unavailable operations, excluded from latency."])
-            candidate = grouped["candidate"]
             lines.extend(["", mode + ": candidate broad ranges complete for both received sources, their overlap, and local duplicates.",
                 "Reopen, source-specific Delete/Purge, current local values, API boundaries, and exclusive cursors return the complete expected values.",
                 "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, source values, and continuation.",
                 "An independent schema supplies 640 prefix keys and 576 tail keys. The target schema keeps its own values and membership.",
-                "The seed helper shares that schema and checks that each personal write copies its records into the share scope.",
-                "Actual preload selection verified per run: " + str([value["preload"]["actual_ready_selection_verified"] for value in candidate]) + "."])
+                "The seed helper shares that schema and checks that each personal write copies its records into the share scope."])
         lines.extend(["", "Latency cells are medians of two per-run statistics; independent requests are not pooled.",
             "Raw requests, complete responses, storage read receipts, errors, and individual samples accompany this artifact.",
             "The narrow requests compare identical selectors after a complete known-key prefill. OS cache and runner variation remain uncontrolled.",
             "Memory uses Linux VmRSS/VmHWM samples, including earlier work in each process. No total-memory cap or power-loss result is claimed.",
-            "Candidate preload coverage requires actual ready-domain and memory-selection counters; otherwise the result explicitly omits that claim.",
-            "No cloud transport, cross-device sync, or broad-baseline latency improvement is established.",
-            "The public mutation path rejects reserved body tombstone values. This recipe does not manufacture legacy tombstone bytes; body-drop accounting remains source review only."])
+            "No cloud transport, cross-device sync, or broad-baseline latency improvement is established."])
     text = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)

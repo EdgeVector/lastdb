@@ -23,11 +23,8 @@ pub(super) fn report(error: &StorageError) {
         StorageError::InvalidOperation(detail) => ("invalid_operation", Some(detail.as_str())),
         StorageError::CatalogMembershipDenied { .. } => ("catalog_membership_denied", None),
         StorageError::IoError(_) => ("io", None),
-        StorageError::DownloadFailed(detail) => ("download_failed", Some(detail.as_str())),
-        StorageError::UploadFailed(detail) => ("upload_failed", Some(detail.as_str())),
         StorageError::StorageFull { detail } => ("storage_full", Some(detail.as_str())),
         StorageError::ConfigurationError(detail) => ("configuration", Some(detail.as_str())),
-        StorageError::LockContention { .. } => ("lock_contention", None),
         StorageError::EncryptionError(detail) => ("encryption", Some(detail.as_str())),
     };
     let reason = detail.map_or("source_other", static_reason);

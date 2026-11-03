@@ -2,13 +2,6 @@
 //!
 //! A single resolver controls where all instance-specific state lives:
 //! `LASTDB_HOME` when it is set, else `~/.lastdb`. See [`folddb_home`].
-//!
-//! This family used to live in `fold_db_node::utils::paths`; the node-home
-//! resolution + tilde-expansion helpers moved here so the profile loader (and
-//! the `folddb dev` dev node) can find the profile file without depending on
-//! fold_db_node. `fold_db_node::utils::paths` re-exports these and keeps its
-//! node-specific helpers (`observability_log_path`, `onboarding_marker_path`)
-//! local.
 
 use std::path::{Path, PathBuf};
 
@@ -44,12 +37,9 @@ pub fn folddb_home() -> Result<PathBuf, String> {
 /// must never roll their own. Behavior:
 ///
 /// - `~` alone or a `~/`-prefixed path → the remainder joined onto `$HOME`.
-/// - Home directory unresolvable (`HOME` unset) → `Err`. Crucially this
-///   NEVER returns a path that still contains a literal `~`: the older
-///   inline implementations fell back to `PathBuf::from(raw)` here, which
-///   made callers create directories like `<cwd>/~/.folddb/...` (a stray
-///   `./~/.folddb/` was observed in the repo root during the 2026-05-21
-///   dogfood). Treat the unresolvable-home case as the hard error it is.
+/// - Home directory unresolvable (`HOME` unset) → `Err`. This never returns
+///   a path that still contains a literal `~`, which a caller would create as
+///   a `<cwd>/~/...` directory.
 /// - Any other input → returned unchanged.
 pub fn expand_tilde(raw: &str) -> Result<PathBuf, String> {
     if raw == "~" || raw.starts_with("~/") {
@@ -72,10 +62,8 @@ pub fn expand_tilde(raw: &str) -> Result<PathBuf, String> {
 /// Companion to [`expand_tilde`] for callers that already hold a path
 /// (clap-parsed CLI args, serde-deserialized `PathBuf` fields). Without
 /// this, `serde::Deserialize` on `PathBuf` accepts the string verbatim,
-/// so a `node_config.json` with `"database.path": "~/.folddb/data"`
-/// reaches the sled opener as a literal `~/.folddb/data` and creates
-/// `<cwd>/~/.folddb/data` — the exact bug the 2026-05-21 dogfood
-/// comment in [`expand_tilde`] warned about.
+/// so a config path such as `"~/.lastdb/data"` would reach the store
+/// opener as a literal `~/.lastdb/data` and create `<cwd>/~/.lastdb/data`.
 ///
 /// Behavior: if the path's string form is `~` or starts with `~/`,
 /// route through [`expand_tilde`] (which propagates the

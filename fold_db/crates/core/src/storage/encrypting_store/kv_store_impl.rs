@@ -148,17 +148,6 @@ impl KvStore for EncryptingKvStore {
         self.inner.batch_mutate(sealed).await
     }
 
-    async fn restore_batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
-        let mut encrypted_items = Vec::with_capacity(items.len());
-
-        for (key, value) in items {
-            let sealed = self.seal_value(&key, &value).await?;
-            encrypted_items.push((key, sealed));
-        }
-
-        self.inner.restore_batch_put(encrypted_items).await
-    }
-
     async fn batch_delete(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
         self.inner.batch_delete(keys).await
     }

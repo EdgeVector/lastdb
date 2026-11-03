@@ -8,6 +8,13 @@ const HELD_PAUSE: std::time::Duration = std::time::Duration::from_millis(250);
 const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl PackRuntime {
+    /// Mark this runtime as the serving node and resume a saved cleanup
+    /// request. Later cleanup requests start their own worker.
+    pub(crate) fn begin_serving(self: &Arc<Self>) {
+        self.serving.store(true, Ordering::Release);
+        self.resume_native_cleanup();
+    }
+
     /// Resume a saved request without creating work when no request is active.
     /// The worker releases its strong runtime reference before every pause.
     pub fn resume_native_cleanup(self: &Arc<Self>) {

@@ -65,11 +65,12 @@ pub fn load_e2e_keys(data_dir: &Path) -> Result<(E2eKeys, Arc<Ed25519KeyPair>), 
     let identity_path = data_dir.join("identity.key");
     let bytes = std::fs::read(&identity_path)
         .map_err(|e| format!("read {}: {e}", identity_path.display()))?;
-    if bytes.len() < 32 {
-        return Err(format!("identity.key too short ({} bytes)", bytes.len()));
-    }
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&bytes[..32]);
+    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        format!(
+            "identity.key has invalid length {} (expected 32)",
+            bytes.len()
+        )
+    })?;
     let e2e = E2eKeys::from_ed25519_seed(&seed).map_err(|e| format!("e2e keys: {e}"))?;
     let keypair =
         Arc::new(Ed25519KeyPair::from_secret_key(&seed).map_err(|e| format!("ed25519: {e}"))?);

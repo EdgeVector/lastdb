@@ -34,9 +34,7 @@ pub(super) fn verify_records(proof: &Proof<'_>) -> StorageResult<u64> {
 fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     let raw = native_routing::decode(key)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;
-    let Ok(bare) = crate::storage::current_keys::source_key(raw) else {
-        return Ok(false);
-    };
+    let bare = crate::storage::current_keys::source_key(raw)?;
     let history = bare.starts_with(RECORD_HISTORY_PREFIX);
     if !history && !bare.starts_with(RECORD_PREFIX) {
         crate::storage::current_keys::validate("main", raw.as_bytes())?;

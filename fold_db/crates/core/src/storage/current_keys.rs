@@ -23,20 +23,6 @@ const CURRENT_FAMILIES: &[&str] = &[
     "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout", "idem",
 ];
 
-/// True for a `main` key of the record lifecycle: a record, an alternate key
-/// entry, and a field history row. Raw
-/// replay must never write one part of that lifecycle by itself, so restore
-/// validation reads each one back from the logical store.
-pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
-    let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
-    let bare = source_key(key)?;
-    let family = bare.split([':', '\0']).next().unwrap_or_default();
-    Ok(matches!(
-        family,
-        "ak" | "rk" | "rh" | "ahk" | "ahp" | "ahq" | "ahb"
-    ))
-}
-
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if namespace != "main" {
         return Ok(());

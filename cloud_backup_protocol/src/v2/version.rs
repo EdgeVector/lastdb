@@ -1,7 +1,7 @@
 use crate::ProtocolError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// This version accepts only the JSON integer 2; the V1 scalar stays unchanged.
+/// The protocol version. It accepts only the JSON integer 2.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Version;
 impl Version {
