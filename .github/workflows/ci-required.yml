@@ -179,6 +179,11 @@ jobs:
             --exclude generate_validated_schema_org_seeds \
             --exclude schema_service_worker \
             -- -D warnings
+      - name: cargo clippy the Lambda with the catalog feed on
+        run: |
+          ulimit -n 8192 || true
+          cargo clippy --locked -p schema_service_server_lambda --bins \
+            --features catalog-feed -- -D warnings
       - name: cargo clippy off-lane fastembed bins
         run: |
           ulimit -n 8192 || true
