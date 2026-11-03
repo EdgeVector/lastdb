@@ -210,27 +210,27 @@ impl SchemaServiceState {
             } else {
                 near_names(name, draft.types.get(name), &vocabulary)
             };
-            match canonical {
-                Some(canonical) => findings.push(canonical_finding(name, canonical, &draft, &used)),
-                None => findings.extend(near.iter().map(|(other, field)| {
-                    finding(
-                        AdviceKind::NearMatch,
-                        name,
-                        format!(
-                            "Consider `{other}` instead of `{name}`: {}",
-                            field.description
-                        ),
-                        AdviceEvidence {
-                            canonical_field_hash: Some(field.field_hash(other)),
-                            suggested_name: Some((*other).to_string()),
-                            suggested_type: Some(field.field_type.clone()),
-                            ..AdviceEvidence::default()
-                        },
-                    )
-                })),
+            if let Some(canonical) = canonical {
+                findings.push(canonical_finding(name, canonical, &draft, &used));
             }
+            findings.extend(near.iter().map(|&(other, field)| {
+                finding(
+                    AdviceKind::NearMatch,
+                    name,
+                    format!(
+                        "Consider `{other}` instead of `{name}`: {}",
+                        field.description
+                    ),
+                    AdviceEvidence {
+                        canonical_field_hash: Some(field.field_hash(other)),
+                        suggested_name: Some(other.to_string()),
+                        suggested_type: Some(field.field_type.clone()),
+                        ..AdviceEvidence::default()
+                    },
+                )
+            }));
             if !draft.types.contains_key(name) {
-                let suggested = canonical.or_else(|| near.first().map(|(_, field)| *field));
+                let suggested = canonical.or_else(|| near.first().map(|&(_, field)| field));
                 let message = suggested.map_or_else(
                     || format!("`{name}` has no type. Every field needs one."),
                     |field| {
