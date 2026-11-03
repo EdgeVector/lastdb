@@ -43,7 +43,6 @@ impl MutationManager {
         let schema = self
             .load_schema_for_delta(schema_name, storage_prefix)
             .await?;
-        Self::require_record_write(&mutations)?;
         let scope = record_scope(&schema);
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
@@ -107,24 +106,6 @@ impl MutationManager {
             })?;
         }
         Ok(deferred)
-    }
-
-    /// Refuse each writer that a record cannot hold.
-    ///
-    /// A signed import would keep the sender's key and signature with each
-    /// value. A record names no writer (decision D7), so it cannot hold them.
-    /// An import's `imported_version` signs only a Single field, which no home
-    /// has. Aggregate writes were dropped (Tom, 2026-11-01).
-    fn require_record_write(mutations: &[Mutation]) -> Result<(), SchemaError> {
-        for mutation in mutations {
-            if mutation.provenance.is_some() {
-                return Err(unsupported("a signed imported write"));
-            }
-            if mutation.aggregate_set.is_some() || mutation.aggregate_derived_internal {
-                return Err(unsupported("an aggregate write"));
-            }
-        }
-        Ok(())
     }
 
     /// Check each CAS expectation, each `must_exist` update and each loud
@@ -376,8 +357,4 @@ fn record_head(record: &StoredRecord, expected: &CasExpectation) -> CurrentHead 
         mutation_uuid,
         value,
     }
-}
-
-fn unsupported(what: &str) -> SchemaError {
-    SchemaError::InvalidData(format!("LastDB does not store {what}"))
 }

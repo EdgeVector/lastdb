@@ -114,8 +114,6 @@ phase_timings! {
         /// Query: the deterministic total-order sort that makes offset/limit
         /// pagination non-overlapping. `O(rows log rows)` JSON-keyed comparisons.
         hydrate_sort_us => "hydrate_sort",
-        /// Query: per-field merge-conflict annotation of the formatted rows.
-        annotate_us => "annotate",
         /// In-memory application of the write — the RESIDUAL left after every
         /// other named write phase below is subtracted from the batch's wall
         /// time, not a sum of named steps. See

@@ -17,14 +17,9 @@ use serde_json::{json, Value};
 /// Digits of a nanosecond number in a key. `u64::MAX` has 20.
 const WIDTH: usize = 20;
 /// The shortest slice: one second.
-pub(crate) const MIN_SLICE_NANOS: u64 = 1_000_000_000;
+const MIN_SLICE_NANOS: u64 = 1_000_000_000;
 /// The longest slice: one hour.
-pub(crate) const MAX_SLICE_NANOS: u64 = 3_600_000_000_000;
-/// A queue holds about this many slices over a retention window, at most.
-const SLICES_PER_WINDOW: u64 = 64;
-/// The most slices a list of slices holds. A window holds about 64, so this
-/// bounds only a list for a very short slice and a very long span.
-const MAX_SLICES: usize = 4_096;
+const MAX_SLICE_NANOS: u64 = 3_600_000_000_000;
 
 /// The layout of one time-bucketed queue. It holds names and a number, and no
 /// state, so it is cheap to copy.
@@ -36,32 +31,6 @@ pub(crate) struct TimeQueue {
 }
 
 impl TimeQueue {
-    /// A queue with slices of `slice_nanos` (at least 1).
-    pub(crate) const fn new(
-        entries: &'static str,
-        directory: &'static str,
-        slice_nanos: u64,
-    ) -> Self {
-        Self {
-            entries,
-            directory,
-            slice_nanos: if slice_nanos == 0 { 1 } else { slice_nanos },
-        }
-    }
-
-    /// A queue for entries that live about `window_nanos`: a slice of a 64th of
-    /// the window, between one second and one hour. A short window gets short
-    /// slices, so a bucket ends soon after its entries do. A long window gets
-    /// one-hour slices, so the directory stays small.
-    pub(crate) fn for_window(
-        entries: &'static str,
-        directory: &'static str,
-        window_nanos: u64,
-    ) -> Self {
-        let slice = (window_nanos / SLICES_PER_WINDOW).clamp(MIN_SLICE_NANOS, MAX_SLICE_NANOS);
-        Self::new(entries, directory, slice)
-    }
-
     /// A queue with slices of `slice_nanos`, held between one second and one
     /// hour.
     pub(crate) fn with_slice(
@@ -69,11 +38,11 @@ impl TimeQueue {
         directory: &'static str,
         slice_nanos: u64,
     ) -> Self {
-        Self::new(
+        Self {
             entries,
             directory,
-            slice_nanos.clamp(MIN_SLICE_NANOS, MAX_SLICE_NANOS),
-        )
+            slice_nanos: slice_nanos.clamp(MIN_SLICE_NANOS, MAX_SLICE_NANOS),
+        }
     }
 
     /// The start of the slice that holds `expires`.
@@ -93,27 +62,6 @@ impl TimeQueue {
     /// The key of the directory row of `bucket`.
     pub(crate) fn directory_key(&self, bucket: u64) -> String {
         format!("{}\0{bucket:020}", self.directory)
-    }
-
-    /// The length of a slice in nanoseconds.
-    pub(crate) fn slice_nanos(&self) -> u64 {
-        self.slice_nanos
-    }
-
-    /// The starts of the slices from the one that holds `from` to the one that
-    /// holds `to`, oldest first. At most [`MAX_SLICES`] of them.
-    pub(crate) fn slices(&self, from: u64, to: u64) -> Vec<u64> {
-        let mut starts = Vec::new();
-        let mut bucket = self.bucket_of(from);
-        let last = self.bucket_of(to);
-        while bucket <= last && starts.len() < MAX_SLICES {
-            starts.push(bucket);
-            match bucket.checked_add(self.slice_nanos) {
-                Some(next) => bucket = next,
-                None => break,
-            }
-        }
-        starts
     }
 
     /// The directory row of `bucket` with the token `token`.

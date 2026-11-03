@@ -19,7 +19,6 @@ pub mod field_key_id;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
-pub mod provenance;
 pub mod record_space;
 pub mod record_value;
 pub mod schema;

@@ -1,11 +1,11 @@
 use super::snapshot_memory::observe_runtime_memory;
 use super::*;
 
-pub async fn status_snapshot(host: &Host) -> StatusSnapshot {
-    build_snapshot(host, &mut CpuProbe::default()).await
+pub fn status_snapshot(host: &Host) -> StatusSnapshot {
+    build_snapshot(host, &mut CpuProbe::default())
 }
 
-pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSnapshot {
+pub(super) fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSnapshot {
     let sampled_at = unix_secs();
     let cpu_percent = cpu.sample_percent();
     let qos: QosHealth = host.qos.snapshot().into();
@@ -64,8 +64,6 @@ pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSna
         local_retention: host
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
-        verify_refs: host.db.verify_refs_summary(),
-        conflict_retention: host.db.conflict_retention_report().await,
     }
 }
 

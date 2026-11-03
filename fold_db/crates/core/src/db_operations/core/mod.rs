@@ -1,7 +1,6 @@
 use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
 use super::metadata_store::MetadataStore;
-use super::public_key_store::PublicKeyStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
@@ -35,10 +34,8 @@ pub struct DbOperations {
     db_catalog: DbCatalogStore,
     /// per-field-key key bundles and access-domain wraps.
     field_keys: FieldKeyStore,
-    /// Main namespace: records, alternate keys, field history, conflict rows.
+    /// Main namespace: records, alternate keys, field history.
     record_store: RecordStore,
-    /// System-wide public key
-    public_key_store: PublicKeyStore,
     /// Metadata + idempotency + process results
     metadata_store: MetadataStore,
     /// Durable app change feed. Product rows remain authoritative. It rides
@@ -111,7 +108,6 @@ impl DbOperations {
         self.db_catalog.flush().await?;
         self.field_keys.flush().await?;
         self.record_store.flush().await?;
-        self.public_key_store.flush().await?;
         self.metadata_store.flush().await?;
         Ok(())
     }

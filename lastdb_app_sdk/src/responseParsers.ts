@@ -28,7 +28,7 @@ export { parseListResponse } from './listResponse.js';
  * full per-row envelope.
  *
  * The node returns its rows under `results`, one object per key shaped
- * `{ key, fields, metadata, has_conflicts }` (`lastdb_host`
+ * `{ key, fields, metadata }` (`lastdb_host`
  * `handlers::query::response::format_rows`). Each row is normalized to a
  * {@link QueryRow}; a body without a `results` array, or a row without the
  * envelope, is an unexpected response. The node sends no schema name, so

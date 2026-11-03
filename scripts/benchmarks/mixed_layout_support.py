@@ -74,8 +74,7 @@ def audit(node, output):
                 # The warm-up puts every case record in memory, so a warm miss
                 # refuses. A read that races an unfinished write to the same
                 # record can read it from disk with no warm hit; count those.
-                # The conflict flag lookup also reads disk, so read_operations
-                # is measured, not gated.
+                # read_operations is measured, not gated.
                 if not cost or cost["logical_warm_misses"] != 0 or cost["logical_warm_hits"] > 1:
                     raise RuntimeError("A mixed read missed the warm set")
                 outside += cost["logical_warm_hits"] == 0

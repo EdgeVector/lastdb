@@ -11,12 +11,11 @@ pub(super) const REPAIR_SCHEMA_PAGE_ROWS: usize = 32;
 /// Schema names are UTF-8, so this byte is above every valid first byte.
 pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = &[0xff];
 
-// The retention and receipt prefixes are key shapes that the storage import
-// check also needs, so they live in `storage::current_keys::families`.
+// The retention prefixes are key shapes that the storage import check also
+// needs, so they live in `storage::current_keys::families`.
 pub(super) use crate::storage::current_keys::families::{
     RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_ANCHOR_KEY_PREFIX,
     RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
-    SCHEMA_DROP_RECEIPT_KEY_PREFIX,
 };
 /// Reserved internal key prefix for name-claim records in `schema_states`.
 ///
@@ -24,10 +23,6 @@ pub(super) use crate::storage::current_keys::families::{
 /// node-local operational state about an installed schema, so it lives in the
 /// node-local namespace rather than in the published schema artifact.
 pub(super) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
-
-pub(super) fn schema_drop_receipt_key(schema_name: &str) -> String {
-    format!("{SCHEMA_DROP_RECEIPT_KEY_PREFIX}{schema_name}")
-}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(super) struct SchemaRetentionAgeEntry {

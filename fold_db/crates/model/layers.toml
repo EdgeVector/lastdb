@@ -23,7 +23,6 @@ modules = [
   "content_limit",
   "field_key_codec",
   "field_key_id",
-  "provenance",
   "record_space",
   "record_value",
   "schema",

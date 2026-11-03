@@ -1,4 +1,4 @@
-use crate::db_operations::record_store::retention::RetentionEntry;
+use super::records::QueueEntry;
 use crate::db_operations::record_store::time_queue::QueueReader;
 use crate::db_operations::record_store::RecordStore;
 use crate::records::field_history::RecordHistoryEntry;
@@ -14,15 +14,15 @@ impl RecordStore {
         if !self.field_history_enabled().await? {
             return Ok(0);
         }
-        let now = self.retention_state().clock_nanos();
+        let now = self.queue_clock().now_nanos();
         reader.refresh(self, now).await?;
         if let Some(bucket) = reader.candidates(now).into_iter().next() {
             let page = reader.read_due(self, bucket, now).await?;
             let keys: Vec<_> = page.rows.iter().map(|(k, _)| k.clone()).collect();
             let released = self
                 .in_background_scope(async {
-                    let rows = self.main_store.get_items::<RetentionEntry>(&keys).await?;
-                    let records: Vec<RetentionEntry> = rows.into_iter().flatten().collect();
+                    let rows = self.main_store.get_items::<QueueEntry>(&keys).await?;
+                    let records: Vec<QueueEntry> = rows.into_iter().flatten().collect();
                     if records
                         .iter()
                         .any(|entry| !super::records::is_record_history(&entry.history))

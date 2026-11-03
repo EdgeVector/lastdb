@@ -10,8 +10,7 @@ use crate::pagination::compute_has_more;
 ///
 /// `next_cursor` is always `null` for offset pages. Keyed query pages use
 /// [`cursor_payload`], whose continuation uses the same API-coordinate window.
-/// The page flags stay present for unknown classifications. Unknown key and
-/// conflict flags never establish a clean response.
+/// The page flags stay present for unknown classifications.
 pub(in crate::handlers) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
@@ -41,7 +40,6 @@ pub(in crate::handlers) fn page_payload(
                 .key_form
                 .map_or(Value::Null, |form| Value::from(form.as_str())),
         ),
-        ("conflict_flags".into(), Value::from(flags.conflict_flags)),
     ]))
 }
 

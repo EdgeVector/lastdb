@@ -38,7 +38,7 @@ impl RecordStore {
         self.record_read_scope(async {
             let mut walk = prefix_walk(&prefix, cursor, limit)?;
             let step = self.walk_step(&mut walk).await?;
-            let now = self.retention_state().clock_nanos();
+            let now = self.queue_clock().now_nanos();
             let current = self
                 .read_records(&[record])
                 .await?
@@ -83,7 +83,7 @@ impl RecordStore {
             let Some(entry) = self.main_store.get_item::<RecordHistoryEntry>(&key).await? else {
                 return Ok(None);
             };
-            if entry.expired(self.retention_state().clock_nanos()) {
+            if entry.expired(self.queue_clock().now_nanos()) {
                 return Ok(None);
             }
             Ok(Some(json!({

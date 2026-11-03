@@ -145,7 +145,6 @@ async fn activate_generated_receivers(host: &Host) -> Result<(), Box<dyn std::er
             share_e2e_secret: Vec::new(),
             accepted_at: 1,
             active: true,
-            share_grant: None,
         };
         controls.push((
             sender.as_bytes().to_vec(),

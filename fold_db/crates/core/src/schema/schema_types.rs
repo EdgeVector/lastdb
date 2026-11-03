@@ -95,9 +95,7 @@ pub struct SchemaRetentionPolicy {
     /// the durable JSON straightforward for owner tooling to inspect later.
     pub ttl_seconds: u64,
 
-    /// Who set the policy in force. A policy written before sources existed
-    /// reads as [`RetentionSource::Operator`].
-    #[serde(default)]
+    /// Who set the policy in force.
     pub source: RetentionSource,
 
     /// The manifest TTL that an operator policy is shadowing, in seconds.
@@ -108,12 +106,13 @@ pub struct SchemaRetentionPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overridden_manifest_ttl_seconds: Option<u64>,
 
-    /// Legacy HashRange partitions explicitly covered by this policy.
+    /// HashRange partitions that the operator names with `--hash`.
     ///
-    /// Range schemas leave this empty. A retained HashRange write now records
-    /// its hash in node-local retention state. The sweeper queries each named
-    /// hash and never uses a cross-partition read. This field keeps coverage
-    /// for policy rows that predate the write-side registry.
+    /// Range schemas leave this empty. A retained HashRange write records its
+    /// hash in node-local retention state, so the sweeper finds a partition
+    /// written after the policy by itself. This field covers a partition that
+    /// has no write since the policy. The sweeper queries each named hash and
+    /// never uses a cross-partition read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hash_partitions: Vec<String>,
 }
@@ -176,12 +175,11 @@ impl SchemaRetentionPolicy {
 }
 
 /// Who set the retention policy in force for a schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetentionSource {
     /// Set with `lastdb schema-retention set`. An operator policy wins over a
     /// manifest policy until the operator clears it.
-    #[default]
     Operator,
     /// Applied from the `retention` key of an app manifest schema entry when
     /// the schema was declared.

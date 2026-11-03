@@ -117,8 +117,8 @@ impl SchemaStore {
     /// Remove one installed schema identity from the catalog.
     ///
     /// Point Deletes of the `schemas` row, the `schema_states` row, the
-    /// name-claim row, and the retention keys for this identity. Product
-    /// records are left for a later janitor. Returns whether a
+    /// name-claim row, and the retention keys for this identity. The caller
+    /// releases the product records first. Returns whether a
     /// catalog body was present before the Deletes. A miss still runs the
     /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
@@ -130,27 +130,7 @@ impl SchemaStore {
     }
 
     async fn drop_schema_native(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        let existing = self.get_schema(schema_name).await?;
-        let existed = existing.is_some();
-        if let Some(mut schema) = existing {
-            let mut field_key_ids: Vec<String> = schema
-                .field_key_ids
-                .take()
-                .unwrap_or_default()
-                .into_values()
-                .collect();
-            field_key_ids.sort();
-            field_key_ids.dedup();
-            let receipt = SchemaDropReceipt {
-                identity: schema_name.to_string(),
-                owner_app: schema.owner_app_id.clone(),
-                field_key_ids,
-                dropped_at_unix_ms: crate::clock::unix_millis(),
-            };
-            self.schema_states_store
-                .put_item(&schema_drop_receipt_key(schema_name), &receipt)
-                .await?;
-        }
+        let existed = self.get_schema(schema_name).await?.is_some();
         let mut state_keys = vec![
             schema_name.to_string(),
             name_claim_key(schema_name),

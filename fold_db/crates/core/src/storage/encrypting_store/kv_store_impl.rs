@@ -24,14 +24,7 @@ impl KvStore for EncryptingKvStore {
         let mut values = Vec::with_capacity(keys.len());
         for (key, stored) in keys.into_iter().zip(stored) {
             let opened = match stored {
-                Some(stored) => match self.open_value(&key, stored).await {
-                    Ok(opened) => Some(opened),
-                    Err(error) if Self::lossy_derived_key(&key) => {
-                        tracing::warn!(error = %error, "get_many: skipping undecryptable derived-index row");
-                        None
-                    }
-                    Err(error) => return Err(error),
-                },
+                Some(stored) => Some(self.open_value(&key, stored).await?),
                 None => None,
             };
             values.push(opened);

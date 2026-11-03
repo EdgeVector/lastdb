@@ -53,9 +53,8 @@ def selected(expected, spec):
 
 
 def validate_envelope(row):
-    if (set(row) - {"conflicted_fields"} != {"key", "fields", "metadata", "has_conflicts"}
-            or set(row["key"]) != {"hash", "range"}):
-        raise RuntimeError("A condition row changes its four-key envelope or complete key coordinates")
+    if set(row) != {"key", "fields", "metadata"} or set(row["key"]) != {"hash", "range"}:
+        raise RuntimeError("A condition row changes its three-key envelope or complete key coordinates")
     if row["metadata"] is not None and not isinstance(row["metadata"], dict):
         raise RuntimeError("A condition row has a record metadata block that is not an object")
     if "body" in row["fields"]:

@@ -13,32 +13,6 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
             timeout,
             limit,
         } => db_schemas(socket, json, out.as_deref(), timeout, limit),
-        DbInspectCommand::VerifyRefs {
-            json,
-            last,
-            steps,
-            cursor,
-            max_pages,
-            max_ms,
-            pause_ms,
-            page_rows,
-            scope,
-            all_scopes,
-        } => db_verify_refs(
-            socket,
-            &VerifyRefsOpts {
-                json,
-                last,
-                steps,
-                cursor,
-                max_pages,
-                max_ms,
-                pause_ms,
-                page_rows,
-                scope,
-                all_scopes,
-            },
-        ),
     }
 }
 

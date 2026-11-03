@@ -8,19 +8,8 @@ use crate::schema::{Schema, SchemaError, SchemaState};
 use crate::storage::traits::KvStore;
 use crate::storage::TypedKvStore;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Durable janitor target written before a catalog cut.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub struct SchemaDropReceipt {
-    pub identity: String,
-    pub owner_app: Option<String>,
-    #[serde(default)]
-    pub field_key_ids: Vec<String>,
-    pub dropped_at_unix_ms: u64,
-}
 
 mod catalog_keys;
 mod claims_retention;

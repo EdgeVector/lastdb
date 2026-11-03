@@ -5,8 +5,8 @@
 ///
 /// Phases are not per-kind-exclusive by construction — a variant is simply
 /// unreported (and therefore zero) on a path that never records it. Mutations
-/// report the write phases; queries report [`Self::Count`], [`Self::Hydrate`]
-/// and [`Self::Annotate`]; both report admission/parse/schema-resolve.
+/// report the write phases; queries report [`Self::Count`] and
+/// [`Self::Hydrate`]; both report admission/parse/schema-resolve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestPhase {
     /// QoS admission-gate wait around op-permit acquisition.
@@ -98,10 +98,6 @@ pub enum RequestPhase {
     /// because "the sort is the cost" is a claim that should be checkable
     /// before anyone rewrites a comparator.
     HydrateSort,
-    /// Query only: per-field merge-conflict annotation of the formatted rows.
-    /// Historically a per-field-key storage walk; expected to fall to ~0 once
-    /// the home-conflict index (fold #1032) reaches a node.
-    Annotate,
     /// In-memory application of the write — the RESIDUAL left after every
     /// other named write phase is subtracted from the batch's wall time. See
     /// [`crate::fold_db_core::mutation_manager::MutationManager::report_phase_totals`]

@@ -99,7 +99,7 @@ Every returned value and the record metadata block must match the same-home refe
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
 The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary record metadata contract.
 The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields.
-Every record retains exactly `key`, `fields`, `metadata`, and `has_conflicts` (plus `conflicted_fields` on a conflicted record).
+Every record retains exactly `key`, `fields`, and `metadata`.
 The key retains both hash and range coordinates. `metadata` is one block for the record, or `null`.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.

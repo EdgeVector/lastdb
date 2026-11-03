@@ -107,8 +107,6 @@ await app.search(query, { k, target });                    // node-scoped associ
 - **Record envelope**: every record carries `key` + `keyValue` + `fields` +
   `metadata`. `metadata` is the one metadata block of the record,
   `{source_file_name, metadata?}` or `null`; a field has no metadata of its own.
-  The node also sends `has_conflicts` (`true`, `false` or `"unknown"`) and,
-  when it is `true`, `conflicted_fields`.
 - **`search`** is node-authoritative: hits come only from schemas in the app's
   `S(A)`; the optional `target` can only *narrow*, never widen.
 

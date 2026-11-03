@@ -80,7 +80,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use uuid::Uuid;
 
-/// File name of the clear home descriptor. Its presence selects format v2.
+/// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 /// `LDRHOME4`: every value is stored as given.
 const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";

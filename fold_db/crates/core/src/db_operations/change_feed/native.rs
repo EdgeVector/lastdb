@@ -50,9 +50,6 @@ impl ChangeFeedStore {
                             MutationType::Delete => "delete",
                             MutationType::Purge => "purge",
                         };
-                        if mutation.aggregate_derived_internal {
-                            return None;
-                        }
                         // Match the resolved schema while preserving the host's
                         // original spelling in the durable public event.
                         let (position, (_, hint)) = capture.hints.iter().enumerate().find(

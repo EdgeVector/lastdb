@@ -95,7 +95,7 @@ pub(crate) enum SchemaRetentionCommand {
         schema: String,
         #[arg(long)]
         ttl: String,
-        /// Legacy HashRange partitions covered by this policy (repeatable).
+        /// HashRange partitions to cover that have no write since the policy (repeatable).
         #[arg(long = "hash")]
         hash_partitions: Vec<String>,
         #[arg(long)]

@@ -74,8 +74,7 @@ pub struct ClientRoot {
     pub native_file_count: u64,
     pub native_bytes: u64,
     pub pages: Vec<ClientPageReference>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run: Option<super::RunBackupProfile>,
+    pub run: super::RunBackupProfile,
 }
 impl ClientRoot {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
@@ -94,10 +93,7 @@ impl ClientRoot {
             &self.descriptor_sha256,
             begin,
         )?;
-        let profile = self
-            .run
-            .as_ref()
-            .ok_or_else(|| invalid("run root profile missing"))?;
+        let profile = &self.run;
         profile.validate_root(&self.native_root)?;
         self.recovery
             .validate_for(&begin.job.stream.scope)

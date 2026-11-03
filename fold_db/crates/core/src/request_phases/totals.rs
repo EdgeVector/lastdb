@@ -19,7 +19,6 @@ pub struct RequestPhaseTotals {
     pub hydrate_records_us: u64,
     pub hydrate_format_us: u64,
     pub hydrate_sort_us: u64,
-    pub annotate_us: u64,
     pub apply_us: u64,
     pub apply_memory_us: u64,
     pub schema_load_us: u64,

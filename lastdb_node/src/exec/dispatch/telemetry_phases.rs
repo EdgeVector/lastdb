@@ -19,7 +19,6 @@ pub(super) fn phase_timings(
         hydrate_records_us: phase_totals.hydrate_records_us,
         hydrate_format_us: phase_totals.hydrate_format_us,
         hydrate_sort_us: phase_totals.hydrate_sort_us,
-        annotate_us: phase_totals.annotate_us,
         apply_us: phase_totals.apply_us,
         apply_memory_us: phase_totals.apply_memory_us,
         schema_load_us: phase_totals.schema_load_us,

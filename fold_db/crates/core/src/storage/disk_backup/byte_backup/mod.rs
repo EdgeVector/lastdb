@@ -68,10 +68,7 @@ struct Inner {
 }
 impl ByteBackupCapture {
     pub fn run_profile(&self) -> StorageResult<RunBackupProfile> {
-        self.lock()?
-            .run
-            .clone()
-            .ok_or_else(|| invalid("native snapshot run profile is absent"))
+        Ok(self.lock()?.run.clone())
     }
     pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
         Ok(self.lock()?.journal_anchor.clone())

@@ -28,7 +28,6 @@ use super::gauge::{Gauge, Unit, Window};
 mod gauge_health;
 
 mod build_health;
-mod conflict_retention_lines;
 mod constants;
 mod durability;
 mod env;
@@ -52,10 +51,8 @@ mod status_lines;
 mod status_snapshot;
 mod ttl_backoff;
 mod ttl_pass;
-mod verify_ref_lines;
 
 pub use build_health::*;
-pub use conflict_retention_lines::*;
 pub use constants::*;
 pub use durability::*;
 pub use env::*;
@@ -78,4 +75,3 @@ pub use sampler_state::*;
 pub use status_lines::*;
 pub use status_snapshot::*;
 pub use ttl_pass::TtlPassReport;
-pub use verify_ref_lines::*;

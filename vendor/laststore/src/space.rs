@@ -13,7 +13,7 @@ fn corrupt(reason: &'static str) -> crate::Error {
     crate::Error::Corrupt(reason.into())
 }
 
-/// One policy governs write headroom, replacement space, and obsolete-file grace.
+/// One policy governs write headroom, replacement space, and the file inventory bound.
 #[derive(Clone, Debug)]
 pub struct SpacePolicy {
     /// Whole native-root cap. Zero disables the unfrozen cap.
@@ -22,13 +22,8 @@ pub struct SpacePolicy {
     pub free_space_reserve_bytes: u64,
     /// Dedicated write headroom so compaction can replace files before deletion.
     pub replacement_reserve_bytes: u64,
-    /// Minimum obsolete-file age in milliseconds. Active references always win.
-    pub grace_ms: u64,
-    /// Bounded file inventory across the six-level native layout.
+    /// Bounded file inventory across the native root.
     pub max_files: usize,
-    /// Most old generations one reclaim call plans and retires, oldest first.
-    /// A bounded call keeps the exclusive hold short; the receipt reports what remains.
-    pub reclaim_generations: usize,
 }
 
 impl Default for SpacePolicy {
@@ -37,9 +32,7 @@ impl Default for SpacePolicy {
             disk_cap_bytes: 0,
             free_space_reserve_bytes: 64 * 1024 * 1024,
             replacement_reserve_bytes: 64 * 1024 * 1024,
-            grace_ms: 24 * 60 * 60 * 1000,
             max_files: 262_144,
-            reclaim_generations: usize::MAX,
         }
     }
 }

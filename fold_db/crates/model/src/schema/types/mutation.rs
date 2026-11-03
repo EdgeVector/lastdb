@@ -1,7 +1,5 @@
-use super::aggregate::AggregateSet;
 use super::cas::CasExpectation;
 use super::{key_value::KeyValue, operations::MutationType};
-use crate::provenance::Provenance;
 use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,32 +69,11 @@ pub struct Mutation {
     /// Per-key metadata is part of the signed mutation, not the record UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    /// Writer signature of a signed import. A record names no writer
-    /// (decision D7), so a record write refuses a mutation that carries one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provenance: Option<Provenance>,
-    /// The `written_at` the original author SIGNED, carried alongside
-    /// `provenance` on the import path (inbound `data_share`). The field key
-    /// canonical bytes include `written_at`, so the field layer must stamp
-    /// the SIGNED value — not a local clock — for the imported signature to
-    /// stay verifiable at rest. `None` (with `provenance: Some`) keeps the
-    /// attribution-only import.
+    /// The author-clock write time. A local write gets it from the node
+    /// clock. A mutation that arrives with one must carry a valid author-clock
+    /// signature, and the record keeps that time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
-    /// Original UUID from a MutationIntent envelope, including an empty
-    /// UUID. Suppressed history uses it without changing replay LWW.
-    /// API input cannot forge this internal import marker.
-    #[serde(skip)]
-    pub replayed_source_mutation_uuid: Option<String>,
-    /// Internal replay provenance; wire input cannot skip the durable floor.
-    #[serde(skip)]
-    pub replay_cutoff_required: bool,
-    /// Sync device that wrote this mutation: this node's sync device id for a
-    /// local write, the log writer for a replayed one. Empty when unknown.
-    /// Internal and never on the wire: API input cannot forge it, and it is
-    /// not part of [`Self::content_hash`].
-    #[serde(skip)]
-    pub origin_device: String,
     /// Durable per-device logical author counter. A mutation without one uses zero.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub logical_counter: u64,
@@ -110,11 +87,6 @@ pub struct Mutation {
     /// Zero for unsigned input; see `MUTATION_AUTHOR_SIGNATURE_VERSION` for signed input.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
-    /// The `version` the original author SIGNED — consumed only by single
-    /// (non-keyed) fields, whose `Field key` canonical bytes include
-    /// `version`. Per-key entries don't sign a version and ignore this.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub imported_version: Option<u64>,
     /// Optional compare-and-set precondition. When `Some`, the node applies
     /// this mutation atomically **iff** the current state at `key_value`
     /// matches the expectation (same-node atomicity); on a mismatch it writes
@@ -144,16 +116,6 @@ pub struct Mutation {
     /// rely on today's upsert. Additive here, breaking there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub must_exist: Option<bool>,
-    /// Optional replacement of this source row's contribution to one derived
-    /// aggregate. The cloud log carries this concrete vector with the source
-    /// row's winner clock. It never carries a computed total as authoritative
-    /// state.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub aggregate_set: Option<AggregateSet>,
-    /// Internal-only capability for derived aggregate member/summary writes.
-    /// Serde always clears it, so API or replay input cannot forge the bypass.
-    #[serde(skip)]
-    pub aggregate_derived_internal: bool,
     /// Local audit tag for the delete ledger row of a `Delete` that a node job
     /// issues, for example the TTL sweep. `None` writes the default caller.
     /// Never serialized, so it is never captured, synced or replayed.
@@ -195,20 +157,13 @@ impl Mutation {
             synchronous: None,
             source_file_name: None,
             metadata: None,
-            provenance: None,
             imported_written_at: None,
-            replayed_source_mutation_uuid: None,
-            replay_cutoff_required: false,
-            origin_device: String::new(),
             logical_counter: 0,
             author_clock_writer_id: String::new(),
             author_clock_signature: String::new(),
             author_clock_signature_version: 0,
-            imported_version: None,
             expected: None,
             must_exist: None,
-            aggregate_set: None,
-            aggregate_derived_internal: false,
             erase_caller: None,
             erase_written_before_nanos: None,
             file_write: None,

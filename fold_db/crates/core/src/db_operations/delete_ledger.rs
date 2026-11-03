@@ -16,10 +16,6 @@ use super::RecordStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
-/// Bare key prefix for ledger rows. Rows sort in time order under a prefix scan
-/// because the timestamp component is fixed-width zero-padded nanoseconds.
-pub const RECORD_DELETE_LEDGER_PREFIX: &str = "dellog:";
-
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";

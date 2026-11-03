@@ -9,7 +9,7 @@ pub enum QueryResponseFormat {
     #[default]
     /// Rows include the record metadata.
     Full,
-    /// Rows keep the keys, the fields and the conflict flag, without metadata.
+    /// Rows keep the keys and the fields, without metadata.
     Values,
     /// Return a count for the keyed scope and do not build rows.
     Count,

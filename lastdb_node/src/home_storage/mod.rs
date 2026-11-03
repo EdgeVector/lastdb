@@ -56,7 +56,6 @@ pub struct HomeStorageBucket {
     pub entry_count: u64,
     /// Largest or otherwise useful roots that explain the bucket. Reconcile
     /// bounds this list; the normal GET only returns the persisted values.
-    #[serde(default)]
     pub roots: Vec<String>,
 }
 

@@ -34,7 +34,7 @@ impl RecordStore {
         self.read_minimum_replay_time().await
     }
 
-    /// The serving process cannot advance this boundary. Offline recount uses
+    /// The serving process cannot advance this boundary. The offline raise uses
     /// a separate instance without this cache and always reads its disk state.
     pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
         self.namespaced_store
@@ -65,9 +65,10 @@ impl RecordStore {
         validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
     }
 
-    /// Explicit offline maintenance only. The caller holds the stopped-home
-    /// lock. The cutoff never moves down or into the future.
-    pub(crate) async fn raise_replay_cutoff(
+    /// Explicit offline maintenance only (`lastdb db recount`). The caller
+    /// holds the stopped-home lock. The cutoff never moves down or into the
+    /// future.
+    pub async fn raise_replay_cutoff(
         &self,
         cutoff: u64,
         execute: bool,

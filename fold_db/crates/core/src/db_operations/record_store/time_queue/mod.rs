@@ -21,22 +21,16 @@
 //!   deleted in the write gate, and only if its token is the one that the reader
 //!   read before the walk (`retire.rs`). The deleted keys of the bucket die with
 //!   it: nothing reads that hash again.
-//! - **Cost of a count.** The size of a queue is counted by the directory and
-//!   the buckets with bounded reads, and it does not fail on deleted keys
-//!   (`stats.rs`).
 //!
-//! The conflict record retention queue (`retention`) is the user. Another
+//! The field history expiry queue (`field_history`) is the user. Another
 //! queue with the same needs takes the same layout, the same reader and the
 //! same retirement, and adds its own entry value and release.
 
+mod clock;
 mod keys;
-mod net;
 mod reader;
 mod retire;
-mod stats;
-mod survey;
 
+pub(crate) use clock::QueueClock;
 pub(crate) use keys::TimeQueue;
-pub(crate) use net::NetSchedule;
-pub(crate) use reader::{DuePage, QueueReader};
-pub(crate) use survey::QueueSurvey;
+pub(crate) use reader::QueueReader;

@@ -63,7 +63,7 @@ fn report(capture: &ByteBackupCapture, inputs: &Inputs) -> Result<LocalSnapshotR
     }
     let root = ClientRoot::decode(&encrypted, &inputs.source.key, &inputs.intent.begin)?;
     let profile = capture.run_profile()?;
-    if root.run.as_ref() != Some(&profile) {
+    if root.run != profile {
         return Err(BackupError::Identity);
     }
     Ok(LocalSnapshotReport {

@@ -20,13 +20,11 @@ pub enum HomeStorageWorkItem {
 /// non-UTF-8 names remain addressable across requests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HomeStorageReconcileCheckpoint {
-    pub version: u32,
     pub run_id: String,
     pub started_at: DateTime<Utc>,
     pub pending_work: Vec<HomeStorageWorkItem>,
     pub seen_inodes: BTreeSet<String>,
     pub buckets: BTreeMap<HomeStorageBucketKind, HomeStorageBucket>,
-    #[serde(default)]
     pub unresolved_scopes: Vec<String>,
     pub visited_entries: u64,
     pub finished: bool,
@@ -36,7 +34,6 @@ impl HomeStorageReconcileCheckpoint {
     #[must_use]
     pub fn start(now: DateTime<Utc>) -> Self {
         Self {
-            version: 2,
             run_id: format!("home-{}", now.timestamp_micros()),
             started_at: now,
             pending_work: vec![HomeStorageWorkItem::VisitPath {

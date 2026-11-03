@@ -7,7 +7,7 @@
 //! persist, flush, cloud-sync capture,
 //! background index wait, change recording, and response envelope rendering.
 //! For a query it is admission wait, parse, schema resolve, the index
-//! `count`, row `hydrate`, and conflict `annotate`. For status it is the
+//! `count` and row `hydrate`. For status it is the
 //! snapshot components that can otherwise hide synchronous ops-surface work:
 //! durability marker evaluation, data-dir sizing,
 //! and request-ops snapshot copying.
@@ -155,7 +155,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::HydrateRecords => &mut totals.hydrate_records_us,
             RequestPhase::HydrateFormat => &mut totals.hydrate_format_us,
             RequestPhase::HydrateSort => &mut totals.hydrate_sort_us,
-            RequestPhase::Annotate => &mut totals.annotate_us,
             RequestPhase::Apply => &mut totals.apply_us,
             RequestPhase::ApplyMemory => &mut totals.apply_memory_us,
             RequestPhase::SchemaLoad => &mut totals.schema_load_us,

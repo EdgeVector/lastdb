@@ -12,11 +12,7 @@ use crate::access::AccessContext;
 
 use super::FoldDB;
 
-mod counters;
-mod error;
 mod repair;
 mod retention_backfill;
 mod schema_keys;
 mod storage_reports;
-
-use error::admin_op_error;

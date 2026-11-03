@@ -2,7 +2,7 @@
 
 mod reader;
 
-use crate::db_operations::record_store::{RecordStore, VerifyRequest};
+use crate::db_operations::record_store::RecordStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{restore_safety, PackRuntime};
 use crate::storage::{KvStore, NamespacedStore};
@@ -19,31 +19,6 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
         namespaces,
     );
     records.minimum_replay_time().await?;
-    // The retention queue is global: one personal run checks it.
-    let mut request = VerifyRequest {
-        max_pages: Some(1024),
-        max_ms: Some(30_000),
-        pause_ms: Some(0),
-        ..VerifyRequest::default()
-    };
-    loop {
-        let report = records.verify_refs_step(request.clone()).await?;
-        if report.mismatches_total != 0 || !report.notes.is_empty() {
-            return Err(invalid(
-                "the restored retention queue does not have a complete exact match",
-            ));
-        }
-        if report.done {
-            break;
-        }
-        let next = report
-            .next_cursor
-            .ok_or_else(|| invalid("reference verification has no cursor"))?;
-        if request.cursor.as_ref() == Some(&next) {
-            return Err(invalid("reference verification did not advance"));
-        }
-        request.cursor = Some(next);
-    }
     Ok(())
 }
 
@@ -105,6 +80,6 @@ pub(crate) async fn finish(
 
 fn invalid(message: &str) -> SchemaError {
     SchemaError::InvalidData(format!(
-        "restore counter validation: {message}; target remains blocked"
+        "restore validation: {message}; target remains blocked"
     ))
 }

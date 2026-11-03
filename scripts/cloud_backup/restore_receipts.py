@@ -222,8 +222,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             and receipt["version"] == 2 and receipt["report"] == report
             and receipt["session_id"] == identifier
             and read_json(owned(root, "result.json")) == report, "restore_receipt")
-    require(not os.path.lexists(owned(home, "native-cloud-restore-receipt.json"))
-            and not os.path.lexists(owned(home, "current-session.json"))
+    require(not os.path.lexists(owned(home, "current-session.json"))
             and not os.path.lexists(owned(home, "data/folddb.sock")), "restore_before_normal_boot")
     routes = None
     if replay is None:

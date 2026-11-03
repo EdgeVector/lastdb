@@ -14,20 +14,17 @@ pub(crate) mod families;
 /// - `rh`: field history copies of old record values. `ahp`, `ahk`, `ahq`,
 ///   `ahb`: the history policy of a field, the history count of a key, and the
 ///   expiry queue of the history entries and its bucket directory.
-/// - `rcf`, `rcm`: the kept conflict rows of a record and its conflict marker.
-///   `crq`, `crb`: the retention queue of those rows and its bucket directory.
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker, the delete replay floor and the field
 ///   history setting.
 /// - `idem`: the idempotency keys. They live in the `idempotency`
 ///   namespace; the family stays so that a scoped key parses.
 const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "rcf", "rcm", "crq", "crb", "dellog", "layout",
-    "idem",
+    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout", "idem",
 ];
 
 /// True for a `main` key of the record lifecycle: a record, an alternate key
-/// entry, and a history or conflict row. Raw
+/// entry, and a field history row. Raw
 /// replay must never write one part of that lifecycle by itself, so restore
 /// validation reads each one back from the logical store.
 pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
@@ -36,7 +33,7 @@ pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
     let family = bare.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,
-        "ak" | "rk" | "rh" | "rcf" | "rcm" | "ahk" | "ahp" | "ahq" | "ahb" | "crq" | "crb"
+        "ak" | "rk" | "rh" | "ahk" | "ahp" | "ahq" | "ahb"
     ))
 }
 
@@ -50,49 +47,15 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if !CURRENT_FAMILIES.contains(&family) {
         return Err(unsupported("unknown key family"));
     }
-    validate_retention(bare, family)?;
     if let Some(rest) = bare
         .strip_prefix("ak:")
         .or_else(|| bare.strip_prefix("rk:"))
-        .or_else(|| bare.strip_prefix("rcm:"))
     {
         validate_record(rest)?;
     } else if let Some(rest) = bare.strip_prefix("rh:") {
         validate_digest_key(rest, 3, "invalid record history key")?;
-    } else if let Some(rest) = bare.strip_prefix("rcf:") {
-        // `rcf:{S}:{sha256 hex}`: the conflict row of a record.
-        validate_digest_key(rest, 1, "invalid record conflict key")?;
     }
     Ok(())
-}
-
-/// The retention queue of kept conflict rows and its bucket directory.
-fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
-    let current = match family {
-        // `crq:{bucket:020}\0{expires:020}:{id}`
-        "crq" => key
-            .strip_prefix("crq:")
-            .and_then(|rest| rest.split_once('\0'))
-            .is_some_and(|(bucket, tail)| {
-                digits(bucket, 20)
-                    && tail
-                        .split_once(':')
-                        .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
-            }),
-        // `crb\0{bucket:020}`
-        // `crb\0params` records the window of the node
-        "crb" => key
-            .strip_prefix("crb\0")
-            .is_some_and(|bucket| digits(bucket, 20) || bucket == "params"),
-        _ => true,
-    };
-    current
-        .then_some(())
-        .ok_or_else(|| unsupported("invalid retention key format"))
-}
-
-fn digits(text: &str, width: usize) -> bool {
-    text.len() == width && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn validate_record(rest: &str) -> StorageResult<()> {
@@ -163,20 +126,8 @@ pub(crate) fn validate_scope(scope: &str) -> StorageResult<()> {
     if hex_identity(scope, 64) {
         return Ok(());
     }
-    if let Some(identity) = scope.strip_prefix("cloud:") {
-        return if hex_identity(identity, 64) {
-            Ok(())
-        } else {
-            Err(unsupported("invalid cloud storage scope"))
-        };
-    }
-    if let Some(rest) = scope.strip_prefix("from:") {
-        let (sender, remainder) = rest.split_once(':').unwrap_or((rest, ""));
-        let sender_valid = hex_identity(sender, 32) || hex_identity(sender, 64);
-        let cloud_valid = remainder
-            .strip_prefix("cloud:")
-            .is_some_and(|identity| hex_identity(identity, 64));
-        return if sender_valid && (remainder.is_empty() || cloud_valid) {
+    if let Some(sender) = scope.strip_prefix("from:") {
+        return if hex_identity(sender, 32) {
             Ok(())
         } else {
             Err(unsupported("invalid receive storage scope"))
@@ -186,7 +137,7 @@ pub(crate) fn validate_scope(scope: &str) -> StorageResult<()> {
         component.is_empty()
             || component.contains('\0')
             || main_family(component)
-            || matches!(component, "from" | "cloud")
+            || component == "from"
     }) {
         return Err(unsupported("ambiguous reserved storage scope"));
     }
@@ -201,18 +152,8 @@ fn fixed_scope(key: &str) -> Option<&str> {
     if let Some((_, bare)) = lastdb_model::kind_partition::split_org_storage_prefix(key) {
         return Some(bare);
     }
-    if let Some(rest) = key.strip_prefix("from:") {
-        let (sender, bare) = rest.split_once(':')?;
-        if hex_identity(sender, 32) || hex_identity(sender, 64) {
-            return Some(cloud_scope(bare).unwrap_or(bare));
-        }
-    }
-    cloud_scope(key)
-}
-
-fn cloud_scope(key: &str) -> Option<&str> {
-    let (identity, bare) = key.strip_prefix("cloud:")?.split_once(':')?;
-    hex_identity(identity, 64).then_some(bare)
+    let (sender, bare) = key.strip_prefix("from:")?.split_once(':')?;
+    hex_identity(sender, 32).then_some(bare)
 }
 
 /// A structural family of the `main` namespace. A key names its scope before

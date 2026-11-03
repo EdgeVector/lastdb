@@ -33,7 +33,6 @@ pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;
-mod env_number;
 pub mod error;
 pub mod fold_db_core;
 /// One accounted process memory budget — the warm set limit projected to RSS,

@@ -7,8 +7,6 @@ use std::sync::Arc;
 mod alternate;
 mod rows;
 pub(in crate::handlers) use self::rows::*;
-mod conflicts;
-pub(in crate::handlers) use self::conflicts::*;
 mod response;
 pub(in crate::handlers) use self::response::*;
 mod schema_guard;

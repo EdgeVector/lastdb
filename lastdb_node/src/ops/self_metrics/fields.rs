@@ -93,7 +93,6 @@ pub(crate) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_hydrate_records_us",
     "sum_hydrate_format_us",
     "sum_hydrate_sort_us",
-    "sum_annotate_us",
     "sum_apply_us",
     "sum_apply_memory_us",
     "sum_schema_load_us",

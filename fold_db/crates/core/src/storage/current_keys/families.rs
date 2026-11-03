@@ -28,7 +28,6 @@ pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
-pub(crate) const SCHEMA_DROP_RECEIPT_KEY_PREFIX: &str = "\0schema_drop_receipt\0";
 
 /// The file path of the record at one storage key, scope included:
 /// `{scope:}fb:{S}:{sha256(record key)}`. One record has one path, so two

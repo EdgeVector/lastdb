@@ -24,7 +24,6 @@ pub struct HomeStorageReport {
     /// Accounted bytes in [`HomeStorageBucketKind::UnknownPath`].
     pub unknown_path_bytes: u64,
     /// Named reasons that prevent an exact report.
-    #[serde(default)]
     pub unresolved_scopes: Vec<String>,
 }
 

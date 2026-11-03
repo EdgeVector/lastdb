@@ -167,7 +167,15 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `GET /api/app/blob/footprint`. They had no backend and answered a
 /// content-free 404, which an unknown path still answers. No other request
 /// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 24;
+/// `25` (2026-11-03) removes the kept conflict rows. It removes
+/// `POST /api/conflicts/keys`, `GET|POST /api/db/verify-refs` and
+/// `GET /api/db/verify-refs/scopes`. A query record has no `has_conflicts`
+/// or `conflicted_fields`, and a query page has no `conflict_flags`.
+/// `/api/status` removes the `verify_refs` and `conflict_retention` blocks
+/// and the `annotate` request phase. `lastdb db recount` only raises the
+/// replay cutoff. No other request changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 25;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -291,12 +299,6 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
         },
         "/api/db/cleanup" if owner => match method {
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
-            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
-        },
-        // The counter verifier: GET reads the last result, POST runs one step.
-        "/api/db/verify-refs" if owner => match method {
-            "GET" => ControlRoute::Data(DataRoute::DbVerifyRefsLast),
-            "POST" => ControlRoute::Data(DataRoute::DbVerifyRefs),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
         "/api/db/catalog" if owner => match method {

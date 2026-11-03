@@ -54,10 +54,7 @@ pub(super) fn finish(
         begin_sha256: page.begin_sha256,
         descriptor_sha256: page.descriptor_sha256,
         native_root: state.native_root.clone(),
-        recovery: state
-            .recovery
-            .clone()
-            .ok_or_else(|| invalid("run recovery missing"))?,
+        recovery: state.recovery.clone(),
         native_file_count: files,
         native_bytes: bytes,
         pages,

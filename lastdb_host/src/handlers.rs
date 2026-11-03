@@ -6,8 +6,8 @@
 //! Historically each executor re-implemented these handler bodies against
 //! `fold_db` core, kept identical only by discipline (the extraction card's
 //! predecessor moved the *wire* layer here; this module moves the *handler*
-//! layer). Now the schema-resolution, pagination push-down, row formatting,
-//! conflict annotation and native-search enrichment/filtering live in exactly
+//! layer). Now the schema-resolution, pagination push-down, row formatting
+//! and native-search enrichment/filtering live in exactly
 //! one place, generic over [`HostNode`], so the two socket surfaces cannot
 //! drift below the app-identity axis.
 //!
@@ -36,14 +36,12 @@ use crate::host_node::{HostNode, ReadBusy};
 use crate::pagination::{clamp_request_limit, INTERNAL_FETCH_CAP};
 use crate::qos::Lane;
 
-mod conflict_metadata;
 mod errors;
 mod mutation;
 mod query;
 mod schema_resolve;
 mod search;
 
-pub use self::conflict_metadata::*;
 pub use self::errors::*;
 pub use self::mutation::*;
 pub use self::query::*;

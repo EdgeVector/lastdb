@@ -217,7 +217,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::Query | DataRoute::ListRecordKeys => OpKind::Query,
         DataRoute::Mutation => OpKind::Mutation,
         DataRoute::MutationBatch => OpKind::MutationBatch,
-        DataRoute::QueryBatch | DataRoute::ConflictMetadata => OpKind::QueryBatch,
+        DataRoute::QueryBatch => OpKind::QueryBatch,
         DataRoute::Status
         | DataRoute::AutoIdentity
         | DataRoute::BootIdentity

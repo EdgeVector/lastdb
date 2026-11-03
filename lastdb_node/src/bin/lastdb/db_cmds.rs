@@ -16,9 +16,6 @@ pub(crate) use db_ledger_cmds::*;
 #[path = "db_put_blob_cmds.rs"]
 mod db_put_blob_cmds;
 pub(crate) use db_put_blob_cmds::*;
-#[path = "db_verify_refs_cmds.rs"]
-mod db_verify_refs_cmds;
-pub(crate) use db_verify_refs_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -65,8 +62,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
     match action {
         DbOfflineCommand::Recount {
             execute,
-            scopes,
-            all_scopes,
             delete_cutoff_unix_secs,
             i_know_this_is_primary,
             json,
@@ -74,8 +69,6 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             &lastdb_node::offline_recount::RecountArgs {
                 home,
                 execute,
-                scopes,
-                all_scopes,
                 delete_cutoff_unix_secs,
                 i_know_this_is_primary,
                 json,

@@ -42,7 +42,6 @@ pub(super) async fn execute<H: HostNode>(
     }
     let limit = clamp_request_limit(limit);
     let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;
-    let schema_name = query.schema_name.clone();
     let page = host
         .fold_db()
         .query_executor()
@@ -69,7 +68,6 @@ pub(super) async fn execute<H: HostNode>(
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);
     }
-    let conflict_flags = annotate_conflict_flags(host, &schema_name, &mut results).await;
     let next = if page.has_more {
         page.entries
             .last()
@@ -77,11 +75,7 @@ pub(super) async fn execute<H: HostNode>(
     } else {
         None
     };
-    let flags = PageFlags {
-        conflict_flags,
-        ..PageFlags::default()
-    };
-    let mut payload = page_payload(results, None, limit, 0, page.has_more, flags);
+    let mut payload = page_payload(results, None, limit, 0, page.has_more, PageFlags::default());
     payload["next_cursor"] =
         serde_json::to_value(next).map_err(|_| HostError::internal("invalid alternate cursor"))?;
     Ok(payload)

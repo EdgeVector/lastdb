@@ -38,8 +38,6 @@ pub enum DataRoute {
     MutationBatch,
     /// `POST /api/queries/batch` — several independent `/api/query` bodies in one request (both sockets).
     QueryBatch,
-    /// `POST /api/conflicts/keys` — the kept conflicts of selected record fields (owner only).
-    ConflictMetadata,
     /// `GET /api/schemas` — list the node's available schemas.
     ListSchemas,
     /// `GET /api/list?schema=` — keys-only page of live record identities
@@ -75,8 +73,8 @@ pub enum DataRoute {
     /// `POST /api/schemas/drop` — remove one installed schema identity, or
     /// every identity owned by one app, from the node catalog.
     ///
-    /// ACK is catalog absence: `GET /api/schema/{name}` misses. Product
-    /// records stay until a later janitor. This is not
+    /// ACK is catalog absence: `GET /api/schema/{name}` misses. The drop
+    /// releases the records of the schema first. This is not
     /// `RetireSchemaNameClaim` (name resolution only) and not a product-row
     /// Delete.
     ///
@@ -196,19 +194,6 @@ pub enum DataRoute {
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
     /// byte breakdown. OWNER socket only. It writes nothing.
     DbInventory,
-    /// `POST /api/db/verify-refs` — one bounded step of the reference
-    /// verifier (the retention queue). OWNER socket only.
-    /// Body: `{cursor?, max_pages?, max_ms?, pause_ms?, page_rows?, scope?}`. Reads and reports; it
-    /// writes nothing and takes no write gate. Without `cursor` it starts a
-    /// new run; with the `next_cursor` of the last step it continues the run.
-    DbVerifyRefs,
-    /// `GET /api/db/verify-refs` — the last complete verify run and the run in
-    /// progress, from memory. OWNER socket only. Reads no store.
-    DbVerifyRefsLast,
-    /// `GET /api/db/verify-refs/scopes` — the storage scope prefixes that the
-    /// database catalog names, besides the personal scope. OWNER socket only.
-    /// Reads the catalog, not the data.
-    DbVerifyRefsScopes,
     /// `GET /api/db/schemas` — record-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
     /// order-log walks) but still a heavy admin scan.

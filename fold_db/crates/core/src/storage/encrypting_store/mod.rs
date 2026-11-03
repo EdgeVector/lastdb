@@ -92,10 +92,6 @@ impl EncryptingKvStore {
         }
         Ok(decrypted_rows)
     }
-
-    fn lossy_derived_key(key: &[u8]) -> bool {
-        key.starts_with(b"emb:")
-    }
 }
 
 mod kv_store_impl;

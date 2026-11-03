@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) async fn execute_status_route(
+pub(super) fn execute_status_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -11,7 +11,7 @@ pub(super) async fn execute_status_route(
     let mut snapshot = if let Some(snapshot) = host.self_metrics.published_status() {
         snapshot
     } else {
-        let snapshot = crate::jobs::self_metrics::status_snapshot(host).await;
+        let snapshot = crate::jobs::self_metrics::status_snapshot(host);
         host.self_metrics.publish_status(snapshot.clone());
         snapshot
     };

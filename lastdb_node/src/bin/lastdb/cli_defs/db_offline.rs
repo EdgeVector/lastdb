@@ -4,37 +4,24 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
-    /// Repair the retention queue. OFFLINE: it refuses a home that a daemon
-    /// serves.
+    /// Raise the replay cutoff of the home. OFFLINE: it refuses a home that a
+    /// daemon serves.
     ///
-    /// A queue entry of the retention queue whose bucket has no directory row
-    /// (`queue_entry_without_directory`) gets the row.
-    ///
-    /// Default is a dry run that reports every change. `--execute` writes the
-    /// changes in whole batches. It is safe to run again: a second run changes
+    /// Default is a dry run that reports the change. `--execute` writes it.
+    /// It is safe to run again: a second run with the same cutoff changes
     /// nothing.
     ///
     /// Stop the daemon gracefully first (the last session must end cleanly and
-    /// leave a flush receipt). Start the daemon after, and run
-    /// `lastdb db verify-refs`: it must report no fault.
+    /// leave a flush receipt).
     Recount {
-        /// Write the changes. Without it the command only reports them.
+        /// Write the change. Without it the command only reports it.
         #[arg(long)]
         execute: bool,
-        /// A storage scope prefix to recount besides the personal scope.
-        /// Repeat the flag for more scopes.
-        #[arg(long = "scope")]
-        scopes: Vec<String>,
-        /// Recount each scope that the database catalog names, besides the
-        /// personal scope. A scope with data and no catalog entry needs --scope.
+        /// The new replay cutoff of the home, in unix seconds: a replayed write
+        /// at or before it is refused. The cutoff is one record for the whole
+        /// home. Stale peers need resync.
         #[arg(long)]
-        all_scopes: bool,
-        /// Raise the replay cutoff of the home to this unix second: a replayed
-        /// write at or before it is refused. The cutoff is one record for the
-        /// whole home, so it needs no --all-scopes. Stale peers need resync.
-        /// Without --execute this reports only.
-        #[arg(long)]
-        delete_cutoff_unix_secs: Option<u64>,
+        delete_cutoff_unix_secs: u64,
         /// Allow a home under the primary directory.
         #[arg(long)]
         i_know_this_is_primary: bool,

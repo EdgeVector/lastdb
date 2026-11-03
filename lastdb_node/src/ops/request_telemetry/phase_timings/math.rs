@@ -89,7 +89,7 @@ impl PhaseTimings {
     /// the size of the libel set by how contended the node was.
     ///
     /// Measured on the primary 2026-08-17, `client=kanban kind=query` on
-    /// the live board schema: `hydrate` + `annotate` summed to 591.89 s
+    /// the live board schema: the query phases summed to 591.89 s
     /// against a 591.79 s wall clock — closed to 0.02% — and the row still
     /// printed `over=359228ms (60.7%)`, which was `queue_wait` and nothing
     /// else. Four of the ten rendered rows read `over=` for that reason.
