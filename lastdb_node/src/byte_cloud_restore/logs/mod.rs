@@ -43,10 +43,7 @@ pub(super) async fn restore(
     let (inventory, bytes) = super::closure::load(&base, client).await?;
     let snapshot = ClientRoot::decode(&bytes, keys.content_key(), &base.accepted().begin)
         .map_err(|_| RestoreError::Invalid("mutation base snapshot"))?;
-    let profile = snapshot
-        .run
-        .as_ref()
-        .ok_or(RestoreError::Invalid("mutation base profile"))?;
+    let profile = &snapshot.run;
     if snapshot.recovery != latest.recovery
         || profile.main.home_id != latest.anchor.main_home
         || profile.cas.home_id != latest.anchor.cas_home
