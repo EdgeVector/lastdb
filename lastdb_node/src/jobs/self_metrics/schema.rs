@@ -128,7 +128,7 @@ fn telemetry_hash_range_schema(
     );
     schema.field_types = fields
         .iter()
-        .map(|field| (field.to_string(), telemetry_field_type(field)))
+        .map(|&field| (field.to_string(), telemetry_field_type(field)))
         .collect();
     schema.descriptive_name = Some(descriptive_name.to_string());
     schema.purpose_statement = Some(purpose.to_string());

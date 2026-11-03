@@ -39,7 +39,10 @@ fn key_fields(schema: &Schema) -> BTreeSet<&str> {
         .iter()
         .flat_map(|key| key.hash_field.iter().chain(key.range_field.iter()))
         .map(String::as_str);
-    let alternate = schema.alternate_keys.values().flat_map(|alt| alt.fields());
+    let alternate = schema
+        .alternate_keys
+        .values()
+        .flat_map(schema_types::AlternateKey::fields);
     primary
         .chain(alternate)
         .flat_map(|path| [path, path.split('.').next().unwrap_or(path)])
