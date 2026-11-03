@@ -29,7 +29,6 @@ ignore = [
   { id = "RUSTSEC-2025-0119", reason = "number_prefix unmaintained; transitive via indicatif; cosmetic progress-bar dep" },
   { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via macro_rules_attribute; widely used, no security exposure" },
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; transitive via utoipa-gen; build-time only, no runtime exposure" },
-  { id = "RUSTSEC-2026-0097", reason = "rand unsound only when a custom logger uses rand::rng() in its impl — we don't define such a logger" },
 
   # ---- crypto-bigint 0.5.5 (p256 0.13 → app_identity_crypto) ----
   { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 via p256 0.13 → app_identity_crypto, which only verifies DevCert ECDSA signatures with public keys (dev_cert.rs: VerifyingKey + Verifier); no secret-dependent integer arithmetic; the fix is crypto-bigint 0.7 (p256 0.14 line), a breaking bump" },
