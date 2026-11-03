@@ -130,9 +130,9 @@ ROUTE_TABLE_CALL = re.compile(r'^\s*row\(', re.MULTILINE)
 def add_route_table_rows(path: Path, routes: list[dict[str, Any]]) -> None:
     """Add the exact-path rows of uds_router/route_table.rs to `routes`.
 
-    The table can serve one DataRoute at a second path. The enum docs name
-    only one path per variant, so without the table a removed alias would not
-    show in the diff.
+    The table can serve one DataRoute at a second path (an alias such as
+    `GET /api/db/list`). The enum docs name only one path per variant, so
+    without the table a removed alias would not show in the diff.
     """
     source = read_source(path)
     rows = ROUTE_TABLE_ROW.findall(source)
