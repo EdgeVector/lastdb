@@ -159,8 +159,8 @@ def home_file_lines(report):
 
 def collection_lines(report):
     lines = ["", "### Newest-key collection changes", "",
-             "Ranked by change in tagged stored-value bytes, then key bytes. Labels are fixed internal names; other names share other.",
-             "Only consecutive complete inventories enter these deltas. They describe logical stored forms, not compressed disk allocation."]
+             "Ranked by change in stored value bytes, then key bytes. Labels are fixed internal names; other names share other.",
+             "Only consecutive complete inventories enter these deltas. They describe stored bytes before compression, not disk allocation."]
     for before, after in zip(report["checkpoints"], report["checkpoints"][1:]):
         for name in ("main", "cas"):
             old = before["audit"].get(name, {}).get("inventory") or {}

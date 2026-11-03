@@ -129,9 +129,6 @@ const REASONS: &[&str] = &[
     "run source node marker",
     "run source unavailable",
     "stored block length over its limit",
-    "stored compact value ends early",
-    "stored value is empty",
-    "stored value tag missing",
     "stream block identity or length",
     "stream block key order",
     "stream key prefix",
@@ -145,6 +142,5 @@ const REASONS: &[&str] = &[
     "trailing bytes in index block",
     "trailing bytes in top block",
     "unknown run version",
-    "unknown stored value tag",
     "unsupported home descriptor",
 ];

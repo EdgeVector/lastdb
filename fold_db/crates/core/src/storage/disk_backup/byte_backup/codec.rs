@@ -1,7 +1,6 @@
 //! Mini-owned encrypted metadata. The byte service never interprets these values.
 //!
-//! Version 6 is the snapshot root of a format 9 home. Version 4 belongs to
-//! mutation-log roots.
+//! Version 6 is the snapshot root. Version 4 belongs to mutation-log roots.
 use super::{invalid, protocol, StorageResult};
 use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;

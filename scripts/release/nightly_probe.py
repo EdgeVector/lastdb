@@ -10,17 +10,19 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
 
 from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architecture, validate_pair, write_json
 
+sys.path.append(str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from home_format import NODE_MARKER  # noqa: E402
+
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-# Every new home is format 9 (the record model).
-MARKER = "format=9\nhome=disk-run\ncas=disk-cas\n"
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -216,8 +218,8 @@ def operations(node):
     if not isinstance(json.loads(status.stdout), dict):
         raise RuntimeError("The packaged CLI returned an invalid status response")
     marker = node.home / "data" / "laststore-pack-node-v1"
-    if marker.read_text() != MARKER:
-        raise RuntimeError("The packaged daemon did not initialize a format 9 home")
+    if marker.read_bytes() != NODE_MARKER:
+        raise RuntimeError("The packaged daemon did not initialize a home in the current format")
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
         "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,

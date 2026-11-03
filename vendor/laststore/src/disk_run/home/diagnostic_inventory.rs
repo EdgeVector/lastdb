@@ -24,7 +24,7 @@ pub struct CollectionInventory {
     pub live_key_bytes: u64,
     /// Run keys include the collection-length and collection-name prefix.
     pub live_run_key_bytes: u64,
-    /// Tagged stored form, including its one-byte value tag; not expanded JSON.
+    /// Stored value bytes.
     pub live_stored_value_bytes: u64,
     /// Latest records that delete a key; older hidden versions are not counted.
     pub deleted_keys: u64,
@@ -233,7 +233,6 @@ fn add_record(report: &mut LogicalInventory, key: &[u8], bytes: Option<u64>) -> 
 fn collection_label(name: &[u8]) -> &'static str {
     const KNOWN: &[&str] = &[
         "__native_home",
-        "blob_counts",
         "records",
         "metadata",
         "schema_states",

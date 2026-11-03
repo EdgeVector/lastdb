@@ -23,8 +23,8 @@ pub struct RunBackupProfile {
     pub cas: RunBackupHome,
 }
 impl RunBackupProfile {
-    /// The node marker of the profile. Only format 9 (profile 7) backs up and
-    /// restores.
+    /// The node marker of the profile. Only the current home format backs up
+    /// and restores.
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
         if self.version == crate::storage::disk_pack::run_admission::RECORD_PROFILE {
             Ok(crate::storage::disk_pack::run_admission::RECORD_NODE_BYTES)

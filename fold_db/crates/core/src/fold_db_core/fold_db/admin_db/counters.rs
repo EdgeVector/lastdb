@@ -1,4 +1,4 @@
-//! The verifier and the blob counter report.
+//! The reference verifier (`lastdb db verify-refs`).
 
 use super::*;
 

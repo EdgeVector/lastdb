@@ -250,7 +250,7 @@ def main():
             print(
                 f"lint-store-writers: {path}::{fn} names famil{'ies' if len(missing) > 1 else 'y'} "
                 f"{' '.join(sorted(missing))} but the allow list covers [{' '.join(sorted(covered)) or '-'}].\n"
-                "  A new conflict, history or blob counter write belongs in the row commit or the blob planner.",
+                "  A new conflict or history write belongs in the row commit.",
                 file=sys.stderr,
             )
     for e in entries:

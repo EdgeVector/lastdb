@@ -53,12 +53,11 @@ pub(crate) enum DbInspectCommand {
         #[arg(long, default_value_t = 50)]
         limit: usize,
     },
-    /// Report faults in the retention queue and the blob counters. Read-only:
-    /// it writes nothing and takes no write gate, so it does not stall writers.
+    /// Report faults in the retention queue. Read-only: it writes nothing and
+    /// takes no write gate, so it does not stall writers.
     ///
-    /// Surveys the retention queue for buckets without a directory row, and
-    /// checks each blob counter and each entry of the blob queue, in pages with
-    /// a cursor. A step reads pages until its page or time budget is spent; the
+    /// Surveys the retention queue for buckets without a directory row, in
+    /// pages with a cursor. A step reads pages until its page or time budget is spent; the
     /// command follows the cursor until the run is complete. Exits non-zero
     /// when it finds a fault. Repair on a stopped node with `lastdb db recount`.
     VerifyRefs {

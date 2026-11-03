@@ -68,7 +68,7 @@ fn value(rng: &mut Rng, batch: u64) -> Vec<u8> {
     .into_bytes()
 }
 
-/// The operations of batch `n` (1-based). About 60% new blob counts, 25%
+/// The operations of batch `n` (1-based). About 60% new metadata entries, 25%
 /// record writes (many overwrite), 10% field key entries, 5% record deletes.
 pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
     let mut rng = Rng::new(n);
@@ -77,7 +77,7 @@ pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
         let pick = rng.below(100);
         let (collection, key, body) = if pick < 60 {
             let key = format!("{n:08x}{op:06x}{:08x}", rng.next_u64() as u32);
-            ("blob_counts", key, Some(value(&mut rng, n)))
+            ("metadata", key, Some(value(&mut rng, n)))
         } else if pick < 85 {
             let key = record_key(rng.below(RECORD_SCHEMAS), rng.below(RECORD_RANGES));
             ("records", key, Some(value(&mut rng, n)))

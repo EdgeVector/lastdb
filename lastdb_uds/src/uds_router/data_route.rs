@@ -209,7 +209,7 @@ pub enum DataRoute {
     /// byte breakdown. OWNER socket only. It writes nothing.
     DbInventory,
     /// `POST /api/db/verify-refs` — one bounded step of the reference
-    /// verifier (the retention queue and the blob counters). OWNER socket only.
+    /// verifier (the retention queue). OWNER socket only.
     /// Body: `{cursor?, max_pages?, max_ms?, pause_ms?, page_rows?, scope?}`. Reads and reports; it
     /// writes nothing and takes no write gate. Without `cursor` it starts a
     /// new run; with the `next_cursor` of the last step it continues the run.

@@ -35,6 +35,7 @@ from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 
+from home_format import NODE_MARKER as RUN_NODE  # noqa: E402
 from node import Node, save  # noqa: E402  (the benchmark daemon driver)
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
@@ -50,7 +51,6 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=9\nhome=disk-run\ncas=disk-cas\n"
 # The settings of the primary's launchd job that the node reads: the record
 # size limit, the memory budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
@@ -169,7 +169,7 @@ class Case:
     def check_new_home(self):
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
-            raise ProofError(f"a new home has the node marker {marker!r}, not the format 9 marker")
+            raise ProofError(f"a new home has the node marker {marker!r}, not the current format marker")
         for name in ("disk-run", "disk-cas"):
             if not (self.data / name).is_dir():
                 raise ProofError(f"a new home lacks {name}")
@@ -203,7 +203,7 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
-            self.failures.append(f"{name}: the node marker is not the format 9 marker")
+            self.failures.append(f"{name}: the node marker is not the current format marker")
         self.compare(name, logical, reads, listed)
         self.phases.append({
             "name": name, "settled": settled, "logical": logical,

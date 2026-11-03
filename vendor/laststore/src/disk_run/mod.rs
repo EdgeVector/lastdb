@@ -28,7 +28,6 @@ mod merge;
 mod range;
 mod reader;
 mod space;
-pub mod value;
 mod writer;
 
 pub use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
@@ -59,9 +58,9 @@ pub const RUN_SUFFIX: &str = ".ldrun";
 /// Largest stored key. Larger keys are refused at write time.
 pub const MAX_RUN_KEY_BYTES: usize = 64 * 1024;
 
-/// Largest stored value, its tag byte included (see [`value`]). A record
-/// larger than the block target gets a block
-/// of its own; this bound keeps one block inside the frame limit.
+/// Largest stored value. A run stores each value as given. A record larger
+/// than the block target gets a block of its own; this bound keeps one block
+/// inside the frame limit.
 pub const MAX_RUN_VALUE_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES / 2;
 
 /// Largest decoded top block. A writer refuses a run whose top block would

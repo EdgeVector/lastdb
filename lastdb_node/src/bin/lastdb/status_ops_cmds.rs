@@ -158,15 +158,17 @@ pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
     run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The node marker of a format 9 home (the record model, the only format this
+/// The node marker of a home in the current format (the only format this
 /// release opens) names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
-    let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
-    (marker.as_slice() == b"format=9\nhome=disk-run\ncas=disk-cas\n").then(|| {
-        "Layout: format 9 record homes (disk-run for records, one record per key; \
-         disk-cas for CAS files; typed range keys; one sorted run file per commit, \
-         merged in the background)"
-            .to_string()
+    use fold_db::storage::disk_pack::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
+    let marker = std::fs::read(store_root.join(NODE_MARKER)).ok()?;
+    (marker.as_slice() == RECORD_NODE_BYTES).then(|| {
+        format!(
+            "Layout: format {HOME_FORMAT} record homes (disk-run for records, one record \
+             per key; disk-cas for CAS files; typed range keys; one sorted run file per \
+             commit, merged in the background)"
+        )
     })
 }
 

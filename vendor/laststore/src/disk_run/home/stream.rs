@@ -9,9 +9,9 @@ use std::io::{self, Write};
 #[path = "stream/proof.rs"]
 mod proof;
 
-/// Exact decoded stored bytes copied without a file-sized allocation.
+/// Exact stored bytes copied without a file-sized allocation.
 pub struct CopiedRunBody {
-    /// Complete body length, excluding the internal stored-value tag.
+    /// Complete body length.
     pub body_bytes: u64,
     /// SHA-256 of those exact bytes.
     pub body_sha256: [u8; 32],
@@ -37,7 +37,7 @@ impl Write for Output<'_> {
 }
 impl RunRead {
     /// Stream one normal-read body under this exact root. A tombstone returns None.
-    /// Large RAW values use fixed buffers and no independent body-size cap.
+    /// Large values use fixed buffers and no independent body-size cap.
     pub fn copy_body_to(
         &mut self,
         collection: &str,

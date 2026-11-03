@@ -1,9 +1,7 @@
 //! The key format marker of a node home.
 //!
-//! The record counter makes record bodies the only authority for record references,
-//! and the field key counters and the blob counters do the same for field keys and
-//! for local file blobs. A new home holds no reference of any kind, so no
-//! reference-completeness proof is needed. The format and account-key proofs
+//! A new home holds no reference of any kind, so no reference-completeness
+//! proof is needed. The format and account-key proofs
 //! authorize the new home.
 //! The storage layer refuses earlier physical layouts. A native home also needs
 //! the logical identity marker `typed-ranges` before it can serve. Home

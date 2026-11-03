@@ -11,18 +11,21 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 
 from support import dev_endpoint, require, read_json, hash_file
 from restore_log import position, verified as verified_log_routes
 
+sys.path.append(str(Path(__file__).resolve().parents[1] / "benchmarks"))
+from home_format import BACKUP_PROFILE, HOME_FORMAT, NODE_MARKER  # noqa: E402
+
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-# Every home of this release is format 9 (the record model), backup profile 7.
-# Only that marker is accepted. Kept recovery hashes the restored bytes in
+# Every home of this release has the current format (`RECORD_NODE_BYTES` and
+# `RECORD_PROFILE` in the node store). Only that marker is accepted. Kept recovery hashes the restored bytes in
 # place; it does not upgrade the marker.
-NODE_V9 = b"format=9\nhome=disk-run\ncas=disk-cas\n"
-NODE_PROFILE = {NODE_V9: (7, 9)}
+NODE_PROFILE = {NODE_MARKER: (BACKUP_PROFILE, HOME_FORMAT)}
 MAX_FILES = 4096
 
 
@@ -132,11 +135,11 @@ def matched_node_marker(size, expected, node_markers):
     for marker in node_markers:
         if size == len(marker) and expected == hashlib.sha256(marker).hexdigest():
             matched = marker
-    require(matched in NODE_PROFILE, "format_nine_marker")
+    require(matched in NODE_PROFILE, "current_format_marker")
     return matched
 
 
-def inventory(home, root, node_markers=(NODE_V9,)):
+def inventory(home, root, node_markers=(NODE_MARKER,)):
     entries = owned(root, "entries/placeholder").parent
     files, seen, matched = [], set(), None
     for name in sorted(names(entries)):
@@ -200,7 +203,7 @@ def replayed_inventory(home, root, replay, accepted, observe):
 
 
 def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None,
-             node_markers=(NODE_V9,)) -> dict:
+             node_markers=(NODE_MARKER,)) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -226,7 +229,6 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
     if replay is None:
         files, marker = inventory(home, root, node_markers)
     else:
-        # Replay restores a fresh format 9 run.
         files, routes = replayed_inventory(home, root, replay,
             read_json(owned(root, "selection.json"))["accepted"], observe)
         marker = node_marker(home)

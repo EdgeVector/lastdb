@@ -3,7 +3,7 @@ use super::*;
 use crate::disk_run::codec::{get_len, get_slice};
 use std::path::Path;
 
-/// One transient merge head. Value bytes include the stored-value tag.
+/// One transient merge head: the key and the stored value length.
 pub(crate) type SummaryRecord = (Vec<u8>, Option<u64>);
 
 /// One bounded index and payload block per input run, independent of run length.
@@ -68,13 +68,7 @@ impl SummaryCursor {
         let tag = get_len(&self.payload, &mut self.at, MAX_RUN_VALUE_BYTES + 1)?;
         let bytes = tag.checked_sub(1);
         if let Some(bytes) = bytes {
-            let value = get_slice(&self.payload, &mut self.at, bytes)?;
-            if !matches!(
-                value.first(),
-                Some(&crate::disk_run::value::RAW | &crate::disk_run::value::COMPACT_JSON)
-            ) {
-                return Err(corrupt("diagnostic stored value tag"));
-            }
+            get_slice(&self.payload, &mut self.at, bytes)?;
         }
         Ok(Some((self.key.clone(), bytes.map(|n| n as u64))))
     }
