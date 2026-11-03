@@ -1,7 +1,9 @@
 use super::*;
 use crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE;
 use crate::storage::error::{NativeProofCause, NativeProofStage};
+use cloud_backup_protocol::Digest;
 use laststore::space::SpacePolicy;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 mod json;
