@@ -16,7 +16,7 @@ use serde_json::Value;
 use super::run::FeedRun;
 use super::{
     manifest_key, CatalogFeedState, FeedListEntry, FeedManifestState, ManifestFetch,
-    MAX_MANIFESTS_PER_RUN, MAX_MANIFEST_BYTES,
+    MAX_MANIFESTS_PER_RUN,
 };
 
 /// The outcome of one manifest read.
@@ -46,14 +46,9 @@ fn unread_entries(state: &CatalogFeedState) -> Vec<FeedListEntry> {
 /// not normalize skips the whole manifest, as `lastdb app check` fails it.
 ///
 /// # Errors
-/// An oversized or unparsable manifest, a different `app_id`, a `schemas`
-/// member that is not a list, or an entry the node would refuse.
-pub(super) fn parse_manifest(app_id: &str, bytes: &[u8]) -> Result<Vec<Schema>, String> {
-    if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err("lastdb-app.json exceeds 1 MiB".into());
-    }
-    let manifest: Value = serde_json::from_slice(bytes)
-        .map_err(|error| format!("lastdb-app.json does not parse: {error}"))?;
+/// A different `app_id`, a `schemas` member that is not a list, or an
+/// entry the node would refuse.
+pub(super) fn parse_manifest(app_id: &str, manifest: &Value) -> Result<Vec<Schema>, String> {
     let declared = manifest.get("app_id").and_then(Value::as_str);
     if declared != Some(app_id) {
         return Err(format!(
@@ -115,7 +110,9 @@ impl FeedRun<'_> {
             )));
         };
         match self.source.fetch_manifest(owner, repo, &entry.sha).await {
-            Ok(ManifestFetch::Found(bytes)) => Read::Done(parse_manifest(&entry.app_id, &bytes)),
+            Ok(ManifestFetch::Found(manifest)) => {
+                Read::Done(parse_manifest(&entry.app_id, &manifest))
+            }
             Ok(ManifestFetch::Missing(reason)) => Read::Done(Err(reason)),
             Ok(ManifestFetch::RateLimited) => {
                 tracing::warn!(

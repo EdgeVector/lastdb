@@ -8,7 +8,7 @@ use app_identity_crypto::{verifying_key_from_base64, VerifyingKey, REGISTRY_LIST
 use schema_types::{FoldDbError, FoldDbResult, Schema};
 
 use super::records::{relist, upsert_definitions};
-use super::{CatalogFeedReport, CatalogFeedSource, CATALOG_FEED_IMAGE_VERSION};
+use super::{CatalogFeedImage, CatalogFeedReport, CatalogFeedSource, CATALOG_FEED_IMAGE_VERSION};
 use crate::field_name_policy::{schema_field_names, NAME_POLICY_VERSION};
 use crate::types::CanonicalField;
 use crate::vocabulary_commit::is_vocabulary_conflict;
@@ -69,18 +69,16 @@ impl SchemaServiceState {
         let trust = verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64)
             .map_err(|error| FoldDbError::Config(format!("registry list key: {error}")))?;
         let backend = self.storage.backend();
-        let stored = backend.load_catalog_feed().await?;
-        let unsupported = stored
-            .as_ref()
-            .map(|image| image.version)
-            .filter(|version| *version != CATALOG_FEED_IMAGE_VERSION);
-        if let Some(version) = unsupported {
+        let (mut image, expected_version) = match backend.load_catalog_feed().await? {
+            Some((image, version)) => (image, Some(version)),
+            None => (CatalogFeedImage::default(), None),
+        };
+        if image.version != CATALOG_FEED_IMAGE_VERSION {
             return Err(FoldDbError::Config(format!(
-                "catalog feed image version {version} is not supported (reads {CATALOG_FEED_IMAGE_VERSION})"
+                "catalog feed image version {} is not supported (reads {CATALOG_FEED_IMAGE_VERSION})",
+                image.version
             )));
         }
-        let expected_revision = stored.as_ref().map(|image| image.revision);
-        let mut image = stored.unwrap_or_default();
         let mut run = FeedRun {
             source,
             trust,
@@ -99,8 +97,10 @@ impl SchemaServiceState {
         self.admit_feed_vocabulary(&touched, &mut run.report)
             .await?;
         if changed {
-            image.revision = expected_revision.unwrap_or(0) + 1;
-            backend.save_catalog_feed(&image, expected_revision).await?;
+            image.revision += 1;
+            backend
+                .save_catalog_feed(&image, expected_version.as_deref())
+                .await?;
             run.report.image_written = true;
         }
         Ok(run.report)
