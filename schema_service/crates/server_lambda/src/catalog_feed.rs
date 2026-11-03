@@ -11,15 +11,27 @@
 //! Lists are read anonymously from the registry's list base. Manifests are
 //! read from `api.github.com` only: no credential is sent, a redirect is
 //! followed only to the same host, and every body has a size cap.
+//!
+//! The requests go through the connector the AWS SDK clients already use
+//! (`aws_smithy_http_client`: hyper 1, rustls with aws-lc, native roots), so
+//! the feed adds no second HTTP client to the Lambda. The bootstrap zip has a
+//! 15 MiB bar, and a second client stack (reqwest) took it over.
 
 use std::time::Duration;
 
+use ::http::StatusCode;
 use async_trait::async_trait;
+use aws_smithy_async::future::timeout::Timeout;
+use aws_smithy_async::rt::sleep::{default_async_sleep, AsyncSleep, SharedAsyncSleep};
+use aws_smithy_http_client::proxy::ProxyConfig;
+use aws_smithy_http_client::tls::{rustls_provider::CryptoMode, Provider};
+use aws_smithy_http_client::Connector;
+use aws_smithy_runtime_api::client::http::{HttpConnector, HttpConnectorSettings};
+use aws_smithy_runtime_api::client::orchestrator::{HttpRequest, HttpResponse};
+use aws_smithy_types::byte_stream::ByteStream;
 use folddb_profile::endpoints::{registry_index_url_for, Environment};
 use lambda_http::request::RequestContext;
 use lambda_http::{Body, Error, Request, Response};
-use reqwest::header::{ACCEPT, ETAG, IF_NONE_MATCH};
-use reqwest::{redirect, Client, StatusCode};
 use schema_service_core::catalog_feed::{
     interface_list_path, CatalogFeedSource, ListFetch, ManifestFetch, MAX_LIST_BYTES,
     MAX_MANIFEST_BYTES,
@@ -40,6 +52,8 @@ const LIST_BASE_ENV: &str = "SCHEMA_CATALOG_FEED_LIST_BASE";
 const GITHUB_API_HOST: &str = "api.github.com";
 const GITHUB_API_VERSION: &str = "2022-11-28";
 const USER_AGENT: &str = "lastdb-schema-service-catalog-feed";
+const GITHUB_API_PREFIX: &str = "https://api.github.com/";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_GITHUB_REDIRECTS: usize = 3;
 
@@ -120,86 +134,139 @@ fn list_base() -> Result<String, String> {
     }
 }
 
-/// Follow a redirect only to `api.github.com` over HTTPS.
-fn github_redirect(attempt: redirect::Attempt<'_>) -> redirect::Action {
-    let same_host =
-        attempt.url().scheme() == "https" && attempt.url().host_str() == Some(GITHUB_API_HOST);
-    if attempt.previous().len() > MAX_GITHUB_REDIRECTS || !same_host {
-        attempt.stop()
-    } else {
-        attempt.follow()
-    }
+/// A redirect target on `api.github.com` over HTTPS, or `None`.
+fn same_host_redirect(location: &str) -> Option<String> {
+    location
+        .starts_with(GITHUB_API_PREFIX)
+        .then(|| location.to_string())
 }
 
-/// Read a body up to `cap` bytes. `None` when the body is larger.
-async fn read_capped(
-    mut response: reqwest::Response,
-    cap: usize,
-) -> Result<Option<Vec<u8>>, String> {
-    let url = response.url().to_string();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("GET {url}: {error}"))?
-    {
-        if bytes.len().saturating_add(chunk.len()) > cap {
-            return Ok(None);
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(Some(bytes))
+/// The status of a response as an `http` status code.
+fn status_of(url: &str, response: &HttpResponse) -> Result<StatusCode, String> {
+    StatusCode::from_u16(response.status().as_u16()).map_err(|error| format!("GET {url}: {error}"))
 }
 
 /// The feed's network side over HTTPS.
 struct HttpFeedSource {
-    lists: Client,
-    github: Client,
+    connector: Connector,
+    sleep: SharedAsyncSleep,
     list_base: String,
 }
 
 impl HttpFeedSource {
     fn new(list_base: String) -> Result<Self, String> {
-        // trace-egress: skip-s3 (anonymous static list objects; the bucket
-        // does not honour traceparent and no credential is sent)
-        let lists = reqwest::Client::builder()
-            .timeout(HTTP_TIMEOUT)
-            .no_proxy()
-            .redirect(redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|error| format!("list client: {error}"))?;
-        // trace-egress: skip-3p (api.github.com; unauthenticated)
-        let github = reqwest::Client::builder()
-            .timeout(HTTP_TIMEOUT)
-            .no_proxy()
-            .https_only(true)
-            .redirect(redirect::Policy::custom(github_redirect))
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|error| format!("GitHub client: {error}"))?;
+        let sleep = default_async_sleep().ok_or("no async sleep is available for timeouts")?;
+        let settings = HttpConnectorSettings::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(HTTP_TIMEOUT)
+            .build();
+        // trace-egress: skip-3p (anonymous list objects and api.github.com;
+        // no credential is sent and neither host reads traceparent)
+        let connector = Connector::builder()
+            .tls_provider(Provider::Rustls(CryptoMode::AwsLc))
+            .connector_settings(settings)
+            .sleep_impl(sleep.clone())
+            .proxy_config(ProxyConfig::disabled())
+            .build();
         Ok(Self {
-            lists,
-            github,
+            connector,
+            sleep,
             list_base,
         })
     }
 
+    /// One GET within [`HTTP_TIMEOUT`]. Redirects are not followed.
+    async fn get(
+        &self,
+        url: &str,
+        headers: &[(&'static str, &str)],
+    ) -> Result<HttpResponse, String> {
+        let mut request = HttpRequest::get(url).map_err(|error| format!("GET {url}: {error}"))?;
+        request.headers_mut().insert("user-agent", USER_AGENT);
+        for (name, value) in headers {
+            request
+                .headers_mut()
+                .try_insert(*name, (*value).to_string())
+                .map_err(|error| format!("GET {url}: header {name}: {error}"))?;
+        }
+        Timeout::new(self.connector.call(request), self.sleep.sleep(HTTP_TIMEOUT))
+            .await
+            .map_err(|error| format!("GET {url}: {error}"))?
+            .map_err(|error| format!("GET {url}: {error}"))
+    }
+
+    /// Read a body up to `cap` bytes within [`HTTP_TIMEOUT`]. `None` when
+    /// the body is larger.
+    async fn read_capped(
+        &self,
+        url: &str,
+        response: HttpResponse,
+        cap: usize,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut stream = ByteStream::new(response.into_body());
+        let read = async move {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|error| format!("GET {url}: {error}"))?;
+                if bytes.len().saturating_add(chunk.len()) > cap {
+                    return Ok(None);
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok::<_, String>(Some(bytes))
+        };
+        Timeout::new(read, self.sleep.sleep(HTTP_TIMEOUT))
+            .await
+            .map_err(|error| format!("GET {url}: body: {error}"))?
+    }
+
     async fn get_signature(&self, url: &str) -> Result<Vec<u8>, String> {
         let url = format!("{url}.sig");
-        let response = self
-            .lists
-            .get(&url)
-            .send()
-            .await
-            .map_err(|error| format!("GET {url}: {error}"))?;
-        let status = response.status();
+        let response = self.get(&url, &[]).await?;
+        let status = status_of(&url, &response)?;
         if !status.is_success() {
             return Err(format!("GET {url} returned {}", status.as_u16()));
         }
-        read_capped(response, MAX_LIST_BYTES)
+        self.read_capped(&url, response, MAX_LIST_BYTES)
             .await?
             .ok_or_else(|| format!("GET {url}: the signature exceeds {MAX_LIST_BYTES} bytes"))
+    }
+
+    /// The outcome of a final (not redirected) manifest response.
+    async fn manifest_outcome(
+        &self,
+        url: &str,
+        status: StatusCode,
+        response: HttpResponse,
+    ) -> Result<ManifestFetch, String> {
+        let exhausted = response.headers().get("x-ratelimit-remaining") == Some("0");
+        if status == StatusCode::TOO_MANY_REQUESTS || (status == StatusCode::FORBIDDEN && exhausted)
+        {
+            return Ok(ManifestFetch::RateLimited);
+        }
+        if [
+            StatusCode::NOT_FOUND,
+            StatusCode::GONE,
+            StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+        ]
+        .contains(&status)
+        {
+            return Ok(ManifestFetch::Missing(format!(
+                "no readable lastdb-app.json at the repository root (HTTP {})",
+                status.as_u16()
+            )));
+        }
+        if !status.is_success() {
+            return Err(format!("GET {url} returned {}", status.as_u16()));
+        }
+        Ok(
+            match self.read_capped(url, response, MAX_MANIFEST_BYTES).await? {
+                Some(bytes) => ManifestFetch::Found(bytes),
+                None => ManifestFetch::Missing(format!(
+                    "lastdb-app.json exceeds {MAX_MANIFEST_BYTES} bytes"
+                )),
+            },
+        )
     }
 }
 
@@ -216,15 +283,12 @@ impl CatalogFeedSource for HttpFeedSource {
             self.list_base,
             interface_list_path(channel, api_version)
         );
-        let mut request = self.lists.get(&url);
-        if let Some(etag) = etag {
-            request = request.header(IF_NONE_MATCH, etag);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| format!("GET {url}: {error}"))?;
-        let status = response.status();
+        let conditional: Vec<(&'static str, &str)> = etag
+            .map(|etag| ("if-none-match", etag))
+            .into_iter()
+            .collect();
+        let response = self.get(&url, &conditional).await?;
+        let status = status_of(&url, &response)?;
         if status == StatusCode::NOT_MODIFIED {
             return Ok(ListFetch::NotModified);
         }
@@ -235,12 +299,9 @@ impl CatalogFeedSource for HttpFeedSource {
         if !status.is_success() {
             return Err(format!("GET {url} returned {}", status.as_u16()));
         }
-        let etag = response
-            .headers()
-            .get(ETAG)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let body = read_capped(response, MAX_LIST_BYTES)
+        let etag = response.headers().get("etag").map(str::to_string);
+        let body = self
+            .read_capped(&url, response, MAX_LIST_BYTES)
             .await?
             .ok_or_else(|| format!("GET {url}: the list exceeds {MAX_LIST_BYTES} bytes"))?;
         let signature = self.get_signature(&url).await?;
@@ -257,47 +318,33 @@ impl CatalogFeedSource for HttpFeedSource {
         repo: &str,
         sha: &str,
     ) -> Result<ManifestFetch, String> {
-        let url = format!(
+        let headers = [
+            ("accept", "application/vnd.github.raw+json"),
+            ("x-github-api-version", GITHUB_API_VERSION),
+        ];
+        let mut url = format!(
             "https://{GITHUB_API_HOST}/repos/{owner}/{repo}/contents/lastdb-app.json?ref={sha}"
         );
-        let response = self
-            .github
-            .get(&url)
-            .header(ACCEPT, "application/vnd.github.raw+json")
-            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-            .send()
-            .await
-            .map_err(|error| format!("GET {url}: {error}"))?;
-        let status = response.status();
-        let exhausted = response
-            .headers()
-            .get("x-ratelimit-remaining")
-            .is_some_and(|value| value.as_bytes() == b"0");
-        if status == StatusCode::TOO_MANY_REQUESTS || (status == StatusCode::FORBIDDEN && exhausted)
-        {
-            return Ok(ManifestFetch::RateLimited);
+        for _ in 0..=MAX_GITHUB_REDIRECTS {
+            let response = self.get(&url, &headers).await?;
+            let status = status_of(&url, &response)?;
+            if !status.is_redirection() {
+                return self.manifest_outcome(&url, status, response).await;
+            }
+            let Some(next) = response
+                .headers()
+                .get("location")
+                .and_then(same_host_redirect)
+            else {
+                return Ok(ManifestFetch::Missing(format!(
+                    "the repository redirects away from {GITHUB_API_HOST} (HTTP {})",
+                    status.as_u16()
+                )));
+            };
+            url = next;
         }
-        if status.is_redirection()
-            || [
-                StatusCode::NOT_FOUND,
-                StatusCode::GONE,
-                StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
-            ]
-            .contains(&status)
-        {
-            return Ok(ManifestFetch::Missing(format!(
-                "no readable lastdb-app.json at the repository root (HTTP {})",
-                status.as_u16()
-            )));
-        }
-        if !status.is_success() {
-            return Err(format!("GET {url} returned {}", status.as_u16()));
-        }
-        Ok(match read_capped(response, MAX_MANIFEST_BYTES).await? {
-            Some(bytes) => ManifestFetch::Found(bytes),
-            None => ManifestFetch::Missing(format!(
-                "lastdb-app.json exceeds {MAX_MANIFEST_BYTES} bytes"
-            )),
-        })
+        Ok(ManifestFetch::Missing(format!(
+            "more than {MAX_GITHUB_REDIRECTS} redirects"
+        )))
     }
 }
