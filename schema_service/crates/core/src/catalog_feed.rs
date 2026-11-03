@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use schema_types::{FoldDbError, FoldDbResult, Schema};
+use schema_types::{FoldDbError, Schema};
 use serde::{Deserialize, Serialize};
 
 mod lists;
@@ -124,10 +124,13 @@ pub struct CatalogFeedState {
 }
 
 /// The stored feed image: state and records, written as one object.
+///
+/// The backend returns the image with an opaque version tag (an S3 ETag) and
+/// writes it only while the stored version is still that tag.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogFeedImage {
     pub version: u32,
-    /// Incremented on every write. A write names the revision it read.
+    /// Incremented on every write, for readers of the image.
     pub revision: u64,
     pub state: CatalogFeedState,
     /// Keyed by identity hash.
@@ -151,22 +154,12 @@ pub fn manifest_key(app_id: &str, sha: &str) -> String {
     format!("{app_id}@{sha}")
 }
 
-/// Refuse a write when the stored image is not the revision the run read.
-///
-/// # Errors
-/// [`CATALOG_FEED_CONFLICT`] when the stored revision differs.
-pub fn check_revision(
-    stored: Option<&CatalogFeedImage>,
-    expected_revision: Option<u64>,
-) -> FoldDbResult<()> {
-    let current = stored.map(|image| image.revision);
-    if current == expected_revision {
-        Ok(())
-    } else {
-        Err(FoldDbError::Config(format!(
-            "{CATALOG_FEED_CONFLICT}: another run wrote the catalog feed image; the next run starts from it"
-        )))
-    }
+/// The error for a write that lost to another run.
+#[must_use]
+pub fn catalog_feed_conflict() -> FoldDbError {
+    FoldDbError::Config(format!(
+        "{CATALOG_FEED_CONFLICT}: another run wrote the catalog feed image; the next run starts from it"
+    ))
 }
 
 /// One list read.
@@ -187,10 +180,12 @@ pub enum ListFetch {
 /// One manifest read.
 #[derive(Debug)]
 pub enum ManifestFetch {
-    /// The bytes of `lastdb-app.json` at the commit.
-    Found(Vec<u8>),
-    /// The commit has no readable root `lastdb-app.json`: absent, too large,
-    /// or the repository is gone. Final for this commit.
+    /// `lastdb-app.json` at the commit, parsed as JSON. The source parses
+    /// it with the JSON reader the Lambda already has for request bodies.
+    Found(serde_json::Value),
+    /// The commit has no usable root `lastdb-app.json`: absent, larger
+    /// than [`MAX_MANIFEST_BYTES`], not JSON, or the repository is gone.
+    /// Final for this commit.
     Missing(String),
     /// The host refused for its rate limit. The run reads no more manifests.
     RateLimited,

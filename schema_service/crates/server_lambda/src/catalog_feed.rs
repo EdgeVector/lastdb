@@ -141,6 +141,21 @@ fn same_host_redirect(location: &str) -> Option<String> {
         .then(|| location.to_string())
 }
 
+/// Parse manifest bytes. `from_str` reuses the `Value` reader the request
+/// body routes already compile into the Lambda; a byte-slice reader for
+/// `Value` would add a second copy (15 MiB zip bar).
+fn parse_manifest_json(bytes: &[u8]) -> ManifestFetch {
+    let parsed = std::str::from_utf8(bytes)
+        .map_err(|error| error.to_string())
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(text).map_err(|error| error.to_string())
+        });
+    match parsed {
+        Ok(manifest) => ManifestFetch::Found(manifest),
+        Err(error) => ManifestFetch::Missing(format!("lastdb-app.json does not parse: {error}")),
+    }
+}
+
 /// The status of a response as an `http` status code.
 fn status_of(url: &str, response: &HttpResponse) -> Result<StatusCode, String> {
     StatusCode::from_u16(response.status().as_u16()).map_err(|error| format!("GET {url}: {error}"))
@@ -259,14 +274,12 @@ impl HttpFeedSource {
         if !status.is_success() {
             return Err(format!("GET {url} returned {}", status.as_u16()));
         }
-        Ok(
-            match self.read_capped(url, response, MAX_MANIFEST_BYTES).await? {
-                Some(bytes) => ManifestFetch::Found(bytes),
-                None => ManifestFetch::Missing(format!(
-                    "lastdb-app.json exceeds {MAX_MANIFEST_BYTES} bytes"
-                )),
-            },
-        )
+        let Some(bytes) = self.read_capped(url, response, MAX_MANIFEST_BYTES).await? else {
+            return Ok(ManifestFetch::Missing(format!(
+                "lastdb-app.json exceeds {MAX_MANIFEST_BYTES} bytes"
+            )));
+        };
+        Ok(parse_manifest_json(&bytes))
     }
 }
 
