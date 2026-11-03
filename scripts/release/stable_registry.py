@@ -44,9 +44,13 @@ def require_apps(qualification):
     api = qualification["api_version"]
     listing = catalog(api)
     for app, proof in qualification["apps"].items():
+        declared_outbox = proof["declaration"].get("outbox_format_version")
         matches = [row for row in listing["apps"] if row.get("app_id") == app
                    and row.get("sha") == proof["sha"] and row.get("api_version") == api
                    and row.get("channel") == "stable" and row.get("status") == "listed"
+                   and row.get("app_version") == proof["declaration"]["app_version"]
+                   and (declared_outbox is None or row.get("outbox_format_version") == declared_outbox)
+                   and row.get("outbox_format_version") in (None, proof["outbox_format_version"])
                    and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
         if not matches:
             raise RuntimeError(f"Missing published {app} compatibility for API {api}; publication stays blocked")

@@ -83,6 +83,28 @@ def formula_tree(plan, mac_hash):
         "message": f'Promote qualified LastDB {plan["version"]}', "tree": tree["sha"], "parents": [parent]})["sha"]
 
 
+def merged_promotion(plan, mac_hash):
+    rows = api(f'repos/{TAP}/pulls?state=closed&head=EdgeVector:stable/{plan["version"]}&per_page=100')
+    matches = [row for row in rows if row.get("merged_at")
+               and "Source: " + plan["source"] in row.get("body", "")
+               and "Validation: " + plan["run_url"] in row.get("body", "")]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("The stable promotion has ambiguous merged PRs")
+    url = f'https://github.com/{TAP}/releases/download/{plan["tag"]}/lastdb-aarch64-apple-darwin.tar.gz'
+    for name in ("lastdb", "folddb"):
+        row = api(f"repos/{TAP}/contents/Formula/{name}.rb?ref=main")
+        text = base64.b64decode(row["content"]).decode()
+        for field, expected in (("version", plan["version"]), ("url", url), ("sha256", mac_hash)):
+            values = re.findall(rf'^\s*{field} "([^"]+)"', text, re.M)
+            if values != [expected]:
+                raise ValueError("The merged formula differs from the qualified release")
+        if 'depends_on "openssl@3"' not in text:
+            raise ValueError("The merged formula lacks the native runtime dependency")
+    return matches[0]
+
+
 def release(plan, folder, hashes, proof):
     marker = f'<!-- lastdb-stable:v1 source={plan["source"]} version={plan["version"]} -->'
     rows = api(f"repos/{TAP}/releases?per_page=100")
@@ -110,7 +132,8 @@ def release(plan, folder, hashes, proof):
             _capture(["gh", "release", "upload", plan["tag"], str(folder / name), "--repo", TAP], timeout=300)
     # A prerelease exposes the exact assets for Homebrew's normal PR checks.
     # It becomes stable only after that PR has actually merged.
-    api(f'repos/{TAP}/releases/{result["id"]}', "PATCH", {"draft": False, "prerelease": True})
+    if result["draft"]:
+        api(f'repos/{TAP}/releases/{result["id"]}', "PATCH", {"draft": False, "prerelease": True})
     return result
 
 
@@ -139,7 +162,16 @@ def tap_pr(plan, commit):
                  "body": "Promote the matched CLI and daemon after the full one-hour CI qualification and signed app compatibility gate.\n\n"
                          + "Source: " + plan["source"] + "\n\nValidation: " + plan["run_url"]
                          + "\n\nUpdate version, URL, and checksum in each formula, declaring openssl@3 when absent. The primary is unchanged."})
-    _capture(["gh", "pr", "merge", str(pr["number"]), "--repo", TAP, "--auto", "--squash"], timeout=60)
+    if pr.get("merged_at"):
+        return pr
+    proposed = api(f"repos/{TAP}/git/commits/{commit}")
+    actual = api(f'repos/{TAP}/git/commits/{pr["head"]["sha"]}')
+    if (actual["tree"]["sha"] != proposed["tree"]["sha"]
+            or "Source: " + plan["source"] not in pr.get("body", "")
+            or "Validation: " + plan["run_url"] not in pr.get("body", "")):
+        raise ValueError("The pending Homebrew PR differs from this qualified promotion")
+    _capture(["gh", "pr", "merge", str(pr["number"]), "--repo", TAP, "--auto", "--squash",
+              "--match-head-commit", pr["head"]["sha"]], timeout=60)
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:
         current = api(f'repos/{TAP}/pulls/{pr["number"]}')
@@ -170,7 +202,8 @@ def main():
         raise ValueError("Qualification belongs to different executable bytes")
     for target in TARGETS:
         native = validate_bundle(args.bundles, target, plan)
-        if native["proof"]["api_version"] != proof["api_version"]:
+        if (native["proof"]["api_version"] != proof["api_version"]
+                or native["proof"]["current_outbox_format_version"] != proof["outbox_format_version"]):
             raise ValueError("The native packages report different interfaces")
     provenance(args.bundles, args.proof, plan)
     wait_gates(plan, wait_seconds=0)
@@ -180,9 +213,14 @@ def main():
     hashes = {path.name: digest(path) for path in args.bundles.iterdir()}
     (args.bundles / "SHA256SUMS.txt").write_text("".join(f"{value}  {name}\n" for name, value in sorted(hashes.items())))
     hashes["SHA256SUMS.txt"] = digest(args.bundles / "SHA256SUMS.txt")
-    commit = formula_tree(plan, hashes["lastdb-aarch64-apple-darwin.tar.gz"])
+    mac_hash = hashes["lastdb-aarch64-apple-darwin.tar.gz"]
+    pr = merged_promotion(plan, mac_hash)
+    commit = None if pr else formula_tree(plan, mac_hash)
     result = release(plan, args.bundles, hashes, proof)
-    pr = tap_pr(plan, commit)
+    pr = pr or tap_pr(plan, commit)
+    verified = merged_promotion(plan, mac_hash)
+    if verified is None or verified["number"] != pr["number"]:
+        raise ValueError("The merged Homebrew promotion could not be verified")
     api(f'repos/{TAP}/releases/{result["id"]}', "PATCH", {"prerelease": False, "make_latest": "true"})
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
         stream.write(f'Published stable {plan["tag"]} after 3600 seconds of qualification.\n\n{pr["html_url"]}\n\n{plan["run_url"]}\n')

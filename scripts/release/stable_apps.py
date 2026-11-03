@@ -21,6 +21,7 @@ def command(argv, environment, directory, output, name, body=None, timeout=300, 
 
 
 def prove(node, plan, output, prepare_cli=None):
+    observed = node.call("/api/version")
     environment = {**os.environ, **node.environment,
                    "PATH": str(node.binaries) + os.pathsep + os.environ["PATH"],
                    "FBRAIN_FOLDDB_SOCKET": str(node.socket),
@@ -70,7 +71,8 @@ def prove(node, plan, output, prepare_cli=None):
             drained = json.loads(run(["drain", "--last-db-home", str(node.home)], "drain"))
             hits = json.loads(run(["query", "CI stable qualification record", "--json",
                                   "--last-db-home", str(node.home)], "query"))
-            if drained.get("ok") is not True or not hits.get("hits"):
+            if (drained.get("ok") is not True or not any(
+                    "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
                 raise RuntimeError("Search did not query the real database changes")
             run(["status", "--last-db-home", str(node.home)], "status")
         statement = output / (app + ".declaration.json")
@@ -81,6 +83,7 @@ def prove(node, plan, output, prepare_cli=None):
         if declaration["sha"] != plan["apps"][app]:
             raise ValueError("The validated app commit differs from the plan")
         results[app] = {"sha": declaration["sha"], "api_version": declaration["api_version"],
+                        "outbox_format_version": observed["current_outbox_format_version"],
                         "declaration": declaration, "complete": True}
     write_json(output / "apps.json", results)
     return results

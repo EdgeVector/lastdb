@@ -14,7 +14,11 @@ from stable_plan import load
 
 TAG = "nightly-20261103-b252ab1df"
 APP_COMMITS = {"brain": "6a3e326669e5d876924feaed7df2043b83318d79",
-               "lastsecrets": "310460ad282152d4f810c403af503babec4ce33c"}
+               # The installed 310460ad manifest has schemas: [] despite
+               # declaring two schemas, so it correctly fails publication.
+               # Use the accepted complete, typed manifest; prove API 23
+               # operations here instead of waiving the publishing rule.
+               "lastsecrets": "6753ca81c03062927fc86d56db00ba95ef130406"}
 
 
 def main():

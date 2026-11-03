@@ -42,6 +42,7 @@ def main():
         # PRs exercise the actual command path briefly, but cannot produce a
         # qualified result. There is no input that shortens a publishing run.
         duration = HOUR if plan["publish"] else 30
+        required_samples = duration // 30 + 1
         while True:
             if node.process.poll() is not None:
                 raise RuntimeError("The daemon exited during the quiet window")
@@ -53,9 +54,10 @@ def main():
             read(node, set(range(8)), ranged=True)
             elapsed = time.monotonic() - beginning
             print(f"Stable qualification: {elapsed:.0f}/{duration}s; {len(latencies)} healthy samples", flush=True)
-            if elapsed >= duration:
+            if elapsed >= duration and len(latencies) >= required_samples:
                 break
-            time.sleep(min(30, duration - elapsed))
+            next_sample = beginning + len(latencies) * 30
+            time.sleep(max(0, min(30, next_sample - time.monotonic())))
         elapsed = time.monotonic() - beginning
         p95 = sorted(latencies)[math.ceil(len(latencies) * .95) - 1]
         if p95 > 2:
@@ -72,6 +74,7 @@ def main():
         "schema": "lastdb.stable.qualification.v1", "source": plan["source"],
         "version": plan["version"], "bundle_sha256": digest(bundle), "api_version": version["api_version"],
         "home_format": HOME_FORMAT,
+        "outbox_format_version": version["current_outbox_format_version"],
         "started_at": started.isoformat(), "ended_at": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": elapsed, "health_p95_seconds": p95, "healthy_samples": len(latencies),
         "qualified": plan["publish"] and elapsed >= HOUR, "apps": apps,
