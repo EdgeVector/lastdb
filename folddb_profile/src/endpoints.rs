@@ -33,6 +33,21 @@ pub const fn registry_index_url_for(env: Environment) -> &'static str {
     }
 }
 
+/// Explicit first-party owner/CI signer trust, separate from the registry list key.
+#[must_use]
+pub const fn registry_ci_publisher_keys_for(env: Environment) -> (&'static str, &'static str) {
+    match env {
+        Environment::Dev => (
+            gen::DEV_REGISTRY_CI_OWNER_KEY,
+            gen::DEV_REGISTRY_CI_PUBLISHER_KEY,
+        ),
+        Environment::Prod => (
+            gen::PROD_REGISTRY_CI_OWNER_KEY,
+            gen::PROD_REGISTRY_CI_PUBLISHER_KEY,
+        ),
+    }
+}
+
 use std::sync::OnceLock;
 
 /// Service environment — dev or prod.

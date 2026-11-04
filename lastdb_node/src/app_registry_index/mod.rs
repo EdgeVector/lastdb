@@ -13,6 +13,7 @@ mod managed_links;
 mod managed_manifest;
 pub mod managed_poll;
 mod managed_process;
+mod managed_publisher;
 mod node_version;
 mod resolve;
 mod resolve_local;

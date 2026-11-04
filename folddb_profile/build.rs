@@ -41,6 +41,8 @@ fn generate_environments_module() {
         "schema_service",
         "release_log_url",
         "registry_index",
+        "registry_ci_owner_key",
+        "registry_ci_publisher_key",
     ];
     // String-list keys. Each becomes a `&[&str]` constant.
     let list_keys = ["release_log_keys"];

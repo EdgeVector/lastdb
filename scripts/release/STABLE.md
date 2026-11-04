@@ -28,7 +28,7 @@ no registry write. The fresh-home compatibility job then attests the completed
 app proof. Only accepted main can call `app-compatibility-publish.yml`, which
 verifies that source-bound proof and its artifact retention, assumes a narrow
 GitHub OIDC role, and signs the exact declarations with a dedicated KMS key.
-It publishes both stable and next records for the observed API and outbox.
+It publishes missing stable and next records for the observed API and outbox.
 The person's private key remains in LastSecrets, outside GitHub and AWS.
 
 The registry binds the publication to the exact payload and the dedicated
@@ -37,6 +37,20 @@ allows only Brain, LastSecrets, and Search from their fixed repositories. The
 current app owner and person public key must still match that configuration.
 CI cannot claim an app, rotate an owner key, or relist a withdrawn interface.
 The publisher key and registry-list key are separate non-exportable keys.
+The managed installer carries a narrow owner-to-CI trust grant for those exact
+apps, source repositories, catalog locations, and pinned public keys. Both
+signatures remain required; a registry-list signature alone cannot authorize a
+new app publisher. The same manifest consent rules still apply. A same-source
+publisher transition refreshes the managed receipt instead of silently returning
+the old receipt.
+
+Existing signed records are preserved, including API 23 and API 26. New CI
+publication starts at API 27 so older binaries keep their original catalogs.
+When no records are missing, CI exercises the payload-bound authorization route
+without writing the lists. DEV proves a real owner-to-CI managed transition
+using the exact gated candidate before its first stable release. Once stable
+0.23.12 is available, normal DEV deployments use that authenticated stable
+package instead of the temporary CI candidate configuration.
 Failed app operations, native manifest validation, provenance, or publication
 stop the flow before the hour. After publication, all three real managed
 registry installs must pass before the unchanged full-hour qualification.

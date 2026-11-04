@@ -16,6 +16,7 @@ import urllib.request
 
 import boto3
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
 from nightly_assets import document
@@ -88,7 +89,38 @@ def proof(path, artifact):
     return result, retained
 
 
-def signed_records(proved):
+def missing_declarations(proved):
+    missing = []
+    for channel in ("stable", "next"):
+        try:
+            listing = catalog(proved["api_version"], channel=channel)
+        except urllib.error.HTTPError as error:
+            if error.code not in (403, 404):
+                raise
+            listing = {"apps": []}
+        entries = {row["app_id"]: row for row in listing["apps"]}
+        for app in APPS:
+            declaration = {**proved["apps"][app]["declaration"], "channel": channel}
+            existing = entries.get(app)
+            if existing is None:
+                missing.append(declaration)
+                continue
+            signed = {field: existing[field] for field in SIGNED if field in existing}
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(existing["publisher_key"], validate=True)).verify(
+                base64.b64decode(existing["publisher_sig"], validate=True), rfc8785.dumps(signed))
+            if (existing.get("status") != "listed" or existing.get("channel") != channel
+                    or existing.get("api_version") != proved["api_version"]
+                    or existing.get("source") != declaration["source"]
+                    or existing.get("outbox_format_version", proved["outbox_format_version"]) != proved["outbox_format_version"]
+                    or (channel == "stable" and (existing.get("sha") != declaration["sha"]
+                                                  or existing.get("app_version") != declaration["app_version"]))):
+                raise ValueError("An existing app interface changed or needs a new API; preserve its publisher")
+    if missing and proved["api_version"] <= 26:
+        raise ValueError("Legacy API catalogs retain their person publisher; CI publication starts at the next API")
+    return missing
+
+
+def signed_records(declarations):
     kms = boto3.client("kms", region_name="us-east-1")
     arn = os.environ["REGISTRY_CI_PROD_KEY_ARN"]
     key = kms.get_public_key(KeyId=arn)
@@ -97,30 +129,38 @@ def signed_records(proved):
     raw = serialization.load_der_public_key(key["PublicKey"]).public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     public = base64.b64encode(raw).decode()
-    if public != os.environ["REGISTRY_CI_PROD_PUBLIC_KEY"]:
+    profile = json.loads((Path(__file__).resolve().parents[2] / "folddb_profile/environments.json").read_text())
+    if (public != os.environ["REGISTRY_CI_PROD_PUBLIC_KEY"]
+            or public != profile["environments"]["prod"]["registry_ci_publisher_key"]):
         raise ValueError("The CI publisher identity differs from its public configuration")
     records = []
-    for app in APPS:
-        for channel in ("stable", "next"):
-            record = {**proved["apps"][app]["declaration"], "channel": channel}
-            statement = {field: record[field] for field in SIGNED if field in record}
-            signature = kms.sign(KeyId=arn, Message=rfc8785.dumps(statement), MessageType="RAW",
-                                 SigningAlgorithm="ED25519_SHA_512")["Signature"]
-            records.append({**record, "publisher_key": public, "publisher_sig": base64.b64encode(signature).decode()})
+    for record in declarations:
+        statement = {field: record[field] for field in SIGNED if field in record}
+        signature = kms.sign(KeyId=arn, Message=rfc8785.dumps(statement), MessageType="RAW",
+                             SigningAlgorithm="ED25519_SHA_512")["Signature"]
+        records.append({**record, "publisher_key": public, "publisher_sig": base64.b64encode(signature).decode()})
     return records
 
 
 def publish(proved):
+    missing = missing_declarations(proved)
     profile = json.loads((Path(__file__).resolve().parents[2] / "folddb_profile/environments.json").read_text())
     base = profile["environments"]["prod"]["registry_api"].rstrip("/")
     body = {key: proved[key] for key in ("source", "run_url", "lastdb_source", "lastdb_build", "api_version", "outbox_format_version")}
+    declarations = missing or [{**proved["apps"][app]["declaration"], "channel": channel}
+                               for app in APPS for channel in ("stable", "next")]
     body.update(schema="lastdb.app.compatibility.publication.v1", run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
-                records=signed_records(proved))
-    audience = base + "/v1/ci/apps/" + hashlib.sha256(rfc8785.dumps(body)).hexdigest()
+                records=signed_records(declarations))
+    route = "/v1/ci/apps" if missing else "/v1/ci/authorize"
+    audience = base + route + "/" + hashlib.sha256(rfc8785.dumps(body)).hexdigest()
     token_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=" + urllib.parse.quote(audience, safe="")
     token = request(token_url, bearer=os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"])["value"]
-    reply = request(base + "/v1/ci/apps", body, token)
+    reply = request(base + route, body, token)
     del token
+    if not missing:
+        if reply.get("status") != "authorized" or reply.get("records") != len(body["records"]):
+            raise ValueError("The registry did not authorize the proved CI publisher")
+        return {"status": "authorized; existing records reused", "records": []}
     if reply.get("status") != "listed" or len(reply.get("records", [])) != len(body["records"]):
         raise ValueError("The registry did not publish the complete proved app set")
     for channel in ("stable", "next"):
@@ -145,10 +185,10 @@ def main():
     proved, retained = proof(args.proof, args.artifact)
     result = publish(proved)
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
-        stream.write(f'Published {len(result["records"])} signed app records for API {proved["api_version"]}.\n\n')
+        stream.write(f'App publication {result["status"]}: {len(result["records"])} new signed records for API {proved["api_version"]}.\n\n')
         stream.write(f'Source: {proved["source"]}. Proof: [{retained["name"]}]({retained["archive_download_url"]}), '
                      f'{retained["digest"]}; expires {retained["expires_at"]}.\n')
-        stream.write('A dedicated KMS identity signed only the CI-proved declarations. The person key and primary were not accessed.\n')
+        stream.write('Existing signed records retain their publisher. New APIs use the dedicated KMS identity; the person key and primary are not accessed.\n')
 
 
 if __name__ == "__main__":
