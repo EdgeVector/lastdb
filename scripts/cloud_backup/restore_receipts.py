@@ -99,7 +99,7 @@ def closure(home, files):
     require(paths == {item["path"] for item in files}, "restored_native_file_closure")
 
 
-def selection(home, baseline):
+def selection(home, baseline, endpoint=None):
     candidates = [name for name in names(home.parent) if name.startswith(".byte-cloud-restore-")]
     require(len(candidates) == 1, "restore_session_count")
     identifier = candidates[0][len(".byte-cloud-restore-"):]
@@ -108,7 +108,8 @@ def selection(home, baseline):
     selected = read_json(owned(root, "selection.json"))
     require(selected["version"] == 2 and selected["session_id"] == identifier
             and selected["destination"] == str(home)
-            and selected["endpoint"] == dev_endpoint() + "/api/cloud/backups/v2/", "restore_selection")
+            and selected["endpoint"] == (endpoint or dev_endpoint()) + "/api/cloud/backups/v2/",
+            "restore_selection")
     accepted = selected["accepted"]
     begin = accepted["begin"]
     stream = begin["job"]["stream"]
@@ -203,14 +204,14 @@ def replayed_inventory(home, root, replay, accepted, observe):
 
 
 def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None,
-             node_markers=(NODE_MARKER,)) -> dict:
+             node_markers=(NODE_MARKER,), endpoint=None) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
     destination remains unbooted until this function returns. Session metadata
     stays in memory; only safe hashes, totals, and check results leave here.
     """
-    root, identifier = selection(home, baseline)
+    root, identifier = selection(home, baseline, endpoint)
     commit = digest(baseline["commit_sha256"])
     require(report["commit_sha256"] == commit and report["destination"] == str(home)
             and nonnegative(report["native_files"]) > 0
