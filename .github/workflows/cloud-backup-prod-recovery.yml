@@ -11,7 +11,7 @@ on:
         description: "Use the existing release switch, or prove restore without it after activation."
         type: choice
         options: ['true', 'false']
-        default: 'true'
+        default: 'false'
 
 permissions:
   contents: read
