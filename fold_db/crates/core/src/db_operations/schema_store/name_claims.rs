@@ -1,7 +1,7 @@
 //! Name-claim methods of [`SchemaStore`].
 
 use super::catalog_keys::*;
-use super::SchemaStore;
+use super::{SchemaStore, StateChange};
 use crate::schema::{SchemaError, SchemaNameClaim};
 
 impl SchemaStore {
@@ -29,8 +29,13 @@ impl SchemaStore {
         {
             return Ok(false);
         }
-        self.schema_states_store.put_item(&key, &claim).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format
+            .put_state(StateChange::Claim {
+                schema: schema_name,
+                claim,
+            })
+            .await?;
+        self.format.flush_states().await?;
         Ok(true)
     }
 

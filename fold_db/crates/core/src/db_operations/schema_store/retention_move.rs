@@ -8,7 +8,7 @@
 //! new anchor would run a policy of its own.
 
 use super::catalog_keys::*;
-use super::SchemaStore;
+use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
 use crate::schema::SchemaError;
 
 /// Rows moved for each storage round trip.
@@ -84,8 +84,11 @@ impl SchemaStore {
                 }
                 Some(_) => {}
                 None => {
-                    self.schema_states_store
-                        .put_item(&retention_policy_key(to), &carried)
+                    self.format
+                        .put_state(StateChange::Policy {
+                            schema: to,
+                            policy: &carried,
+                        })
                         .await?;
                 }
             }
@@ -94,20 +97,21 @@ impl SchemaStore {
             // delete leaves the alias on `from`, so a retry still sees a move
             // to finish; with the alias on `to` first, a retry would return
             // early and the old policy would keep sweeping shared records.
-            self.schema_states_store
-                .delete_item(&retention_policy_key(from))
-                .await?;
-            self.schema_states_store.inner().flush().await?;
+            self.format.delete_state(from, StateKey::Policy).await?;
+            self.format.flush_states().await?;
         }
         let row = SchemaRetentionAnchor {
             anchor: to.to_string(),
         };
-        self.schema_states_store
-            .put_item(&retention_anchor_key(binding), &row)
+        self.format
+            .put_state(StateChange::Anchor {
+                schema: binding,
+                anchor: &row,
+            })
             .await?;
         // A write that registered under `from` while the rows moved.
         self.move_tracking_rows(from, to).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format.flush_states().await?;
         tracing::info!(
             binding = %binding,
             from = %from,
@@ -133,11 +137,18 @@ impl SchemaStore {
             }
             let copies = page
                 .iter()
-                .map(|(_, row)| (retention_hash_partition_key(to, &row.hash), row.clone()))
+                .map(|(_, row)| StateChange::Partition {
+                    schema: to,
+                    entry: row.clone(),
+                })
                 .collect();
-            store.batch_put_items(copies).await?;
-            store
-                .batch_delete_keys(page.into_iter().map(|(key, _)| key).collect())
+            self.format.batch_states(copies).await?;
+            self.format
+                .delete_states(vec![StateDelete::Selected {
+                    schema: from,
+                    kind: Tracking::Partition,
+                    keys: page.into_iter().map(|(key, _)| key).collect(),
+                }])
                 .await?;
         }
         for latest in [false, true] {
@@ -158,18 +169,23 @@ impl SchemaStore {
                 }
                 let copies = page
                     .iter()
-                    .map(|(_, entry)| {
-                        let key = if latest {
-                            retention_age_latest_key(to, &entry.key)
-                        } else {
-                            retention_age_key(to, entry.written_at, &entry.key)
-                        };
-                        (key, entry.clone())
+                    .map(|(_, entry)| StateChange::Age {
+                        schema: to,
+                        entry: entry.clone(),
+                        latest,
                     })
                     .collect();
-                store.batch_put_items(copies).await?;
-                store
-                    .batch_delete_keys(page.into_iter().map(|(key, _)| key).collect())
+                self.format.batch_states(copies).await?;
+                self.format
+                    .delete_states(vec![StateDelete::Selected {
+                        schema: from,
+                        kind: if latest {
+                            Tracking::Latest
+                        } else {
+                            Tracking::Age
+                        },
+                        keys: page.into_iter().map(|(key, _)| key).collect(),
+                    }])
                     .await?;
             }
         }

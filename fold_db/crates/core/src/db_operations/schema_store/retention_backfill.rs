@@ -1,10 +1,9 @@
 //! Explicit, bounded maintenance for keys that predate a retention policy.
 
 use super::catalog_keys::*;
-use super::SchemaStore;
+use super::{SchemaStore, StateChange};
 use crate::schema::types::KeyValue;
 use crate::schema::{SchemaError, SchemaRetentionPolicy};
-use serde_json::Value;
 use std::collections::HashMap;
 
 impl SchemaStore {
@@ -34,7 +33,7 @@ impl SchemaStore {
                 .and_modify(|old| *old = (*old).max(clock))
                 .or_insert(clock);
         }
-        let mut puts: Vec<(String, Value)> = Vec::new();
+        let mut puts = Vec::new();
         if range_keyed {
             for key in unique.keys() {
                 let hash = key
@@ -43,10 +42,7 @@ impl SchemaStore {
                     .ok_or_else(|| SchemaError::InvalidData("backfill key has no hash".into()))?;
                 puts.push((
                     retention_hash_partition_key(&anchor, hash),
-                    serde_json::to_value(SchemaRetentionHashPartition { hash: hash.clone() })
-                        .map_err(|error| {
-                            SchemaError::InvalidData(format!("serialize retention hash: {error}"))
-                        })?,
+                    SchemaRetentionHashPartition { hash: hash.clone() },
                 ));
             }
         } else {
@@ -60,8 +56,15 @@ impl SchemaStore {
         }
         // Several range keys can name the same hash. The batch writes it once.
         let puts: HashMap<_, _> = puts.into_iter().collect();
-        self.schema_states_store
-            .batch_put_items(puts.into_iter().collect())
+        self.format
+            .batch_states(
+                puts.into_values()
+                    .map(|entry| StateChange::Partition {
+                        schema: &anchor,
+                        entry,
+                    })
+                    .collect(),
+            )
             .await?;
         Ok(unique.len())
     }

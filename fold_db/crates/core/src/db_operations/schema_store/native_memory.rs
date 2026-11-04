@@ -19,7 +19,7 @@ impl SchemaStore {
     }
 
     pub(crate) fn snapshot_owner(&self) -> usize {
-        Arc::as_ptr(&self.schemas_store) as usize
+        self.schemas_store.identity()
     }
 
     pub(super) async fn stage_native_snapshot(&self, name: &str) -> Result<(), SchemaError> {
@@ -44,8 +44,12 @@ impl SchemaStore {
 }
 
 pub(crate) fn snapshot_sources(name: &str) -> Vec<CoreMemorySource> {
-    let mut sources = core_memory_sources("schemas", name.as_bytes());
-    sources.extend(core_memory_sources("schema_states", name.as_bytes()));
+    let mut sources =
+        core_memory_sources(crate::storage::format::SCHEMAS_NAMESPACE, name.as_bytes());
+    sources.extend(core_memory_sources(
+        crate::storage::format::SCHEMA_STATES_NAMESPACE,
+        name.as_bytes(),
+    ));
     sources
 }
 

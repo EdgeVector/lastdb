@@ -12,7 +12,9 @@
 pub(crate) mod change_feed;
 pub(crate) mod history;
 pub(crate) mod metadata;
+pub(crate) mod read;
 pub(crate) mod records;
+pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
 pub const HOME_FORMAT: u32 = 11;
@@ -87,6 +89,7 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
+pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
 pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
