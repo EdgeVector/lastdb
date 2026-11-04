@@ -125,7 +125,7 @@ fn telemetry_hash_range_schema(
     );
     schema.record_keys = Some(schema_types::record_keys::RecordKeys {
         primary: schema_types::record_keys::RecordKeyDefinition::hash_range(FieldValueType::String),
-        alternates: Default::default(),
+        alternates: std::collections::BTreeMap::new(),
     });
     schema.field_types = fields
         .iter()

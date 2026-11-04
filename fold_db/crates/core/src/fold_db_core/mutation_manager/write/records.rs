@@ -67,7 +67,7 @@ impl MutationManager {
             after_addresses.push(if after.is_live() {
                 after.alternates.clone()
             } else {
-                Default::default()
+                std::collections::BTreeMap::new()
             });
             changed.push(ChangedRecord { mutation, key });
             changes.push(RecordChange {

@@ -161,7 +161,7 @@ impl ResidentCommitReceipt {
     pub fn empty() -> Self {
         Self {
             mutation_ids: Vec::new(),
-            record_revisions: Default::default(),
+            record_revisions: std::collections::BTreeMap::new(),
             revision: None,
             operations: ResidentCommitOperations::default(),
             durability: ResidentDurability::Queued,

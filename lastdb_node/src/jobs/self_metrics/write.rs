@@ -101,7 +101,7 @@ pub(super) async fn write_mutation(
         fold_db::record_replacement::RecordTarget {
             schema: schema_name.to_string(),
             key: key_value,
-            alternates: Default::default(),
+            alternates: std::collections::BTreeMap::new(),
         },
         fields,
         host.public_key(),
