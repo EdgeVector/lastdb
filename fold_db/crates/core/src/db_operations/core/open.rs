@@ -94,7 +94,11 @@ impl DbOperations {
             metadata_kv,
             Arc::clone(&runtime),
         ));
-        let change_feed = ChangeFeedStore::new(change_feed_kv, Arc::clone(&runtime)).await?;
+        let change_feed = ChangeFeedStore::new(format::change_feed::ChangeFeed::new(
+            change_feed_kv,
+            Arc::clone(&runtime),
+        ))
+        .await?;
 
         Ok(Self {
             store,

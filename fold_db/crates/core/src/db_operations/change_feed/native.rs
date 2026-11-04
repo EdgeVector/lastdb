@@ -104,51 +104,9 @@ impl ChangeFeedStore {
         // Native preparation has one FIFO owner. The private prefix contains
         // earlier accepted sequences; ordinary readers still see the durable one.
         let last_seq = self.prepared_last_seq().await?;
-        let first = last_seq
-            .checked_add(1)
-            .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
-        let end = last_seq
-            .checked_add(events.len() as u64)
-            .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
-        let mut ready = Vec::with_capacity(events.len());
-        let mut rows = Vec::with_capacity(events.len().min(APPEND_EVENTS) + 1);
-        let mut bytes = 0usize;
-        for (offset, mut event) in events.into_iter().enumerate() {
-            event.seq = first + offset as u64;
-            let key = event_key(event.seq).into_bytes();
-            let body =
-                serde_json::to_vec(&event).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            bytes = bytes
-                .saturating_add(key.len())
-                .saturating_add(body.len())
-                .saturating_add(256);
-            if bytes > APPEND_BYTES {
-                return Err(SchemaError::InvalidData(
-                    "change-feed batch exceeds its byte limit".into(),
-                ));
-            }
-            rows.push((key, body));
-            ready.push(event);
-            if rows.len() == APPEND_EVENTS {
-                self.store
-                    .inner()
-                    .batch_put(std::mem::take(&mut rows))
-                    .await?;
-            }
-        }
-        rows.push((
-            LAST_SEQ_KEY.as_bytes().to_vec(),
-            serde_json::to_vec(&end).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-        ));
-        self.store.inner().batch_put(rows).await?;
-        if end > MAX_EVENTS {
-            let expired = (first.saturating_sub(MAX_EVENTS).max(1)..=end - MAX_EVENTS)
-                .map(|sequence| event_key(sequence).into_bytes())
-                .collect();
-            // Expiry joins the same bounded snapshot rather than starting a
-            // second writer after an acknowledged event reaches retention.
-            self.store.inner().batch_delete(expired).await?;
-        }
+        let prepared = self.format.stage_events(last_seq, events).await?;
+        let end = prepared.end;
+        let ready = prepared.events;
         self.stage_prepared_last_seq(end)?;
         let store = self.clone();
         let deliver = async move {
