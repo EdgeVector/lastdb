@@ -28,8 +28,12 @@ class Connection(http.client.HTTPConnection):
 
 
 class OwnedNode:
-    def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False):
+    def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
+                 account=ACCOUNT):
         self.home, self.programs = home, programs
+        require(isinstance(account, str) and len(account) == 32
+                and all(char in "0123456789abcdef" for char in account), "owned_account")
+        self.account = account
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
@@ -122,7 +126,7 @@ class OwnedNode:
                 and instance.startswith(prefix) and instance[len(prefix):].isdigit()
                 and int(instance[len(prefix):]) > 0
                 and self.instance_id in (None, instance), "daemon_health_instance")
-        require(status["user_hash"] == ACCOUNT
+        require(status["user_hash"] == self.account
                 and status["status"]["build"]["version"] == self.programs.version
                 and boot["pid"] == self.process.pid and boot["build"] == self.programs.version,
                 "daemon_identity")

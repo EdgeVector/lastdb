@@ -1,0 +1,111 @@
+name: PROD cloud recovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cloud-backup-prod-recovery.yml'
+      - 'scripts/cloud_backup/**'
+  workflow_dispatch:
+    inputs:
+      restore_gate:
+        description: "Use the existing release switch, or prove restore without it after activation."
+        type: choice
+        options: ['true', 'false']
+        default: 'true'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cloud-recovery-${{ github.event.pull_request.number || 'accepted-main' }}
+  cancel-in-progress: false
+
+jobs:
+  recipe-syntax:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check the operation source
+        run: python3 -m py_compile scripts/cloud_backup/*.py
+      - name: Require accepted main for PROD
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SELECTED_REF: ${{ github.ref }}
+        run: test "$SELECTED_REF" = refs/heads/main
+
+  build-client:
+    needs: recipe-syntax
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
+  recover-prod:
+    needs: [recipe-syntax, build-client]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cloud-backup-prod-recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+      CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build-client.outputs.artifact }}
+          path: ${{ runner.temp }}/cloud-backup-client
+      - name: Unpack the exact accepted client
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/cloud-backup-bin"
+          tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$RUNNER_TEMP/cloud-backup-bin" lastdb lastdbd
+          sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+      - name: Recover generated PROD snapshots and logs into fresh homes
+        env:
+          RESTORE_GATE: ${{ inputs.restore_gate }}
+          LASTDB_CLOUD_PROD_PROOF_ACCOUNT: ${{ vars.LASTDB_CLOUD_PROD_PROOF_ACCOUNT }}
+          LASTDB_CLOUD_PROD_PROOF_API_KEY: ${{ secrets.LASTDB_CLOUD_PROD_PROOF_API_KEY }}
+          LASTDB_CLOUD_PROD_PROOF_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_PROD_PROOF_RECOVERY_PHRASE }}
+        run: |
+          python3 scripts/cloud_backup/prod_recovery.py \
+            --bin-dir "$RUNNER_TEMP/cloud-backup-bin" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --output "$RUNNER_TEMP/prod-recovery"
+      - name: Retain the value-free result
+        id: result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prod-recovery-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prod-recovery/summary.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Record the result and artifact provenance
+        if: always() && steps.result.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.result.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.result.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.result.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### PROD recovery\n\nSource: %s\n\n' "$SOURCE_COMMIT"
+            printf '[Result artifact](%s) — SHA256: %s\n\n' "$ARTIFACT_URL" "$ARTIFACT_DIGEST"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq '.expires_at'
+            printf '\n```json\n'
+            cat "$RUNNER_TEMP/prod-recovery/summary.json"
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
