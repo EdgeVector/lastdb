@@ -31,7 +31,6 @@ def values(config, number, suffix=""):
 
 def declaration(config):
     schema = task_definition(config["schema"], tuple(f"extra_{n:02}" for n in range(config["fields"] - 4)))
-    schema.update(schema_type="HashRange", key={"hash_field": "group_id", "range_field": "record_id"})
     if not config["alternates"]:
         schema["alternate_keys"] = {}
     return schema
@@ -39,7 +38,7 @@ def declaration(config):
 
 def mutation(config, number, fields, expected=None):
     body = {"type": "mutation", "schema": config["schema"], "mutation_type": "update",
-            "key_value": {"hash": "bucket", "range": f"r{number:03}"},
+            "key_value": {"hash": f"r{number:03}"},
             "fields_and_values": fields, "durability": "durable", "convergence": "sync"}
     if expected is not None:
         body["expected"] = {"type": "value", "field": "payload", "value": expected}
@@ -49,13 +48,13 @@ def mutation(config, number, fields, expected=None):
 def query(config, number=None):
     fields = ["record_id", "group_id", "owner_id", "payload"]
     fields.extend(f"extra_{n:02}" for n in range(config["fields"] - 4))
-    predicate = {"HashKey": "bucket"} if number is None else {
-        "HashRangeKey": {"hash": "bucket", "range": f"r{number:03}"}}
+    predicate = {"HashRangeKeys": [[f"r{n:03}", ""] for n in range(RECORDS)]} if number is None else {
+        "HashKey": f"r{number:03}"}
     return {"schema_name": config["schema"], "fields": fields, "filter": predicate, "limit": RECORDS}
 
 
 def verify(node, config, suffix):
-    # One known-hash read covers the complete generated membership; never N point reads.
+    # One batch of known keys covers complete membership; never N point reads.
     reply = node.call("/api/query", query(config))[0]
     actual = {row["fields"]["record_id"]: row["fields"] for row in reply.get("results", [])}
     expected = {f"r{n:03}": values(config, n, suffix) for n in range(RECORDS)}
