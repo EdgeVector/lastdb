@@ -142,11 +142,7 @@ impl DbOperations {
                     "schema drop released the stored rows of the schema"
                 );
             }
-            crate::storage::disk_pack::transaction::scope(
-                self.native_runtime(),
-                self.schemas().drop_schema(schema_name),
-            )
-            .await
+            self.schemas().drop_schema(schema_name).await
         }
         .boxed()
     }

@@ -293,29 +293,6 @@ impl SchemaStore {
         Ok(Some(anchor))
     }
 
-    /// Read observed HashRange partitions for one retained schema.
-    ///
-    /// This reads only the node-local retention registry. It never enumerates
-    /// product rows or crosses HashRange data partitions.
-    pub async fn schema_retention_hash_partitions(
-        &self,
-        schema_name: &str,
-    ) -> Result<Vec<String>, SchemaError> {
-        let anchor = self.retention_anchor(schema_name).await?;
-        let mut hashes: Vec<_> = self
-            .schema_states_store
-            .scan_items_with_prefix::<SchemaRetentionHashPartition>(
-                &retention_hash_partition_prefix(&anchor),
-            )
-            .await?
-            .into_iter()
-            .map(|(_, entry)| entry.hash)
-            .collect();
-        hashes.sort();
-        hashes.dedup();
-        Ok(hashes)
-    }
-
     /// Enumerate node-local retention policies for schemas that still exist.
     ///
     /// Reads only the reserved `\0retention_policy\0` prefix in `schema_states`.

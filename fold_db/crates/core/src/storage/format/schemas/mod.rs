@@ -4,6 +4,7 @@ mod delete;
 mod input;
 pub(crate) mod keys;
 mod state;
+mod tracking;
 
 use super::read::ReadStore;
 use crate::storage::disk_pack::{transaction, PackRuntime};
@@ -21,8 +22,8 @@ type Row = (Vec<u8>, Vec<u8>);
 enum EncodedSchema {
     SchemaPut(Row),
     SchemaDelete(Vec<u8>),
-    StatePut(Row),
-    StateBatch(Vec<Row>),
+    StatePut(Row, Option<String>),
+    StateBatch(Vec<Row>, Vec<String>),
     StateOneDelete(Vec<u8>),
     StateDelete(Vec<Vec<u8>>),
 }
@@ -73,16 +74,20 @@ impl SchemaFormat {
     }
 
     pub(crate) async fn put_state(&self, change: StateChange<'_>) -> StorageResult<()> {
-        self.write(EncodedSchema::StatePut(state::encode(change)?))
+        let owner = state::tracking_owner(&change);
+        self.write(EncodedSchema::StatePut(state::encode(change)?, owner))
             .await
     }
 
     pub(crate) async fn batch_states(&self, changes: Vec<StateChange<'_>>) -> StorageResult<()> {
+        let mut owners: Vec<_> = changes.iter().filter_map(state::tracking_owner).collect();
+        owners.sort();
+        owners.dedup();
         let rows = changes
             .into_iter()
             .map(state::encode)
             .collect::<StorageResult<Vec<_>>>()?;
-        self.write(EncodedSchema::StateBatch(rows)).await
+        self.write(EncodedSchema::StateBatch(rows, owners)).await
     }
 
     pub(crate) async fn delete_states(&self, changes: Vec<StateDelete<'_>>) -> StorageResult<()> {
@@ -121,10 +126,13 @@ impl SchemaFormat {
             EncodedSchema::SchemaDelete(key) => {
                 self.schemas_store.inner().delete(&key).await.map(|_| ())
             }
-            EncodedSchema::StatePut((key, bytes)) => {
+            EncodedSchema::StatePut((key, bytes), owner) => {
+                self.require_tracking_writable(&owner.into_iter().collect::<Vec<_>>())
+                    .await?;
                 self.schema_states_store.inner().put(&key, bytes).await
             }
-            EncodedSchema::StateBatch(rows) => {
+            EncodedSchema::StateBatch(rows, owners) => {
+                self.require_tracking_writable(&owners).await?;
                 self.schema_states_store.inner().batch_put(rows).await
             }
             EncodedSchema::StateOneDelete(key) => self

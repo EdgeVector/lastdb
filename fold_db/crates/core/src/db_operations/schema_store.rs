@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod catalog_keys;
 mod claims_retention;
+mod drop_tracking;
 mod name_claims;
 mod native_memory;
 mod read;
@@ -24,6 +25,7 @@ mod retention_format;
 mod retention_layers;
 mod retention_move;
 mod retention_page;
+mod retention_partitions;
 mod retention_recheck;
 mod retention_sharing;
 mod write;

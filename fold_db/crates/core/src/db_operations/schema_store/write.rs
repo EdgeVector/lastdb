@@ -91,6 +91,7 @@ impl SchemaStore {
     /// catalog body was present before the Deletes. A miss still runs the
     /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        self.release_drop_tracking(schema_name).await?;
         crate::storage::disk_pack::transaction::scope(
             Arc::clone(&self.runtime),
             self.drop_schema_native(schema_name).boxed(),
@@ -100,7 +101,7 @@ impl SchemaStore {
 
     async fn drop_schema_native(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let existed = self.get_schema(schema_name).await?.is_some();
-        let mut state_keys = vec![
+        let state_keys = vec![
             StateDelete::Key {
                 schema: schema_name,
                 kind: StateKey::State,
@@ -118,22 +119,6 @@ impl SchemaStore {
                 kind: StateKey::Anchor,
             },
         ];
-        state_keys.push(StateDelete::Selected {
-            schema: schema_name,
-            kind: Tracking::Age,
-            keys: self
-                .schema_states_store
-                .list_keys_with_prefix(&retention_age_prefix(schema_name))
-                .await?,
-        });
-        state_keys.push(StateDelete::Selected {
-            schema: schema_name,
-            kind: Tracking::Latest,
-            keys: self
-                .schema_states_store
-                .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
-                .await?,
-        });
         self.format.delete_schema(schema_name).await?;
         self.format.delete_states(state_keys).await?;
         self.stage_native_snapshot(schema_name).await?;
