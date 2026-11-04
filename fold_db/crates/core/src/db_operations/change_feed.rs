@@ -5,35 +5,17 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::schema::SchemaError;
-use crate::storage::{KvStore, StorageError, TypedKvStore};
+use crate::storage::format::change_feed::{self as feed_format, ChangeFeed};
+use crate::storage::StorageError;
+use feed_format::{APPEND_BYTES, APPEND_EVENTS, LAST_SEQ_KEY};
+
+pub use crate::storage::format::CHANGE_FEED_MAX_EVENTS as MAX_EVENTS;
+pub use feed_format::ChangeFeedEvent;
 
 pub(crate) mod native;
-
-const LAST_SEQ_KEY: &str = "last_seq";
-const EVENT_PREFIX: &str = "event:";
-const EVENT_END: &str = "event;";
-const APPEND_EVENTS: usize = 1_024;
-const APPEND_BYTES: usize = 32 * 1024 * 1024;
-/// Bounded node-local retention. A lagging consumer receives `gap=true` and
-/// must rescan its declared product keys before advancing its durable cursor.
-pub const MAX_EVENTS: u64 = 250_000;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ChangeFeedEvent {
-    pub seq: u64,
-    pub mutation_id: String,
-    pub schema: String,
-    pub operation: String,
-    pub hash: Option<String>,
-    pub range: Option<String>,
-    pub committed_at_ms: u64,
-    pub background_tasks_drained: bool,
-    pub convergence_pending: bool,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeFeedPage {
@@ -43,20 +25,17 @@ pub struct ChangeFeedPage {
 
 #[derive(Clone)]
 pub struct ChangeFeedStore {
-    store: Arc<TypedKvStore<dyn KvStore>>,
+    format: ChangeFeed,
     native: Arc<crate::storage::disk_pack::PackRuntime>,
     last_seq: Arc<Mutex<u64>>,
 }
 
 impl ChangeFeedStore {
-    pub(crate) async fn new(
-        store: Arc<dyn KvStore>,
-        native: Arc<crate::storage::disk_pack::PackRuntime>,
-    ) -> Result<Self, StorageError> {
-        let store = Arc::new(TypedKvStore::new(store));
-        let last_seq = store.get_item::<u64>(LAST_SEQ_KEY).await?.unwrap_or(0);
+    pub(crate) async fn new(format: ChangeFeed) -> Result<Self, StorageError> {
+        let last_seq = format.last_seq().await?;
+        let native = format.runtime();
         Ok(Self {
-            store,
+            format,
             native,
             last_seq: Arc::new(Mutex::new(last_seq)),
         })
@@ -76,10 +55,7 @@ impl ChangeFeedStore {
         let mut bytes = 0usize;
         let mut end = 0;
         for event in events {
-            let length = serde_json::to_vec(&event)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-                .len()
-                .saturating_add(512);
+            let length = feed_format::event_charge(&event)?;
             if length > APPEND_BYTES {
                 return Err(SchemaError::InvalidData(
                     "change-feed event exceeds its byte limit".into(),
@@ -114,22 +90,11 @@ impl ChangeFeedStore {
         let oldest = last_seq.saturating_sub(MAX_EVENTS).saturating_add(1).max(1);
         let gap = after > 0 && after.saturating_add(1) < oldest;
         let effective_after = if gap { oldest.saturating_sub(1) } else { after };
-        let start = event_key(effective_after.saturating_add(1));
-        let events = self
-            .store
-            .scan_items_in_range_paged::<ChangeFeedEvent>(&start, EVENT_END, limit)
-            .await?
-            .into_iter()
-            .map(|(_, event)| event)
-            .collect();
+        let events = self.format.events_after(effective_after, limit).await?;
         Ok(ChangeFeedPage { events, gap })
     }
 
     pub async fn last_seq(&self) -> u64 {
         *self.last_seq.lock().await
     }
-}
-
-fn event_key(seq: u64) -> String {
-    format!("{EVENT_PREFIX}{seq:020}")
 }
