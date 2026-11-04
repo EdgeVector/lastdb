@@ -26,7 +26,7 @@ impl From<fold_db::db_operations::PageKeyForms> for PageFlags {
 /// `window` is `(offset, limit)` over the canonical key order and is applied
 /// inside the query executor, before record bodies load — it is the push-down
 /// itself, not a slice of the result. Callers pass `None` to materialize every
-/// matched row, which is what the value-filtered and two-pass shapes need.
+/// matched row, which is what a conditioned or ordered read needs.
 ///
 /// The [`PageEnd`] says where a page that a run of deleted records ended early
 /// goes on, and gives the record key position of each row of a record walk.
@@ -92,7 +92,6 @@ async fn execute_rows_captured<H: HostNode>(
 ) -> Result<(Vec<Value>, PageFlags, PageEnd), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
-    let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
     // Scope the tally to this request. Record hydration happens inside
     // `query`, so the scope has to wrap that call and nothing
@@ -101,7 +100,7 @@ async fn execute_rows_captured<H: HostNode>(
     let executor = host.fold_db();
     let executor = executor.query_executor();
     // `hydrate` spans the executor call (where record bodies load) through
-    // response construction, total-order sort, and projection.
+    // response construction and total-order sort.
     //
     // Three sub-phases separate core reads, formatting and final ordering.
     // HydrateFilter is a nested detail inside the core's first-pass reads.
@@ -138,8 +137,6 @@ async fn execute_rows_captured<H: HostNode>(
     };
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
     sorted?;
-
-    super::row_rules::remove_sort_helper(&mut results, sort_helper.as_deref());
     request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
 
     Ok((results, PageFlags::from(forms), end))

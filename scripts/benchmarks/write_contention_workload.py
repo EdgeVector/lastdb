@@ -76,7 +76,7 @@ class Writers:
             for first in range(0, len(numbers), 64):
                 selected = numbers[first:first + 64]
                 coordinates = [[self.target(n)[1], key(n)] for n in selected]
-                result = self.node.call("/api/query", {"schema_name": schema, "fields": FIELDS,
+                result = self.node.call("/api/query", {"schema_name": schema,
                     "filter": {"HashRangeKeys": coordinates}, "limit": len(selected)})[0]
                 expected = {(self.target(n)[1], key(n)): self.value(n, self.versions.get(n, "seed"))
                             for n in selected}

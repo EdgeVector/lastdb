@@ -75,7 +75,7 @@ def batch_request(batch, native=False, caller_ids=False):
 
 
 def query_request(schema, keys):
-    return {"schema_name": schema, "fields": list(SCHEMAS[schema][2]),
+    return {"schema_name": schema,
             "filter": {"HashRangeKeys": [list(key) for key in keys]}, "limit": len(keys)}
 
 

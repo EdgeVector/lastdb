@@ -18,7 +18,6 @@ mod count;
 mod current;
 pub use alternate::AlternatePage;
 mod prepare;
-mod rules;
 
 /// Main query executor that handles all query operations
 pub struct QueryExecutor {
@@ -39,12 +38,10 @@ impl QueryExecutor {
         }
     }
 
-    /// Query multiple fields from a schema.
+    /// Read each stored record the query names.
     ///
-    /// Local access control is consent-only. Fields are no longer filtered by
-    /// trust tiers, capability quotas, or payment gates.
-    /// A returned record can include key and ordering helpers. Response
-    /// formatters remove an unprojected ordering helper after the final sort.
+    /// Local access control is consent-only. The reply is the stored record.
+    /// It is not a field projection.
     pub async fn query(&self, query: Query) -> Result<QueryRecords, SchemaError> {
         self.query_internal(query, None).await
     }

@@ -127,7 +127,7 @@ class RecordProtocol:
         for mutation in mutations:
             if mutation["mutation_type"] != "create":
                 grouped[mutation["schema"]].append(mutation["key_value"])
-        queries = [{"schema_name": schema, "fields": [], "filter": {"HashRangeKeys": [
+        queries = [{"schema_name": schema, "filter": {"HashRangeKeys": [
             [key["hash"], key.get("range") or ""] for key in keys]}, "limit": len(keys)}
             for schema, keys in grouped.items()]
         if not queries:

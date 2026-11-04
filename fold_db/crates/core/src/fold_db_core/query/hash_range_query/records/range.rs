@@ -18,7 +18,6 @@
 //! key it examined, and the next page starts after that key. A read that needs
 //! the complete range (a count, a condition pass) fails with a read limit.
 
-use super::has_any;
 use crate::db_operations::record_store::{
     KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey, PAGE_READ_KEYS,
 };
@@ -101,7 +100,6 @@ impl HashRangeQueryProcessor {
         schema: &Schema,
         hash: &str,
         bound: RecordBound<'_>,
-        selected: &[String],
         window: Option<KeyWindow>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let resumable = window.is_some() && page_can_resume();
@@ -154,7 +152,7 @@ impl HashRangeQueryProcessor {
                 if after
                     .as_ref()
                     .is_some_and(|after| winner.key.cmp_page_order(after).is_le())
-                    || !has_any(&winner.record, selected)
+                    || !winner.record.is_live()
                 {
                     continue;
                 }
@@ -168,7 +166,7 @@ impl HashRangeQueryProcessor {
                 }
             }
             room = room.saturating_sub(kept.len());
-            rows.extend(read_kept(records, kept, selected).await?);
+            rows.extend(read_kept(records, kept).await?);
             if (rows.len(), skip) == mark {
                 wide = wide.saturating_mul(2);
             }
@@ -213,11 +211,10 @@ fn next_keys(source: &mut RangeKeys, step: usize) -> Option<Vec<SpanKey>> {
 /// The rows that one step keeps, read once more by key through the record
 /// warm set: memory answers first, and a record that the read finds on disk
 /// enters memory. At each key the read gives the current record; a record
-/// that is no longer live or holds no selected field gives no row.
+/// that is no longer live gives no row.
 async fn read_kept(
     record_store: &RecordStore,
     kept: Vec<SpanKey>,
-    selected: &[String],
 ) -> Result<Vec<KeyedRecord>, SchemaError> {
     if kept.is_empty() {
         return Ok(Vec::new());
@@ -232,7 +229,7 @@ async fn read_kept(
         .zip(records)
         .filter_map(|(key, record)| {
             record
-                .filter(|record| record.is_live() && has_any(record, selected))
+                .filter(|record| record.is_live())
                 .map(|record| (key, record))
         })
         .collect())

@@ -195,7 +195,7 @@ def write(node, numbers, create=False):
 def read(node, updated, ranged=False):
     condition = ({"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
                  if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
-    result = node.call("/api/query", {"schema_name": SCHEMA, "fields": FIELDS, "limit": 8, "filter": condition})
+    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": 8, "filter": condition})
     records = result.get("results", [])
     if result.get("returned_count") != 8 or len(records) != 8:
         raise RuntimeError("The packaged daemon returned an incomplete query")

@@ -82,7 +82,6 @@ import {
 import {
   ResolvedSchema,
   normalizeSchemaResolution,
-  mapFieldName,
   mapFieldRecord,
   mapPredicateFields,
   mapQueryResult,
@@ -990,11 +989,6 @@ export class LastDbClient {
     const body: Record<string, unknown> = { schema_name: resolved.nodeSchemaName };
     if (filter.keyName !== undefined) {
       body.key_name = filter.keyName;
-    }
-    if (filter.fields !== undefined) {
-      body.fields = filter.fields.map((field) =>
-        mapFieldName(field, resolved.appToNodeFields),
-      );
     }
     if (filter.filter !== undefined) {
       body.filter = filter.filter;

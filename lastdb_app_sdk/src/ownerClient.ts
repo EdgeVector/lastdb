@@ -188,7 +188,7 @@ function resolveOwnerTransport(options: OwnerClientOptions): Transport {
  *   socketPath: '/Users/me/.folddb/data/folddb.sock',
  *   defaultHeaders: { 'X-User-Hash': userHash },
  * });
- * const rows = await client.queryAll('MySchema', { fields: ['a', 'b'] });
+ * const rows = await client.queryAll('MySchema');
  * ```
  */
 export function ownerClient(options: OwnerClientOptions): LastDbClient {

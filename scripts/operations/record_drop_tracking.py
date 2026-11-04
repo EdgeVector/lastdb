@@ -41,7 +41,7 @@ def check(node):
                 f"{schema} partition tracking differs: {current}")
         require((current["retention_policy"] is None) == (schema == "RecordAged"),
                 f"{schema} policy changed across the drop: {current}")
-    rows = node.call("/api/query", {"schema_name": "RecordDropKeep", "fields": FIELDS,
+    rows = node.call("/api/query", {"schema_name": "RecordDropKeep",
                                     "filter": {"HashKey": "aged"}})[0]["results"]
     require(len(rows) == 1 and rows[0]["fields"]["value"] == "kept", "the drop erased another schema")
 

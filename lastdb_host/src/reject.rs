@@ -13,12 +13,12 @@
 //! to [`content_free`](crate::envelope::content_free)`(400, "Bad Request")` — an
 //! 11-byte string with no discriminator, no field name, and no remediation.
 //!
-//! The cost is measured, not theoretical: `POST /api/query` rejects a body with
-//! no `fields` key and answers the literal bytes `Bad Request`, so the first
-//! query anyone writes by hand is the one shape that fails and says nothing
-//! about why. A caller cannot branch on that, so it branches on prose or on
-//! nothing — and the recurring failure in this workspace is a caller reading a
-//! designed refusal as an outage.
+//! The cost is measured, not theoretical: a parse failure used to answer the
+//! literal bytes `Bad Request`, so the first query anyone wrote by hand failed
+//! and said nothing about why. A caller cannot branch on that, so it branches
+//! on prose or on nothing — and the recurring failure in this workspace is a
+//! caller reading a designed refusal as an outage. A query now requires
+//! `schema_name` and returns each stored record.
 //!
 //! # The contract
 //!
@@ -139,8 +139,6 @@ impl RejectKind {
 /// never parsed out of, or derived from, the caller's bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireKey {
-    /// `fields` — the projection list on `POST /api/query`.
-    Fields,
     /// `schema_name` — the schema a data-path request addresses.
     SchemaName,
     /// `filter` — the key filter narrowing a query to a partition.
@@ -195,7 +193,6 @@ impl WireKey {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Fields => "fields",
             Self::SchemaName => "schema_name",
             Self::Filter => "filter",
             Self::Limit => "limit",
@@ -224,15 +221,10 @@ impl WireKey {
     #[must_use]
     const fn remediation(self) -> &'static [&'static str] {
         match self {
-            Self::Fields => &[
-                r#"{"schema_name":"<Schema>","fields":[],"filter":{"HashKey":"<key>"}}   # [] = all fields"#,
-            ],
-            Self::SchemaName => {
-                &[r#"{"schema_name":"<Schema>","fields":[],"filter":{"HashKey":"<key>"}}"#]
-            }
+            Self::SchemaName => &[r#"{"schema_name":"<Schema>","filter":{"HashKey":"<key>"}}"#],
             Self::Filter => &[
-                r#"{"schema_name":"<Schema>","fields":[],"filter":{"HashKey":"<key>"}}          # partition"#,
-                r#"{"schema_name":"<Schema>","fields":[],"filter":{"HashRange":{"hash":"<k>"}}} # range"#,
+                r#"{"schema_name":"<Schema>","filter":{"HashKey":"<key>"}}          # partition"#,
+                r#"{"schema_name":"<Schema>","filter":{"HashRange":{"hash":"<k>"}}} # range"#,
             ],
             Self::Limit | Self::Offset => {
                 &[r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#]

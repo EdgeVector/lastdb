@@ -39,7 +39,7 @@ class Lifecycle:
 
     def replies(self, node):
         keys = [*self.expired, self.live]
-        queries = [{"schema_name": self.schema, "fields": ["bucket", "id", "note"],
+        queries = [{"schema_name": self.schema,
                     "filter": {"HashRangeKey": {"hash": "lifecycle", "range": key}},
                     "limit": 2, "offset": 0} for key in keys]
         result = node.call("/api/queries/batch", {"queries": queries})["results"]

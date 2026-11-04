@@ -145,7 +145,7 @@ def drain(read, body, limit, cursor=None):
 
 
 def range_reads(node):
-    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}}
+    body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
     rows, pages, short = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the range read past deleted records differs: " + repr(ids(rows)))
@@ -158,7 +158,7 @@ def range_reads(node):
 
 
 def walks(node, scan):
-    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": None}
+    body = {"schema_name": "RecordRun", "filter": None}
     rows, pages, short = drain(lambda request: scan(node, request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the walk past deleted records differs: " + repr(ids(rows)))
@@ -168,13 +168,13 @@ def walks(node, scan):
 
 def incomplete_sample(node, scan):
     """A sample that the run of deleted records ends early says so, and the walk continues it."""
-    page, _ = scan(node, {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"SampleN": 5}})
+    page, _ = scan(node, {"schema_name": "RecordRun", "filter": {"SampleN": 5}})
     shown = {name: page.get(name) for name in ["has_more", "total_count", "next_cursor"]}
     require(ids(page["results"]) == ["a-first"],
             "the sample before the run of deleted records differs: " + repr(ids(page["results"])))
     require(page.get("has_more") is True and page.get("total_count") is None and page.get("next_cursor"),
             "a sample that a run of deleted records ended early reads as complete: " + repr(shown))
-    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": None}
+    body = {"schema_name": "RecordRun", "filter": None}
     rows, _, _ = drain(lambda request: scan(node, request)[0], body, LIMIT, page["next_cursor"])
     require(ids(rows) == ["z-last"], "the walk from the sample cursor differs: " + repr(ids(rows)))
 
@@ -185,7 +185,7 @@ def opaque_keys(node, scan):
     write(node, [mutation("RecordNoKey", {"hash": name}, {"value": name}, "create")
                  for name in names])
     write(node, [mutation("RecordNoKey", {"hash": "n2"}, {}, "delete")])
-    body = {"schema_name": "RecordNoKey", "fields": ["value"], "filter": None}
+    body = {"schema_name": "RecordNoKey", "filter": None}
     rows, _, _ = drain(lambda request: scan(node, request)[0], body, 2)
     values = sorted(row["fields"]["value"] for row in rows)
     require(values == ["n0", "n1", "n3", "n4"],
@@ -217,7 +217,7 @@ def share_snapshot(node):
 
 def wait_gone(node, keys, message, seconds=SWEEP_SECONDS):
     """Wait until the TTL sweep erased every one of `keys` under the hash "aged"."""
-    body = {"schema_name": "RecordAged", "fields": FIELDS,
+    body = {"schema_name": "RecordAged",
             "filter": {"HashRangeKeys": [["aged", key] for key in keys]}}
     deadline = time.time() + seconds
     while node.call("/api/query", body)[0]["results"]:
@@ -290,9 +290,9 @@ def drop_history(node, key, action):
 
 def dropped_rows(node, scan):
     """Every live record of RecordDrop, by walk and by its alternate key."""
-    body = {"schema_name": "RecordDrop", "fields": FIELDS, "filter": None}
+    body = {"schema_name": "RecordDrop", "filter": None}
     walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
-    page = node.call("/api/query", {"schema_name": "RecordDrop", "fields": FIELDS,
+    page = node.call("/api/query", {"schema_name": "RecordDrop",
                                     "filter": {"HashKey": "bd"}, "key_name": "by_bucket",
                                     "limit": 1_000})[0]
     require(not page.get("has_more"), "the alternate read of RecordDrop was truncated")
@@ -309,7 +309,7 @@ def drop_release(node, scan):
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name + "-2"}, "replace")
                  for name in names[:10]])
     write(node, [mutation("RecordDrop", {"hash": name}, {}, "delete") for name in names[-10:]])
-    primary = node.call("/api/query", {"schema_name": "RecordDrop", "fields": FIELDS,
+    primary = node.call("/api/query", {"schema_name": "RecordDrop",
         "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
     require(len(primary["results"]) == DROP_RECORDS - 10,
             f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
@@ -337,7 +337,7 @@ def drop_release(node, scan):
     walked, alternate = dropped_rows(node, scan)
     require(walked == ["d0001"] and alternate == [],
             f"a new record after the drop reads as {walked} by walk and {alternate} under the old bucket")
-    body = {"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}}
+    body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
     rows, _, _ = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"], "the drop of RecordDrop changed RecordRun: " + repr(ids(rows)))
 
@@ -366,9 +366,9 @@ def race_writer(node, stop, outcome):
 
 def race_rows(node, scan):
     """Every live record of RecordRace, by walk and by its alternate key."""
-    body = {"schema_name": "RecordRace", "fields": FIELDS, "filter": None}
+    body = {"schema_name": "RecordRace", "filter": None}
     walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
-    page = node.call("/api/query", {"schema_name": "RecordRace", "fields": FIELDS,
+    page = node.call("/api/query", {"schema_name": "RecordRace",
                                     "filter": {"HashKey": "race"}, "key_name": "by_bucket",
                                     "limit": 1_000})[0]
     return ids(walked), ids(page["results"])

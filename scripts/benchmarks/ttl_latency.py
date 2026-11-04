@@ -99,7 +99,7 @@ def writes(node, clients, output):
 def validate_live(node):
     # Exact reads verify every accepted generated value, after the timed window.
     for start in range(0, CALLS * BATCH, 32):
-        queries = [{"schema_name": LIVE, "fields": FIELDS, "filter": {"HashKey": f"live-{n:09d}"}}
+        queries = [{"schema_name": LIVE, "filter": {"HashKey": f"live-{n:09d}"}}
                    for n in range(start, min(start + 32, CALLS * BATCH))]
         result, _, _ = node.call("/api/queries/batch", {"queries": queries})
         replies = result["results"]

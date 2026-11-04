@@ -58,14 +58,14 @@ def write_request(numbers, revision, create=False, body_bytes=BODY_BYTES):
 
 def keyed_request(numbers):
     numbers = list(numbers)
-    return {"schema_name": SCHEMA, "fields": FIELDS, "limit": len(numbers),
+    return {"schema_name": SCHEMA, "limit": len(numbers),
             "filter": {"HashRangeKeys": [list(coordinates(number)) for number in numbers]}}
 
 
 def range_request(first, count=32):
     if first // BUCKET != (first + count - 1) // BUCKET:
         raise ValueError("A generated range must stay under one hash")
-    return {"schema_name": SCHEMA, "fields": FIELDS, "limit": count,
+    return {"schema_name": SCHEMA, "limit": count,
             "filter": {"HashRangeRange": {"hash": coordinates(first)[0],
                        "start": f"{first:012d}", "end": f"{first + count:012d}"}}}
 
@@ -136,7 +136,7 @@ def write_canary_request(version):
 
 
 def canary_query():
-    return {"schema_name": CANARY_SCHEMA, "fields": FIELDS, "limit": 1,
+    return {"schema_name": CANARY_SCHEMA, "limit": 1,
             "filter": {"HashRangeKeys": [["canary", "000000000000"]]}}
 
 

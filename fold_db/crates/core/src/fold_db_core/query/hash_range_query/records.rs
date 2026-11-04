@@ -2,15 +2,12 @@
 //!
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,
-//! then the projection returns the selected fields of each record and its
-//! one metadata block (decision D7).
+//! then the reply returns every stored field of each record and its one
+//! metadata block (decision D7).
 
 mod range;
 
-use super::condition_rules::{
-    condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
-    order_condition_keys,
-};
+use super::condition_rules::{matching_records, order_records, reject_unknown_conditions};
 use super::*;
 use crate::db_operations::record_store::{KeyedRecord, WalkWindow, PAGE_READ_KEYS};
 use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
@@ -21,81 +18,53 @@ use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::KeyValuePageOrder;
 use lastdb_model::record_value::StoredRecord;
 
-type FieldMap = HashMap<String, HashMap<KeyValue, FieldValue>>;
-
 impl HashRangeQueryProcessor {
-    /// One captured read of records. A record is a row when it has the key
-    /// field or one of the selected fields. The conditions see every
-    /// candidate, so a window applies only to a read without them.
+    /// One captured read of records. A live record is a row. The conditions
+    /// see every candidate, so a window applies only to a read without them.
     pub(super) async fn query_records(
         &self,
         schema: &Schema,
-        fields: &[String],
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
         options: FieldQueryOptions<'_>,
         comparison: &KeyComparisonContext,
     ) -> Result<QueryRecords, SchemaError> {
-        let selected = record_fields(schema, fields);
         let needs_conditions = options.requires_condition_pass();
         if !needs_conditions {
             let rows = self
-                .select_rows(schema, comparison, filter.as_ref(), window, &selected)
+                .select_rows(schema, comparison, filter.as_ref(), window)
                 .await?;
-            return Ok(to_records(&selected, rows));
+            return Ok(to_records(rows));
         }
-        let filter = filter.or_else(|| Some(full_span_page()));
-        let rows = self
-            .select_rows(schema, comparison, filter.as_ref(), None, &selected)
-            .await?;
-
         let predicates = options.predicates.unwrap_or(&[]);
         let value_filters = options.value_filters.unwrap_or(&[]);
-        let candidates = CokeyRows {
-            fields: project(
-                &condition_fields(schema, predicates, value_filters, options.order_by)?,
-                &rows,
-            ),
-            page_keys: rows.iter().map(|(key, _)| key.clone()).collect(),
-        };
-        let keys = matching_field_predicate_keys(&candidates, predicates, value_filters);
-        let kept = order_condition_keys(
-            keys,
-            &candidates.fields,
-            options.order_by,
-            options.predicate_limit,
-        );
-        let mut by_key: HashMap<KeyValue, std::sync::Arc<StoredRecord>> =
-            rows.into_iter().collect();
-        let kept: Vec<KeyedRecord> = kept
-            .into_iter()
-            .filter_map(|key| by_key.remove(&key).map(|record| (key, record)))
-            .collect();
-        Ok(to_records(
-            &exact_key_selected_fields(schema, fields, options.order_by),
-            kept,
-        ))
+        reject_unknown_conditions(schema, predicates, value_filters, options.order_by)?;
+        let filter = filter.or(Some(full_span_page()));
+        let rows = self
+            .select_rows(schema, comparison, filter.as_ref(), None)
+            .await?;
+        let rows = matching_records(rows, predicates, value_filters);
+        let rows = order_records(rows, options.order_by, options.predicate_limit);
+        Ok(to_records(rows))
     }
 
     /// The live rows that a key-restricted selector or `None` (the whole
-    /// schema) names, with one of the selected fields.
+    /// schema) names.
     pub(super) async fn count_records(
         &self,
         schema: &Schema,
-        fields: &[String],
         filter: Option<&HashRangeFilter>,
         comparison: &KeyComparisonContext,
     ) -> Result<usize, SchemaError> {
-        let selected = record_fields(schema, fields);
         let filter = filter.cloned().unwrap_or_else(full_span_page);
         Ok(self
-            .select_rows(schema, comparison, Some(&filter), None, &selected)
+            .select_rows(schema, comparison, Some(&filter), None)
             .await?
             .len())
     }
 
     /// The rows of one selector in page order: the live records of the
-    /// schema with one of the selected fields, bounded by the window.
+    /// schema, bounded by the window.
     /// A range under one hash reads its keys in bounded pages
     /// (`records/range.rs`), so the window ends the read. An unfiltered read
     /// walks the records in record key order, and its window is a window of
@@ -106,7 +75,6 @@ impl HashRangeQueryProcessor {
         comparison: &KeyComparisonContext,
         filter: Option<&HashRangeFilter>,
         window: Option<KeyWindow>,
-        selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         if filter.is_some() && matches!(window, Some(KeyWindow::AfterRecord { .. })) {
             return Err(SchemaError::InvalidCursor(
@@ -114,28 +82,24 @@ impl HashRangeQueryProcessor {
             ));
         }
         if filter.is_none() {
-            return self
-                .walk_rows(schema, comparison, window.as_ref(), selected)
-                .await;
+            return self.walk_rows(schema, comparison, window.as_ref()).await;
         }
         if let Some(HashRangeFilter::SampleN(count)) = filter {
-            let rows = self
-                .sample_rows(schema, comparison, *count, selected)
-                .await?;
+            let rows = self.sample_rows(schema, comparison, *count).await?;
             return Ok(match window {
                 Some(window) => bound(rows, window),
                 None => rows,
             });
         }
         if let Some((hash, bound)) = range::range_under_hash(schema, filter) {
-            return self.range_rows(schema, hash, bound, selected, window).await;
+            return self.range_rows(schema, hash, bound, window).await;
         }
         let mut rows = self
             .db_ops
             .records()
             .select_records(schema, comparison, filter)
             .await?;
-        rows.retain(|(_, record)| has_any(record, selected));
+        rows.retain(|(_, record)| record.is_live());
         Ok(match window {
             Some(window) => bound(rows, window),
             None => rows,
@@ -154,7 +118,6 @@ impl HashRangeQueryProcessor {
         schema: &Schema,
         comparison: &KeyComparisonContext,
         window: Option<&KeyWindow>,
-        selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let records = self.db_ops.records();
         let (after, skip, take) = match window {
@@ -173,7 +136,7 @@ impl HashRangeQueryProcessor {
             take,
         };
         let mut page = records
-            .walk_record_window(schema, comparison, walk, |record| has_any(record, selected))
+            .walk_record_window(schema, comparison, walk, StoredRecord::is_live)
             .await?;
         if let Some(stopped) = page.stopped.take() {
             if !resumable {
@@ -196,8 +159,7 @@ impl HashRangeQueryProcessor {
     }
 
     /// A sample of the schema: the first `count` live records (at most
-    /// `SAMPLE_PEEK_CAP`) with one of the selected fields, in record key
-    /// order, in page order in the result.
+    /// `SAMPLE_PEEK_CAP`), in record key order, in page order in the result.
     ///
     /// A run of deleted records can use the read allowance of the walk before
     /// the sample is full. A caller that continues a page that ends early
@@ -210,7 +172,6 @@ impl HashRangeQueryProcessor {
         schema: &Schema,
         comparison: &KeyComparisonContext,
         count: usize,
-        selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let walk = WalkWindow {
             after: None,
@@ -220,7 +181,7 @@ impl HashRangeQueryProcessor {
         let mut page = self
             .db_ops
             .records()
-            .walk_record_window(schema, comparison, walk, |record| has_any(record, selected))
+            .walk_record_window(schema, comparison, walk, StoredRecord::is_live)
             .await?;
         if let Some(stopped) = page.stopped.take() {
             if !page_can_resume() {
@@ -239,15 +200,6 @@ impl HashRangeQueryProcessor {
     }
 }
 
-/// Projection changes payload fields, never record membership or addresses.
-fn record_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
-    field_rules::selected_fields(schema, fields)
-}
-
-fn has_any(record: &StoredRecord, _selected: &[String]) -> bool {
-    record.is_live()
-}
-
 /// The window over rows in page order.
 fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
     match window {
@@ -262,45 +214,12 @@ fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
     }
 }
 
-/// The selected fields of each candidate row, by field, for the conditions
-/// and the value order. Every selected field has a map, even when no row has
-/// a value for it.
-fn project(selected: &[String], rows: &[KeyedRecord]) -> FieldMap {
-    let mut out: FieldMap = selected
-        .iter()
-        .map(|field| (field.clone(), HashMap::new()))
-        .collect();
-    for (key, record) in rows {
-        for (field, values) in &mut out {
-            if let Some(value) = field_value(record, field) {
-                values.insert(key.clone(), value);
-            }
-        }
-    }
-    out
-}
-
-/// The value of one field of a record, for the conditions and the value
-/// order.
-fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
-    let value = record.fields.get(field)?;
-    Some(FieldValue {
-        value: value.clone(),
-    })
-}
-
-/// The reply rows: the selected fields of each record and its one metadata
-/// block. An empty payload or projection still represents a live record.
-fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
+/// The reply rows: every stored field of each record and its one metadata
+/// block. An empty payload still represents a live record.
+fn to_records(rows: Vec<KeyedRecord>) -> QueryRecords {
     let mut out = QueryRecords::with_capacity(rows.len());
     for (key, record) in rows {
-        let fields: HashMap<String, serde_json::Value> = selected
-            .iter()
-            .filter_map(|field| {
-                let value = record.fields.get(field)?;
-                Some((field.clone(), value.clone()))
-            })
-            .collect();
+        let fields = record.fields.clone().into_iter().collect();
         let metadata = record_metadata(&record);
         out.insert(
             key,

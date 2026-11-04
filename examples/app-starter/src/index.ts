@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   console.log(`\nmutate: accepted create for ${SCHEMA}`);
 
   // Read it back and print the round-tripped row (the full per-row envelope).
-  const { rows, rowCount } = await fold.query(SCHEMA, { fields: ['id', 'text'] });
+  const { rows, rowCount } = await fold.query(SCHEMA, { filter: { HashKey: note.id } });
   console.log(`query: ${SCHEMA} returned ${rowCount} row(s):`);
   for (const row of rows) {
     console.log(`  key=${row.key} fields=${JSON.stringify(row.fields)} metadata=${JSON.stringify(row.metadata)}`);

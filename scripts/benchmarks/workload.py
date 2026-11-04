@@ -39,7 +39,7 @@ def encoded(value):
 
 
 def read_request(numbers):
-    return encoded({"schema_name": SCHEMA, "fields": FIELDS,
+    return encoded({"schema_name": SCHEMA,
                     "filter": {"HashRangeKeys": [[HASH, key(n)] for n in numbers]},
                     "limit": len(numbers)})
 

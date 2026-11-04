@@ -160,16 +160,17 @@ returns the design's prescribed reaction (`discardToken` / `reacquire` /
 uniform, so the SDK surfaces the raw body verbatim and lets the app decide. On
 the owner socket they were worse than non-uniform — every parse failure in
 `lastdb_host::wire` collapsed to the 11 bytes `Bad Request`, with no `kind` for
-the SDK to populate. The first `/api/query` anyone writes by hand omits `fields`
-and hit exactly that path.
+the SDK to populate. The first `/api/query` anyone writes by hand omits
+`schema_name` and hits exactly that path. A query returns each stored record
+and does not take a field list.
 
 Socket rejections now serve one shape, built in `lastdb_host::reject`:
 
 ```json
 { "ok": false, "kind": "missing_required_key",
   "error": "a required key is missing from the request body",
-  "key": "fields",
-  "try": ["{\"schema_name\":\"<Schema>\",\"fields\":[],\"filter\":{\"HashKey\":\"<key>\"}}"] }
+  "key": "schema_name",
+  "try": ["{\"schema_name\":\"<Schema>\",\"filter\":{\"HashKey\":\"<key>\"}}"] }
 ```
 
 - `kind` is the discriminator the SDK already parses — no new SDK surface.

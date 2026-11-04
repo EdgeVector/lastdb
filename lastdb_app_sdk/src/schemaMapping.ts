@@ -97,7 +97,7 @@ export function mapFieldRecord<T extends JsonValue>(
 }
 
 /**
- * Map each two-pass predicate's `field` app→node, leaving the comparison
+ * Map each predicate's `field` app→node, leaving the comparison
  * payload (`value` / `values` / `instant`) untouched — only `field` names a
  * schema field. The variant tag and any unrecognized shape pass through
  * verbatim so the SDK never rewrites a predicate dialect the node may add

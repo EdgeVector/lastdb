@@ -317,8 +317,9 @@ export interface RequestConsentResult {
 
 /**
  * Optional query filter. The node's `/api/query` accepts a `fold_db` `Query`
- * — `{schema_name, fields}` plus an optional range filter — alongside
- * top-level `limit`/`offset` pagination fields. Production nodes also accept a
+ * — `schema_name` plus an optional range filter — alongside
+ * top-level `limit`/`offset` pagination fields. A query returns each stored
+ * record; the request does not name fields. Production nodes also accept a
  * top-level `cursor` (`KeyValue`) on ascending keyed reads without conditions,
  * custom value ordering, or a predicate limit. Other reads use offsets.
  * `queryAll` follows `page.nextCursor` when the node returns one and otherwise
@@ -334,13 +335,6 @@ export interface RequestConsentResult {
 export interface QueryFilter {
   /** Named alternate key within the resolved schema. Omit for the primary key. */
   keyName?: string;
-  /**
-   * Restrict to these field names. When omitted, the SDK requests every
-   * field the schema declares (it cannot know them ahead of time, so a
-   * `fields` list is effectively required for a Range schema read — see
-   * README). Most callers pass the fields they want back.
-   */
-  fields?: string[];
   /**
    * A `fold_db` range filter object, passed through verbatim under the
    * query's `filter` key for Range schemas. Shape is node-defined; left
@@ -370,17 +364,11 @@ export interface QueryFilter {
    */
   cursor?: QueryCursor;
   /**
-   * Two-pass field predicates, forwarded as the request's top-level `where`
+   * Field predicates, forwarded as the request's top-level `where`
    * (`fold_db` `Query.field_predicates`). Multiple predicates are AND'd.
+   * A match still returns the whole stored record.
    *
-   * The node loads ONLY the predicate fields first, then loads the requested
-   * projection for the keys that matched — so a predicate that rejects most of
-   * a partition keeps the fat projection off the wire entirely. This is the
-   * difference between filtering server-side and draining a partition to
-   * `Array.prototype.filter` it in the app.
-   *
-   * Predicate `field` names are app-facing and are mapped to node-side names
-   * exactly like {@link QueryFilter.fields}.
+   * Predicate `field` names are app-facing and are mapped to node-side names.
    *
    * A `where` is a filter, NOT an index: the node still walks the candidate
    * keys the `filter` selects. Keep the key filter as narrow as possible and
@@ -390,7 +378,7 @@ export interface QueryFilter {
 }
 
 /**
- * One two-pass field predicate (`fold_db` `FieldPredicate`). Externally tagged:
+ * One field predicate (`fold_db` `FieldPredicate`). Externally tagged:
  * exactly one variant key per object, e.g.
  * `{ eq: { field: 'state', value: 'available' } }`.
  */

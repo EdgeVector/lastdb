@@ -52,7 +52,7 @@ def query(config, number=None):
     fields.extend(f"extra_{n:02}" for n in range(config["fields"] - 4))
     predicate = {"HashRangeKeys": [[f"r{n:03}", ""] for n in range(RECORDS)]} if number is None else {
         "HashKey": f"r{number:03}"}
-    return {"schema_name": config["schema"], "fields": fields, "filter": predicate, "limit": RECORDS}
+    return {"schema_name": config["schema"], "filter": predicate, "limit": RECORDS}
 
 
 def verify(node, config, suffix):

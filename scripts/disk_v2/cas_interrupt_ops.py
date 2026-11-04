@@ -90,7 +90,7 @@ def purge_all(node, stop):
 
 
 def read(node, count):
-    queries = [{"schema_name": SCHEMA, "fields": list(FIELDS),
+    queries = [{"schema_name": SCHEMA,
                 "filter": {"HashKey": key(number)}, "limit": 2}
                for number in range(count)]
     batches = [queries[start:start + 32] for start in range(0, len(queries), 32)]

@@ -27,7 +27,6 @@ pub(super) async fn purge_series_rows(
     }
     let query = Query::new_with_filter(
         schema_name.to_string(),
-        Vec::new(),
         Some(HashRangeFilter::HashRangeKeys(
             sample_ids
                 .iter()
@@ -147,7 +146,6 @@ pub(super) async fn prune_request_ops_rollup_retention(
 pub(super) async fn query_sample_ids(host: &Host) -> Result<Vec<String>, String> {
     let query = Query::new_with_filter(
         SELF_METRIC_SCHEMA.to_string(),
-        vec!["sample_id".to_string()],
         Some(HashRangeFilter::HashKey(SELF_METRIC_SERIES.to_string())),
     );
     let rows = host
@@ -168,7 +166,6 @@ pub(super) async fn query_sample_ids(host: &Host) -> Result<Vec<String>, String>
 pub(super) async fn query_request_ops_rollup_ids(host: &Host) -> Result<Vec<String>, String> {
     let query = Query::new_with_filter(
         REQUEST_OPS_ROLLUP_SCHEMA.to_string(),
-        vec!["sample_id".to_string()],
         Some(HashRangeFilter::HashKey(
             REQUEST_OPS_ROLLUP_SERIES.to_string(),
         )),

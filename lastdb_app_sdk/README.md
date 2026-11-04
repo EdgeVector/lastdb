@@ -71,7 +71,7 @@ await fold.mutate('fbrain/Concept', {                          // capability aut
   record: { id: 'c1', title: 'hello' },
   key: { hash: 'c1', range: null },
 });
-const { rows } = await fold.query('fbrain/Concept', { fields: ['id', 'title'] });
+const { rows } = await fold.query('fbrain/Concept', { filter: { HashKey: 'c1' } });
 for (const row of rows) {
   console.log(row.key, row.fields, row.metadata); // full envelope per record
 }
@@ -110,7 +110,7 @@ try {
 - `GET /api/version` answers on both sockets with no node state:
   `{ok, api_version, build, capabilities, instance_id, ...}`. `fold.version()`
   reads it; a body without `api_version` throws `UnexpectedResponseError`.
-- SDK 0.7 requires API 28. `connect()` checks this minimum automatically;
+- SDK 0.7 requires API 29. `connect()` checks this minimum automatically;
   an app may request a higher version. Owner clients can call
   `requireApiVersion(LASTDB_SDK_API_VERSION)` before data operations.
 - A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
@@ -197,7 +197,7 @@ const db = ownerClient({
 });
 
 // Full read/write across any schema — device trust, no write-own restriction.
-const records = await db.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
+const records = await db.queryAll('fbrain/Concept');
 await db.mutate('fbrain/Concept', {
   mutationType: 'create',
   alternates: {},
@@ -232,7 +232,7 @@ if (!db.hasCapability) {                                  // first run: no capab
 }
 
 // Reads: any schema the consumer consented to — including other apps' data.
-await db.query('some-other-app/PublicNote', { fields: ['id', 'text'] });
+await db.query('some-other-app/PublicNote', { filter: { HashKey: 'n1' } });
 // Writes: only your own namespace (the interop rule above). The node does not
 // check this today.
 await db.mutate('my-app/Note', {
@@ -458,13 +458,14 @@ field map. Each `QueryRow` (the SDK type name) carries:
 |---|---|
 | `key` | the record key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
 | `keyValue` | the **structured** `{hash, range}` key of the record — pass it back verbatim as `MutationOp.key` to update/delete this exact record; `null` only when the key has neither a hash nor a range |
-| `fields` | the selected field values; request all fields before constructing a replacement |
+| `fields` | every field the record stores; copy them when constructing a replacement |
 | `revision` | the whole-record condition token returned by the read |
 | `alternates` | all named alternate addresses, independent of payload fields |
 | `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
-This is the API 28 shape of `lastdbd`'s `/api/query`. Each item of `results`
-is one record: `{key, revision, alternates, fields, metadata}`.
+This is the API 29 shape of `lastdbd`'s `/api/query`. The request names a
+schema and an optional key filter. It does not name fields. Each item of
+`results` is one record: `{key, revision, alternates, fields, metadata}`.
 `metadata` is `{source_file_name, metadata?, file?}` or `null`.
 The SDK surfaces the key, field, and metadata parts and invents none. A body
 without a `results` array, or a record without an object `key` and `fields`,
@@ -490,7 +491,7 @@ exposes the node's pagination params and metadata:
   `page.hasMore` stays `true` so the truncation is visible.
 
 ```ts
-const all = await fold.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
+const all = await fold.queryAll('fbrain/Concept');
 console.log(all.rowCount, all.page?.hasMore); // every record; false unless maxRows hit
 ```
 
@@ -502,8 +503,8 @@ the arguments of `query`:
 
 ```ts
 const [note, task] = await fold.queryBatch([
-  { schemaName: 'app/Notes', filter: { fields: ['id', 'title'], filter: { HashKey: 'n1' } } },
-  { schemaName: 'app/Tasks', filter: { fields: ['id', 'state'], filter: { HashKey: 't1' } } },
+  { schemaName: 'app/Notes', filter: { filter: { HashKey: 'n1' } } },
+  { schemaName: 'app/Tasks', filter: { filter: { HashKey: 't1' } } },
 ]);
 if (note.ok) console.log(note.result.rows);
 else console.error(note.error); // the typed error `query` would have thrown
@@ -690,7 +691,6 @@ class LastDbClient {
 }
 
 interface QueryFilter {
-  fields?: string[]
   filter?: JsonValue                   // fold_db range filter, verbatim
   limit?: number                       // page size (both nodes default 100, clamp 1000)
   offset?: number                      // page offset (both nodes; default 0)

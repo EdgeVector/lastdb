@@ -5,10 +5,9 @@ use serde_json::Value;
 
 /// Numeric comparison filters for field values.
 ///
-/// These filters compare current field values independently of the projection,
-/// unlike `HashRangeFilter` which selects field keys. Multiple filters are
-/// AND'd before ordering and `predicate_limit`. Missing values remain accepted;
-/// a concrete non-numeric value fails its comparison.
+/// These filters compare current field values on the stored record. Multiple
+/// filters are AND'd before ordering and `predicate_limit`. Missing values
+/// remain accepted; a concrete non-numeric value fails its comparison.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValueFilter {
     /// field value > threshold
@@ -21,12 +20,11 @@ pub enum ValueFilter {
     Between { field: String, min: f64, max: f64 },
 }
 
-/// Field predicates for the shared two-pass query scan.
+/// Field predicates for one query.
 ///
-/// These predicates are evaluated against a first pass that loads only the
-/// predicate fields plus optional `order_by` field. Matching keys are then
-/// fetched again with the requested projection fields. This is still an O(M)
-/// scan over candidate keys, not a secondary index.
+/// Predicates run against the stored fields of each loaded record. A missing
+/// field is absent. This is still an O(M) walk of the selected keys, not a
+/// secondary index.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldPredicate {
@@ -130,7 +128,6 @@ pub struct Query {
     pub schema_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_name: Option<String>,
-    pub fields: Vec<String>,
     pub filter: Option<HashRangeFilter>,
     /// Accepted only so logical reads and counts can explicitly refuse history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,20 +137,18 @@ pub struct Query {
     pub rehydrate_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<SortOrder>,
-    /// Numeric conditions on current fields, independent of the projection.
+    /// Numeric conditions on stored field values.
     /// Multiple filters are AND'd before `order_by` and `predicate_limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_filters: Option<Vec<ValueFilter>>,
-    /// Two-pass field predicates. Serialized as `where` for the owner-socket
-    /// API: pass A loads only these fields (plus `order_by`), pass B loads the
-    /// requested projection for matching keys.
+    /// Field predicates. Serialized as `where`. They match the stored record.
     #[serde(default, rename = "where", skip_serializing_if = "Option::is_none")]
     pub field_predicates: Option<Vec<FieldPredicate>>,
-    /// Optional field ordering for the two-pass candidate set.
+    /// Optional ordering by one stored field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<QueryOrderBy>,
-    /// Optional cap after field and numeric conditions and `order_by`, before the
-    /// projection pass. Named separately from `/api/query` pagination `limit`.
+    /// Optional cap after field and numeric conditions and `order_by`.
+    /// Named separately from `/api/query` pagination `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub predicate_limit: Option<usize>,
     /// Optional assertion for an exact keyed row count. The host evaluates it
@@ -164,9 +159,6 @@ pub struct Query {
     /// count or alternate key shortcut. The default is `false`.
     #[serde(default)]
     pub include_tombstones: bool,
-    /// Opt in to bounded secondary field reads for this query. One is serial.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary_concurrency: Option<usize>,
 }
 
 impl Query {
@@ -187,35 +179,15 @@ impl Query {
     }
 
     #[must_use]
-    pub fn new(schema_name: String, fields: Vec<String>) -> Self {
-        Self {
-            schema_name,
-            key_name: None,
-            fields,
-            filter: None,
-            as_of: None,
-            rehydrate_depth: None,
-            sort_order: None,
-            value_filters: None,
-            field_predicates: None,
-            order_by: None,
-            predicate_limit: None,
-            expected_total_count: None,
-            include_tombstones: false,
-            secondary_concurrency: None,
-        }
+    pub fn new(schema_name: String) -> Self {
+        Self::new_with_filter(schema_name, None)
     }
 
     #[must_use]
-    pub fn new_with_filter(
-        schema_name: String,
-        fields: Vec<String>,
-        filter: Option<HashRangeFilter>,
-    ) -> Self {
+    pub fn new_with_filter(schema_name: String, filter: Option<HashRangeFilter>) -> Self {
         Self {
             schema_name,
             key_name: None,
-            fields,
             filter,
             as_of: None,
             rehydrate_depth: None,
@@ -226,7 +198,6 @@ impl Query {
             predicate_limit: None,
             expected_total_count: None,
             include_tombstones: false,
-            secondary_concurrency: None,
         }
     }
 }

@@ -77,18 +77,13 @@ pub(super) fn sample_resumes(query: &Query) -> bool {
 }
 
 /// The cursor binding of the record walk of `query` with no filter: the
-/// unfiltered read of the same fields and order. A sample that a
+/// unfiltered read of the same order. A sample that a
 /// run of deleted records ends early gives a record cursor with this binding,
 /// so that unfiltered read continues the sample after the last key the walk
 /// examined. It is the binding that [`prepare_comparison`] gives a walk.
 fn walk_binding(comparison: &KeyComparisonContext, query: &Query) -> Result<String, HostError> {
     let unfiltered: Option<HashRangeFilter> = None;
-    let request = (
-        &unfiltered,
-        &query.fields,
-        query.include_tombstones,
-        &query.sort_order,
-    );
+    let request = (&unfiltered, query.include_tombstones, &query.sort_order);
     comparison
         .cursor_binding(&(RECORD_WALK_BINDING, request))
         .map_err(HostError::from)
@@ -111,12 +106,7 @@ pub(super) fn prepare_comparison(
     }
     let binding = comparison
         .map(|comparison| {
-            let request = (
-                &query.filter,
-                &query.fields,
-                query.include_tombstones,
-                &query.sort_order,
-            );
+            let request = (&query.filter, query.include_tombstones, &query.sort_order);
             if walk {
                 comparison.cursor_binding(&(RECORD_WALK_BINDING, request))
             } else {
@@ -247,8 +237,8 @@ pub(super) fn can_push_down(query: &Query) -> bool {
 /// The filter has to select a **key set** (so the count describes the same rows
 /// the page will), and nothing may decide row membership after the keys are
 /// read. `value_filters` drop rows by their hydrated content,
-/// `field_predicates` / `order_by` / `predicate_limit` run the two-pass plan
-/// over every candidate — each would be answering from an arbitrary slice of
+/// `field_predicates` / `order_by` / `predicate_limit` decide membership after
+/// the records are read — each would be answering from an arbitrary slice of
 /// its input if a window were taken first. Those shapes keep the
 /// materialize-then-slice fallback.
 pub(super) fn can_push_down_key_restricted(query: &Query) -> bool {

@@ -22,7 +22,7 @@ def read_records(node, requests):
     grouped = defaultdict(list)
     for request in requests:
         grouped[request["schema"]].append(request["key_value"])
-    queries = [{"schema_name": schema, "fields": [], "limit": len(keys),
+    queries = [{"schema_name": schema, "limit": len(keys),
                 "filter": {"HashRangeKeys": [[key["hash"], key.get("range") or ""] for key in keys]}}
                for schema, keys in grouped.items()]
     if not queries:

@@ -189,7 +189,7 @@ class OwnedNode:
         """Exact keyed reads. The first baseline record holds the one file;
         no other record has a file."""
         file_record = baseline["records"][0]["id"]
-        queries = [{"schema_name": baseline["schema"], "fields": ["id", "note"],
+        queries = [{"schema_name": baseline["schema"],
                     "filter": {"HashKey": record["id"]}, "limit": 2, "offset": 0}
                    for record in baseline["records"]]
         reply = self.call("/api/queries/batch", {"queries": queries})

@@ -170,7 +170,7 @@ async fn range_page(
     after: Option<KeyValue>,
     limit: usize,
 ) -> Result<RangePage, String> {
-    let query = Query::new_with_filter(schema.to_string(), Vec::new(), Some(filter));
+    let query = Query::new_with_filter(schema.to_string(), Some(filter));
     let executor = host.db.query_executor();
     // The page tally lets the read end early in a run of deleted records and
     // name where it ended, where a read without it fails at the read limit.
