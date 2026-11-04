@@ -42,11 +42,6 @@ impl AlternateChange {
     pub(crate) fn delete(key: AlternateAddress) -> Self {
         Self { key, entry: None }
     }
-
-    /// The coordinator uses this identity for collision resolution only.
-    pub(crate) fn address(&self) -> &AlternateAddress {
-        &self.key
-    }
 }
 
 pub(super) fn encode(change: AlternateChange) -> Result<KvMutation, SchemaError> {

@@ -18,6 +18,7 @@ import {
 } from './capabilityStore.js';
 import {
   LASTDB_API_ROUTES,
+  LASTDB_SDK_API_VERSION,
 } from './apiRoutes.js';
 import {
   verifyCapabilityBlob,
@@ -83,7 +84,6 @@ import {
   normalizeSchemaResolution,
   mapFieldName,
   mapFieldRecord,
-  mapCasExpectation,
   mapPredicateFields,
   mapQueryResult,
 } from './schemaMapping.js';
@@ -265,7 +265,7 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
   // The compatibility handshake runs before any data request so an app that
   // is newer than the node fails on ONE line that names the fix, not on its
   // first write with a 400 that hides which side moved.
-  const required = options.requireApiVersion ?? 0;
+  const required = Math.max(LASTDB_SDK_API_VERSION, options.requireApiVersion ?? 0);
   if (required > 0) {
     await client.requireApiVersion(required, options.appLabel ?? appId);
   }
@@ -809,25 +809,21 @@ export class LastDbClient {
     const body: Record<string, unknown> = {
       type: 'mutation',
       schema: resolved.nodeSchemaName,
-      fields_and_values: mapFieldRecord(op.fields, resolved.appToNodeFields),
+      mutation_id: op.mutationId,
+      record: mapFieldRecord(op.record ?? {}, resolved.appToNodeFields),
       key_value: op.key,
+      alternates: op.alternates,
       mutation_type: op.mutationType,
+      expected: op.expected,
+      source_file_name: op.metadata?.source_file_name ?? null,
+      metadata: op.metadata?.metadata ?? null,
+      file: op.metadata?.file ?? null,
     };
-    // CAS precondition: forward it under the node's `expected` key only when
-    // the caller set it (an unconditional write omits it). Its `field` names a
-    // schema field, so it is mapped app→node the same way `fields_and_values`
-    // keys are — a CAS guard on a renamed field must reference the node name.
-    if (op.expected !== undefined) {
-      body.expected = mapCasExpectation(op.expected, resolved.appToNodeFields);
-    }
     if (op.convergence !== undefined) {
       body.convergence = op.convergence;
     }
     if (op.durability !== undefined) {
       body.durability = op.durability;
-    }
-    if (op.mustExist !== undefined) {
-      body.must_exist = op.mustExist;
     }
     const res = await this.transport.send('POST', LASTDB_API_ROUTES.mutation, {
       headers: this.capabilityHeaders(),
@@ -844,7 +840,11 @@ export class LastDbClient {
       const b = res.body;
       const result: MutationResult = {
         mutationId: parseMutationId(b, res.body),
+        recordRevision: typeof b['record_revision'] === 'string' ? b['record_revision'] : '',
       };
+      if (!/^[0-9a-f]{64}$/.test(result.recordRevision)) {
+        throw new UnexpectedResponseError('mutation returned no record revision', 200, res.body);
+      }
       if (typeof b['background_tasks_drained'] === 'boolean') {
         result.backgroundTasksDrained = b['background_tasks_drained'];
       }

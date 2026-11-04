@@ -31,24 +31,6 @@ impl Installed {
     }
 }
 
-/// The fields a primary or alternate key reads. A nested key path also names
-/// its root field.
-fn key_fields(schema: &Schema) -> BTreeSet<&str> {
-    let primary = schema
-        .key
-        .iter()
-        .flat_map(|key| key.hash_field.iter().chain(key.range_field.iter()))
-        .map(String::as_str);
-    let alternate = schema
-        .alternate_keys
-        .values()
-        .flat_map(schema_types::AlternateKey::fields);
-    primary
-        .chain(alternate)
-        .flat_map(|path| [path, path.split('.').next().unwrap_or(path)])
-        .collect()
-}
-
 /// Until `Any` is deleted (`decision-2026-11-02-field-types-no-any`), a repeat
 /// declare may give an `Any` or untyped field a concrete type in place. Old
 /// values are not re-checked; the next write of the field must match.
@@ -70,12 +52,10 @@ fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
         .flatten()
         .map(String::as_str)
         .collect();
-    let key_fields = key_fields(stored);
     let equal_definitions = stored_fields.intersection(&proposed_fields).all(|field| {
         let stored_type = stored.field_types.get(*field);
         let proposed_type = proposed.field_types.get(*field);
-        (stored_type == proposed_type
-            || (!key_fields.contains(field) && retypes_any(stored_type, proposed_type)))
+        (stored_type == proposed_type || retypes_any(stored_type, proposed_type))
             && stored.field_descriptions.get(*field) == proposed.field_descriptions.get(*field)
     });
     if !equal_definitions {
@@ -112,6 +92,7 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<In
         if stored.owner_app_id != proposed.owner_app_id
             || stored.descriptive_name != proposed.descriptive_name
             || stored.schema_type != proposed.schema_type
+            || stored.record_keys != proposed.record_keys
             || stored.key != proposed.key
             || stored.alternate_keys != proposed.alternate_keys
             || installed.is_some()

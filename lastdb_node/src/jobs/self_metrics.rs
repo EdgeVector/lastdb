@@ -14,7 +14,7 @@ use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::operations::{Mutation, MutationType, Query};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyConfig, KeyValue};
+use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyValue};
 use serde_json::{json, Value};
 
 use crate::host::Host;

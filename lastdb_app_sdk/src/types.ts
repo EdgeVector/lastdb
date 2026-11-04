@@ -46,6 +46,7 @@ export interface QueryCursor extends KeyValue {
    * deleted records ends early has no row key to name.
    */
   record?: string | null;
+  alternate_primary?: KeyValue | null;
 }
 
 /** Options for the keys-only {@link LastDbClient.list} membership page. */
@@ -128,6 +129,10 @@ export interface RecordMetadata {
  * behavior) threw these away.
  */
 export interface QueryRow {
+  /** Complete-record token, required for replace/delete. */
+  revision: string;
+  /** Every declared alternate address, including explicitly absent sparse addresses. */
+  alternates: Record<string, KeyValue | null>;
   /**
    * The row's storage key rendered to a string. The node returns `key` as a
    * structured `{hash, range}` object; the SDK renders it the same way
@@ -657,80 +662,35 @@ export type AutoIdentityResult =
       next: string | null;
     };
 
-/**
- * A compare-and-set precondition on a single field of the row being written,
- * mirroring the node's `/api/mutation` `expected` key. The write is applied
- * only if the precondition holds; otherwise the node rejects it with
- * `409 {error:"cas_conflict", ...}` and the SDK raises a
- * {@link import('./errors.js').CasConflictError}.
- *
- * - `{ type: "absent", field }` — the write succeeds only if `field` has no
- *   current value (the CAS form of "create if not present"; pair with
- *   `mutationType: "create"`).
- * - `{ type: "value", field, value }` — the write succeeds only if `field`'s
- *   current value equals `value` (the CAS form of "update from a known
- *   value"; pair with `mutationType: "update"`).
- *
- * Forwarded verbatim under the node's `expected` key; the SDK never invents a
- * dialect the node would reject.
- */
+/** One condition covers the complete record. */
 export type CasExpectation =
-  | { type: 'absent'; field: string }
-  | { type: 'value'; field: string; value: JsonValue };
+  | { type: 'absent' }
+  | { type: 'revision'; revision: string };
 
-/**
- * A mutation operation. Mirrors the node's `Operation::Mutation` envelope
- * (`{type:"mutation", schema, fields_and_values, key_value, mutation_type}`),
- * plus optional CAS and convergence controls.
- * The SDK fills `type` and `schema`; the caller supplies the rest.
- */
-export interface MutationOp {
-  /** `"create" | "update" | "delete"` — the node's `mutation_type`. */
-  mutationType: 'create' | 'update' | 'delete';
-  /** Field name → value for the row being written. */
-  fields: Record<string, JsonValue>;
-  /**
-   * The row key. For a Range schema: `{ hash: null, range: "<id>" }`. For a
-   * hash-keyed schema: `{ hash: "<id>", range: null }`. Passed through as the
-   * node's `key_value`. A {@link QueryRow.keyValue} from a previous query can
-   * be passed back verbatim to address that exact row.
-   */
-  key: KeyValue;
-  /**
-   * Optional compare-and-set precondition on a single field. When set, it is
-   * forwarded verbatim under the node's `expected` key, and the node applies
-   * the write only if the precondition holds — otherwise it returns
-   * `409 {error:"cas_conflict"}`, which the SDK maps to
-   * {@link import('./errors.js').CasConflictError}. Omit it for an
-   * unconditional write (the prior SDK behavior). See {@link CasExpectation}.
-   */
-  expected?: CasExpectation;
-  /**
-   * Optional post-write convergence mode. Omit for the node default (`async`):
-   * the mutation returns after the write commits without waiting on background
-   * tasks, and the response may set `convergencePending: true`. Pass `sync`
-   * only when the caller needs background work drained before the response.
-   */
-  convergence?: MutationConvergence;
-  /**
-   * Optional local durability policy, forwarded as the node's `durability`
-   * key. Omit for the node default (`queued`). Pass `durable` to make the
-   * node persist the write before it returns a `durable` receipt.
-   */
-  durability?: MutationDurability;
-  /**
-   * Local request policy on `delete`: when `true`, a missing key is a loud
-   * miss instead of an idempotent success. Forwarded as the node's
-   * `must_exist` field. Omit it (the default) for ordinary delete-means-gone.
-   * Not a second eraser — do not send `mutationType: "purge"`.
-   */
-  mustExist?: boolean;
-}
-
-/** `POST /api/mutation` success body. */
-export interface MutationResult {
-  /** The node's `mutation_id` for this write. */
+interface MutationTarget {
+  /** Stable UUID for retries of exactly this complete request. */
   mutationId: string;
+  key: KeyValue;
+  /** Exactly every declared name; null requires allow_absent in the schema. */
+  alternates: Record<string, KeyValue | null>;
+  convergence?: MutationConvergence;
+  durability?: MutationDurability;
+}
+interface CompleteRecord {
+  record: RowFields;
+  /** Absence clears metadata and the file marker. Copy these from a full read when retaining them. */
+  metadata?: RecordMetadata | null;
+}
+/** Omitted payload fields disappear. The SDK performs no read or field merge. */
+export type MutationOp = MutationTarget & (
+  | (CompleteRecord & { mutationType: 'create'; expected: { type: 'absent' } })
+  | (CompleteRecord & { mutationType: 'replace'; expected: { type: 'revision'; revision: string } })
+  | { mutationType: 'delete' | 'purge'; expected: { type: 'revision'; revision: string }; record?: never; metadata?: never }
+);
+
+export interface MutationResult {
+  mutationId: string;
+  recordRevision: string;
   backgroundTasksDrained?: boolean;
   convergencePending?: boolean;
 }

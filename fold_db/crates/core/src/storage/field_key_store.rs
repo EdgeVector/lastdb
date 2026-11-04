@@ -126,8 +126,9 @@ pub(crate) fn schema_field_key_ids(schema: &Schema) -> Vec<String> {
         .collect::<Vec<_>>();
     field_keys.extend(
         schema
-            .alternate_keys
-            .keys()
+            .record_keys
+            .iter()
+            .flat_map(|keys| keys.alternates.keys())
             .map(|name| lastdb_model::field_key_id::alternate_field_key_id(schema, name)),
     );
     field_keys.push(lastdb_model::record_space::record_space_uuid(&schema.name));

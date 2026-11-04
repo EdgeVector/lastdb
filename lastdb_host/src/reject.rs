@@ -179,17 +179,11 @@ pub enum WireKey {
     Expected,
     /// `key_value` — the `{hash, range}` selector a mutation addresses.
     KeyValue,
-    /// `mutation_type` — `create` / `update` / `delete` (`purge` = must-exist alias).
+    /// `mutation_type` — create / replace / delete / purge.
     MutationType,
 }
 
-/// The canonical minimal `POST /api/mutation` body, handed back verbatim as
-/// remediation for every structural mutation key.
-///
-/// `Operation` is internally tagged (`#[serde(tag = "type")]`), so the keys sit
-/// flat alongside `type` rather than nested under it — the shape a caller is
-/// most likely to get wrong by analogy with an externally-tagged enum.
-///
+/// Complete mutation example used by structural rejection responses.
 const MUTATION_BODY_EXAMPLE: &str = concat!(
     r#"{"type":"mutation","mutation_id":"<UUID>","schema":"<Schema>","record":{"<field>":"<value>"},"#,
     r#""key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#,

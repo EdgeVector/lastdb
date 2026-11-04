@@ -52,9 +52,10 @@ This rule supersedes the local build commands and coordination rules below.
 >
 > Storage ladder: **schema → record → file**. A schema is a catalog, not
 > a table. Each primary key holds one record: all fields of the schema in one
-> stored value, with a stamp for each field. A record can own one file,
-> stored at a path made from its schema and key. A named alternate key finds the same record through
-> declared fields. A relationship with different data uses its own schema.
+> stored value, with one stamp and revision for the complete record. A record can own one file,
+> stored at a path made from its schema and key. A named alternate key finds the same record through an explicitly supplied
+> address. Keys are independent of payload fields. Every mutation supplies all declared
+> alternate names; a replacement supplies the complete payload without merging. A relationship with different data uses its own schema.
 >
 > **Read before you design** (the brain records are canonical; if a code
 > comment disagrees with them, they win; fix the comment):

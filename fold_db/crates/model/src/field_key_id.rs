@@ -44,7 +44,7 @@ pub fn is_canonical_field_key_id(field_key_id: &str) -> bool {
 }
 
 /// The key family of the alternate key entries:
-/// `ak:{alternate_field_key_id}:{esc(hash)}\0{range}`. A schema drop releases
+/// `ak:{alternate_field_key_id}:{esc(hash)}\0{range}\0{primary_digest}`. A schema drop releases
 /// the entries of each declared alternate by this prefix.
 pub const ALTERNATE_ENTRY_PREFIX: &str = "ak:";
 
