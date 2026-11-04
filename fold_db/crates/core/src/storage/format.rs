@@ -14,6 +14,7 @@
 pub(crate) mod bind;
 pub(crate) mod change_feed;
 pub(crate) mod control;
+pub(crate) mod export;
 pub(crate) mod field_keys;
 pub(crate) mod history;
 pub(crate) mod metadata;

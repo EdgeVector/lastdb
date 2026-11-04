@@ -19,6 +19,7 @@
 //! Normal constructors use the native packed engine. They refuse a nonempty
 //! home of another format.
 
+pub mod cloud_contract;
 pub mod config;
 /// The account-key proof record of a node home. It lives with the store it
 /// reads, above the crypto primitives it seals with.
@@ -26,6 +27,7 @@ pub(crate) mod content_key_proof;
 pub(crate) mod current_keys;
 pub mod disk_backup;
 pub mod disk_cleanup;
+pub(crate) mod disk_contract;
 pub mod disk_pack;
 pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
