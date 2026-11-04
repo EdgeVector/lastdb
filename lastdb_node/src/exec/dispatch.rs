@@ -76,7 +76,7 @@ where
 
     // Phase accumulator scope: mutation-path recording sites (parse here in
     // exec, resolve/validate/admission/index-wait in `lastdb_host::handlers`,
-    // grouping/idempotency-check/apply lifted from fold_db core's timing
+    // grouping/apply lifted from fold_db core's timing
     // breakdown) add into this request's totals. Non-mutation routes add
     // nothing, so their samples keep an absent phase set by construction.
     let (resp, phase_totals, work_counts) = Box::pin(fold_db::request_phases::run_with_phases(

@@ -32,7 +32,7 @@ pub struct DbOperations {
     field_keys: FieldKeyStore,
     /// Main namespace: records, alternate keys, field history.
     record_store: RecordStore,
-    /// Metadata namespace, including the mutation retry cache
+    /// Metadata namespace for mutation author clocks
     metadata_store: MetadataStore,
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
@@ -69,7 +69,7 @@ impl DbOperations {
         crate::storage::disk_pack::PackReadScope::for_runtime(&self.runtime).await
     }
 
-    /// Access the metadata domain store (including the retry cache).
+    /// Access the typed author-clock metadata store.
     pub fn metadata(&self) -> &MetadataStore {
         &self.metadata_store
     }

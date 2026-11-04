@@ -7,12 +7,7 @@ use tracing::debug;
 use super::*;
 
 impl MutationManager {
-    /// Report this pipeline run as ONE logical resident commit and its
-    /// operation count.
-    ///
-    /// Split out so the all-duplicates early return and the applied path
-    /// cannot disagree about what a commit is: both reach the gates' owner
-    /// exactly once per caller batch, so both count 1.
+    /// Report one accepted native batch and its complete operation count.
     pub(super) fn report_resident_commit_counts(operations: &ResidentCommitOperations) {
         use crate::request_phases::{add_counter, RequestCounter};
         add_counter(RequestCounter::ResidentCommits, 1);
@@ -30,15 +25,8 @@ impl MutationManager {
 
     /// Report the batch write's request phases from timers it already ran.
     ///
-    /// The write pipeline times two named steps into `timing_breakdown`:
-    /// `"grouping"` (schema grouping before staging) and `"idempotency_check"`
-    /// (the duplicate filter inside the native request gate). A missing key
-    /// means the step did not run, for example grouping in an all-duplicates
-    /// batch, and reports nothing. Each is reported as its own phase. `Apply`
-    /// is the residual: `total_time` less those two, saturating so clock
-    /// coarseness cannot underflow it. It is not a direct CPU or disk
-    /// measurement. The subtraction happens on `Duration`s, before
-    /// microsecond conversion, so truncation does not compound.
+    /// Grouping is measured directly. Apply is the remaining wall time,
+    /// including staging, commit and durability; it is not a CPU-only measure.
     pub(in crate::fold_db_core::mutation_manager) fn report_phase_totals(
         timing_breakdown: &HashMap<&str, std::time::Duration>,
         total_time: std::time::Duration,
@@ -47,13 +35,9 @@ impl MutationManager {
 
         let timed = |key: &str| timing_breakdown.get(key).copied().unwrap_or_default();
         let grouping = timed("grouping");
-        let idempotency_check = timed("idempotency_check");
-        let apply = total_time
-            .saturating_sub(grouping)
-            .saturating_sub(idempotency_check);
+        let apply = total_time.saturating_sub(grouping);
 
         add_phase(RequestPhase::Grouping, grouping);
-        add_phase(RequestPhase::IdempotencyCheck, idempotency_check);
         add_phase(RequestPhase::Apply, apply);
     }
 

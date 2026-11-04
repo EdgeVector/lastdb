@@ -12,7 +12,6 @@ pub(super) struct NativeRequest {
 }
 
 struct NativeCommit {
-    already_seen_ids: Vec<String>,
     mutation_ids: Vec<String>,
     record_revisions: std::collections::BTreeMap<String, String>,
     operations: ResidentCommitOperations,
@@ -26,21 +25,8 @@ impl MutationManager {
         mut state: super::create_update_batch::BatchState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let committed = self.commit_native_request(request, &mut state).await?;
-        if committed.mutation_ids.is_empty() {
-            return self
-                .finish_all_duplicate_batch(
-                    committed.already_seen_ids,
-                    committed.record_revisions,
-                    state.force_durable,
-                    &state.timing_breakdown,
-                    start,
-                    state.stages,
-                )
-                .await;
-        }
         Ok(Self::build_commit_receipt(
-            committed.already_seen_ids,
-            &committed.mutation_ids,
+            committed.mutation_ids,
             committed.record_revisions,
             committed.operations,
             start,
@@ -66,23 +52,8 @@ impl MutationManager {
             request
                 .runtime
                 .record_read_stage("request-start", request.mutations.len());
-            // Compare once inside the exclusive native gate. A prior
-            // request can commit while this request waits to enter it.
-            let started = std::time::Instant::now();
-            let super::super::cas_idempotency::FilteredMutations {
-                already_seen_ids,
-                revisions: mut record_revisions,
-                mutations,
-                hashes,
-            } = self.filter_idempotent_mutations(request.mutations).await?;
-            Self::add_timing(
-                &mut state.timing_breakdown,
-                "idempotency_check",
-                started.elapsed(),
-            );
-            crate::db_operations::ChangeFeedStore::acknowledge_cached_notifications(
-                &already_seen_ids,
-            );
+            let mutations = request.mutations;
+            let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
             for mutation in &mutations {
@@ -98,28 +69,10 @@ impl MutationManager {
                 .iter()
                 .map(|mutation| mutation.uuid.clone())
                 .collect();
-            request
-                .runtime
-                .record_read_stage("idempotency-done", mutations.len());
-            if mutations.is_empty() {
-                self.db_ops
-                    .change_feed()
-                    .stage_native_events(notifications)
-                    .await?;
-                return Ok::<_, SchemaError>(NativeCommit {
-                    already_seen_ids,
-                    mutation_ids,
-                    record_revisions,
-                    operations,
-                });
-            }
-            request
-                .runtime
-                .record_read_stage("conditions-done", mutations.len());
+            // Revision conditions and record changes share this exclusive gate.
             let group_count = self
                 .stage_record_groups(
                     mutations,
-                    hashes,
                     &mut state.timing_breakdown,
                     &mut state.stages,
                     &request.runtime,
@@ -139,7 +92,6 @@ impl MutationManager {
             })
             .await?;
             Ok::<_, SchemaError>(NativeCommit {
-                already_seen_ids,
                 mutation_ids,
                 record_revisions,
                 operations,

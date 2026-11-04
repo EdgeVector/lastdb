@@ -8,13 +8,12 @@ use crate::host_node::HostNode;
 use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
-use super::plan::MutationPlan;
 use super::{
     commit_mutation, mutation_response, wait_for_requested_convergence, MutationComponents,
 };
 
 /// Execute `POST /api/mutation`. Schema
-/// resolution precedes pure request rules, field validation, and the write.
+/// resolution precedes field validation and the write.
 ///
 /// # Errors
 /// [`HostError`] `404` when the schema is unknown, `400` for invalid request
@@ -24,25 +23,20 @@ pub async fn execute_mutation<H: HostNode>(
     components: MutationComponents,
 ) -> Result<Value, HostError> {
     let canonical = resolve_mutation_schema(host, &components.schema)?;
-    let plan = MutationPlan::new(components, canonical)?;
     let validate_started = std::time::Instant::now();
     validate_mutation_fields(
         host,
-        &plan.components.schema,
-        &plan.canonical,
-        &plan.components.record_fields,
+        &components.schema,
+        &canonical,
+        &components.record_fields,
     )
     .await?;
     request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-    let payload_bytes = fields_payload_bytes(&plan.components.record_fields)
-        + plan
-            .components
-            .file_write
-            .as_ref()
-            .map_or(0, FileWrite::row_len);
+    let payload_bytes = fields_payload_bytes(&components.record_fields)
+        + components.file_write.as_ref().map_or(0, FileWrite::row_len);
 
-    let convergence = plan.components.convergence;
-    let receipt = commit_mutation(host, plan, payload_bytes).await?;
+    let convergence = components.convergence;
+    let receipt = commit_mutation(host, components, canonical, payload_bytes).await?;
     let mutation_id = receipt
         .mutation_ids
         .last()

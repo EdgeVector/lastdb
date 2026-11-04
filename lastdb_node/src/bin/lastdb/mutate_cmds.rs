@@ -45,11 +45,7 @@ pub(super) fn mutate_command(
     };
     let mut body: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))?;
-    // An explicit ID can be kept for retries; otherwise this invocation is a new request.
     if let Some(object) = body.as_object_mut() {
-        object
-            .entry("mutation_id")
-            .or_insert_with(|| serde_json::json!(uuid::Uuid::new_v4().to_string()));
         if durable {
             object.insert("durability".into(), serde_json::json!("durable"));
         }

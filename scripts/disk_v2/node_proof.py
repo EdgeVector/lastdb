@@ -246,7 +246,7 @@ class Case:
         total = sum(len(batch) for batch in batches)
         done, condition_reads, started = 0, 0, time.monotonic()
         for batch in batches:
-            request = batch_request(batch, native=self.node.api_version >= 27)
+            request = batch_request(batch, native=self.node.api_version >= 27, caller_ids=self.node.api_version == 27)
             if self.node.api_version >= 27:
                 condition_reads += int(any(item["mutation_type"] != "create" for item in request["mutations"]))
                 request["mutations"] = conditioned(self.node, request["mutations"])

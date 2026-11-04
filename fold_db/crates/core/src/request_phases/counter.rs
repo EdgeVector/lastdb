@@ -26,15 +26,7 @@ pub enum RequestCounter {
     /// stage CLOCKS cannot join [`RequestPhaseTotals`] without corrupting the
     /// `unattributed` remainder, and why the counts can.
     ResidentCommits,
-    /// Operations carried by those commits: created + updated + deleted +
-    /// recognised-duplicate rows.
-    ///
-    /// The denominator for [`Self::ResidentCommits`]. `9/1` is one resident
-    /// commit carrying a primary record and eight projections; `9/9` is nine
-    /// separate commits doing the same work, which is the shape the design
-    /// replaces. Idempotency duplicates are counted here because a batch that
-    /// was entirely duplicates still cost the node an idempotency scan, and
-    /// omitting them would report that request as having issued no work at all.
+    /// Complete creates, replacements and erasures carried by those commits.
     ResidentOperations,
 }
 

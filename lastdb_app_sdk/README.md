@@ -66,7 +66,6 @@ if (!fold.hasCapability) {                                    // first run: no s
 
 await fold.mutate('fbrain/Concept', {                          // capability auto-attached
   mutationType: 'create',
-  mutationId: crypto.randomUUID(),
   alternates: {},
   expected: { type: 'absent' },
   record: { id: 'c1', title: 'hello' },
@@ -111,7 +110,7 @@ try {
 - `GET /api/version` answers on both sockets with no node state:
   `{ok, api_version, build, capabilities, instance_id, ...}`. `fold.version()`
   reads it; a body without `api_version` throws `UnexpectedResponseError`.
-- SDK 0.6 requires API 27. `connect()` checks this minimum automatically;
+- SDK 0.7 requires API 28. `connect()` checks this minimum automatically;
   an app may request a higher version. Owner clients can call
   `requireApiVersion(LASTDB_SDK_API_VERSION)` before data operations.
 - A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
@@ -201,7 +200,6 @@ const db = ownerClient({
 const records = await db.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
 await db.mutate('fbrain/Concept', {
   mutationType: 'create',
-  mutationId: crypto.randomUUID(),
   alternates: {},
   expected: { type: 'absent' },
   record: { id: 'c1', title: 'hello' },
@@ -239,7 +237,6 @@ await db.query('some-other-app/PublicNote', { fields: ['id', 'text'] });
 // check this today.
 await db.mutate('my-app/Note', {
   mutationType: 'create',
-  mutationId: crypto.randomUUID(),
   alternates: {},
   expected: { type: 'absent' },
   record: { id: 'n1', text: 'hi' },
@@ -287,7 +284,6 @@ const db = await connect({
 
 await db.mutate('LocalNote', {
   mutationType: 'create',
-  mutationId: crypto.randomUUID(),
   alternates: {},
   expected: { type: 'absent' },
   record: { title: 'hello', body: 'renamed at the edge' },
@@ -467,7 +463,7 @@ field map. Each `QueryRow` (the SDK type name) carries:
 | `alternates` | all named alternate addresses, independent of payload fields |
 | `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
-This is the API 27 shape of `lastdbd`'s `/api/query`. Each item of `results`
+This is the API 28 shape of `lastdbd`'s `/api/query`. Each item of `results`
 is one record: `{key, revision, alternates, fields, metadata}`.
 `metadata` is `{source_file_name, metadata?, file?}` or `null`.
 The SDK surfaces the key, field, and metadata parts and invents none. A body
@@ -604,11 +600,12 @@ event history as complete.
 
 ## Complete conditional records
 
-SDK 0.6 and node API 27 replace complete records. Omitted payload fields disappear.
+SDK 0.7 and node API 28 replace complete records. Omitted payload fields disappear.
 Keys are independent of fields. Supply exactly every declared alternate name;
-`null` is valid only for an alternate declared with `allow_absent`. Keep one
-`mutationId` for retries of the same request; a new logical write gets a new ID.
-The node keeps bounded retry receipts, so arbitrary delayed replay is not guaranteed.
+`null` is valid only for an alternate declared with `allow_absent`. The server
+assigns mutation identities; requests do not supply one. Replaying a successful
+request can return a revision conflict without changing the accepted record.
+The server does not retain or replay earlier acknowledgements.
 
 Creation requires `{type: 'absent'}`. Replacement, deletion and purge require the
 record revision. Read the complete record with no field projection, then supply
@@ -618,7 +615,6 @@ all values and metadata you want to retain:
 const { rows } = await fold.query('myapp/Ref', { filter: { HashKey: 'main' } });
 const current = rows[0];
 const result = await fold.mutate('myapp/Ref', {
-  mutationId: crypto.randomUUID(),
   mutationType: 'replace',
   key: current.keyValue!,
   alternates: current.alternates,

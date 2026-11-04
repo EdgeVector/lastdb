@@ -67,13 +67,11 @@ impl MutationManager {
         );
     }
 
-    /// Stamp the final stage timings, log the phase totals, and build the
-    /// receipt that merges already-seen ids with the newly written ones.
+    /// Report one accepted batch and its server-generated record identities.
     pub(super) fn build_commit_receipt(
-        already_seen_ids: Vec<String>,
-        mutation_ids: &[String],
+        mutation_ids: Vec<String>,
         record_revisions: std::collections::BTreeMap<String, String>,
-        mut operations: ResidentCommitOperations,
+        operations: ResidentCommitOperations,
         start_time: std::time::Instant,
         state: BatchState,
     ) -> ResidentCommitReceipt {
@@ -81,39 +79,17 @@ impl MutationManager {
             force_durable,
             timing_breakdown,
             mut stages,
-            ..
         } = state;
         let total_time = start_time.elapsed();
         stages.ack_us = crate::request_phases::duration_us(total_time);
-
-        // Combine already-seen ids with newly processed mutation ids
-        let mut all_ids = already_seen_ids;
-        all_ids.extend(mutation_ids.iter().cloned());
-        // Per-verb counts cover new writes; every recognized retry contributes one no_op.
-        let duplicates = (all_ids.len() - mutation_ids.len()) as u64;
-        operations.no_op = operations.no_op.saturating_add(duplicates);
-
-        tracing::info!(
-            "write_create_update_batch_async: Completed {} mutations ({} new, {} cached) in {:.2}ms",
-            all_ids.len(),
-            mutation_ids.len(),
-            all_ids.len() - mutation_ids.len(),
-            total_time.as_millis()
-        );
-
         Self::log_timing_breakdown(&timing_breakdown, total_time);
         Self::report_phase_totals(&timing_breakdown, total_time);
         Self::report_resident_commit_counts(&operations);
-
         ResidentCommitReceipt {
-            mutation_ids: all_ids,
+            mutation_ids,
             record_revisions,
-            // Stamped by the caller batch entry point, which is the only
-            // scope that knows this pipeline run is one logical operation.
             revision: None,
             operations,
-            // Queued permits a later flush. Explicit durability waits for disk;
-            // admission can also choose disk-first when it cannot retain bytes.
             durability: Self::commit_durability(force_durable),
             stages,
         }
@@ -127,7 +103,7 @@ impl MutationManager {
         }
     }
 
-    /// Count writes that survived idempotency filtering. Each retry is added once as no_op.
+    /// Count the complete writes accepted by the native transaction.
     pub(super) fn count_applied_operations(mutations: &[Mutation]) -> ResidentCommitOperations {
         let mut operations = ResidentCommitOperations::default();
         for mutation in mutations {

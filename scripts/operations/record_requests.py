@@ -4,11 +4,10 @@ This client supplies revision conditions and explicit addresses. It never merges
 payload fields or translates an older mutation dialect.
 """
 from collections import defaultdict
-import uuid
 
 
 def mutation(schema, key, record, operation="replace", *, alternates=None, expected=None):
-    return {"type": "mutation", "mutation_id": str(uuid.uuid4()), "schema": schema,
+    return {"type": "mutation", "schema": schema,
             "key_value": key, "record": record, "alternates": alternates or {},
             "mutation_type": operation,
             "expected": expected if expected is not None else {"type": "absent"} if operation == "create" else None,

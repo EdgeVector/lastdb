@@ -20,7 +20,6 @@ pub struct RequestPhaseTotals {
     pub hydrate_sort_us: u64,
     pub apply_us: u64,
     pub grouping_us: u64,
-    pub idempotency_check_us: u64,
     pub index_wait_us: u64,
     pub change_record_us: u64,
     pub response_envelope_us: u64,

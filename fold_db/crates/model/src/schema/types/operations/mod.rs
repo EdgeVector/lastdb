@@ -312,7 +312,6 @@ impl MutationDurability {
 pub enum Operation {
     #[serde(rename = "mutation")]
     Mutation {
-        mutation_id: String,
         schema: String,
         #[serde(rename = "record")]
         record_fields: HashMap<String, Value>,

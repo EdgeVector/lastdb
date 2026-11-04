@@ -15,7 +15,6 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from home_format import HOME_FORMAT  # noqa: E402
@@ -256,7 +255,6 @@ def exercise(node, binary):
     source = node.root / "restore-request.json"
     source.write_text(json.dumps(restore))
     cli(node, binary, "restore", entry, "--request-file", str(source))
-    restore["mutation_id"] = str(uuid.uuid4())
     source.write_text(json.dumps(restore))
     cli(node, binary, "restore", entry, "--request-file", str(source), success=False)
     print("keep, canonical field policy, CLI fetch, restore, and stale-write refusal passed", flush=True)
@@ -319,7 +317,6 @@ def exercise(node, binary):
     require(len(audit) == 1 and audit[0]["history_rows_deleted"] == len(held),
             "the compliance purge audit row differs: " + json.dumps(audit))
     try:
-        purge["mutation_id"] = str(uuid.uuid4())
         node.call("/api/mutation", purge)
     except RuntimeError as error:
         require("HTTP 409" in str(error), "a second purge failed for another reason")

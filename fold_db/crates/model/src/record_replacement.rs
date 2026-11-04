@@ -103,11 +103,3 @@ impl RecordDeletion {
         Ok(())
     }
 }
-
-/// A bounded retry receipt, committed atomically with its record.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RetryReceipt {
-    pub intent_hash: String,
-    pub revision: String,
-}

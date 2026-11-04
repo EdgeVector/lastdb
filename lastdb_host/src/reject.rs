@@ -174,8 +174,6 @@ pub enum WireKey {
     Schema,
     /// `record` — the field map a mutation writes.
     Record,
-    /// Stable caller request identity.
-    MutationId,
     /// Every schema-declared alternate address.
     Alternates,
     /// Whole-record acceptance condition.
@@ -188,7 +186,7 @@ pub enum WireKey {
 
 /// Complete mutation example used by structural rejection responses.
 const MUTATION_BODY_EXAMPLE: &str = concat!(
-    r#"{"type":"mutation","mutation_id":"<UUID>","schema":"<Schema>","record":{"<field>":"<value>"},"#,
+    r#"{"type":"mutation","schema":"<Schema>","record":{"<field>":"<value>"},"#,
     r#""key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#,
 );
 
@@ -210,7 +208,6 @@ impl WireKey {
             Self::OperationType => "type",
             Self::Schema => "schema",
             Self::Record => "record",
-            Self::MutationId => "mutation_id",
             Self::Alternates => "alternates",
             Self::Expected => "expected",
             Self::KeyValue => "key_value",
@@ -256,7 +253,6 @@ impl WireKey {
             Self::OperationType
             | Self::Schema
             | Self::Record
-            | Self::MutationId
             | Self::Alternates
             | Self::Expected
             | Self::KeyValue

@@ -16,10 +16,9 @@ pub const CURRENT_API_VERSION: u32 = lastdb_uds::uds_router::API_VERSION;
 /// The oldest HTTP API version this node still supports.
 ///
 /// Apps declaring `api_version` less than this are incompatible and will be
-/// rejected at install time. When a breaking HTTP API change lands, bump
-/// `CURRENT_API_VERSION` but leave this unchanged for at least two releases
-/// (e.g., 6 weeks) to provide a deprecation window.
-pub const MIN_SUPPORTED_API_VERSION: u32 = 27;
+/// rejected at install time. Breaking request-grammar changes raise both
+/// versions when the older grammar is no longer accepted.
+pub const MIN_SUPPORTED_API_VERSION: u32 = 28;
 
 /// The current outbox format version this node writes.
 ///

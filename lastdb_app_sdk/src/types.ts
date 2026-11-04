@@ -25,7 +25,7 @@ export type RowFields = Record<string, JsonValue>;
 export type Row = RowFields;
 
 /**
- * Explicit record coordinates. API 27 requires a nonempty hash and a range
+ * Explicit record coordinates. API 28 requires a nonempty hash and a range
  * only for a hash_range declaration. Queries return this object as `key`;
  * mutations send it as `key_value`. Coordinates are independent of fields.
  */
@@ -666,8 +666,6 @@ export type CasExpectation =
   | { type: 'revision'; revision: string };
 
 interface MutationTarget {
-  /** Stable UUID for retries of exactly this complete request. */
-  mutationId: string;
   key: KeyValue;
   /** Exactly every declared name; null requires allow_absent in the schema. */
   alternates: Record<string, KeyValue | null>;

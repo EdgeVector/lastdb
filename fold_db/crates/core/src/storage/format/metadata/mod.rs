@@ -1,10 +1,8 @@
 //! The metadata namespace's typed capability and its only staging writer.
 //!
-//! Callers supply clock values or logical retry receipts. Nested encoders
+//! Callers supply clock values. Nested encoders
 //! receive data, never this namespace handle. The existing native request
 //! owns commit and publication; staging here never creates a request or flush.
-
-mod retry;
 
 use std::sync::Arc;
 
@@ -21,9 +19,9 @@ pub(crate) struct Metadata {
 }
 
 /// Private encoded output. No caller can construct raw metadata destinations.
-enum EncodedMetadata {
-    Clock { key: String, bytes: Vec<u8> },
-    Retry(Vec<(Vec<u8>, Vec<u8>)>),
+struct EncodedMetadata {
+    key: String,
+    bytes: Vec<u8>,
 }
 
 impl Metadata {
@@ -69,7 +67,7 @@ impl Metadata {
         let result = async {
             let bytes = serde_json::to_vec(state)
                 .map_err(|error| StorageError::SerializationError(error.to_string()))?;
-            self.stage(EncodedMetadata::Clock {
+            self.stage(EncodedMetadata {
                 key: key.clone(),
                 bytes,
             })
@@ -85,32 +83,6 @@ impl Metadata {
         })
     }
 
-    pub(crate) fn retry_cache_status(&self) -> serde_json::Value {
-        retry::status()
-    }
-
-    pub(crate) async fn idempotency_ids(
-        &self,
-        keys: &[String],
-    ) -> StorageResult<Vec<Option<lastdb_model::record_replacement::RetryReceipt>>> {
-        let lookup = retry::Lookup::new(keys);
-        let bytes = self.metadata_store.get_many(lookup.keys()).await?;
-        lookup.decode(bytes)
-    }
-
-    pub(crate) async fn stage_idempotency(
-        &self,
-        entries: Vec<(String, lastdb_model::record_replacement::RetryReceipt)>,
-    ) -> StorageResult<()> {
-        let batch = retry::Batch::new(entries)?;
-        if batch.is_empty() {
-            return Ok(());
-        }
-        self.require_scope()?;
-        let old = self.metadata_store.get_many(batch.keys()).await?;
-        self.stage(batch.encode(old)?).await
-    }
-
     fn require_scope(&self) -> StorageResult<()> {
         if !transaction::publication::active(&self.runtime) {
             return Err(StorageError::InvalidOperation(
@@ -122,11 +94,8 @@ impl Metadata {
 
     async fn stage(&self, encoded: EncodedMetadata) -> StorageResult<()> {
         self.require_scope()?;
-        match encoded {
-            EncodedMetadata::Clock { key, bytes } => {
-                self.metadata_store.put(key.as_bytes(), bytes).await
-            }
-            EncodedMetadata::Retry(rows) => self.metadata_store.batch_put(rows).await,
-        }
+        self.metadata_store
+            .put(encoded.key.as_bytes(), encoded.bytes)
+            .await
     }
 }

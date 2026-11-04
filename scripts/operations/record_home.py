@@ -164,7 +164,7 @@ def wide_empty_record_erasure(node):
     request = mutation(schema, key, {}, "delete", alternates=aliases,
                        expected={"type": "revision", "revision": created["record_revision"]})
     deleted = node.call("/api/mutation", request)[0]
-    request.update(mutation_id=str(uuid.uuid4()), mutation_type="purge",
+    request.update(mutation_type="purge",
                    expected={"type": "revision", "revision": deleted["record_revision"]})
     node.call("/api/mutation", request)
     reply = node.call("/api/query", {"schema_name": schema, "fields": [],
@@ -208,6 +208,8 @@ def range_records(node):
 
 def preconditions(node):
     fields = {"id": "one", "bucket": "b2", "value": "v3"}
+    retired = mutation("RecordById", {"hash": "one"}, fields, "create")
+    refused(lambda: node.call("/api/mutation", {**retired, "mutation_id": "retired"}), "HTTP 400")
     old = query(node, "RecordById", {"HashKey": "one"})[0]["revision"]
     refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, "create",
                            expected={"type": "absent"}), "HTTP 4")
@@ -245,20 +247,17 @@ def deletes(node):
     require(absent(node, "four"), "a deleted record still reads")
     require(sorted(ids(query(node, "RecordById", {"HashKey": "b9"}, key_name="by_bucket")))
             == ["three", "two"], "a deleted alternate entry still resolves")
-    again = node.call("/api/mutation", request)[0]
-    require(first["record_revision"] == again["record_revision"] and again["operations"]["no_op"] == 1,
-            "a stable-ID delete retry lost its original revision")
-    refused(lambda: node.call("/api/mutation", {**request,
-            "expected": {"type": "revision", "revision": "0" * 64}}), "reused")
-    stale = {**request, "mutation_id": str(uuid.uuid4())}
-    refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
+    uuid.UUID(first["mutation_id"])
+    refused(lambda: node.call("/api/mutation", request), "HTTP 409")
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
     require(one(node, "four") == {"id": "four", "bucket": "b5"}, "recreate brought back deleted content")
-    refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
+    refused(lambda: node.call("/api/mutation", request), "HTTP 409")
     fresh = mutation("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create")
-    mixed = node.call("/api/mutations/batch", {"mutations": [request, fresh]})[0]
-    require(mixed["operations"] == {"created": 1, "updated": 0, "deleted": 0, "no_op": 1, "total": 2},
-            "mixed retry receipt counted an input twice")
+    refused(lambda: node.call("/api/mutations/batch", {"mutations": [request, fresh]}), "HTTP 409")
+    require(absent(node, "five"), "a refused batch published its other record")
+    accepted = node.call("/api/mutation", fresh)[0]
+    require(accepted["mutation_id"] != first["mutation_id"] and accepted["operations"] ==
+            {"created": 1, "updated": 0, "deleted": 0, "total": 1}, "server identity or write counts differ")
     requests = [mutation("RecordById", {"hash": "two"}, {}, "delete"),
                 mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
                 mutation("RecordById", {"hash": "five"}, {}, "delete")]
@@ -266,11 +265,13 @@ def deletes(node):
     require(absent(node, "two") and absent(node, "five"), "a batch delete did not apply")
     require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
             "a HashRange delete left its record")
-    print("Conditional deletion, stable-ID retry, stale revision, recreate and atomic batch passed", flush=True)
+    print("Conditional deletion, server identities, stale replay, recreate and atomic batch passed", flush=True)
 
 
 def native_status(node):
-    return node.call("/api/db/native-status")[0]["native_disk"]
+    reply = node.call("/api/db/native-status")[0]
+    require("retry_cache" not in reply, "native status still exposes a retry cache")
+    return reply["native_disk"]
 
 
 def warm_records(node):
@@ -321,7 +322,7 @@ def field_history(node):
         {"id": "hist", "bucket": "bh", "value": "h1"})])[0]
     history(node, {"op": "restore", "id": entry, "mutation": restore})
     require(one(node, "hist")["value"] == "h1", "the restore did not write the old value")
-    refused(lambda: history(node, {"op": "restore", "id": entry, "mutation": {**restore, "mutation_id": str(uuid.uuid4())}}), "HTTP 4")
+    refused(lambda: history(node, {"op": "restore", "id": entry, "mutation": restore}), "HTTP 4")
     reasons = sorted(item["reason"] for item in history(node, {"op": "list"})["entries"])
     require(reasons == ["replace", "replace"], "the restore did not keep the value it replaced: " + repr(reasons))
     mutate(node, "RecordById", {"hash": "kept"}, {"id": "kept", "bucket": "bh", "value": "k1"}, "create")
@@ -514,9 +515,9 @@ def main():
         acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
         node.stop()
         node.start()
-        replayed = node.call("/api/mutation", retry)[0]
-        require(replayed["record_revision"] == acknowledged and replayed["operations"]["no_op"] == 1,
-                "a retained retry did not replay its original revision after restart")
+        refused(lambda: node.call("/api/mutation", retry), "HTTP 409")
+        require(query(node, "RecordById", {"HashKey": "four"})[0]["revision"] == acknowledged,
+                "a stale replay changed the record after restart")
         record_drop_tracking.check(node)
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")

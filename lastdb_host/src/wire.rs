@@ -184,18 +184,14 @@ pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName, WireKey::Fiel
 /// a later key first would send the caller to fix something that is not yet the
 /// problem.
 ///
-/// `source_file_name`, `expected`, and `convergence` are deliberately absent —
-/// all three are `Option<_>`, which serde resolves to `None` when missing, so
-/// requiring any of them would reject at parse time a mutation the node would
-/// have applied. Same rule, and the same past mistake, as `filter` on
-/// [`QUERY_REQUIRED_KEYS`].
+/// Optional metadata, file, convergence and durability values are not required
+/// here. The whole-record acceptance condition is mandatory.
 pub const MUTATION_REQUIRED_KEYS: &[WireKey] = &[
     WireKey::OperationType,
     WireKey::Schema,
     WireKey::Record,
     WireKey::KeyValue,
     WireKey::MutationType,
-    WireKey::MutationId,
     WireKey::Alternates,
     WireKey::Expected,
 ];

@@ -66,12 +66,7 @@ impl ResidentDurability {
 
 /// Per-class operation counts for one resident commit.
 ///
-/// Sized by mutation verb rather than by schema, because the caller that sent
-/// the batch knows which of its rows were the primary record and which were
-/// exact projections, and wants to check that the node applied the shape it
-/// planned. `no_op` is the idempotency-duplicate count: work the batch asked
-/// for that the node correctly did not repeat. It is reported rather than
-/// hidden so a client cannot read a short `created` as a lost write.
+/// Counts cover complete records accepted in the native transaction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitOperations {
     /// `MutationType::Create` rows applied.
@@ -80,12 +75,10 @@ pub struct ResidentCommitOperations {
     pub updated: u64,
     /// `MutationType::Delete` and `MutationType::Purge` rows applied.
     pub deleted: u64,
-    /// Rows the idempotency filter recognised as already applied.
-    pub no_op: u64,
 }
 
 impl ResidentCommitOperations {
-    /// Every operation the commit accounted for, applied or recognised.
+    /// Every complete operation accepted by this commit.
     ///
     /// This is the number reported as
     /// [`crate::request_phases::RequestCounter::ResidentOperations`] — the
@@ -98,7 +91,6 @@ impl ResidentCommitOperations {
         self.created
             .saturating_add(self.updated)
             .saturating_add(self.deleted)
-            .saturating_add(self.no_op)
     }
 
     /// Fold `other` into this set. Hard-erasure peels and the create/update
@@ -107,7 +99,6 @@ impl ResidentCommitOperations {
         self.created = self.created.saturating_add(other.created);
         self.updated = self.updated.saturating_add(other.updated);
         self.deleted = self.deleted.saturating_add(other.deleted);
-        self.no_op = self.no_op.saturating_add(other.no_op);
     }
 }
 
@@ -115,7 +106,7 @@ impl ResidentCommitOperations {
 ///
 /// See the module docs for why these are on the receipt rather than in the
 /// request phase set. Zero preparation means "not measured on this path" — a
-/// batch that was entirely idempotency duplicates prepares nothing.
+/// an empty batch prepares nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitStages {
     /// Record preparation for every schema in the batch.
@@ -127,11 +118,9 @@ pub struct ResidentCommitStages {
 /// One logical resident commit's answer to its caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResidentCommitReceipt {
-    /// One accepted input mutation identity per caller input, in caller order.
-    /// Idempotent repeats retain their submitted identity. This list does not
-    /// claim which identity currently owns a field value or which erase removed bytes.
+    /// One server-generated identity per accepted input, in caller order.
     pub mutation_ids: Vec<String>,
-    /// Original complete-record revisions, indexed by stable caller mutation ID.
+    /// Complete-record revisions, indexed by the server-generated mutation ID.
     pub record_revisions: std::collections::BTreeMap<String, String>,
     /// The one committed revision for the primary record and every exact
     /// projection in this batch.

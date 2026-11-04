@@ -3,7 +3,7 @@
 //! The request-ops telemetry (`lastdb_node::request_telemetry::PhaseTimings`)
 //! wants to know *where inside the node* a request spent its time. For a
 //! mutation that is QoS admission wait, parse, schema resolve, validate,
-//! `cas_precondition`, the idempotency check, grouping, apply, background
+//! `cas_precondition`, grouping, apply, background
 //! index wait, change recording, and response envelope rendering.
 //! For a query it is admission wait, parse, schema resolve, the index
 //! `count` and record `hydrate`. For status it is the
@@ -149,7 +149,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::HydrateSort => &mut totals.hydrate_sort_us,
             RequestPhase::Apply => &mut totals.apply_us,
             RequestPhase::Grouping => &mut totals.grouping_us,
-            RequestPhase::IdempotencyCheck => &mut totals.idempotency_check_us,
             RequestPhase::IndexWait => &mut totals.index_wait_us,
             RequestPhase::ChangeRecord => &mut totals.change_record_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,

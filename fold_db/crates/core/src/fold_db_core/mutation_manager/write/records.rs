@@ -8,7 +8,7 @@ use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
-use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement, RetryReceipt};
+use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 
@@ -19,7 +19,6 @@ impl MutationManager {
         &self,
         schema_name: &str,
         mut mutations: Vec<Mutation>,
-        idempotency_entries: Vec<(String, RetryReceipt)>,
         runtime: &Arc<PackRuntime>,
     ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
@@ -82,12 +81,6 @@ impl MutationManager {
         self.stage_records_with_effects(&schema, &changed, changes, entries)
             .await?;
         runtime.record_read_stage("record-stores-done", keys.len());
-        if !idempotency_entries.is_empty() {
-            self.db_ops
-                .metadata()
-                .batch_put_idempotency(idempotency_entries)
-                .await?;
-        }
         if schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops
                 .schemas()

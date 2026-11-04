@@ -49,10 +49,10 @@ export function capabilityDetailOf(body: unknown): CapabilityDenialDetail {
 
 /**
  * Read the modeled detail fields off a `409 {error:"cas_conflict"}` body
- * (`schema` / `field` / `key` / `expected` / `actual` / `message`, per the
+ * (`schema` / `key` / `expected` / `actual` / `message`, per the
  * node's CAS-conflict contract). Unknown fields are ignored; absent ones stay
  * absent. `actual` is passed through as-is (the node may send an explicit
- * `null` when the field had no current value).
+ * `null` when the record has no applicable current revision).
  */
 export function casConflictDetailOf(body: unknown): CasConflictDetail {
   const detail: CasConflictDetail = {};
