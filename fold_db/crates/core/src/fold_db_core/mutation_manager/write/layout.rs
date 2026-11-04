@@ -19,8 +19,7 @@ impl MutationManager {
                 )));
             }
         }
-        self.validate_mutation_keys_and_layouts(mutations)?;
-        self.validate_key_field_payloads(mutations)
+        self.validate_mutation_keys_and_layouts(mutations)
     }
 
     pub(in crate::fold_db_core::mutation_manager) fn validate_mutation_keys_and_layouts(
@@ -29,7 +28,7 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         for field in mutations
             .iter()
-            .flat_map(|mutation| mutation.fields_and_values.keys())
+            .flat_map(|mutation| mutation.record_fields.keys())
         {
             crate::schema::Schema::validate_field_name(field).map_err(SchemaError::InvalidData)?;
         }

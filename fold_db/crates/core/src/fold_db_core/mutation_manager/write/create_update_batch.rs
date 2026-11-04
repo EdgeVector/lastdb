@@ -35,7 +35,6 @@ impl MutationManager {
         let force_durable = mutations
             .iter()
             .any(|mutation| mutation.synchronous == Some(true));
-        let operations = Self::count_requested_operations(&mutations);
 
         self.reject_blocked_mutation_targets(&mutations)?;
 
@@ -51,7 +50,6 @@ impl MutationManager {
                 mutations,
                 author_clock: author_clock_barrier,
             },
-            operations,
             start_time,
             state,
         )
@@ -74,6 +72,7 @@ impl MutationManager {
     pub(super) fn build_commit_receipt(
         already_seen_ids: Vec<String>,
         mutation_ids: &[String],
+        record_revisions: std::collections::BTreeMap<String, String>,
         mut operations: ResidentCommitOperations,
         start_time: std::time::Instant,
         state: BatchState,
@@ -90,8 +89,7 @@ impl MutationManager {
         // Combine already-seen ids with newly processed mutation ids
         let mut all_ids = already_seen_ids;
         all_ids.extend(mutation_ids.iter().cloned());
-        // Duplicates the filter removed. The per-verb counts above describe
-        // the requested batch, so this is additive, not a correction.
+        // Per-verb counts cover new writes; every recognized retry contributes one no_op.
         let duplicates = (all_ids.len() - mutation_ids.len()) as u64;
         operations.no_op = operations.no_op.saturating_add(duplicates);
 
@@ -109,6 +107,7 @@ impl MutationManager {
 
         ResidentCommitReceipt {
             mutation_ids: all_ids,
+            record_revisions,
             // Stamped by the caller batch entry point, which is the only
             // scope that knows this pipeline run is one logical operation.
             revision: None,
@@ -128,16 +127,13 @@ impl MutationManager {
         }
     }
 
-    /// Per-class counts are taken from the verbs the CALLER sent, before the
-    /// idempotency filter runs, so `created + updated` describes the batch
-    /// that was asked for. The duplicates it removes are reported separately
-    /// as `no_op` rather than silently shrinking these.
-    fn count_requested_operations(mutations: &[Mutation]) -> ResidentCommitOperations {
+    /// Count writes that survived idempotency filtering. Each retry is added once as no_op.
+    pub(super) fn count_applied_operations(mutations: &[Mutation]) -> ResidentCommitOperations {
         let mut operations = ResidentCommitOperations::default();
         for mutation in mutations {
             match mutation.mutation_type {
                 crate::schema::types::MutationType::Create => operations.created += 1,
-                crate::schema::types::MutationType::Update => operations.updated += 1,
+                crate::schema::types::MutationType::Replace => operations.updated += 1,
                 crate::schema::types::MutationType::Delete
                 | crate::schema::types::MutationType::Purge => operations.deleted += 1,
             }

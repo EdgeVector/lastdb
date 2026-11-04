@@ -46,8 +46,15 @@ pub(crate) fn db_fetch_blob(
 }
 
 /// `lastdb db delete-blob`: remove one record's file and its marker.
-pub(crate) fn db_delete_blob(socket: &Path, target: &BlobTargetArgs) -> Result<(), String> {
-    let value = db_post_json(socket, "/api/db/delete-blob", &blob_target_json(target))?;
+pub(crate) fn db_delete_blob(socket: &Path, request_file: &Path) -> Result<(), String> {
+    let raw = std::fs::read(request_file).map_err(|e| format!("read complete record: {e}"))?;
+    let mutation: serde_json::Value =
+        serde_json::from_slice(&raw).map_err(|e| format!("parse complete record: {e}"))?;
+    let value = db_post_json(
+        socket,
+        "/api/db/delete-blob",
+        &serde_json::json!({"mutation": mutation}),
+    )?;
     println!(
         "{}",
         serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?

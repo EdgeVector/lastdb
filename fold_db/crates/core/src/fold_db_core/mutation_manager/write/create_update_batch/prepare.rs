@@ -11,6 +11,7 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager::write) async fn finish_all_duplicate_batch(
         &self,
         already_seen_ids: Vec<String>,
+        record_revisions: std::collections::BTreeMap<String, String>,
         force_durable: bool,
         timing_breakdown: &HashMap<&str, std::time::Duration>,
         start_time: std::time::Instant,
@@ -41,40 +42,12 @@ impl MutationManager {
         Self::report_resident_commit_counts(&operations);
         Ok(ResidentCommitReceipt {
             mutation_ids: already_seen_ids,
+            record_revisions,
             revision: None,
             operations,
             durability: Self::commit_durability(force_durable),
             stages,
         })
-    }
-
-    /// Phase 0.5b: Compare-and-set gate (same-node atomicity).
-    ///
-    /// Verify each surviving mutation's precondition against its stored
-    /// record before any group stages. Already-seen duplicates were filtered
-    /// out earlier and never reach this check, so a safe retry of an applied
-    /// CAS-guarded mutation cannot be rejected as a conflict against a value
-    /// its own earlier attempt already produced.
-    ///
-    /// Reported as its own phase: this is storage IO (one batch read of the
-    /// guarded records), not queueing. The same window also carries the
-    /// `must_exist` update gate and the loud erasure gate: the same class of
-    /// work under the same native gate, so they share the phase rather than
-    /// minting a second name for the same number.
-    pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
-        &self,
-        new_mutations: &[Mutation],
-    ) -> Result<(), SchemaError> {
-        let cas_precondition_start = std::time::Instant::now();
-        let cas_result = self.check_record_preconditions(new_mutations).await;
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::CasPrecondition,
-            cas_precondition_start.elapsed(),
-        );
-        // Recorded before the error returns so a rejected batch still reports
-        // what its precondition check cost — a CAS-conflict storm is exactly
-        // when the operator needs this number.
-        cas_result
     }
 
     /// Stage each schema group as records before the next group reads that
@@ -114,7 +87,16 @@ impl MutationManager {
                     let hash = hash_by_uuid
                         .remove(&mutation.uuid)
                         .expect("new mutation has a matching idempotency hash");
-                    (format!("idem:{hash}"), mutation.uuid.clone())
+                    (
+                        mutation.retry_key(),
+                        lastdb_model::record_replacement::RetryReceipt {
+                            intent_hash: hash,
+                            revision: mutation
+                                .record_stamp()
+                                .expect("author clock prepared")
+                                .revision(),
+                        },
+                    )
                 })
                 .collect();
             self.stage_record_group(&schema_name, schema_mutations, idempotency_entries, runtime)
@@ -126,9 +108,8 @@ impl MutationManager {
     }
 }
 
-/// Independent keys prepare together. A repeated key starts the next group
-/// so its unchanged fields come from the earlier private write, not the
-/// request's original state. The complete request still publishes once.
+/// Independent records prepare together. A repeated primary key is rejected:
+/// its replacement would require the revision of an unacknowledged write.
 impl MutationManager {
     fn independent_key_groups(
         &self,
@@ -142,8 +123,9 @@ impl MutationManager {
             for mutation in mutations {
                 let key = self.resolve_mutation_key_value(&name, &schema, &mutation)?;
                 if current_keys.contains(&key) {
-                    result.push((name.clone(), std::mem::take(&mut current)));
-                    current_keys.clear();
+                    return Err(SchemaError::InvalidData(
+                        "a batch cannot replace the same record twice".into(),
+                    ));
                 }
                 current_keys.insert(key);
                 current.push(mutation);

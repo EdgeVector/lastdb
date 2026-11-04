@@ -4,8 +4,12 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import sys
+from pathlib import Path
 
 from node import UnixConnection
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "operations"))
+from record_requests import mutation, conditioned, read_records, coordinate
 
 COUNT, FILE_BYTES, SCHEMA, NOTE = 256, 8192, "CasInterruptionLifecycle", "generated record with one file"
 FIELDS = ("id", "note", "detail")
@@ -35,8 +39,9 @@ def payload(number):
 def put(node, number):
     data = payload(number)
     reply = node.call("/api/db/put-blob", {
-        "schema": SCHEMA, "key": {"hash": key(number)}, "bytes_b64": base64.b64encode(data).decode(),
-        "fields": {"id": key(number), "note": NOTE, "detail": "initial"}})[0]
+        "mutation": mutation(SCHEMA, {"hash": key(number)},
+            {"id": key(number), "note": NOTE, "detail": "initial"}, "create", expected={"type": "absent"}),
+        "bytes_b64": base64.b64encode(data).decode()})[0]
     sha256 = hashlib.sha256(data).hexdigest()
     require(reply["file"]["size_bytes"] == FILE_BYTES and reply["file"]["sha256"] == sha256,
             "put-blob marker differs from the bytes")
@@ -47,27 +52,25 @@ def seed(node):
     """Put COUNT + 2 records, each with one file. Return the expected state."""
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
-        "key": {"hash_field": "id"}, "fields": list(FIELDS), "field_types": {"id": "String"},
+        "record_keys": {"primary": {"kind": "hash"}, "alternates": {}}, "fields": list(FIELDS), "field_types": {"id": "String"},
         "field_descriptions": {field: SCHEMA + " " + field for field in FIELDS}}})
     expected = parallel(lambda number: put(node, number), range(COUNT + 2))
-    # Ordinary field updates carry no file payload. Repeated-key groups must
-    # retain both independent field changes and the same file bytes. Skipping
-    # either update or merging the second from the original record must fail.
-    updates = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "update", "durability": "durable",
-                "key_value": {"hash": key(COUNT)}, "fields_and_values": fields}
-               for fields in ({"note": NOTE + " updated"}, {"detail": "updated"})]
-    reply = node.call("/api/mutations/batch", {"mutations": updates})[0]
-    require(len(reply["mutation_ids"]) == len(updates), "file-bearing record updates were not acknowledged")
+    # Each ordinary replacement supplies the complete fields and retained marker.
+    # A second replacement is conditional on the first replacement's revision.
+    for fields in ({"id": key(COUNT), "note": NOTE + " updated", "detail": "initial"},
+                   {"id": key(COUNT), "note": NOTE + " updated", "detail": "updated"}):
+        request = replacement(node, COUNT, fields, retain_file=True)
+        reply = node.call("/api/mutation", request)[0]
+        require(reply["record_revision"], "file-bearing replacement has no revision")
     records(node, expected)
     files(node, expected)
-    print("File metadata reuse: both field changes and the file contents survived", flush=True)
+    print("Complete record replacements retained the selected file without new payload bytes", flush=True)
     return expected
 
 
 def purge(node, numbers):
-    rows = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "purge", "durability": "durable",
-             "key_value": {"hash": key(number)}, "fields_and_values": {"id": key(number)}}
-            for number in numbers]
+    rows = conditioned(node, [mutation(SCHEMA, {"hash": key(number)}, {}, "purge")
+                              for number in numbers])
     reply = node.call("/api/mutations/batch", {"mutations": rows})[0]
     require(len(reply["mutation_ids"]) == len(rows), "real mutation batch did not acknowledge every key")
 
@@ -159,6 +162,19 @@ def files(node, expected):
             require(body is None, "a record without a file returned bytes")
 
 
+def replacement(node, number, fields, retain_file):
+    request = mutation(SCHEMA, {"hash": key(number)}, fields)
+    row = read_records(node, [request])[coordinate(SCHEMA, request["key_value"])]
+    request["expected"] = {"type": "revision", "revision": row["revision"]}
+    metadata = row.get("metadata") or {}
+    request["metadata"] = metadata.get("metadata")
+    request["source_file_name"] = metadata.get("source_file_name")
+    request["file"] = metadata.get("file") if retain_file else None
+    return request
+
+
 def delete_file(node, number):
-    reply = node.call("/api/db/delete-blob", {"schema": SCHEMA, "key": {"hash": key(number)}})[0]
-    require(reply["deleted"] is True, "delete-blob did not remove the file")
+    request = replacement(node, number,
+        {"id": key(number), "note": NOTE + " updated", "detail": "updated"}, retain_file=False)
+    reply = node.call("/api/db/delete-blob", {"mutation": request})[0]
+    require(reply["record_revision"], "file removal has no conditional replacement revision")

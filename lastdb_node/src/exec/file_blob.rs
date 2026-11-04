@@ -2,8 +2,7 @@
 //! and key (`put-blob` is in `file_blob_put.rs`). No request names a pointer,
 //! a path or a key: the node derives them from the record.
 use super::*;
-use fold_db::fold_db_core::fold_db::RecordFileState;
-use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
+use fold_db::schema::types::operations::Operation;
 use fold_db::schema::types::{FileWrite, KeyValue, MutationType};
 
 pub(super) const FILE_BLOB_METADATA_HEADER: &str = "x-lastdb-file-blob-metadata";
@@ -46,32 +45,6 @@ impl FileTarget {
     pub(super) fn canonical(&self, host: &Host) -> Result<String, HostError> {
         handlers::resolve_schema_name(host, &self.schema)?
             .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", self.schema)))
-    }
-}
-
-/// The native write of a file route: an update of the record at `key` that
-/// carries only the file write. The record's key fields are written as for
-/// any mutation.
-pub(super) fn file_mutation(
-    schema: String,
-    key: KeyValue,
-    fields: HashMap<String, Value>,
-    file_write: FileWrite,
-    must_exist: Option<bool>,
-) -> handlers::MutationComponents {
-    handlers::MutationComponents {
-        metadata: None,
-        schema,
-        fields_and_values: fields,
-        key_value: key,
-        mutation_type: MutationType::Update,
-        source_file_name: None,
-        expected: None,
-        convergence: MutationConvergence::default(),
-        durability: MutationDurability::Durable,
-        must_exist,
-        key_range_prefix: None,
-        file_write: Some(file_write),
     }
 }
 
@@ -128,32 +101,24 @@ pub(super) async fn execute_db_delete_blob_route(
     if !ctx.is_owner {
         return error_response(403, "file delete is owner-only", ctx);
     }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        mutation: Operation,
+    }
     let delete = async {
-        let target = FileTarget::parse(&req.body, "/api/db/delete-blob")?;
-        let schema = target.canonical(host)?;
-        let (_, state) = host
-            .db
-            .record_file_state(&schema, &target.key)
-            .await
-            .map_err(HostError::from)?;
-        match state {
-            RecordFileState::NoRecord => Err(HostError::new(404, "record not found")),
-            RecordFileState::NoFile => Ok(serde_json::json!({ "deleted": false })),
-            RecordFileState::File(_) => {
-                let components = file_mutation(
-                    schema,
-                    target.key,
-                    HashMap::new(),
-                    FileWrite::Clear,
-                    Some(true),
-                );
-                let value = commit_mutation_components(host, components).await?;
-                Ok(serde_json::json!({
-                    "deleted": true,
-                    "mutation_id": value.get("mutation_id").cloned().unwrap_or(Value::Null),
-                }))
-            }
+        let body: Body = serde_json::from_slice(&req.body).map_err(|error| {
+            HostError::new(400, format!("invalid delete-blob request: {error}"))
+        })?;
+        let mut components = handlers::MutationComponents::from_operation(body.mutation, None);
+        if components.mutation_type != MutationType::Replace || components.file.is_some() {
+            return Err(HostError::new(
+                400,
+                "delete-blob requires a complete replacement without a file marker",
+            ));
         }
+        components.file_write = Some(FileWrite::Clear);
+        commit_mutation_components(host, components).await
     };
     render(delete.await, ctx)
 }

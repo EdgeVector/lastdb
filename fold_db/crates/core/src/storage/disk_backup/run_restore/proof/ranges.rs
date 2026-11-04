@@ -34,13 +34,12 @@ pub(super) fn verify(
         schema
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
-        let range = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref())
-            .map(|path| schema.key_field_type(path));
-        let profile = FieldRangeProfile::for_field_type(range.as_ref())
-            .map_err(|_| invalid("run backup range field has no typed profile"))?;
+        let profile = schema
+            .require_record_keys()
+            .map_err(|_| invalid("run backup schema has no explicit record keys"))?
+            .primary
+            .range_profile()
+            .map_err(|_| invalid("run backup record key has no typed profile"))?;
         let mut field_keys = schema
             .runtime_fields
             .values()

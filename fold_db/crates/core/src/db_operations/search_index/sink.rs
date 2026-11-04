@@ -18,7 +18,7 @@ pub struct IndexChange {
     pub kind: IndexChangeKind,
     pub key_value: KeyValue,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub fields_and_values: HashMap<String, Value>,
+    pub record_fields: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

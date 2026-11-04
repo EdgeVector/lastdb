@@ -29,11 +29,7 @@ pub(super) fn encode(value: HistoryCapture, rows: &mut Vec<KvMutation>) -> Resul
         .fields
         .get(&value.field)
         .ok_or_else(|| invalid("the capture source has no field value"))?;
-    let stamp = value
-        .source
-        .stamps
-        .get(&value.field)
-        .ok_or_else(|| invalid("the capture source has no field stamp"))?;
+    let stamp = &value.source.stamp;
     let key = keys::entry_key(&value.record, &value.identity, stamp)?;
     let expires_at = expiry(value.policy, value.now)?;
     let queue_key = match expires_at {

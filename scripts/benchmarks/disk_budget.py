@@ -82,7 +82,7 @@ class DiskBudgetWorkload(GrowthWorkload):
         node = Node(self.node.binary, self.node.revision, output,
                     native_timing=self.node.native_timing, workers=self.node.workers,
                     environment=self.node.environment, start_seconds=self.node.start_seconds,
-                    arguments=self.node.arguments)
+                    arguments=self.node.arguments, record_protocol=True)
         try:
             node.start()
             require_search_off(node, output, "before")

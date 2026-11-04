@@ -47,17 +47,12 @@ pub(super) async fn execute(host: &Host, request: Request) -> Result<Value, Host
         Action::Purge { cursor } => Ok(records
             .purge_record_history(&schema, key, &identity, cursor.as_deref())
             .await?),
-        Action::Restore {
-            id,
-            expected_mutation,
-            absent,
-        } => {
-            require_restore_guard(expected_mutation.as_deref(), absent)?;
+        Action::Restore { id, mutation } => {
             let value = records
                 .record_history_value(&schema, key, &identity, &id)
                 .await?
                 .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
-            restore(host, request.location, &value, expected_mutation).await
+            restore(host, request.location, &value, *mutation).await
         }
     }
 }

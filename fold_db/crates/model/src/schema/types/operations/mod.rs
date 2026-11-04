@@ -239,39 +239,15 @@ pub struct QueryOrderBy {
     pub order: Option<SortOrder>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+/// Every write supplies a complete record or an explicit conditional deletion.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum MutationType {
     Create,
-    Update,
-    /// User-facing hard delete. "Delete means gone": same erasure path as
-    /// [`Self::Purge`] (no per-field tombstone records). Missing target is
-    /// an idempotent success unless the request sets `must_exist: true`
-    /// (loud miss). See north-star-lastdb-delete-returns-the-bytes.
+    Replace,
     Delete,
-    /// Compatibility alias of [`Self::Delete`] + `must_exist`. Same
-    /// physical path; a missing target is a *loud* error ("refusing to
-    /// silently no-op") so compliance audit can tell a subject was
-    /// already gone. Not a second eraser. Prefer `delete` + `must_exist`
-    /// on new clients.
+    /// Delete and release retained history, including that of a deleted record.
     Purge,
-}
-
-impl<'de> Deserialize<'de> for MutationType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        match s.to_lowercase().as_str() {
-            "create" => Ok(Self::Create),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "purge" => Ok(Self::Purge),
-            _ => Err(serde::de::Error::custom(
-                "unknown mutation type, expected create, update, or delete (purge is a must-exist alias)",
-            )),
-        }
-    }
 }
 
 // Re-export Mutation from the dedicated mutation module
@@ -336,37 +312,20 @@ impl MutationDurability {
 pub enum Operation {
     #[serde(rename = "mutation")]
     Mutation {
+        mutation_id: String,
         schema: String,
-        fields_and_values: HashMap<String, Value>,
+        #[serde(rename = "record")]
+        record_fields: HashMap<String, Value>,
         key_value: KeyValue,
+        alternates: std::collections::BTreeMap<String, Option<KeyValue>>,
         mutation_type: MutationType,
-        #[serde(skip_serializing_if = "Option::is_none")]
         source_file_name: Option<String>,
-        /// Optional compare-and-set precondition (see [`CasExpectation`]).
-        /// Additive: absent on every operation submitted before CAS existed,
-        /// and `skip_serializing_if` keeps their serialized form unchanged.
-        /// Threaded onto the built [`Mutation`] so the node write path applies
-        /// the write only if the current state at the key matches.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        expected: Option<CasExpectation>,
-        /// Optional convergence mode. Defaults to `async` (no post-write
-        /// background-task barrier). Pass `sync` only when the caller needs
-        /// background work drained before the response.
+        metadata: Option<HashMap<String, String>>,
+        file: Option<crate::record_value::FileMarker>,
+        expected: CasExpectation,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         convergence: Option<MutationConvergence>,
-        /// Optional requested local policy; the wire default is `queued`.
-        /// Native requests always wait for disk durability with either value.
-        /// This policy does not change convergence behavior.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         durability: Option<MutationDurability>,
-        /// Local request policy on `delete`: `true` is loud-miss. Absent
-        /// on every body submitted before this field existed. Never captured
-        /// on the mutation-intent envelope.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        must_exist: Option<bool>,
-        /// Delete every live row under `key_value.hash` whose range starts
-        /// with this prefix. Only the owner single-mutation route accepts it.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        key_range_prefix: Option<String>,
     },
 }

@@ -17,6 +17,9 @@ pub struct QueryCursor {
     /// deleted records has no API key to name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<String>,
+    /// Tie-breaker for records sharing one complete alternate address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate_primary: Option<KeyValue>,
 }
 
 impl QueryCursor {
@@ -27,6 +30,7 @@ impl QueryCursor {
             range: key.range,
             comparison,
             record: None,
+            alternate_primary: None,
         }
     }
 
@@ -39,6 +43,7 @@ impl QueryCursor {
             range: None,
             comparison,
             record: Some(URL_SAFE_NO_PAD.encode(suffix)),
+            alternate_primary: None,
         }
     }
 

@@ -169,7 +169,7 @@ pub async fn page_searchable_records_for_rebuild(
             mutation_id: format!("rebuild-{}", Uuid::new_v4()),
             kind: IndexChangeKind::Upsert,
             key_value: key.clone(),
-            fields_and_values: fields.clone(),
+            record_fields: fields.clone(),
         })
         .collect();
 

@@ -33,14 +33,10 @@ impl FieldKeyStore {
 
     pub(crate) fn schema_profile(&self, schema: &Schema) -> StorageResult<FieldRangeProfile> {
         schema
-            .validate_key_field_types()
-            .map_err(StorageError::InvalidOperation)?;
-        let field_type = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref())
-            .map(|path| schema.key_field_type(path));
-        FieldRangeProfile::for_field_type(field_type.as_ref())
+            .require_record_keys()
+            .map_err(|error| StorageError::InvalidOperation(error.to_string()))?
+            .primary
+            .range_profile()
             .map_err(StorageError::InvalidOperation)
     }
 

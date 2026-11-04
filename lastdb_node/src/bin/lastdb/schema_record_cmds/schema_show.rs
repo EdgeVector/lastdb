@@ -65,14 +65,10 @@ pub(crate) fn schema_show_lines(schema: &serde_json::Value) -> Vec<String> {
         .get("state")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("?");
-    let hash_field = schema
-        .pointer("/key/hash_field")
+    let ranged = schema
+        .pointer("/record_keys/primary/kind")
         .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
-    let range_field = schema
-        .pointer("/key/range_field")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
+        == Some("hash_range");
     let fields = schema
         .get("fields")
         .and_then(serde_json::Value::as_array)
@@ -97,14 +93,8 @@ pub(crate) fn schema_show_lines(schema: &serde_json::Value) -> Vec<String> {
     }
     lines.push(format!("type {schema_type}"));
     lines.push(format!("state {state}"));
-    match (hash_field, range_field) {
-        (Some(h), Some(r)) => {
-            lines.push(format!("hash_field {h}"));
-            lines.push(format!("range_field {r}"));
-        }
-        (Some(h), None) => lines.push(format!("hash_field {h}")),
-        (None, Some(r)) => lines.push(format!("range_field {r}")),
-        (None, None) => lines.push("key_fields (none)".to_string()),
+    if let Some(keys) = schema.get("record_keys") {
+        lines.push(format!("record_keys {keys}"));
     }
     if fields.is_empty() {
         lines.push("fields (none)".to_string());
@@ -112,7 +102,7 @@ pub(crate) fn schema_show_lines(schema: &serde_json::Value) -> Vec<String> {
         lines.push(format!("fields {fields}"));
     }
     lines.push("queries:".to_string());
-    for q in legal_query_shapes(schema_type, hash_field, range_field) {
+    for q in legal_query_shapes(schema_type, Some("HASH"), ranged.then_some("RANGE")) {
         lines.push(format!("  {q}"));
     }
     lines

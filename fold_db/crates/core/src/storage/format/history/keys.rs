@@ -3,7 +3,7 @@
 use super::{digest, invalid};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::RECORD_PREFIX;
-use lastdb_model::record_value::FieldStamp;
+use lastdb_model::record_value::RecordStamp;
 
 pub(crate) fn record_prefix(record: &str, field: Option<&str>) -> Result<String, SchemaError> {
     let space = record
@@ -26,7 +26,7 @@ pub(crate) fn record_prefix(record: &str, field: Option<&str>) -> Result<String,
 pub(super) fn entry_key(
     record: &str,
     field: &str,
-    stamp: &FieldStamp,
+    stamp: &RecordStamp,
 ) -> Result<String, SchemaError> {
     require_record_key(record)?;
     let identity = serde_json::to_vec(&(record, field, stamp)).map_err(invalid)?;

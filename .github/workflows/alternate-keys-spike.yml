@@ -12,7 +12,9 @@ on:
       - 'scripts/benchmarks/alternate_key_storage.py'
       - 'scripts/benchmarks/alternate_key_workload.py'
       - 'scripts/benchmarks/record_replacement_*.py'
+      - 'scripts/benchmarks/record_protocol.py'
       - 'scripts/benchmarks/node.py'
+      - 'scripts/benchmarks/home_format.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
     inputs:

@@ -25,14 +25,3 @@ pub(super) fn batch_convergence(
         Ok(MutationConvergence::Async)
     }
 }
-
-/// Keep option rejection before schema lookup, in the existing order.
-pub(super) fn validate_batch_options(components: &MutationComponents) -> Result<(), HostError> {
-    if components.key_range_prefix.is_some() {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix is only supported by /api/mutation",
-        ));
-    }
-    Ok(())
-}

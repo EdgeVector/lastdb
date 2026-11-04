@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 /// their order, the separators, or the empty-value handling in
 /// [`compute_identity_hash_parts`]. A change without a bump is exactly the
 /// failure this constant exists to prevent.
-pub const IDENTITY_HASH_ALGO_VERSION: u32 = 2;
+pub const IDENTITY_HASH_ALGO_VERSION: u32 = 3;
+/// Published field-derived descriptors retain their existing identities/version.
+const FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION: u32 = 2;
 
 /// What a gated recompute did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,7 +195,7 @@ impl DeclarativeSchemaDefinition {
     /// path that may be handed an identity minted elsewhere should call
     /// [`Self::recompute_identity_hash_unless_newer`] instead.
     pub fn compute_identity_hash(&mut self) {
-        self.identity_hash = Some(compute_identity_hash_parts(
+        let base = compute_identity_hash_parts(
             self.owner_app_id.as_deref(),
             self.descriptive_name.as_deref(),
             &self.name,
@@ -203,8 +205,18 @@ impl DeclarativeSchemaDefinition {
                 .iter()
                 .map(String::as_str),
             self.key.as_ref(),
-        ));
-        self.identity_hash_algo_version = Some(IDENTITY_HASH_ALGO_VERSION);
+        );
+        if let Some(keys) = &self.record_keys {
+            let mut hash = Sha256::new();
+            hash.update(b"lastdb:record-schema:v1\0");
+            hash.update(base.as_bytes());
+            hash.update(serde_json::to_vec(keys).expect("record key definitions serialize"));
+            self.identity_hash = Some(format!("{:x}", hash.finalize()));
+            self.identity_hash_algo_version = Some(IDENTITY_HASH_ALGO_VERSION);
+        } else {
+            self.identity_hash = Some(base);
+            self.identity_hash_algo_version = Some(FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION);
+        }
     }
 
     /// True when this schema's identity was minted by an algorithm newer than

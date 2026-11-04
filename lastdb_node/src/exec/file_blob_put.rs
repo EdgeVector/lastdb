@@ -9,40 +9,25 @@
 //! JSON requests retain the socket's general request-body allowance.
 
 use super::*;
-use fold_db::schema::types::{FileWrite, KeyValue};
+use fold_db::schema::types::FileWrite;
 use std::borrow::Cow;
 
-/// The record and the description of the file. With the raw form it rides as
-/// compact JSON in `X-LastDB-File-Blob-Metadata`.
+/// The complete mutation accompanies the new bytes. No existing fields are merged.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PutBlobMetadata {
-    schema: String,
-    key: KeyValue,
-    #[serde(default)]
+    mutation: fold_db::schema::types::operations::Operation,
     name: Option<String>,
-    #[serde(default)]
     media_type: Option<String>,
-    /// Other fields of the record, written in the same native write.
-    #[serde(default)]
-    fields: HashMap<String, Value>,
 }
-
-/// JSON form of the request.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JsonBody<'a> {
-    schema: String,
-    key: KeyValue,
-    /// Borrowed from the request body, so the base64 text is not copied.
+    mutation: fold_db::schema::types::operations::Operation,
     #[serde(borrow)]
     bytes_b64: Cow<'a, str>,
-    #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
     media_type: Option<String>,
-    #[serde(default)]
-    fields: HashMap<String, Value>,
 }
 
 /// Read the plaintext and the metadata from either request form.
@@ -82,11 +67,9 @@ fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), 
     Ok((
         Cow::Owned(bytes),
         PutBlobMetadata {
-            schema: body.schema,
-            key: body.key,
+            mutation: body.mutation,
             name: body.name,
             media_type: body.media_type,
-            fields: body.fields,
         },
     ))
 }
@@ -107,12 +90,17 @@ pub(super) async fn execute_db_put_blob_route(
     }
     let put = async {
         let (plaintext, metadata) = parse_put_blob(req)?;
-        let target = FileTarget {
-            schema: metadata.schema,
-            key: metadata.key,
-        };
-        target.require_hash()?;
-        let schema = target.canonical(host)?;
+        let mut components = handlers::MutationComponents::from_operation(metadata.mutation, None);
+        if !matches!(
+            components.mutation_type,
+            fold_db::schema::types::MutationType::Create
+                | fold_db::schema::types::MutationType::Replace
+        ) {
+            return Err(HostError::new(
+                400,
+                "put-blob requires create or complete replacement",
+            ));
+        }
         let file_write = host
             .db
             .seal_record_file(&plaintext, metadata.name, metadata.media_type)
@@ -122,7 +110,18 @@ pub(super) async fn execute_db_put_blob_route(
             return Err(HostError::new(500, "a sealed file is a put"));
         };
         let marker = file.marker().clone();
-        let components = file_mutation(schema, target.key, metadata.fields, file_write, None);
+        if components
+            .file
+            .as_ref()
+            .is_some_and(|supplied| supplied != &marker)
+        {
+            return Err(HostError::new(
+                400,
+                "file marker does not match the supplied bytes",
+            ));
+        }
+        components.file = Some(marker.clone());
+        components.file_write = Some(file_write);
         let value = commit_mutation_components(host, components).await?;
         Ok(serde_json::json!({
             "file": marker,

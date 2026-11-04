@@ -28,6 +28,7 @@ import os
 import threading
 import time
 import uuid
+from record_requests import mutation as native_mutation, conditioned
 
 FIELDS = ["id", "bucket", "value"]
 # More deleted records under one hash than one request may examine.
@@ -73,25 +74,23 @@ def refused(call, words):
     raise RuntimeError("the call did not fail: " + repr(words))
 
 
-def definition(name, schema_type, key, fields, alternates=None):
+def definition(name, schema_type, fields, alternates=None):
     schema = {
         "source": "system_seed", "name": name, "descriptive_name": name,
         "schema_type": schema_type,
+        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if schema_type == "HashRange" else {"kind": "hash"},
+                        "alternates": alternates or {}},
         "fields": fields,
         "field_types": {field: "String" for field in fields},
         "field_descriptions": {field: "Record home example " + field for field in fields},
         "field_versions": {field: 1 for field in fields},
     }
-    if key:
-        schema["key"] = key
-    if alternates:
-        schema["alternate_keys"] = alternates
     return schema
 
 
-RANGED = {"hash_field": "bucket", "range_field": "id"}
-DROPPED = definition("RecordDrop", "Hash", {"hash_field": "id"}, FIELDS, {"by_bucket": RANGED})
-RACED = definition("RecordRace", "Hash", {"hash_field": "id"}, FIELDS, {"by_bucket": RANGED})
+RANGED = {"kind": "hash_range", "range_type": "String"}
+DROPPED = definition("RecordDrop", "Hash", FIELDS, {"by_bucket": RANGED})
+RACED = definition("RecordRace", "Hash", FIELDS, {"by_bucket": RANGED})
 
 
 def seed(node, schema):
@@ -100,22 +99,23 @@ def seed(node, schema):
 
 def install(node):
     # A Hash schema with no hash key field declares exactly one field.
-    for schema in [definition("RecordRun", "HashRange", RANGED, FIELDS),
-                   definition("RecordNoKey", "Hash", None, ["value"]),
-                   definition("RecordAged", "HashRange", RANGED, FIELDS),
+    for schema in [definition("RecordRun", "HashRange", FIELDS),
+                   definition("RecordNoKey", "Hash", ["value"]),
+                   definition("RecordAged", "HashRange", FIELDS),
                    DROPPED, RACED]:
         seed(node, schema)
 
 
 def mutation(schema, key, values, operation):
-    return {"type": "mutation", "schema": schema, "key_value": key,
-            "fields_and_values": values, "mutation_type": operation,
-            "durability": "durable", "convergence": "sync"}
+    alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
+                  if schema in ("RecordDrop", "RecordRace") and operation not in ("delete", "purge") else {})
+    return native_mutation(schema, key, values, operation,
+                           alternates=alternates)
 
 
 def write(node, mutations):
     for start in range(0, len(mutations), BATCH):
-        node.call("/api/mutations/batch", {"mutations": mutations[start:start + BATCH]})
+        node.call("/api/mutations/batch", {"mutations": conditioned(node, mutations[start:start + BATCH])})
 
 
 def deleted_run(node):
@@ -190,10 +190,10 @@ def opaque_keys(node, scan):
     values = sorted(row["fields"]["value"] for row in rows)
     require(values == ["n0", "n1", "n3", "n4"],
             "the walk of a schema with no key field differs: " + repr(values))
-    require(all(row["key"]["hash"] not in names for row in rows),
-            "a walk row of a schema with no key field claims an API key")
+    require(all(row["key"]["hash"] == row["fields"]["value"] for row in rows),
+            "a record lost its independently stored API key")
     page, _ = scan(node, {**body, "limit": 10})
-    require(page.get("key_form") == "opaque", "the walk page key form differs: "
+    require(page.get("key_form") == "api", "the walk page key form differs: "
             + repr(page.get("key_form")))
     sample, _ = scan(node, {**body, "filter": {"SampleN": 3}})
     require(len(sample["results"]) == 3,
@@ -241,8 +241,10 @@ def ttl_resume(node):
     erased = []
     for group in [["z0", "z1", "z2"], ["z7", "z8"]]:
         keys = [f"{old:020d}-{suffix}" for suffix in group]
+        # External coordinates alone determine age, including an empty payload.
         write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
-                              {"id": key, "bucket": "aged", "value": key}, "create") for key in keys])
+                              {} if number == 0 else {"value": key}, "create")
+                     for number, key in enumerate(keys)])
         wait_gone(node, keys, "the TTL sweep did not erase the expired records after a run of "
                   f"{RUN} deleted records: {group}")
         erased += keys
@@ -304,9 +306,13 @@ def drop_release(node, scan):
     names = [f"d{number:04d}" for number in range(DROP_RECORDS)]
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name},
                           "create") for name in names])
-    write(node, [mutation("RecordDrop", {"hash": name}, {"value": name + "-2"}, "update")
+    write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name + "-2"}, "replace")
                  for name in names[:10]])
     write(node, [mutation("RecordDrop", {"hash": name}, {}, "delete") for name in names[-10:]])
+    primary = node.call("/api/query", {"schema_name": "RecordDrop", "fields": FIELDS,
+        "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
+    require(len(primary["results"]) == DROP_RECORDS - 10,
+            f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
     walked, alternate = dropped_rows(node, scan)
     require(len(walked) == len(alternate) == DROP_RECORDS - 10,
             f"RecordDrop holds {len(walked)} walked and {len(alternate)} alternate records before the drop")
@@ -321,8 +327,8 @@ def drop_release(node, scan):
             f"{len(alternate)} alternate records")
     # The drop releases the entries of the current alternate revision. The schema has no other:
     # an installed schema refuses a change of its alternate keys.
-    changed = definition("RecordDrop", "Hash", {"hash_field": "id"}, FIELDS,
-                         {"by_value": {"hash_field": "value", "range_field": "id"}})
+    changed = definition("RecordDrop", "Hash", FIELDS,
+                         {"by_value": RANGED})
     refused(lambda: seed(node, changed), ["alternate"])
     require(drop_history(node, "d0000", {"op": "list"})["entries"] == [],
             "the schema installed again after its drop holds a field history entry")
@@ -382,6 +388,8 @@ def drop_race(node, scan):
         require(time.time() < deadline, "the race writer wrote nothing: " + repr(outcome))
         time.sleep(0.05)
     try:
+        require(outcome["written"] >= 3 and not outcome["other"],
+                "the race writer failed before the drop: " + repr(outcome))
         reply = node.call("/api/schemas/drop", {"schema": "RecordRace", "must_exist": True})[0]
     finally:
         stop.set()

@@ -68,9 +68,11 @@ pub(super) async fn execute<H: HostNode>(
         results.push(row);
     }
     let next = if page.has_more {
-        page.entries
-            .last()
-            .map(|entry| QueryCursor::new(entry.matched.clone(), Some(page.comparison)))
+        page.entries.last().map(|entry| {
+            let mut cursor = QueryCursor::new(entry.matched.clone(), Some(page.comparison));
+            cursor.alternate_primary = Some(entry.primary.clone());
+            cursor
+        })
     } else {
         None
     };

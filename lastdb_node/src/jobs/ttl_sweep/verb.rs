@@ -14,9 +14,8 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 
 /// How the sweep erases an expired key.
 ///
-/// Both verbs remove the values of the record and keep its delete floor, so an
-/// older write cannot bring the key back. Neither needs a proof over the whole
-/// schema or a schema barrier.
+/// Both verbs erase the complete record under a revision condition and retain
+/// a tombstone. Neither needs a whole-schema proof or schema barrier.
 ///
 /// `purge` (default) is the hard-erasure verb. It also releases the field
 /// history of the record. `delete` is the ordinary delete that a client uses.
@@ -58,10 +57,8 @@ impl SweepVerb {
         }
     }
 
-    /// A plain delete acknowledges after its resident tombstone, and the
-    /// persist lane erases later. The sweep waits for the lane, so a batch is
-    /// done when the call returns and the pacing sees the real batch time. A
-    /// purge always waits.
+    /// Preserve the delete convergence wait. Both native verbs already wait
+    /// for durable commit; the sweep also drains delete background work.
     pub(super) fn waits_for_lane(self) -> bool {
         self == Self::Delete
     }

@@ -129,6 +129,23 @@ impl FieldKeyCodec {
         Ok(hash_range_record_key(field_key_id, &h, &r))
     }
 
+    /// An ordered range prefix that can safely precede a NUL member delimiter.
+    /// Stuffing both control bytes preserves order and arbitrary UTF-8 prefixes.
+    pub fn api_hash_range_member_prefix(
+        &self,
+        field_key_id: &str,
+        api_hash: &str,
+        api_range: &str,
+    ) -> Result<String, FieldKeyCodecError> {
+        let hash = self.storage_hash(field_key_id, api_hash)?;
+        let range = self.storage_range(field_key_id, api_range)?;
+        Ok(hash_range_record_key(
+            field_key_id,
+            &hash,
+            &escape_segment(&range),
+        ))
+    }
+
     /// `{F}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.
     pub fn api_hash_range_scan_prefix_for_hash(
         &self,

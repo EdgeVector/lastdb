@@ -121,7 +121,7 @@ def validate_live(node):
 def measure(binary, revision, output, state, clients, maintenance):
     output.mkdir()
     node = Node(binary, revision, output, environment={"LASTDB_TTL_SWEEP": "0",
-                "LASTDB_SELF_METRICS_SAMPLE_SECS": "1"})
+                "LASTDB_SELF_METRICS_SAMPLE_SECS": "1"}, record_protocol=True)
     result = {"complete": False}
     try:
         node.start()

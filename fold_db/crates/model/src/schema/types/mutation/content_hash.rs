@@ -7,21 +7,24 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 impl Mutation {
-    /// Hash the complete written content and its author order.
+    /// Bind a stable request ID to the complete intent and acceptance condition.
     ///
     /// The domain, field count, and length prefixes preserve every boundary.
     /// Optional JSON fields preserve absence separately from an empty value.
-    /// UUID and local acceptance/durability policy remain outside this hash;
-    /// the author signature binds UUID separately. Record identity stays unchanged.
+    /// UUID is the retry-cache key. Author clocks and durability/convergence are
+    /// excluded, so a local retry can retain its original committed revision.
     #[must_use]
-    pub fn content_hash(&self) -> String {
+    pub fn intent_hash(&self) -> String {
         let mut digest = Sha256::new();
-        push_field(&mut digest, b"lastdb-mutation-content-v2");
+        push_field(&mut digest, b"lastdb-record-intent-v1");
         push_field(&mut digest, self.schema_name.as_bytes());
         json_field(&mut digest, &self.mutation_type);
         json_field(&mut digest, &self.key_value);
+        json_field(&mut digest, &self.alternates);
+        json_field(&mut digest, &self.file);
+        json_field(&mut digest, &self.expected);
 
-        let fields: BTreeMap<_, _> = self.fields_and_values.iter().collect();
+        let fields: BTreeMap<_, _> = self.record_fields.iter().collect();
         digest.update((fields.len() as u64).to_be_bytes());
         for (name, value) in fields {
             push_field(&mut digest, name.as_bytes());
@@ -34,14 +37,46 @@ impl Mutation {
             .as_ref()
             .map(|metadata| metadata.iter().collect::<BTreeMap<_, _>>());
         json_field(&mut digest, &metadata);
-        json_field(&mut digest, &self.imported_written_at);
-        digest.update(self.logical_counter.to_be_bytes());
-        push_field(&mut digest, self.author_clock_writer_id.as_bytes());
         if let Some(cutoff) = self.erase_written_before_nanos {
             push_field(&mut digest, b"lastdb-ttl-erase-cutoff-v1");
             digest.update(cutoff.to_be_bytes());
         }
         format!("{:x}", digest.finalize())
+    }
+    /// Author signatures bind the complete intent and allocated author clock.
+    #[must_use]
+    pub fn content_hash(&self) -> String {
+        let mut digest = Sha256::new();
+        push_field(&mut digest, b"lastdb-record-authored-content-v1");
+        push_field(&mut digest, self.intent_hash().as_bytes());
+        json_field(&mut digest, &self.imported_written_at);
+        digest.update(self.logical_counter.to_be_bytes());
+        push_field(&mut digest, self.author_clock_writer_id.as_bytes());
+        format!("{:x}", digest.finalize())
+    }
+
+    #[must_use]
+    pub fn retry_key(&self) -> String {
+        let mut digest = Sha256::new();
+        push_field(&mut digest, b"lastdb-record-retry-v1");
+        push_field(&mut digest, self.pub_key.as_bytes());
+        push_field(&mut digest, self.uuid.as_bytes());
+        format!("{:x}", digest.finalize())
+    }
+
+    pub fn record_stamp(&self) -> Result<crate::record_value::RecordStamp, String> {
+        Ok(crate::record_value::RecordStamp {
+            written_at: self
+                .imported_written_at
+                .ok_or("record write lacks an author clock")?,
+            logical_counter: self.logical_counter,
+            device_id: if self.author_clock_writer_id.is_empty() {
+                self.pub_key.clone()
+            } else {
+                self.author_clock_writer_id.clone()
+            },
+            mutation_id: self.uuid.clone(),
+        })
     }
 }
 

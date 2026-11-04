@@ -70,7 +70,7 @@ def execute(node, config, number, mode, before, after):
     observed = []
     if mode == "application_read_replace":
         transport = {}
-        reply = node.call("/api/query", query(config, number), transport=transport)[0]
+        reply = node.call("/api/query", query(config, number), transport=transport, complete_records=True)[0]
         rows = reply.get("results", [])
         require(len(rows) == 1 and rows[0]["fields"] == values(config, number, before),
                 "read/edit/replace fetched a partial or unexpected record")
@@ -82,12 +82,13 @@ def execute(node, config, number, mode, before, after):
     fields["payload"] = "p" * config["size"] + after
     transport = {}
     reply, _, receipt = node.call("/api/mutation", mutation(config, number, fields, old_payload),
-                                  receipt=True, transport=transport)
+                                  receipt=True, transport=transport, complete_records=True)
     elapsed = (time.perf_counter_ns() - started) / 1e6
     require(reply.get("durability") == "durable", "replacement has no durable acknowledgement")
     observed.append(transport)
     return {"latency_ms": elapsed, "receipt": receipt, "successful_updates": 1,
-            "rpc_count": len(observed),
+            "rpc_count": sum(item["rpc_count"] for item in observed),
+            "retries": sum(item.get("retries", 0) for item in observed),
             **{name: sum(item[name] for item in observed)
                for name in ("request_body_bytes", "response_body_bytes")}}
 
@@ -116,7 +117,7 @@ def measure_case(node, label, pair, config, mode, clients, before, after):
     case = f"replacement_s{config['size']}_f{config['fields']}_a{config['alternates']}_{mode}_c{clients}"
     verify(node, config, f"{after}:r{ROUNDS - 1}")
     return [dict(sample, label=label, pair=pair, case=case, ordinal=number,
-                 case_wall_ms=wall_ms, clients=clients, retries=0, rejected_attempts=0)
+                 case_wall_ms=wall_ms, clients=clients, rejected_attempts=sample["retries"])
             for number, sample in completed]
 
 

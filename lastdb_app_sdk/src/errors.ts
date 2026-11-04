@@ -585,13 +585,11 @@ export class NodeTooOldError extends RequestRejectedError {
 export interface CasConflictDetail {
   /** The schema the conflicting write targeted. */
   schema?: string;
-  /** The field the CAS precondition was checked against. */
-  field?: string;
   /** The row key (rendered) the write targeted. */
   key?: string;
-  /** The value the write EXPECTED the field to hold (the precondition). */
+  /** The value the write EXPECTED the record revision to match (the precondition). */
   expected?: string;
-  /** The field's ACTUAL current value the node observed (`null` when absent). */
+  /** The record's actual current revision the node observed (`null` when absent). */
   actual?: string | null;
   /** A human-readable message, when the node supplied one. */
   message?: string;
@@ -600,11 +598,11 @@ export interface CasConflictDetail {
 /**
  * A compare-and-set (CAS) precondition on a {@link import('./types.js').MutationOp}
  * (its `expected` field) did not hold: the node rejected the write with
- * `409 {error:"cas_conflict", schema?, field?, key?, expected?, actual?, message?}`.
+ * `409 {error:"cas_conflict", schema?, key?, expected?, actual?, message?}`.
  *
  * The row changed since the caller's expected precondition (or was already
  * present when `{type:"absent"}` was required), so the write was NOT applied.
- * The typed fields (`schema` / `field` / `key` / `expected` / `actual`) let an
+ * The typed fields (`schema` / `key` / `expected` / `actual`) let an
  * app re-read the current value and retry without re-parsing free text or
  * re-serializing a generic error body. The verbatim parsed 409 `body` is also
  * carried for anything the node added beyond the modeled fields.
@@ -617,13 +615,11 @@ export interface CasConflictDetail {
 export class CasConflictError extends FoldDbError {
   /** The schema the conflicting write targeted, or `null`. */
   readonly schema: string | null;
-  /** The field the CAS precondition was checked against, or `null`. */
-  readonly field: string | null;
   /** The row key (rendered) the write targeted, or `null`. */
   readonly key: string | null;
-  /** The value the write EXPECTED the field to hold, or `null`. */
+  /** The value the write EXPECTED the record revision to match, or `null`. */
   readonly expected: string | null;
-  /** The field's ACTUAL current value the node observed, or `null`. */
+  /** The record's actual current revision the node observed, or `null`. */
   readonly actual: string | null;
 
   constructor(
@@ -633,7 +629,6 @@ export class CasConflictError extends FoldDbError {
   ) {
     super(detail.message ?? casConflictMessage(detail));
     this.schema = detail.schema ?? null;
-    this.field = detail.field ?? null;
     this.key = detail.key ?? null;
     this.expected = detail.expected ?? null;
     this.actual = detail.actual ?? null;
@@ -642,13 +637,7 @@ export class CasConflictError extends FoldDbError {
 
 /** Compose a default message from the modeled CAS-conflict detail. */
 function casConflictMessage(detail: CasConflictDetail): string {
-  const where =
-    detail.field !== undefined
-      ? ` on field '${detail.field}'` +
-        (detail.schema !== undefined ? ` of schema '${detail.schema}'` : '')
-      : detail.schema !== undefined
-        ? ` on schema '${detail.schema}'`
-        : '';
+  const where = detail.schema !== undefined ? ` on schema '${detail.schema}'` : '';
   const values =
     detail.expected !== undefined || detail.actual !== undefined
       ? ` (expected ${JSON.stringify(detail.expected ?? null)}, ` +

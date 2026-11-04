@@ -2,7 +2,9 @@
 
 use super::{Schema, SchemaError, SchemaStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
-use schema_types::range_storage_profile::RangeStorageProfile;
+use schema_types::{
+    field_range_profile::FieldRangeProfile, range_storage_profile::RangeStorageProfile,
+};
 
 fn require_typed_range_retention(schema: &Schema) -> Result<(), SchemaError> {
     if !matches!(
@@ -11,16 +13,17 @@ fn require_typed_range_retention(schema: &Schema) -> Result<(), SchemaError> {
     ) {
         return Ok(());
     }
-    let path = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.range_field.as_deref())
-        .ok_or_else(|| {
-            SchemaError::InvalidData("range TTL requires a declared range field".into())
-        })?;
-    if RangeStorageProfile::typed(&schema.key_field_type(path)).map_err(SchemaError::InvalidData)?
-        != RangeStorageProfile::StringUtf8V1
-    {
+    let profile = schema
+        .require_record_keys()?
+        .primary
+        .range_profile()
+        .map_err(SchemaError::InvalidData)?;
+    if !matches!(
+        profile,
+        FieldRangeProfile::TypedV1 {
+            scalar: RangeStorageProfile::StringUtf8V1
+        }
+    ) {
         return Err(SchemaError::InvalidData(
             "range TTL requires a String range with the 20-digit timestamp prefix".into(),
         ));

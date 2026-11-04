@@ -54,7 +54,7 @@ impl FoldDB {
             .flatten();
         let state = match record {
             Some(record) if record.is_live() => match &record.file {
-                Some(file) => RecordFileState::File(file.marker()),
+                Some(file) => RecordFileState::File(file.clone()),
                 None => RecordFileState::NoFile,
             },
             _ => RecordFileState::NoRecord,

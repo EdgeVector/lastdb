@@ -25,7 +25,7 @@ def measure(binary, revision, recipe, output, workers):
         environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
         node = Node(binary, revision, output,
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=workers,
-                    environment=environment)
+                    environment=environment, record_protocol=True)
         node.start()
         # Every program creates a record home; the report shows the format of each label.
         save(output / "home-format.json", {"format": node.home_format()})

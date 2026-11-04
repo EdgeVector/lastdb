@@ -14,13 +14,14 @@ pub(super) struct NativeRequest {
 struct NativeCommit {
     already_seen_ids: Vec<String>,
     mutation_ids: Vec<String>,
+    record_revisions: std::collections::BTreeMap<String, String>,
+    operations: ResidentCommitOperations,
 }
 
 impl MutationManager {
     pub(super) async fn write_native_batch(
         &self,
         request: NativeRequest,
-        operations: ResidentCommitOperations,
         start: std::time::Instant,
         mut state: super::create_update_batch::BatchState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
@@ -29,6 +30,7 @@ impl MutationManager {
             return self
                 .finish_all_duplicate_batch(
                     committed.already_seen_ids,
+                    committed.record_revisions,
                     state.force_durable,
                     &state.timing_breakdown,
                     start,
@@ -39,7 +41,8 @@ impl MutationManager {
         Ok(Self::build_commit_receipt(
             committed.already_seen_ids,
             &committed.mutation_ids,
-            operations,
+            committed.record_revisions,
+            committed.operations,
             start,
             state,
         ))
@@ -60,8 +63,6 @@ impl MutationManager {
         self.require_replay_cutoff(&request.mutations).await?;
         state.force_durable = true;
         let committed = transaction::request_scope(Arc::clone(&request.runtime), async {
-            let notifications =
-                crate::db_operations::ChangeFeedStore::native_events(&request.mutations);
             request
                 .runtime
                 .record_read_stage("request-start", request.mutations.len());
@@ -70,6 +71,7 @@ impl MutationManager {
             let started = std::time::Instant::now();
             let super::super::cas_idempotency::FilteredMutations {
                 already_seen_ids,
+                revisions: mut record_revisions,
                 mutations,
                 hashes,
             } = self.filter_idempotent_mutations(request.mutations).await?;
@@ -78,6 +80,20 @@ impl MutationManager {
                 "idempotency_check",
                 started.elapsed(),
             );
+            crate::db_operations::ChangeFeedStore::acknowledge_cached_notifications(
+                &already_seen_ids,
+            );
+            let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
+            let operations = Self::count_applied_operations(&mutations);
+            for mutation in &mutations {
+                record_revisions.insert(
+                    mutation.uuid.clone(),
+                    mutation
+                        .record_stamp()
+                        .map_err(SchemaError::InvalidData)?
+                        .revision(),
+                );
+            }
             let mutation_ids = mutations
                 .iter()
                 .map(|mutation| mutation.uuid.clone())
@@ -93,9 +109,10 @@ impl MutationManager {
                 return Ok::<_, SchemaError>(NativeCommit {
                     already_seen_ids,
                     mutation_ids,
+                    record_revisions,
+                    operations,
                 });
             }
-            self.check_batch_preconditions(&mutations).await?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
@@ -124,6 +141,8 @@ impl MutationManager {
             Ok::<_, SchemaError>(NativeCommit {
                 already_seen_ids,
                 mutation_ids,
+                record_revisions,
+                operations,
             })
         })
         .await?;

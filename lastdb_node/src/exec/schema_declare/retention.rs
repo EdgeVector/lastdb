@@ -70,37 +70,27 @@ pub(crate) fn validate_declare_retention(
 }
 
 fn retention_layout(schema: &DeclarativeSchemaDefinition) -> Result<RetentionLayout, String> {
-    let range_field = match schema.schema_type {
-        SchemaType::Hash | SchemaType::Single => {
-            return Ok(RetentionLayout {
-                age_rule: WRITE_TIME_RULE,
-                warnings: Vec::new(),
-                range_keyed: false,
-            });
-        }
-        SchemaType::Range | SchemaType::HashRange => schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref())
-            .filter(|field| !field.is_empty())
-            .ok_or_else(|| {
-                format!(
-                    "a {:?} schema needs key.range_field to carry a retention",
-                    schema.schema_type
-                )
-            })?,
-    };
-    let mut warnings = Vec::new();
-    if let Some(kind) = schema
-        .field_types
-        .get(range_field)
-        .filter(|kind| !can_hold_time_prefix(kind))
-    {
-        warnings.push(format!(
-            "range key field '{range_field}' is declared {kind:?}; only a String field can hold \
-             20 digits of zero-padded unix seconds, so no record would expire"
-        ));
+    if matches!(schema.schema_type, SchemaType::Hash | SchemaType::Single) {
+        return Ok(RetentionLayout {
+            age_rule: WRITE_TIME_RULE,
+            warnings: Vec::new(),
+            range_keyed: false,
+        });
     }
+    let primary = &schema
+        .record_keys
+        .as_ref()
+        .ok_or("retention requires explicit record_keys")?
+        .primary;
+    let warnings = if primary
+        .range_type
+        .as_ref()
+        .is_some_and(can_hold_time_prefix)
+    {
+        Vec::new()
+    } else {
+        vec!["retention uses 20 zero-padded unix-second digits at the start of an explicit String range key".into()]
+    };
     Ok(RetentionLayout {
         age_rule: RANGE_KEY_RULE,
         warnings,

@@ -212,11 +212,7 @@ pub(super) async fn execute_list_record_keys_route(
             &serde_json::json!({ "list": report }),
             ctx.user_id.as_str(),
         )),
-        // `list_schema_record_keys` now returns `SchemaError::NotFound` for an
-        // unresolvable schema, `InvalidField` for one with no listable key
-        // field, and `InvalidCursor` for a cursor outside the key field key, so
-        // the canonical mapping produces the 404/400 this arm used to
-        // reconstruct by matching on message text.
+        // Schema and cursor failures use the canonical 404/400 mapping.
         Err(e) => mapped_error_response("list failed", e, ctx),
     }
 }

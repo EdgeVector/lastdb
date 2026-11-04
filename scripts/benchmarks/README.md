@@ -18,6 +18,10 @@ The baseline currently uses the existing API and a payload-value CAS. The
 application measurement includes its keyed read, full reply, serialization and
 conditional full write. Request/response body counts exclude HTTP headers.
 Successful-update throughput uses the entire concurrent case wall duration.
+Unchanged read-only calls retain the same RPC timer on both APIs. Only schema
+and mutation preparation, plus reads explicitly preparing a complete replacement,
+enter the protocol adapter. Application cases keep the complete-flow outer timer
+on both labels, including JSON decoding, serialization and every physical RPC.
 Workers own distinct keys, so these observations do not establish shared-key
 conflict or retry cost; the existing contention workloads remain separate.
 
@@ -551,3 +555,22 @@ Files and directories removed before their size read contribute no bytes to that
 The standard insert and single-record update p99 use only 32 samples per run.
 The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.
+
+### Whole-record protocol comparison
+
+Benchmark drivers explicitly opt into `record_protocol.py` for API 27. Operational
+proofs do not use this adapter. The API 26 baseline keeps its original requests.
+API 27 declarations carry explicit key definitions. Existing partial-edit logical
+workloads perform a batched client read, edit the complete record, supply explicit
+alternate addresses, and condition the replacement on its revision. The timer
+includes these reads, serialization, conflicts and up to eight CAS retries. Physical
+RPC IDs and byte counts accompany the sample; `client-protocol.json` retains totals.
+No payload cache, retry suppression or write-interface compatibility path is added
+to the engine. Speed advisories and disk/completion gates retain their existing rules.
+
+The separate `engine_full_replace` cases supply complete known values and use only
+revision tokens already acknowledged to that client. `application_read_replace`
+includes the full keyed read before the same complete write. Workers own distinct
+keys in that matrix, so it does not measure contention. The existing concurrent
+logical workloads retain their read/edit and retry costs rather than presenting
+those operations as engine-only replacements.

@@ -23,12 +23,6 @@ pub(super) use schema::*;
 mod args;
 pub(super) use args::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct MutateRequestOptions {
-    pub(super) must_exist: bool,
-    pub(super) durable: bool,
-}
-
 /// Client headroom above the server's mutation route budget.
 pub(super) const MUTATION_CLIENT_HEADROOM_SECS: u64 = 20;
 
@@ -193,34 +187,12 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: CloudCommand,
     },
-    /// Hard-erase one keyed record. Delete means gone (no trash, no undo).
-    /// Re-delete of a missing key succeeds. Pass `--must-exist` to refuse a miss.
-    ///
-    /// Only `delete` is implemented. Create/update are refused until a fields
-    /// file exists. Hidden `--type purge` is an alias of `--type delete --must-exist`.
+    /// Submit a complete conditional mutation from JSON, or '-' for stdin.
     Mutate {
-        /// Schema name (`App/Name` or descriptive).
         #[arg(long)]
-        schema: String,
-        /// Only `delete` is implemented. Hidden `purge` = `delete --must-exist`.
-        #[arg(long = "type", default_value = "delete")]
-        mutation_type: String,
-        /// Hash half of the key.
-        #[arg(long)]
-        key_hash: Option<String>,
-        /// Range half of the key.
-        #[arg(long)]
-        key_range: Option<String>,
-        /// Delete rows whose range starts with this prefix under --key-hash.
-        #[arg(long, conflicts_with = "key_range", requires = "key_hash")]
-        key_range_prefix: Option<String>,
-        /// Refuse if the target is already gone.
-        #[arg(long)]
-        must_exist: bool,
-        /// Wait for the Delete to reach local durable storage before the response.
+        request_file: PathBuf,
         #[arg(long)]
         durable: bool,
-        /// Emit the raw node JSON response.
         #[arg(long)]
         json: bool,
     },

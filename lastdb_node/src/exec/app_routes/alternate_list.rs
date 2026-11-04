@@ -44,15 +44,11 @@ async fn keyed_page(
         .map_err(HostError::from)?
         .ok_or_else(|| HostError::new(404, "schema is absent"))?;
     let definition = schema
-        .alternate_keys
+        .require_record_keys()?
+        .alternates
         .get(name)
         .ok_or_else(|| HostError::new(400, "alternate key is not declared"))?;
-    let primary = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.hash_field.clone())
-        .ok_or_else(|| HostError::new(400, "primary hash field is absent"))?;
-    let mut query = Query::new(canonical.to_owned(), vec![primary]);
+    let mut query = Query::new(canonical.to_owned(), Vec::new());
     query.key_name = Some(name.to_owned());
     query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
     let cursor = request
@@ -60,7 +56,7 @@ async fn keyed_page(
         .as_deref()
         .map(|encoded| {
             let encoded = encoded
-                .strip_prefix("ak1_")
+                .strip_prefix("ak2_")
                 .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
             let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(encoded)
@@ -86,7 +82,7 @@ async fn keyed_page(
         None
     } else {
         Some(format!(
-            "ak1_{}",
+            "ak2_{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
                 serde_json::to_vec(&page["next_cursor"])
                     .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?
@@ -95,7 +91,7 @@ async fn keyed_page(
     };
     Ok(
         serde_json::json!({"schema": request.requested, "schema_id": canonical, "key_name": name,
-        "key_field": definition.hash_field, "hash_field": definition.hash_field, "range_field": definition.range_field,
+        "key_definition": definition,
         "hash_filter": hash, "field_key": fold_db::alternate_keys::field_key(&schema, name),
         "keys": keys, "primary_keys": primary_keys, "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next}),
     )

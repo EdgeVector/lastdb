@@ -50,87 +50,90 @@ fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
 /// (each socket executor) parses the wire body into this shape; the shared
 /// handler owns schema resolution + the write.
 pub struct MutationComponents {
-    /// Existing per-key metadata supplied by an owner history restore.
-    pub metadata: Option<HashMap<String, String>>,
-    /// Schema the mutation writes.
+    /// Stable caller UUID retained across retries of this exact request.
+    pub mutation_id: String,
+    /// Schema that owns the record.
     pub schema: String,
-    /// Field values for this key, keyed by field name.
-    pub fields_and_values: HashMap<String, Value>,
-    /// Record key the mutation addresses.
+    /// Complete replacement payload; omitted fields disappear.
+    pub record_fields: HashMap<String, Value>,
+    /// Explicit primary address, independent of payload fields.
     pub key_value: KeyValue,
-    /// Create, update, or delete, as chosen by the caller.
+    /// Every declared alternate name and its explicit address or permitted null.
+    pub alternates: std::collections::BTreeMap<String, Option<KeyValue>>,
+    /// Create, replace, delete, or purge.
     pub mutation_type: MutationType,
-    /// Optional source file name recorded with the write.
+    /// Complete replacement of the optional source file name.
     pub source_file_name: Option<String>,
-    /// Optional compare-and-swap expectation for the existing record.
-    pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
-    /// How concurrent writers of this key are resolved.
+    /// Complete replacement of record metadata; absence clears it.
+    pub metadata: Option<HashMap<String, String>>,
+    /// Complete selected file marker; changes require an opaque file operation.
+    pub file: Option<fold_db::record_value::FileMarker>,
+    /// Required whole-record revision or expected-absent creation condition.
+    pub expected: fold_db::schema::types::cas::CasExpectation,
+    /// Whether to wait for post-commit background work.
     pub convergence: MutationConvergence,
-    /// Whether the caller waits for the durable commit.
+    /// Requested local persistence policy; native commits remain durable.
     pub durability: MutationDurability,
-    /// When `Some(true)` on an update, a missing record is an error instead of an insert.
-    pub must_exist: Option<bool>,
-    /// Delete all live rows under `key_value.hash` with this range prefix.
-    pub key_range_prefix: Option<String>,
-    /// The record's file write. Only `put-blob` and `delete-blob` set it.
+    /// Only a file-blob executor can issue this opaque operation.
     pub file_write: Option<FileWrite>,
 }
 
 impl MutationComponents {
-    /// Allocate one mutation identity and move the owned payload and options.
-    /// Callers resolve the schema and validate request/field rules first.
     fn into_mutation(self, canonical: String, public_key: String) -> Mutation {
-        let mut mutation = configure_mutation(
-            Mutation::new(
-                uuid::Uuid::new_v4().to_string(),
-                canonical,
-                self.fields_and_values,
-                self.key_value,
-                public_key,
-                self.mutation_type,
-            ),
-            self.source_file_name,
-            self.durability,
+        let target = fold_db::record_replacement::RecordTarget {
+            schema: canonical,
+            key: self.key_value,
+            alternates: self.alternates,
+        };
+        let mut mutation = Mutation::new(
+            self.mutation_id,
+            target,
+            self.record_fields,
+            public_key,
+            self.mutation_type,
             self.expected,
-            self.must_exist,
         );
+        mutation.source_file_name = self.source_file_name;
         mutation.metadata = self.metadata;
+        mutation.file = self.file;
         mutation.file_write = self.file_write;
+        mutation.synchronous = Some(self.durability.waits_for_persist());
         mutation
     }
 
-    /// Move parsed fields into a request without host or storage access.
-    /// An operation's convergence overrides the caller's default.
+    /// Move a decoded native request into its host components.
     #[must_use]
     pub fn from_operation(
         operation: Operation,
         default_convergence: Option<MutationConvergence>,
     ) -> Self {
         let Operation::Mutation {
+            mutation_id,
             schema,
-            fields_and_values,
+            record_fields,
             key_value,
+            alternates,
             mutation_type,
             source_file_name,
+            metadata,
+            file,
             expected,
             convergence,
             durability,
-            must_exist,
-            key_range_prefix,
         } = operation;
-
         Self {
-            metadata: None,
+            mutation_id,
             schema,
-            fields_and_values,
+            record_fields,
             key_value,
+            alternates,
             mutation_type,
             source_file_name,
+            metadata,
+            file,
             expected,
             convergence: convergence.or(default_convergence).unwrap_or_default(),
             durability: durability.unwrap_or_default(),
-            must_exist,
-            key_range_prefix,
             file_write: None,
         }
     }
@@ -165,6 +168,7 @@ pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
 pub(super) fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
     serde_json::json!({
         "revision": receipt.revision,
+        "record_revisions": receipt.record_revisions,
         "operations": operations_json(&receipt.operations),
         "durability": receipt.durability.as_str(),
         "resident_stages_us": stages_json(&receipt.stages),
@@ -216,6 +220,7 @@ fn mutation_response(
         commit_core_json(receipt),
         serde_json::json!({
             "mutation_id": mutation_id,
+            "record_revision": receipt.record_revisions.get(mutation_id),
             "success": true,
             "background_tasks_drained": background_tasks_drained,
             "convergence_pending": !background_tasks_drained,
@@ -224,80 +229,15 @@ fn mutation_response(
     )
 }
 
-/// Response for a prefix delete that matched no rows.
-fn empty_delete_response() -> Value {
-    extend_json(
-        commit_core_json(&ResidentCommitReceipt::empty()),
-        serde_json::json!({
-            "mutation_id": "",
-            "success": true,
-            "background_tasks_drained": true,
-            "convergence_pending": false,
-            "size": 0
-        }),
-    )
-}
-
-/// Move the payload for one selected key. Multi-key prefix deletes retain
-/// their independent payloads and the existing per-key identity order.
-fn build_mutations<H: HostNode>(
-    host: &H,
-    mut key_values: Vec<KeyValue>,
-    mut plan: MutationPlan,
-) -> Vec<Mutation> {
-    if key_values.len() == 1 {
-        plan.components.key_value = key_values.pop().expect("one selected key");
-        return vec![plan
-            .components
-            .into_mutation(plan.canonical, host.public_key())];
-    }
-    let components = &plan.components;
-    key_values
-        .into_iter()
-        .map(|key_value| {
-            configure_mutation(
-                Mutation::new(
-                    uuid::Uuid::new_v4().to_string(),
-                    plan.canonical.clone(),
-                    components.fields_and_values.clone(),
-                    key_value,
-                    host.public_key(),
-                    components.mutation_type,
-                ),
-                components.source_file_name.clone(),
-                components.durability,
-                components.expected.clone(),
-                components.must_exist,
-            )
-        })
-        .collect()
-}
-
-/// Set the caller's options without copying an owned mutation payload.
-fn configure_mutation(
-    mut mutation: Mutation,
-    source_file_name: Option<String>,
-    durability: MutationDurability,
-    expected: Option<fold_db::schema::types::cas::CasExpectation>,
-    must_exist: Option<bool>,
-) -> Mutation {
-    mutation.source_file_name = source_file_name;
-    if durability.waits_for_persist() {
-        mutation.synchronous = Some(true);
-    }
-    mutation.expected = expected;
-    mutation.must_exist = must_exist;
-    mutation
-}
-
 /// Build, admit, and commit the selected mutations.
 async fn commit_mutation<H: HostNode>(
     host: &H,
     plan: MutationPlan,
-    key_values: Vec<KeyValue>,
     payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
-    let mutations = build_mutations(host, key_values, plan);
+    let mutations = vec![plan
+        .components
+        .into_mutation(plan.canonical, host.public_key())];
     let admission_started = std::time::Instant::now();
     let permit = host
         .acquire_op_permit(Lane::for_write_bytes(payload_bytes))

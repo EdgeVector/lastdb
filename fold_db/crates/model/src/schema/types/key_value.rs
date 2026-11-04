@@ -8,7 +8,7 @@ use std::collections::HashMap;
 ///
 /// Unknown coordinates are refused instead of disappearing into an empty key.
 /// The logical mutation boundary also refuses missing required coordinates.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(deny_unknown_fields)]
 pub struct KeyValue {
     pub hash: Option<String>,

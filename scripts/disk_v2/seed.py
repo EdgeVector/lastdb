@@ -15,6 +15,7 @@ import json
 import math
 import random
 import time
+import uuid
 
 # Mutations in one request. A key occurs at most once in a request.
 BATCH = 64
@@ -43,18 +44,28 @@ SCHEMAS = {
 }
 
 
-def schema_request(name):
+def schema_request(name, native=False):
     hash_field, range_field, fields = SCHEMAS[name]
-    return {"isolated_copy": True, "schema": {
+    request = {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": name, "descriptive_name": name,
         "schema_type": "HashRange",
         "key": {"hash_field": hash_field, "range_field": range_field},
         "fields": list(fields),
         "field_types": {hash_field: "String", range_field: "String"},
         "field_descriptions": {field: f"disk v2 proof {field}" for field in fields}}}
+    if native:
+        request["schema"].pop("key")
+        request["schema"]["record_keys"] = {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}}
+    return request
 
 
-def batch_request(batch):
+def batch_request(batch, native=False):
+    if native:
+        return {"mutations": [{"type": "mutation", "mutation_id": str(uuid.uuid4()),
+            "schema": edit[1], "key_value": {"hash": edit[2][0], "range": edit[2][1]},
+            "record": edit.complete, "alternates": {}, "expected": None,
+            "mutation_type": "delete" if edit[0] == "delete" else "replace" if edit.existed else "create",
+            "durability": "durable"} for edit in batch]}
     return {"mutations": [
         {"type": "mutation", "schema": schema, "mutation_type": operation,
          "durability": "durable", "key_value": {"hash": key[0], "range": key[1]},
@@ -94,6 +105,14 @@ def vocabulary(rng, size=3000):
     return ordered
 
 
+class CompleteEdit(tuple):
+    """Original logical edit and the complete record already held by the generator."""
+    def __new__(cls, operation, schema, key, fields, complete, existed):
+        value = super().__new__(cls, (operation, schema, key, fields))
+        value.complete, value.existed = complete, existed
+        return value
+
+
 class Seed:
     """The generator and the model of one home."""
 
@@ -116,6 +135,7 @@ class Seed:
 
     def put(self, operation, schema, key, fields=None):
         record = (schema,) + key
+        existed = record in self.records
         fields = copy.deepcopy(fields or {})
         if operation == "delete":
             del self.records[record]
@@ -125,7 +145,8 @@ class Seed:
             self.deleted.discard(record)
         else:
             self.records[record].update(copy.deepcopy(fields))
-        self.pending.append((operation, schema, key, fields))
+        self.pending.append(CompleteEdit(operation, schema, key, fields,
+                                         copy.deepcopy(self.records.get(record, {})), existed))
         self.counts["mutations"] += 1
         self.counts[operation + "s"] += 1
         self.counts["field_values"] += len(fields)

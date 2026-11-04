@@ -29,7 +29,6 @@ impl SchemaError {
         match self {
             Self::CasConflict {
                 schema,
-                field,
                 key,
                 expected,
                 actual,
@@ -37,7 +36,6 @@ impl SchemaError {
                 "ok": false,
                 "error": "cas_conflict",
                 "schema": schema,
-                "field": field,
                 "key": key,
                 "expected": expected,
                 "actual": actual,

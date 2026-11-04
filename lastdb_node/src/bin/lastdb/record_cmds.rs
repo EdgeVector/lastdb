@@ -6,26 +6,10 @@ use super::*;
 pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Result<(), String> {
     match command {
         Command::Mutate {
-            schema,
-            mutation_type,
-            key_hash,
-            key_range,
-            key_range_prefix,
-            must_exist,
+            request_file,
             durable,
             json: _,
-        } => mutate_command(
-            data_dir,
-            &schema,
-            &mutation_type,
-            key_hash.as_deref(),
-            key_range.as_deref(),
-            key_range_prefix.as_deref(),
-            MutateRequestOptions {
-                must_exist,
-                durable,
-            },
-        ),
+        } => mutate_command(data_dir, &request_file, durable),
         Command::List(args) => list_record_keys(data_dir, &args, "list"),
         Command::GetKeys(args) => list_record_keys(data_dir, &args, "get-keys"),
         Command::Get {

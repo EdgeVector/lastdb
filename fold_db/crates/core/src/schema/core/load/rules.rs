@@ -5,9 +5,10 @@ use crate::schema::types::{Schema, SchemaError};
 /// Same-identity loads refresh metadata and retain the schema's owned field keys.
 /// No hydrated field key enters the cache.
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
-    if schema.alternate_keys != stored.alternate_keys {
+    if schema.record_keys != stored.record_keys || schema.alternate_keys != stored.alternate_keys {
         return Err(SchemaError::InvalidData(
-            "alternate declarations require the explicit alternate-key change command".into(),
+            "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly"
+                .into(),
         ));
     }
     let mut field_keys = schema.field_key_ids.take().unwrap_or_default();

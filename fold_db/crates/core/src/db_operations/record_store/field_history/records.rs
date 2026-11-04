@@ -112,13 +112,10 @@ impl RecordStore {
                 continue;
             };
             for (field, old) in &before.fields {
-                let stamp = before.stamps.get(field);
-                if change.after.fields.get(field) == Some(old)
-                    || change.after.stamps.get(field) == stamp
-                {
+                if change.after.fields.get(field) == Some(old) {
                     continue;
                 }
-                let (Some(identity), Some(_)) = (schema.field_hashes.get(field), stamp) else {
+                let Some(identity) = schema.field_hashes.get(field) else {
                     continue;
                 };
                 found.push(Capture {

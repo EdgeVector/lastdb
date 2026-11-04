@@ -37,7 +37,6 @@ pub(super) enum Source {
         after: Option<String>,
     },
     Range {
-        field: String,
         hashes: Vec<String>,
         partition: usize,
         after: Option<KeyValue>,
@@ -85,7 +84,6 @@ pub(super) async fn fill_page(
             keys
         }
         Source::Range {
-            field,
             hashes,
             partition,
             after,
@@ -102,15 +100,7 @@ pub(super) async fn fill_page(
                 *leading = true;
             }
             let filter = range_filter(&backlog.schema_type, hash, backlog.cutoff);
-            let page = range_page(
-                host,
-                &backlog.schema_name,
-                field,
-                filter,
-                after.clone(),
-                limit,
-            )
-            .await?;
+            let page = range_page(host, &backlog.schema_name, filter, after.clone(), limit).await?;
             if !page.keys.is_empty() {
                 *leading = false;
             }
@@ -165,7 +155,7 @@ fn range_filter(kind: &DeclarativeSchemaType, hash: &str, cutoff: u64) -> HashRa
     }
 }
 
-/// One page of a range read: the keys of the live rows with the field, and
+/// One page of a range read: the external keys of the live records, and
 /// the last key that the read examined when a run of deleted records ended
 /// the page early.
 struct RangePage {
@@ -176,12 +166,11 @@ struct RangePage {
 async fn range_page(
     host: &Host,
     schema: &str,
-    field: &str,
     filter: HashRangeFilter,
     after: Option<KeyValue>,
     limit: usize,
 ) -> Result<RangePage, String> {
-    let query = Query::new_with_filter(schema.to_string(), vec![field.to_string()], Some(filter));
+    let query = Query::new_with_filter(schema.to_string(), Vec::new(), Some(filter));
     let executor = host.db.query_executor();
     // The page tally lets the read end early in a run of deleted records and
     // name where it ended, where a read without it fails at the read limit.
@@ -201,11 +190,7 @@ async fn range_page(
         None => None,
     };
     Ok(RangePage {
-        keys: rows
-            .into_iter()
-            .filter(|(_, record)| record.fields.contains_key(field))
-            .map(|(key, _)| key)
-            .collect(),
+        keys: rows.into_keys().collect(),
         resume,
     })
 }

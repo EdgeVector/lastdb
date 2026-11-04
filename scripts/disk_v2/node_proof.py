@@ -36,6 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 
 from home_format import NODE_MARKER as RUN_NODE  # noqa: E402
 from node import Node, save  # noqa: E402  (the benchmark daemon driver)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "operations"))
+from record_requests import conditioned  # noqa: E402
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
 import cleanup  # noqa: E402
@@ -68,7 +70,7 @@ PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
     # This qualifies the generic engine capacity check; fewer stored records are
     # not evidence of lost data. Alternate-key savings use a fixed-input pass.
-    "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
+    "seed": {"base": 6500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 
@@ -147,7 +149,7 @@ class Case:
         self.node.start()
         self.check_new_home()
         for schema in SCHEMAS:
-            self.node.call("/api/schemas/seed-system", schema_request(schema))
+            self.node.call("/api/schemas/seed-system", schema_request(schema, native=self.node.api_version >= 27))
         name = f"seed (new v2 home, {self.candidate[1][:12]})"
         writes = self.write(self.seed.phase(**PROFILE["seed"]))
         # The writes start from an empty home, under the 16 MiB that the limit
@@ -242,9 +244,13 @@ class Case:
 
     def write(self, batches):
         total = sum(len(batch) for batch in batches)
-        done, started = 0, time.monotonic()
+        done, condition_reads, started = 0, 0, time.monotonic()
         for batch in batches:
-            result, _, _ = self.node.call("/api/mutations/batch", batch_request(batch))
+            request = batch_request(batch, native=self.node.api_version >= 27)
+            if self.node.api_version >= 27:
+                condition_reads += int(any(item["mutation_type"] != "create" for item in request["mutations"]))
+                request["mutations"] = conditioned(self.node, request["mutations"])
+            result, _, _ = self.node.call("/api/mutations/batch", request)
             if result.get("count") != len(batch) or result.get("durability") != "durable":
                 raise ProofError(f"a write lacks a complete durable acknowledgement: {brief(result)}")
             done += len(batch)
@@ -253,6 +259,7 @@ class Case:
         if result.get("durable") is not True:
             raise ProofError(f"the flush after the writes is not durable: {brief(result)}")
         return {"mutations": total, "requests": len(batches),
+                "condition_read_requests": condition_reads, "physical_rpcs_including_flush": len(batches) + condition_reads + 1,
                 "seconds": round(time.monotonic() - started, 1)}
 
     def logical(self):

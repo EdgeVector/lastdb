@@ -76,7 +76,7 @@ def trace(node, output):
 
 def measure(binary, revision, output, mode):
     output.mkdir()
-    node = Node(binary, revision, output)
+    node = Node(binary, revision, output, record_protocol=True)
     work, error, metric = None, None, None
     try:
         node.start()

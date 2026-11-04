@@ -37,7 +37,7 @@ pub(super) fn encode(
             .ok_or_else(|| {
                 SchemaError::InvalidData("a file row requires its record marker".into())
             })?
-            .marker();
+            .clone();
         if file.marker() != &marker {
             return Err(SchemaError::InvalidData(
                 "file payload differs from its record marker".into(),

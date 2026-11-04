@@ -28,15 +28,12 @@ impl MutationManager {
         for (idx, mutation) in schema_mutations.iter().enumerate() {
             let key_value = &mutation_key_values[idx];
             match mutation.mutation_type {
-                MutationType::Create | MutationType::Update => {
+                MutationType::Create | MutationType::Replace => {
                     changes.push(IndexChange {
                         mutation_id: mutation.uuid.clone(),
                         kind: IndexChangeKind::Upsert,
                         key_value: key_value.clone(),
-                        fields_and_values: inbox_fields(
-                            &mutation.fields_and_values,
-                            searchable.as_ref(),
-                        ),
+                        record_fields: inbox_fields(&mutation.record_fields, searchable.as_ref()),
                     });
                 }
                 // Purge is hard-erase: Search must drop vectors the same way
@@ -48,7 +45,7 @@ impl MutationManager {
                         mutation_id: mutation.uuid.clone(),
                         kind: IndexChangeKind::Tombstone,
                         key_value: key_value.clone(),
-                        fields_and_values: HashMap::default(),
+                        record_fields: HashMap::default(),
                     });
                 }
             }

@@ -38,5 +38,9 @@ pub(crate) enum DbBlobCommand {
     },
     /// Remove the file and the file marker of one record. The record stays.
     #[command(name = "delete-blob")]
-    Delete(BlobTargetArgs),
+    Delete {
+        /// Complete replacement without a file marker.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
 }

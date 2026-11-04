@@ -192,9 +192,12 @@ pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName, WireKey::Fiel
 pub const MUTATION_REQUIRED_KEYS: &[WireKey] = &[
     WireKey::OperationType,
     WireKey::Schema,
-    WireKey::FieldsAndValues,
+    WireKey::Record,
     WireKey::KeyValue,
     WireKey::MutationType,
+    WireKey::MutationId,
+    WireKey::Alternates,
+    WireKey::Expected,
 ];
 
 /// Check that every key a route requires is present in the parsed body, naming

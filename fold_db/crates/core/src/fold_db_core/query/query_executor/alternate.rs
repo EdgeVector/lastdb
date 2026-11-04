@@ -29,11 +29,9 @@ impl QueryExecutor {
             .key_name
             .as_deref()
             .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
-        let definition = schema
-            .alternate_keys
-            .get(name)
-            .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))?;
-        let names = definition.fields().collect();
+        if !schema.require_record_keys()?.alternates.contains_key(name) {
+            return Err(alternate_keys::invalid("alternate key is not declared"));
+        }
         let filter = query
             .filter
             .as_ref()
@@ -47,15 +45,18 @@ impl QueryExecutor {
                 .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
                 .await?;
             let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-            let fields = self
-                .db_ops
-                .records()
-                .schema_fields_at_keys(&schema, &keys, &names)
-                .await?;
-            for (entry, fields) in entries.iter().zip(fields) {
-                if alternate_keys::derive_key(&schema, definition, &fields)?.as_ref()
-                    != Some(&entry.matched)
-                {
+            let store = self.db_ops.records();
+            let addresses = keys
+                .iter()
+                .map(|key| store.record_key(&schema, key))
+                .collect::<Result<Vec<_>, _>>()?;
+            let records = store.read_records(&addresses).await?;
+            for (entry, record) in entries.iter().zip(records) {
+                if !record.as_ref().is_some_and(|record| {
+                    record.is_live()
+                        && record.alternates.get(name).and_then(Option::as_ref)
+                            == Some(&entry.matched)
+                }) {
                     return Err(alternate_keys::invalid(
                         "alternate count found an entry without its current primary record",
                     ));
@@ -67,7 +68,7 @@ impl QueryExecutor {
             if entries.len() < 128 {
                 return Ok(count);
             }
-            after = entries.last().map(|entry| entry.matched.clone());
+            after = entries.last().cloned();
         }
     }
 
@@ -94,7 +95,7 @@ impl QueryExecutor {
             .key_name
             .take()
             .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
-        if !schema.alternate_keys.contains_key(&name) {
+        if !schema.require_record_keys()?.alternates.contains_key(&name) {
             return Err(alternate_keys::invalid("alternate key is not declared"));
         }
         let filter = query
@@ -110,7 +111,17 @@ impl QueryExecutor {
                 "alternate cursor does not match this query",
             ));
         }
-        let after = cursor.map(QueryCursor::into_key);
+        let after = cursor
+            .map(|cursor| -> Result<AlternateEntry, SchemaError> {
+                let primary = cursor.alternate_primary.clone().ok_or_else(|| {
+                    alternate_keys::invalid("alternate cursor requires its primary tie-breaker")
+                })?;
+                Ok(AlternateEntry {
+                    primary,
+                    matched: cursor.into_key(),
+                })
+            })
+            .transpose()?;
         let mut entries = self
             .db_ops
             .records()
@@ -125,31 +136,22 @@ impl QueryExecutor {
         let has_more = entries.len() > limit;
         entries.truncate(limit);
         let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-        let projection = query.fields.clone();
-        if !projection.is_empty() {
-            for field in schema.alternate_keys[&name].fields() {
-                if !query.fields.iter().any(|name| name == field) {
-                    query.fields.push(field.to_owned());
-                }
-            }
-        }
         query.filter = Some(crate::schema::types::field::HashRangeFilter::HashRangeKeys(
             keys.iter()
-                .map(|key| (key.hash.clone().unwrap_or_default(), String::new()))
+                .map(|key| {
+                    (
+                        key.hash.clone().unwrap_or_default(),
+                        key.range.clone().unwrap_or_default(),
+                    )
+                })
                 .collect(),
         ));
-        let mut values = if keys.is_empty() {
+        let values = if keys.is_empty() {
             QueryRecords::new()
         } else {
             self.query_current(query, None).await?
         };
-        validate_entries(&schema, &name, &entries, &values)?;
-        if !projection.is_empty() {
-            for record in values.values_mut() {
-                record.fields.retain(|field, _| projection.contains(field));
-            }
-            values.retain(|_, record| !record.fields.is_empty());
-        }
+        validate_entries(&name, &entries, &values)?;
         Ok(AlternatePage {
             values,
             entries,
@@ -193,7 +195,7 @@ fn comparison_binding(
     filter: &crate::schema::types::field::HashRangeFilter,
 ) -> Result<String, SchemaError> {
     Ok(format!(
-        "ak1:{:x}",
+        "ak2:{:x}",
         Sha256::digest(
             serde_json::to_vec(&(
                 &schema.name,
@@ -207,25 +209,19 @@ fn comparison_binding(
 }
 
 fn validate_entries(
-    schema: &crate::schema::Schema,
     name: &str,
     entries: &[AlternateEntry],
     values: &QueryRecords,
 ) -> Result<(), SchemaError> {
-    let definition = &schema.alternate_keys[name];
     for entry in entries {
-        let record = values.get(&entry.primary);
-        let fields = definition
-            .fields()
-            .filter_map(|field| {
-                record?
-                    .fields
-                    .get(field)
-                    .map(|value| (field.to_owned(), value.clone()))
-            })
-            .collect();
-        if alternate_keys::derive_key(schema, definition, &fields)?.as_ref() != Some(&entry.matched)
-        {
+        let record = values.get(&entry.primary).ok_or_else(|| {
+            SchemaError::InvalidData(format!(
+                "alternate page is missing a primary record ({} entries, {} records)",
+                entries.len(),
+                values.len()
+            ))
+        })?;
+        if record.alternates.get(name).and_then(Option::as_ref) != Some(&entry.matched) {
             return Err(alternate_keys::invalid(
                 "alternate entry does not match its primary record",
             ));

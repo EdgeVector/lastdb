@@ -18,6 +18,8 @@ struct DeclarativeSchemaDefinitionHelper {
     key: Option<KeyConfig>,
     #[serde(default)]
     alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
+    #[serde(default)]
+    record_keys: Option<crate::record_keys::RecordKeys>,
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
@@ -77,22 +79,40 @@ impl DeclarativeSchemaDefinitionHelper {
         let normalized_fields = normalize_fields(self.fields)?;
 
         // Determine schema_type if omitted
-        let normalized_schema_type = match (&self.schema_type, &self.key) {
-            (Some(st), _) => st.clone(),
-            (None, Some(k)) => {
-                let has_hash = k.hash_field.is_some();
-                let has_range = k.range_field.is_some();
-                if has_hash && has_range {
-                    DeclarativeSchemaType::HashRange
-                } else if has_hash {
-                    DeclarativeSchemaType::Hash
-                } else if has_range {
-                    DeclarativeSchemaType::Range
-                } else {
-                    DeclarativeSchemaType::Single
-                }
+        let normalized_schema_type = if let Some(keys) = &self.record_keys {
+            keys.validate()?;
+            let kind = match keys.primary.kind {
+                crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
+                crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
+            };
+            if self.key.is_some()
+                || !self.alternate_keys.is_empty()
+                || self
+                    .schema_type
+                    .as_ref()
+                    .is_some_and(|declared| declared != &kind)
+            {
+                return Err("record_keys cannot be mixed with field-derived or conflicting key declarations".into());
             }
-            (None, None) => DeclarativeSchemaType::Single,
+            kind
+        } else {
+            match (&self.schema_type, &self.key) {
+                (Some(st), _) => st.clone(),
+                (None, Some(k)) => {
+                    let has_hash = k.hash_field.is_some();
+                    let has_range = k.range_field.is_some();
+                    if has_hash && has_range {
+                        DeclarativeSchemaType::HashRange
+                    } else if has_hash {
+                        DeclarativeSchemaType::Hash
+                    } else if has_range {
+                        DeclarativeSchemaType::Range
+                    } else {
+                        DeclarativeSchemaType::Single
+                    }
+                }
+                (None, None) => DeclarativeSchemaType::Single,
+            }
         };
 
         // Use the constructor to create the actual struct with generated mappings
@@ -132,6 +152,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.owner_app_id = self.owner_app_id;
         schema.source = self.source;
         schema.alternate_keys = self.alternate_keys;
+        schema.record_keys = self.record_keys;
 
         // Recompute identity_hash if owner_app_id is present and the helper
         // didn't carry an explicit one. owner_app_id participates in

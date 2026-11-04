@@ -62,9 +62,6 @@ export function casConflictDetailOf(body: unknown): CasConflictDetail {
   if (typeof body['schema'] === 'string') {
     detail.schema = body['schema'];
   }
-  if (typeof body['field'] === 'string') {
-    detail.field = body['field'];
-  }
   if (typeof body['key'] === 'string') {
     detail.key = body['key'];
   }

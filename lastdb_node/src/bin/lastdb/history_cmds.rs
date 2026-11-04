@@ -30,13 +30,11 @@ enum HistoryAction {
     },
     /// Fetch one retained value.
     Get { id: String },
-    /// Restore one value only if the selected current write is unchanged.
+    /// Restore an archived value within a complete conditional record request.
     Restore {
         id: String,
-        #[arg(long, required_unless_present = "absent", conflicts_with = "absent")]
-        expected_mutation: Option<String>,
         #[arg(long)]
-        absent: bool,
+        request_file: PathBuf,
     },
     /// Remove one bounded history page; repeat with the returned cursor.
     Purge {
@@ -64,12 +62,12 @@ pub(super) fn run(data_dir: Option<PathBuf>, args: HistoryArgs) -> Result<(), St
             serde_json::json!({"op": "list", "cursor": cursor, "limit": limit})
         }
         HistoryAction::Get { id } => serde_json::json!({"op": "get", "id": id}),
-        HistoryAction::Restore {
-            id,
-            expected_mutation,
-            absent,
-        } => {
-            serde_json::json!({"op": "restore", "id": id, "expected_mutation": expected_mutation, "absent": absent})
+        HistoryAction::Restore { id, request_file } => {
+            let raw =
+                std::fs::read(&request_file).map_err(|e| format!("read restore request: {e}"))?;
+            let mutation: serde_json::Value = serde_json::from_slice(&raw)
+                .map_err(|e| format!("invalid restore request: {e}"))?;
+            serde_json::json!({"op": "restore", "id": id, "mutation": mutation})
         }
         HistoryAction::Purge { cursor } => serde_json::json!({"op": "purge", "cursor": cursor}),
     };

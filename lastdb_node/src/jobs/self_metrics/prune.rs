@@ -25,16 +25,38 @@ pub(super) async fn purge_series_rows(
     if sample_ids.is_empty() {
         return Ok(());
     }
-    let mutations: Vec<Mutation> = sample_ids
-        .iter()
-        .map(|sample_id| {
+    let query = Query::new_with_filter(
+        schema_name.to_string(),
+        Vec::new(),
+        Some(HashRangeFilter::HashRangeKeys(
+            sample_ids
+                .iter()
+                .map(|id| (series.to_string(), id.clone()))
+                .collect(),
+        )),
+    );
+    let rows = host
+        .db
+        .query_executor()
+        .query(query)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mutations: Vec<Mutation> = rows
+        .into_iter()
+        .map(|(key, record)| {
             Mutation::new(
                 uuid::Uuid::new_v4().to_string(),
-                schema_name.to_string(),
+                fold_db::record_replacement::RecordTarget {
+                    schema: schema_name.to_string(),
+                    key,
+                    alternates: record.alternates,
+                },
                 HashMap::new(),
-                KeyValue::new(Some(series.to_string()), Some(sample_id.clone())),
                 host.public_key(),
                 MutationType::Purge,
+                fold_db::record_replacement::RecordExpectation::Revision {
+                    revision: record.revision,
+                },
             )
         })
         .collect();

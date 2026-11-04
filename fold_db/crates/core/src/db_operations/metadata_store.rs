@@ -43,18 +43,18 @@ impl MetadataStore {
         self.format.retry_cache_status()
     }
 
-    /// Batch-read receipts in input order. Hits still need current-value checks.
+    /// Batch-read retained receipts in input order. Hits bind intent and original revision.
     pub async fn get_idempotency_ids(
         &self,
         keys: &[String],
-    ) -> Result<Vec<Option<String>>, SchemaError> {
+    ) -> Result<Vec<Option<lastdb_model::record_replacement::RetryReceipt>>, SchemaError> {
         self.format.idempotency_ids(keys).await.map_err(Into::into)
     }
 
     /// Native requests serialize bounded bucket replacement with record writes.
     pub async fn batch_put_idempotency(
         &self,
-        entries: Vec<(String, String)>,
+        entries: Vec<(String, lastdb_model::record_replacement::RetryReceipt)>,
     ) -> Result<(), SchemaError> {
         self.format
             .stage_idempotency(entries)

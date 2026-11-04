@@ -1,19 +1,30 @@
-"""The home format of this release, for every script.
+"""Read script-facing format constants from their authoritative Rust definitions.
 
-The source is `HOME_FORMAT`, `RECORD_NODE_BYTES` and `RECORD_PROFILE` in the
-format definition (`fold_db/crates/core/src/storage/format.rs`). A
-layout change raises them there and here, and nowhere else. The file names
-below name their Rust definition.
+No home, daemon or generated receipt is read. A missing or conflicting source
+constant is a configuration error, rather than a guessed layout version.
 """
+import ast
+from pathlib import Path
+import re
 
-HOME_FORMAT = 11
-# The clear node marker (`laststore-pack-node-v1`) of a home in this format.
-NODE_MARKER = f"format={HOME_FORMAT}\nhome=disk-run\ncas=disk-cas\n".encode()
-# The backup profile version of a home in this format.
-BACKUP_PROFILE = 9
-# The saved account credentials and manual backup consent in the home root
-# (`CLOUD_CREDENTIALS_FILE` in `lastdb_node/src/cloud.rs`).
-CREDENTIALS_FILE = "cloud-credentials.json"
-# The backup source and run holds in `data/disk-run/` (`BACKUP_DIR` in
-# `vendor/laststore/src/disk_run/home/mod.rs`).
-BACKUP_DIR = "cloud-byte-v2"
+ROOT = Path(__file__).resolve().parents[2]
+FORMAT = "fold_db/crates/core/src/storage/format.rs"
+
+
+def source_constant(path, name):
+    source = (ROOT / path).read_text()
+    pattern = (r'\bconst\s+' + re.escape(name)
+               + r'\s*:[^=]+?=\s*(b?"(?:\\.|[^"\\])*"|[0-9]+)\s*;')
+    matches = re.findall(pattern, source)
+    if len(matches) != 1:
+        raise ValueError(f"expected one authoritative {name} in {path}")
+    return ast.literal_eval(matches[0])
+
+
+HOME_FORMAT = source_constant(FORMAT, "HOME_FORMAT")
+NODE_MARKER = source_constant(FORMAT, "RECORD_NODE_BYTES")
+BACKUP_PROFILE = source_constant(FORMAT, "RECORD_PROFILE")
+CREDENTIALS_FILE = source_constant("lastdb_node/src/cloud.rs", "CLOUD_CREDENTIALS_FILE")
+BACKUP_DIR = source_constant("vendor/laststore/src/disk_run/home/mod.rs", "BACKUP_DIR")
+if not NODE_MARKER.startswith(f"format={HOME_FORMAT}\n".encode()):
+    raise ValueError("the authoritative home version and node marker disagree")

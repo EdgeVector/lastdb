@@ -164,8 +164,10 @@ class Workload:
                 observe = (self.case == "update/128"
                            or self.case == "update/1" and self.recipe["native_timing"])
                 before = read_counters(self.node.process.pid) if observe else None
+                transport = {}
                 result, elapsed, receipt = self.node.call(
-                    path, body, receipt=kind == "read", request_id=request_id)
+                    path, body, receipt=kind == "read", request_id=request_id, transport=transport)
+                sample.update(transport)
                 if observe:
                     after = read_counters(self.node.process.pid)
                     sample.update(process_before=before, process_after=after,

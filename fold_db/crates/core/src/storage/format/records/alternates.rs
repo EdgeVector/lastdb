@@ -32,20 +32,15 @@ impl AlternateChange {
     ) -> Result<Self, SchemaError> {
         // The reader resolves this target with the primary key's codec,
         // whose range type may differ from the alternate's range type.
-        RecordAddress::new(primary_codec, record_space, &primary)?;
+        let target = RecordAddress::new(primary_codec, record_space, &primary)?;
         Ok(Self {
-            key: AlternateAddress::new(alternate_codec, field_key, &matched)?,
+            key: AlternateAddress::new(alternate_codec, field_key, &matched, &target)?,
             entry: Some(AlternateEntry { primary, matched }),
         })
     }
 
     pub(crate) fn delete(key: AlternateAddress) -> Self {
         Self { key, entry: None }
-    }
-
-    /// The coordinator uses this identity for collision resolution only.
-    pub(crate) fn address(&self) -> &AlternateAddress {
-        &self.key
     }
 }
 

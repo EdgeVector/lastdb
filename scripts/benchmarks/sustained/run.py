@@ -137,7 +137,7 @@ def corpus(args, size):
     settings.gib = size
     environment = {"LASTDBD_STDIO_LOG_ROTATION": "0"} if args.diagnostics else {}
     node = SustainedNode(args.binary, args.revision, output, native_timing=args.diagnostics,
-                         environment=environment)
+                         environment=environment, record_protocol=True)
     checkpoints = Checkpoints(node, output, args.diagnostics)
     report = {"payload_gib": size, "phases": []}
     telemetry = None

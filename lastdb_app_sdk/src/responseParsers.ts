@@ -138,10 +138,28 @@ export function parseQueryRow(raw: unknown): QueryRow {
   return {
     key,
     keyValue,
+    revision: parseRevision(raw['revision'], raw),
+    alternates: parseAlternates(raw['alternates'], raw),
     ...(isObject(raw['matched_key']) ? { matchedKey: parseRowKey(raw['matched_key']).keyValue } : {}),
     fields: fields as RowFields,
     metadata: parseRecordMetadata(raw['metadata']),
   };
+}
+
+function parseRevision(value: unknown, raw: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new UnexpectedResponseError('query returned no record revision', 200, raw);
+  }
+  return value;
+}
+function parseAlternates(value: unknown, raw: unknown): Record<string, KeyValue | null> {
+  if (!isObject(value)) throw new UnexpectedResponseError('query returned no alternate addresses', 200, raw);
+  return Object.fromEntries(Object.entries(value).map(([name, key]) => {
+    if (key === null) return [name, null];
+    const parsed = parseKeyValue(key);
+    if (!parsed || !parsed.hash) throw new UnexpectedResponseError('query returned invalid alternate address', 200, raw);
+    return [name, parsed];
+  }));
 }
 
 /**
@@ -161,6 +179,16 @@ export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
     metadata.metadata = Object.fromEntries(
       Object.entries(map).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
     );
+  }
+  if (isObject(raw['file'])) {
+    const file = raw['file'];
+    if (typeof file['sha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(file['sha256'])
+        || typeof file['size_bytes'] !== 'number' || !Number.isSafeInteger(file['size_bytes']) || file['size_bytes'] < 0) {
+      throw new UnexpectedResponseError('query returned invalid file marker', 200, raw);
+    }
+    metadata.file = { sha256: file['sha256'], size_bytes: file['size_bytes'],
+      ...(typeof file['name'] === 'string' ? { name: file['name'] } : {}),
+      ...(typeof file['media_type'] === 'string' ? { media_type: file['media_type'] } : {}) };
   }
   return metadata;
 }

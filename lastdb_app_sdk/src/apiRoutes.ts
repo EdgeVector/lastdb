@@ -16,18 +16,8 @@ export const LASTDB_API_ROUTES = {
   version: '/api/version',
 } as const;
 
-/**
- * The node request-grammar version this SDK needs — the lowest `api_version`
- * `GET /api/version` may report for every route and key this SDK sends to
- * work. It is not the node's current version: node API version 2 removed
- * three owner-socket routes this SDK never calls, so the SDK still needs only
- * `1`, and a node that reports a higher number still serves it.
- *
- * An app declares the version IT needs (usually this one) and passes it as
- * `connect({ requireApiVersion })`; the SDK refuses to run against an older
- * node with one line that names the fix instead of failing on the first write.
- */
-export const LASTDB_SDK_API_VERSION = 1;
+/** Whole-record mutations and explicit key declarations require API 27. */
+export const LASTDB_SDK_API_VERSION = 27;
 
 /** SDK routes that must stay present in the Rust UDS data router. */
 export const LASTDB_UDS_SHARED_ROUTES = [

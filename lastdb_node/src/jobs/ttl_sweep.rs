@@ -197,7 +197,7 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
 }
 
 /// Prepare one schema cursor without collecting expired keys. `None` means
-/// the schema is absent or has no usable range field.
+/// the schema is absent. Range retention uses the declared external key.
 async fn prepare_backlog(
     host: &Host,
     schema_name: &str,
@@ -218,14 +218,6 @@ async fn prepare_backlog(
             discovery::Source::Ages { after: None }
         }
         DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange => {
-            let Some(range_field) = schema
-                .key
-                .as_ref()
-                .and_then(|key| key.range_field.clone())
-                .filter(|field| !field.is_empty())
-            else {
-                return Ok(None);
-            };
             let mut hash_partitions = policy.hash_partitions.clone();
             if matches!(schema.schema_type, DeclarativeSchemaType::HashRange) {
                 hash_partitions.extend(
@@ -243,7 +235,6 @@ async fn prepare_backlog(
                 hash_partitions = vec![String::new()];
             }
             discovery::Source::Range {
-                field: range_field,
                 hashes: hash_partitions,
                 partition: 0,
                 after: None,

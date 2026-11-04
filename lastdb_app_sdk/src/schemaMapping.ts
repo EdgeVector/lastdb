@@ -1,7 +1,6 @@
 /** Schema-resolution result and app<->node field-name mapping helpers. */
 
 import {
-  CasExpectation,
   JsonValue,
   QueryFieldPredicate,
   QueryResult,
@@ -95,18 +94,6 @@ export function mapFieldRecord<T extends JsonValue>(
     mapped[mapFieldName(field, fields)] = value;
   }
   return mapped;
-}
-
-/**
- * Map a CAS {@link CasExpectation}'s `field` app→node (its value, when present,
- * is passed through unchanged — only the field name is a schema field). Used so
- * a `mutate` precondition guards the correct node-side field under a schema map.
- */
-export function mapCasExpectation(
-  expected: CasExpectation,
-  fields: Record<string, string>,
-): CasExpectation {
-  return { ...expected, field: mapFieldName(expected.field, fields) };
 }
 
 /**

@@ -17,12 +17,14 @@ class RequestFailure(RuntimeError):
 
 
 class SustainedNode(Node):
-    def call(self, path, body=None, receipt=False, request_id=None, timeout=60):
+    def _exchange(self, path, body=None, receipt=False, request_id=None, timeout=60, transport=None):
         if body is not None and not isinstance(body, bytes):
             body = json.dumps(body, separators=(",", ":")).encode()
         connection = UnixConnection(self.socket)
         connection.timeout = timeout
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-v2-sustained"}
+        if request_id is not None:
+            headers["X-LastDB-Request-Id"] = request_id
         started = time.perf_counter_ns()
         try:
             connection.request("GET" if body is None else "POST", path, body, headers)
@@ -31,8 +33,13 @@ class SustainedNode(Node):
             if len(raw) > 4 * 1024 * 1024:
                 raise RuntimeError("Generated response exceeded the 4 MiB measurement cap")
             elapsed = (time.perf_counter_ns() - started) / 1e6
+            if transport is not None:
+                transport.update(request_body_bytes=len(body or b""), response_body_bytes=len(raw),
+                                 rpc_count=1, response_status=response.status, latency_ms=elapsed)
             if response.status != 200:
-                raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
+                error = RequestFailure(f"{path}: HTTP {response.status}: {raw[:600]!r}", elapsed)
+                error.status = response.status
+                raise error
             result = json.loads(raw)
             if result.get("ok") is False:
                 raise RuntimeError(f"{path}: HTTP 200 returned ok=false: {raw[:600]!r}")
@@ -41,6 +48,8 @@ class SustainedNode(Node):
             # Node.start retries these while an old socket waits for its new
             # daemon. Keep the type, and retain timing for load failures.
             error.elapsed_ms = (time.perf_counter_ns() - started) / 1e6
+            raise
+        except RequestFailure:
             raise
         except Exception as error:
             raise RequestFailure(str(error), (time.perf_counter_ns() - started) / 1e6) from error

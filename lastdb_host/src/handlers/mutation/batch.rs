@@ -11,12 +11,12 @@ use crate::qos::Lane;
 use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
-use super::plan::reject_illegal_must_exist;
+use super::plan::validate_identity;
 use super::{commit_core_json, extend_json, wait_for_requested_convergence, MutationComponents};
 
 mod rules;
 
-use self::rules::{batch_convergence, validate_batch_options};
+use self::rules::batch_convergence;
 
 /// Execute `POST /api/mutations/batch`: resolve each schema, build all
 /// mutations with the node's public key, and write them in one batch.
@@ -32,27 +32,26 @@ pub async fn execute_mutations_batch<H: HostNode>(
     let mut mutations = Vec::with_capacity(components.len());
     let mut payload_bytes = 0usize;
     for components in components {
-        validate_batch_options(&components)?;
+        validate_identity(&components)?;
 
         // Sum per-item phases without changing which rejection wins first.
         let resolve_started = std::time::Instant::now();
         let resolved = resolve_required_schema_name(host, &components.schema);
         request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
         let canonical = resolved?;
-        reject_illegal_must_exist(components.mutation_type, components.must_exist)?;
 
         let validate_started = std::time::Instant::now();
         validate_mutation_fields(
             host,
             &components.schema,
             &canonical,
-            &components.fields_and_values,
+            &components.record_fields,
         )
         .await?;
         request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
 
         payload_bytes =
-            payload_bytes.saturating_add(fields_payload_bytes(&components.fields_and_values));
+            payload_bytes.saturating_add(fields_payload_bytes(&components.record_fields));
         mutations.push(components.into_mutation(canonical, host.public_key()));
     }
 
