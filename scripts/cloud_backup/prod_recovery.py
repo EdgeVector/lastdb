@@ -20,6 +20,7 @@ import tempfile
 
 sys.dont_write_bytecode = True
 
+import native_records
 from automatic import selection
 from automatic_source import Source, durable_batch
 from baseline import private_write
@@ -114,18 +115,16 @@ class ProductionRecovery:
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": expected["schema"],
             "descriptive_name": expected["schema"], "schema_type": "Hash",
-            "key": {"hash_field": "id"}, "fields": fields, "field_types": {"id": "String"},
+            "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+            "fields": fields, "field_types": {"id": "String"},
             "field_descriptions": {name: "PROD recovery proof " + name for name in fields}}})
-        durable_batch(node, [{"type": "mutation", "schema": expected["schema"],
-            "mutation_type": "create", "durability": "durable",
-            "key_value": {"hash": record["id"], "range": None}, "fields_and_values": record}
+        durable_batch(node, [native_records.create(expected["schema"], native_records.key(record["id"]), record)
             for record in expected["records"]])
         payload = hashlib.shake_256(self.args.source.encode()).digest(8 * 1024**2)
         path = self.root / "source-file.bin"
         private_write(path, payload)
         expected.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
-        self.programs.command(node.home, ["db", "put-blob", "--schema", expected["schema"],
-                              "--hash", expected["records"][0]["id"], "--file", str(path)])
+        native_records.put_file(node, expected["schema"], expected["records"][0], path)
         path.unlink()
         source.expected = copy.deepcopy(expected)
         self.summary["source_reads"] = node.verify_records(expected)

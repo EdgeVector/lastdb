@@ -6,6 +6,7 @@ so the baseline file exists only at the base cut."""
 
 import time
 
+import native_records
 from automatic_source import durable_batch
 from support import OperationError, require
 
@@ -21,7 +22,8 @@ class Lifecycle:
         fields = ["bucket", "id", "note"]
         self.source.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": self.schema, "descriptive_name": self.schema,
-            "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+            "schema_type": "HashRange", "record_keys": {
+                "primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
             "fields": fields, "field_types": {"bucket": "String", "id": "String"},
             "field_descriptions": {name: self.schema + " " + name for name in fields}}})
         self.write([*self.expired[:2], self.live])
@@ -30,10 +32,8 @@ class Lifecycle:
         self.verify(self.source.node, initial=True)
 
     def write(self, keys):
-        mutations = [{"type": "mutation", "schema": self.schema, "mutation_type": "create",
-            "durability": "durable", "key_value": {"hash": "lifecycle", "range": key},
-            "fields_and_values": {"bucket": "lifecycle", "id": key,
-                                  "note": "immutable lifecycle value"}}
+        mutations = [native_records.create(self.schema, native_records.key("lifecycle", key),
+            {"bucket": "lifecycle", "id": key, "note": "immutable lifecycle value"})
             for key in keys]
         durable_batch(self.source.node, mutations)
 

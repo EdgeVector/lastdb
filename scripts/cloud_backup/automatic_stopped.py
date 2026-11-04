@@ -10,6 +10,7 @@ import copy
 import time
 import uuid
 
+import native_records
 from automatic_source import completion, durable_batch
 from support import ACCOUNT, OperationError, canonical_uuid, require
 
@@ -55,14 +56,14 @@ class StoppedFinal:
     def write(self, note, previous):
         """One durable create or update of the run-owned key; the baseline records stay unchanged."""
         source = self.source
-        item = {"type": "mutation", "schema": source.expected["schema"],
-                "key_value": {"hash": self.key, "range": None},
-                "fields_and_values": {"id": self.key, "note": note},
-                "mutation_type": "create" if previous is None else "update", "durability": "durable",
-                "expected": ({"type": "absent", "field": "id"} if previous is None
-                             else {"type": "value", "field": "note", "value": previous})}
-        if previous is not None:
-            item["must_exist"] = True
+        schema, target = source.expected["schema"], native_records.key(self.key)
+        record = {"id": self.key, "note": note}
+        if previous is None:
+            item = native_records.create(schema, target, record)
+        else:
+            row = native_records.read_records(source.node, schema, [target])[0]
+            require(row["fields"] == {"id": self.key, "note": previous}, "stopped_record_preimage")
+            item = native_records.replace(schema, row, record)
         durable_batch(source.node, [item])
         expected = copy.deepcopy(source.expected)
         expected["records"].append({"id": self.key, "note": note})

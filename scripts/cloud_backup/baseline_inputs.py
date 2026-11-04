@@ -13,8 +13,9 @@ when that step fails.
 The command derives the exact secret from the recovery phrase and the public
 point of `ci-baseline.json`, and requires the run's public commitment
 (`secret_sha256`) before any write. The secret goes to `gh` on stdin. The
-output holds public identifiers only. This module stays compatible with
-Python 3.9 for the operator's local use.
+command requires explicit `GH_TOKEN` and repeats the metadata-only credential
+preflight before it reads the phrase. The output holds public identifiers and
+value-free diagnostics only. This module stays compatible with Python 3.9.
 """
 
 import argparse
@@ -30,6 +31,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import baseline_data
+import baseline_writer
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, failure, require
 
 RECEIPT = "lastdb.cloud-ci-baseline.v1"
@@ -77,15 +79,11 @@ def summary_commitment(path, generation, point):
 
 
 def gh(arguments):
-    """Run one gh call that carries no secret, and keep gh's refusal text."""
+    """Run a public metadata call with a fixed refusal code, never raw stderr."""
     completed = subprocess.run(["gh"] + arguments, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, timeout=60, check=False)
-    if completed.returncode != 0:
-        # gh's own message names the HTTP refusal.
-        lines = completed.stderr.decode("utf-8", "replace").strip().splitlines()
-        print(json.dumps({"gh": arguments[:2], "gh_error": lines[-1][:300] if lines else ""}),
-              file=sys.stderr)
-        raise OperationError("baseline_inputs_gh_" + "_".join(arguments[:2]))
+                               stderr=subprocess.DEVNULL, env=baseline_writer.gh_environment(),
+                               timeout=60, check=False)
+    require(completed.returncode == 0, "baseline_inputs_gh_" + "_".join(arguments[:2]))
     return completed.stdout
 
 
@@ -93,8 +91,8 @@ def set_secret(repo, value):
     """Write the secret on stdin. No gh output from this call reaches the log."""
     completed = subprocess.run(["gh", "secret", "set", SECRET, "--env", ENVIRONMENT, "--repo", repo],
                                input=value, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=60, check=False)
-    # The fixed code names this call; check the token's `repo` scope first.
+                               env=baseline_writer.gh_environment(), timeout=60, check=False)
+    # Metadata reads do not attest writes; this call must succeed separately.
     require(completed.returncode == 0, "baseline_inputs_gh_secret_set")
 
 
@@ -108,11 +106,16 @@ def main():
     args = parser.parse_args()
     result = {"result": "failed", "primary_access": False, "provider_deletions": 0}
     try:
-        require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo), "baseline_inputs_repo")
+        require(args.repo == baseline_writer.REPO, "baseline_inputs_repo")
         generation, point = receipt_point(args.receipt)
         expected = (summary_commitment(args.summary, generation, point) if args.summary
                     else args.secret_sha256)
         require(isinstance(expected, str) and DIGEST.fullmatch(expected), "baseline_inputs_commitment")
+        # This repeats the workflow's pre-move check before any phrase/key work.
+        # A metadata GET cannot attest the later secret or variable write.
+        checked = baseline_writer.preflight()
+        result["writer_preflight"] = checked
+        require(checked["result"] == "passed", checked.get("failure", "baseline_writer_preflight_failed"))
         # CI passes the phrase in the environment; an operator pipes it on stdin.
         phrase = os.environ.pop(PHRASE, "").encode() or sys.stdin.buffer.read()
         try:
