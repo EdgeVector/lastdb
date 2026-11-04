@@ -62,7 +62,11 @@ pub async fn backup_stopped(
         fold_db::crypto::E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
     let node_key = zeroize::Zeroizing::new(keys.encryption_key());
     let runtime = fold_db::storage::disk_pack::open_backup_runtime(&home.join("data"), &node_key)?;
-    let source = Source::from_stopped(runtime, &pair, request.account_id.clone())?;
+    let source = Source::from_stopped(
+        std::sync::Arc::clone(&runtime),
+        &pair,
+        request.account_id.clone(),
+    )?;
     let client = super::connection::client_for_stopped(home, &source.account, &source.source_home)?;
     let endpoint = client.canonical_endpoint();
     super::automatic::check_stopped(home, &source.account, &source.source_home, &endpoint)?;
@@ -130,7 +134,7 @@ pub async fn backup_stopped(
     };
     manifest::same(&store, "stopped-report.json", &report)?;
     drop(source);
-    drop(storage);
+    drop(runtime);
     drop(permit);
     drop(ownership);
     Ok(report)
