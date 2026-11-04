@@ -147,7 +147,7 @@ def alternate_key_move(node):
     def lookup(coordinates):
         page = node.call("/api/query", {
             "schema_name": schema, "key_name": "by_bucket",
-            "fields": ["id", "bucket", "value"], "filter": {"HashRangeKey": coordinates},
+            "filter": {"HashRangeKey": coordinates},
         })[0]
         require(not page.get("has_more"), "alternate move lookup was truncated")
         return page["results"]
@@ -246,7 +246,7 @@ def exercise(node, binary):
     require(history(node, {"op": "get", "id": independent["entries"][0]["id"]}, "HistoryByBucket", independent_key)["value"]
             == "independent-first", "independent field history contains another schema's value")
     require(cli(node, binary, "get", entry)["value"] == "second", "field reuse changed another schema's history")
-    current = node.call("/api/query", {"schema_name": "HistoryById", "fields": ["value"],
+    current = node.call("/api/query", {"schema_name": "HistoryById",
                                         "filter": {"HashKey": "one"}})[0]["results"]
     require(len(current) == 1 and current[0]["fields"]["value"] == "third",
             "field reuse changed another schema's current value")

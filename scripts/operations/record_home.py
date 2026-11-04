@@ -85,7 +85,7 @@ def refused(call, words):
 
 
 def query(node, schema, selector, key_name=None):
-    body = {"schema_name": schema, "fields": FIELDS, "filter": selector}
+    body = {"schema_name": schema, "filter": selector}
     if key_name is not None:
         body["key_name"] = key_name
     page = node.call("/api/query", body)[0]
@@ -133,7 +133,7 @@ def external_boundaries(node, external):
     mutate(node, "RecordById", {"hash": "external-key-2"}, {}, "create", alternates=external)
     other = {"by_bucket": {"hash": "external-alias", "range": "unrelated\0tail"}}
     mutate(node, "RecordById", {"hash": "external-key-nul"}, {"value": "nul"}, "create", alternates=other)
-    base = {"schema_name": "RecordById", "fields": [], "key_name": "by_bucket",
+    base = {"schema_name": "RecordById", "key_name": "by_bucket",
             "filter": {"HashRangeKey": {"hash": "external-alias", "range": "unrelated"}}, "limit": 1}
     found, cursor = [], None
     for _ in range(4):
@@ -167,7 +167,7 @@ def wide_empty_record_erasure(node):
     request.update(mutation_type="purge",
                    expected={"type": "revision", "revision": deleted["record_revision"]})
     node.call("/api/mutation", request)
-    reply = node.call("/api/query", {"schema_name": schema, "fields": [],
+    reply = node.call("/api/query", {"schema_name": schema,
         "filter": {"HashKey": "wide-empty"}, "key_name": "by_alias"})[0]
     require(reply["results"] == [], "wide empty record retained its alternate after erasure")
     print("Wide empty record: complete-address delete and revision-guarded tombstone purge passed", flush=True)
@@ -402,7 +402,7 @@ def drain(node, schema, limit):
     """Every unfiltered cursor page of a schema, with the time of each page."""
     pages, times, cursor = [], [], None
     while True:
-        body = {"schema_name": schema, "fields": FIELDS, "filter": None, "limit": limit}
+        body = {"schema_name": schema, "filter": None, "limit": limit}
         if cursor is not None:
             body["cursor"] = cursor
         page, elapsed = scan(node, body)
@@ -440,18 +440,18 @@ def unfiltered_pages(node):
     for page in pages:
         order = page_order(page["results"])
         require(order == sorted(order), "the rows of one page are not in page order")
-    offset_page, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+    offset_page, _ = scan(node, {"schema_name": "RecordPage", "filter": None,
                                  "limit": PAGE_SIZE, "offset": 2 * PAGE_SIZE})
     require(ids(offset_page["results"]) == ids(pages[2]["results"]) and offset_page["has_more"],
             "the offset page differs from the third cursor page")
-    first, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None})
-    same, _ = scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+    first, _ = scan(node, {"schema_name": "RecordPage", "filter": None})
+    same, _ = scan(node, {"schema_name": "RecordPage", "filter": None,
                           "limit": 100, "offset": 0})
     require(ids(first["results"]) == ids(same["results"]) and len(first["results"]) == 100,
             "the default first page differs from the offset 0 page of 100")
     require(set(ids(first["results"])) <= set(ids(pages[0]["results"])),
             "the default first page is not the start of the walk")
-    refused(lambda: scan(node, {"schema_name": "RecordPage", "fields": FIELDS, "filter": None,
+    refused(lambda: scan(node, {"schema_name": "RecordPage", "filter": None,
                                 "limit": PAGE_SIZE, "offset": 9 * PAGE_SIZE}), "next_cursor")
     # Deleted records sit among the live ones; a page skips them.
     small, _ = drain(node, "RecordById", 1)

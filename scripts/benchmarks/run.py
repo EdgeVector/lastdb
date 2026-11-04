@@ -103,6 +103,10 @@ def recipe_for(args):
                                   "of the home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
+    if args.reads_only:
+        recipe["reads_only"] = True
+        recipe["reads"] = ("known exact hash/range keys; the previous daemon names every schema field; "
+                           "the current daemon omits the field list and returns each stored record")
     recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
     return recipe
 
@@ -118,6 +122,7 @@ def main():
     parser.add_argument("--native-timing", action="store_true")
     parser.add_argument("--growth-only", action="store_true")
     parser.add_argument("--disk-budget-only", action="store_true")
+    parser.add_argument("--reads-only", action="store_true")
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -132,6 +137,8 @@ def main():
         parser.error("The disk budget uses one baseline/candidate pair")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
+    if args.reads_only and (args.growth_only or args.disk_budget_only or args.native_timing):
+        parser.error("Whole-record reads use their own generated homes")
     if not re.fullmatch(r"[0-9a-f]{40}", args.driver_revision):
         parser.error("The driver revision must be a complete commit SHA")
     signal.signal(signal.SIGTERM, interrupted)

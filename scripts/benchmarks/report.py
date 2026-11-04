@@ -105,7 +105,12 @@ def mixed_lines(output, manifest):
     return lines
 
 
+def latency_row(side):
+    return " / ".join(f"{side[name]:.3f}" for name in ("p50_ms", "p95_ms", "p99_ms"))
+
+
 def render(output, manifest, comparison):
+    reads_only = manifest["recipe"].get("reads_only")
     lines = ["# LastDB benchmarks — advisory", "",
              f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**.", "",
              f"Base: `{manifest['binaries']['baseline']['revision']}`  ",
@@ -114,18 +119,30 @@ def render(output, manifest, comparison):
              f"Requested socket workers (0 = product default): {manifest['recipe'].get('uds_workers', 'unreported')}", "",
              home_format_line(output, manifest), "",
              "Each number is the median of the per-run measures. Percent changes use the base commit.",
-             "Positive response-time changes and negative throughput changes mean slower results.", "",
-             "| Case | Base p95 ms | Candidate p50 / p95 / p99 ms | p95 change | Candidate requests/s | Rate change | Errors |",
-             "|---|---:|---:|---:|---:|---:|---:|"]
-    for case, item in comparison.items():
-        base, candidate, change = item["baseline"], item["candidate"], item["changes_percent"]
-        latency = " / ".join(f"{candidate[name]:.3f}" for name in ("p50_ms", "p95_ms", "p99_ms"))
-        lines.append(f"| {case} | {base['p95_ms']:.3f} | {latency} | {change['p95_ms']:+.1f}% | "
-                     f"{candidate['requests_per_second']:.1f} | {change['requests_per_second']:+.1f}% | 0 |")
+             "Positive response-time changes and negative throughput changes mean slower results.", ""]
+    if reads_only:
+        lines.extend([
+            "Both sides read the whole stored record. The record fields are bucket, id, title, and body.",
+            "The previous daemon receives those four names. The current daemon receives no field list.",
+            "Neither query names one field.", "",
+            "| Case | Previous p50 / p95 / p99 ms | New p50 / p95 / p99 ms | p95 change |",
+            "|---|---:|---:|---:|"])
+        for case, item in comparison.items():
+            base, candidate, change = item["baseline"], item["candidate"], item["changes_percent"]
+            lines.append(f"| {case} | {latency_row(base)} | {latency_row(candidate)} | {change['p95_ms']:+.1f}% |")
+    else:
+        lines.extend([
+            "| Case | Base p95 ms | Candidate p50 / p95 / p99 ms | p95 change | Candidate requests/s | Rate change | Errors |",
+            "|---|---:|---:|---:|---:|---:|---:|"])
+        for case, item in comparison.items():
+            base, candidate, change = item["baseline"], item["candidate"], item["changes_percent"]
+            lines.append(f"| {case} | {base['p95_ms']:.3f} | {latency_row(candidate)} | {change['p95_ms']:+.1f}% | "
+                         f"{candidate['requests_per_second']:.1f} | {change['requests_per_second']:+.1f}% | 0 |")
     lines.extend(resource_lines(output, manifest))
-    lines.extend(mixed_lines(output, manifest))
-    lines.extend(mixed_read_lines(output, manifest))
-    lines.extend(phase_lines(output, manifest))
+    if not reads_only:
+        lines.extend(mixed_lines(output, manifest))
+        lines.extend(mixed_read_lines(output, manifest))
+        lines.extend(phase_lines(output, manifest))
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
                   "The throughput includes the client cost. The memory measure excludes seed and startup.",

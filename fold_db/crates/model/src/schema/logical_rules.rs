@@ -53,7 +53,7 @@ pub fn require_logical_query_controls(query: &Query) -> Result<(), SchemaError> 
     }
     if query.rehydrate_depth.is_some() {
         return Err(SchemaError::InvalidData(
-            "LastDB does not support rehydrate_depth queries; reads return fields at the requested keys"
+            "LastDB does not support rehydrate_depth queries; a read returns the stored record"
                 .into(),
         ));
     }

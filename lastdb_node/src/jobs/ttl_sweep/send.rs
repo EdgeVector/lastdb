@@ -71,7 +71,6 @@ async fn purge_keys(
     }
     let query = fold_db::schema::types::Query::new_with_filter(
         schema_name.to_string(),
-        Vec::new(),
         Some(
             fold_db::schema::types::field::HashRangeFilter::HashRangeKeys(
                 keys.iter()

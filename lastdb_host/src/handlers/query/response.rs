@@ -153,8 +153,8 @@ fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
 }
 
 /// Build `/api/query` row envelopes without clocks, host access, or telemetry.
-/// Keep the sort helper's value until ordering. Conditions already selected
-/// the keys in the core. A full row carries the one metadata block of its
+/// Conditions already selected the keys in the core. A full row carries the
+/// stored fields and the one metadata block of its
 /// record (decision D7), or `null` when the record has none; a compact row
 /// carries no metadata.
 pub(in crate::handlers) fn format_rows(

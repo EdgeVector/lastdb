@@ -12,7 +12,7 @@ import tempfile
 import time
 
 from disk_usage import usage
-from record_protocol import RecordProtocol
+from record_protocol import RecordProtocol, historical_query
 
 
 def marker_format(marker):
@@ -80,6 +80,8 @@ class Node:
 
     def call(self, path, body=None, receipt=False, request_id=None, transport=None,
              complete_records=False, timeout=60):
+        if path in ("/api/query", "/api/queries/batch"):
+            body = historical_query(body, self.api_version)
         if self.record_protocol is not None and self.api_version >= 27:
             return self.record_protocol.call(self._exchange, path, body, receipt=receipt,
                 request_id=request_id, transport=transport, complete_records=complete_records,

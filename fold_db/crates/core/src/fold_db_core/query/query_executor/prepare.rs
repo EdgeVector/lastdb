@@ -2,12 +2,11 @@
 
 use crate::schema::{types::Query, Schema, SchemaError};
 
-use super::{rules, QueryExecutor};
+use super::QueryExecutor;
 
 impl QueryExecutor {
     /// Both callers resolve their namespace first. A read rejects an absent
-    /// schema; a count declines it. Projection checks follow key-bundle loads,
-    /// even when the count later declines field-dependent controls.
+    /// schema; a count declines it. Key-bundle loads stay ahead of the read.
     pub(super) async fn prepare_query_schema(
         &self,
         query: &Query,
@@ -35,7 +34,6 @@ impl QueryExecutor {
                     schema.name
                 ))
             })?;
-        rules::reject_unknown_projection(&schema, &query.fields)?;
         Ok(Some(schema))
     }
 }

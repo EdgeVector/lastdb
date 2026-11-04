@@ -1,16 +1,13 @@
-//! Storage-free field selection, condition matching, and result order.
+//! Storage-free condition matching and result order.
 
 use super::predicates::field_predicate_matches;
-use super::CokeyRows;
-use crate::schema::types::field::FieldValue;
-use crate::schema::types::key_value::KeyValue;
+use crate::db_operations::record_store::KeyedRecord;
 use crate::schema::types::operations::{FieldPredicate, QueryOrderBy, SortOrder};
 use crate::schema::types::KeyValuePageOrder;
 use crate::schema::{Schema, SchemaError};
 use lastdb_model::json_order::compare_json_values;
-use std::collections::HashMap;
 
-/// Current field conditions and projection controls for one captured query.
+/// Current field conditions for one captured query.
 #[derive(Default)]
 pub struct FieldQueryOptions<'a> {
     pub predicates: Option<&'a [FieldPredicate]>,
@@ -33,159 +30,85 @@ impl FieldQueryOptions<'_> {
     }
 }
 
-pub(super) fn condition_fields(
+/// Refuse a condition or sort field the schema does not declare.
+pub(super) fn reject_unknown_conditions(
     schema: &Schema,
     predicates: &[FieldPredicate],
     value_filters: &[crate::schema::types::ValueFilter],
     order_by: Option<&QueryOrderBy>,
-) -> Result<Vec<String>, SchemaError> {
-    let mut fields = Vec::new();
+) -> Result<(), SchemaError> {
+    let mut names = Vec::new();
     for predicate in predicates {
-        fields.push(predicate.field_name().to_string());
+        names.push(predicate.field_name());
     }
     for filter in value_filters {
-        fields.push(filter.field_name().to_string());
+        names.push(filter.field_name());
     }
     if let Some(order_by) = order_by {
-        fields.push(order_by.field.clone());
+        names.push(order_by.field.as_str());
     }
-    // Every hash is blinded, so the condition pass needs the declared key
-    // field value to recover the API hash.
-    if let Some(key_field) = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-    {
-        if schema.runtime_fields.contains_key(key_field.as_str()) {
-            fields.push(key_field.clone());
-        }
+    names.sort_unstable();
+    names.dedup();
+    let unknown: Vec<&str> = names
+        .into_iter()
+        .filter(|name| !schema.runtime_fields.contains_key(*name))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
     }
-    fields.sort();
-    fields.dedup();
-
-    if fields.is_empty() {
-        let Some(key_field) = schema
-            .key
-            .as_ref()
-            .and_then(|k| k.hash_field.as_ref().or(k.range_field.as_ref()))
-            .cloned()
-            .or_else(|| schema.runtime_field_names().into_iter().next())
-        else {
-            return Ok(Vec::new());
-        };
-        fields.push(key_field);
-    }
-
-    for field in &fields {
-        if !schema.runtime_fields.contains_key(field) {
-            return Err(SchemaError::InvalidField(format!(
-                "query condition references unknown field '{field}' on schema '{}'",
-                schema.name
-            )));
-        }
-    }
-    Ok(fields)
+    Err(SchemaError::InvalidField(format!(
+        "query condition references unknown field '{}' on schema '{}'",
+        unknown.join(", "),
+        schema.name
+    )))
 }
 
-pub(super) fn matching_field_predicate_keys(
-    pass_a: &CokeyRows,
+/// Keep live records whose stored fields match every predicate and filter.
+/// A missing field is absent, so an `absent` predicate matches it.
+pub(super) fn matching_records(
+    rows: Vec<KeyedRecord>,
     predicates: &[FieldPredicate],
     value_filters: &[crate::schema::types::ValueFilter],
-) -> Vec<KeyValue> {
-    let mut keys: Vec<KeyValue> = pass_a
-        .page_keys
-        .iter()
-        .filter(|key| {
-            if !pass_a
-                .fields
-                .values()
-                .any(|values| values.contains_key(*key))
-            {
-                return false;
-            }
+) -> Vec<KeyedRecord> {
+    rows.into_iter()
+        .filter(|(_, record)| {
             let matches_predicates = predicates.iter().all(|predicate| {
-                let value = pass_a
-                    .fields
-                    .get(predicate.field_name())
-                    .and_then(|values| values.get(*key))
-                    .map(|field| &field.value);
+                let value = record.fields.get(predicate.field_name());
                 field_predicate_matches(predicate, value)
             });
-            // Numeric filters retain the established missing-value policy:
-            // only a concrete value that fails its comparison drops a key.
             matches_predicates
                 && value_filters.iter().all(|filter| {
-                    pass_a
+                    record
                         .fields
                         .get(filter.field_name())
-                        .and_then(|values| values.get(*key))
-                        .is_none_or(|field| filter.matches(&field.value))
+                        .is_none_or(|value| filter.matches(value))
                 })
         })
-        .cloned()
-        .collect();
-    keys.sort_by(KeyValue::cmp_page_order);
-    keys
+        .collect()
 }
 
-/// Preserve default key order unless a value order is requested, then limit.
-pub(super) fn order_condition_keys(
-    mut keys: Vec<KeyValue>,
-    fields: &HashMap<String, HashMap<KeyValue, FieldValue>>,
+/// Preserve key order unless a value order is requested, then limit.
+pub(super) fn order_records(
+    mut rows: Vec<KeyedRecord>,
     order_by: Option<&QueryOrderBy>,
     limit: Option<usize>,
-) -> Vec<KeyValue> {
+) -> Vec<KeyedRecord> {
     if let Some(order_by) = order_by {
-        let field_values = fields.get(&order_by.field);
-        keys.sort_by(|a, b| {
-            let av = field_values
-                .and_then(|values| values.get(a))
-                .map(|fv| &fv.value);
-            let bv = field_values
-                .and_then(|values| values.get(b))
-                .map(|fv| &fv.value);
+        rows.sort_by(|left, right| {
+            let av = left.1.fields.get(&order_by.field);
+            let bv = right.1.fields.get(&order_by.field);
             let primary = compare_json_values(av, bv);
             let ordered = match order_by.order.as_ref() {
                 Some(SortOrder::Desc) => primary.reverse(),
                 _ => primary,
             };
-            ordered.then_with(|| a.cmp_page_order(b))
+            ordered.then_with(|| left.0.cmp_page_order(&right.0))
         });
+    } else {
+        rows.sort_by(|left, right| left.0.cmp_page_order(&right.0));
     }
     if let Some(limit) = limit {
-        keys.truncate(limit);
+        rows.truncate(limit);
     }
-    keys
-}
-
-/// Pass B retains key and sort helpers without changing candidate discovery.
-pub(super) fn exact_key_selected_fields(
-    schema: &Schema,
-    fields: &[String],
-    order_by: Option<&QueryOrderBy>,
-) -> Vec<String> {
-    let mut selected = super::field_rules::selected_fields(schema, fields);
-    // Carry the key field so a kept row with none of the projected values
-    // still has a returned field and cannot disappear after satisfying
-    // `Absent`.
-    if let Some(key_field) = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-    {
-        if schema.runtime_fields.contains_key(key_field.as_str())
-            && !selected.iter().any(|field| field == key_field)
-        {
-            selected.push(key_field.clone());
-        }
-    }
-    // The host orders its formatted rows after the core returns its
-    // records. Keep this captured value internally, then let its formatter
-    // remove the helper from the public projection.
-    if let Some(order_by) = order_by {
-        if !selected.contains(&order_by.field) {
-            selected.push(order_by.field.clone());
-        }
-    }
-    selected
+    rows
 }

@@ -23,7 +23,7 @@ class PrefixRecords:
         self.minimums = {}
 
     def verify(self, node, expected):
-        queries = [{"schema_name": self.schema, "fields": ["id", "note"],
+        queries = [{"schema_name": self.schema,
                     "filter": {"HashKey": key}, "limit": 2, "offset": 0} for key in self.keys.values()]
         replies = node.call("/api/queries/batch", {"queries": queries})["results"]
         require(len(replies) == 2, "two_temporary_keyed_reads")

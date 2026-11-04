@@ -44,9 +44,7 @@ pub(crate) fn http_status_and_body(response: &str) -> String {
 
 /// Read every rollup record in `[since_ms, until_ms]`.
 ///
-/// The query projects every field of the record. The CLI and the daemon that
-/// declares the schema are the same release, so the projection is the
-/// complete current field list.
+/// The query returns each stored record.
 pub(crate) fn query_request_ops_rollup(
     socket: &Path,
     since_ms: u64,
@@ -57,7 +55,6 @@ pub(crate) fn query_request_ops_rollup(
     }
     let body = serde_json::json!({
         "schema_name": lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_SCHEMA,
-        "fields": lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_FIELDS,
         "filter": {
             "HashRangeRange": {
                 "hash": lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_SERIES,

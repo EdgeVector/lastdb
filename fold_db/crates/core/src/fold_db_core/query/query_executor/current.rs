@@ -1,4 +1,4 @@
-//! Prepare the caller's schema, then read selected fields.
+//! Prepare the caller's schema, then read each stored record.
 
 use crate::schema::types::field::KeyWindow;
 use crate::schema::types::Query;
@@ -17,7 +17,6 @@ impl QueryExecutor {
                 "use the named alternate page reader".into(),
             ));
         }
-        // Approved local callers read all local fields.
         let Some(schema) = self.prepare_query_schema(&query).await? else {
             return Err(SchemaError::InvalidData(format!(
                 "Schema '{}' not found",
@@ -28,7 +27,6 @@ impl QueryExecutor {
         self.hash_range_processor
             .query_with_field_predicates(
                 &schema,
-                &query.fields,
                 query.filter.take(),
                 window,
                 FieldQueryOptions {

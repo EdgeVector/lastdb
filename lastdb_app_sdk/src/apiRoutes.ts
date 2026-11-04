@@ -16,8 +16,8 @@ export const LASTDB_API_ROUTES = {
   version: '/api/version',
 } as const;
 
-/** Server-generated mutation identities require API 28. */
-export const LASTDB_SDK_API_VERSION = 28;
+/** Whole-record queries require API 29. The request does not name fields. */
+export const LASTDB_SDK_API_VERSION = 29;
 
 /** SDK routes that must stay present in the Rust UDS data router. */
 export const LASTDB_UDS_SHARED_ROUTES = [

@@ -31,7 +31,7 @@ pub struct QuerySliceLeg {
 impl QuerySliceLeg {
     #[must_use]
     pub fn to_query(&self) -> Query {
-        let mut query = Query::new(self.schema_name.clone(), self.fields.clone());
+        let mut query = Query::new(self.schema_name.clone());
         query.filter = self.filter.clone();
         query.field_predicates = self.field_predicates.clone();
         query.order_by = self.order_by.clone();

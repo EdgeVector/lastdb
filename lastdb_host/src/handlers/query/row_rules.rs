@@ -1,9 +1,9 @@
-//! Storage-free response order and sort-helper projection rules.
+//! Storage-free response order.
 
 use std::cmp::Ordering;
 
 use fold_db::schema::types::key_comparison::RangeKeyComparison;
-use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
+use fold_db::schema::types::operations::{QueryOrderBy, SortOrder};
 use fold_db::schema::types::SchemaError;
 use serde_json::Value;
 
@@ -82,24 +82,4 @@ fn compare_rows(
         let b_hash = b["key"]["hash"].as_str().unwrap_or("");
         a_hash.cmp(b_hash)
     }))
-}
-
-/// Hide an unprojected sort value only after the complete result order is set.
-pub(super) fn remove_sort_helper(results: &mut [Value], sort_helper: Option<&str>) {
-    if let Some(field) = sort_helper {
-        for row in results {
-            if let Some(fields) = row.get_mut("fields").and_then(Value::as_object_mut) {
-                fields.remove(field);
-            }
-        }
-    }
-}
-
-/// The core retains this sort value without changing projection key discovery.
-pub(super) fn unprojected_sort_field(query: &Query) -> Option<String> {
-    let field = &query.order_by.as_ref()?.field;
-    if query.fields.is_empty() || query.fields.contains(field) {
-        return None;
-    }
-    Some(field.clone())
 }

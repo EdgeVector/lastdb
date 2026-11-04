@@ -161,7 +161,7 @@ pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option
         return Some(0);
     }
 
-    let query = fold_db::schema::types::Query::new(canonical.to_string(), Vec::new());
+    let query = fold_db::schema::types::Query::new(canonical.to_string());
     host.db
         .query_executor()
         .count_query_rows(&query)

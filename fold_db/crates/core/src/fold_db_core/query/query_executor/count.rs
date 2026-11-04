@@ -5,7 +5,7 @@ use crate::schema::{types::Query, SchemaError};
 use super::QueryExecutor;
 
 impl QueryExecutor {
-    /// Count live records for the same supported keyed query and projection.
+    /// Count live records for the same supported keyed query.
     /// See [`super::HashRangeQueryProcessor::count_rows`].
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
@@ -37,7 +37,7 @@ impl QueryExecutor {
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
         let count = self
             .hash_range_processor
-            .count_rows(&schema, &query.fields, count_filter)
+            .count_rows(&schema, count_filter)
             .await?;
         Ok(Some(count))
     }

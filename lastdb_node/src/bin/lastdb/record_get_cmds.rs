@@ -49,22 +49,8 @@ pub(super) fn schema_is_hash_range(schema: &serde_json::Value) -> bool {
     typed || both_key_halves
 }
 
-pub(super) fn schema_field_names(schema: &serde_json::Value) -> Vec<String> {
-    schema
-        .get("fields")
-        .and_then(serde_json::Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 pub(super) fn get_query_body(
     schema: &str,
-    fields: &[String],
     key_hash: &str,
     key_range: Option<&str>,
 ) -> serde_json::Value {
@@ -76,7 +62,6 @@ pub(super) fn get_query_body(
     };
     serde_json::json!({
         "schema_name": schema,
-        "fields": fields,
         "filter": filter,
     })
 }
@@ -96,8 +81,7 @@ pub(super) fn get_record(
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
-    let fields = schema_field_names(&schema);
-    let body = get_query_body(schema_name, &fields, hash, key_range);
+    let body = get_query_body(schema_name, hash, key_range);
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let response = post_json_with_timeout(
         &socket,

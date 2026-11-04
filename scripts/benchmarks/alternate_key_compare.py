@@ -37,7 +37,7 @@ def declare(node, records=256):
 
 
 def query(name, predicate, limit=1000):
-    body = {"schema_name": "Task", "fields": FIELDS, "filter": predicate, "limit": limit}
+    body = {"schema_name": "Task", "filter": predicate, "limit": limit}
     if name != "primary":
         body["key_name"] = "by_group"
     return body

@@ -184,7 +184,12 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/storage/home/reconcile`. No other request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// API 27 requires complete record mutations, external keys and record revisions.
-pub const API_VERSION: u32 = 28;
+/// `28` is the previous request grammar.
+/// `29` (2026-11-04) removes `fields` and `secondary_concurrency` from
+/// `POST /api/query`. A query returns every stored field of each live record.
+/// A request that still sends `fields` is rejected.
+/// `MIN_SUPPORTED_API_VERSION` moves to `29`.
+pub const API_VERSION: u32 = 29;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

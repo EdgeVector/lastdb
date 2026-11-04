@@ -9,6 +9,7 @@ payload cache or server compatibility path exists.
 from collections import Counter, defaultdict
 import copy
 import json
+import os
 import threading
 import time
 import uuid
@@ -16,6 +17,39 @@ import uuid
 
 def coordinate(key):
     return key.get("hash"), key.get("range")
+
+
+def historical_field_list():
+    """Every schema field for a whole-record read on a daemon before API 29.
+
+    LASTDB_BENCH_FULL_FIELDS is a comma-separated list of those names.
+    An unset variable keeps the older empty-list sentinel, which also means
+    every runtime field. A one-name list is not a whole-record read.
+    """
+    return [name for name in os.environ.get("LASTDB_BENCH_FULL_FIELDS", "").split(",") if name]
+
+
+def historical_query(body, api_version):
+    """Add the field list that releases before API 29 require.
+
+    API 29 rejects the key, so a current daemon keeps the request unchanged.
+    The addition is outside the RPC timer.
+    """
+    if body is None or not 0 < api_version < 29:
+        return body
+    decoded = json.loads(body) if isinstance(body, (bytes, bytearray)) else body
+    if not isinstance(decoded, dict):
+        return body
+    queries = decoded.get("queries")
+    if isinstance(queries, list):
+        return {**decoded, "queries": [query_with_fields(item) for item in queries]}
+    return query_with_fields(decoded)
+
+
+def query_with_fields(body):
+    if not isinstance(body, dict) or "fields" in body:
+        return body
+    return {**body, "fields": historical_field_list()}
 
 
 def field_value(record, path):
@@ -97,8 +131,8 @@ class RecordProtocol:
         try:
             prepares_values = path in ("/api/schemas/seed-system", "/api/mutation", "/api/mutations/batch")
             if not prepares_values and not (path == "/api/query" and complete_records):
-                # Unchanged reads use the baseline's RPC timer. Only callers
-                # preparing a complete replacement need revision bookkeeping.
+                # The caller already applied the historical field list. This
+                # timer still covers only the RPC.
                 return send(path, body)
             decoded = json.loads(body) if isinstance(body, bytes) else body
             if path == "/api/schemas/seed-system":
@@ -122,13 +156,13 @@ class RecordProtocol:
                 self.totals.update(logical_calls=1, physical_rpcs=len(physical), **{
                     name: total[name] for name in ("request_body_bytes", "response_body_bytes")})
 
-    def read_current(self, send, mutations):
+    def read_current(self, send, mutations, api_version):
         grouped = defaultdict(list)
         for mutation in mutations:
             if mutation["mutation_type"] != "create":
                 grouped[mutation["schema"]].append(mutation["key_value"])
-        queries = [{"schema_name": schema, "fields": [], "filter": {"HashRangeKeys": [
-            [key["hash"], key.get("range") or ""] for key in keys]}, "limit": len(keys)}
+        queries = [historical_query({"schema_name": schema, "filter": {"HashRangeKeys": [
+            [key["hash"], key.get("range") or ""] for key in keys]}, "limit": len(keys)}, api_version)
             for schema, keys in grouped.items()]
         if not queries:
             return {}
@@ -147,7 +181,7 @@ class RecordProtocol:
     def mutations(self, send, path, body, complete, api_version):
         original = [body] if path == "/api/mutation" else body if isinstance(body, list) else body["mutations"]
         for attempt in range(9):
-            current = {} if complete else self.read_current(send, original)
+            current = {} if complete else self.read_current(send, original, api_version)
             converted = []
             for mutation in original:
                 identity = (mutation["schema"], *coordinate(mutation["key_value"]))

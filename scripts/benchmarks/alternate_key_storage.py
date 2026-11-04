@@ -53,7 +53,7 @@ def verify(node, model, deleted):
     requests = 0
     for offset in range(0, len(keys), 64):
         chunk = keys[offset:offset + 64]
-        body = {"schema_name": "Task", "fields": FIELDS,
+        body = {"schema_name": "Task",
                 "filter": {"HashRangeKeys": [[key, ""] for key in chunk]}, "limit": len(chunk)}
         check_rows(node.call("/api/query", body)[0], {key: model[key] for key in chunk if key in model})
         requests += 1
@@ -62,7 +62,7 @@ def verify(node, model, deleted):
         # Include all declared hash values, even if a change leaves one empty.
         for number in range(GROUPS):
             value = f"{'g' if field == 'group_id' else 'o'}{number:02}"
-            body = {"schema_name": "Task", "key_name": name, "fields": FIELDS,
+            body = {"schema_name": "Task", "key_name": name,
                     "filter": {"HashKey": value}, "limit": 1000}
             reply = node.call("/api/query", body)[0]
             expected = {key: fields for key, fields in model.items() if fields[field] == value}

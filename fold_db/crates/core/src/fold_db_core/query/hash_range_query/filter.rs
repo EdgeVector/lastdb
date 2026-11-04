@@ -1,4 +1,4 @@
-//! Captured query flow: select candidates, match conditions, then project values.
+//! Captured query flow: select candidates, then match conditions on the stored record.
 
 use futures::FutureExt;
 
@@ -11,11 +11,10 @@ use super::{FieldQueryOptions, HashRangeQueryProcessor, OptRedactedFilter};
 
 impl HashRangeQueryProcessor {
     /// Capture the key comparison before the read. Conditions examine every
-    /// keyed candidate before order, limit and projection.
+    /// keyed candidate before order and limit.
     pub async fn query_with_field_predicates(
         &self,
         schema: &Schema,
-        fields: &[String],
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
         options: FieldQueryOptions<'_>,
@@ -42,7 +41,7 @@ impl HashRangeQueryProcessor {
         self.current_query_scope(
             comparison,
             async move {
-                self.query_records(schema, fields, filter, window, options, &context)
+                self.query_records(schema, filter, window, options, &context)
                     .await
             }
             .boxed(),

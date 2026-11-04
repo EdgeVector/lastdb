@@ -3,11 +3,10 @@ use crate::schema::types::field::HashRangeFilter;
 use crate::schema::{Schema, SchemaError};
 
 impl HashRangeQueryProcessor {
-    /// Count the distinct **live** records a query over `schema` / `fields`
-    /// would return -- the exact `total_count` for the paginated list path.
+    /// Count the distinct **live** records a query over `schema` would return
+    /// -- the exact `total_count` for the paginated list path.
     ///
-    /// A deleted record does not count. A record counts when it has the key
-    /// field or one of the selected fields, as the page does.
+    /// A deleted record does not count. A live record counts, as the page does.
     ///
     /// `filter` scopes the count to the same rows the page path will read.
     /// `None` counts the schema's whole live record set. Passing a
@@ -20,7 +19,6 @@ impl HashRangeQueryProcessor {
     pub async fn count_rows(
         &self,
         schema: &Schema,
-        fields: &[String],
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
@@ -29,11 +27,7 @@ impl HashRangeQueryProcessor {
         let context = std::sync::Arc::clone(&comparison);
         self.current_query_scope(
             comparison,
-            async move {
-                self.count_records(schema, fields, filter.as_ref(), &context)
-                    .await
-            }
-            .boxed(),
+            async move { self.count_records(schema, filter.as_ref(), &context).await }.boxed(),
         )
         .await
     }

@@ -16,8 +16,8 @@ pub struct RecordMetadata {
     pub file: Option<lastdb_model::record_value::FileMarker>,
 }
 
-/// The selected fields of one record, keyed by `KeyValue` in [`QueryRecords`].
-/// The `fields` map stores field_name -> value. `metadata` is the one
+/// One stored record, keyed by `KeyValue` in [`QueryRecords`].
+/// The `fields` map is every field the record stores. `metadata` is the one
 /// metadata block of the record, or `None` when the record has none.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
@@ -28,6 +28,5 @@ pub struct Record {
     pub metadata: Option<RecordMetadata>,
 }
 
-/// The reply of one record query: the selected fields of each record, by
-/// its API key.
+/// The reply of one record query: each stored record, by its API key.
 pub type QueryRecords = HashMap<KeyValue, Record>;

@@ -174,7 +174,7 @@ pub fn take_pagination(
 /// parses fine and must keep reaching the scan guard — the layer that actually
 /// decides whether an unfiltered read is permitted. Listing it here would
 /// reject at parse time a request the guard would have allowed.
-pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName, WireKey::Fields];
+pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName];
 
 /// The keys `POST /api/mutation` genuinely requires, in the order a caller is
 /// told about them.

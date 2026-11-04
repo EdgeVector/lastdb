@@ -2,20 +2,17 @@
 //!
 //! A home keeps one record at each primary key. A query reads the
 //! records that its key selector names (`records.rs`), applies the
-//! conditions, the order and the window to whole records, then returns the
-//! selected fields of each record.
+//! conditions, the order and the window to whole records, then returns
+//! each stored record.
 
 use crate::db_operations::DbOperations;
-use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
-use crate::schema::types::key_value::KeyValue;
+use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::{Schema, SchemaError};
 use futures::FutureExt;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 mod condition_rules;
 mod count;
-mod field_rules;
 mod filter;
 mod predicates;
 mod records;
@@ -58,13 +55,6 @@ fn full_span_page() -> HashRangeFilter {
         offset: 0,
         limit: usize::MAX,
     }
-}
-
-/// The candidate rows of the condition pass: the condition fields of each
-/// record, and the record keys in page order.
-struct CokeyRows {
-    fields: HashMap<String, HashMap<KeyValue, FieldValue>>,
-    page_keys: Vec<KeyValue>,
 }
 
 /// Processor for record queries of a home.

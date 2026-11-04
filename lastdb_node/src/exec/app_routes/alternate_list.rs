@@ -48,7 +48,7 @@ async fn keyed_page(
         .alternates
         .get(name)
         .ok_or_else(|| HostError::new(400, "alternate key is not declared"))?;
-    let mut query = Query::new(canonical.to_owned(), Vec::new());
+    let mut query = Query::new(canonical.to_owned());
     query.key_name = Some(name.to_owned());
     query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
     let cursor = request
