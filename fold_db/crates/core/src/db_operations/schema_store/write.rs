@@ -30,19 +30,16 @@ impl SchemaStore {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
-        schema
-            .validate_definition()
-            .map_err(SchemaError::InvalidData)?;
-        self.require_schema_key_format(schema)?;
+        let input = schema_input(schema_name, schema)?;
         if let Some(existing) = self.get_schema(schema_name).await? {
             if durable_schema_eq(&existing, schema) {
                 self.stage_native_snapshot(schema_name).await?;
                 return Ok(());
             }
         }
-        self.schemas_store.put_item(schema_name, schema).await?;
+        self.format.put_schema(input).await?;
         self.stage_native_snapshot(schema_name).await?;
-        self.schemas_store.inner().flush().await?;
+        self.format.flush_schemas().await?;
         Ok(())
     }
 
@@ -75,11 +72,14 @@ impl SchemaStore {
             self.stage_native_snapshot(schema_name).await?;
             return Ok(());
         }
-        self.schema_states_store
-            .put_item(schema_name, state)
+        self.format
+            .put_state(StateChange::State {
+                schema: schema_name,
+                state,
+            })
             .await?;
         self.stage_native_snapshot(schema_name).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -101,25 +101,41 @@ impl SchemaStore {
     async fn drop_schema_native(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let existed = self.get_schema(schema_name).await?.is_some();
         let mut state_keys = vec![
-            schema_name.to_string(),
-            name_claim_key(schema_name),
-            retention_policy_key(schema_name),
-            retention_anchor_key(schema_name),
+            StateDelete::Key {
+                schema: schema_name,
+                kind: StateKey::State,
+            },
+            StateDelete::Key {
+                schema: schema_name,
+                kind: StateKey::Claim,
+            },
+            StateDelete::Key {
+                schema: schema_name,
+                kind: StateKey::Policy,
+            },
+            StateDelete::Key {
+                schema: schema_name,
+                kind: StateKey::Anchor,
+            },
         ];
-        state_keys.extend(
-            self.schema_states_store
+        state_keys.push(StateDelete::Selected {
+            schema: schema_name,
+            kind: Tracking::Age,
+            keys: self
+                .schema_states_store
                 .list_keys_with_prefix(&retention_age_prefix(schema_name))
                 .await?,
-        );
-        state_keys.extend(
-            self.schema_states_store
+        });
+        state_keys.push(StateDelete::Selected {
+            schema: schema_name,
+            kind: Tracking::Latest,
+            keys: self
+                .schema_states_store
                 .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
                 .await?,
-        );
-        let _ = self.schemas_store.delete_item(schema_name).await?;
-        self.schema_states_store
-            .batch_delete_keys(state_keys)
-            .await?;
+        });
+        self.format.delete_schema(schema_name).await?;
+        self.format.delete_states(state_keys).await?;
         self.stage_native_snapshot(schema_name).await?;
         self.flush().await?;
         Ok(existed)

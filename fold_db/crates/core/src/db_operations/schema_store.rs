@@ -1,19 +1,19 @@
 //! Schema domain store.
 //!
-//! Owns the storage namespaces for schemas and schema states.
-//! External callers access schema
-//! operations through this type via `DbOperations::schemas()`.
+//! Providers read through restricted views and supply typed values to the
+//! format-owned writer. Callers use `DbOperations::schemas()`.
 
 use crate::schema::{Schema, SchemaError, SchemaState};
-use crate::storage::traits::KvStore;
-use crate::storage::TypedKvStore;
+use crate::storage::format::read::ReadStore;
+use crate::storage::format::schemas::{
+    schema_input, SchemaFormat, StateChange, StateDelete, StateKey, Tracking,
+};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 mod catalog_keys;
 mod claims_retention;
-mod key_format;
 mod name_claims;
 mod native_memory;
 mod read;
@@ -37,22 +37,22 @@ use catalog_keys::*;
 /// Domain store for schema-related persistence.
 #[derive(Clone)]
 pub struct SchemaStore {
-    schemas_store: Arc<TypedKvStore<dyn KvStore>>,
-    schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
+    schemas_store: ReadStore,
+    schema_states_store: ReadStore,
+    format: SchemaFormat,
     runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     /// The floors of the TTL sweep, in process memory (`retention_floors.rs`).
     retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
-    pub(crate) fn new(
-        schemas_store: Arc<TypedKvStore<dyn KvStore>>,
-        schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
-        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
-    ) -> Self {
+    pub(crate) fn new(format: SchemaFormat) -> Self {
+        let (schemas_store, schema_states_store) = format.readers();
+        let runtime = format.runtime();
         Self {
             schemas_store,
             schema_states_store,
+            format,
             runtime,
             retention_floors: Arc::default(),
         }
@@ -60,8 +60,8 @@ impl SchemaStore {
 
     /// Flush every schema-owned namespace to durable storage.
     pub(crate) async fn flush(&self) -> Result<(), SchemaError> {
-        self.schemas_store.inner().flush().await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format.flush_schemas().await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -115,7 +115,7 @@ impl SchemaStore {
 /// and so does a page that the backend returns out of order, or short while
 /// rows remain.
 async fn read_catalog_range<T: DeserializeOwned>(
-    store: &TypedKvStore<dyn KvStore>,
+    store: &ReadStore,
     catalog: &'static str,
     start: &[u8],
     end: &[u8],

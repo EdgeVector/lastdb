@@ -8,7 +8,7 @@
 //! HashRange partition registry. A name with no alias is its own anchor.
 
 use super::catalog_keys::*;
-use super::SchemaStore;
+use super::{SchemaStore, StateChange, StateKey};
 use crate::schema::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
@@ -117,7 +117,6 @@ impl SchemaStore {
         } else if schema_name != anchor {
             self.record_retention_anchor(schema_name, anchor).await?;
         }
-        let key = retention_policy_key(anchor);
         let (next, status, shortened) = (plan.next.clone(), plan.status, plan.shortened);
         let Some(next) = next else {
             let effective = plan.current.clone().ok_or_else(|| {
@@ -126,16 +125,21 @@ impl SchemaStore {
             return Ok(outcome(&plan, status, shortened, effective));
         };
         let written = async {
-            self.schema_states_store.put_item(&key, &next).await?;
-            self.schema_states_store.inner().flush().await
+            self.format
+                .put_state(StateChange::Policy {
+                    schema: anchor,
+                    policy: &next,
+                })
+                .await?;
+            self.format.flush_states().await
         }
         .await;
         if let Err(error) = written {
             if new_alias {
                 // No alias without its policy: the state stays as it was.
                 let _ = self
-                    .schema_states_store
-                    .delete_item(&retention_anchor_key(schema_name))
+                    .format
+                    .delete_state(schema_name, StateKey::Anchor)
                     .await;
             }
             return Err(error.into());
@@ -165,8 +169,13 @@ impl SchemaStore {
             return Ok(false);
         };
         let restored = SchemaRetentionPolicy::manifest(ttl_seconds);
-        self.schema_states_store.put_item(&key, &restored).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format
+            .put_state(StateChange::Policy {
+                schema: anchor,
+                policy: &restored,
+            })
+            .await?;
+        self.format.flush_states().await?;
         Ok(true)
     }
 
@@ -194,8 +203,13 @@ impl SchemaStore {
         if existing.is_none() {
             self.refuse_policy_on_manifest_name(schema_name).await?;
         }
-        self.schema_states_store.put_item(&key, &row).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format
+            .put_state(StateChange::Anchor {
+                schema: schema_name,
+                anchor: &row,
+            })
+            .await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 

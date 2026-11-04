@@ -5,7 +5,7 @@
 //! installed names has one policy, one age index and one HashRange registry.
 
 use super::catalog_keys::*;
-use super::SchemaStore;
+use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
 use crate::schema::types::KeyValue;
 use crate::schema::{SchemaError, SchemaRetentionPolicy};
 
@@ -64,8 +64,13 @@ impl SchemaStore {
         if current.as_ref() == Some(&policy) {
             return Ok(());
         }
-        self.schema_states_store.put_item(&key, &policy).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format
+            .put_state(StateChange::Policy {
+                schema: schema_name,
+                policy: &policy,
+            })
+            .await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -84,32 +89,42 @@ impl SchemaStore {
         if self.restore_shadowed_manifest_policy(schema_name).await? {
             return Ok(());
         }
-        let mut keys = vec![retention_policy_key(schema_name)];
-        keys.extend(
-            self.schema_states_store
+        let mut keys = vec![StateDelete::Key {
+            schema: schema_name,
+            kind: StateKey::Policy,
+        }];
+        keys.push(StateDelete::Selected {
+            schema: schema_name,
+            kind: Tracking::Age,
+            keys: self
+                .schema_states_store
                 .list_keys_with_prefix(&retention_age_prefix(schema_name))
                 .await?,
-        );
-        keys.extend(
-            self.schema_states_store
+        });
+        keys.push(StateDelete::Selected {
+            schema: schema_name,
+            kind: Tracking::Latest,
+            keys: self
+                .schema_states_store
                 .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
                 .await?,
-        );
-        keys.extend(
-            self.schema_states_store
+        });
+        keys.push(StateDelete::Selected {
+            schema: schema_name,
+            kind: Tracking::Partition,
+            keys: self
+                .schema_states_store
                 .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
                 .await?,
-        );
-        // No policy is left, so the manifest names that pointed here have
-        // nothing to share. The alias rows go with the policy.
-        keys.extend(
-            self.retention_aliases_of(schema_name)
-                .await?
-                .iter()
-                .map(|name| retention_anchor_key(name)),
-        );
-        self.schema_states_store.batch_delete_keys(keys).await?;
-        self.schema_states_store.inner().flush().await?;
+        });
+        // No alias is left pointing at a cleared policy.
+        let aliases = self.retention_aliases_of(schema_name).await?;
+        keys.extend(aliases.iter().map(|name| StateDelete::Key {
+            schema: name,
+            kind: StateKey::Anchor,
+        }));
+        self.format.delete_states(keys).await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -147,26 +162,38 @@ impl SchemaStore {
             .await?;
         let mut puts = Vec::with_capacity(unique.len() * 2);
         let mut stale = Vec::new();
-        for ((key, latest_key), old) in unique.iter().zip(latest_keys).zip(previous) {
+        drop(latest_keys);
+        for (key, old) in unique.iter().zip(previous) {
             let written_at = clocks[key];
             let entry = SchemaRetentionAgeEntry {
                 key: key.clone(),
                 written_at,
             };
-            puts.push((
-                retention_age_key(schema_name, written_at, key),
-                entry.clone(),
-            ));
-            puts.push((latest_key, entry));
+            puts.push(StateChange::Age {
+                schema: schema_name,
+                entry: entry.clone(),
+                latest: false,
+            });
+            puts.push(StateChange::Age {
+                schema: schema_name,
+                entry,
+                latest: true,
+            });
             if let Some(old) = old.filter(|old| old.written_at != written_at) {
                 stale.push(retention_age_key(schema_name, old.written_at, key));
             }
         }
-        self.schema_states_store.batch_put_items(puts).await?;
+        self.format.batch_states(puts).await?;
         if !stale.is_empty() {
-            self.schema_states_store.batch_delete_keys(stale).await?;
+            self.format
+                .delete_states(vec![StateDelete::Selected {
+                    schema: schema_name,
+                    kind: Tracking::Age,
+                    keys: stale,
+                }])
+                .await?;
         }
-        self.schema_states_store.inner().flush().await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -189,12 +216,28 @@ impl SchemaStore {
             .schema_states_store
             .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
             .await?;
-        let mut deletes = latest_keys;
-        deletes.extend(keys.iter().zip(previous).filter_map(|(key, old)| {
-            old.map(|entry| retention_age_key(schema_name, entry.written_at, key))
-        }));
-        self.schema_states_store.batch_delete_keys(deletes).await?;
-        self.schema_states_store.inner().flush().await?;
+        let old = keys
+            .iter()
+            .zip(previous)
+            .filter_map(|(key, old)| {
+                old.map(|entry| retention_age_key(schema_name, entry.written_at, key))
+            })
+            .collect();
+        self.format
+            .delete_states(vec![
+                StateDelete::Selected {
+                    schema: schema_name,
+                    kind: Tracking::Latest,
+                    keys: latest_keys,
+                },
+                StateDelete::Selected {
+                    schema: schema_name,
+                    kind: Tracking::Age,
+                    keys: old,
+                },
+            ])
+            .await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
@@ -223,15 +266,13 @@ impl SchemaStore {
         }
         let entries: Vec<_> = hashes
             .into_iter()
-            .map(|hash| {
-                (
-                    retention_hash_partition_key(schema_name, &hash),
-                    SchemaRetentionHashPartition { hash },
-                )
+            .map(|hash| StateChange::Partition {
+                schema: schema_name,
+                entry: SchemaRetentionHashPartition { hash },
             })
             .collect();
-        self.schema_states_store.batch_put_items(entries).await?;
-        self.schema_states_store.inner().flush().await?;
+        self.format.batch_states(entries).await?;
+        self.format.flush_states().await?;
         Ok(())
     }
 
