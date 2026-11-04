@@ -35,6 +35,8 @@ pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
 pub const PURGE_READS_PER_FIELD: usize = 12;
 /// Examined keys for each field of each key of a delete, at most.
 pub const DELETE_READS_PER_FIELD: usize = 13;
+/// Conservative native admission/preimage reads for each explicit pointer delete.
+const ALTERNATE_READS_PER_ENTRY: usize = 4;
 /// The parts of a schema that set the cost of erasing one key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EraseShape {
@@ -94,6 +96,10 @@ pub fn erase_reads_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> 
     keys.saturating_mul(shape.fields)
         .saturating_mul(reads_per_field(delete))
         .saturating_add(chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(
+            keys.saturating_mul(shape.alternates)
+                .saturating_mul(ALTERNATE_READS_PER_ENTRY),
+        )
 }
 
 fn fits_alternate_caps(keys: usize, shape: EraseShape) -> bool {
