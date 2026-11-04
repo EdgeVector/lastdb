@@ -1,12 +1,12 @@
 use super::cas::CasExpectation;
 use super::{key_value::KeyValue, operations::MutationType};
-use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 mod content_hash;
+mod file_write;
+pub use file_write::{FileWrite, FileWriteIssuer, SealedRecordFile};
 
 pub fn is_zero_u8(value: &u8) -> bool {
     *value == 0
@@ -14,45 +14,6 @@ pub fn is_zero_u8(value: &u8) -> bool {
 
 pub fn is_zero_u64(value: &u64) -> bool {
     *value == 0
-}
-
-/// The file write of one mutation. Only the file routes make one; it is never
-/// on the wire, so a record write from an app or a replay cannot name a file.
-#[derive(Clone, PartialEq)]
-pub enum FileWrite {
-    /// Set the record's file: the marker, and the sealed storage row that the
-    /// write puts at the record's file path in the same batch.
-    Put {
-        marker: FileMarker,
-        row: Arc<Vec<u8>>,
-    },
-    /// Remove the record's file and its marker.
-    Clear,
-}
-
-impl FileWrite {
-    /// The bytes of the storage row this write puts.
-    #[must_use]
-    pub fn row_len(&self) -> usize {
-        match self {
-            Self::Put { row, .. } => row.len(),
-            Self::Clear => 0,
-        }
-    }
-}
-
-impl std::fmt::Debug for FileWrite {
-    /// The row is file sized, so the debug form names its size only.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Put { marker, row } => f
-                .debug_struct("Put")
-                .field("marker", marker)
-                .field("row_bytes", &row.len())
-                .finish(),
-            Self::Clear => f.write_str("Clear"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

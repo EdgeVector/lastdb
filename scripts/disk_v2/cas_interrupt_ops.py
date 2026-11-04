@@ -49,8 +49,16 @@ def seed(node):
         "key": {"hash_field": "id"}, "fields": ["id", "note"], "field_types": {"id": "String"},
         "field_descriptions": {field: SCHEMA + " " + field for field in ("id", "note")}}})
     expected = parallel(lambda number: put(node, number), range(COUNT + 2))
+    # Ordinary field updates carry no file payload. Repeated-key groups must
+    # reuse the current file marker and leave its bytes at the same path.
+    updates = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "update", "durability": "durable",
+                "key_value": {"hash": key(COUNT)}, "fields_and_values": {"note": note}}
+               for note in (NOTE + " updated", NOTE)]
+    reply = node.call("/api/mutations/batch", {"mutations": updates})[0]
+    require(len(reply["mutation_ids"]) == len(updates), "file-bearing record updates were not acknowledged")
     records(node, expected)
     files(node, expected)
+    print("File metadata reuse: ordinary record updates kept the file contents", flush=True)
     return expected
 
 

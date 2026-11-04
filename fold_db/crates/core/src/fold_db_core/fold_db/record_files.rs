@@ -6,8 +6,6 @@
 //! marker, reads the record's file path and checks the bytes against the
 //! marker. No request names a pointer, a path or a key.
 
-use std::sync::Arc;
-
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
 use lastdb_model::record_value::FileMarker;
@@ -35,14 +33,9 @@ impl FoldDB {
         name: Option<String>,
         media_type: Option<String>,
     ) -> Result<FileWrite, FoldDbError> {
-        let (marker, row) = self
-            .db_ops()
+        self.db_ops()
             .records()
-            .seal_record_file(plaintext, name, media_type)?;
-        Ok(FileWrite::Put {
-            marker,
-            row: Arc::new(row),
-        })
+            .seal_record_file(plaintext, name, media_type)
     }
 
     /// The file state of the record at `key`, and its storage key.

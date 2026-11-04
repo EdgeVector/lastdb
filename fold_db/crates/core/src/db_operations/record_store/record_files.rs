@@ -2,6 +2,7 @@
 
 use super::RecordStore;
 use crate::error::FoldDbError;
+use crate::schema::types::FileWrite;
 use lastdb_model::record_value::FileMarker;
 
 impl RecordStore {
@@ -10,7 +11,7 @@ impl RecordStore {
         plaintext: &[u8],
         name: Option<String>,
         media_type: Option<String>,
-    ) -> Result<(FileMarker, Vec<u8>), FoldDbError> {
+    ) -> Result<FileWrite, FoldDbError> {
         self.format.seal_record_file(plaintext, name, media_type)
     }
 

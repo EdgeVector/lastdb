@@ -1,12 +1,14 @@
 //! Bound main/file capabilities; the record provider never gets raw stores.
 
 use super::{AlternateChange, EncodedRecords, RecordChange};
+use crate::schema::types::FileWriteIssuer;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::history::{self, EncodedHistory, HistoryChange};
 use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
+use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 
 pub(crate) struct RecordFormat {
@@ -14,6 +16,7 @@ pub(crate) struct RecordFormat {
     file_owner: Arc<dyn NamespacedStore>,
     pub(super) runtime: Arc<PackRuntime>,
     pub(super) content_key: Option<[u8; 32]>,
+    pub(super) file_issuer: FileWriteIssuer,
 }
 
 impl RecordFormat {
@@ -28,6 +31,7 @@ impl RecordFormat {
             file_owner,
             runtime,
             content_key,
+            file_issuer: FileWriteIssuer::default(),
         }
     }
 
@@ -49,18 +53,57 @@ impl RecordFormat {
         alternates: Vec<AlternateChange>,
         history: Vec<HistoryChange>,
     ) -> Result<(), SchemaError> {
-        let encoded: EncodedRecords =
-            super::encode(changes, alternates, self.content_key.as_ref())?;
-        let effects = encoded
+        self.require_scope()?;
+        let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
+        // Resolve selected file records in one batch under the same native
+        // scope. Providers cannot authorize a new reference by claiming that
+        // an unrelated marker was already present. No file body is read.
+        let files = self
+            .encode_files(std::mem::take(&mut encoded.files))
+            .await?;
+        let written = encoded
             .stage(
                 self.main_store.inner().as_ref(),
                 &self.runtime,
                 history::encode(history)?,
             )
             .await?;
-        self.stage_files(effects.files).await?;
-        self.runtime.stage_written_records(effects.written);
+        self.stage_files(files).await?;
+        self.runtime.stage_written_records(written);
         Ok(())
+    }
+
+    async fn encode_files(
+        &self,
+        changes: Vec<super::files::FileChange>,
+    ) -> Result<Vec<KvMutation>, SchemaError> {
+        if changes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys = changes
+            .iter()
+            .map(|change| change.key.as_str().as_bytes().to_vec())
+            .collect();
+        let stored = self.main_store.inner().get_many(keys).await?;
+        if stored.len() != changes.len() {
+            return Err(SchemaError::InvalidData(
+                "incomplete file record read".into(),
+            ));
+        }
+        let mut rows = Vec::with_capacity(changes.len());
+        for (change, bytes) in changes.into_iter().zip(stored) {
+            let before = bytes
+                .map(|bytes| StoredRecord::decode(&bytes))
+                .transpose()
+                .map_err(super::record_value_error)?;
+            rows.extend(super::files::encode(
+                change,
+                before.as_ref(),
+                &self.file_issuer,
+                self.content_key.as_ref(),
+            )?);
+        }
+        Ok(rows)
     }
 
     pub(crate) async fn stage_history(&self, encoded: EncodedHistory) -> Result<(), SchemaError> {
