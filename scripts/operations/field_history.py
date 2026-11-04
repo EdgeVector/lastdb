@@ -306,20 +306,23 @@ def exercise(node, binary):
     print("off policy and bounded history purge passed", flush=True)
     cli(node, binary, "policy", "keep")
     write(node, "before-delete")
-    write(node, operation="delete")
+    deleted = write(node, operation="delete")
     held = history(node, {"op": "list"})["entries"]
     require(held, "delete left no retained history")
     rows = history_rows(node)
-    write(node, operation="purge")
+    purge = mutation("HistoryById", {"hash": "one"}, {}, "purge",
+                     expected={"type": "revision", "revision": deleted["record_revision"]})
+    node.call("/api/mutation", purge)
     require(history(node, {"op": "list"})["entries"] == [], "compliance purge retained history-only key")
     require(history_rows(node) == rows - len(held), "compliance purge left history copies")
     audit = [row for row in ledger(node) if row.get("schema") == "HistoryById" and row["verb"] == "purge"]
     require(len(audit) == 1 and audit[0]["history_rows_deleted"] == len(held),
             "the compliance purge audit row differs: " + json.dumps(audit))
     try:
-        write(node, operation="purge")
+        purge["mutation_id"] = str(uuid.uuid4())
+        node.call("/api/mutation", purge)
     except RuntimeError as error:
-        require("Purge target not found" in str(error), "a second purge failed for another reason")
+        require("HTTP 409" in str(error), "a second purge failed for another reason")
     else:
         raise RuntimeError("a purge of a key with no record and no history did not refuse")
     print("compliance purge of a key with only history passed", flush=True)
