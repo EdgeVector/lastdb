@@ -133,9 +133,7 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn stage_native_author_clock(
         &self,
     ) -> Result<(), SchemaError> {
-        let key = crate::schema::types::author_clock::mutation_author_clock_key(
-            &self.signer.public_key_base64(),
-        );
+        let writer = self.signer.public_key_base64();
         let state = *self
             .author_clock_state
             .lock()
@@ -143,11 +141,14 @@ impl MutationManager {
         let mut durable = self
             .db_ops
             .metadata()
-            .get_typed::<crate::schema::types::MutationAuthorClockState>(&key)
+            .author_clock(&writer)
             .await?
             .unwrap_or_default();
         durable.observe_remote(state.physical_nanos, state.logical_counter);
-        self.db_ops.metadata().put_typed(&key, &durable).await?;
+        self.db_ops
+            .metadata()
+            .stage_author_clock(&writer, &durable)
+            .await?;
         Ok(())
     }
 

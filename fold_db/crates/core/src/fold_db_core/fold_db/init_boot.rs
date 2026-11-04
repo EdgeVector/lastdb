@@ -14,12 +14,9 @@ impl FoldDB {
         db_ops: &Arc<DbOperations>,
         signer: &Arc<crate::security::Ed25519KeyPair>,
     ) -> Result<crate::schema::types::MutationAuthorClockState, StorageError> {
-        let author_clock_state_key = crate::schema::types::author_clock::mutation_author_clock_key(
-            &signer.public_key_base64(),
-        );
         Ok(db_ops
             .metadata()
-            .get_typed::<crate::schema::types::MutationAuthorClockState>(&author_clock_state_key)
+            .author_clock(&signer.public_key_base64())
             .await
             .map_err(|error| {
                 StorageError::BackendError(format!(

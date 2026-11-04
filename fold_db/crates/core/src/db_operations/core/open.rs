@@ -73,7 +73,6 @@ impl DbOperations {
         } = CoreNamespaces::open(&store).await?;
 
         // Wrap KvStores in TypedKvStore adapters
-        let metadata_typed = Arc::new(TypedKvStore::new(metadata_kv));
         let schema_states_store = Arc::new(TypedKvStore::new(schema_states_kv));
         let schemas_store = Arc::new(TypedKvStore::new(schemas_kv));
         let field_keys_store = Arc::new(TypedKvStore::new(field_keys_kv));
@@ -91,7 +90,10 @@ impl DbOperations {
             content_key.or(field_key_wrap_key),
         )
         .await?;
-        let metadata_store = MetadataStore::new(metadata_typed);
+        let metadata_store = MetadataStore::new(format::metadata::Metadata::new(
+            metadata_kv,
+            Arc::clone(&runtime),
+        ));
         let change_feed = ChangeFeedStore::new(change_feed_kv, Arc::clone(&runtime)).await?;
 
         Ok(Self {

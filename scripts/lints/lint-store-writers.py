@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writer boundary of the field history rows.
+"""Recognized raw writers and the field-history writer boundary.
 
 Only the record writers may write field history rows (`rh:` with its
 `ahq:`/`ahk:`/`ahb:` rows) inside a write scope. This lint finds every Rust
@@ -11,7 +11,7 @@ The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, ...) and one of:
 
 - a key family token (family H, a field history row);
-- a raw handle token: `.raw()`, `main_store`, `open_namespace(`, or a scan
+- a raw handle token: `.raw()`, `main_store`, `metadata_store`, `open_namespace(`, or a scan
   (`scan_prefix(`, `scan_range(`, ...) next to a delete, which is a range delete of rows of every family.
 
 Each writer needs an allow-list line `path|function|families|reason`. The
@@ -39,7 +39,7 @@ WRITE = re.compile(
     r"batch_delete|put|delete)\s*\(|KvMutation::(?:put|delete)\s*\("
 )
 RAW = re.compile(
-    r"\.raw\(\)|\bmain_store\b|\bopen_namespace\s*\(|"
+    r"\.raw\(\)|\b(?:main_store|metadata_store)\b|\bopen_namespace\s*\(|"
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {

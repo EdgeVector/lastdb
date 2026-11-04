@@ -1,106 +1,63 @@
-//! Metadata domain store.
-//!
-//! Owns the `metadata` namespace. The mutation retry cache lives there as
-//! the `retry-cache:{xx}` key family.
-//! External callers reach it via `DbOperations::metadata()`.
+//! Typed metadata operations. The format owns its namespace handle and codec.
 
-use std::sync::Arc;
-
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-
-mod idempotency;
-
+use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
-use crate::storage::traits::KvStore;
-use crate::storage::StorageError;
-use crate::storage::TypedKvStore;
+use crate::storage::format::metadata::Metadata;
 
-/// Domain store for node metadata and the mutation retry cache.
+/// Domain access to clocks and bounded retry receipts; no raw store handle.
 #[derive(Clone)]
 pub struct MetadataStore {
-    metadata_store: Arc<TypedKvStore<dyn KvStore>>,
+    format: Metadata,
 }
 
 impl MetadataStore {
-    pub(crate) fn new(metadata_store: Arc<TypedKvStore<dyn KvStore>>) -> Self {
-        Self { metadata_store }
+    pub(crate) fn new(format: Metadata) -> Self {
+        Self { format }
     }
 
-    /// Flush the metadata namespace to durable storage.
+    /// Explicit durability fence. Normal staging joins the existing native
+    /// request, whose commit and publication finish before its acknowledgement.
     pub(crate) async fn flush(&self) -> Result<(), SchemaError> {
-        self.metadata_store.inner().flush().await?;
+        self.format.flush().await?;
         Ok(())
     }
 
-    /// Point-get one JSON value from the metadata namespace.
-    ///
-    /// Missing key → `Ok(None)`. This is not a prefix walk.
-    pub async fn get_typed<T: DeserializeOwned + Send + Sync>(
+    pub(crate) async fn author_clock(
         &self,
-        key: &str,
-    ) -> Result<Option<T>, SchemaError> {
-        self.metadata_store
-            .get_item::<T>(key)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))
+        writer: &str,
+    ) -> Result<Option<MutationAuthorClockState>, SchemaError> {
+        self.format.author_clock(writer).await
     }
 
-    /// Point-put one JSON value into the metadata namespace.
-    ///
-    /// Does not flush: LastStore's own persist cadence makes the row durable.
-    pub async fn put_typed<T: Serialize + Send + Sync>(
+    /// Stage a typed state inside the caller's native request. The format
+    /// chooses its key and bytes; this method does not commit independently.
+    pub(crate) async fn stage_author_clock(
         &self,
-        key: &str,
-        value: &T,
+        writer: &str,
+        state: &MutationAuthorClockState,
     ) -> Result<(), SchemaError> {
-        self.metadata_store
-            .put_item(key, value)
-            .await
-            .map_err(|error| match error {
-                // A capacity refusal keeps its type. The author-clock queue and the
-                // HTTP layer answer it with a retry hint, not as an invalid payload.
-                StorageError::WriteResourceLimit { detail } => {
-                    SchemaError::WriteResourceLimit { detail }
-                }
-                other => SchemaError::InvalidData(format!("metadata put {key}: {other}")),
-            })
+        self.format.stage_author_clock(writer, state).await
     }
 
-    /// Point-put one JSON value and flush the metadata namespace before return.
-    pub async fn put_typed_durable<T: Serialize + Send + Sync>(
-        &self,
-        key: &str,
-        value: &T,
-    ) -> Result<(), SchemaError> {
-        self.put_typed(key, value).await?;
-        self.metadata_store.inner().flush().await?;
-        Ok(())
-    }
-
-    // ===== Retry cache (`retry-cache:{xx}` keys) =====
-
-    /// Read the bounded cache limits, without keys or values.
     pub fn retry_cache_status(&self) -> serde_json::Value {
-        idempotency::status()
+        self.format.retry_cache_status()
     }
 
-    /// Batch-read the bounded retry cache, preserving input order and scope.
+    /// Batch-read receipts in input order. Hits still need current-value checks.
     pub async fn get_idempotency_ids(
         &self,
         keys: &[String],
     ) -> Result<Vec<Option<String>>, SchemaError> {
-        idempotency::get_many(&self.metadata_store, keys)
-            .await
-            .map_err(Into::into)
+        self.format.idempotency_ids(keys).await.map_err(Into::into)
     }
 
-    /// Store retry receipts in 256 buckets, at most 32 entries and 8 KiB each.
+    /// Native requests serialize bounded bucket replacement with record writes.
     pub async fn batch_put_idempotency(
         &self,
         entries: Vec<(String, String)>,
     ) -> Result<(), SchemaError> {
-        idempotency::put(&self.metadata_store, entries)
+        self.format
+            .stage_idempotency(entries)
             .await
             .map_err(Into::into)
     }
