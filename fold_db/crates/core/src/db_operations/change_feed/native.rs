@@ -37,6 +37,18 @@ impl ChangeFeedStore {
         (result, ids)
     }
 
+    /// A retained retry receipt describes an earlier accepted commit. Tell the
+    /// host not to queue a second fallback event, without appending feed rows.
+    pub(crate) fn acknowledge_cached_notifications(ids: &[String]) {
+        let _ = CAPTURE.try_with(|capture| {
+            capture
+                .committed
+                .lock()
+                .expect("cached notification capture")
+                .extend(ids.iter().cloned());
+        });
+    }
+
     pub(crate) fn native_events(mutations: &[Mutation]) -> Vec<ChangeFeedEvent> {
         CAPTURE
             .try_with(|capture| {

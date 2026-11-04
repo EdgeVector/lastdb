@@ -231,7 +231,10 @@ def deletes(node):
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
     require(one(node, "four") == {"id": "four", "bucket": "b5"}, "recreate brought back deleted content")
     refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
-    mutate(node, "RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create")
+    fresh = mutation("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create")
+    mixed = node.call("/api/mutations/batch", {"mutations": [request, fresh]})[0]
+    require(mixed["operations"] == {"created": 1, "updated": 0, "deleted": 0, "no_op": 1, "total": 2},
+            "mixed retry receipt counted an input twice")
     requests = [mutation("RecordById", {"hash": "two"}, {}, "delete"),
                 mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
                 mutation("RecordById", {"hash": "five"}, {}, "delete")]

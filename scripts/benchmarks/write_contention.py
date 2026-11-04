@@ -59,7 +59,7 @@ def investigate(args):
             directory.mkdir()
             node = Node(programs[label], BASE if label == "A" else DRIVER, directory,
                         native_timing=layout != "shared", environment={"LASTDB_SEARCH_ENABLED": "0",
-                            "LASTDBD_STDIO_LOG_ROTATION": "1" if layout == "shared" else "0"}, record_protocol=True)
+                            "LASTDBD_STDIO_LOG_ROTATION": "1" if layout == "shared" else "0"})
             home = {"directory": directory.name, "label": label, "layout": layout,
                     "complete": False, "cases": []}
             manifest["homes"].append(home)

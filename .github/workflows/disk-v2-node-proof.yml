@@ -28,6 +28,7 @@ on:
       - 'scripts/disk_v2/**'
       - 'scripts/operations/record_requests.py'
       - 'scripts/benchmarks/node.py'
+      - 'scripts/benchmarks/home_format.py'
       - '.github/workflows/disk-v2-node-proof.yml'
   workflow_dispatch:
   schedule:

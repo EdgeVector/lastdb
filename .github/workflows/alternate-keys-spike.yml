@@ -14,6 +14,7 @@ on:
       - 'scripts/benchmarks/record_replacement_*.py'
       - 'scripts/benchmarks/record_protocol.py'
       - 'scripts/benchmarks/node.py'
+      - 'scripts/benchmarks/home_format.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
     inputs:

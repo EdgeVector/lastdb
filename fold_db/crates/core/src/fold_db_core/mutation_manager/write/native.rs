@@ -15,13 +15,13 @@ struct NativeCommit {
     already_seen_ids: Vec<String>,
     mutation_ids: Vec<String>,
     record_revisions: std::collections::BTreeMap<String, String>,
+    operations: ResidentCommitOperations,
 }
 
 impl MutationManager {
     pub(super) async fn write_native_batch(
         &self,
         request: NativeRequest,
-        operations: ResidentCommitOperations,
         start: std::time::Instant,
         mut state: super::create_update_batch::BatchState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
@@ -42,7 +42,7 @@ impl MutationManager {
             committed.already_seen_ids,
             &committed.mutation_ids,
             committed.record_revisions,
-            operations,
+            committed.operations,
             start,
             state,
         ))
@@ -63,8 +63,6 @@ impl MutationManager {
         self.require_replay_cutoff(&request.mutations).await?;
         state.force_durable = true;
         let committed = transaction::request_scope(Arc::clone(&request.runtime), async {
-            let notifications =
-                crate::db_operations::ChangeFeedStore::native_events(&request.mutations);
             request
                 .runtime
                 .record_read_stage("request-start", request.mutations.len());
@@ -82,6 +80,11 @@ impl MutationManager {
                 "idempotency_check",
                 started.elapsed(),
             );
+            crate::db_operations::ChangeFeedStore::acknowledge_cached_notifications(
+                &already_seen_ids,
+            );
+            let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
+            let operations = Self::count_applied_operations(&mutations);
             for mutation in &mutations {
                 record_revisions.insert(
                     mutation.uuid.clone(),
@@ -107,6 +110,7 @@ impl MutationManager {
                     already_seen_ids,
                     mutation_ids,
                     record_revisions,
+                    operations,
                 });
             }
             request
@@ -138,6 +142,7 @@ impl MutationManager {
                 already_seen_ids,
                 mutation_ids,
                 record_revisions,
+                operations,
             })
         })
         .await?;
