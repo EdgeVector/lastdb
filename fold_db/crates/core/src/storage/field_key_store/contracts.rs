@@ -6,7 +6,7 @@ use super::{
 use crate::schema::Schema;
 use schema_types::field_range_profile::FieldRangeProfile;
 
-pub(super) const TYPED_METADATA_VERSION: u8 = 2;
+use crate::storage::format::FIELD_KEY_METADATA_VERSION as TYPED_METADATA_VERSION;
 
 impl FieldKeyStore {
     pub(super) fn metadata_contract(
