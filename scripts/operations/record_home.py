@@ -8,7 +8,8 @@ delete an expired record, reads the delete audit, then restarts the daemon and
 reads again. It also drains a schema of more than 10,000 records with
 unfiltered cursor pages and records the time of each page, reads past a run
 of more deleted records than one request examines, lets the TTL sweep read
-past such a run, and drops a schema and installs it again (`record_runs.py`).
+past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
+expiry tracking spans more than one native batch (`record_drop_tracking.py`).
 It runs no test runner or benchmark. The home contains generated data only and
 never reads or copies a primary.
 """
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format, UnixConnection  # noqa: E402
 import record_runs  # noqa: E402
+import record_drop_tracking  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -449,9 +451,11 @@ def main():
         retention(node)
         unfiltered_pages(node)
         record_runs.check(node, scan)
+        record_drop_tracking.exercise(node)
         entries = history(node, {"op": "list"})["entries"]
         node.stop()
         node.start()
+        record_drop_tracking.check(node)
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")
         require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],

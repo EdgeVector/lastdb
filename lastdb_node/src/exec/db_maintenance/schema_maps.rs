@@ -187,22 +187,36 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         }
     }
     match result {
-        Ok(policy) => {
-            // The schema that holds the state for both installed names.
-            let anchor = store
-                .retention_anchor(&body.schema)
-                .await
-                .unwrap_or_else(|_| body.schema.clone());
-            json_ok(&envelope(
-                &serde_json::json!({
-                    "schema": body.schema,
-                    "retention_policy": policy,
-                    "anchor": anchor,
-                    "existing_records_may_expire": may_expire,
-                }),
-                ctx.user_id.as_str(),
-            ))
-        }
+        Ok(policy) => retention_response(store, &body.schema, policy, may_expire, ctx).await,
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),
     }
+}
+
+async fn retention_response(
+    store: &fold_db::db_operations::SchemaStore,
+    schema: &str,
+    policy: Option<fold_db::schema::SchemaRetentionPolicy>,
+    may_expire: bool,
+    ctx: &AccessContext,
+) -> UdsResponse {
+    let tracking = tokio::try_join!(
+        store.retention_anchor(schema),
+        store.schema_retention_hash_partitions(schema),
+    );
+    let (anchor, observed_hash_partitions) = match tracking {
+        Ok(tracking) => tracking,
+        Err(error) => {
+            return error_response(400, &format!("schema retention failed: {error}"), ctx)
+        }
+    };
+    json_ok(&envelope(
+        &serde_json::json!({
+            "schema": schema,
+            "retention_policy": policy,
+            "anchor": anchor,
+            "observed_hash_partitions": observed_hash_partitions,
+            "existing_records_may_expire": may_expire,
+        }),
+        ctx.user_id.as_str(),
+    ))
 }

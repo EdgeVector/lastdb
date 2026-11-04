@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod catalog_keys;
 mod claims_retention;
+mod drop_tracking;
 mod name_claims;
 mod native_memory;
 mod read;
