@@ -151,6 +151,7 @@ impl From<fold_db::storage::StorageError> for BackupError {
             StorageError::NativeProof { cause, .. } => Self::from(cause),
             StorageError::ReadResourceLimit { .. }
             | StorageError::WriteResourceLimit { .. }
+            | StorageError::RecordTooLarge { .. }
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
             _ => Self::Source,

@@ -24,7 +24,6 @@ mod erase_meters;
 mod key_comparison;
 mod locks;
 mod read_scope;
-mod record_cap;
 pub(crate) mod record_files;
 mod record_reads;
 mod record_spans;

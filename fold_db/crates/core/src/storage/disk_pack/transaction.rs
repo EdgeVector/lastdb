@@ -102,6 +102,23 @@ impl PendingBatch {
             .collect()
     }
 
+    /// Format admission sees the actual final bodies already owned by this
+    /// request. No caller opt-in, extra read, serialization or shadow map.
+    fn require_final_format(&self) -> StorageResult<()> {
+        let data = self.data.lock().expect("native final format admission");
+        for &at in data.latest.values() {
+            let record = &data.operations[at];
+            if let Some(body) = &record.body {
+                crate::storage::format::records::require_final_record_size(
+                    &record.collection,
+                    &record.key,
+                    body.len(),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn stage(&self, operations: Vec<HomeMutation>) -> StorageResult<()> {
         if self.frozen.load(Ordering::Acquire) {
             return Err(StorageError::InvalidOperation(
