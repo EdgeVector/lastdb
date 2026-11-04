@@ -65,8 +65,8 @@ fn encode(
         // final encoded body at each key, including repeated-key writes.
         let value = change.after.encode_uncapped().map_err(record_value_error)?;
         let after = Arc::new(change.after);
-        // Every changed address participates: only the writer's actual
-        // preimage can establish that no file cleanup is needed.
+        // Every changed address participates. A file-free result requires
+        // its owned path to be absent, independent of the before hint.
         files.push(files::FileChange {
             key: change.key.clone(),
             after: Arc::clone(&after),

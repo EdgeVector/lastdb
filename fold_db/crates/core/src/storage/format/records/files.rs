@@ -23,7 +23,6 @@ pub(super) fn encode(
     content_key: Option<&[u8; 32]>,
 ) -> Result<Option<KvMutation>, SchemaError> {
     let FileChange { key, after, write } = change;
-    let had = before.is_some_and(|record| record.file.is_some());
     let set = after.file.is_some()
         && before.and_then(|record| record.file.as_ref()) != after.file.as_ref();
     Ok(if set {
@@ -52,7 +51,10 @@ pub(super) fn encode(
             record_file_path(key.as_str())?.into_bytes(),
             row,
         ))
-    } else if had && after.file.is_none() {
+    } else if after.file.is_none() {
+        // Absence is the desired file state, regardless of a provider's
+        // before hint. Native deletion probes the actual owned path and is
+        // a no-op when absent; no record read is needed to authorize cleanup.
         Some(KvMutation::delete(
             record_file_path(key.as_str())?.into_bytes(),
         ))
