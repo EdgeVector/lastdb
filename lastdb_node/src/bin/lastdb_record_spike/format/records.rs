@@ -31,11 +31,11 @@ impl Definition {
         &self,
         mutation: PutRecord,
         schema: &Schema,
-        previous: Option<Record>,
+        previous: Option<&Record>,
         revision: String,
     ) -> Result<Batch> {
         schema.validate_keys(&mutation.key, &mutation.alternates)?;
-        let matches = match (&mutation.expected, &previous) {
+        let matches = match (&mutation.expected, previous) {
             (Expected::Absent, None) => true,
             (Expected::Revision { revision }, Some(old)) => revision == &old.revision,
             _ => false,
@@ -46,7 +46,7 @@ impl Definition {
         let mut operations = self.pointer_changes(
             &mutation.schema,
             &mutation.key,
-            previous.as_ref().map(|old| &old.alternates),
+            previous.map(|old| &old.alternates),
             &mutation.alternates,
         )?;
         let body = serde_json::to_vec(&Stored {
@@ -66,7 +66,7 @@ impl Definition {
         &self,
         mutation: &DeleteRecord,
         schema: &Schema,
-        previous: Record,
+        previous: &Record,
     ) -> Result<Batch> {
         schema.validate_keys(&mutation.key, &previous.alternates)?;
         if mutation.revision != previous.revision {

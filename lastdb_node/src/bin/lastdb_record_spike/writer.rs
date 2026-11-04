@@ -85,7 +85,7 @@ impl Store {
         let revision = uuid::Uuid::new_v4().to_string();
         let batch = self
             .format
-            .put(mutation, &schema, previous, revision.clone())?;
+            .put(mutation, &schema, previous.as_ref(), revision.clone())?;
         self.commit(batch, Some(revision))
     }
 
@@ -95,7 +95,7 @@ impl Store {
         let previous = self
             .get(&mutation.schema, &mutation.key)?
             .ok_or("record is absent")?;
-        self.commit(self.format.delete(mutation, &schema, previous)?, None)
+        self.commit(self.format.delete(mutation, &schema, &previous)?, None)
     }
 
     pub(super) fn get(&self, schema: &str, key: &Key) -> Result<Option<Record>> {
