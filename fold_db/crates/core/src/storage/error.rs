@@ -32,6 +32,10 @@ pub enum StorageError {
     #[error("complete mutation limit exceeded: {detail}")]
     MutationLimit { detail: String },
 
+    /// The final stored record exceeds the logical format's byte cap.
+    #[error("the final record is {size} bytes; the cap is {limit} bytes")]
+    RecordTooLarge { size: usize, limit: usize },
+
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
@@ -115,6 +119,7 @@ pub type StorageResult<T> = Result<T, StorageError>;
 impl From<StorageError> for SchemaError {
     fn from(error: StorageError) -> Self {
         match error {
+            StorageError::RecordTooLarge { size, limit } => Self::RecordTooLarge { size, limit },
             StorageError::ReadResourceLimit { detail } => Self::ReadResourceLimit { detail },
             StorageError::WriteResourceLimit { detail }
             | StorageError::MutationLimit { detail } => Self::WriteResourceLimit { detail },

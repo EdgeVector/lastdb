@@ -20,6 +20,7 @@ pub(super) fn report(error: &StorageError) {
             ("write_resource_limit", Some(detail.as_str()))
         }
         StorageError::MutationLimit { detail } => ("mutation_limit", Some(detail.as_str())),
+        StorageError::RecordTooLarge { .. } => ("record_too_large", None),
         StorageError::InvalidOperation(detail) => ("invalid_operation", Some(detail.as_str())),
         StorageError::IoError(_) => ("io", None),
         StorageError::StorageFull { detail } => ("storage_full", Some(detail.as_str())),

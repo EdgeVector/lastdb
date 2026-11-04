@@ -29,8 +29,9 @@ pub(crate) use store::RecordFormat;
 
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
+use crate::storage::error::StorageResult;
 use crate::storage::format::history::EncodedHistory;
-use crate::storage::{KvMutation, KvStore};
+use crate::storage::{KvMutation, KvStore, StorageError};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::sync::Arc;
 
@@ -39,9 +40,6 @@ pub(crate) struct RecordChange {
     pub key: RecordAddress,
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
-    /// Earlier groups of a repeated key may exceed the cap temporarily. The
-    /// request still checks its final stored state before committing.
-    pub cap_deferred: bool,
     pub file_row: Option<Arc<Vec<u8>>>,
 }
 
@@ -74,12 +72,9 @@ fn encode(
             change.file_row.take(),
             content_key,
         )?);
-        let value = if change.cap_deferred {
-            change.after.encode_uncapped()
-        } else {
-            change.after.encode()
-        }
-        .map_err(record_value_error)?;
+        // Structure is checked now; complete-request admission checks the
+        // final encoded body at each key, including repeated-key writes.
+        let value = change.after.encode_uncapped().map_err(record_value_error)?;
         written.push(WrittenRecord::new(
             change.key.as_str(),
             Arc::new(change.after),
@@ -118,8 +113,30 @@ impl EncodedRecords {
     }
 }
 
-pub(crate) fn require_record_fits(record: &StoredRecord) -> Result<(), SchemaError> {
-    record.encode().map(|_| ()).map_err(record_value_error)
+/// Native record addresses are canonical UTF-8 keys stored verbatim. Check
+/// only final staged bodies, not intermediate writes or any stored-key census.
+pub(in crate::storage) fn require_final_record_sizes<'a>(
+    max_body_bytes: usize,
+    records: impl Iterator<Item = (&'a str, &'a str, usize)>,
+) -> StorageResult<()> {
+    // The native accounting loop derives this upper bound from every staged
+    // body. If all bodies fit, every final record necessarily fits too, so
+    // the lazy iterator need not visit any keys in the ordinary case.
+    if max_body_bytes <= MAX_RECORD_BYTES {
+        return Ok(());
+    }
+    for (collection, key, bytes) in records {
+        if collection == super::RECORDS_COLLECTION
+            && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
+            && bytes > MAX_RECORD_BYTES
+        {
+            return Err(StorageError::RecordTooLarge {
+                size: bytes,
+                limit: MAX_RECORD_BYTES,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn record_value_error(error: RecordValueError) -> SchemaError {

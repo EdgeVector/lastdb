@@ -1,13 +1,9 @@
 //! Duplicate short-circuit, precondition gate and per-schema record groups.
 
 use super::*;
-use crate::schema::types::KeyValue;
 
 /// The mutations of each group, with the schema name, in stage order.
 type KeyGroups = Vec<(String, Vec<Mutation>)>;
-
-/// The keys of each schema that more than one group of the request writes.
-type RepeatedKeys = HashMap<String, HashSet<KeyValue>>;
 
 impl MutationManager {
     /// Receipt for a batch whose every mutation the idempotency filter
@@ -104,13 +100,12 @@ impl MutationManager {
         // Group mutations by schema to minimize schema reloads. First-seen
         // order is the stage order.
         let group_start = std::time::Instant::now();
-        let (grouped_mutations, repeated) =
+        let grouped_mutations =
             self.independent_key_groups(self.group_mutations_by_schema(new_mutations))?;
         Self::add_timing(timing_breakdown, "grouping", group_start.elapsed());
 
         let group_count = grouped_mutations.len();
         let mut prepare_elapsed = std::time::Duration::ZERO;
-        let mut deferred = Vec::new();
         for (schema_name, schema_mutations) in grouped_mutations {
             let prepare_started = std::time::Instant::now();
             let idempotency_entries = schema_mutations
@@ -122,23 +117,10 @@ impl MutationManager {
                     (format!("idem:{hash}"), mutation.uuid.clone())
                 })
                 .collect();
-            deferred.extend(
-                self.stage_record_group(
-                    &schema_name,
-                    schema_mutations,
-                    idempotency_entries,
-                    repeated.get(&schema_name),
-                    runtime,
-                )
-                .await?,
-            );
+            self.stage_record_group(&schema_name, schema_mutations, idempotency_entries, runtime)
+                .await?;
             prepare_elapsed += prepare_started.elapsed();
         }
-        // A key that two groups wrote meets the record cap with its final
-        // record, not with the record between the groups.
-        deferred.sort_unstable();
-        deferred.dedup();
-        self.db_ops.records().require_records_fit(&deferred).await?;
         stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
         Ok(group_count)
     }
@@ -146,41 +128,30 @@ impl MutationManager {
 
 /// Independent keys prepare together. A repeated key starts the next group
 /// so its unchanged fields come from the earlier private write, not the
-/// request's original state. The complete request still publishes once. The
-/// repeated keys of each schema come back too: their record cap waits for the
-/// final record.
+/// request's original state. The complete request still publishes once.
 impl MutationManager {
     fn independent_key_groups(
         &self,
         groups: Vec<(String, Vec<Mutation>)>,
-    ) -> Result<(KeyGroups, RepeatedKeys), SchemaError> {
+    ) -> Result<KeyGroups, SchemaError> {
         let mut result = Vec::new();
-        let mut repeated = RepeatedKeys::new();
         for (name, mutations) in groups {
             let schema = self.schema_manager.require_schema_metadata(&name)?;
-            // The group of the last write of each key.
-            let mut last_group: HashMap<KeyValue, usize> = HashMap::new();
-            let mut group = 0;
+            let mut current_keys = HashSet::new();
             let mut current = Vec::new();
             for mutation in mutations {
                 let key = self.resolve_mutation_key_value(&name, &schema, &mutation)?;
-                if let Some(&at) = last_group.get(&key) {
-                    if at == group {
-                        result.push((name.clone(), std::mem::take(&mut current)));
-                        group += 1;
-                    }
-                    repeated
-                        .entry(name.clone())
-                        .or_default()
-                        .insert(key.clone());
+                if current_keys.contains(&key) {
+                    result.push((name.clone(), std::mem::take(&mut current)));
+                    current_keys.clear();
                 }
-                last_group.insert(key, group);
+                current_keys.insert(key);
                 current.push(mutation);
             }
             if !current.is_empty() {
                 result.push((name, current));
             }
         }
-        Ok((result, repeated))
+        Ok(result)
     }
 }

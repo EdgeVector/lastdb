@@ -4,8 +4,8 @@
 //! fields by stamp (decision D1). The records, their alternate entry changes,
 //! the idempotency entries, the file rows of `put-blob` and `delete-blob`, the
 //! field history entries, the delete audit rows and the retention age rows join the
-//! request's one batch (`record_effects.rs`). Writers that a record cannot
-//! hold are refused here, before any byte is staged.
+//! request's one batch (`record_effects.rs`). Complete-request format admission
+//! checks the final encoded record sizes before any write is accepted.
 
 use super::*;
 use crate::db_operations::record_store::RecordChange;
@@ -27,18 +27,14 @@ use super::record_rules::{loud_erasure, purges_deleted_record, take_file_rows, F
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
-    /// repeated key reads the record that the earlier group staged. The keys
-    /// in `repeated` are written by another group of the request too: their
-    /// cap waits for the final record, and the returned storage keys name the
-    /// records whose check waits.
+    /// repeated key reads the record that the earlier group staged.
     pub(super) async fn stage_record_group(
         &self,
         schema_name: &str,
         mut mutations: Vec<Mutation>,
         idempotency_entries: Vec<(String, String)>,
-        repeated: Option<&HashSet<KeyValue>>,
         runtime: &Arc<PackRuntime>,
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self.load_schema_for_delta(schema_name).await?;
         let records = self.db_ops.records();
@@ -53,18 +49,10 @@ impl MutationManager {
         let stored = records.read_records(&record_keys).await?;
         let stored = record_keys.into_iter().zip(stored).collect();
         let file_rows = take_file_rows(&mut mutations);
-        let group = merge_group(
-            schema_name,
-            &schema,
-            (&mutations, file_rows),
-            &keys,
-            stored,
-            repeated,
-        )?;
+        let group = merge_group(schema_name, &schema, (&mutations, file_rows), &keys, stored)?;
         let entries = records
             .alternate_entry_changes(&schema, &group.keys, &group.before, &group.after)
             .await?;
-        let deferred = group.deferred();
         self.stage_records_with_effects(&schema, &group.changed, group.changes, entries)
             .await?;
         runtime.record_read_stage("record-stores-done", keys.len());
@@ -90,7 +78,7 @@ impl MutationManager {
                 Self::deliver_search_outbox(inbox, batch).await
             })?;
         }
-        Ok(deferred)
+        Ok(())
     }
 
     /// Check each CAS expectation, each `must_exist` update and each loud
@@ -187,17 +175,6 @@ struct GroupChanges<'a> {
     after: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
-impl GroupChanges<'_> {
-    /// The storage keys of the changes whose cap waits for the final record.
-    fn deferred(&self) -> Vec<String> {
-        self.changes
-            .iter()
-            .filter(|change| change.cap_deferred)
-            .map(|change| change.key.as_str().to_owned())
-            .collect()
-    }
-}
-
 /// Merge each mutation of one group into its stored record. A mutation that
 /// changes nothing stays out, except a purge of a deleted record.
 fn merge_group<'a>(
@@ -206,7 +183,6 @@ fn merge_group<'a>(
     (mutations, file_rows): (&'a [Mutation], FileRows),
     keys: &'a [KeyValue],
     stored: Vec<(RecordAddress, Option<Arc<StoredRecord>>)>,
-    repeated: Option<&HashSet<KeyValue>>,
 ) -> Result<GroupChanges<'a>, SchemaError> {
     let mut group = GroupChanges {
         changed: Vec::with_capacity(mutations.len()),
@@ -235,7 +211,6 @@ fn merge_group<'a>(
             key: record_key,
             before,
             after,
-            cap_deferred: repeated.is_some_and(|repeated| repeated.contains(key)),
             file_row,
         });
     }

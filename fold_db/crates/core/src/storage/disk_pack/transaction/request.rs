@@ -59,6 +59,7 @@ where
         return Err(error.into());
     }
     let result = result??;
+    pending.require_final_format()?;
     super::super::timing::mark(&mut timing, "logical_prepare_us");
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
