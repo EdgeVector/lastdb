@@ -24,7 +24,6 @@ struct Selection {
 }
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
-    lastdb_node::byte_cloud_backup::require_enabled().map_err(|e| e.to_string())?;
     let phrase = phrase()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

@@ -125,6 +125,7 @@ pub(crate) enum ByteBackupCommand {
         json: bool,
     },
     /// Restore one frozen V2 accepted backup into an absent home.
+    /// Requires saved cloud credentials and a recovery phrase. Starts no daemon.
     Restore {
         #[arg(long, required = true)]
         recovery_phrase_stdin: bool,
