@@ -17,6 +17,7 @@ pub mod key_config;
 pub use alternate_keys::{AlternateKey, MissingAlternateKey};
 pub mod field_range_profile;
 pub mod range_storage_profile;
+pub mod record_keys;
 pub mod rfc3339;
 pub mod schema_type;
 
