@@ -89,7 +89,7 @@ pub(crate) fn alternate_range_key(
     key: &KeyValue,
 ) -> Result<String, SchemaError> {
     let encoded = codec
-        .api_hash_range_record_key(
+        .api_hash_range_member_prefix(
             field_key,
             key.hash.as_deref().unwrap_or_default(),
             key.range.as_deref().unwrap_or_default(),

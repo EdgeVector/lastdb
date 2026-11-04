@@ -125,8 +125,30 @@ def hash_records(node):
     row = query(node, "RecordById", {"HashKey": "external-alias"}, key_name="by_bucket")[0]
     require(row["key"]["hash"] == "external-key" and row["fields"] == {"value": "standalone"},
             "independent primary/alternate addresses required payload key fields")
-    mutate(node, "RecordById", {"hash": "external-key"}, {}, "delete")
+    external_boundaries(node, external)
     print("Hash records: create, full replacement, omitted-field removal, batch read by key passed", flush=True)
+
+
+def external_boundaries(node, external):
+    mutate(node, "RecordById", {"hash": "external-key-2"}, {}, "create", alternates=external)
+    other = {"by_bucket": {"hash": "external-alias", "range": "unrelated\0tail"}}
+    mutate(node, "RecordById", {"hash": "external-key-nul"}, {"value": "nul"}, "create", alternates=other)
+    base = {"schema_name": "RecordById", "fields": [], "key_name": "by_bucket",
+            "filter": {"HashRangeKey": {"hash": "external-alias", "range": "unrelated"}}, "limit": 1}
+    found, cursor = [], None
+    for _ in range(4):
+        page = node.call("/api/query", {**base, **({"cursor": cursor} if cursor else {})})[0]
+        found.extend(row["key"]["hash"] for row in page["results"])
+        cursor = page["next_cursor"]
+        if not page["has_more"]:
+            break
+    require(sorted(found) == ["external-key", "external-key-2"] and cursor is None,
+            "duplicate alternate continuation included a different range or lost a primary")
+    rows = query(node, "RecordById", {"HashRangeKey": other["by_bucket"]}, key_name="by_bucket")
+    require(len(rows) == 1 and rows[0]["key"]["hash"] == "external-key-nul", "NUL range exact read differs")
+    requests = [mutation("RecordById", {"hash": name}, {}, "delete")
+                for name in ("external-key", "external-key-2", "external-key-nul")]
+    node.call("/api/mutations/batch", {"mutations": conditioned(node, requests)})
 
 
 def alternate_keys(node):
