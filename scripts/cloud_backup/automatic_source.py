@@ -6,6 +6,7 @@ import os
 import re
 import time
 
+import native_records
 from support import OperationError, canonical_uuid, require
 
 MAX_CHECKPOINTS = 8
@@ -76,13 +77,13 @@ def durable_batch(node, mutations):
     """Send one owned batch once; an uncertain result never permits a replay."""
     require(isinstance(mutations, list) and 0 < len(mutations) <= 64
             and all(item["durability"] == "durable"
-                    and item["mutation_type"] in ("create", "update", "delete") for item in mutations),
+                    and item["mutation_type"] in ("create", "replace", "delete") for item in mutations),
             "bounded_durable_ci_mutations")
     reply = node.call("/api/mutations/batch", {"mutations": mutations})
     identifiers = reply.get("mutation_ids")
     expected = {result: sum(item["mutation_type"] == verb for item in mutations)
-                for verb, result in (("create", "created"), ("update", "updated"), ("delete", "deleted"))}
-    expected.update(no_op=0, total=len(mutations))
+                for verb, result in (("create", "created"), ("replace", "updated"), ("delete", "deleted"))}
+    expected.update(total=len(mutations))
     require(reply.get("ok") is True and reply.get("user_hash") == node.account
             and type(reply.get("count")) is int and reply["count"] == len(mutations)
             and isinstance(identifiers, list) and len(identifiers) == len(mutations)
@@ -304,22 +305,20 @@ class Source:
             os.fsync(stream.fileno())
         # The new file replaces the file of the first record, at the same path.
         records = self.expected["records"]
-        reply = self.node.programs.command(self.node.home, ["db", "put-blob", "--schema", schema,
-                                                            "--hash", records[0]["id"], "--file", str(path)])
+        reply = native_records.put_file(self.node, schema, records[0], path)
         require(reply["file"]["sha256"] == hashlib.sha256(payload).hexdigest(), "automatic_file_marker")
+        rows = native_records.read_records(self.node, schema,
+                                          [native_records.key(record["id"]) for record in records])
         mutations = []
-        for number, record in enumerate(records):
+        for number, (record, row) in enumerate(zip(records, rows)):
+            require(row["fields"] == record, "automatic_record_preimage")
             deleted = number == len(records) - 1
             if deleted:
                 records[number] = {"id": record["id"], "deleted": True}
-                fields = {"id": record["id"]}
+                mutations.append(native_records.delete(schema, row))
             else:
                 record["note"] = "Automatic log update " + str(number)
-                fields = dict(record)
-            mutations.append({"type": "mutation", "schema": schema,
-                "key_value": {"hash": record["id"], "range": None}, "fields_and_values": fields,
-                "mutation_type": "delete" if deleted else "update", "durability": "durable",
-                "must_exist": True})
+                mutations.append(native_records.replace(schema, row, record))
         durable_batch(self.node, mutations)
         self.expected.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
         self.node.verify_records(self.expected)

@@ -192,6 +192,8 @@ class Operation:
                  "source": self.args.source, "primary_access": False}
         if "service_field" in self.summary:
             value["service_field"] = self.summary["service_field"]
+        if "cli_refusal" in self.summary:
+            value["cli_refusal"] = self.summary["cli_refusal"]
         if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
             value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
         if self.summary["schema"] == "lastdb.cloud-ci-preflight.v2":

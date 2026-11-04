@@ -2,6 +2,7 @@
 
 import copy
 
+import native_records
 from automatic_source import durable_batch
 from restore_log import position
 from support import canonical_uuid, require
@@ -51,15 +52,6 @@ class PrefixRecords:
                 and journal["snapshot_required"] is False, "temporary_mutation_complete_journal")
         return copy.deepcopy(position(journal["head"]))
 
-    def item(self, key, note, verb, expected):
-        fields = {"id": key} if note is None else {"id": key, "note": note}
-        result = {"type": "mutation", "schema": self.schema, "mutation_type": verb,
-            "key_value": {"hash": key, "range": None}, "fields_and_values": fields,
-            "expected": expected, "durability": "durable"}
-        if verb != "create":
-            result["must_exist"] = True
-        return result
-
     def mutate(self, stage, mutations, expected):
         before = self.journal()
         durable_batch(self.source.node, mutations)
@@ -72,15 +64,21 @@ class PrefixRecords:
 
     def write(self):
         self.verify_absent(self.source.node)
-        creates = [self.item(key, note, "create", {"type": "absent", "field": "id"})
+        creates = [native_records.create(self.schema, native_records.key(key), {"id": key, "note": note})
                    for key, note in self.created.items()]
         self.mutate("created", creates, self.created)
         keep, remove = self.keys["keep"], self.keys["remove"]
-        changes = [self.item(key, self.updated if key == keep else None,
-                    "update" if key == keep else "delete",
-                    {"type": "value", "field": "note", "value": self.created[key]}) for key in (keep, remove)]
+        rows = native_records.read_records(self.source.node, self.schema,
+                                           [native_records.key(key) for key in (keep, remove)])
+        for key, row in zip((keep, remove), rows):
+            require(row["fields"] == {"id": key, "note": self.created[key]},
+                    "temporary_created_preimage")
+        changes = [native_records.replace(self.schema, rows[0], {"id": keep, "note": self.updated}),
+                   native_records.delete(self.schema, rows[1])]
         self.mutate("updated_and_deleted", changes, {keep: self.updated, remove: None})
-        deletes = [self.item(keep, None, "delete", {"type": "value", "field": "note", "value": self.updated})]
+        row = native_records.read_records(self.source.node, self.schema, [native_records.key(keep)])[0]
+        require(row["fields"] == {"id": keep, "note": self.updated}, "temporary_updated_preimage")
+        deletes = [native_records.delete(self.schema, row)]
         self.mutate("both_deleted", deletes, {keep: None, remove: None})
         require(set(self.minimums) == set(STAGES)
                 and self.minimums["created"]["epoch"] == self.minimums["updated_and_deleted"]["epoch"]

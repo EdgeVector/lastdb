@@ -30,6 +30,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import baseline_data
+import native_records
 from automatic import selection
 from automatic_source import Source, completion, durable_batch
 from ci_control import Control
@@ -155,19 +156,17 @@ class BaselineOperation(Operation):
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": baseline_data.SCHEMA,
             "descriptive_name": baseline_data.SCHEMA, "schema_type": "Hash",
-            "key": {"hash_field": "id"}, "fields": fields, "field_types": {"id": "String"},
+            "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+            "fields": fields, "field_types": {"id": "String"},
             "field_descriptions": {name: baseline_data.SCHEMA + " " + name for name in fields}}})
-        mutations = [{"type": "mutation", "schema": baseline_data.SCHEMA, "mutation_type": "create",
-                      "durability": "durable", "key_value": {"hash": record["id"], "range": None},
-                      "fields_and_values": record}
+        mutations = [native_records.create(baseline_data.SCHEMA, native_records.key(record["id"]), record)
                      for record in expected["records"]]
         durable_batch(node, mutations)
         # The first record holds the one file, stored with the record in one write.
         path = self.root / "baseline-file.bin"
         private_write(path, payload)
         del payload
-        reply = self.programs.command(home, ["db", "put-blob", "--schema", baseline_data.SCHEMA,
-                                             "--hash", expected["records"][0]["id"], "--file", str(path)])
+        reply = native_records.put_file(node, baseline_data.SCHEMA, expected["records"][0], path)
         path.unlink()
         require(reply["file"]["sha256"] == expected["file_sha256"], "baseline_file_marker")
         self.summary["source_reads"] = node.verify_records(expected)
@@ -226,10 +225,12 @@ class BaselineOperation(Operation):
             descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
             with os.fdopen(descriptor, "w") as stream:
                 stream.write(text)
-        print(json.dumps({"result": self.summary["result"], "stage": self.summary.get("stage"),
-                          "failure": self.summary.get("failure"), "source": self.args.source,
-                          "new_baseline": self.summary.get("new_baseline"),
-                          "primary_access": False}, sort_keys=True))
+        value = {"result": self.summary["result"], "stage": self.summary.get("stage"),
+                 "failure": self.summary.get("failure"), "source": self.args.source,
+                 "new_baseline": self.summary.get("new_baseline"), "primary_access": False}
+        if "cli_refusal" in self.summary:
+            value["cli_refusal"] = self.summary["cli_refusal"]
+        print(json.dumps(value, sort_keys=True))
 
 
 def main():

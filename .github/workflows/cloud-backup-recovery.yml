@@ -37,9 +37,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = the normal operation. baseline = make and save a new fixed CI baseline."
+        description: "recovery = full operation; baseline = approved format-specific baseline; writer-check = read-only credential metadata."
         type: choice
-        options: [recovery, baseline]
+        options: [recovery, baseline, writer-check]
         default: recovery
 
 permissions:
@@ -88,16 +88,35 @@ jobs:
   build-client:
     name: Build
     needs: recipe-syntax
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode != 'writer-check'
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/cloud-backup-build.yml
 
+  baseline-writer-check:
+    name: Read protected baseline writer metadata
+    needs: recipe-syntax
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'writer-check'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read credential metadata without a baseline or cloud operation
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: python3 scripts/cloud_backup/baseline_writer.py
+
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode != 'writer-check'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -145,6 +164,11 @@ jobs:
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --output "$RUNNER_TEMP/cloud-ci-preflight"
+      - name: Check protected-input credential before a baseline starts
+        if: env.RUN_MODE == 'baseline'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: python3 scripts/cloud_backup/baseline_writer.py
       - name: Choose this run's new CI backup stream
         id: ci-start
         env:

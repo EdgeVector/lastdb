@@ -60,13 +60,24 @@ class Automatic:
             node.start()
             reads.append(node.verify_records(expected))
             if lifecycle is not None:
-                lifecycle_reads.append(lifecycle.verify(node, initial, name == "snapshot-recovery"))
+                lifecycle_reads.append(lifecycle.verify(
+                    node, initial, name in ("snapshot-recovery", "stopped-log-recovery")))
             if temporary is not None:
                 temporary_reads.append(temporary.verify_absent(node))
             node.stop()
         require(node.clean_stops == 2, "two_automatic_restore_clean_stops")
         return {"restore": proof, "restored_boots": 2, "strict_clean_stops": 2,
                 "keyed_reads": reads, "lifecycle_reads": lifecycle_reads, "temporary_key_reads": temporary_reads}
+
+    def stopped_recoveries(self, stopped, lifecycle, temporary):
+        manual = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
+                              temporary=temporary)
+        replay = {"base": stopped.accepted, "minimum": stopped.final_minimum,
+                  "require_cas_additions": False}
+        final = self.recover("stopped-log-recovery", stopped.final_expected,
+                             stopped.final_accepted, replay, lifecycle=lifecycle,
+                             observe=stopped.source.observe_accepted, temporary=temporary)
+        return manual, final
 
     def run(self):
         operation = self.operation
@@ -148,9 +159,7 @@ class Automatic:
                                    lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle, temporary=temporary)
-        stopped_restore = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
-                                       temporary=temporary)
-        # The stopped point is not a daemon-initiated v1 recipe point; the log after it is the head.
+        stopped_restore, final_restore = self.stopped_recoveries(stopped, lifecycle, temporary)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
                                        for value in (snapshot, log, later)])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
@@ -163,6 +172,7 @@ class Automatic:
                 "base_recovery": base_restore, "log_recovery": log_restore,
                 "later_snapshot_recovery": snapshot_restore,
                 "stopped_backup_with_automatic_on": final_stopped, "stopped_recovery": stopped_restore,
+                "stopped_log_recovery": final_restore,
                 "ttl_log_frontiers": first_ttl, "ttl_snapshot_frontiers": second_ttl,
                 "dependency_inspections": dependency_inspections,
                 "ci_stream_ownership": ownership,

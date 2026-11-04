@@ -4,6 +4,7 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import selectors
 import signal
 import stat
@@ -11,6 +12,68 @@ import subprocess
 import time
 
 from support import CHUNK, OperationError, decode_json, require, stable
+
+
+RESTORE_REFUSALS = {
+    b"invalid restore client native metadata": "client_native_metadata",
+    b"invalid restore client mutation log root": "client_mutation_log_metadata",
+    b"invalid restore run client page": "client_native_page",
+    b"invalid restore run page context": "client_native_page",
+    b"invalid restore run page identity": "client_native_page",
+    b"invalid restore run exact native inventory": "native_inventory",
+    b"invalid restore complete run native totals": "native_inventory",
+    b"restore disk operation failed": "disk",
+    b"restore protocol validation failed": "protocol",
+    b"restore source unavailable: byte transport": "byte_transport",
+    b"restore source unavailable: object grant": "object_grant",
+}
+PROOF_STAGES = {name.encode(): name for name in (
+    "native_reader", "admission", "validation", "restore", "profile", "physical_root",
+    "account", "schemas", "directories", "native_cas", "records", "final_binding")}
+PROOF_CAUSES = {name.encode(): name for name in (
+    "read_resource_limit", "write_resource_limit", "storage_full", "authentication",
+    "native_format", "configuration", "invalid_operation", "encryption", "backend", "other")}
+PROOF_CAUSES.update({
+    b"run backup logical profile version": "unsupported_profile",
+    b"run backup range profile version": "unsupported_profile",
+    b"run restore node marker differs": "unsupported_format",
+    b"run restore logical profile is absent": "unsupported_profile",
+    b"run restore logical profile changed": "profile_changed",
+    b"run restore captured profile differs": "profile_mismatch",
+    b"run backup native root differs": "native_root_mismatch",
+    b"run backup schema has no explicit record keys": "schema_record_keys",
+    b"run backup record key has no typed profile": "schema_key_profile",
+    b"run backup record format": "record_format",
+    b"run backup record file missing": "record_file_missing",
+})
+
+
+def cli_refusal(stderr, exit_code):
+    """Project only closed source labels; never return a captured byte or path."""
+    result = {"exit_code": exit_code, "reason": "unrecognized"}
+    errors = [line[len(b"error: "):] for line in bytes(stderr).splitlines()
+              if line.startswith(b"error: ")]
+    if len(errors) != 1:
+        return result
+    message = errors[0]
+    if message.startswith(b"V2 restore retains session "):
+        # offline.rs inserts the private session path before this separator.
+        _path, separator, message = message.partition(b": ")
+        if not separator:
+            return result
+    if message in RESTORE_REFUSALS:
+        return {"exit_code": exit_code, "reason": RESTORE_REFUSALS[message]}
+    prefix = b"native restore proof "
+    if not message.startswith(prefix):
+        return result
+    stage, separator, cause = message[len(prefix):].partition(b": ")
+    if not separator or stage not in PROOF_STAGES:
+        return result
+    category = PROOF_CAUSES.get(cause, "unrecognized")
+    if re.fullmatch(rb"io kind=[A-Za-z]+ os_code=(?:None|Some\(-?[0-9]{1,10}\))", cause):
+        category = "io"
+    return {"exit_code": exit_code, "reason": "native_proof",
+            "stage": PROOF_STAGES[stage], "cause": category}
 
 
 def execute(command, environment, input_bytes=None, timeout=120):
@@ -40,7 +103,9 @@ def execute(command, environment, input_bytes=None, timeout=120):
                         require(len(target) + len(block) <= limits[key.data], "cli_output_size")
                         target.extend(block)
         process.wait(timeout=max(0.1, deadline - time.monotonic()))
-        require(process.returncode == 0, "product_cli_refused")
+        if process.returncode != 0:
+            raise OperationError("product_cli_refused",
+                                 cli_refusal=cli_refusal(output["stderr"], process.returncode))
         return bytes(output["stdout"])
     except subprocess.TimeoutExpired as error:
         raise OperationError("cli_deadline") from error
