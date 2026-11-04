@@ -262,6 +262,7 @@ impl StoredRecord {
     /// stages the earlier record before the later write; the cap applies to
     /// the final record of the request.
     pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
+        self.validate_structure()?;
         serde_json::to_vec(self).map_err(|error| RecordValueError::Format(error.to_string()))
     }
 
@@ -270,22 +271,30 @@ impl StoredRecord {
     pub fn decode(bytes: &[u8]) -> Result<Self, RecordValueError> {
         let record: Self = serde_json::from_slice(bytes)
             .map_err(|error| RecordValueError::Format(error.to_string()))?;
-        if record.v != RECORD_VALUE_VERSION {
+        record.validate_structure()?;
+        Ok(record)
+    }
+
+    /// Reads and writes share one structural contract. The final record size
+    /// is checked separately so a repeated-key request can stage a larger
+    /// intermediate value without relaxing its structure.
+    fn validate_structure(&self) -> Result<(), RecordValueError> {
+        if self.v != RECORD_VALUE_VERSION {
             return Err(RecordValueError::Format("unknown version".into()));
         }
-        if record
+        if self
             .fields
             .keys()
-            .any(|field| !record.stamps.contains_key(field))
+            .any(|field| !self.stamps.contains_key(field))
         {
             return Err(RecordValueError::Format("a field has no stamp".into()));
         }
-        if let Some(floor) = &record.deleted {
-            if record
+        if let Some(floor) = &self.deleted {
+            if self
                 .stamps
                 .values()
-                .chain(record.meta.as_ref().map(|meta| &meta.stamp))
-                .chain(record.file.as_ref().map(|file| &file.stamp))
+                .chain(self.meta.as_ref().map(|meta| &meta.stamp))
+                .chain(self.file.as_ref().map(|file| &file.stamp))
                 .any(|stamp| stamp <= floor)
             {
                 return Err(RecordValueError::Format(
@@ -293,7 +302,7 @@ impl StoredRecord {
                 ));
             }
         }
-        if record
+        if self
             .file
             .as_ref()
             .is_some_and(|file| !file.marker().has_valid_hash())
@@ -302,6 +311,6 @@ impl StoredRecord {
                 "the file marker has an invalid sha256".into(),
             ));
         }
-        Ok(record)
+        Ok(())
     }
 }
