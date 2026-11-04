@@ -70,8 +70,7 @@ impl FileWriteIssuer {
         }
         Some(
             Arc::try_unwrap(file.payload)
-                .map(|payload| payload.row)
-                .unwrap_or_else(|payload| payload.row.clone()),
+                .map_or_else(|payload| payload.row.clone(), |payload| payload.row),
         )
     }
 }
