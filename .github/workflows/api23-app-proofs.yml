@@ -1,0 +1,60 @@
+name: API 23 app compatibility backfill
+on:
+  workflow_call:
+    inputs:
+      source:
+        type: string
+        required: true
+permissions:
+  contents: read
+  attestations: read
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: stable-bundles-${{ github.run_id }}-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/stable-bundles
+      - name: Prove the missing API 23 app declarations without touching a primary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/release/stable_api23.py --plan "$RUNNER_TEMP/stable-plan.json"
+          --bundles "$RUNNER_TEMP/stable-bundles" --output "$RUNNER_TEMP/api23-app-proofs"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: api23-app-proofs-${{ github.run_id }}
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/api23-app-proofs/compatibility.json
+            ${{ runner.temp }}/api23-app-proofs/apps.json
+            ${{ runner.temp }}/api23-app-proofs/*.declaration.json
+            ${{ runner.temp }}/api23-app-proofs/*.install-receipt.json
+            ${{ runner.temp }}/api23-app-proofs/*.log
+          if-no-files-found: error
+          retention-days: 14
+

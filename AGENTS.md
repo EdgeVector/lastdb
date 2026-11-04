@@ -97,6 +97,13 @@ programs. The API 23 backfill must not operate on or copy a primary.
 Keep all other test targets retired. No local LastDB builds, benchmarks, or
 runtime proofs. No primary upgrade, restart, reset, copy, or backup change.
 
+Tom extended this on 2026-11-03: "automate publishing the signed app compatibility
+records for new API versions too ... Keep everything in CI and leave my primary
+unchanged." This also authorizes `stable_compatibility.py`, `stable_app_publish.py`,
+and `app-compatibility-publish.yml`. CI must run the apps and validate their
+unsigned declarations before its separate KMS identity publishes them. The real
+registry installs and the full one-hour qualification remain required.
+
 ## Cursor Cloud specific instructions
 
 ### Scoped extension: PROD restore qualification (Tom, 2026-11-03)

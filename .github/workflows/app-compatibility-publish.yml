@@ -1,0 +1,43 @@
+name: Publish proved app compatibility
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+  id-token: write
+jobs:
+  publish:
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install boto3==1.40.68 cryptography==46.0.3 rfc8785==0.1.4
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/app-compatibility
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.REGISTRY_CI_PROD_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Verify provenance and publish only the observed app interfaces
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY_CI_PROD_KEY_ARN: ${{ vars.REGISTRY_CI_PROD_KEY_ARN }}
+          REGISTRY_CI_PROD_PUBLIC_KEY: ${{ vars.REGISTRY_CI_PROD_PUBLIC_KEY }}
+        run: >-
+          python3 scripts/release/stable_app_publish.py
+          --proof "$RUNNER_TEMP/app-compatibility/app-compatibility.json"
+          --artifact '${{ inputs.artifact }}'

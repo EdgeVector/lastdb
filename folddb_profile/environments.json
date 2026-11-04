@@ -4,20 +4,30 @@
     "dev": {
       "region": "us-west-2",
       "registry_index": "https://lastdb-app-registry-dev-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
+      "registry_api": "https://kn2b53tt1c.execute-api.us-east-1.amazonaws.com",
+      "registry_ci_owner_key": "bVNdPhuB4ELH8cVoctMHw6v+jgV9L/+h5YrzwpJFG4E=",
+      "registry_ci_publisher_key": "yx3jqz9Gh9/wvEYRO5Njeji9vgo2WY6NYDs86FkuLIE=",
       "exemem_api": "https://ygyu7ritx8.execute-api.us-west-2.amazonaws.com",
       "schema_service": "https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com",
       "portal": "https://d3t6377alb85xe.cloudfront.net",
       "release_log_url": "https://d13j91l3z4xnb6.cloudfront.net",
-      "release_log_keys": ["3It7yXEJTRSawpm8R+7f6Q2dO55sU+wAbsYeYVrvo60="]
+      "release_log_keys": [
+        "3It7yXEJTRSawpm8R+7f6Q2dO55sU+wAbsYeYVrvo60="
+      ]
     },
     "prod": {
       "region": "us-east-1",
       "registry_index": "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
+      "registry_api": "https://t37yopm41e.execute-api.us-east-1.amazonaws.com",
+      "registry_ci_owner_key": "ZbiGEDYe3rLriFopa2+rQVvMmcqmMtqs4uUlgyroTSA=",
+      "registry_ci_publisher_key": "I1NRFFkYWGpIY8438nyboDfDyYCSv+iNUtlBaPt2vZY=",
       "exemem_api": "https://jdsx4ixk2i.execute-api.us-east-1.amazonaws.com",
       "schema_service": "https://axo709qs11.execute-api.us-east-1.amazonaws.com",
       "portal": "https://exemem.com",
       "release_log_url": "https://d1ycd4qq5eqtw6.cloudfront.net",
-      "release_log_keys": ["E/nGNTzMnSiYiXy6AA4Mv1UGOZnmHIpPSwoPL2YBPOk="]
+      "release_log_keys": [
+        "E/nGNTzMnSiYiXy6AA4Mv1UGOZnmHIpPSwoPL2YBPOk="
+      ]
     }
   }
 }
