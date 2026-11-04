@@ -16,12 +16,7 @@ impl MutationManager {
         mutations: Vec<Mutation>,
     ) -> Result<FilteredMutations, SchemaError> {
         let keys: Vec<_> = mutations.iter().map(Mutation::retry_key).collect();
-        let cached = self
-            .db_ops
-            .metadata()
-            .get_idempotency_ids(&keys)
-            .await
-            .unwrap_or_else(|_| vec![None; mutations.len()]);
+        let cached = self.db_ops.metadata().get_idempotency_ids(&keys).await?;
         if cached.len() != mutations.len() {
             return Err(SchemaError::InvalidData(
                 "retry receipt batch is incomplete".into(),

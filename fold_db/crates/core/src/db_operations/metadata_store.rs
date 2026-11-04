@@ -43,7 +43,7 @@ impl MetadataStore {
         self.format.retry_cache_status()
     }
 
-    /// Batch-read receipts in input order. Hits still need current-value checks.
+    /// Batch-read retained receipts in input order. Hits bind intent and original revision.
     pub async fn get_idempotency_ids(
         &self,
         keys: &[String],
