@@ -6,7 +6,6 @@
 //!
 //! Layout:
 //! - [`construct`] — `RecordStore` constructors and builder hooks
-//! - [`counter`] — the guarded row delete
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
 //! - [`schema_release`] — the release of the rows of a dropped schema
@@ -18,7 +17,6 @@
 
 mod bounded_range;
 mod construct;
-pub(crate) mod counter;
 mod delete_replay;
 pub mod field_history;
 pub use delete_replay::ReplayCutoffReport;

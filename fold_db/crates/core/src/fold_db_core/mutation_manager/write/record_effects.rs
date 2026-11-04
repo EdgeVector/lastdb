@@ -72,7 +72,7 @@ impl MutationManager {
         let outcomes = record_outcomes(&changes);
         self.db_ops
             .records()
-            .stage_records(changes, entries, history.rows)
+            .stage_records(changes, entries, history.changes)
             .await?;
         // A live record below a floor of the TTL sweep removes the floor.
         let live = changed

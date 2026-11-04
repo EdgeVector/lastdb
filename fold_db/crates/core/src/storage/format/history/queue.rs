@@ -33,7 +33,7 @@ pub(crate) struct TimeQueue {
 impl TimeQueue {
     /// A queue with slices of `slice_nanos`, held between one second and one
     /// hour.
-    pub(crate) fn with_slice(
+    pub(super) fn with_slice(
         entries: &'static str,
         directory: &'static str,
         slice_nanos: u64,
@@ -65,7 +65,7 @@ impl TimeQueue {
     }
 
     /// The directory row of `bucket` with the token `token`.
-    pub(crate) fn directory_row(&self, bucket: u64, token: &str) -> (String, Value) {
+    fn directory_row(&self, bucket: u64, token: &str) -> (String, Value) {
         (self.directory_key(bucket), json!({ "v": 1, "t": token }))
     }
 
@@ -74,7 +74,7 @@ impl TimeQueue {
     /// so two entries never leave the same row. A reader that retires a bucket
     /// deletes the row only if the token is the one it read before it walked
     /// the bucket (see `RecordStore::retire_bucket`).
-    pub(crate) fn rows(&self, expires: u64, id: &str, value: &Value) -> Vec<(String, Value)> {
+    pub(super) fn rows(&self, expires: u64, id: &str, value: &Value) -> Vec<(String, Value)> {
         let bucket = self.bucket_of(expires);
         vec![
             (self.entry_key(expires, id), value.clone()),

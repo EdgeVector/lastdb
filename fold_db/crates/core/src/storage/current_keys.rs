@@ -32,9 +32,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         .or_else(|| key.strip_prefix(lastdb_model::record_space::RECORD_PREFIX))
     {
         validate_record(rest)?;
-    } else if let Some(rest) =
-        key.strip_prefix(crate::records::field_history::RECORD_HISTORY_PREFIX)
-    {
+    } else if let Some(rest) = crate::records::field_history::record_history_suffix(key) {
         validate_digest_key(rest, 3, "invalid record history key")?;
     }
     Ok(())

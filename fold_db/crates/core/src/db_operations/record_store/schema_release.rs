@@ -37,7 +37,7 @@
 
 use super::record_files::dropped_file_paths;
 use super::{RangeWalk, RecordStore};
-use crate::records::field_history::RECORD_HISTORY_PREFIX;
+use crate::records::field_history::RECORD_HISTORY_FAMILY;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
@@ -73,7 +73,7 @@ impl RecordStore {
     ) -> Result<SchemaRelease, SchemaError> {
         let space = record_space_uuid(&schema.name);
         let mut out = SchemaRelease::default();
-        let history = format!("{RECORD_HISTORY_PREFIX}{space}:");
+        let history = format!("{RECORD_HISTORY_FAMILY}:{space}:");
         out.history = self.release_family(&history, Family::History).await?;
         let records = format!("{RECORD_PREFIX}{space}:");
         out.records = self.release_family(&records, Family::Records).await?;

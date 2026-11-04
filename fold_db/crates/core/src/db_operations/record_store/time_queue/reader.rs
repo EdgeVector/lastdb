@@ -12,9 +12,9 @@
 //! of due entries, releases them, and then calls [`QueueReader::finish`], so the
 //! cursor moves only past keys that the caller handled.
 
-use super::keys::TimeQueue;
 use crate::db_operations::record_store::{RangeWalk, RecordStore};
 use crate::schema::SchemaError;
+use crate::storage::format::history::TimeQueue;
 use std::collections::BTreeMap;
 
 /// Directory rows that one read asks for.

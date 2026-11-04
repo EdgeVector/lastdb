@@ -5,14 +5,12 @@
 //! The encoded batch has no public fields or raw append/unwrap operation.
 //! It stages into an already-open request; it never opens or commits a home.
 //!
-//! History and other retained raw writers have not migrated yet. They stage
-//! through an explicit legacy bridge restricted to history key families;
-//! their value encoding is outside this partial boundary.
+//! History uses the sibling encoder and appends only its opaque encoded batch.
+//! Other retained raw writers still need migration and handle closure.
 
 mod alternates;
 mod files;
 mod keys;
-mod legacy_history;
 
 pub(crate) use alternates::AlternateChange;
 pub use alternates::AlternateEntry;
@@ -20,6 +18,7 @@ pub(crate) use keys::{AlternateAddress, RecordAddress};
 
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
+use crate::storage::format::history::EncodedHistory;
 use crate::storage::{KvMutation, KvStore};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::sync::Arc;
@@ -91,14 +90,14 @@ impl EncodedRecords {
         mut self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,
-        history: Vec<KvMutation>,
+        history: EncodedHistory,
     ) -> Result<RecordEffects, SchemaError> {
         if !transaction::publication::active(runtime) {
             return Err(SchemaError::InvalidData(
                 "row commits require a complete native write scope".into(),
             ));
         }
-        legacy_history::append(&mut self.main, history)?;
+        history.append_to(&mut self.main);
         // Keep the original single staging call and its native admission
         // bound, including no-op deletes. The complete request owns commit.
         main_store.batch_mutate(self.main).await?;

@@ -6,14 +6,11 @@
 //! history entry (`rh:`) holds a copy of one old field value and names no
 //! file.
 use super::{budget, invalid, map, read_budget, rows::Rows, Proof, StorageResult};
-use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
+use crate::records::field_history::{record_history_suffix, RecordHistoryEntry};
 use crate::storage::disk_pack::native_routing;
+use crate::storage::format::MAX_HISTORY_ENTRY_BYTES;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
-
-/// A history entry holds one value of a record (at most the record cap) and
-/// its stamp, schema, field and keys.
-const MAX_HISTORY_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4 * 1024;
 
 /// Prove every record and record history entry of the `records` collection,
 /// and return the number of record files found. A row that is not a record
@@ -34,7 +31,7 @@ pub(super) fn verify_records(proof: &Proof<'_>) -> StorageResult<u64> {
 fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     let raw = native_routing::decode(key)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;
-    let history = raw.starts_with(RECORD_HISTORY_PREFIX);
+    let history = record_history_suffix(raw).is_some();
     if !history && !raw.starts_with(RECORD_PREFIX) {
         crate::storage::current_keys::validate("main", raw.as_bytes())?;
         return Ok(false);

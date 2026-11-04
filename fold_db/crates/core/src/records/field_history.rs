@@ -44,7 +44,11 @@ pub struct FieldHistoryPage {
 }
 
 /// The family of a field history entry of a home.
-pub(crate) const RECORD_HISTORY_PREFIX: &str = "rh:";
+pub(crate) const RECORD_HISTORY_FAMILY: &str = "rh";
+
+pub(crate) fn record_history_suffix(key: &str) -> Option<&str> {
+    key.strip_prefix(RECORD_HISTORY_FAMILY)?.strip_prefix(':')
+}
 
 /// One field history entry of a home (decision D5): its own copy of
 /// one old field value and the stamp of that value. The key is

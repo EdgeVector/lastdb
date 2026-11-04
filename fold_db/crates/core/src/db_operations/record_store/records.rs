@@ -13,8 +13,8 @@
 use super::RecordStore;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
+use crate::storage::format::history::{self as history_format, HistoryChange};
 use crate::storage::format::records::{self as format, AlternateChange, RecordAddress};
-use crate::storage::KvMutation;
 use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
@@ -115,21 +115,21 @@ impl RecordStore {
     /// rows in one batch of the native request. A record that gets a file puts
     /// its sealed row at its file path; a record that loses its file (a
     /// delete, a purge, `delete-blob`) deletes the path. History is still a
-    /// legacy raw producer, admitted only to history families by the format's
-    /// bridge. All rows retain their original order in one main staging call.
+    /// encoded from data-only intents by the history child format. All rows
+    /// retain their original order in one main staging call.
     /// The caller holds the native write gate and read each `before` in the
     /// same scope.
     pub(crate) async fn stage_records(
         &self,
         changes: Vec<RecordChange>,
         alternates: Vec<AlternateChange>,
-        history: Vec<KvMutation>,
+        history: Vec<HistoryChange>,
     ) -> Result<(), SchemaError> {
         let effects = format::encode(changes, alternates)?
             .stage(
                 self.main_store.inner().as_ref(),
                 &self.namespaced_store.disk_pack_runtime(),
-                history,
+                history_format::encode(history)?,
             )
             .await?;
         self.stage_file_rows(effects.files).await?;
