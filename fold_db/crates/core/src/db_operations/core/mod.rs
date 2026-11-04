@@ -3,8 +3,8 @@ use super::metadata_store::MetadataStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::PackRuntime;
 use crate::storage::field_key_store::FieldKeyStore;
-use crate::storage::traits::*;
 use std::sync::Arc;
 
 mod open;
@@ -19,17 +19,16 @@ pub use page_tally::{
 ///
 /// Uses the storage abstraction layer (Last Store).
 ///
-/// All persistence is encapsulated in domain store structs whose
-/// namespace fields are private. External callers reach them through
+/// The format owns persistence. Domain stores hold typed writer/read rights;
+/// this coordinator exposes no raw namespace or factory. External callers reach them through
 /// `schemas()`, `records()`, and `metadata()`.
 #[derive(Clone)]
 pub struct DbOperations {
-    /// Primary namespace backend used to open side stores that are not one of
-    /// the pre-wired domain stores below.
-    store: Arc<dyn NamespacedStore>,
+    /// Native coordination/status capability, without a namespace factory.
+    runtime: Arc<PackRuntime>,
     /// Schema / schema-state namespaces
     schema_store: SchemaStore,
-    /// per-field-key key bundles and access-domain wraps.
+    /// per-field-key key bundles and node wraps.
     field_keys: FieldKeyStore,
     /// Main namespace: records, alternate keys, field history.
     record_store: RecordStore,
@@ -48,7 +47,7 @@ impl DbOperations {
         &self.schema_store
     }
 
-    /// Access durable per-field-key key bundles and domain wraps.
+    /// Access durable per-field-key key bundles and node wraps.
     pub fn field_keys(&self) -> &FieldKeyStore {
         &self.field_keys
     }
@@ -67,7 +66,7 @@ impl DbOperations {
     pub async fn read_scope(
         &self,
     ) -> crate::storage::error::StorageResult<crate::storage::disk_pack::PackReadScope> {
-        crate::storage::disk_pack::PackReadScope::for_store(&self.store).await
+        crate::storage::disk_pack::PackReadScope::for_runtime(&self.runtime).await
     }
 
     /// Access the metadata domain store (including the retry cache).
@@ -75,23 +74,15 @@ impl DbOperations {
         &self.metadata_store
     }
 
-    /// Borrow the primary namespaced store handle.
-    pub fn namespaced_store(&self) -> Arc<dyn NamespacedStore> {
-        Arc::clone(&self.store)
+    /// Native status, cleanup and request coordination; no logical raw writer.
+    pub fn native_runtime(&self) -> Arc<PackRuntime> {
+        Arc::clone(&self.runtime)
     }
 
     /// Most operations that one complete batch holds on the native home.
     #[must_use]
     pub fn batch_operation_limit(&self) -> usize {
-        self.store.disk_pack_runtime().batch_operation_limit()
-    }
-
-    /// Open a side namespace on the primary storage backend.
-    pub async fn open_namespace(
-        &self,
-        name: &str,
-    ) -> Result<Arc<dyn KvStore>, crate::storage::StorageError> {
-        self.store.open_namespace(name).await
+        self.runtime.batch_operation_limit()
     }
 
     /// Flush all pending writes to durable storage

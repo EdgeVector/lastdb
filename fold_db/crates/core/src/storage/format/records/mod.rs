@@ -15,6 +15,7 @@ mod file_crypto;
 mod files;
 mod keys;
 mod maintenance;
+mod open;
 mod release;
 mod store;
 

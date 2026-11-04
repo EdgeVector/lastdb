@@ -72,10 +72,7 @@ impl FieldKeyStore {
         if field_keys.is_empty() {
             return Ok(());
         }
-        let key = self.node_wrap_key.as_ref().ok_or_else(|| {
-            StorageError::InvalidOperation("field keys require an account wrapping key".into())
-        })?;
-        let contracts = self.format.stage_new(field_keys, key).await?;
+        let contracts = self.format.stage_new(field_keys).await?;
         self.format.flush().await?;
         for contract in contracts {
             self.remember_contract(&contract.field_key, contract.profile, contract.bundle)?;

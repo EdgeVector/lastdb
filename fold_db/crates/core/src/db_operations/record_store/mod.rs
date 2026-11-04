@@ -22,7 +22,6 @@ pub mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod key_comparison;
-pub(crate) mod key_format;
 mod locks;
 mod read_scope;
 mod record_cap;

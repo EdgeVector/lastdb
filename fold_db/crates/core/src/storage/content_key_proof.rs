@@ -3,9 +3,9 @@
 use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
 use crate::storage::{NamespacedStore, StorageError};
 
+pub(crate) use crate::storage::format::CONTENT_KEY_PROOF_KEY as KEY;
 pub(crate) use crate::storage::format::METADATA_NAMESPACE as NAMESPACE;
-pub(crate) const KEY: &[u8] = b"__content_key_proof_v1";
-const VALUE: &[u8] = b"lastdb-content-key-proof-v1";
+use crate::storage::format::{CONTENT_KEY_PROOF_MAX_BYTES, CONTENT_KEY_PROOF_VALUE as VALUE};
 
 pub(crate) fn create(key: &[u8; 32]) -> Result<Vec<u8>, StorageError> {
     seal_at_rest_raw(key, VALUE)
@@ -19,7 +19,7 @@ pub(crate) fn verify(key: &[u8; 32], stored: &[u8]) -> Result<(), StorageError> 
             "content key proof is not a binary encrypted value".into(),
         ));
     }
-    let plain = open_at_rest_bounded(key, stored, 4096)
+    let plain = open_at_rest_bounded(key, stored, CONTENT_KEY_PROOF_MAX_BYTES)
         .map_err(|error| StorageError::EncryptionError(format!("content key proof: {error}")))?;
     if plain != VALUE {
         return Err(StorageError::EncryptionError(

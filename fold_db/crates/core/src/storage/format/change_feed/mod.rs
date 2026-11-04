@@ -31,7 +31,10 @@ pub(crate) struct PreparedEvents {
 }
 
 impl ChangeFeed {
-    pub(crate) fn new(store: Arc<dyn KvStore>, runtime: Arc<PackRuntime>) -> Self {
+    pub(in crate::storage::format) fn new(
+        store: Arc<dyn KvStore>,
+        runtime: Arc<PackRuntime>,
+    ) -> Self {
         Self {
             feed_store: Arc::new(TypedKvStore::new(store)),
             runtime,

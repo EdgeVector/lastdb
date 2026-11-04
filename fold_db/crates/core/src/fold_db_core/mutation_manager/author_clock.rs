@@ -169,22 +169,19 @@ async fn persist_author_clock(
     writer: &str,
     state: &MutationAuthorClockState,
 ) -> Result<(), SchemaError> {
-    crate::storage::disk_pack::transaction::request_scope(
-        db_ops.namespaced_store().disk_pack_runtime(),
-        async {
-            let mut durable = db_ops
-                .metadata()
-                .author_clock(writer)
-                .await?
-                .unwrap_or_default();
-            durable.observe_remote(state.physical_nanos, state.logical_counter);
-            db_ops
-                .metadata()
-                .stage_author_clock(writer, &durable)
-                .await?;
-            Ok::<(), SchemaError>(())
-        },
-    )
+    crate::storage::disk_pack::transaction::request_scope(db_ops.native_runtime(), async {
+        let mut durable = db_ops
+            .metadata()
+            .author_clock(writer)
+            .await?
+            .unwrap_or_default();
+        durable.observe_remote(state.physical_nanos, state.logical_counter);
+        db_ops
+            .metadata()
+            .stage_author_clock(writer, &durable)
+            .await?;
+        Ok::<(), SchemaError>(())
+    })
     .await
 }
 

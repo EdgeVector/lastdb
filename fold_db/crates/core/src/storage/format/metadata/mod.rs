@@ -27,7 +27,10 @@ enum EncodedMetadata {
 }
 
 impl Metadata {
-    pub(crate) fn new(metadata_store: Arc<dyn KvStore>, runtime: Arc<PackRuntime>) -> Self {
+    pub(in crate::storage::format) fn new(
+        metadata_store: Arc<dyn KvStore>,
+        runtime: Arc<PackRuntime>,
+    ) -> Self {
         Self {
             metadata_store,
             runtime,

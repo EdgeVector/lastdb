@@ -24,7 +24,7 @@ impl DbOperations {
         schema: &'a Schema,
     ) -> BoxFuture<'a, Result<(), SchemaError>> {
         crate::storage::disk_pack::transaction::scope(
-            self.namespaced_store().disk_pack_runtime(),
+            self.native_runtime(),
             self.store_schema_in_scope(schema_name, schema),
         )
         .boxed()
@@ -143,7 +143,7 @@ impl DbOperations {
                 );
             }
             crate::storage::disk_pack::transaction::scope(
-                self.namespaced_store().disk_pack_runtime(),
+                self.native_runtime(),
                 self.schemas().drop_schema(schema_name),
             )
             .await

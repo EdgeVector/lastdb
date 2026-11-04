@@ -88,8 +88,7 @@ pub async fn shed_memory(host: &Host) -> ShedReport {
     let result = host
         .db
         .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
+        .native_runtime()
         .purge_clean_memory(0)
         .map_err(|error| error.to_string());
     let (records_purged, warm_bytes_before, warm_bytes_after, target_met, native_memory) =

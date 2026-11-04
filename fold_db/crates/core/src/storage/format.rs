@@ -6,9 +6,12 @@
 //!
 //! The record writer composes the existing model codecs through typed inputs
 //! and an opaque batch. Domain providers have read-only views and typed
-//! writers. Broad bootstrap/factory closure and sidecar admission remain
-//! separate work. This boundary introduces no startup key audit.
+//! writers, assembled once by bind. Raw child constructors stay inside this
+//! format; ordinary logical sources cannot open raw namespaces. LastStore
+//! keeps physical grammar and authenticated byte-copy/replay admission. No
+//! startup key census or runtime format registry is introduced.
 
+pub(crate) mod bind;
 pub(crate) mod change_feed;
 pub(crate) mod control;
 pub(crate) mod field_keys;
@@ -127,3 +130,10 @@ pub(in crate::storage::format) use crate::crypto::envelope::{
 };
 
 pub(crate) const SCHEMA_RELEASE_ROWS: usize = 256;
+
+pub(crate) const CONTENT_KEY_PROOF_KEY: &[u8] = b"__content_key_proof_v1";
+pub(in crate::storage) const CONTENT_KEY_PROOF_VALUE: &[u8] = b"lastdb-content-key-proof-v1";
+pub(in crate::storage) const CONTENT_KEY_PROOF_MAX_BYTES: u64 = 4096;
+
+// Compose the canonical model marker; do not define another wire literal.
+pub(in crate::storage) use lastdb_model::field_key_codec::KEY_FORMAT as CURRENT_KEY_FORMAT_VALUE;

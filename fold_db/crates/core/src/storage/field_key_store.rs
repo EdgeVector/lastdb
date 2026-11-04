@@ -8,8 +8,7 @@
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
 use crate::storage::format::field_keys::{
-    metadata_key, open_wrap, validate_identity, wrap_key_for, BundleMetadata, BundleWrap,
-    FieldKeyFormat,
+    metadata_key, validate_identity, wrap_key_for, BundleMetadata, BundleWrap, FieldKeyFormat,
 };
 use crate::storage::format::read::ReadStore;
 use crate::storage::StorageError;
@@ -41,28 +40,26 @@ pub(crate) struct CachedFieldKeyContract {
 pub struct FieldKeyStore {
     entries: ReadStore,
     format: Arc<FieldKeyFormat>,
-    node_wrap_key: Option<[u8; 32]>,
     cache: FieldKeyCache,
     mint_lock: Arc<Mutex<()>>,
     runtime: Arc<crate::storage::disk_pack::PackRuntime>,
 }
 
 impl FieldKeyStore {
-    pub(crate) fn new(format: FieldKeyFormat, node_wrap_key: Option<[u8; 32]>) -> Self {
+    pub(crate) fn new(format: FieldKeyFormat) -> Self {
         let entries = format.reader();
         let runtime = format.runtime();
         Self {
             entries,
             format: Arc::new(format),
-            node_wrap_key,
             cache: Arc::new(RwLock::new(HashMap::new())),
             mint_lock: Arc::new(Mutex::new(())),
             runtime,
         }
     }
 
-    pub(crate) const fn is_enabled(&self) -> bool {
-        self.node_wrap_key.is_some()
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.format.is_enabled()
     }
 
     /// Resolve the exact field key contract and its key bundle.

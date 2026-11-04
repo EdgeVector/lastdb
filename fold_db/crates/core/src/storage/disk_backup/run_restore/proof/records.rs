@@ -33,10 +33,13 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;
     let history = record_history_suffix(raw).is_some();
     if !history && !raw.starts_with(RECORD_PREFIX) {
-        crate::storage::current_keys::validate("main", raw.as_bytes())?;
+        crate::storage::current_keys::validate(
+            crate::storage::format::MAIN_NAMESPACE,
+            raw.as_bytes(),
+        )?;
         return Ok(false);
     }
-    crate::storage::current_keys::validate("main", raw.as_bytes())?;
+    crate::storage::current_keys::validate(crate::storage::format::MAIN_NAMESPACE, raw.as_bytes())?;
     let cap = if history {
         MAX_HISTORY_ENTRY_BYTES
     } else {
