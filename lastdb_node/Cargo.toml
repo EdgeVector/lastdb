@@ -52,6 +52,7 @@ cloud_backup_client = { workspace = true }
 cloud_backup_plan = { workspace = true }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
+lastdb_model = { workspace = true }
 env_flag = { workspace = true }
 laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }

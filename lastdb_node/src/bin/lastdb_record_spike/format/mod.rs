@@ -116,7 +116,7 @@ impl Definition {
             if !seen.insert((&op.address.collection, &op.address.key)) {
                 return Err("duplicate mutation address".into());
             }
-            total = total.saturating_add(op.address.key.len() + body);
+            total = total.saturating_add(op.address.collection.len() + op.address.key.len() + body);
         }
         if total > 256 * 1024 {
             return Err("encoded mutation exceeds the batch byte limit".into());

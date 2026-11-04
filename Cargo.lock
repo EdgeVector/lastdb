@@ -2946,6 +2946,7 @@ dependencies = [
  "hkdf",
  "lastdb_host",
  "lastdb_identity",
+ "lastdb_model",
  "lastdb_storage_policy",
  "lastdb_uds",
  "laststore",
