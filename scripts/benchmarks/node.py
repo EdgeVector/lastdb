@@ -75,7 +75,7 @@ class Node:
         save(output / "ownership.json", self.owner)
         self.process, self.log = None, None
 
-    def call(self, path, body=None, receipt=False, request_id=None):
+    def call(self, path, body=None, receipt=False, request_id=None, transport=None):
         if body is not None and not isinstance(body, bytes):
             body = json.dumps(body, separators=(",", ":")).encode()
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark"}
@@ -90,6 +90,9 @@ class Node:
             response = connection.getresponse()
             raw = response.read()
             elapsed = (time.perf_counter_ns() - started) / 1e6
+            if transport is not None:
+                transport.update(request_body_bytes=len(body or b""),
+                                 response_body_bytes=len(raw))
             cost = response.getheader("x-lastdb-read-receipt")
             if response.status != 200:
                 raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")

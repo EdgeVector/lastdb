@@ -11,6 +11,8 @@ on:
       - 'scripts/benchmarks/alternate_key_compare.py'
       - 'scripts/benchmarks/alternate_key_storage.py'
       - 'scripts/benchmarks/alternate_key_workload.py'
+      - 'scripts/benchmarks/record_replacement_*.py'
+      - 'scripts/benchmarks/node.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
     inputs:
@@ -75,6 +77,12 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/alternate-bins"
           for label in baseline candidate; do
+            # A/A dispatch is a same-binary control, not two separate builds.
+            if [ "$label" = candidate ] && [ "$BASELINE_SHA" = "$CANDIDATE_SHA" ]; then
+              cp "$RUNNER_TEMP/alternate-bins/baseline" "$RUNNER_TEMP/alternate-bins/candidate"
+              cp "$RUNNER_TEMP/alternate-bins/baseline-cli" "$RUNNER_TEMP/alternate-bins/candidate-cli"
+              continue
+            fi
             cd "$GITHUB_WORKSPACE/$label"
             revision=$(git rev-parse HEAD)
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
@@ -84,6 +92,12 @@ jobs:
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdb" "$RUNNER_TEMP/alternate-bins/$label-cli"
             rm -rf "$RUNNER_TEMP/alternate-target-$label"
           done
+          {
+            echo "Baseline: $BASELINE_SHA"
+            echo "Candidate: $CANDIDATE_SHA"
+            sha256sum "$RUNNER_TEMP/alternate-bins/"*
+          } | tee "$RUNNER_TEMP/alternate-programs.txt"
+          cat "$RUNNER_TEMP/alternate-programs.txt" >> "$GITHUB_STEP_SUMMARY"
       - name: Compare equivalent records through both public APIs
         env:
           DRIVER_SHA: ${{ env.CANDIDATE_SHA }}
@@ -106,6 +120,7 @@ jobs:
           name: alternate-key-comparison-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/alternate-key-comparison/
+            ${{ runner.temp }}/alternate-programs.txt
           if-no-files-found: error
           retention-days: 14
       - name: Verify the artifact upload

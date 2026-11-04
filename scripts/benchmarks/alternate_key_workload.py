@@ -16,9 +16,9 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def task_definition(name="AlternateTask"):
+def task_definition(name="AlternateTask", extra_fields=()):
     # Preserve the accepted benchmark's declaration and hash bytes exactly.
-    fields = ["record_id", "group_id", "owner_id", "payload"]
+    fields = ["record_id", "group_id", "owner_id", "payload", *extra_fields]
     declaration = "fd_alternate_task"
     hashes = {}
     for field in fields:
