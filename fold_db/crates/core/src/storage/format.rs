@@ -43,9 +43,15 @@ pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
 pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
-/// Main families admitted by the existing current-key check.
-pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout",
+/// Legacy history data families. The record writer's temporary bridge and
+/// native main-family admission share this exact definition.
+pub(in crate::storage) const HISTORY_DATA_FAMILIES: &[&str] = &["rh", "ahk", "ahq", "ahb"];
+
+/// Main families admitted by the existing current-key check. Grouping the
+/// history child avoids a second definition of its family names.
+pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
+    &["rk", "ak", "ahp", "dellog", "layout"],
+    HISTORY_DATA_FAMILIES,
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
