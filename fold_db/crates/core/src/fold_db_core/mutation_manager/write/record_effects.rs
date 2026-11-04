@@ -8,8 +8,8 @@
 //!   the erase lane writes for a field key home. A TTL sweep delete keeps its
 //!   caller tag.
 //! - Retention: a Hash or Single schema with a policy ages each live record by
-//!   its write time (the newest stamp) and drops the age rows of a deleted
-//!   record. A record holds its own stamps, so the rows go in this batch.
+//!   its whole-record write time and drops the age rows of a deleted
+//!   record. A record holds its own stamp, so the rows go in this batch.
 
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
@@ -27,7 +27,7 @@ pub(super) struct ChangedRecord<'a> {
     pub(super) key: &'a KeyValue,
 }
 
-/// The facts of one changed record after its merge.
+/// The facts of one changed record after its replacement or erasure.
 struct RecordOutcome {
     live: bool,
     written_at: Option<u64>,

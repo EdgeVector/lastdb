@@ -149,11 +149,10 @@ async fn erase_batch(
         });
     };
     let dropped = listed - keys.len();
-    // A Hash or Single key ages by its record write time, the newest field
-    // stamp, so the erase spares a record written at or after the cutoff and
-    // takes its delete floor at the cutoff. A rewrite that is acked but not yet
-    // in the age rows is spared this way. Range and HashRange keys age by the
-    // key, so a rewrite does not change their age.
+    // Hash records age by the whole-record write time. The revision condition
+    // and cutoff spare a rewrite even if its age row has not been observed.
+    // HashRange records age by their external key; replacing the payload
+    // does not change that age.
     let write_cutoff_nanos = matches!(
         backlog.schema_type,
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single

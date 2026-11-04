@@ -1,6 +1,6 @@
 //! Format-driven record encoding, using the request's existing commit owner.
 //!
-//! The merger supplies values and format-created addresses. This module alone
+//! The mutation provider supplies values and format-created addresses. This module alone
 //! assembles their raw mutations, composing the existing record-file encoder.
 //! The encoded batch has no public fields or raw append/unwrap operation.
 //! It stages into an already-open request; it never opens or commits a home.
@@ -37,7 +37,7 @@ use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTE
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Prepared values of one record, after the existing mutation merge.
+/// Prepared values of one complete replacement or erasure.
 pub(crate) struct RecordChange {
     pub key: RecordAddress,
     /// Logical change context; never authorizes skipping file admission.
@@ -80,8 +80,8 @@ fn encode(
         written.push(WrittenRecord::new(change.key.as_str(), after, &value));
         main.push(KvMutation::put(change.key.into_string(), value));
     }
-    // File decisions use one current preimage per key. The coordinator
-    // splits repeated keys into successive groups in the same request.
+    // File decisions use one current preimage per key. Repeated primary
+    // addresses are refused before their nested effects can be staged.
     let mut keys = HashSet::with_capacity(main.len());
     if main.iter().any(|row| !keys.insert(row.key())) {
         return Err(SchemaError::InvalidData(
