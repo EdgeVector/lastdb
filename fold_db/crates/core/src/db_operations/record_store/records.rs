@@ -115,26 +115,23 @@ impl RecordStore {
     /// rows in one batch of the native request. A record that gets a file puts
     /// its sealed row at its file path; a record that loses its file (a
     /// delete, a purge, `delete-blob`) deletes the path. History is still a
-    /// legacy raw producer, staged after the format batch in this same private
-    /// request. The caller holds the native write gate and read each `before`
-    /// in the same scope.
+    /// legacy raw producer, admitted only to history families by the format's
+    /// bridge. All rows retain their original order in one main staging call.
+    /// The caller holds the native write gate and read each `before` in the
+    /// same scope.
     pub(crate) async fn stage_records(
         &self,
         changes: Vec<RecordChange>,
         alternates: Vec<AlternateChange>,
         history: Vec<KvMutation>,
     ) -> Result<(), SchemaError> {
-        self.require_write_scope()?;
         let effects = format::encode(changes, alternates)?
             .stage(
                 self.main_store.inner().as_ref(),
                 &self.namespaced_store.disk_pack_runtime(),
-                history.len(),
+                history,
             )
             .await?;
-        if !history.is_empty() {
-            self.main_store.inner().batch_mutate(history).await?;
-        }
         self.stage_file_rows(effects.files).await?;
         // The values enter the warm set after the flush puts the request on disk.
         self.namespaced_store

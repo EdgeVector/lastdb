@@ -6,11 +6,13 @@
 //! It stages into an already-open request; it never opens or commits a home.
 //!
 //! History and other retained raw writers have not migrated yet. They stage
-//! separately in that same request and are outside this partial boundary.
+//! through an explicit legacy bridge restricted to history key families;
+//! their value encoding is outside this partial boundary.
 
 mod alternates;
 mod files;
 mod keys;
+mod legacy_history;
 
 pub(crate) use alternates::AlternateChange;
 pub use alternates::AlternateEntry;
@@ -18,7 +20,7 @@ pub(crate) use keys::{AlternateAddress, RecordAddress};
 
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
-use crate::storage::{KvMutation, KvStore, StorageError};
+use crate::storage::{KvMutation, KvStore};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::sync::Arc;
 
@@ -86,25 +88,19 @@ impl EncodedRecords {
     /// Stage only into the coordinator's current request. No child writer
     /// gets a namespace factory or starts an independent transaction.
     pub(crate) async fn stage(
-        self,
+        mut self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,
-        following_history_rows: usize,
+        history: Vec<KvMutation>,
     ) -> Result<RecordEffects, SchemaError> {
         if !transaction::publication::active(runtime) {
             return Err(SchemaError::InvalidData(
                 "row commits require a complete native write scope".into(),
             ));
         }
-        // Preserve the old combined group's admission bound even though its
-        // legacy history now stages separately. No-op deletes count here too.
-        let operation_limit = runtime.batch_operation_limit();
-        if self.main.len().saturating_add(following_history_rows) > operation_limit {
-            return Err(StorageError::InvalidOperation(format!(
-                "native mutation exceeds {operation_limit} operation admission limit"
-            ))
-            .into());
-        }
+        legacy_history::append(&mut self.main, history)?;
+        // Keep the original single staging call and its native admission
+        // bound, including no-op deletes. The complete request owns commit.
         main_store.batch_mutate(self.main).await?;
         Ok(self.effects)
     }
