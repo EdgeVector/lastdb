@@ -52,8 +52,8 @@ async fn run() -> Result<()> {
     checks::check_capture(&plan_r2)?;
     checks::check_placement(&plan_r2, &plan_b2)?;
     checks::check_bytes(&pin, &plan_r2, &plan_b2)?;
-    checks::check_refusals(pin.descriptors(), &records_on_r2)?;
-    checks::check_snapshot_only(pin.descriptors(), &records_on_r2)?;
+    checks::check_refusals(pin.descriptors(), &format_r2)?;
+    checks::check_snapshot_only(pin.descriptors(), &format_r2)?;
     println!("PASS: pinned frozen run capture");
     println!("PASS: placement change keeps source bytes");
     println!("PASS: replay gap refused");
