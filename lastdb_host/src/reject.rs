@@ -172,8 +172,11 @@ pub enum WireKey {
     /// separate variants and each rejection names the spelling its own route
     /// wants.
     Schema,
-    /// `fields_and_values` — the field map a mutation writes.
-    FieldsAndValues,
+    /// `record` — the field map a mutation writes.
+    Record,
+    MutationId,
+    Alternates,
+    Expected,
     /// `key_value` — the `{hash, range}` selector a mutation addresses.
     KeyValue,
     /// `mutation_type` — `create` / `update` / `delete` (`purge` = must-exist alias).
@@ -187,13 +190,9 @@ pub enum WireKey {
 /// flat alongside `type` rather than nested under it — the shape a caller is
 /// most likely to get wrong by analogy with an externally-tagged enum.
 ///
-/// Executed, not merely displayed: [`tests::the_mutation_example_body_is_a_real_operation`]
-/// strips the comment and deserializes the remainder into the real `Operation`
-/// type, so this line cannot drift from the grammar it advertises.
 const MUTATION_BODY_EXAMPLE: &str = concat!(
-    r#"{"type":"mutation","schema":"<Schema>","fields_and_values":{"<field>":"<value>"},"#,
-    r#""key_value":{"hash":"<key>","range":null},"mutation_type":"create"}"#,
-    "   # mutation_type: create, update, delete  (purge = must-exist alias)",
+    r#"{"type":"mutation","mutation_id":"<UUID>","schema":"<Schema>","record":{"<field>":"<value>"},"#,
+    r#""key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#,
 );
 
 impl WireKey {
@@ -213,7 +212,10 @@ impl WireKey {
             Self::Query => "q",
             Self::OperationType => "type",
             Self::Schema => "schema",
-            Self::FieldsAndValues => "fields_and_values",
+            Self::Record => "record",
+            Self::MutationId => "mutation_id",
+            Self::Alternates => "alternates",
+            Self::Expected => "expected",
             Self::KeyValue => "key_value",
             Self::MutationType => "mutation_type",
         }
@@ -256,7 +258,10 @@ impl WireKey {
             // reply is the shape that works, not the name of the one field.
             Self::OperationType
             | Self::Schema
-            | Self::FieldsAndValues
+            | Self::Record
+            | Self::MutationId
+            | Self::Alternates
+            | Self::Expected
             | Self::KeyValue
             | Self::MutationType => &[MUTATION_BODY_EXAMPLE],
         }

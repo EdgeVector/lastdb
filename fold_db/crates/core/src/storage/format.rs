@@ -22,9 +22,9 @@ pub(crate) mod records;
 pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
-pub const HOME_FORMAT: u32 = 11;
+pub const HOME_FORMAT: u32 = 12;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=11\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=12\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 9;
 
@@ -45,7 +45,6 @@ pub(in crate::storage::format) const RETRY_CACHE_PREFIX: &str = "retry-cache:";
 pub(in crate::storage::format) const RETRY_CACHE_BUCKETS: usize = 256;
 pub(in crate::storage::format) const RETRY_CACHE_ENTRIES: usize = 32;
 pub(in crate::storage::format) const RETRY_CACHE_BUCKET_BYTES: usize = 8 * 1024;
-pub(in crate::storage::format) const RETRY_CACHE_ID_BYTES: usize = 128;
 // The model owns the author-clock wire type and its exact key definition.
 pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";

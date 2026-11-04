@@ -1,8 +1,9 @@
 use super::cas::CasExpectation;
 use super::{key_value::KeyValue, operations::MutationType};
+use crate::record_replacement::RecordTarget;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 mod content_hash;
 mod file_write;
@@ -20,8 +21,11 @@ pub fn is_zero_u64(value: &u64) -> bool {
 pub struct Mutation {
     pub uuid: String,
     pub schema_name: String,
-    pub fields_and_values: HashMap<String, Value>,
+    #[serde(rename = "record")]
+    pub record_fields: HashMap<String, Value>,
     pub key_value: KeyValue,
+    pub alternates: BTreeMap<String, Option<KeyValue>>,
+    pub file: Option<crate::record_value::FileMarker>,
     pub pub_key: String,
     pub mutation_type: MutationType,
     pub synchronous: Option<bool>,
@@ -48,35 +52,8 @@ pub struct Mutation {
     /// Zero for unsigned input; see `MUTATION_AUTHOR_SIGNATURE_VERSION` for signed input.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
-    /// Optional compare-and-set precondition. When `Some`, the node applies
-    /// this mutation atomically **iff** the current state at `key_value`
-    /// matches the expectation (same-node atomicity); on a mismatch it writes
-    /// nothing and returns
-    /// [`SchemaError::CasConflict`](super::errors::SchemaError::CasConflict).
-    ///
-    /// A CAS precondition is local acceptance policy, not written content.
-    /// Mutations that differ only in `expected` share a content hash so a
-    /// successful signed retry can return its prior acknowledgement.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected: Option<CasExpectation>,
-    /// Local request policy for [`MutationType::Delete`] and
-    /// [`MutationType::Update`]: `Some(true)` is loud-miss (must-exist).
-    /// Never captured on `MutationIntent` / CDC. Excluded from
-    /// [`Self::content_hash`] like `expected`.
-    ///
-    /// On `Delete` it refuses a missing erasure target. On `Update` it refuses
-    /// a key that carries no live value in this schema yet — the guard against
-    /// a narrow update MINTING a row. Without it, `update` is a silent upsert,
-    /// and a narrow update at a key that turns out not to exist creates a row
-    /// carrying only the fields it sent. A query returns a row only when every
-    /// projected field has a record on it, so that row is invisible to every
-    /// wide reader while sitting in the partition.
-    ///
-    /// The flag is deliberately opt-in rather than the `Update` default:
-    /// refusing every missing-row update would break existing callers that
-    /// rely on today's upsert. Additive here, breaking there.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub must_exist: Option<bool>,
+    /// Required acceptance policy for the entire record.
+    pub expected: CasExpectation,
     /// Local audit tag for the delete ledger row of a `Delete` that a node job
     /// issues, for example the TTL sweep. `None` writes the default caller.
     /// Never serialized, so it is never captured, synced or replayed.
@@ -102,17 +79,19 @@ impl Mutation {
     #[must_use]
     pub fn with_uuid(
         uuid: String,
-        schema_name: String,
-        fields_and_values: HashMap<String, Value>,
-        key_value: KeyValue,
+        target: RecordTarget,
+        record_fields: HashMap<String, Value>,
         pub_key: String,
         mutation_type: MutationType,
+        expected: CasExpectation,
     ) -> Self {
         Self {
             uuid,
-            schema_name,
-            fields_and_values,
-            key_value,
+            schema_name: target.schema,
+            record_fields,
+            key_value: target.key,
+            alternates: target.alternates,
+            file: None,
             pub_key,
             mutation_type,
             synchronous: None,
@@ -123,8 +102,7 @@ impl Mutation {
             author_clock_writer_id: String::new(),
             author_clock_signature: String::new(),
             author_clock_signature_version: 0,
-            expected: None,
-            must_exist: None,
+            expected,
             erase_caller: None,
             erase_written_before_nanos: None,
             file_write: None,
@@ -147,22 +125,48 @@ impl Mutation {
         self
     }
 
-    /// Request-shape check: `must_exist` is legal on delete and update (or as
-    /// a no-op `true` on the purge alias). Illegal combos are `InvalidData`.
-    ///
-    /// `Create` stays refused because it is already an upsert by contract —
-    /// "create this, and fail if it is absent" has no meaning. Use
-    /// `expected: Absent` for create-if-absent.
-    pub fn reject_illegal_must_exist(&self) -> Result<(), crate::schema::SchemaError> {
-        use super::operations::MutationType;
-        match (&self.mutation_type, self.must_exist) {
-            (MutationType::Create, Some(_)) => Err(crate::schema::SchemaError::InvalidData(
-                "must_exist is only valid on delete or update".to_string(),
-            )),
-            (MutationType::Purge, Some(false)) => Err(crate::schema::SchemaError::InvalidData(
-                "purge cannot set must_exist: false".to_string(),
-            )),
-            _ => Ok(()),
+    /// Data-only target; it conveys no storage authority.
+    pub fn target(&self) -> RecordTarget {
+        RecordTarget {
+            schema: self.schema_name.clone(),
+            key: self.key_value.clone(),
+            alternates: self.alternates.clone(),
         }
+    }
+
+    pub fn validate_record_intent(&self) -> Result<(), crate::schema::SchemaError> {
+        use super::operations::MutationType;
+        let invalid = |message: &str| crate::schema::SchemaError::InvalidData(message.into());
+        if self.uuid.is_empty() || self.uuid.len() > 128 {
+            return Err(invalid(
+                "a mutation requires a stable id of at most 128 bytes",
+            ));
+        }
+        match (&self.mutation_type, &self.expected) {
+            (MutationType::Create, CasExpectation::Absent) => (),
+            (
+                MutationType::Replace | MutationType::Delete | MutationType::Purge,
+                CasExpectation::Revision { revision },
+            ) if !revision.is_empty() => (),
+            _ => {
+                return Err(invalid(
+                    "create requires absent; replace/delete/purge require a record revision",
+                ))
+            }
+        }
+        if matches!(
+            self.mutation_type,
+            MutationType::Delete | MutationType::Purge
+        ) && (!self.record_fields.is_empty()
+            || self.file.is_some()
+            || self.metadata.is_some()
+            || self.source_file_name.is_some()
+            || self.file_write.is_some())
+        {
+            return Err(invalid(
+                "a deletion carries keys and revision, without record content",
+            ));
+        }
+        Ok(())
     }
 }

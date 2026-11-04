@@ -40,18 +40,18 @@ pub(in super::super) fn mutation_field_is_writable(schema: &Schema, field: &str)
         || schema.ref_fields.contains_key(field)
 }
 
-/// Diff the keys of `fields_and_values` against the schema's writable surface.
+/// Diff the keys of `record_fields` against the schema's writable surface.
 /// `Some((unknown, available))` when at least one key is unknown, `None` when
 /// every key is legal or the map is empty (no field names to check).
 #[must_use]
 pub fn mutation_unknown_fields(
     schema: &Schema,
-    fields_and_values: &HashMap<String, Value>,
+    record_fields: &HashMap<String, Value>,
 ) -> Option<(Vec<String>, Vec<String>)> {
-    if fields_and_values.is_empty() {
+    if record_fields.is_empty() {
         return None;
     }
-    let mut unknown: Vec<String> = fields_and_values
+    let mut unknown: Vec<String> = record_fields
         .keys()
         .filter(|field| !mutation_field_is_writable(schema, field))
         .cloned()
@@ -119,7 +119,7 @@ pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
     host: &H,
     requested: &str,
     canonical: &str,
-    fields_and_values: &HashMap<String, Value>,
+    record_fields: &HashMap<String, Value>,
 ) -> Result<(), HostError> {
     let Ok(Some(schema)) = host
         .fold_db()
@@ -129,7 +129,7 @@ pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
     else {
         return Ok(());
     };
-    if let Some((unknown, available)) = mutation_unknown_fields(&schema, fields_and_values) {
+    if let Some((unknown, available)) = mutation_unknown_fields(&schema, record_fields) {
         tracing::info!(
             target: "lastdb_host::handlers",
             schema = %requested,

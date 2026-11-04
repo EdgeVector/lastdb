@@ -3,10 +3,8 @@
 //! (`record_spans.rs`). An unfiltered page walks in record key order, one
 //! bounded page at a time (`record_walk.rs`).
 //!
-//! A keyed selector echoes the caller's API hash. A walk cannot decode a
-//! blinded hash, so it recovers each API key from the key fields of the
-//! record; the write path puts those fields in every record of a schema that
-//! declares them (`walk_key`).
+//! The stored record carries its API address independently of its fields.
+//! Physical addresses retain their blinded hashes and typed range ordering.
 
 use super::record_walk::{WalkWindow, PAGE_READ_KEYS};
 use super::RecordStore;
@@ -19,7 +17,7 @@ use crate::schema::types::{KeyValue, KeyValuePageOrder, Schema};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid, RECORD_PREFIX};
 use lastdb_model::record_value::StoredRecord;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// One live record and its API key. A read by key can share the record with
@@ -285,57 +283,23 @@ fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
     KeyValue::new(Some(hash.to_owned()), ranged.then(|| range.to_owned()))
 }
 
-/// The canonical API key from the key fields of a live record.
+/// A complete record retains its address independently of its payload fields.
 fn recovered_key(
-    schema: &Schema,
+    _schema: &Schema,
     comparison: &KeyComparisonContext,
     record: &StoredRecord,
 ) -> Result<KeyValue, SchemaError> {
-    let config = schema.key.as_ref().ok_or_else(|| {
-        SchemaError::InvalidData(format!("schema '{}' has no key configuration", schema.name))
-    })?;
-    let fields: HashMap<String, serde_json::Value> = record
-        .fields
-        .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect();
-    let key = KeyValue::from_mutation(&fields, config);
-    if key.hash.is_none() {
-        return Err(SchemaError::InvalidData(
-            "a stored record lacks its hash key field".into(),
-        ));
-    }
-    comparison.canonical_key(key)
+    comparison.canonical_key(record.key.clone())
 }
 
-/// The API key of a walk row at the record key suffix `suffix`. A Hash
-/// schema with no hash key field writes no key field into its records
-/// (`key_rules`), and the blinded hash of a record key cannot be decoded, so
-/// such a row keeps the storage form of its hash: the HMAC token, which the
-/// reply flags (`key_form: "opaque"`). Any other record that lacks its key
-/// fields is damaged.
 pub(super) fn walk_key(
     schema: &Schema,
     comparison: &KeyComparisonContext,
     record: &StoredRecord,
-    suffix: &str,
+    _suffix: &str,
 ) -> Result<KeyValue, SchemaError> {
-    let hash_field = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.hash_field.as_deref());
-    if schema.schema_type != DeclarativeSchemaType::Hash || hash_field.is_some() {
-        return recovered_key(schema, comparison, record);
-    }
-    // A base64url HMAC token needs no unescape; the separator ends it.
-    let token = suffix.split('\0').next().unwrap_or_default();
-    if token.is_empty() {
-        return Err(SchemaError::InvalidData(
-            "a stored record key has no hash".into(),
-        ));
-    }
-    note_page_key_forms(0, 1);
-    Ok(KeyValue::new(Some(token.to_owned()), None))
+    note_page_key_forms(1, 0);
+    recovered_key(schema, comparison, record)
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {

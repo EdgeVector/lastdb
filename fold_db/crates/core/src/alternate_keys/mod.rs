@@ -1,92 +1,36 @@
-//! Alternate field keys select primary records. Canonical field reuse is independent.
-
-use crate::schema::types::key_value::scalar_key_coordinate;
+//! Explicit named addresses point to complete primary records.
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use serde_json::Value;
-use std::collections::BTreeMap;
+use crate::storage::format::records::{alternate_range_key, AlternateAddress};
 
-mod derivation;
-mod fields;
 pub(crate) mod read;
 mod write;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
 pub(crate) const PREFIX: &str = lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
-
-use crate::storage::format::records::AlternateAddress;
 pub use crate::storage::format::records::AlternateEntry;
-
-pub(crate) type RecordFields = BTreeMap<String, Value>;
-
-/// The stable identity of one named alternate in its exact declaration revision.
-/// The field key store names it too, so it lives in the field key model.
 pub use lastdb_model::field_key_id::alternate_field_key_id as field_key;
 
-pub(crate) fn derived(
-    schema: &Schema,
-    fields: &RecordFields,
-) -> Result<BTreeMap<String, KeyValue>, SchemaError> {
-    let mut keys = BTreeMap::new();
-    let primary = schema
-        .key
-        .as_ref()
-        .and_then(|k| k.hash_field.as_deref())
-        .ok_or_else(|| invalid("alternate schema has no primary field"))?;
-    if !fields.contains_key(primary) {
-        return Ok(keys);
-    }
-    for (name, definition) in &schema.alternate_keys {
-        if let Some(key) = derive_key(schema, definition, fields)? {
-            keys.insert(name.clone(), key);
-        }
-    }
-    Ok(keys)
-}
-
-pub(crate) fn derive_key(
-    schema: &Schema,
-    definition: &schema_types::AlternateKey,
-    fields: &RecordFields,
-) -> Result<Option<KeyValue>, SchemaError> {
-    if definition.omit_empty_hash
-        && fields.get(&definition.hash_field).and_then(Value::as_str) == Some("")
-    {
-        return Ok(None);
-    }
-    let mut coordinates = BTreeMap::new();
-    for field in definition.fields() {
-        match fields.get(field) {
-            None | Some(Value::Null)
-                if definition.missing == schema_types::MissingAlternateKey::Omit =>
-            {
-                return Ok(None);
-            }
-            Some(value) => {
-                schema
-                    .get_field_type(field)
-                    .validate(value)
-                    .map_err(|_| invalid("alternate key field has an invalid type"))?;
-                coordinates.insert(
-                    field,
-                    scalar_key_coordinate(value)
-                        .ok_or_else(|| invalid("alternate key field requires a scalar value"))?
-                        .into_owned(),
-                );
-            }
-            None => return Err(invalid("required alternate key field is absent")),
-        }
-    }
-    derivation::key(definition, fields, &coordinates).map(Some)
-}
+pub(crate) type AlternateValues = std::collections::BTreeMap<String, Option<KeyValue>>;
 
 pub(crate) fn storage_key(
     records: &crate::db_operations::record_store::RecordStore,
     schema: &Schema,
     name: &str,
     key: &KeyValue,
+    primary: &KeyValue,
 ) -> Result<String, SchemaError> {
-    storage_address(records, schema, name, key).map(AlternateAddress::into_string)
+    storage_address(records, schema, name, key, primary).map(AlternateAddress::into_string)
+}
+
+pub(crate) fn range_key(
+    records: &crate::db_operations::record_store::RecordStore,
+    schema: &Schema,
+    name: &str,
+    key: &KeyValue,
+) -> Result<String, SchemaError> {
+    let id = field_key(schema, name);
+    alternate_range_key(&records.key_codec_for_field_key(&id)?, &id, key)
 }
 
 pub(crate) fn storage_address(
@@ -94,13 +38,11 @@ pub(crate) fn storage_address(
     schema: &Schema,
     name: &str,
     key: &KeyValue,
+    primary: &KeyValue,
 ) -> Result<AlternateAddress, SchemaError> {
-    let field_key = field_key(schema, name);
-    AlternateAddress::new(
-        &records.key_codec_for_field_key(&field_key)?,
-        &field_key,
-        key,
-    )
+    let id = field_key(schema, name);
+    let target = records.record_address(schema, primary)?;
+    AlternateAddress::new(&records.key_codec_for_field_key(&id)?, &id, key, &target)
 }
 
 pub(crate) fn invalid(message: &str) -> SchemaError {

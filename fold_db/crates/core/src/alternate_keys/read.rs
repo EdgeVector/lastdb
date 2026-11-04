@@ -10,7 +10,7 @@ impl RecordStore {
         schema: &Schema,
         name: &str,
         filter: &HashRangeFilter,
-        after: Option<&KeyValue>,
+        after: Option<&AlternateEntry>,
         limit: usize,
     ) -> Result<Vec<AlternateEntry>, SchemaError> {
         if limit > MAX_ALTERNATE_ENTRIES {
@@ -18,7 +18,7 @@ impl RecordStore {
         }
         let (mut start, end) = alternate_bounds(self, schema, name, filter)?;
         if let Some(after) = after {
-            let cursor = storage_key(self, schema, name, after)?;
+            let cursor = storage_key(self, schema, name, &after.matched, &after.primary)?;
             if cursor < start || cursor >= end {
                 return Err(invalid(
                     "alternate cursor is outside the requested key range",
@@ -35,7 +35,7 @@ impl RecordStore {
         for (key, value) in rows {
             let entry: AlternateEntry =
                 serde_json::from_slice(&value).map_err(|_| invalid("invalid alternate entry"))?;
-            if storage_key(self, schema, name, &entry.matched)?.as_bytes() != key {
+            if storage_key(self, schema, name, &entry.matched, &entry.primary)?.as_bytes() != key {
                 return Err(invalid(
                     "alternate entry coordinates differ from their storage key",
                 ));
@@ -55,7 +55,7 @@ fn alternate_bounds(
     let field_key = field_key(schema, name);
     let codec = records.key_codec_for_field_key(&field_key)?;
     let encode = |hash: &str, range: Option<&str>| {
-        storage_key(
+        range_key(
             records,
             schema,
             name,
@@ -65,7 +65,9 @@ fn alternate_bounds(
     match filter {
         HashRangeFilter::HashRangeKey { hash, range } => {
             let key = encode(hash, Some(range))?;
-            Ok((key.clone(), format!("{key}\0")))
+            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&format!(
+                "{key}\0"
+            )))
         }
         HashRangeFilter::HashKey(hash) => {
             let prefix = codec

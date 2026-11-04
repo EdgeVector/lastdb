@@ -98,11 +98,15 @@ pub(super) async fn write_mutation(
 ) -> Result<(), String> {
     let mutation = Mutation::new(
         uuid::Uuid::new_v4().to_string(),
-        schema_name.to_string(),
+        fold_db::record_replacement::RecordTarget {
+            schema: schema_name.to_string(),
+            key: key_value,
+            alternates: Default::default(),
+        },
         fields,
-        key_value,
         host.public_key(),
         mutation_type,
+        fold_db::record_replacement::RecordExpectation::Absent,
     );
     host.db
         .mutation_manager()

@@ -17,6 +17,9 @@ pub enum RecordKeyKind {
 #[serde(deny_unknown_fields)]
 pub struct RecordKeyDefinition {
     pub kind: RecordKeyKind,
+    /// An alternate name must still be supplied; null explicitly selects no address.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_absent: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range_type: Option<FieldValueType>,
 }
@@ -26,6 +29,7 @@ impl RecordKeyDefinition {
     pub const fn hash() -> Self {
         Self {
             kind: RecordKeyKind::Hash,
+            allow_absent: false,
             range_type: None,
         }
     }
@@ -34,6 +38,7 @@ impl RecordKeyDefinition {
     pub fn hash_range(range_type: FieldValueType) -> Self {
         Self {
             kind: RecordKeyKind::HashRange,
+            allow_absent: false,
             range_type: Some(range_type),
         }
     }
@@ -76,6 +81,9 @@ pub struct RecordKeys {
 
 impl RecordKeys {
     pub fn validate(&self) -> Result<(), String> {
+        if self.primary.allow_absent {
+            return Err("a primary key cannot allow an absent address".into());
+        }
         self.primary.range_profile()?;
         if self.alternates.len() > MAX_ALTERNATE_KEYS {
             return Err(format!(
@@ -91,4 +99,8 @@ impl RecordKeys {
         }
         Ok(())
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }

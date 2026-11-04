@@ -28,7 +28,7 @@ impl MutationManager {
         let inline_clock = mutations.iter().all(|mutation| {
             matches!(
                 mutation.mutation_type,
-                MutationType::Create | MutationType::Update
+                MutationType::Create | MutationType::Replace
             )
         });
         let author_clock_barrier = author_clock_persist.and_then(|(reservation, state)| {

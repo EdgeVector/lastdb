@@ -76,7 +76,7 @@ impl ResidentDurability {
 pub struct ResidentCommitOperations {
     /// `MutationType::Create` rows applied.
     pub created: u64,
-    /// `MutationType::Update` rows applied.
+    /// `MutationType::Replace` rows applied.
     pub updated: u64,
     /// `MutationType::Delete` and `MutationType::Purge` rows applied.
     pub deleted: u64,
@@ -131,6 +131,8 @@ pub struct ResidentCommitReceipt {
     /// Idempotent repeats retain their submitted identity. This list does not
     /// claim which identity currently owns a field value or which erase removed bytes.
     pub mutation_ids: Vec<String>,
+    /// Original complete-record revisions, indexed by stable caller mutation ID.
+    pub record_revisions: std::collections::BTreeMap<String, String>,
     /// The one committed revision for the primary record and every exact
     /// projection in this batch.
     ///
@@ -159,6 +161,7 @@ impl ResidentCommitReceipt {
     pub fn empty() -> Self {
         Self {
             mutation_ids: Vec::new(),
+            record_revisions: Default::default(),
             revision: None,
             operations: ResidentCommitOperations::default(),
             durability: ResidentDurability::Queued,

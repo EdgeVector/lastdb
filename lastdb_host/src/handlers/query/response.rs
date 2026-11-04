@@ -166,6 +166,8 @@ pub(in crate::handlers) fn format_rows(
         .map(|(key, record)| {
             let mut row = serde_json::Map::new();
             row.insert("key".into(), serde_json::json!(key));
+            row.insert("revision".into(), Value::String(record.revision));
+            row.insert("alternates".into(), serde_json::json!(record.alternates));
             // These values already own their JSON. Serializing them through
             // json! would recursively copy them before discarding the originals.
             row.insert(

@@ -109,7 +109,9 @@ impl DeclarativeSchemaDefinition {
     /// (`decision-2026-11-02-field-types-no-any`).
     fn require_typed_fields(&self) -> Result<(), String> {
         let fields = self.fields.as_deref().unwrap_or_default();
-        if fields.is_empty() || fields.iter().any(|f| f.trim().is_empty()) {
+        if (fields.is_empty() && self.record_keys.is_none())
+            || fields.iter().any(|f| f.trim().is_empty())
+        {
             return Err("schema.fields must be non-empty without blank names".into());
         }
         let untyped: Vec<&str> = fields

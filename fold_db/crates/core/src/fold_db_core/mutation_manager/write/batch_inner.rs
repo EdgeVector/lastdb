@@ -19,7 +19,7 @@ impl MutationManager {
         self.prepare_batch_field_keys(&mutations).await?;
         self.reject_blocked_mutation_targets(&mutations)?;
         for mutation in &mutations {
-            mutation.reject_illegal_must_exist()?;
+            mutation.validate_record_intent()?;
         }
         // Every verb merges into its record inside the native request: a
         // delete or a purge merges as the delete floor, in caller order with

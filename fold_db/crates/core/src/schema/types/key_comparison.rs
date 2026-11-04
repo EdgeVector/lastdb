@@ -29,34 +29,25 @@ impl KeyComparisonContext {
         schema: &Schema,
         formats: &[(String, String, &'static str)],
     ) -> Result<Self, SchemaError> {
-        schema
-            .validate_key_field_types()
-            .map_err(SchemaError::InvalidData)?;
-        let hash = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_deref());
-        let range = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.as_deref());
-        let hash_type = hash.map(|path| schema.key_field_type(path));
-        let range_type = range.map_or(FieldValueType::String, |path| schema.key_field_type(path));
+        let keys = schema.require_record_keys()?;
+        let range_type = keys
+            .primary
+            .range_type
+            .clone()
+            .unwrap_or(FieldValueType::String);
         let range_comparison =
             RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
-        let profile =
-            FieldRangeProfile::for_field_type(range.map(|_| &range_comparison.field_type))
-                .map_err(SchemaError::InvalidData)?;
+        let profile = keys
+            .primary
+            .range_profile()
+            .map_err(SchemaError::InvalidData)?;
         let bytes = serde_json::to_vec(&(
             "lastdb-key-comparison-v1",
             &schema.name,
             &schema.identity_hash,
             &schema.owner_app_id,
             &schema.schema_type,
-            &schema.key,
-            key_declaration(schema, hash),
-            key_declaration(schema, range),
-            hash_type,
+            keys,
             &range_comparison,
             formats,
         ))
@@ -170,31 +161,5 @@ pub trait KeyValuePageOrder {
 impl KeyValuePageOrder for KeyValue {
     fn cmp_page_order(&self, other: &Self) -> Ordering {
         KeyComparisonContext::compare_current_keys(self, other)
-    }
-}
-
-#[derive(serde::Serialize)]
-struct KeyDeclaration<'a> {
-    field_type: Option<&'a FieldValueType>,
-    field_identity: Option<&'a String>,
-    version: Option<&'a u32>,
-}
-
-fn key_declaration<'a>(schema: &'a Schema, path: Option<&str>) -> KeyDeclaration<'a> {
-    let path = path.unwrap_or("");
-    let root = path.split_once('.').map_or(path, |(root, _)| root);
-    KeyDeclaration {
-        field_type: schema
-            .field_types
-            .get(path)
-            .or_else(|| schema.field_types.get(root)),
-        field_identity: schema
-            .field_hashes
-            .get(path)
-            .or_else(|| schema.field_hashes.get(root)),
-        version: schema
-            .field_versions
-            .get(path)
-            .or_else(|| schema.field_versions.get(root)),
     }
 }

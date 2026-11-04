@@ -114,10 +114,7 @@ fn telemetry_hash_range_schema(
     let mut schema = DeclarativeSchemaDefinition::new(
         name.to_string(),
         DeclarativeSchemaType::HashRange,
-        Some(KeyConfig::new(
-            Some("series".to_string()),
-            Some("sample_id".to_string()),
-        )),
+        None,
         Some(
             fields
                 .iter()
@@ -126,6 +123,10 @@ fn telemetry_hash_range_schema(
         ),
         None,
     );
+    schema.record_keys = Some(schema_types::record_keys::RecordKeys {
+        primary: schema_types::record_keys::RecordKeyDefinition::hash_range(FieldValueType::String),
+        alternates: Default::default(),
+    });
     schema.field_types = fields
         .iter()
         .map(|&field| (field.to_string(), telemetry_field_type(field)))

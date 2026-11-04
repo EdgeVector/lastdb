@@ -1,43 +1,47 @@
-//! Storage-free decisions for conditional writes.
-
-use crate::schema::types::{cas::CasExpectation, Mutation};
+//! One precondition covers every column of the record.
+use crate::schema::types::{cas::CasExpectation, Mutation, MutationType};
 use crate::schema::SchemaError;
-
-/// A selected field's live value and the mutation that wrote it. A removed
-/// field is absent.
-#[derive(Default)]
-pub(super) struct CurrentHead {
-    pub(super) mutation_uuid: Option<String>,
-    pub(super) value: Option<serde_json::Value>,
-}
+use lastdb_model::record_value::StoredRecord;
 
 pub(super) fn check_expectation(
     mutation: &Mutation,
-    expected: &CasExpectation,
-    head: CurrentHead,
+    record: Option<&StoredRecord>,
 ) -> Result<(), SchemaError> {
-    let conflict = |exp: String, actual: Option<String>| SchemaError::CasConflict {
-        schema: mutation.schema_name.clone(),
-        field: expected.field().to_string(),
-        key: mutation.key_value.to_storage_key(),
-        expected: exp,
-        actual,
+    let current =
+        record.filter(|record| record.is_live() || mutation.mutation_type == MutationType::Purge);
+    let actual = current.map(|record| record.stamp.revision());
+    let matches = match &mutation.expected {
+        CasExpectation::Absent => !record.is_some_and(StoredRecord::is_live),
+        CasExpectation::Revision { revision } => actual.as_ref() == Some(revision),
     };
-    match expected {
-        CasExpectation::Mutation { uuid, .. } => match head.mutation_uuid {
-            Some(current) if &current == uuid => Ok(()),
-            current => Err(conflict(uuid.clone(), current)),
-        },
-        CasExpectation::Absent { .. } => {
-            if let Some(value) = head.value {
-                return Err(conflict("<absent>".to_string(), Some(value.to_string())));
-            }
-            Ok(())
-        }
-        CasExpectation::Value { value, .. } => match head.value {
-            Some(current) if &current == value => Ok(()),
-            Some(current) => Err(conflict(value.to_string(), Some(current.to_string()))),
-            None => Err(conflict(value.to_string(), None)),
-        },
+    if !matches {
+        return Err(SchemaError::CasConflict {
+            schema: mutation.schema_name.clone(),
+            key: mutation.key_value.to_storage_key(),
+            expected: match &mutation.expected {
+                CasExpectation::Absent => "<absent>".into(),
+                CasExpectation::Revision { revision } => revision.clone(),
+            },
+            actual,
+        });
     }
+    if matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    ) && current.is_some_and(|record| record.alternates != mutation.alternates)
+    {
+        return Err(SchemaError::InvalidData(
+            "deletion must supply the record's complete current alternate keys".into(),
+        ));
+    }
+    if mutation.erase_written_before_nanos.is_some_and(|cutoff| {
+        record
+            .and_then(StoredRecord::written_at)
+            .is_some_and(|written| written >= cutoff)
+    }) {
+        return Err(SchemaError::InvalidData(
+            "record is newer than the erasure cutoff".into(),
+        ));
+    }
+    Ok(())
 }

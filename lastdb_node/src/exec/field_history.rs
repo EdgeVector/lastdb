@@ -1,8 +1,7 @@
 //! Owner-only field policy, history lookup, purge, and conditional restore.
 use super::*;
 use fold_db::db_operations::record_store::field_history::{FieldHistoryPolicy, HistoryLocation};
-use fold_db::schema::types::cas::CasExpectation;
-use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
+use fold_db::schema::types::operations::Operation;
 use fold_db::schema::types::MutationType;
 
 mod records;
@@ -32,9 +31,7 @@ enum Action {
     },
     Restore {
         id: String,
-        expected_mutation: Option<String>,
-        #[serde(default)]
-        absent: bool,
+        mutation: Operation,
     },
 }
 
@@ -57,56 +54,29 @@ async fn execute(host: &Host, mut request: Request) -> Result<Value, HostError> 
     records::execute(host, request).await
 }
 
-fn require_restore_guard(expected_mutation: Option<&str>, absent: bool) -> Result<(), HostError> {
-    if absent == expected_mutation.is_some() {
-        return Err(HostError::new(
-            400,
-            "restore requires expected_mutation or absent",
-        ));
-    }
-    Ok(())
-}
-
-/// Write an archived value back through the native request, guarded by the
-/// current mutation of the field or by its absence.
+/// Restore the archived value only as part of the caller's complete record.
 async fn restore(
     host: &Host,
     location: HistoryLocation,
     value: &Value,
-    expected_mutation: Option<String>,
+    mutation: Operation,
 ) -> Result<Value, HostError> {
-    let field = location.field.clone();
-    let expected = match expected_mutation {
-        Some(uuid) if !uuid.is_empty() => CasExpectation::Mutation {
-            field: field.clone(),
-            uuid,
-        },
-        Some(_) => return Err(HostError::new(400, "expected mutation must be nonempty")),
-        None => CasExpectation::Absent {
-            field: field.clone(),
-        },
-    };
-    let components = handlers::MutationComponents {
-        metadata: value
-            .pointer("/metadata/metadata")
-            .filter(|v| !v.is_null())
-            .map(|v| serde_json::from_value(v.clone()))
-            .transpose()
-            .map_err(|e| HostError::new(500, e.to_string()))?,
-        schema: location.schema,
-        fields_and_values: [(field, value["value"].clone())].into_iter().collect(),
-        key_value: location.key,
-        mutation_type: MutationType::Update,
-        source_file_name: value
-            .pointer("/metadata/source_file_name")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        expected: Some(expected),
-        convergence: MutationConvergence::Sync,
-        durability: MutationDurability::Durable,
-        must_exist: None,
-        key_range_prefix: None,
-        file_write: None,
-    };
+    let mut components = handlers::MutationComponents::from_operation(mutation, None);
+    let canonical = handlers::resolve_schema_name(host, &components.schema)?
+        .ok_or_else(|| HostError::new(404, "restore schema does not exist"))?;
+    if canonical != location.schema
+        || components.key_value != location.key
+        || !matches!(
+            components.mutation_type,
+            MutationType::Create | MutationType::Replace
+        )
+        || components.record_fields.get(&location.field) != value.get("value")
+    {
+        return Err(HostError::new(
+            400,
+            "restore requires the complete target record containing the archived field value",
+        ));
+    }
+    components.schema = canonical;
     handlers::execute_mutation(host, components).await
 }

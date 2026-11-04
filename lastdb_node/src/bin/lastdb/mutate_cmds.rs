@@ -46,7 +46,7 @@ pub(super) fn mutate_request_body(
     let mut body = serde_json::json!({
         "type": "mutation",
         "schema": schema,
-        "fields_and_values": {},
+        "record_fields": {},
         "key_value": {
             "hash": key_hash,
             "range": key_range,

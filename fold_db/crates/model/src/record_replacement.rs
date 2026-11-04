@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 pub struct RecordTarget {
     pub schema: String,
     pub key: KeyValue,
-    pub alternates: BTreeMap<String, KeyValue>,
+    pub alternates: BTreeMap<String, Option<KeyValue>>,
 }
 
 impl RecordTarget {
@@ -31,8 +31,14 @@ impl RecordTarget {
             return Err("supply exactly every declared alternate key".into());
         }
         for (name, key) in &self.alternates {
-            definition.alternates[name]
-                .validate_coordinates(key.hash.as_deref(), key.range.as_deref())?;
+            let declared = &definition.alternates[name];
+            match key {
+                Some(key) => {
+                    declared.validate_coordinates(key.hash.as_deref(), key.range.as_deref())?
+                }
+                None if declared.allow_absent => (),
+                None => return Err(format!("alternate {name} requires an address")),
+            }
         }
         Ok(())
     }
@@ -96,4 +102,12 @@ impl RecordDeletion {
         }
         Ok(())
     }
+}
+
+/// A bounded retry receipt, committed atomically with its record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetryReceipt {
+    pub intent_hash: String,
+    pub revision: String,
 }

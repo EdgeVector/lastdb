@@ -78,7 +78,6 @@ pub enum SchemaError {
     /// record).
     CasConflict {
         schema: String,
-        field: String,
         key: String,
         expected: String,
         actual: Option<String>,
@@ -165,13 +164,12 @@ impl fmt::Display for SchemaError {
             }
             Self::CasConflict {
                 schema,
-                field,
                 key,
                 expected,
                 actual,
             } => write!(
                 f,
-                "CAS conflict on schema '{schema}' field '{field}' key '{key}':                  expected {expected}, found {}",
+                "CAS conflict on schema '{schema}' key '{key}':                  expected {expected}, found {}",
                 actual.as_deref().unwrap_or("<absent>")
             ),
             Self::RecordTooLarge { size, limit } => write!(

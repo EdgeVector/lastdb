@@ -1,17 +1,17 @@
-//! Pure bounded retry-cache codec. A hit still requires current-value checks.
+//! Bounded complete-request receipts; eviction makes a lookup a cache miss.
 
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 use super::super::{
-    RETRY_CACHE_BUCKETS, RETRY_CACHE_BUCKET_BYTES, RETRY_CACHE_ENTRIES, RETRY_CACHE_ID_BYTES,
-    RETRY_CACHE_PREFIX,
+    RETRY_CACHE_BUCKETS, RETRY_CACHE_BUCKET_BYTES, RETRY_CACHE_ENTRIES, RETRY_CACHE_PREFIX,
 };
 use super::EncodedMetadata;
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 
-type Bucket = Vec<(String, String)>;
+use lastdb_model::record_replacement::RetryReceipt;
+type Bucket = Vec<(String, RetryReceipt)>;
 
 pub(super) fn status() -> serde_json::Value {
     serde_json::json!({
@@ -40,7 +40,7 @@ fn decode(bytes: Option<&[u8]>) -> StorageResult<Bucket> {
             entries.len() <= RETRY_CACHE_ENTRIES
                 && entries
                     .iter()
-                    .all(|(hash, id)| hash.len() == 64 && id.len() <= RETRY_CACHE_ID_BYTES)
+                    .all(|(hash, id)| hash.len() == 64 && valid(id))
         });
     entries.ok_or_else(|| StorageError::SerializationError("invalid retry-cache bucket".into()))
 }
@@ -73,7 +73,7 @@ impl Lookup {
     pub(super) fn decode(
         mut self,
         bytes: Vec<Option<Vec<u8>>>,
-    ) -> StorageResult<Vec<Option<String>>> {
+    ) -> StorageResult<Vec<Option<RetryReceipt>>> {
         if bytes.len() != self.buckets.len() {
             return Err(StorageError::BackendError(
                 "retry-cache read is incomplete".into(),
@@ -99,11 +99,11 @@ pub(super) struct Batch {
 }
 
 impl Batch {
-    pub(super) fn new(entries: Vec<(String, String)>) -> Self {
+    pub(super) fn new(entries: Vec<(String, RetryReceipt)>) -> Self {
         let mut grouped: BTreeMap<String, Bucket> = BTreeMap::new();
         for (key, id) in entries {
-            // An oversized ID is omitted as before: a safe cache miss.
-            if id.len() <= RETRY_CACHE_ID_BYTES {
+            // Invalid receipts are a safe miss; no unbounded value enters a bucket.
+            if valid(&id) {
                 let (bucket, fingerprint) = coordinate(&key);
                 grouped.entry(bucket).or_default().push((fingerprint, id));
             }
@@ -157,4 +157,15 @@ fn encode(mut bucket: Bucket) -> StorageResult<Vec<u8>> {
         }
         bucket.remove(0);
     }
+}
+
+fn valid(receipt: &RetryReceipt) -> bool {
+    [&receipt.intent_hash, &receipt.revision]
+        .iter()
+        .all(|value| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
 }

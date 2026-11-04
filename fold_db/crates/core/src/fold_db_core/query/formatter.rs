@@ -1,7 +1,7 @@
 use crate::schema::types::key_value::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The metadata of one record (decision D7): the source file name and the
 /// metadata map of the last write that carried them, and the marker of the
@@ -21,6 +21,9 @@ pub struct RecordMetadata {
 /// metadata block of the record, or `None` when the record has none.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
+    /// Token for a conditional replacement of this complete record.
+    pub revision: String,
+    pub alternates: BTreeMap<String, Option<KeyValue>>,
     pub fields: HashMap<String, Value>,
     pub metadata: Option<RecordMetadata>,
 }

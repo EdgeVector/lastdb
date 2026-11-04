@@ -65,7 +65,7 @@ impl DeclarativeSchemaDefinition {
     /// The definition check: named alternate keys require the owned-schema
     /// rules.
     pub fn validate_alternate_keys(&self) -> Result<(), String> {
-        if self.alternate_keys.is_empty() {
+        if self.alternate_keys.is_empty() && self.record_keys.is_none() {
             return Ok(());
         }
         self.validate_owned_schema()
@@ -75,6 +75,24 @@ impl DeclarativeSchemaDefinition {
     /// to every schema it declares, loads, or admits at startup. A declaration
     /// names local fields, never another schema or its records.
     pub fn validate_owned_schema(&self) -> Result<(), String> {
+        if let Some(keys) = &self.record_keys {
+            keys.validate()?;
+            let kind = match keys.primary.kind {
+                crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
+                crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
+            };
+            if self.schema_type != kind
+                || self.key.is_some()
+                || !self.alternate_keys.is_empty()
+                || self
+                    .transform_fields
+                    .as_ref()
+                    .is_some_and(|fields| !fields.is_empty())
+            {
+                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys or transforms".into());
+            }
+            return Ok(());
+        }
         if self.alternate_keys.len() > MAX_ALTERNATE_KEYS {
             return Err("a schema permits at most 16 alternate keys".into());
         }
@@ -152,6 +170,10 @@ impl DeclarativeSchemaDefinition {
     /// stored capture outcomes already hold these revision bytes, so the input
     /// stays.
     pub fn alternate_key_revision(&self) -> String {
+        if let Some(keys) = &self.record_keys {
+            let bytes = serde_json::to_vec(keys).expect("record key declarations serialize");
+            return format!("{:x}", Sha256::digest(bytes));
+        }
         let bytes = serde_json::to_vec(&(true, &self.alternate_keys))
             .expect("alternate key declarations serialize");
         format!("{:x}", Sha256::digest(bytes))

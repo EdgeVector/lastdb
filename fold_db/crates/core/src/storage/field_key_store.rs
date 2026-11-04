@@ -142,13 +142,13 @@ pub(crate) fn schema_field_key_profiles(
     schema: &Schema,
 ) -> StorageResult<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>> {
     use schema_types::field_range_profile::FieldRangeProfile;
-    let kind = schema
-        .key
-        .as_ref()
-        .and_then(|key| key.range_field.as_deref())
-        .map(|name| schema.key_field_type(name));
-    let primary =
-        FieldRangeProfile::for_field_type(kind.as_ref()).map_err(StorageError::InvalidOperation)?;
+    let definitions = schema
+        .require_record_keys()
+        .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
+    let primary = definitions
+        .primary
+        .range_profile()
+        .map_err(StorageError::InvalidOperation)?;
     let mut result: Vec<_> = schema
         .runtime_fields
         .iter()
@@ -161,9 +161,9 @@ pub(crate) fn schema_field_key_profiles(
             )
         })
         .collect();
-    for (name, key) in &schema.alternate_keys {
-        let field_type = key.range_type(&schema_types::DeclarativeSchemaDefinition::from(schema));
-        let profile = FieldRangeProfile::for_field_type(field_type.as_ref())
+    for (name, key) in &definitions.alternates {
+        let profile = key
+            .range_profile()
             .map_err(StorageError::InvalidOperation)?;
         result.push((
             lastdb_model::field_key_id::alternate_field_key_id(schema, name),

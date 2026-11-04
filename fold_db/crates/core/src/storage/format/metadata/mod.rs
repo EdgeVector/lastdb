@@ -92,7 +92,7 @@ impl Metadata {
     pub(crate) async fn idempotency_ids(
         &self,
         keys: &[String],
-    ) -> StorageResult<Vec<Option<String>>> {
+    ) -> StorageResult<Vec<Option<lastdb_model::record_replacement::RetryReceipt>>> {
         let lookup = retry::Lookup::new(keys);
         let bytes = self.metadata_store.get_many(lookup.keys()).await?;
         lookup.decode(bytes)
@@ -100,7 +100,7 @@ impl Metadata {
 
     pub(crate) async fn stage_idempotency(
         &self,
-        entries: Vec<(String, String)>,
+        entries: Vec<(String, lastdb_model::record_replacement::RetryReceipt)>,
     ) -> StorageResult<()> {
         let batch = retry::Batch::new(entries);
         if batch.is_empty() {

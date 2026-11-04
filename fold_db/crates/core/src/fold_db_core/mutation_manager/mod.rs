@@ -9,7 +9,6 @@
 
 mod author_clock;
 mod cas_idempotency;
-mod cas_preconditions;
 mod cas_rules;
 mod index;
 mod key_values;

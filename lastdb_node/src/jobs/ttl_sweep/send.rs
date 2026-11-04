@@ -69,16 +69,49 @@ async fn purge_keys(
     if keys.is_empty() {
         return Ok(());
     }
+    let query = fold_db::schema::types::Query::new_with_filter(
+        schema_name.to_string(),
+        Vec::new(),
+        Some(
+            fold_db::schema::types::field::HashRangeFilter::HashRangeKeys(
+                keys.iter()
+                    .map(|key| {
+                        (
+                            key.hash.clone().unwrap_or_default(),
+                            key.range.clone().unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+    );
+    let mut rows = host
+        .db
+        .query_executor()
+        .query(query)
+        .await
+        .map_err(|e| e.to_string())?;
+    if rows.len() != keys.len() {
+        return Err("erasure target disappeared before preparation".into());
+    }
     let mutations: Vec<Mutation> = keys
         .iter()
         .map(|key| {
+            let record = rows.remove(key).expect("every erasure key was read");
+            let target = fold_db::record_replacement::RecordTarget {
+                schema: schema_name.to_string(),
+                key: key.clone(),
+                alternates: record.alternates,
+            };
             let mut mutation = Mutation::new(
                 uuid::Uuid::new_v4().to_string(),
-                schema_name.to_string(),
+                target,
                 HashMap::new(),
-                key.clone(),
                 host.public_key(),
                 verb.mutation_type(),
+                fold_db::record_replacement::RecordExpectation::Revision {
+                    revision: record.revision,
+                },
             );
             mutation.synchronous = verb.waits_for_lane().then_some(true);
             mutation = mutation.with_erase_caller(verb.caller());

@@ -36,6 +36,16 @@ impl DerefMut for DeclarativeSchemaDefinition {
 }
 
 impl DeclarativeSchemaDefinition {
+    /// The active home format requires explicit addresses; no payload-key fallback.
+    pub fn require_record_keys(
+        &self,
+    ) -> Result<&schema_types::record_keys::RecordKeys, crate::schema::SchemaError> {
+        self.record_keys.as_ref().ok_or_else(|| {
+            crate::schema::SchemaError::InvalidData(
+                "this home requires explicit record_keys".into(),
+            )
+        })
+    }
     /// The fields that derive the alternate keys of one record, with the primary
     /// hash field. An erase budget counts the same set.
     #[must_use]

@@ -239,24 +239,13 @@ impl HashRangeQueryProcessor {
     }
 }
 
-/// The selected fields and the declared key field. The key field sets the
-/// record set and is in each row even when unprojected
-/// (`field_rules::primary_field`).
+/// Projection changes payload fields, never record membership or addresses.
 fn record_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
-    let mut selected = field_rules::selected_fields(schema, fields);
-    if !selected.is_empty() {
-        let primary = field_rules::primary_field(schema, &selected);
-        if !selected.contains(&primary) {
-            selected.insert(0, primary);
-        }
-    }
-    selected
+    field_rules::selected_fields(schema, fields)
 }
 
-fn has_any(record: &StoredRecord, selected: &[String]) -> bool {
-    selected
-        .iter()
-        .any(|field| record.fields.contains_key(field))
+fn has_any(record: &StoredRecord, _selected: &[String]) -> bool {
+    record.is_live()
 }
 
 /// The window over rows in page order.
@@ -301,7 +290,7 @@ fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
 }
 
 /// The reply rows: the selected fields of each record and its one metadata
-/// block (D7). A row with none of the selected fields is not a row.
+/// block. An empty payload or projection still represents a live record.
 fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
     let mut out = QueryRecords::with_capacity(rows.len());
     for (key, record) in rows {
@@ -312,11 +301,16 @@ fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {
                 Some((field.clone(), value.clone()))
             })
             .collect();
-        if fields.is_empty() {
-            continue;
-        }
         let metadata = record_metadata(&record);
-        out.insert(key, Record { fields, metadata });
+        out.insert(
+            key,
+            Record {
+                revision: record.stamp.revision(),
+                alternates: record.alternates.clone(),
+                fields,
+                metadata,
+            },
+        );
     }
     out
 }

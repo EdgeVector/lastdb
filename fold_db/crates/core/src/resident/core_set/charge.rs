@@ -31,7 +31,9 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
     let addresses = record
         .alternates
         .iter()
-        .map(|(name, key)| JSON_MAP_ENTRY + name.capacity() + key_heap_bytes(key))
+        .map(|(name, key)| {
+            JSON_MAP_ENTRY + name.capacity() + key.as_ref().map_or(0, key_heap_bytes)
+        })
         .sum::<usize>()
         + key_heap_bytes(&record.key);
     let meta = record.meta.as_ref().map_or(0, |meta| {

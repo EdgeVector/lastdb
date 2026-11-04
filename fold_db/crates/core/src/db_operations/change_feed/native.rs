@@ -46,7 +46,7 @@ impl ChangeFeedStore {
                     .filter_map(|mutation| {
                         let operation = match mutation.mutation_type {
                             MutationType::Create => "create",
-                            MutationType::Update => "update",
+                            MutationType::Replace => "update",
                             MutationType::Delete => "delete",
                             MutationType::Purge => "purge",
                         };

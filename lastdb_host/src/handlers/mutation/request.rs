@@ -1,10 +1,7 @@
 //! Single-mutation steps using the existing host interface.
 
-use fold_db::schema::types::KeyValuePageOrder;
-
 use fold_db::request_phases::{self, RequestPhase};
-use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{FileWrite, KeyValue, Query};
+use fold_db::schema::types::FileWrite;
 use serde_json::Value;
 
 use crate::host_node::HostNode;
@@ -13,8 +10,7 @@ use crate::HostError;
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
 use super::plan::MutationPlan;
 use super::{
-    commit_mutation, empty_delete_response, mutation_response, wait_for_requested_convergence,
-    MutationComponents,
+    commit_mutation, mutation_response, wait_for_requested_convergence, MutationComponents,
 };
 
 /// Execute `POST /api/mutation`. Schema
@@ -34,39 +30,19 @@ pub async fn execute_mutation<H: HostNode>(
         host,
         &plan.components.schema,
         &plan.canonical,
-        &plan.components.fields_and_values,
+        &plan.components.record_fields,
     )
     .await?;
     request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-    let payload_bytes = fields_payload_bytes(&plan.components.fields_and_values)
+    let payload_bytes = fields_payload_bytes(&plan.components.record_fields)
         + plan
             .components
             .file_write
             .as_ref()
             .map_or(0, FileWrite::row_len);
 
-    let key_values = match &plan.components.key_range_prefix {
-        Some(prefix) => {
-            resolve_delete_prefix_keys(
-                host,
-                plan.canonical.clone(),
-                plan.components
-                    .key_value
-                    .hash
-                    .clone()
-                    .expect("validated hash"),
-                prefix.clone(),
-            )
-            .await?
-        }
-        None => vec![plan.components.key_value.clone()],
-    };
-    if key_values.is_empty() {
-        return Ok(empty_delete_response());
-    }
-
     let convergence = plan.components.convergence;
-    let receipt = commit_mutation(host, plan, key_values, payload_bytes).await?;
+    let receipt = commit_mutation(host, plan, payload_bytes).await?;
     let mutation_id = receipt
         .mutation_ids
         .last()
@@ -87,26 +63,4 @@ fn resolve_mutation_schema<H: HostNode>(host: &H, schema: &str) -> Result<String
     let resolved = resolve_required_schema_name(host, schema);
     request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
     resolved
-}
-
-async fn resolve_delete_prefix_keys<H: HostNode>(
-    host: &H,
-    schema: String,
-    hash: String,
-    prefix: String,
-) -> Result<Vec<KeyValue>, HostError> {
-    let query = Query::new_with_filter(
-        schema,
-        Vec::new(),
-        Some(HashRangeFilter::HashRangePrefix { hash, prefix }),
-    );
-    let rows = host
-        .fold_db()
-        .query_executor()
-        .query(query)
-        .await
-        .map_err(HostError::from)?;
-    let mut keys: Vec<_> = rows.into_keys().collect();
-    keys.sort_by(KeyValue::cmp_page_order);
-    Ok(keys)
 }

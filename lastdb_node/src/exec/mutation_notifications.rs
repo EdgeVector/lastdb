@@ -18,7 +18,7 @@ impl From<&MutationComponents> for MutationWatchHint {
     fn from(components: &MutationComponents) -> Self {
         let operation = match components.mutation_type {
             MutationType::Create => "create",
-            MutationType::Update => "update",
+            MutationType::Replace => "update",
             MutationType::Delete => "delete",
             MutationType::Purge => "purge",
         };

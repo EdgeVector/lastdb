@@ -74,6 +74,7 @@ impl MutationManager {
     pub(super) fn build_commit_receipt(
         already_seen_ids: Vec<String>,
         mutation_ids: &[String],
+        record_revisions: std::collections::BTreeMap<String, String>,
         mut operations: ResidentCommitOperations,
         start_time: std::time::Instant,
         state: BatchState,
@@ -109,6 +110,7 @@ impl MutationManager {
 
         ResidentCommitReceipt {
             mutation_ids: all_ids,
+            record_revisions,
             // Stamped by the caller batch entry point, which is the only
             // scope that knows this pipeline run is one logical operation.
             revision: None,
@@ -137,7 +139,7 @@ impl MutationManager {
         for mutation in mutations {
             match mutation.mutation_type {
                 crate::schema::types::MutationType::Create => operations.created += 1,
-                crate::schema::types::MutationType::Update => operations.updated += 1,
+                crate::schema::types::MutationType::Replace => operations.updated += 1,
                 crate::schema::types::MutationType::Delete
                 | crate::schema::types::MutationType::Purge => operations.deleted += 1,
             }

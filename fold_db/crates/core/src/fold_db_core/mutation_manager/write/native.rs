@@ -14,6 +14,7 @@ pub(super) struct NativeRequest {
 struct NativeCommit {
     already_seen_ids: Vec<String>,
     mutation_ids: Vec<String>,
+    record_revisions: std::collections::BTreeMap<String, String>,
 }
 
 impl MutationManager {
@@ -29,6 +30,7 @@ impl MutationManager {
             return self
                 .finish_all_duplicate_batch(
                     committed.already_seen_ids,
+                    committed.record_revisions,
                     state.force_durable,
                     &state.timing_breakdown,
                     start,
@@ -39,6 +41,7 @@ impl MutationManager {
         Ok(Self::build_commit_receipt(
             committed.already_seen_ids,
             &committed.mutation_ids,
+            committed.record_revisions,
             operations,
             start,
             state,
@@ -70,6 +73,7 @@ impl MutationManager {
             let started = std::time::Instant::now();
             let super::super::cas_idempotency::FilteredMutations {
                 already_seen_ids,
+                revisions: mut record_revisions,
                 mutations,
                 hashes,
             } = self.filter_idempotent_mutations(request.mutations).await?;
@@ -78,6 +82,15 @@ impl MutationManager {
                 "idempotency_check",
                 started.elapsed(),
             );
+            for mutation in &mutations {
+                record_revisions.insert(
+                    mutation.uuid.clone(),
+                    mutation
+                        .record_stamp()
+                        .map_err(SchemaError::InvalidData)?
+                        .revision(),
+                );
+            }
             let mutation_ids = mutations
                 .iter()
                 .map(|mutation| mutation.uuid.clone())
@@ -93,9 +106,9 @@ impl MutationManager {
                 return Ok::<_, SchemaError>(NativeCommit {
                     already_seen_ids,
                     mutation_ids,
+                    record_revisions,
                 });
             }
-            self.check_batch_preconditions(&mutations).await?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
@@ -124,6 +137,7 @@ impl MutationManager {
             Ok::<_, SchemaError>(NativeCommit {
                 already_seen_ids,
                 mutation_ids,
+                record_revisions,
             })
         })
         .await?;

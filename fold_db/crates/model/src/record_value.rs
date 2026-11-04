@@ -91,7 +91,7 @@ pub struct StoredRecord {
     pub v: u8,
     pub key: KeyValue,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub alternates: BTreeMap<String, KeyValue>,
+    pub alternates: BTreeMap<String, Option<KeyValue>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, Value>,
     pub stamp: RecordStamp,
@@ -155,7 +155,6 @@ impl StoredRecord {
             return false;
         }
         self.fields.clear();
-        self.alternates.clear();
         self.meta = None;
         self.file = None;
         self.stamp = stamp;
@@ -195,12 +194,7 @@ impl StoredRecord {
                 "invalid record version, address or stamp".into(),
             ));
         }
-        if self.deleted
-            && (!self.fields.is_empty()
-                || !self.alternates.is_empty()
-                || self.meta.is_some()
-                || self.file.is_some())
-        {
+        if self.deleted && (!self.fields.is_empty() || self.meta.is_some() || self.file.is_some()) {
             return Err(RecordValueError::Format(
                 "a deleted record still has live content".into(),
             ));

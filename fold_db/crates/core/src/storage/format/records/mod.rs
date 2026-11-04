@@ -22,7 +22,7 @@ mod store;
 pub(crate) use alternates::AlternateChange;
 pub use alternates::AlternateEntry;
 pub use audit::RecordDeleteLedgerEntry;
-pub(crate) use keys::{AlternateAddress, RecordAddress};
+pub(crate) use keys::{alternate_range_key, AlternateAddress, RecordAddress};
 pub(crate) use maintenance::validate_cutoff_raise;
 pub(crate) use release::{release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use store::RecordFormat;
@@ -63,6 +63,11 @@ fn encode(
     for change in changes {
         // Structure is checked now; complete-request admission checks the
         // final encoded body at each key, including repeated-key writes.
+        if &change.after.key != change.key.api_key() {
+            return Err(SchemaError::InvalidData(
+                "record payload differs from its bound primary address".into(),
+            ));
+        }
         let value = change.after.encode_uncapped().map_err(record_value_error)?;
         let after = Arc::new(change.after);
         // Every changed address participates. A file-free result requires
