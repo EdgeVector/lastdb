@@ -172,7 +172,11 @@ class ProductionRecovery:
             source.caught_up(log)
             source.disable()
             source.node.stop()
-            # The recovery commands have no source-home argument and boot with no cloud credentials.
+            require(source.node.home == self.root / "source"
+                    and source.node.process is None, "generated_source_cleanup")
+            shutil.rmtree(source.node.home)
+            self.summary["generated_source_removed_before_restore"] = True
+            # Only the credentials and phrase remain: the generated source is gone.
             self.summary["snapshot"] = self.recover("snapshot-recovery", expected,
                 snapshot["last_accepted_backup"], phrase)
             self.summary["log"] = self.recover("log-recovery", source.expected,
