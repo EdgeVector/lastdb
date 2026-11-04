@@ -142,7 +142,6 @@ pub(crate) fn schema_field_key_ids(schema: &Schema) -> Vec<String> {
 pub(crate) fn schema_field_key_profiles(
     schema: &Schema,
 ) -> StorageResult<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>> {
-    use schema_types::field_range_profile::FieldRangeProfile;
     let definitions = schema
         .require_record_keys()
         .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;

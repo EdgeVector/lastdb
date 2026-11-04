@@ -20,11 +20,13 @@ from pathlib import Path
 import sys
 import time
 import urllib.parse
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format, UnixConnection  # noqa: E402
 import record_runs  # noqa: E402
+from record_requests import mutation as native_mutation, conditioned  # noqa: E402
 import record_drop_tracking  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
@@ -49,32 +51,28 @@ def install(node):
         definition = {
             "source": "system_seed", "name": name, "descriptive_name": name,
             "schema_type": "HashRange" if ranged else "Hash",
-            "key": {"hash_field": "bucket", "range_field": "id"} if ranged else {"hash_field": "id"},
+            "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if ranged else {"kind": "hash"}, "alternates": {}},
             "fields": FIELDS,
             "field_types": {field: "String" for field in FIELDS},
             "field_descriptions": {field: "Record home example " + field for field in FIELDS},
             "field_versions": {field: 1 for field in FIELDS},
         }
         if name == "RecordById":
-            definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}
+            definition["record_keys"]["alternates"] = {"by_bucket": {"kind": "hash_range", "range_type": "String"}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
 
 
-def mutation(schema, key, values, operation="update", expected=None, must_exist=None):
-    body = {
-        "type": "mutation", "schema": schema, "key_value": key,
-        "fields_and_values": values, "mutation_type": operation,
-        "durability": "durable", "convergence": "sync",
-    }
-    if expected is not None:
-        body["expected"] = expected
-    if must_exist is not None:
-        body["must_exist"] = must_exist
-    return body
+def mutation(schema, key, values, operation="replace", expected=None, alternates=None):
+    if alternates is None:
+        alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
+                      if schema == "RecordById" and values else {})
+    return native_mutation(schema, key, values, operation, alternates=alternates,
+                           expected=expected or ({"type": "absent"} if operation == "create" else None))
 
 
-def mutate(node, schema, key, values, operation="update", **options):
-    return node.call("/api/mutation", mutation(schema, key, values, operation, **options))[0]
+def mutate(node, schema, key, values, operation="replace", **options):
+    request = mutation(schema, key, values, operation, **options)
+    return node.call("/api/mutation", conditioned(node, [request])[0])[0]
 
 
 def refused(call, words):
@@ -109,14 +107,26 @@ def one(node, key):
 def hash_records(node):
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v1"}, "create")
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v1"}, "the created record differs")
-    mutate(node, "RecordById", {"hash": "one"}, {"value": "v2"})
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"},
-            "an update of one field changed the other fields")
+            "the full replacement differs")
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1"})
+    require("value" not in one(node, "one"), "an omitted field survived replacement")
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
     for key in ["two", "three"]:
         mutate(node, "RecordById", {"hash": key}, {"id": key, "bucket": "b9", "value": key}, "create")
     rows = query(node, "RecordById", {"HashRangeKeys": [["one", ""], ["two", ""], ["missing", ""]]})
     require(sorted(ids(rows)) == ["one", "two"], "a batch read by key returned other records")
-    print("Hash records: create, one-field update, batch read by key passed", flush=True)
+    external = {"by_bucket": {"hash": "external-alias", "range": "unrelated"}}
+    mutate(node, "RecordById", {"hash": "external-key"}, {}, "create", alternates=external)
+    row = query(node, "RecordById", {"HashKey": "external-key"})[0]
+    require(row["fields"] == {} and row["alternates"] == external, "empty record lost its explicit addresses")
+    mutate(node, "RecordById", {"hash": "external-key"}, {"value": "standalone"}, alternates=external)
+    row = query(node, "RecordById", {"HashKey": "external-alias"}, key_name="by_bucket")[0]
+    require(row["key"]["hash"] == "external-key" and row["fields"] == {"value": "standalone"},
+            "independent primary/alternate addresses required payload key fields")
+    mutate(node, "RecordById", {"hash": "external-key"}, {}, "delete")
+    print("Hash records: create, full replacement, omitted-field removal, batch read by key passed", flush=True)
 
 
 def alternate_keys(node):
@@ -124,7 +134,7 @@ def alternate_keys(node):
         return query(node, "RecordById", selector, key_name="by_bucket")
     require(ids(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}})) == ["one"],
             "the alternate key did not find its record")
-    mutate(node, "RecordById", {"hash": "one"}, {"bucket": "b2"})
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b2", "value": "v2"})
     require(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}}) == [],
             "the old alternate entry still resolves")
     rows = lookup({"HashRangeRange": {"hash": "b2", "start": "a", "end": "z"}})
@@ -153,16 +163,17 @@ def range_records(node):
 
 
 def preconditions(node):
-    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, {"value": "v3"},
-                           expected={"type": "absent", "field": "value"}), "HTTP 4")
-    require(one(node, "one")["value"] == "v2", "a refused CAS write changed the record")
-    mutate(node, "RecordById", {"hash": "one"}, {"value": "v3"},
-           expected={"type": "value", "field": "value", "value": "v2"})
-    require(one(node, "one")["value"] == "v3", "a matching CAS write did not apply")
-    mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b9", "value": "four"}, "create",
-           expected={"type": "absent", "field": "value"})
-    require(one(node, "four")["value"] == "four", "a create-if-absent write did not apply")
-    print("CAS absent and value passed", flush=True)
+    fields = {"id": "one", "bucket": "b2", "value": "v3"}
+    old = query(node, "RecordById", {"HashKey": "one"})[0]["revision"]
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, "create",
+                           expected={"type": "absent"}), "HTTP 4")
+    require(one(node, "one")["value"] == "v2", "a refused create changed the record")
+    mutate(node, "RecordById", {"hash": "one"}, fields,
+           expected={"type": "revision", "revision": old})
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields,
+                           expected={"type": "revision", "revision": old}), "HTTP 409")
+    mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b9", "value": "four"}, "create")
+    print("Expected-absent creation and whole-record revision refusal passed", flush=True)
 
 
 def listing(node):
@@ -185,34 +196,28 @@ def absent(node, key):
 
 
 def deletes(node):
-    mutate(node, "RecordById", {"hash": "four"}, {}, "delete")
+    request = conditioned(node, [mutation("RecordById", {"hash": "four"}, {}, "delete")])[0]
+    first = node.call("/api/mutation", request)[0]
     require(absent(node, "four"), "a deleted record still reads")
     require(sorted(ids(query(node, "RecordById", {"HashKey": "b9"}, key_name="by_bucket")))
-            == ["three", "two"], "the alternate entry of a deleted record still resolves")
-    mutate(node, "RecordById", {"hash": "four"}, {}, "delete")
-    refused(lambda: mutate(node, "RecordById", {"hash": "four"}, {}, "delete", must_exist=True),
-            "target not found")
+            == ["three", "two"], "a deleted alternate entry still resolves")
+    again = node.call("/api/mutation", request)[0]
+    require(first["record_revision"] == again["record_revision"] and again["operations"]["no_op"] == 1,
+            "a stable-ID delete retry lost its original revision")
+    stale = {**request, "mutation_id": str(uuid.uuid4())}
+    refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
-    require(one(node, "four") == {"id": "four", "bucket": "b5"},
-            "a write after a delete brought back a deleted value")
-    refused(lambda: mutate(node, "RecordById", {"hash": "two"}, {}, "delete",
-                           expected={"type": "value", "field": "value", "value": "other"}), "HTTP 4")
-    require(one(node, "two")["value"] == "two", "a refused CAS delete changed the record")
-    node.call("/api/mutations/batch", {"mutations": [
-        mutation("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create"),
-        mutation("RecordById", {"hash": "two"}, {}, "delete",
-                 expected={"type": "value", "field": "value", "value": "two"}),
-        mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
-        mutation("RecordById", {"hash": "five"}, {}, "delete"),
-    ]})
-    require(absent(node, "two") and absent(node, "five"), "a delete in a batch did not apply")
+    require(one(node, "four") == {"id": "four", "bucket": "b5"}, "recreate brought back deleted content")
+    refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
+    mutate(node, "RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create")
+    requests = [mutation("RecordById", {"hash": "two"}, {}, "delete"),
+                mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
+                mutation("RecordById", {"hash": "five"}, {}, "delete")]
+    node.call("/api/mutations/batch", {"mutations": conditioned(node, requests)})
+    require(absent(node, "two") and absent(node, "five"), "a batch delete did not apply")
     require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
             "a HashRange delete left its record")
-    keys = node.call("/api/list?schema=RecordById&limit=10")[0]["list"]["keys"]
-    require(sorted(item["hash"] for item in keys) == ["four", "one", "three"],
-            "the key list shows a deleted record: " + repr(keys))
-    print("Delete, idempotent delete, must_exist miss, CAS delete, batch delete, "
-          "write after delete passed", flush=True)
+    print("Conditional deletion, stable-ID retry, stale revision, recreate and atomic batch passed", flush=True)
 
 
 def native_status(node):
@@ -229,7 +234,7 @@ def warm_records(node):
     require(hits >= 2, f"repeated reads by key hit memory {hits} times")
     require(after["warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
             "the warm set holds or charges no record: " + repr(after["core_warm_bytes"]))
-    mutate(node, "RecordById", {"hash": "warm"}, {"value": "w2"})
+    mutate(node, "RecordById", {"hash": "warm"}, {"id": "warm", "bucket": "bw", "value": "w2"})
     require(one(node, "warm")["value"] == "w2", "a read after a write returned the old record")
     mutate(node, "RecordById", {"hash": "warm"}, {}, "delete")
     require(absent(node, "warm"), "a read after a delete returned the deleted record")
@@ -253,20 +258,21 @@ def field_history(node):
     reply = history(node, {"op": "policy", "policy": {"mode": "keep"}})
     require(reply["policy"] == {"mode": "keep"}, "the field history policy was not set")
     mutate(node, "RecordById", {"hash": "hist"}, {"id": "hist", "bucket": "bh", "value": "h1"}, "create")
-    mutate(node, "RecordById", {"hash": "hist"}, {"value": "h1"})
+    mutate(node, "RecordById", {"hash": "hist"}, {"id": "hist", "bucket": "bh", "value": "h1"})
     require(history(node, {"op": "list"})["entries"] == [],
             "a first write or a write of the same value added a history entry")
-    mutate(node, "RecordById", {"hash": "hist"}, {"value": "h2"})
+    mutate(node, "RecordById", {"hash": "hist"}, {"id": "hist", "bucket": "bh", "value": "h2"})
     page = history(node, {"op": "list"})
     entries = page["entries"]
     require(len(entries) == 1 and entries[0]["reason"] == "replace" and "record" not in entries[0],
             "an overwrite did not add one copied entry: " + repr(entries))
     entry = entries[0]["id"]
     require(history(node, {"op": "get", "id": entry})["value"] == "h1", "the history entry holds another value")
-    current = page["current"]["mutation"]
-    history(node, {"op": "restore", "id": entry, "expected_mutation": current})
+    restore = conditioned(node, [mutation("RecordById", {"hash": "hist"},
+        {"id": "hist", "bucket": "bh", "value": "h1"})])[0]
+    history(node, {"op": "restore", "id": entry, "mutation": restore})
     require(one(node, "hist")["value"] == "h1", "the restore did not write the old value")
-    refused(lambda: history(node, {"op": "restore", "id": entry, "expected_mutation": current}), "HTTP 4")
+    refused(lambda: history(node, {"op": "restore", "id": entry, "mutation": {**restore, "mutation_id": str(uuid.uuid4())}}), "HTTP 4")
     reasons = sorted(item["reason"] for item in history(node, {"op": "list"})["entries"])
     require(reasons == ["replace", "replace"], "the restore did not keep the value it replaced: " + repr(reasons))
     mutate(node, "RecordById", {"hash": "kept"}, {"id": "kept", "bucket": "bh", "value": "k1"}, "create")
@@ -277,7 +283,7 @@ def field_history(node):
     require(history(node, {"op": "get", "id": deleted[0]["id"]}, "kept")["value"] == "k1",
             "the delete entry holds another value")
     mutate(node, "RecordById", {"hash": "gone"}, {"id": "gone", "bucket": "bh", "value": "g1"}, "create")
-    mutate(node, "RecordById", {"hash": "gone"}, {"value": "g2"})
+    mutate(node, "RecordById", {"hash": "gone"}, {"id": "gone", "bucket": "bh", "value": "g2"})
     require(len(history(node, {"op": "list"}, "gone")["entries"]) == 1, "the purge target has no history")
     mutate(node, "RecordById", {"hash": "gone"}, {}, "purge")
     require(absent(node, "gone") and history(node, {"op": "list"}, "gone")["entries"] == [],
@@ -296,7 +302,7 @@ def retention(node):
     for key in ["old", "kept"]:
         mutate(node, "RecordTtl", {"hash": key}, {"id": key, "bucket": "bt", "value": key}, "create")
     time.sleep(TTL_SECONDS * 3 / 4)
-    mutate(node, "RecordTtl", {"hash": "kept"}, {"value": "kept again"})
+    mutate(node, "RecordTtl", {"hash": "kept"}, {"id": "kept", "bucket": "bt", "value": "kept again"})
     mutate(node, "RecordTtl", {"hash": "fresh"}, {"id": "fresh", "bucket": "bt", "value": "fresh"}, "create")
     kept_until = time.time() + TTL_SECONDS
     deadline = time.time() + TTL_SECONDS + 60

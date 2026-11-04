@@ -6,7 +6,7 @@ and preservation of a second schema using the same hash.
 """
 import time
 
-from record_runs import definition, mutation, seed, write, FIELDS, RANGED, TTL_SECONDS
+from record_runs import definition, mutation, seed, write, FIELDS, TTL_SECONDS
 
 TRACKED_HASHES = 40_050
 
@@ -48,7 +48,7 @@ def check(node):
 
 def exercise(node):
     key = f"{int(time.time()):020d}-kept"
-    kept = definition("RecordDropKeep", "HashRange", RANGED, FIELDS)
+    kept = definition("RecordDropKeep", "HashRange", FIELDS)
     seed(node, kept)
     node.call("/api/db/schema-retention",
               {"action": "set", "schema": kept["name"], "ttl_seconds": TTL_SECONDS})
@@ -64,7 +64,7 @@ def exercise(node):
     node.call("/api/schemas/drop", {"schema": "RecordAged", "must_exist": True})
     again = node.call("/api/schemas/drop", {"schema": "RecordAged"})[0]
     require(not again["existed"], "the repeated schema drop was not an idempotent miss")
-    seed(node, definition("RecordAged", "HashRange", RANGED, FIELDS))
+    seed(node, definition("RecordAged", "HashRange", FIELDS))
     check(node)
     print(f"Schema drop: {TRACKED_HASHES + 1} tracked hashes removed in bounded batches; "
           "repeated drop, reinstall and other schema passed", flush=True)

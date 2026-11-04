@@ -6,7 +6,7 @@ use super::record_rules::take_file_writes;
 use super::*;
 use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, MutationType, Schema};
+use crate::schema::types::{MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement, RetryReceipt};
 use lastdb_model::record_value::StoredRecord;

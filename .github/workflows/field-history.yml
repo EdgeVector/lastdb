@@ -56,7 +56,7 @@ jobs:
                 while IFS= read -r path; do
                   [ -z "$path" ] && continue
                   case "$path" in
-                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|scripts/operations/field_history.py|.github/workflows/field-history.yml)
+                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|schema_service/crates/schema_types/*|scripts/operations/record_requests.py|scripts/benchmarks/node.py|scripts/benchmarks/record_protocol.py|scripts/operations/field_history.py|.github/workflows/field-history.yml)
                       run=true
                       ;;
                   esac

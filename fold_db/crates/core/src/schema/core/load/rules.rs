@@ -7,7 +7,7 @@ use crate::schema::types::{Schema, SchemaError};
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
     if schema.record_keys != stored.record_keys || schema.alternate_keys != stored.alternate_keys {
         return Err(SchemaError::InvalidData(
-            "record key declarations are immutable; declare a new schema and copy explicitly"
+            "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly"
                 .into(),
         ));
     }

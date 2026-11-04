@@ -112,7 +112,7 @@ impl QueryExecutor {
             ));
         }
         let after = cursor
-            .map(|cursor| {
+            .map(|cursor| -> Result<AlternateEntry, SchemaError> {
                 let primary = cursor.alternate_primary.clone().ok_or_else(|| {
                     alternate_keys::invalid("alternate cursor requires its primary tie-breaker")
                 })?;

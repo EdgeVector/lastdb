@@ -15,10 +15,12 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format  # noqa: E402
+from record_requests import mutation, conditioned  # noqa: E402
 
 
 def require(value, message):
@@ -33,17 +35,21 @@ def history(node, action, schema="HistoryById", key=None, field="value"):
     })[0]
 
 
+def request(node, schema, key, values, operation):
+    alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
+                  if schema == "HistoryAlternate" and values else {})
+    body = mutation(schema, key, values, operation,
+                    alternates=alternates)
+    return conditioned(node, [body])[0]
+
+
 def mutate(node, schema, key, values, operation):
-    return node.call("/api/mutation", {
-        "type": "mutation", "schema": schema, "key_value": key,
-        "fields_and_values": values, "mutation_type": operation,
-        "durability": "durable", "convergence": "sync",
-    })[0]
+    return node.call("/api/mutation", request(node, schema, key, values, operation))[0]
 
 
-def write(node, value=None, operation="update"):
+def write(node, value=None, operation="replace"):
     values = {} if value is None else {"value": value}
-    if operation == "create":
+    if operation not in ("delete", "purge"):
         values.update(id="one", bucket="bucket-one")
     return mutate(node, "HistoryById", {"hash": "one"}, values, operation)
 
@@ -62,14 +68,14 @@ def install(node):
         definition = {
             "source": "system_seed", "name": name, "descriptive_name": name,
             "schema_type": "HashRange" if cross else "Hash",
-            "key": {"hash_field": "bucket", "range_field": "id"} if cross else {"hash_field": "id"},
+            "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if cross else {"kind": "hash"}, "alternates": {}},
             "fields": ["id", "bucket", "value"],
             "field_types": {f: "String" for f in ["id", "bucket", "value"]},
             "field_descriptions": {f: "History example " + f for f in ["id", "bucket", "value"]},
             "field_versions": {f: 1 for f in ["id", "bucket", "value"]},
         }
         if name == "HistoryAlternate":
-            definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}
+            definition["record_keys"]["alternates"] = {"by_bucket": {"kind": "hash_range", "range_type": "String"}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
 
 
@@ -77,7 +83,7 @@ def numeric_policy(node):
     fields = ["number_bucket", "number", "number_value"]
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": "HistoryByNumber", "descriptive_name": "HistoryByNumber",
-        "schema_type": "HashRange", "key": {"hash_field": "number_bucket", "range_field": "number"},
+        "schema_type": "HashRange", "record_keys": {"primary": {"kind": "hash_range", "range_type": "Integer"}, "alternates": {}},
         "fields": fields, "field_types": {f: "Integer" if f == "number" else "String" for f in fields},
         "field_descriptions": {f: "Numeric history example " + f for f in fields},
         "field_versions": {f: 1 for f in fields},
@@ -118,10 +124,10 @@ def capture_rules(node):
            {"id": "capture-one", "bucket": "bucket-capture", "value": "same"}, "create")
     require(history(node, {"op": "list"}, key=key)["entries"] == [],
             "first write added a sidecar record")
-    mutate(node, "HistoryById", key, {"value": "same"}, "update")
+    mutate(node, "HistoryById", key, {"id": "capture-one", "bucket": "bucket-capture", "value": "same"}, "replace")
     require(history(node, {"op": "list"}, key=key)["entries"] == [],
             "same record added a sidecar record")
-    mutate(node, "HistoryById", key, {"value": "other"}, "update")
+    mutate(node, "HistoryById", key, {"id": "capture-one", "bucket": "bucket-capture", "value": "other"}, "replace")
     page = history(node, {"op": "list"}, key=key)
     require(len(page["entries"]) == 1, "a new record did not add one sidecar record")
     require(page["entries"][0]["reason"] == "replace", "replace reason was not replace")
@@ -147,7 +153,7 @@ def alternate_key_move(node):
         require(not page.get("has_more"), "alternate move lookup was truncated")
         return page["results"]
     require(len(lookup(old)) == 1 and not lookup(new), "initial alternate key membership differs")
-    mutate(node, schema, key, {"bucket": "to"}, "update")
+    mutate(node, schema, key, {"id": "move-one", "bucket": "to", "value": "stable"}, "replace")
     require(history(node, {"op": "list"}, schema, key)["entries"] == [],
             "unchanged value record entered source history")
     require(not lookup(old), "the old alternate key still resolves")
@@ -162,9 +168,10 @@ def alternate_key_move(node):
             == "stable", "the primary delete archived another value")
     require(not lookup(old) and not lookup(new), "a deleted record remains under an alternate key")
     try:
-        history(node, {"op": "restore", "id": moved["entries"][0]["id"], "absent": True}, schema, key)
+        history(node, {"op": "restore", "id": moved["entries"][0]["id"],
+            "mutation": mutation(schema, key, {"value": "stable"}, "create", expected={"type": "absent"})}, schema, key)
     except RuntimeError as error:
-        require("HTTP 400" in str(error) and "required alternate key field is absent" in str(error),
+        require("HTTP 400" in str(error) and "every declared alternate key" in str(error),
                 "incomplete record restore failed for another reason")
     else:
         raise RuntimeError("a field-only restore created a record without its required alternate fields")
@@ -177,7 +184,7 @@ def expiry_body(node):
     fields = ["id", "note"]
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": "HistoryExpiry", "descriptive_name": "HistoryExpiry",
-        "schema_type": "Hash", "key": {"hash_field": "id"}, "fields": fields,
+        "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}}, "fields": fields,
         "field_types": {item: "String" for item in fields},
         "field_descriptions": {item: "Expiry isolated " + item for item in fields},
         "field_versions": {item: 1 for item in fields},
@@ -190,7 +197,7 @@ def expiry_body(node):
     key = {"hash": "expire-one"}
     before = history_rows(node)
     mutate(node, "HistoryExpiry", key, {"id": "expire-one", "note": "held"}, "create")
-    mutate(node, "HistoryExpiry", key, {"note": "next"}, "update")
+    mutate(node, "HistoryExpiry", key, {"id": "expire-one", "note": "next"}, "replace")
     page = history(node, {"op": "list"}, "HistoryExpiry", key, "note")
     expiring = [entry for entry in page["entries"] if entry["expires_at"] is not None]
     require(len(expiring) == 1, "expiry write did not list one entry")
@@ -234,7 +241,7 @@ def exercise(node, binary):
     independent_key = {"hash": "bucket-one", "range": "one"}
     mutate(node, "HistoryByBucket", independent_key,
            {"id": "one", "bucket": "bucket-one", "value": "independent-first"}, "create")
-    mutate(node, "HistoryByBucket", independent_key, {"value": "independent-second"}, "update")
+    mutate(node, "HistoryByBucket", independent_key, {"id": "one", "bucket": "bucket-one", "value": "independent-second"}, "replace")
     independent = history(node, {"op": "list"}, "HistoryByBucket", independent_key)
     require(len(independent["entries"]) == 1, "canonical field policy missed the independent schema")
     require(history(node, {"op": "get", "id": independent["entries"][0]["id"]}, "HistoryByBucket", independent_key)["value"]
@@ -244,9 +251,14 @@ def exercise(node, binary):
                                         "filter": {"HashKey": "one"}})[0]["results"]
     require(len(current) == 1 and current[0]["fields"]["value"] == "third",
             "field reuse changed another schema's current value")
-    expected = page["current"]["mutation"]
-    cli(node, binary, "restore", entry, "--expected-mutation", expected)
-    cli(node, binary, "restore", entry, "--expected-mutation", expected, success=False)
+    restore = request(node, "HistoryById", {"hash": "one"},
+                      {"id": "one", "bucket": "bucket-one", "value": "second"}, "replace")
+    source = node.root / "restore-request.json"
+    source.write_text(json.dumps(restore))
+    cli(node, binary, "restore", entry, "--request-file", str(source))
+    restore["mutation_id"] = str(uuid.uuid4())
+    source.write_text(json.dumps(restore))
+    cli(node, binary, "restore", entry, "--request-file", str(source), success=False)
     print("keep, canonical field policy, CLI fetch, restore, and stale-write refusal passed", flush=True)
     node.stop()
     node.start()
