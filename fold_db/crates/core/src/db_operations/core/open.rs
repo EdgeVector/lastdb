@@ -72,17 +72,16 @@ impl DbOperations {
             change_feed_kv,
         } = CoreNamespaces::open(&store).await?;
 
-        // Wrap KvStores in TypedKvStore adapters
-        let field_keys_store = Arc::new(TypedKvStore::new(field_keys_kv));
-
         // Domain stores
         let schema_store = SchemaStore::new(format::schemas::SchemaFormat::new(
             schemas_kv,
             schema_states_kv,
             Arc::clone(&runtime),
         ));
-        let field_keys =
-            FieldKeyStore::new(field_keys_store, field_key_wrap_key, Arc::clone(&runtime));
+        let field_keys = FieldKeyStore::new(
+            format::field_keys::FieldKeyFormat::new(field_keys_kv, Arc::clone(&runtime)),
+            field_key_wrap_key,
+        );
         let record_store = Self::open_record_store(
             &store,
             Arc::new(TypedKvStore::new(main_kv)),

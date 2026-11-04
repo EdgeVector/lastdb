@@ -10,6 +10,7 @@
 //! introduces no startup key audit.
 
 pub(crate) mod change_feed;
+pub(crate) mod field_keys;
 pub(crate) mod history;
 pub(crate) mod metadata;
 pub(crate) mod read;
@@ -46,6 +47,14 @@ pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
 pub(crate) const FIELD_KEYS_NAMESPACE: &str = "field_keys";
+pub(in crate::storage::format) const FIELD_KEY_BUNDLE_VERSION: u8 = 1;
+pub(crate) const FIELD_KEY_METADATA_VERSION: u8 = 2;
+pub(in crate::storage::format) const FIELD_KEY_NODE_DOMAIN: &str = "node";
+pub(in crate::storage::format) const FIELD_KEY_METADATA_PREFIX: &str = "fkb:";
+pub(in crate::storage::format) const FIELD_KEY_WRAP_PREFIX: &str = "fkw:";
+pub(in crate::storage::format) const FIELD_KEY_ID_MAX_BYTES: usize = 1024;
+pub(crate) const FIELD_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
+pub(in crate::storage::format) const FIELD_KEY_BUNDLE_MAX_BYTES: u64 = 4096;
 pub(crate) const CHANGE_FEED_NAMESPACE: &str = "change_feed";
 pub(crate) const CHANGE_FEED_LAST_SEQ_KEY: &str = "last_seq";
 pub(in crate::storage::format) const CHANGE_FEED_EVENT_PREFIX: &str = "event:";

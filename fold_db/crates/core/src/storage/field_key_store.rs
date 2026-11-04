@@ -1,39 +1,34 @@
-//! Durable per-field-key key bundles and access-domain wraps.
+//! Field-key contracts and their shared process cache.
 //!
 //! A field key's three-key bundle is minted once; its blind-index key blinds
 //! the field key hashes. The plaintext bundle stays only in the process cache.
-//! Durable rows contain a small metadata record (`fkb:`) and one encrypted
-//! wrap per access domain (`fkw:`). The node domain is the only domain that
-//! writes a wrap.
+//! The format owns the metadata and encrypted node-wrap wire definitions.
+//! This provider holds only a read view and typed format capability.
 
-use crate::crypto::{seal_at_rest_utf8, AT_REST_ENC_PREFIX};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
-use crate::storage::traits::KvStore;
-use crate::storage::{StorageError, TypedKvStore};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use crate::storage::format::field_keys::{
+    metadata_key, open_wrap, validate_identity, wrap_key_for, BundleMetadata, BundleWrap,
+    FieldKeyFormat,
+};
+use crate::storage::format::read::ReadStore;
+use crate::storage::StorageError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
-const BUNDLE_VERSION: u8 = 1;
-const NODE_DOMAIN: &str = "node";
-
 mod batch_load;
-mod bundle;
 mod cache;
 mod contracts;
 mod establish;
-mod frozen;
 mod metadata_batch;
 
-pub(crate) use frozen::{
+pub(crate) use crate::storage::format::field_keys::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
 
 pub(crate) type FieldKeyCache = Arc<RwLock<HashMap<String, CachedFieldKeyContract>>>;
-pub use bundle::FieldKeyBundle;
+pub use crate::storage::format::field_keys::FieldKeyBundle;
 
 #[derive(Clone)]
 pub(crate) struct CachedFieldKeyContract {
@@ -41,27 +36,11 @@ pub(crate) struct CachedFieldKeyContract {
     bundle: FieldKeyBundle,
 }
 
-/// Every field key owns an independent key bundle under its node wrap.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct BundleMetadata {
-    version: u8,
-    field_key_id: String,
-    range_profile: schema_types::field_range_profile::FieldRangeProfile,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct BundleWrap {
-    version: u8,
-    field_key_id: String,
-    domain: String,
-    sealed_bundle: String,
-}
-
 /// Exact-key persistence and the shared in-process plaintext cache.
 #[derive(Clone)]
 pub struct FieldKeyStore {
-    entries: Arc<TypedKvStore<dyn KvStore>>,
+    entries: ReadStore,
+    format: Arc<FieldKeyFormat>,
     node_wrap_key: Option<[u8; 32]>,
     cache: FieldKeyCache,
     mint_lock: Arc<Mutex<()>>,
@@ -69,13 +48,12 @@ pub struct FieldKeyStore {
 }
 
 impl FieldKeyStore {
-    pub(crate) fn new(
-        entries: Arc<TypedKvStore<dyn KvStore>>,
-        node_wrap_key: Option<[u8; 32]>,
-        runtime: Arc<crate::storage::disk_pack::PackRuntime>,
-    ) -> Self {
+    pub(crate) fn new(format: FieldKeyFormat, node_wrap_key: Option<[u8; 32]>) -> Self {
+        let entries = format.reader();
+        let runtime = format.runtime();
         Self {
             entries,
+            format: Arc::new(format),
             node_wrap_key,
             cache: Arc::new(RwLock::new(HashMap::new())),
             mint_lock: Arc::new(Mutex::new(())),
@@ -89,7 +67,7 @@ impl FieldKeyStore {
 
     /// Resolve the exact field key contract and its key bundle.
     pub async fn load(&self, field_key_id: &str) -> StorageResult<Option<FieldKeyBundle>> {
-        validate_identity(field_key_id, NODE_DOMAIN)?;
+        validate_identity(field_key_id)?;
         if let Some(contract) = self.cached_contract(field_key_id)? {
             return Ok(Some(contract.bundle));
         }
@@ -98,7 +76,7 @@ impl FieldKeyStore {
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.entries.inner().flush().await
+        self.format.flush().await
     }
 
     /// Load every final field key's established keys. Only schema
@@ -127,76 +105,6 @@ impl FieldKeyStore {
     }
 }
 
-fn make_wrap(
-    field_key: &str,
-    domain: &str,
-    bundle: &FieldKeyBundle,
-    key: &[u8; 32],
-) -> StorageResult<BundleWrap> {
-    let plaintext = zeroize::Zeroizing::new(
-        serde_json::to_vec(bundle)
-            .map_err(|error| StorageError::SerializationError(error.to_string()))?,
-    );
-    let sealed = seal_at_rest_utf8(key, &plaintext)
-        .map_err(|_| StorageError::InvalidOperation("cannot wrap the field key bundle".into()))?;
-    let sealed_bundle = String::from_utf8(sealed)
-        .map_err(|_| StorageError::InvalidOperation("the field key wrap is not UTF-8".into()))?;
-    Ok(BundleWrap {
-        version: BUNDLE_VERSION,
-        field_key_id: field_key.into(),
-        domain: domain.into(),
-        sealed_bundle,
-    })
-}
-
-fn open_wrap(
-    wrap: &BundleWrap,
-    field_key_id: &str,
-    domain: &str,
-    wrapping_key: &[u8; 32],
-) -> StorageResult<FieldKeyBundle> {
-    if wrap.version != BUNDLE_VERSION || wrap.field_key_id != field_key_id || wrap.domain != domain
-    {
-        return Err(StorageError::InvalidOperation(format!(
-            "field key wrap metadata mismatch for {field_key_id} in {domain}"
-        )));
-    }
-    // `make_wrap` writes only the `ENC:` form of `seal_at_rest_utf8`.
-    if !wrap.sealed_bundle.starts_with(AT_REST_ENC_PREFIX) {
-        return Err(StorageError::InvalidOperation(
-            "field key bundle wrap is not encrypted".into(),
-        ));
-    }
-    // The generated bundle contains only three fixed-size keys, so a wrap
-    // above this bound is not one that `make_wrap` wrote.
-    let plaintext = zeroize::Zeroizing::new(
-        crate::crypto::at_rest::open_at_rest_bounded(
-            wrapping_key,
-            wrap.sealed_bundle.as_bytes(),
-            4096,
-        )
-        .map_err(|error| {
-            StorageError::InvalidOperation(format!("unwrap field key bundle: {error}"))
-        })?,
-    );
-    serde_json::from_slice(&plaintext).map_err(|error| {
-        StorageError::SerializationError(format!("decode field key bundle: {error}"))
-    })
-}
-
-fn validate_identity(field_key_id: &str, domain: &str) -> StorageResult<()> {
-    if field_key_id.trim().is_empty() || domain.trim().is_empty() {
-        return Err(StorageError::InvalidOperation(
-            "field key bundle requires non-empty field key and domain".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) fn metadata_key(field_key_id: &str) -> String {
-    format!("fkb:{field_key_id}")
-}
-
 fn metadata_memory_owner(cache: &FieldKeyCache) -> usize {
     Arc::as_ptr(cache) as usize
 }
@@ -206,11 +114,6 @@ fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
     metadata.map_or(256, |value| {
         value.field_key_id.capacity().saturating_add(256)
     })
-}
-
-pub(crate) fn wrap_key_for(field_key_id: &str, domain: &str) -> String {
-    let domain_hash = Sha256::digest(domain.as_bytes());
-    format!("fkw:{field_key_id}:{domain_hash:x}")
 }
 
 /// Every field and alternate field key of a schema, and its record space.

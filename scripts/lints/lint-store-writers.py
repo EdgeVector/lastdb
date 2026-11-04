@@ -11,7 +11,7 @@ The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, ...) and one of:
 
 - a key family token (family H, a field history row);
-- a raw handle token: `.raw()`, a named main/metadata/feed/schema store,
+- a raw handle token: `.raw()`, a named main/metadata/feed/schema/field-key store,
   `open_namespace(`, or a scan
   (`scan_prefix(`, `scan_range(`, ...) next to a delete, which is a range delete of rows of every family.
 
@@ -40,7 +40,7 @@ WRITE = re.compile(
     r"batch_delete|put|delete)\s*\(|KvMutation::(?:put|delete)\s*\("
 )
 RAW = re.compile(
-    r"\.raw\(\)|\b(?:main_store|metadata_store|feed_store|schemas_store|schema_states_store)\b|\bopen_namespace\s*\(|"
+    r"\.raw\(\)|\b(?:main_store|metadata_store|feed_store|schemas_store|schema_states_store|field_store)\b|\bopen_namespace\s*\(|"
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {

@@ -2,14 +2,14 @@
 
 use super::{
     open_wrap, validate_identity, wrap_key_for, BundleWrap, FieldKeyStore, StorageError,
-    StorageResult, NODE_DOMAIN,
+    StorageResult,
 };
 
 impl FieldKeyStore {
     pub(crate) async fn load_existing(&self, field_keys: &[String]) -> StorageResult<()> {
         let mut missing = Vec::new();
         for field_key in field_keys {
-            validate_identity(field_key, NODE_DOMAIN)?;
+            validate_identity(field_key)?;
             if self.cached_contract(field_key)?.is_none() {
                 missing.push(field_key.as_str());
             }
@@ -33,7 +33,7 @@ impl FieldKeyStore {
         }
         let wrap_keys: Vec<_> = present
             .iter()
-            .map(|(field_key, _)| wrap_key_for(field_key, NODE_DOMAIN))
+            .map(|(field_key, _)| wrap_key_for(field_key))
             .collect();
         let wraps = self.entries.get_items::<BundleWrap>(&wrap_keys).await?;
         if wraps.len() != present.len() {
@@ -47,7 +47,7 @@ impl FieldKeyStore {
                 (Some(profile), Some(wrap)) => Ok(Some((
                     field_key,
                     profile,
-                    open_wrap(&wrap, field_key, NODE_DOMAIN, wrap_key)?,
+                    open_wrap(&wrap, field_key, wrap_key)?,
                 ))),
                 (None, None) => Ok(None),
                 (Some(_), None) => Err(StorageError::InvalidOperation(
