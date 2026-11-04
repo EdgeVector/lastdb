@@ -25,11 +25,9 @@ export type RowFields = Record<string, JsonValue>;
 export type Row = RowFields;
 
 /**
- * A fold_db row key: a hash component, a range component, or both. This is
- * the node's `KeyValue` wire shape — production `/api/query` returns each
- * row's `key` as this object, and `POST /api/mutation` takes one back as
- * `key_value`. For a Range schema: `{ hash: null, range: "<id>" }`; for a
- * hash-keyed schema: `{ hash: "<id>", range: null }`.
+ * Explicit record coordinates. API 27 requires a nonempty hash and a range
+ * only for a hash_range declaration. Queries return this object as `key`;
+ * mutations send it as `key_value`. Coordinates are independent of fields.
  */
 export interface KeyValue {
   hash: string | null;
@@ -106,7 +104,7 @@ export interface FileMarker {
 
 /**
  * The one metadata block of a record (decision D7): the source file name and
- * the metadata map of the last write that carried them, and the marker of the
+ * the metadata map of the complete replacement, and the marker of the
  * record's file. A field has no metadata of its own.
  */
 export interface RecordMetadata {

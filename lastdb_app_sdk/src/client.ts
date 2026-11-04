@@ -118,7 +118,7 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 
 function queryRowDedupKey(row: QueryRow): string {
   if (row.keyValue !== null) {
-    return `kv:${row.keyValue.hash ?? ''}\u0000${row.keyValue.range ?? ''}`;
+    return `kv:${JSON.stringify([row.keyValue.hash, row.keyValue.range])}`;
   }
   return `rendered:${row.key}`;
 }
