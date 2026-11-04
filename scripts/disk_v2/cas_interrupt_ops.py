@@ -8,6 +8,7 @@ import json
 from node import UnixConnection
 
 COUNT, FILE_BYTES, SCHEMA, NOTE = 256, 8192, "CasInterruptionLifecycle", "generated record with one file"
+FIELDS = ("id", "note", "detail")
 # Each purge batch is one native write, so one CAS deletion window.
 PURGE_BATCH = 4
 
@@ -35,7 +36,7 @@ def put(node, number):
     data = payload(number)
     reply = node.call("/api/db/put-blob", {
         "schema": SCHEMA, "key": {"hash": key(number)}, "bytes_b64": base64.b64encode(data).decode(),
-        "fields": {"id": key(number), "note": NOTE}})[0]
+        "fields": {"id": key(number), "note": NOTE, "detail": "initial"}})[0]
     sha256 = hashlib.sha256(data).hexdigest()
     require(reply["file"]["size_bytes"] == FILE_BYTES and reply["file"]["sha256"] == sha256,
             "put-blob marker differs from the bytes")
@@ -46,19 +47,20 @@ def seed(node):
     """Put COUNT + 2 records, each with one file. Return the expected state."""
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
-        "key": {"hash_field": "id"}, "fields": ["id", "note"], "field_types": {"id": "String"},
-        "field_descriptions": {field: SCHEMA + " " + field for field in ("id", "note")}}})
+        "key": {"hash_field": "id"}, "fields": list(FIELDS), "field_types": {"id": "String"},
+        "field_descriptions": {field: SCHEMA + " " + field for field in FIELDS}}})
     expected = parallel(lambda number: put(node, number), range(COUNT + 2))
     # Ordinary field updates carry no file payload. Repeated-key groups must
-    # reuse the current file marker and leave its bytes at the same path.
+    # retain both independent field changes and the same file bytes. Skipping
+    # either update or merging the second from the original record must fail.
     updates = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "update", "durability": "durable",
-                "key_value": {"hash": key(COUNT)}, "fields_and_values": {"note": note}}
-               for note in (NOTE + " updated", NOTE)]
+                "key_value": {"hash": key(COUNT)}, "fields_and_values": fields}
+               for fields in ({"note": NOTE + " updated"}, {"detail": "updated"})]
     reply = node.call("/api/mutations/batch", {"mutations": updates})[0]
     require(len(reply["mutation_ids"]) == len(updates), "file-bearing record updates were not acknowledged")
     records(node, expected)
     files(node, expected)
-    print("File metadata reuse: ordinary record updates kept the file contents", flush=True)
+    print("File metadata reuse: both field changes and the file contents survived", flush=True)
     return expected
 
 
@@ -85,7 +87,7 @@ def purge_all(node, stop):
 
 
 def read(node, count):
-    queries = [{"schema_name": SCHEMA, "fields": ["id", "note"],
+    queries = [{"schema_name": SCHEMA, "fields": list(FIELDS),
                 "filter": {"HashKey": key(number)}, "limit": 2}
                for number in range(count)]
     batches = [queries[start:start + 32] for start in range(0, len(queries), 32)]
@@ -117,8 +119,11 @@ def records(node, expected):
         require(len(rows) == int(want is not None), "record presence differs from the durable writes")
         if want is not None:
             marker = (rows[0].get("metadata") or {}).get("file") or {}
+            fields = {"id": key(number), "note": NOTE, "detail": "initial"}
+            if number == COUNT:
+                fields.update(note=NOTE + " updated", detail="updated")
             require(rows[0]["key"] == {"hash": key(number), "range": None}
-                    and rows[0]["fields"] == {"id": key(number), "note": NOTE}
+                    and rows[0]["fields"] == fields
                     and marker.get("sha256", "") == want,
                     "live record or its file marker changed")
 
