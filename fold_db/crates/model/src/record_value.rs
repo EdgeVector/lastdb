@@ -1,67 +1,33 @@
-//! The stored value at one record key (the record model).
-//!
-//! One value holds the fields of the record and one stamp for each field
-//! (decision D1). A write or a peer replay merges field by field: the newer
-//! stamp wins for each field, so two devices that change two different fields
-//! of one record keep both changes.
-//!
-//! ```text
-//! {"v":1,
-//!  "fields":{"title":"Plan v2","status":"done"},
-//!  "stamps":{"title":[written_at,logical_counter,device_id,mutation_id], ...},
-//!  "meta":{"source_file_name":"plan.pdf","metadata":{"origin":"scan"},
-//!          "stamp":[written_at,logical_counter,device_id,mutation_id]},
-//!  "file":{"name":"plan.pdf","media_type":"application/pdf","size_bytes":1024,
-//!          "sha256":"...","stamp":[written_at,logical_counter,device_id,mutation_id]},
-//!  "deleted":[written_at,logical_counter,device_id,mutation_id]}
-//! ```
-//!
-//! The metadata belongs to the record, not to a field (decision D7): one
-//! source file name and one metadata map, with their own stamp (`meta.rs`).
-//! The file marker says that the record has a file, with its own stamp
-//! (`file.rs`). The file lives at a path made from the record key.
-//!
-//! A stamp without a value is a removed field: it still refuses an older
-//! write of that field. `deleted` is the stamp of the last delete. It is a
-//! floor: a field write at or below it does not bring the record back, and a
-//! newer write makes a new record. A tombstone is a value with no fields.
-
+//! One complete stored record, its external addresses and one record stamp.
+//! There are no field stamps or partial merge operations in this format.
+use crate::record_replacement::RecordReplacement;
+use crate::schema::types::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 mod file;
-mod meta;
+pub use crate::record_replacement::RecordMetadata as RecordMeta;
+pub use file::FileMarker;
 
-pub use file::{FileMarker, RecordFile};
-
-/// The format version of a stored record value.
-pub const RECORD_VALUE_VERSION: u8 = 1;
-
-/// The cap for the encoded value of the full record (decision D3). The app
-/// moves a large value to the record's file.
+pub const RECORD_VALUE_VERSION: u8 = 2;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
-/// The stamp of one field write. The field order is the merge order: write
-/// time, then the logical counter, then the device ID, then the mutation ID.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// Local write identity and TTL time of the entire record.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "StampWire", into = "StampWire")]
-pub struct FieldStamp {
-    /// The write time of the original device, in nanoseconds since the epoch.
+pub struct RecordStamp {
     pub written_at: u64,
-    /// The logical counter of the author. Zero when the write supplies none.
     pub logical_counter: u64,
-    /// The device identity, usually the public key of the writer.
     pub device_id: String,
-    /// The mutation identity.
     pub mutation_id: String,
 }
 
-/// The stored form of a stamp: one JSON array in merge order.
 #[derive(Serialize, Deserialize)]
 struct StampWire(u64, u64, String, String);
 
-impl From<StampWire> for FieldStamp {
+impl From<StampWire> for RecordStamp {
     fn from(wire: StampWire) -> Self {
         Self {
             written_at: wire.0,
@@ -72,8 +38,8 @@ impl From<StampWire> for FieldStamp {
     }
 }
 
-impl From<FieldStamp> for StampWire {
-    fn from(stamp: FieldStamp) -> Self {
+impl From<RecordStamp> for StampWire {
+    fn from(stamp: RecordStamp) -> Self {
         Self(
             stamp.written_at,
             stamp.logical_counter,
@@ -83,38 +49,35 @@ impl From<FieldStamp> for StampWire {
     }
 }
 
-/// The result of one field merge.
-#[derive(Clone, Debug, PartialEq)]
-pub enum FieldMerge {
-    /// The write is newer. It set or removed the field. `old` and `old_stamp`
-    /// are the replaced value and stamp, when the record had them.
-    Written {
-        old: Option<Value>,
-        old_stamp: Option<FieldStamp>,
-    },
-    /// The stored stamp is the same or newer. The record does not change.
-    Kept,
-    /// The delete floor is the same or newer. The record does not change.
-    Deleted,
+impl RecordStamp {
+    /// Stable opaque version of this authored record, independent of field contents.
+    #[must_use]
+    pub fn revision(&self) -> String {
+        let mut hash = Sha256::new();
+        hash.update(b"lastdb-record-revision-v1\0");
+        hash.update(self.written_at.to_be_bytes());
+        hash.update(self.logical_counter.to_be_bytes());
+        for value in [&self.device_id, &self.mutation_id] {
+            hash.update((value.len() as u64).to_be_bytes());
+            hash.update(value.as_bytes());
+        }
+        format!("{:x}", hash.finalize())
+    }
 }
 
-/// Why a stored record value is refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecordValueError {
-    /// The bytes are not a record value of this format.
     Format(String),
-    /// The encoded record is above [`MAX_RECORD_BYTES`].
     TooLarge { bytes: usize },
 }
 
 impl std::fmt::Display for RecordValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Format(reason) => write!(f, "invalid record value: {reason}"),
+            Self::Format(detail) => write!(f, "invalid record value: {detail}"),
             Self::TooLarge { bytes } => write!(
                 f,
-                "the record is {bytes} bytes; the cap is {MAX_RECORD_BYTES} bytes. Move a large \
-                 value to the record's file (put-blob)"
+                "record value is {bytes} bytes; maximum is {MAX_RECORD_BYTES}"
             ),
         }
     }
@@ -122,134 +85,84 @@ impl std::fmt::Display for RecordValueError {
 
 impl std::error::Error for RecordValueError {}
 
-/// The metadata of one record (decision D7): the source file name and the
-/// metadata map, with the stamp of the newest write that changed them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RecordMeta {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_file_name: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub metadata: BTreeMap<String, String>,
-    /// The stamp of the write that set this metadata.
-    pub stamp: FieldStamp,
-}
-
-/// The value at one record key: a live record or a tombstone.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoredRecord {
     pub v: u8,
-    /// The present field values.
+    pub key: KeyValue,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub alternates: BTreeMap<String, KeyValue>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, Value>,
-    /// One stamp for each field write above the delete floor, including the
-    /// writes that removed a field.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub stamps: BTreeMap<String, FieldStamp>,
-    /// The record metadata. A write without metadata keeps it; a local write
-    /// with metadata replaces only the keys that it sends.
+    pub stamp: RecordStamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RecordMeta>,
-    /// The file marker. Only the file routes set or remove it (`file.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<RecordFile>,
-    /// The stamp of the last delete.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deleted: Option<FieldStamp>,
+    pub file: Option<FileMarker>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deleted: bool,
 }
 
 impl Default for StoredRecord {
-    /// An absent record: no fields, no stamps and no delete floor.
+    /// Internal absence only; cannot be encoded until a complete address/stamp is supplied.
     fn default() -> Self {
         Self {
             v: RECORD_VALUE_VERSION,
+            key: KeyValue::new(None, None),
+            alternates: BTreeMap::new(),
             fields: BTreeMap::new(),
-            stamps: BTreeMap::new(),
+            stamp: RecordStamp::default(),
             meta: None,
             file: None,
-            deleted: None,
+            deleted: true,
         }
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl StoredRecord {
-    /// True when the record has a field value or a file. A tombstone has
-    /// neither.
+    #[must_use]
+    pub fn replacement(value: RecordReplacement, stamp: RecordStamp) -> Self {
+        Self {
+            v: RECORD_VALUE_VERSION,
+            key: value.target.key,
+            alternates: value.target.alternates,
+            fields: value.fields,
+            stamp,
+            meta: value.metadata,
+            file: value.file,
+            deleted: false,
+        }
+    }
+
+    /// An empty payload is still a live record.
     #[must_use]
     pub fn is_live(&self) -> bool {
-        !self.fields.is_empty() || self.file.is_some()
+        !self.deleted
     }
 
-    /// The write time of the record: the newest write time of a field stamp,
-    /// the metadata stamp or the file stamp, in nanoseconds. A TTL ages a record by this
-    /// time. `None` when the record holds no stamp above its delete floor.
     #[must_use]
     pub fn written_at(&self) -> Option<u64> {
-        self.stamps
-            .values()
-            .chain(self.meta.as_ref().map(|meta| &meta.stamp))
-            .chain(self.file.as_ref().map(|file| &file.stamp))
-            .map(|stamp| stamp.written_at)
-            .max()
+        (self.stamp.written_at != 0).then_some(self.stamp.written_at)
     }
 
-    /// Merge one field write. `None` removes the field. The newer stamp wins;
-    /// an equal stamp keeps the stored value, so a replay changes nothing.
-    pub fn merge_field(
-        &mut self,
-        field: &str,
-        value: Option<Value>,
-        stamp: FieldStamp,
-    ) -> FieldMerge {
-        if self.deleted.as_ref().is_some_and(|floor| stamp <= *floor) {
-            return FieldMerge::Deleted;
-        }
-        if self
-            .stamps
-            .get(field)
-            .is_some_and(|current| stamp <= *current)
-        {
-            return FieldMerge::Kept;
-        }
-        let old_stamp = self.stamps.insert(field.to_owned(), stamp);
-        let old = match value {
-            Some(value) => self.fields.insert(field.to_owned(), value),
-            None => self.fields.remove(field),
-        };
-        FieldMerge::Written { old, old_stamp }
-    }
-
-    /// Apply a delete. Each field, the metadata and the file at or below
-    /// `stamp` go, and `stamp` becomes the delete floor. A field with a newer stamp stays: it is a
-    /// write after the delete. Returns true when the delete removed a value.
-    pub fn delete(&mut self, stamp: FieldStamp) -> bool {
-        if self.deleted.as_ref().is_some_and(|floor| stamp <= *floor) {
+    /// A whole-record erasure. No field can survive or merge across it.
+    pub fn delete(&mut self, stamp: RecordStamp) -> bool {
+        if !self.is_live() {
             return false;
         }
-        let fields = &mut self.fields;
-        let before = fields.len();
-        self.stamps.retain(|field, current| {
-            let keep = *current > stamp;
-            if !keep {
-                fields.remove(field);
-            }
-            keep
-        });
-        let mut removed = fields.len() != before;
-        if self.meta.as_ref().is_some_and(|meta| meta.stamp <= stamp) {
-            self.meta = None;
-            removed = true;
-        }
-        if self.file.as_ref().is_some_and(|file| file.stamp <= stamp) {
-            self.file = None;
-            removed = true;
-        }
-        self.deleted = Some(stamp);
-        removed
+        self.fields.clear();
+        self.alternates.clear();
+        self.meta = None;
+        self.file = None;
+        self.stamp = stamp;
+        self.deleted = true;
+        true
     }
 
-    /// The stored bytes. A record above [`MAX_RECORD_BYTES`] is refused.
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
         let bytes = self.encode_uncapped()?;
         if bytes.len() > MAX_RECORD_BYTES {
@@ -258,16 +171,12 @@ impl StoredRecord {
         Ok(bytes)
     }
 
-    /// The stored bytes without the cap. A request that writes one key twice
-    /// stages the earlier record before the later write; the cap applies to
-    /// the final record of the request.
+    /// Final admission still enforces the configured complete-record size cap.
     pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
         self.validate_structure()?;
         serde_json::to_vec(self).map_err(|error| RecordValueError::Format(error.to_string()))
     }
 
-    /// Read stored bytes. The value must have this format version, a stamp for
-    /// each field, and no field or metadata stamp at or below the delete floor.
     pub fn decode(bytes: &[u8]) -> Result<Self, RecordValueError> {
         let record: Self = serde_json::from_slice(bytes)
             .map_err(|error| RecordValueError::Format(error.to_string()))?;
@@ -275,37 +184,31 @@ impl StoredRecord {
         Ok(record)
     }
 
-    /// Reads and writes share one structural contract. The final record size
-    /// is checked separately so a repeated-key request can stage a larger
-    /// intermediate value without relaxing its structure.
     fn validate_structure(&self) -> Result<(), RecordValueError> {
-        if self.v != RECORD_VALUE_VERSION {
-            return Err(RecordValueError::Format("unknown version".into()));
-        }
-        if self
-            .fields
-            .keys()
-            .any(|field| !self.stamps.contains_key(field))
+        if self.v != RECORD_VALUE_VERSION
+            || self.key.hash.as_deref().is_none_or(str::is_empty)
+            || self.stamp.written_at == 0
+            || self.stamp.device_id.is_empty()
+            || self.stamp.mutation_id.is_empty()
         {
-            return Err(RecordValueError::Format("a field has no stamp".into()));
+            return Err(RecordValueError::Format(
+                "invalid record version, address or stamp".into(),
+            ));
         }
-        if let Some(floor) = &self.deleted {
-            if self
-                .stamps
-                .values()
-                .chain(self.meta.as_ref().map(|meta| &meta.stamp))
-                .chain(self.file.as_ref().map(|file| &file.stamp))
-                .any(|stamp| stamp <= floor)
-            {
-                return Err(RecordValueError::Format(
-                    "a stamp is at or below the delete floor".into(),
-                ));
-            }
+        if self.deleted
+            && (!self.fields.is_empty()
+                || !self.alternates.is_empty()
+                || self.meta.is_some()
+                || self.file.is_some())
+        {
+            return Err(RecordValueError::Format(
+                "a deleted record still has live content".into(),
+            ));
         }
         if self
             .file
             .as_ref()
-            .is_some_and(|file| !file.marker().has_valid_hash())
+            .is_some_and(|file| !file.has_valid_hash())
         {
             return Err(RecordValueError::Format(
                 "the file marker has an invalid sha256".into(),

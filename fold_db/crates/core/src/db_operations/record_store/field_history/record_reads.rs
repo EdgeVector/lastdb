@@ -44,10 +44,10 @@ impl RecordStore {
                 .flatten()
                 .find_map(|record| {
                     record.fields.contains_key(field).then(|| {
-                        record.stamps.get(field).map(|stamp| {
-                            json!({"mutation": stamp.mutation_id, "written_at": stamp.written_at})
-                        })
-                    })?
+                        json!({"mutation": record.stamp.mutation_id,
+                               "written_at": record.stamp.written_at,
+                               "revision": record.stamp.revision()})
+                    })
                 });
             let mut entries = Vec::new();
             for (key, bytes) in step.rows {

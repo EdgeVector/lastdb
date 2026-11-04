@@ -5,7 +5,7 @@
 //! from capacities; only the per-object constants are estimates. Admission
 //! purges clean records against this byte charge.
 
-use lastdb_model::record_value::{FieldStamp, RecordMeta, StoredRecord};
+use lastdb_model::record_value::{RecordMeta, RecordStamp, StoredRecord};
 use serde_json::Value;
 
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
@@ -28,11 +28,12 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
         .iter()
         .map(|(name, value)| JSON_MAP_ENTRY + name.capacity() + json_heap_bytes(value))
         .sum::<usize>();
-    let stamps = record
-        .stamps
+    let addresses = record
+        .alternates
         .iter()
-        .map(|(name, stamp)| JSON_MAP_ENTRY + name.capacity() + stamp_heap_bytes(stamp))
-        .sum::<usize>();
+        .map(|(name, key)| JSON_MAP_ENTRY + name.capacity() + key_heap_bytes(key))
+        .sum::<usize>()
+        + key_heap_bytes(&record.key);
     let meta = record.meta.as_ref().map_or(0, |meta| {
         std::mem::size_of::<RecordMeta>()
             + meta.source_file_name.as_ref().map_or(0, String::capacity)
@@ -41,14 +42,12 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
                 .iter()
                 .map(|(key, value)| JSON_MAP_ENTRY + key.capacity() + value.capacity())
                 .sum::<usize>()
-            + stamp_heap_bytes(&meta.stamp)
     });
     let file = record.file.as_ref().map_or(0, |file| {
-        std::mem::size_of::<lastdb_model::record_value::RecordFile>()
+        std::mem::size_of::<lastdb_model::record_value::FileMarker>()
             + file.name.as_ref().map_or(0, String::capacity)
             + file.media_type.as_ref().map_or(0, String::capacity)
             + file.sha256.capacity()
-            + stamp_heap_bytes(&file.stamp)
     });
     finish(
         RECORD_BASE
@@ -57,15 +56,19 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + coordinate.0.capacity()
             + coordinate.1.capacity()
             + fields
-            + stamps
+            + addresses
             + meta
             + file
-            + record.deleted.as_ref().map_or(0, stamp_heap_bytes),
+            + stamp_heap_bytes(&record.stamp),
     )
 }
 
-fn stamp_heap_bytes(stamp: &FieldStamp) -> usize {
+fn stamp_heap_bytes(stamp: &RecordStamp) -> usize {
     stamp.device_id.capacity() + stamp.mutation_id.capacity()
+}
+
+fn key_heap_bytes(key: &lastdb_model::schema::types::KeyValue) -> usize {
+    key.hash.as_ref().map_or(0, String::capacity) + key.range.as_ref().map_or(0, String::capacity)
 }
 
 /// Heap bytes that a JSON value owns outside its own inline slot.

@@ -65,7 +65,7 @@ pub(crate) struct RecordHistoryEntry {
     /// The copy of the old value.
     pub value: serde_json::Value,
     /// The stamp of the old value.
-    pub stamp: lastdb_model::record_value::FieldStamp,
+    pub stamp: lastdb_model::record_value::RecordStamp,
     pub archived_at: u64,
     pub expires_at: Option<u64>,
     /// `replace` or `delete`.

@@ -16,7 +16,7 @@ use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FileWrite, KeyValue, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::records::RecordAddress;
-use lastdb_model::record_value::{FieldMerge, FieldStamp, StoredRecord};
+use lastdb_model::record_value::{FieldMerge, RecordStamp, StoredRecord};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -260,7 +260,7 @@ fn merge_mutation(
             if record.written_at().is_some_and(|at| at >= cutoff) {
                 return Ok(false);
             }
-            return Ok(record.delete(FieldStamp {
+            return Ok(record.delete(RecordStamp {
                 written_at: cutoff,
                 ..stamp
             }));
@@ -300,7 +300,7 @@ fn merge_mutation(
 /// The stamp of every field that one mutation writes. The author clock set the
 /// write time and the logical counter before the native request; the device is
 /// the author-clock writer.
-fn field_stamp(mutation: &Mutation) -> Result<FieldStamp, SchemaError> {
+fn field_stamp(mutation: &Mutation) -> Result<RecordStamp, SchemaError> {
     let written_at = mutation.imported_written_at.ok_or_else(|| {
         SchemaError::InvalidData("a record write lacks the author-clock write time".into())
     })?;
@@ -309,7 +309,7 @@ fn field_stamp(mutation: &Mutation) -> Result<FieldStamp, SchemaError> {
     } else {
         mutation.author_clock_writer_id.clone()
     };
-    Ok(FieldStamp {
+    Ok(RecordStamp {
         written_at,
         logical_counter: mutation.logical_counter,
         device_id,
