@@ -5,11 +5,11 @@
 
 use std::path::Path;
 
+use super::export_pin::pin_homes;
 use super::PackNamespacedStore;
 use crate::storage::cloud_contract::ContractError;
-use crate::storage::disk_contract::pin_homes;
 
-pub use crate::storage::disk_contract::PinnedDiskExport;
+pub use super::export_pin::PinnedDiskExport;
 
 /// Hardlink the published run homes and the node marker into `hold_dir`.
 ///

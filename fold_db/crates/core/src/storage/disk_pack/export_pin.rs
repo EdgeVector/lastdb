@@ -13,9 +13,11 @@ use cloud_backup_protocol::{bytes_sha256, Digest};
 use laststore::disk_run::home::{CapturedRunHome, RunHome};
 use sha2::Digest as _;
 
-use super::cloud_contract::{ArtifactDescriptor, Checkpoint, ContractError, EncodingContext};
-use super::format::export::{classify, kind_name, part_by_id};
-use super::format::{
+use super::super::cloud_contract::{
+    ArtifactDescriptor, Checkpoint, ContractError, EncodingContext,
+};
+use super::super::format::export::{classify, kind_name, part_by_id};
+use super::super::format::{
     CAS_DIR, CAS_KEY_LABEL, HOME_FORMAT, HOME_KEY_LABEL, NODE_MARKER, RECORD_NODE_BYTES, RUN_DIR,
 };
 
@@ -67,7 +69,7 @@ fn missing(identity: &str) -> std::io::Error {
 struct Draft {
     identity: String,
     part_id: &'static str,
-    role: super::cloud_contract::ExportRole,
+    role: super::super::cloud_contract::ExportRole,
     bytes: u64,
     sha256: Digest,
     encoding: EncodingContext,
@@ -87,10 +89,10 @@ pub(crate) fn pin_homes(
         .map_err(ContractError::Io)?;
     let main_hold = main
         .capture_files(&hold_dir.join("main"))
-        .map_err(capture_error)?;
+        .map_err(|error| ContractError::Capture(error.to_string()))?;
     let cas_hold = cas
         .capture_files(&hold_dir.join("cas"))
-        .map_err(capture_error)?;
+        .map_err(|error| ContractError::Capture(error.to_string()))?;
     let marker = link_marker(hold_dir, main)?;
     let checkpoint = Checkpoint {
         disk_format: HOME_FORMAT,
@@ -161,7 +163,9 @@ fn mint_home(
             return Err(ContractError::spec("captured path is not utf-8"));
         };
         let identity = format!("{home_dir}/{relative}");
-        let mut reader = capture.reader(&file.path).map_err(capture_error)?;
+        let mut reader = capture
+            .reader(&file.path)
+            .map_err(|error| ContractError::Capture(error.to_string()))?;
         let (bytes, sha256) = hash_file(&mut reader)?;
         if bytes != file.bytes {
             return Err(ContractError::capture(
@@ -205,7 +209,7 @@ fn mint_marker(
     Ok(Draft {
         identity: NODE_MARKER.to_string(),
         part_id: "node-marker",
-        role: super::cloud_contract::ExportRole::Snapshot,
+        role: super::super::cloud_contract::ExportRole::Snapshot,
         bytes,
         sha256,
         encoding: EncodingContext {
@@ -325,8 +329,4 @@ fn hash_file(input: &mut impl Read) -> Result<(u64, Digest), ContractError> {
     let encoded: String = result.iter().map(|byte| format!("{byte:02x}")).collect();
     let digest = Digest::try_from(encoded).map_err(|_| ContractError::spec("sha256 encoding"))?;
     Ok((total, digest))
-}
-
-fn capture_error(error: laststore::Error) -> ContractError {
-    ContractError::Capture(error.to_string())
 }

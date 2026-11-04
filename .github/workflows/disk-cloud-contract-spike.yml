@@ -10,10 +10,12 @@ on:
       - 'fold_db/crates/core/src/storage/format/export.rs'
       - 'fold_db/crates/core/src/storage/mod.rs'
       - 'fold_db/crates/core/src/storage/cloud_contract.rs'
-      - 'fold_db/crates/core/src/storage/disk_contract.rs'
+      - 'fold_db/crates/core/src/storage/cloud_contract/plan.rs'
       - 'fold_db/crates/core/src/storage/disk_pack/mod.rs'
       - 'fold_db/crates/core/src/storage/disk_pack/contract_pin.rs'
+      - 'fold_db/crates/core/src/storage/disk_pack/export_pin.rs'
       - 'fold_db/crates/core/examples/disk_cloud_contract_spike.rs'
+      - 'fold_db/crates/core/examples/disk_cloud_contract_spike/checks.rs'
       - '.github/workflows/disk-cloud-contract-spike.yml'
   workflow_dispatch:
 

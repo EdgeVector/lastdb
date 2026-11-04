@@ -27,7 +27,6 @@ pub(crate) mod content_key_proof;
 pub(crate) mod current_keys;
 pub mod disk_backup;
 pub mod disk_cleanup;
-pub(crate) mod disk_contract;
 pub mod disk_pack;
 pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].

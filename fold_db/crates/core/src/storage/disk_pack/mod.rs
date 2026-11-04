@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod blocking;
 mod contract_pin;
+mod export_pin;
 pub use contract_pin::{pin_disk_export, PinnedDiskExport};
 pub(in crate::storage) mod cas_delete;
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
