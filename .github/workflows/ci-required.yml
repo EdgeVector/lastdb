@@ -326,3 +326,90 @@ jobs:
             exit 1
           fi
           echo "All required jobs passed."
+
+  whole_record_spike:
+    name: Explicit-key whole-record mutation spike
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/spike/whole-record-mutations-20261104'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install --profile minimal --component clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fmt-clippy
+          save-if: false
+      - name: Lint and build the spike CLI
+        run: |
+          cargo clippy --locked -p lastdb_node --bin lastdb-record-spike -- -D warnings
+          cargo build --locked -p lastdb_node --bin lastdb-record-spike
+      - name: Exercise conditional whole-record replacement through the CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          spike_root="$(mktemp -d "$RUNNER_TEMP/whole-record-spike.XXXXXX")"
+          trap 'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$spike_root"' EXIT
+          spike_program="$PWD/target/debug/lastdb-record-spike"
+          spike() { "$spike_program" "${spike_args[@]}" "$@"; }
+          {
+            echo '## Explicit-key whole-record mutation spike'
+            echo "Source: $(git rev-parse HEAD)"
+            for selected_format in plain nested; do
+              echo "### $selected_format"
+              spike_args=(--home "$spike_root/$selected_format" --format "$selected_format")
+              spike init
+              printf '%s\n' '{"primary":"hash","alternates":{"by_team":"hash","by_order":"hash_range"}}' | spike schema notes
+              first='{"schema":"notes","key":{"hash":"alpha"},"expected":{"type":"absent"},"alternates":{"by_team":{"hash":"team"},"by_order":{"hash":"queue","range":"001"}},"record":{"title":"first","obsolete":true}}'
+              receipt="$(printf '%s\n' "$first" | spike put)"
+              echo "$receipt"
+              original="$(jq -er .revision <<<"$receipt")"
+              printf '%s\n' "$first" | jq '.key.hash="beta" | .alternates.by_order.range="002" | .record={title:"independent"}' | spike put
+              spike get notes --hash alpha
+              spike lookup notes by_team --hash team
+              echo '### Whole replacement moves both external alternate keys'
+              replacement="$(jq -c --arg revision "$original" '.expected={type:"revision",revision:$revision} | .alternates.by_team.hash="other" | .alternates.by_order.range="003" | .record={title:"second"}' <<<"$first")"
+              receipt="$(printf '%s\n' "$replacement" | spike put)"
+              echo "$receipt"
+              current="$(jq -er .revision <<<"$receipt")"
+              spike get notes --hash alpha
+              spike lookup notes by_team --hash team
+              spike lookup notes by_team --hash other
+              spike lookup notes by_order --hash queue --range 001
+              spike lookup notes by_order --hash queue --range 003
+              echo '### Stale revision and incomplete alternate declarations are refused'
+              if printf '%s\n' "$replacement" | spike put; then exit 1; fi
+              if jq -c --arg revision "$current" '.expected.revision=$revision | del(.alternates.by_order)' <<<"$replacement" | spike put; then exit 1; fi
+              if jq -c --arg revision "$current" '.expected.revision=$revision | .alternates.unknown={hash:"x"}' <<<"$replacement" | spike put; then exit 1; fi
+              if jq -c --arg revision "$current" '.expected.revision=$revision | del(.alternates.by_order.range)' <<<"$replacement" | spike put; then exit 1; fi
+              spike get notes --hash alpha
+              echo '### Empty payload stays addressable; keys are not fields'
+              receipt="$(jq -c --arg revision "$current" '.expected.revision=$revision | .record={}' <<<"$replacement" | spike put)"
+              echo "$receipt"
+              current="$(jq -er .revision <<<"$receipt")"
+              spike lookup notes by_team --hash other
+              echo '### Conditional deletion removes both alternate pointers'
+              jq -nc --arg revision "$current" '{schema:"notes",key:{hash:"alpha"},revision:$revision}' | spike delete
+              spike get notes --hash alpha
+              spike lookup notes by_team --hash other
+              spike lookup notes by_order --hash queue --range 003
+              echo '### Recreate uses a new revision; an old token cannot replace it'
+              printf '%s\n' "$first" | spike put
+              if printf '%s\n' "$replacement" | spike put; then exit 1; fi
+              spike get notes --hash alpha
+              spike get notes --hash beta
+              printf '%s\n' '{"primary":"hash_range","alternates":{}}' | spike schema events
+              printf '%s\n' '{"schema":"events","key":{"hash":"owner","range":"event-1"},"expected":{"type":"absent"},"alternates":{},"record":{"text":"no key fields"}}' | spike put
+              spike get events --hash owner --range event-1
+              spike maintain --steps 16
+              du -sk "$spike_root/$selected_format"
+            done
+          } | tee "$RUNNER_TEMP/whole-record-spike.txt"
+          cat "$RUNNER_TEMP/whole-record-spike.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: whole-record-spike-${{ github.sha }}
+          path: ${{ runner.temp }}/whole-record-spike.txt
+          if-no-files-found: ignore
+          retention-days: 14

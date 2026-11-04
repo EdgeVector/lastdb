@@ -22,3 +22,4 @@ pub mod kind_partition;
 pub mod record_space;
 pub mod record_value;
 pub mod schema;
+pub mod whole_record;

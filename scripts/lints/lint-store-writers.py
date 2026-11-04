@@ -65,6 +65,9 @@ TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
     "content_key_proof.rs",
 )}
 BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/core/open.rs"
+# Isolated CLI composition root: the only native owner for the explicit-key
+# spike. Its model and nested encoders remain subject to the raw-capability ban.
+TRUSTED_FILES.add("lastdb_node/src/bin/lastdb_record_spike/writer.rs")
 BOOTSTRAP_FUNCTIONS = {
     "from_namespaced_store", "from_namespaced_store_with_content_and_field_keys",
     "from_stopped_native_data",
