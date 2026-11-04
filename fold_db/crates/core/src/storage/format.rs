@@ -10,6 +10,7 @@
 //! introduces no startup key audit.
 
 pub(crate) mod history;
+pub(crate) mod metadata;
 pub(crate) mod records;
 
 /// The home format: one stored record per primary key and record-owned files.
@@ -32,6 +33,13 @@ pub(in crate::storage) const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
 pub(crate) const MAIN_NAMESPACE: &str = "main";
 pub(crate) const METADATA_NAMESPACE: &str = "metadata";
+pub(in crate::storage::format) const RETRY_CACHE_PREFIX: &str = "retry-cache:";
+pub(in crate::storage::format) const RETRY_CACHE_BUCKETS: usize = 256;
+pub(in crate::storage::format) const RETRY_CACHE_ENTRIES: usize = 32;
+pub(in crate::storage::format) const RETRY_CACHE_BUCKET_BYTES: usize = 8 * 1024;
+pub(in crate::storage::format) const RETRY_CACHE_ID_BYTES: usize = 128;
+// The model owns the author-clock wire type and its exact key definition.
+pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
 pub(crate) const FIELD_KEYS_NAMESPACE: &str = "field_keys";

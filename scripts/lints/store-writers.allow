@@ -1,4 +1,4 @@
-# Writer boundary of the field history rows.
+# Recognized raw writers and the field-history writer boundary.
 # Format: path|function|families|reason
 # families: H field history (rh:, ahq:, ahk:, ahb:) rows · - none of these
 # One line for each function that the lint finds. The lint fails on a function that is missing,
@@ -15,4 +15,5 @@ fold_db/crates/core/src/db_operations/record_store/erase_meters.rs|record_record
 fold_db/crates/core/src/storage/format/records/mod.rs|stage|-|consumes the format-minted opaque record, pointer and history batches in one staging call inside the existing write scope; never starts or commits an independent request
 fold_db/crates/core/src/storage/format/history/mod.rs|stage|-|consumes only opaque batches minted by history capture/release/count/policy encoders or guarded queue retirement, inside the existing native request; providers supply data, not raw mutations
 fold_db/crates/core/src/storage/format/history/retire.rs|retire_bucket|-|inside a native write scope, reads one format-owned queue bucket and mints its opaque delete only while the bytes still match the reader's token; no generic guarded raw-key writer
+fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|-|private metadata writer accepts only clock/receipt batches minted by the format inside the existing native request; domain store and nested retry codec hold no raw namespace handle
 fold_db/crates/core/src/db_operations/record_store/schema_release.rs|release_batch|-|schema drop: in one write scope, reads one bounded batch of the rk: records or ak: entries of a dropped schema again by key and deletes them in one native batch, then deletes the file paths of those records in that batch

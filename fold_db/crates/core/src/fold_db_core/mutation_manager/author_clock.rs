@@ -30,7 +30,7 @@ pub(super) struct AuthorClockPersistQueue {
 impl AuthorClockPersistQueue {
     pub(super) fn new(
         db_ops: Arc<DbOperations>,
-        state_key: String,
+        writer: String,
         initial_state: MutationAuthorClockState,
         pending_tasks: Arc<PendingTaskTracker>,
     ) -> Self {
@@ -41,7 +41,7 @@ impl AuthorClockPersistQueue {
         tokio::spawn(run_author_clock_persist_queue(
             receiver,
             db_ops,
-            state_key,
+            writer,
             initial_state,
         ));
         Self {
@@ -166,7 +166,7 @@ struct AuthorClockPersistJob {
 
 async fn persist_author_clock(
     db_ops: &DbOperations,
-    state_key: &str,
+    writer: &str,
     state: &MutationAuthorClockState,
 ) -> Result<(), SchemaError> {
     crate::storage::disk_pack::transaction::request_scope(
@@ -174,11 +174,14 @@ async fn persist_author_clock(
         async {
             let mut durable = db_ops
                 .metadata()
-                .get_typed::<MutationAuthorClockState>(state_key)
+                .author_clock(writer)
                 .await?
                 .unwrap_or_default();
             durable.observe_remote(state.physical_nanos, state.logical_counter);
-            db_ops.metadata().put_typed(state_key, &durable).await?;
+            db_ops
+                .metadata()
+                .stage_author_clock(writer, &durable)
+                .await?;
             Ok::<(), SchemaError>(())
         },
     )
@@ -188,7 +191,7 @@ async fn persist_author_clock(
 async fn run_author_clock_persist_queue(
     mut receiver: tokio::sync::mpsc::Receiver<AuthorClockPersistJob>,
     db_ops: Arc<DbOperations>,
-    state_key: String,
+    writer: String,
     mut high_water: MutationAuthorClockState,
 ) {
     while let Some(first_job) = receiver.recv().await {
@@ -214,7 +217,7 @@ async fn run_author_clock_persist_queue(
         let mut attempt = 1_u64;
         let capacity_window_start = std::time::Instant::now();
         let outcome = loop {
-            match persist_author_clock(&db_ops, &state_key, &high_water).await {
+            match persist_author_clock(&db_ops, &writer, &high_water).await {
                 Ok(()) => break ClockOutcome::Durable,
                 Err(SchemaError::WriteResourceLimit { detail })
                     if capacity_window_start.elapsed() >= AUTHOR_CLOCK_CAPACITY_WINDOW =>
