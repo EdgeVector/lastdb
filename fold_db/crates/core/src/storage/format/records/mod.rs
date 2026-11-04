@@ -63,7 +63,7 @@ fn encode(
     for change in changes {
         // Structure is checked now; complete-request admission checks the
         // final encoded body at each key, including repeated-key writes.
-        if &change.after.key != change.key.api_key() {
+        if change.after.is_live() && &change.after.key != change.key.api_key() {
             return Err(SchemaError::InvalidData(
                 "record payload differs from its bound primary address".into(),
             ));

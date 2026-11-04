@@ -89,6 +89,7 @@ impl std::error::Error for RecordValueError {}
 #[serde(deny_unknown_fields)]
 pub struct StoredRecord {
     pub v: u8,
+    #[serde(default, skip_serializing_if = "empty_key")]
     pub key: KeyValue,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub alternates: BTreeMap<String, Option<KeyValue>>,
@@ -117,6 +118,10 @@ impl Default for StoredRecord {
             deleted: true,
         }
     }
+}
+
+fn empty_key(key: &KeyValue) -> bool {
+    key.hash.is_none() && key.range.is_none()
 }
 
 fn is_false(value: &bool) -> bool {
@@ -154,6 +159,8 @@ impl StoredRecord {
         if !self.is_live() {
             return false;
         }
+        self.key = KeyValue::default();
+        self.alternates.clear();
         self.fields.clear();
         self.meta = None;
         self.file = None;
@@ -185,7 +192,7 @@ impl StoredRecord {
 
     fn validate_structure(&self) -> Result<(), RecordValueError> {
         if self.v != RECORD_VALUE_VERSION
-            || self.key.hash.as_deref().is_none_or(str::is_empty)
+            || (!self.deleted && self.key.hash.as_deref().is_none_or(str::is_empty))
             || self.stamp.written_at == 0
             || self.stamp.device_id.is_empty()
             || self.stamp.mutation_id.is_empty()
@@ -194,7 +201,13 @@ impl StoredRecord {
                 "invalid record version, address or stamp".into(),
             ));
         }
-        if self.deleted && (!self.fields.is_empty() || self.meta.is_some() || self.file.is_some()) {
+        if self.deleted
+            && (!empty_key(&self.key)
+                || !self.alternates.is_empty()
+                || !self.fields.is_empty()
+                || self.meta.is_some()
+                || self.file.is_some())
+        {
             return Err(RecordValueError::Format(
                 "a deleted record still has live content".into(),
             ));

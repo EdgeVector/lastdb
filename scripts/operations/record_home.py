@@ -151,6 +151,28 @@ def external_boundaries(node, external):
     node.call("/api/mutations/batch", {"mutations": conditioned(node, requests)})
 
 
+def wide_empty_record_erasure(node):
+    schema = "RecordWideEmpty"
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": schema, "descriptive_name": schema,
+        "schema_type": "Hash", "fields": [], "field_types": {},
+        "record_keys": {"primary": {"kind": "hash"},
+                        "alternates": {"by_alias": {"kind": "hash"}}},
+    }})
+    key, aliases = {"hash": "k" * 65_000}, {"by_alias": {"hash": "wide-empty"}}
+    created = mutate(node, schema, key, {}, "create", alternates=aliases)
+    request = mutation(schema, key, {}, "delete", alternates=aliases,
+                       expected={"type": "revision", "revision": created["record_revision"]})
+    deleted = node.call("/api/mutation", request)[0]
+    request.update(mutation_id=str(uuid.uuid4()), mutation_type="purge",
+                   expected={"type": "revision", "revision": deleted["record_revision"]})
+    node.call("/api/mutation", request)
+    reply = node.call("/api/query", {"schema_name": schema, "fields": [],
+        "filter": {"HashKey": "wide-empty"}, "key_name": "by_alias"})[0]
+    require(reply["results"] == [], "wide empty record retained its alternate after erasure")
+    print("Wide empty record: complete-address delete and revision-guarded tombstone purge passed", flush=True)
+
+
 def alternate_keys(node):
     def lookup(selector):
         return query(node, "RecordById", selector, key_name="by_bucket")
@@ -471,6 +493,7 @@ def main():
         require(marker_format(marker) == HOME_FORMAT, f"the new home is not format {HOME_FORMAT}: " + repr(marker))
         install(node)
         hash_records(node)
+        wide_empty_record_erasure(node)
         alternate_keys(node)
         range_records(node)
         preconditions(node)

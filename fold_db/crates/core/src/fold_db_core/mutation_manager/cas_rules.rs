@@ -28,7 +28,9 @@ pub(super) fn check_expectation(
     if matches!(
         mutation.mutation_type,
         MutationType::Delete | MutationType::Purge
-    ) && current.is_some_and(|record| record.alternates != mutation.alternates)
+    ) && current
+        .filter(|record| record.is_live())
+        .is_some_and(|record| record.alternates != mutation.alternates)
     {
         return Err(SchemaError::InvalidData(
             "deletion must supply the record's complete current alternate keys".into(),
