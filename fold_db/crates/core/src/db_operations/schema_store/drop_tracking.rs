@@ -61,12 +61,15 @@ impl SchemaStore {
     /// batches cannot survive the schema record's removal.
     pub(super) async fn drop_tracking_remains(&self, schema: &str) -> Result<bool, SchemaError> {
         let ranges = ranges(schema);
-        let store = self.schema_states_store.inner();
-        let pages =
-            futures::future::try_join_all(ranges.iter().map(|(_, start, end)| {
-                store.scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
-            }))
-            .await?;
+        let pages = futures::future::try_join_all(ranges.iter().map(|(_, start, end)| {
+            let store = self.schema_states_store.inner();
+            async move {
+                store
+                    .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
+                    .await
+            }
+        }))
+        .await?;
         Ok(pages.iter().any(|page| !page.is_empty()))
     }
 }
