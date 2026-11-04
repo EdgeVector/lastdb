@@ -28,7 +28,7 @@ impl RecordStore {
         schema: &Schema,
     ) -> Result<SchemaRelease, SchemaError> {
         let mut out = SchemaRelease::default();
-        for family in release_families(schema) {
+        for family in release_families(schema)? {
             let count = self.release_family(&family).await?;
             match family.kind() {
                 ReleaseKind::Records => out.records += count,

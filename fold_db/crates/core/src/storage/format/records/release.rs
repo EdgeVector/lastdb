@@ -21,7 +21,7 @@ pub(crate) struct ReleaseFamily {
     kind: ReleaseKind,
 }
 
-pub(crate) fn release_families(schema: &Schema) -> Vec<ReleaseFamily> {
+pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, SchemaError> {
     let space = record_space_uuid(&schema.name);
     let mut families = vec![
         ReleaseFamily {
@@ -33,14 +33,20 @@ pub(crate) fn release_families(schema: &Schema) -> Vec<ReleaseFamily> {
             kind: ReleaseKind::Records,
         },
     ];
-    families.extend(schema.alternate_keys.keys().map(|name| ReleaseFamily {
-        prefix: format!(
-            "{ALTERNATE_ENTRY_PREFIX}{}:",
-            alternate_field_key_id(schema, name)
-        ),
-        kind: ReleaseKind::Alternates,
-    }));
-    families
+    families.extend(
+        schema
+            .require_record_keys()?
+            .alternates
+            .keys()
+            .map(|name| ReleaseFamily {
+                prefix: format!(
+                    "{ALTERNATE_ENTRY_PREFIX}{}:",
+                    alternate_field_key_id(schema, name)
+                ),
+                kind: ReleaseKind::Alternates,
+            }),
+    );
+    Ok(families)
 }
 
 impl ReleaseFamily {

@@ -136,20 +136,22 @@ impl QueryExecutor {
         let has_more = entries.len() > limit;
         entries.truncate(limit);
         let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-        // Entries already select exact primary keys in this captured schema.
-        // Read them in one batch, then use the common pure projection; do not
-        // resolve names or run another key-selection query inside this page.
-        let records = self.db_ops.records().records_at(&schema, &keys).await?;
-        let fetched = records.len();
-        let values = crate::fold_db_core::query::hash_range_query::project_records(
-            &schema,
-            &query.fields,
-            records
-                .into_iter()
-                .filter(|(_, record)| record.is_live())
+        query.filter = Some(crate::schema::types::field::HashRangeFilter::HashRangeKeys(
+            keys.iter()
+                .map(|key| {
+                    (
+                        key.hash.clone().unwrap_or_default(),
+                        key.range.clone().unwrap_or_default(),
+                    )
+                })
                 .collect(),
-        );
-        validate_entries(&name, &entries, &values, fetched)?;
+        ));
+        let values = if keys.is_empty() {
+            QueryRecords::new()
+        } else {
+            self.query_current(query, None).await?
+        };
+        validate_entries(&name, &entries, &values)?;
         Ok(AlternatePage {
             values,
             entries,
@@ -210,12 +212,11 @@ fn validate_entries(
     name: &str,
     entries: &[AlternateEntry],
     values: &QueryRecords,
-    fetched: usize,
 ) -> Result<(), SchemaError> {
     for entry in entries {
         let record = values.get(&entry.primary).ok_or_else(|| {
             SchemaError::InvalidData(format!(
-                "alternate page is missing a primary record ({} entries, {fetched} fetched, {} live)",
+                "alternate page is missing a primary record ({} entries, {} records)",
                 entries.len(),
                 values.len()
             ))

@@ -13,11 +13,8 @@
 //! more rows (the ledger row and others). These are upper bounds: an erase of
 //! one record stages its record delete and its alternate entry deletes.
 //!
-//! A schema with named alternate keys costs more for each key. The erase
-//! deletes at most one entry for each alternate key. It reads the fields that
-//! derive those keys twice, before and after the record removal. One request
-//! also holds at most [`MAX_ALTERNATE_ENTRIES`] of those field reads and of
-//! those entry changes, across all its chunks.
+//! A schema with named alternate keys stages at most one entry delete for
+//! each explicit address. No payload fields are read to derive these keys.
 
 use crate::alternate_keys::MAX_ALTERNATE_ENTRIES;
 use crate::schema::types::Schema;
@@ -38,10 +35,6 @@ pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
 pub const PURGE_READS_PER_FIELD: usize = 12;
 /// Examined keys for each field of each key of a delete, at most.
 pub const DELETE_READS_PER_FIELD: usize = 13;
-/// Examined keys for each alternate source field of each key, at most: the
-/// record and its alternate entry, read before and after the erase.
-pub const ALTERNATE_READS_PER_FIELD: usize = 4;
-
 /// The parts of a schema that set the cost of erasing one key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EraseShape {
@@ -49,25 +42,19 @@ pub struct EraseShape {
     pub fields: usize,
     /// Named alternate keys. Each key costs one entry delete for each.
     pub alternates: usize,
-    /// Fields that derive the alternate keys, with the primary hash field.
-    /// Zero when the schema has no alternate key.
-    pub alternate_fields: usize,
 }
 
 impl EraseShape {
     /// The shape of `schema` as an erase reads and writes it.
     #[must_use]
     pub fn of(schema: &Schema) -> Self {
-        let alternates = schema.alternate_keys.len();
-        let alternate_fields = if alternates == 0 {
-            0
-        } else {
-            schema.alternate_dependency_fields().len()
-        };
+        let alternates = schema
+            .record_keys
+            .as_ref()
+            .map_or(0, |keys| keys.alternates.len());
         Self {
-            fields: schema.runtime_fields.len(),
+            fields: schema.runtime_fields.len().max(1),
             alternates,
-            alternate_fields,
         }
     }
 }
@@ -107,15 +94,10 @@ pub fn erase_reads_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> 
     keys.saturating_mul(shape.fields)
         .saturating_mul(reads_per_field(delete))
         .saturating_add(chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
-        .saturating_add(
-            keys.saturating_mul(shape.alternate_fields)
-                .saturating_mul(ALTERNATE_READS_PER_FIELD),
-        )
 }
 
 fn fits_alternate_caps(keys: usize, shape: EraseShape) -> bool {
-    keys.saturating_mul(shape.alternate_fields) <= MAX_ALTERNATE_ENTRIES
-        && keys.saturating_mul(shape.alternates) <= MAX_ALTERNATE_ENTRIES
+    keys.saturating_mul(shape.alternates) <= MAX_ALTERNATE_ENTRIES
 }
 
 fn fits(delete: bool, keys: usize, shape: EraseShape, limit: usize) -> bool {
@@ -132,7 +114,6 @@ pub fn max_erase_keys(delete: bool, shape: EraseShape, limit: usize) -> usize {
     let width = shape.fields.max(1);
     let mut keys = (limit / width.saturating_mul(operations_per_field(delete)))
         .min(WRITE_REQUEST_READ_KEYS / width.saturating_mul(reads_per_field(delete)))
-        .min(MAX_ALTERNATE_ENTRIES / shape.alternate_fields.max(1))
         .min(MAX_ALTERNATE_ENTRIES / shape.alternates.max(1));
     while keys > 0 && !fits(delete, keys, shape, limit) {
         keys -= 1;
