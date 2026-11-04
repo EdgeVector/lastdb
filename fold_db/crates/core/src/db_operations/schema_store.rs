@@ -70,9 +70,13 @@ impl SchemaStore {
     /// The read is strict: a row that does not decode, or whose payload names
     /// another schema, fails the read.
     pub async fn get_all_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
-        let rows =
-            read_catalog_range::<Schema>(&self.schemas_store, "schemas", b"", CATALOG_SCAN_END)
-                .await?;
+        let rows = read_catalog_range::<Schema>(
+            &self.schemas_store,
+            crate::storage::format::SCHEMAS_NAMESPACE,
+            b"",
+            CATALOG_SCAN_END,
+        )
+        .await?;
         let mut schemas = HashMap::with_capacity(rows.len());
         for (key, mut schema) in rows {
             if schema.name != key {
@@ -99,7 +103,7 @@ impl SchemaStore {
     pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
         let rows = read_catalog_range::<SchemaState>(
             &self.schema_states_store,
-            "schema_states",
+            crate::storage::format::SCHEMA_STATES_NAMESPACE,
             CATALOG_STATE_SCAN_START,
             CATALOG_SCAN_END,
         )

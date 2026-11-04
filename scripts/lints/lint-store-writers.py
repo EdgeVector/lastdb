@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Recognized raw writers and the field-history writer boundary.
+"""Format writer capability ownership and the recognized direct-writer inventory.
+
+Logical providers cannot hold raw store types, native row constructors or namespace
+factories. Trusted format/physical modules and the enumerated bootstrap entry
+functions retain those rights; private child constructors bind one home context.
 
 Only the record writers may write field history rows (`rh:` with its
 `ahq:`/`ahk:`/`ahb:` rows) inside a write scope. This lint finds every Rust
@@ -32,7 +36,7 @@ import os
 import re
 import sys
 
-SOURCE_DIRS = ["fold_db/crates/core/src", "lastdb_node/src", "lastdb_host", "lastdb_uds"]
+SOURCE_DIRS = ["fold_db/crates/model/src", "fold_db/crates/core/src", "lastdb_node/src", "lastdb_host", "lastdb_uds"]
 ALLOW = "scripts/lints/store-writers.allow"
 
 WRITE = re.compile(
@@ -47,6 +51,52 @@ FAMILIES = {
     "H": re.compile(r'\bRECORD_HISTORY_(?:PREFIX|FAMILY)\b|"rh:|"ahq\b|"ahk:|"ahb\b'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+# Physical engines/format writers are trusted. All other logical sources,
+# including the storage-adjacent field-key provider, have no raw authority.
+CORE_SOURCE = "fold_db/crates/core/src/"
+TRUSTED_PREFIXES = tuple(CORE_SOURCE + part for part in (
+    "storage/format/", "storage/disk_pack/", "storage/disk_backup/",
+    "storage/disk_cleanup/", "storage/traits/", "storage/encrypting_store/",
+    "storage/encrypting_namespaced_store/", "fold_db_core/factory/local/",
+))
+TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
+    "mod.rs", "traits.rs", "format.rs", "disk_backup.rs", "disk_cleanup.rs",
+    "content_key_proof.rs",
+)}
+BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/core/open.rs"
+BOOTSTRAP_FUNCTIONS = {
+    "from_namespaced_store", "from_namespaced_store_with_content_and_field_keys",
+    "from_stopped_native_data",
+}
+RAW_CAPABILITY = re.compile(
+    r"\b(?:KvStore|TypedKvStore|KvMutation|NamespacedStore|PackNamespacedStore|"
+    r"EncryptingNamespacedStore|RunHome|HomeMutation)\b|"
+    r"\.(?:namespaced_store|open_namespace)\s*\(|\.raw\(\)|"
+    r"\bfrom_namespaced_store(?:_with_content_and_field_keys)?\s*\("
+)
+
+
+def raw_capabilities(path, source, spans):
+    """A provided reader cannot write; this policy also closes raw imports/factories.
+
+    This is an architectural source rule, not a hostile-code/filesystem sandbox.
+    Bootstrap inputs may be raw; their results are typed operations/capabilities.
+    """
+    if path in TRUSTED_FILES or path.startswith(TRUSTED_PREFIXES):
+        return []
+    imports = list(re.finditer(r"\buse\b[^;]*;", source)) if path == BOOTSTRAP_FILE else []
+    failures = []
+    for token in RAW_CAPABILITY.finditer(source):
+        owners = [name for name, start, end in spans if start <= token.start() <= end]
+        if not owners and any(item.start() <= token.start() < item.end() for item in imports):
+            continue
+        if path == BOOTSTRAP_FILE and owners and all(name in BOOTSTRAP_FUNCTIONS for name in owners):
+            continue
+        line = source.count("\n", 0, token.start()) + 1
+        failures.append(f"{path}:{line}: raw storage capability outside trusted bootstrap/format: {token.group(0)}")
+    return failures
+
 
 
 def blank(text):
@@ -162,7 +212,7 @@ def own_text(src, a, b, holes):
     return "".join(pieces)
 
 
-def scan(root):
+def scan(root, capability_failures=None):
     """Return {(path, fn): set(families)} for every writer function."""
     found = {}
     for d in SOURCE_DIRS:
@@ -178,7 +228,10 @@ def scan(root):
                 with open(path, encoding="utf-8", errors="replace") as handle:
                     text = handle.read()
                 nostr, withstr = blank(text)
-                for name, a, b, holes in innermost_bodies(functions(nostr)):
+                spans = functions(nostr)
+                if capability_failures is not None:
+                    capability_failures.extend(raw_capabilities(rel, nostr, spans))
+                for name, a, b, holes in innermost_bodies(spans):
                     body_nostr = own_text(nostr, a, b, holes)
                     body_str = own_text(withstr, a, b, holes)
                     if not WRITE.search(body_nostr):
@@ -219,9 +272,12 @@ def main():
     parser.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     args = parser.parse_args()
     root = os.path.abspath(args.root)
-    found = scan(root)
+    capability_failures = []
+    found = scan(root, capability_failures)
     entries = load_allow(root)
-    failed = False
+    failed = bool(capability_failures)
+    for failure in capability_failures:
+        print(f"lint-store-writers: {failure}", file=sys.stderr)
     used = set()
     for (path, fn), fams in sorted(found.items()):
         key_fams = fams - {"raw"}

@@ -17,7 +17,11 @@ pub(super) fn verify(
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
-    let mut rows = Rows::new(main, read.as_mut(), "schemas")?;
+    let mut rows = Rows::new(
+        main,
+        read.as_mut(),
+        crate::storage::format::SCHEMAS_NAMESPACE,
+    )?;
     while let Some((_, bytes)) = rows.next()? {
         let mut schema: Schema = serde_json::from_slice(&bytes)
             .map_err(|_| invalid("run backup schema record is unreadable"))?;
@@ -73,8 +77,10 @@ fn batch(
 ) -> StorageResult<()> {
     let mut coordinates = Vec::with_capacity(field_keys.len() * 2);
     for field_key in field_keys {
-        coordinates
-            .extend(node_bundle_storage_keys(field_key)?.map(|key| ("field_keys".to_owned(), key)));
+        coordinates.extend(
+            node_bundle_storage_keys(field_key)?
+                .map(|key| (crate::storage::format::FIELD_KEYS_NAMESPACE.to_owned(), key)),
+        );
     }
     let mut read = super::fork_mapped(
         main,

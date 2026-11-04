@@ -38,8 +38,10 @@ pub async fn execute_query<H: HostNode>(
     cursor: Option<QueryCursor>,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
-    let store = host.fold_db().db_ops().namespaced_store();
-    let scope = fold_db::storage::disk_pack::PackReadScope::for_store(&store)
+    let scope = host
+        .fold_db()
+        .db_ops()
+        .read_scope()
         .await
         .map_err(|error| HostError::new(503, error.to_string()))?;
     scope

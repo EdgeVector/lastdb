@@ -5,8 +5,6 @@ use super::{
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::storage::disk_pack::byte_backup::RunBackupProfile;
-use fold_db::storage::disk_pack::PackNamespacedStore;
-use fold_db::storage::traits::NamespacedStore;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -63,12 +61,8 @@ pub async fn backup_stopped(
     let keys =
         fold_db::crypto::E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
     let node_key = zeroize::Zeroizing::new(keys.encryption_key());
-    let storage = PackNamespacedStore::open_existing_for_backup(&home.join("data"), &node_key)?;
-    let source = Source::from_stopped(
-        storage.disk_pack_runtime(),
-        &pair,
-        request.account_id.clone(),
-    )?;
+    let runtime = fold_db::storage::disk_pack::open_backup_runtime(&home.join("data"), &node_key)?;
+    let source = Source::from_stopped(runtime, &pair, request.account_id.clone())?;
     let client = super::connection::client_for_stopped(home, &source.account, &source.source_home)?;
     let endpoint = client.canonical_endpoint();
     super::automatic::check_stopped(home, &source.account, &source.source_home, &endpoint)?;

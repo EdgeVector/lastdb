@@ -36,7 +36,7 @@ impl SchemaCore {
         if !self.native_read_snapshot_active() {
             return Ok(None);
         }
-        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let runtime = self.db_ops.native_runtime();
         let cache = self.db_ops.schemas().snapshot_owner();
         let key = "\0native_schema_name_directory";
         if let Some(directory) = core_memory_get(&runtime, cache, key)? {
@@ -70,7 +70,7 @@ impl SchemaCore {
     }
 
     pub(super) fn native_read_snapshot_active(&self) -> bool {
-        read_snapshot_active(&self.db_ops.namespaced_store().disk_pack_runtime())
+        read_snapshot_active(&self.db_ops.native_runtime())
     }
 
     pub(super) async fn native_schema_snapshot(
@@ -95,7 +95,7 @@ impl SchemaCore {
         &self,
         name: &str,
     ) -> Result<Arc<CoreMemoryValue<SchemaReadSnapshot>>, SchemaError> {
-        let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
+        let runtime = self.db_ops.native_runtime();
         let cache = self.db_ops.schemas().snapshot_owner();
         if let Some(snapshot) = core_memory_get(&runtime, cache, name)? {
             return Ok(snapshot);
@@ -117,7 +117,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Option<Option<Schema>>, SchemaError> {
         let snapshot = read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
-            &self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.native_runtime(),
             self.db_ops.schemas().snapshot_owner(),
             name,
         )?;
@@ -129,7 +129,7 @@ impl SchemaCore {
         name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
         Ok(read_snapshot_get::<CoreMemoryValue<SchemaReadSnapshot>>(
-            &self.db_ops.namespaced_store().disk_pack_runtime(),
+            &self.db_ops.native_runtime(),
             self.db_ops.schemas().snapshot_owner(),
             name,
         )?

@@ -262,3 +262,10 @@ impl NamespacedStore for PackNamespacedStore {
         Arc::clone(&self.runtime)
     }
 }
+
+/// Explicit stopped-home backup bootstrap. Consumers receive physical backup,
+/// status and coordination rights, never a logical namespace factory.
+pub fn open_backup_runtime(path: &Path, node_key: &[u8; 32]) -> StorageResult<Arc<PackRuntime>> {
+    let store = PackNamespacedStore::open_existing_for_backup(path, node_key)?;
+    Ok(store.runtime)
+}

@@ -19,7 +19,7 @@ impl Source {
     pub fn from_host(host: &crate::host::Host) -> Result<Self> {
         let seed = Zeroizing::new(host.keypair.secret_key_bytes());
         let keys = E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
-        let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
+        let runtime = host.db.db_ops().native_runtime();
         Ok(Self {
             account: AccountId::try_from(host.user_hash.clone())?,
             source_home: Id::try_from(runtime.native_home_id().to_string())?,

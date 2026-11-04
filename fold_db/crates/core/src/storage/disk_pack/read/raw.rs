@@ -117,9 +117,9 @@ fn trace_families(coordinates: &[(String, String)]) {
     let mut counts = std::collections::BTreeMap::new();
     for (collection, key) in coordinates {
         let family = match collection.as_str() {
-            "schemas" => "schema",
-            "schema_states" => "schema_state",
-            "field_keys" => "field_key_encryption_keys",
+            crate::storage::format::SCHEMAS_NAMESPACE => "schema",
+            crate::storage::format::SCHEMA_STATES_NAMESPACE => "schema_state",
+            crate::storage::format::FIELD_KEYS_NAMESPACE => "field_key_encryption_keys",
             _ => record_family(key),
         };
         *counts.entry(family).or_insert(0usize) += 1;

@@ -1,8 +1,7 @@
 //! Two batch reads resolve all uncached field key contracts for one schema.
 
 use super::{
-    open_wrap, validate_identity, wrap_key_for, BundleWrap, FieldKeyStore, StorageError,
-    StorageResult,
+    validate_identity, wrap_key_for, BundleWrap, FieldKeyStore, StorageError, StorageResult,
 };
 
 impl FieldKeyStore {
@@ -14,9 +13,9 @@ impl FieldKeyStore {
                 missing.push(field_key.as_str());
             }
         }
-        let Some(wrap_key) = self.node_wrap_key.as_ref() else {
+        if !self.is_enabled() {
             return Ok(());
-        };
+        }
         if missing.is_empty() {
             return Ok(());
         }
@@ -47,7 +46,7 @@ impl FieldKeyStore {
                 (Some(profile), Some(wrap)) => Ok(Some((
                     field_key,
                     profile,
-                    open_wrap(&wrap, field_key, wrap_key)?,
+                    self.format.open_bundle(&wrap, field_key)?,
                 ))),
                 (None, None) => Ok(None),
                 (Some(_), None) => Err(StorageError::InvalidOperation(

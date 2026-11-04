@@ -13,8 +13,6 @@ use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::PackNamespacedStore;
-use crate::storage::NamespacedStore;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -285,15 +283,13 @@ pub async fn run_search_rebuild_for_home(
     page_size: usize,
 ) -> Result<SearchRebuildReport, SchemaError> {
     let inbox = resolve_search_inbox_dir_for_home(home);
-    let store = PackNamespacedStore::open_existing(&home.join("data"), node_key).map_err(|e| {
-        SchemaError::InvalidData(format!("open native store for search rebuild: {e}"))
-    })?;
-    fs::create_dir_all(&inbox)
-        .map_err(|e| SchemaError::InvalidData(format!("search rebuild create inbox: {e}")))?;
-    let ops = DbOperations::from_namespaced_store(Arc::new(store) as Arc<dyn NamespacedStore>)
+    let ops = DbOperations::from_stopped_native_data(&home.join("data"), node_key)
         .await
-        .map_err(|e| {
-            SchemaError::InvalidData(format!("open DbOperations for search rebuild: {e}"))
+        .map_err(|error| {
+            SchemaError::InvalidData(format!("open typed source for search rebuild: {error}"))
         })?;
+    fs::create_dir_all(&inbox).map_err(|error| {
+        SchemaError::InvalidData(format!("search rebuild create inbox: {error}"))
+    })?;
     rebuild_search_outbox_into_inbox(&ops, page_size, &inbox).await
 }

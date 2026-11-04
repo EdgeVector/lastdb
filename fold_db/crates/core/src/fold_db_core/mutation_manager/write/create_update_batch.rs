@@ -47,7 +47,7 @@ impl MutationManager {
         let state = BatchState::new(force_durable);
         self.write_native_batch(
             super::native::NativeRequest {
-                runtime: self.db_ops.namespaced_store().disk_pack_runtime(),
+                runtime: self.db_ops.native_runtime(),
                 mutations,
                 author_clock: author_clock_barrier,
             },

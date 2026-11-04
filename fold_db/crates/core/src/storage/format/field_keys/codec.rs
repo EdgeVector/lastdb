@@ -56,7 +56,7 @@ fn make_wrap(
     })
 }
 
-pub(crate) fn open_wrap(
+pub(super) fn open_wrap(
     wrap: &BundleWrap,
     field_key_id: &str,
     wrapping_key: &[u8; 32],

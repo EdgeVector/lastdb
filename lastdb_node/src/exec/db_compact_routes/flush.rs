@@ -18,8 +18,7 @@ pub(in crate::exec) async fn execute(
     let result = host
         .db
         .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
+        .native_runtime()
         .flush_native()
         .await
         .map(|receipt| serde_json::json!({"durable":true,"native_flush":receipt}));

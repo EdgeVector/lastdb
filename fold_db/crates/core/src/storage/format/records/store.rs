@@ -17,12 +17,12 @@ pub(crate) struct RecordFormat {
 }
 
 impl RecordFormat {
-    pub(crate) fn new(
+    pub(in crate::storage::format) fn new(
         main: Arc<dyn KvStore>,
         file_owner: Arc<dyn NamespacedStore>,
+        runtime: Arc<PackRuntime>,
         content_key: Option<[u8; 32]>,
     ) -> Self {
-        let runtime = file_owner.disk_pack_runtime();
         Self {
             main_store: Arc::new(TypedKvStore::new(main)),
             file_owner,

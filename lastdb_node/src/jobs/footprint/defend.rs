@@ -100,7 +100,7 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     if !run_evict {
         return;
     }
-    let runtime = host.db.db_ops().namespaced_store().disk_pack_runtime();
+    let runtime = host.db.db_ops().native_runtime();
     let memory = match runtime.memory_status() {
         Ok(memory) => memory,
         Err(error) => {

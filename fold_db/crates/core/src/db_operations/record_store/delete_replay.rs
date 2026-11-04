@@ -52,7 +52,9 @@ impl RecordStore {
             .main_store
             .inner()
             .get_many(vec![
-                Self::CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
+                crate::storage::format::CURRENT_KEY_FORMAT_KEY
+                    .as_bytes()
+                    .to_vec(),
                 CUTOFF_KEY.as_bytes().to_vec(),
             ])
             .await?;

@@ -35,7 +35,7 @@ pub(crate) struct SchemaFormat {
 }
 
 impl SchemaFormat {
-    pub(crate) fn new(
+    pub(in crate::storage::format) fn new(
         schemas: Arc<dyn KvStore>,
         states: Arc<dyn KvStore>,
         runtime: Arc<PackRuntime>,

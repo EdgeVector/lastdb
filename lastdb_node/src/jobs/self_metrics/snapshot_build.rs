@@ -21,12 +21,7 @@ pub(super) fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSnapshot 
     let runtime_memory = footprint.map(|footprint| observe_runtime_memory(host, footprint));
     // Pressure relief can purge clean records. Capture native status
     // afterward so its current counts describe the state after that relief.
-    let native = host
-        .db
-        .db_ops()
-        .namespaced_store()
-        .disk_pack_runtime()
-        .status_native();
+    let native = host.db.db_ops().native_runtime().status_native();
     let resident = ResidentHealth::from_native(&native);
     let mut memory_budget = memory_budget_health(host, footprint, runtime_memory, &request_ops);
     memory_budget.core_warm = CoreWarmBytesHealth::from(&native.core_warm_bytes);
