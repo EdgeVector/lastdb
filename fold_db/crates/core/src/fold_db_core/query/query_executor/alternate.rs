@@ -140,6 +140,7 @@ impl QueryExecutor {
         // Read them in one batch, then use the common pure projection; do not
         // resolve names or run another key-selection query inside this page.
         let records = self.db_ops.records().records_at(&schema, &keys).await?;
+        let fetched = records.len();
         let values = crate::fold_db_core::query::hash_range_query::project_records(
             &schema,
             &query.fields,
@@ -148,7 +149,7 @@ impl QueryExecutor {
                 .filter(|(_, record)| record.is_live())
                 .collect(),
         );
-        validate_entries(&name, &entries, &values)?;
+        validate_entries(&name, &entries, &values, fetched)?;
         Ok(AlternatePage {
             values,
             entries,
@@ -209,11 +210,12 @@ fn validate_entries(
     name: &str,
     entries: &[AlternateEntry],
     values: &QueryRecords,
+    fetched: usize,
 ) -> Result<(), SchemaError> {
     for entry in entries {
         let record = values.get(&entry.primary).ok_or_else(|| {
             SchemaError::InvalidData(format!(
-                "alternate page is missing a primary record ({} entries, {} records)",
+                "alternate page is missing a primary record ({} entries, {fetched} fetched, {} live)",
                 entries.len(),
                 values.len()
             ))

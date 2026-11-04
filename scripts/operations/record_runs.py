@@ -309,6 +309,10 @@ def drop_release(node, scan):
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name + "-2"}, "replace")
                  for name in names[:10]])
     write(node, [mutation("RecordDrop", {"hash": name}, {}, "delete") for name in names[-10:]])
+    primary = node.call("/api/query", {"schema_name": "RecordDrop", "fields": FIELDS,
+        "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
+    require(len(primary["results"]) == DROP_RECORDS - 10,
+            f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
     walked, alternate = dropped_rows(node, scan)
     require(len(walked) == len(alternate) == DROP_RECORDS - 10,
             f"RecordDrop holds {len(walked)} walked and {len(alternate)} alternate records before the drop")
