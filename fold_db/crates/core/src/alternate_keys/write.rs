@@ -11,13 +11,13 @@
 
 use super::*;
 use crate::db_operations::record_store::RecordStore;
-use crate::storage::KvMutation;
+use crate::storage::format::records::AlternateChange;
 
 /// One entry that a record leaves: the storage key and the record's primary key.
-type Leave<'a> = (String, &'a KeyValue);
+type Leave<'a> = (AlternateAddress, &'a KeyValue);
 
-/// The entries that the records put (storage key to encoded entry) and leave.
-type EntryMoves<'a> = (BTreeMap<String, Vec<u8>>, Vec<Leave<'a>>);
+/// The entries that the records put (format address to value) and leave.
+type EntryMoves<'a> = (BTreeMap<AlternateAddress, AlternateEntry>, Vec<Leave<'a>>);
 
 impl RecordStore {
     /// The entry changes between the old and the new field values at each
@@ -29,7 +29,7 @@ impl RecordStore {
         keys: &[KeyValue],
         before: &[RecordFields],
         after: &[RecordFields],
-    ) -> Result<Vec<KvMutation>, SchemaError> {
+    ) -> Result<Vec<AlternateChange>, SchemaError> {
         if schema.alternate_keys.is_empty() || keys.is_empty() {
             return Ok(Vec::new());
         }
@@ -41,15 +41,15 @@ impl RecordStore {
             return Err(invalid("alternate change batch exceeds 4096 entries"));
         }
         leaves.retain(|(key, _)| !puts.contains_key(key));
-        let mut changes: Vec<KvMutation> = self
+        let mut changes: Vec<AlternateChange> = self
             .owned_entries(schema, leaves)
             .await?
             .into_iter()
-            .map(KvMutation::delete)
+            .map(AlternateChange::Delete)
             .collect();
         changes.extend(
             puts.into_iter()
-                .map(|(key, value)| KvMutation::put(key, value)),
+                .map(|(key, entry)| AlternateChange::Put(key, entry)),
         );
         Ok(changes)
     }
@@ -73,7 +73,7 @@ impl RecordStore {
                     continue;
                 }
                 if let Some(key) = old.get(name) {
-                    let storage = storage_key(self, schema, name, key)?;
+                    let storage = storage_address(self, schema, name, key)?;
                     leaves.push((storage, primary));
                 }
                 if let Some(key) = new.get(name) {
@@ -81,11 +81,7 @@ impl RecordStore {
                         primary: primary.clone(),
                         matched: key.clone(),
                     };
-                    puts.insert(
-                        storage_key(self, schema, name, key)?,
-                        serde_json::to_vec(&entry)
-                            .map_err(|_| invalid("encode alternate entry"))?,
-                    );
+                    puts.insert(storage_address(self, schema, name, key)?, entry);
                 }
             }
         }
@@ -106,7 +102,7 @@ impl RecordStore {
         &self,
         schema: &Schema,
         leaves: Vec<Leave<'_>>,
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<Vec<AlternateAddress>, SchemaError> {
         if leaves.is_empty() {
             return Ok(Vec::new());
         }
@@ -116,7 +112,7 @@ impl RecordStore {
             .get_many(
                 leaves
                     .iter()
-                    .map(|(key, _)| key.clone().into_bytes())
+                    .map(|(key, _)| key.as_str().as_bytes().to_vec())
                     .collect(),
             )
             .await?;

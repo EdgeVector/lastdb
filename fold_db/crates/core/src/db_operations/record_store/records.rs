@@ -10,11 +10,10 @@
 //! record that the read finds on disk, or that a flushed write puts, enters
 //! it.
 
-use super::record_files::file_row_change;
 use super::RecordStore;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::record_warm::WrittenRecord;
+use crate::storage::format::records::{self as format, AlternateChange, RecordAddress};
 use crate::storage::KvMutation;
 use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
@@ -24,21 +23,7 @@ use std::sync::Arc;
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
 
-/// One record that a native write changes.
-pub(crate) struct RecordChange {
-    /// The storage key.
-    pub key: String,
-    /// The stored value that the write read.
-    pub before: Option<Arc<StoredRecord>>,
-    /// The merged value that the write puts.
-    pub after: StoredRecord,
-    /// True when another group of the request writes this key too: the cap
-    /// applies to the final record (`record_cap.rs`).
-    pub cap_deferred: bool,
-    /// The sealed file row of the `put-blob` write that changed this record.
-    /// The batch puts it at the record's file path when the write set the file.
-    pub file_row: Option<Arc<Vec<u8>>>,
-}
+pub(crate) use format::RecordChange;
 
 impl RecordStore {
     /// The storage key of the record at one canonical primary key. The record
@@ -48,14 +33,18 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
     ) -> Result<String, SchemaError> {
+        self.record_address(schema, key)
+            .map(RecordAddress::into_string)
+    }
+
+    /// The write address, minted by the format rather than a raw key string.
+    pub(crate) fn record_address(
+        &self,
+        schema: &Schema,
+        key: &KeyValue,
+    ) -> Result<RecordAddress, SchemaError> {
         let space = record_space_uuid(&schema.name);
-        let hash = key
-            .hash
-            .as_deref()
-            .ok_or_else(|| SchemaError::InvalidData("a record key requires a hash".into()))?;
-        self.key_codec_for_field_key(&space)?
-            .api_record_key(&space, hash, key.range.as_deref().unwrap_or_default())
-            .map_err(|error| SchemaError::InvalidData(format!("invalid record key: {error}")))
+        RecordAddress::new(&self.key_codec_for_field_key(&space)?, &space, key)
     }
 
     /// The stored records at these storage keys, in the order given. Memory
@@ -66,17 +55,17 @@ impl RecordStore {
     /// without a read scope gets one for this call (`record_read_scope`), so a
     /// commit between two chunks cannot mix two revisions in one result. A
     /// caller with a scope keeps its own revision and read limit.
-    pub(crate) async fn read_records(
+    pub(crate) async fn read_records<K: AsRef<str> + Sync>(
         &self,
-        keys: &[String],
+        keys: &[K],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
         self.record_read_scope(self.read_records_scoped(keys).boxed())
             .await
     }
 
-    async fn read_records_scoped(
+    async fn read_records_scoped<K: AsRef<str> + Sync>(
         &self,
-        keys: &[String],
+        keys: &[K],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
         let runtime = self.namespaced_store.disk_pack_runtime();
         let mut warm = runtime
@@ -95,7 +84,7 @@ impl RecordStore {
                 .get_many(
                     chunk
                         .iter()
-                        .map(|at| keys[*at].clone().into_bytes())
+                        .map(|at| keys[*at].as_ref().as_bytes().to_vec())
                         .collect(),
                 )
                 .await
@@ -125,40 +114,29 @@ impl RecordStore {
     /// Put the changed records, their alternate entry changes and their file
     /// rows in one batch of the native request. A record that gets a file puts
     /// its sealed row at its file path; a record that loses its file (a
-    /// delete, a purge, `delete-blob`) deletes the path. `alternates` also
-    /// carries the field history rows of the records. The caller holds the
-    /// native write gate and read each `before` in the same scope.
+    /// delete, a purge, `delete-blob`) deletes the path. History is still a
+    /// legacy raw producer, admitted only to history families by the format's
+    /// bridge. All rows retain their original order in one main staging call.
+    /// The caller holds the native write gate and read each `before` in the
+    /// same scope.
     pub(crate) async fn stage_records(
         &self,
         changes: Vec<RecordChange>,
-        alternates: Vec<KvMutation>,
+        alternates: Vec<AlternateChange>,
+        history: Vec<KvMutation>,
     ) -> Result<(), SchemaError> {
-        self.require_write_scope()?;
-        let mut batch = Vec::with_capacity(changes.len() + alternates.len());
-        let mut files = Vec::new();
-        let mut written = Vec::with_capacity(changes.len());
-        for mut change in changes {
-            files.extend(file_row_change(
-                &change.key,
-                change.before.as_deref(),
-                &change.after,
-                change.file_row.take(),
-            )?);
-            let value = super::record_cap::record_bytes(&change)?;
-            written.push(WrittenRecord::new(
-                &change.key,
-                Arc::new(change.after),
-                &value,
-            ));
-            batch.push(KvMutation::put(change.key.into_bytes(), value));
-        }
-        batch.extend(alternates);
-        self.main_store.inner().batch_mutate(batch).await?;
-        self.stage_file_rows(files).await?;
+        let effects = format::encode(changes, alternates)?
+            .stage(
+                self.main_store.inner().as_ref(),
+                &self.namespaced_store.disk_pack_runtime(),
+                history,
+            )
+            .await?;
+        self.stage_file_rows(effects.files).await?;
         // The values enter the warm set after the flush puts the request on disk.
         self.namespaced_store
             .disk_pack_runtime()
-            .stage_written_records(written);
+            .stage_written_records(effects.written);
         Ok(())
     }
 }

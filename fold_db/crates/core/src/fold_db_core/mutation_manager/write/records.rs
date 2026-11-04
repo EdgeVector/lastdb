@@ -15,6 +15,7 @@ use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FileWrite, KeyValue, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::{FieldMerge, FieldStamp, StoredRecord};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -46,7 +47,7 @@ impl MutationManager {
         for mutation in &mut mutations {
             let key = self.resolve_mutation_key_value(schema_name, &schema, mutation)?;
             self.materialize_key_fields(schema_name, &schema, mutation, &key)?;
-            record_keys.push(records.record_key(&schema, &key)?);
+            record_keys.push(records.record_address(&schema, &key)?);
             keys.push(key);
         }
         let stored = records.read_records(&record_keys).await?;
@@ -192,7 +193,7 @@ impl GroupChanges<'_> {
         self.changes
             .iter()
             .filter(|change| change.cap_deferred)
-            .map(|change| change.key.clone())
+            .map(|change| change.key.as_str().to_owned())
             .collect()
     }
 }
@@ -204,7 +205,7 @@ fn merge_group<'a>(
     schema: &Schema,
     (mutations, file_rows): (&'a [Mutation], FileRows),
     keys: &'a [KeyValue],
-    stored: Vec<(String, Option<Arc<StoredRecord>>)>,
+    stored: Vec<(RecordAddress, Option<Arc<StoredRecord>>)>,
     repeated: Option<&HashSet<KeyValue>>,
 ) -> Result<GroupChanges<'a>, SchemaError> {
     let mut group = GroupChanges {

@@ -6,7 +6,7 @@ import os
 import re
 import time
 
-from support import ACCOUNT, OperationError, canonical_uuid, require
+from support import OperationError, canonical_uuid, require
 
 MAX_CHECKPOINTS = 8
 MAX_DECLARED_BYTES = 64 * 1024 * 1024
@@ -83,7 +83,7 @@ def durable_batch(node, mutations):
     expected = {result: sum(item["mutation_type"] == verb for item in mutations)
                 for verb, result in (("create", "created"), ("update", "updated"), ("delete", "deleted"))}
     expected.update(no_op=0, total=len(mutations))
-    require(reply.get("ok") is True and reply.get("user_hash") == ACCOUNT
+    require(reply.get("ok") is True and reply.get("user_hash") == node.account
             and type(reply.get("count")) is int and reply["count"] == len(mutations)
             and isinstance(identifiers, list) and len(identifiers) == len(mutations)
             and all(isinstance(value, str) and value for value in identifiers)
@@ -159,9 +159,10 @@ class Source:
                     value, policy, conditions, kind, through, len(self.completed), self.declared_bytes)
         return value
 
-    def connect(self, key):
-        value = self.cloud("connect", "--existing", "--env", "dev", "--api-key-stdin",
-                           "--expected-user-hash", ACCOUNT, input_bytes=key)
+    def connect(self, key, environment="dev"):
+        require(environment in ("dev", "prod"), "connection_environment")
+        value = self.cloud("connect", "--existing", "--env", environment, "--api-key-stdin",
+                           "--expected-user-hash", self.node.account, input_bytes=key)
         require(value["manual_backup_enabled"] and not value["automatic_backup_enabled"]
                 and not value["registration_attempted"], "existing_dev_connection_only")
 
@@ -173,7 +174,7 @@ class Source:
 
     def policy(self, value, snapshot=86400):
         policy = value["automatic_backup"]
-        require(value["user_hash"] == ACCOUNT and value["automatic_backup_enabled"] is True
+        require(value["user_hash"] == self.node.account and value["automatic_backup_enabled"] is True
                 and policy["enabled"] is True and policy["paused"] is None
                 and policy["log_interval_seconds"] == 60
                 and policy["snapshot_interval_seconds"] == snapshot, "automatic_dev_policy")
@@ -194,7 +195,7 @@ class Source:
                 canonical_uuid(request)
                 require(request.startswith("a17dbac2-") and request == value["request_id"],
                         "daemon_initiated_request")
-                require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == ACCOUNT,
+                require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == self.node.account,
                         "accepted_dev_scope")
                 if kind == "snapshot" and previous is None:
                     self.summary["packed_snapshot"] = packed_snapshot(value)
@@ -242,7 +243,7 @@ class Source:
 
     def owned_stream(self, accepted):
         job = accepted["begin"]["job"]
-        require(job["stream"]["scope"]["account_id"] == ACCOUNT, "accepted_dev_scope")
+        require(job["stream"]["scope"]["account_id"] == self.node.account, "accepted_dev_scope")
         if self.node.ci_stream_id is not None:
             require(job["stream"]["stream_id"] == self.node.ci_stream_id, "accepted_owned_ci_stream")
         if self.node.terminal_r2:

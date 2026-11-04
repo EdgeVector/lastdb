@@ -106,6 +106,17 @@ registry installs and the full one-hour qualification remain required.
 
 ## Cursor Cloud specific instructions
 
+### Scoped extension: PROD restore qualification (Tom, 2026-11-03)
+
+Tom requested the PROD recovery check and restore activation after it passes,
+without changing the primary. `scripts/cloud_backup/prod_recovery.py` and
+`.github/workflows/cloud-backup-prod-recovery.yml` run this operation only on
+accepted main in GitHub Actions, using a dedicated PROD account and generated
+data in fresh runner homes. They reuse the existing cloud operation helpers.
+No primary data or existing customer backup is an input. This does not authorize
+local runtime proofs, tests, or removal of a release gate before the PROD result.
+
+
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds `libssl-dev` (the `openssl` crate), Ruby, and the pinned
 tree-sitter packages from `CLAUDE.md`, then builds `lastdb` / `lastdbd` and

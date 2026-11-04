@@ -24,7 +24,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let family = key.split([':', '\0']).next().unwrap_or_default();
-    if !CURRENT_FAMILIES.contains(&family) {
+    if !CURRENT_FAMILIES.iter().any(|group| group.contains(&family)) {
         return Err(unsupported("unknown key family"));
     }
     if let Some(rest) = key
