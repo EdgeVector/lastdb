@@ -4,6 +4,7 @@ use super::AlternateAddress;
 use crate::schema::types::KeyValue;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
+use lastdb_model::field_key_codec::FieldKeyCodec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,19 +14,49 @@ pub struct AlternateEntry {
     pub matched: KeyValue,
 }
 
-/// A change producer supplies an entry value, never its serialized bytes.
-pub(crate) enum AlternateChange {
-    Put(AlternateAddress, AlternateEntry),
-    Delete(AlternateAddress),
+/// The destination and payload are minted together and cannot be replaced.
+/// Read-side AlternateEntry values cannot be submitted independently.
+pub(crate) struct AlternateChange {
+    key: AlternateAddress,
+    entry: Option<AlternateEntry>,
+}
+
+impl AlternateChange {
+    pub(crate) fn put(
+        codec: &FieldKeyCodec,
+        field_key: &str,
+        primary: KeyValue,
+        matched: KeyValue,
+    ) -> Result<Self, SchemaError> {
+        if primary.hash.is_none() {
+            return Err(SchemaError::InvalidData(
+                "an alternate entry requires a primary hash".into(),
+            ));
+        }
+        Ok(Self {
+            key: AlternateAddress::new(codec, field_key, &matched)?,
+            entry: Some(AlternateEntry { primary, matched }),
+        })
+    }
+
+    pub(crate) fn delete(key: AlternateAddress) -> Self {
+        Self { key, entry: None }
+    }
+
+    /// The coordinator uses this identity for collision resolution only.
+    pub(crate) fn address(&self) -> &AlternateAddress {
+        &self.key
+    }
 }
 
 pub(super) fn encode(change: AlternateChange) -> Result<KvMutation, SchemaError> {
-    Ok(match change {
-        AlternateChange::Put(key, entry) => KvMutation::put(
-            key.into_string(),
+    let key = change.key.into_string();
+    Ok(match change.entry {
+        Some(entry) => KvMutation::put(
+            key,
             serde_json::to_vec(&entry)
                 .map_err(|_| SchemaError::InvalidData("encode alternate entry".into()))?,
         ),
-        AlternateChange::Delete(key) => KvMutation::delete(key.into_string()),
+        None => KvMutation::delete(key),
     })
 }
