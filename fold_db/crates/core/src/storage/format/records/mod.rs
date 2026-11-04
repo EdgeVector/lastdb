@@ -115,19 +115,26 @@ impl EncodedRecords {
 
 /// Native record addresses are canonical UTF-8 keys stored verbatim. Check
 /// only final staged bodies, not intermediate writes or any stored-key census.
-pub(in crate::storage) fn require_final_record_size(
-    collection: &str,
-    key: &str,
-    bytes: usize,
+pub(in crate::storage) fn require_final_record_sizes<'a>(
+    max_body_bytes: usize,
+    records: impl Iterator<Item = (&'a str, &'a str, usize)>,
 ) -> StorageResult<()> {
-    if collection == super::RECORDS_COLLECTION
-        && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
-        && bytes > MAX_RECORD_BYTES
-    {
-        return Err(StorageError::RecordTooLarge {
-            size: bytes,
-            limit: MAX_RECORD_BYTES,
-        });
+    // The native accounting loop derives this upper bound from every staged
+    // body. If all bodies fit, every final record necessarily fits too, so
+    // the lazy iterator need not visit any keys in the ordinary case.
+    if max_body_bytes <= MAX_RECORD_BYTES {
+        return Ok(());
+    }
+    for (collection, key, bytes) in records {
+        if collection == super::RECORDS_COLLECTION
+            && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
+            && bytes > MAX_RECORD_BYTES
+        {
+            return Err(StorageError::RecordTooLarge {
+                size: bytes,
+                limit: MAX_RECORD_BYTES,
+            });
+        }
     }
     Ok(())
 }

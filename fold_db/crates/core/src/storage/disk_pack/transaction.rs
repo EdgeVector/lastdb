@@ -25,6 +25,7 @@ struct PendingData {
     operations: Vec<Arc<PendingRecord>>,
     latest: BTreeMap<(String, String), usize>,
     bytes: u64,
+    max_body_bytes: usize,
 }
 
 pub(in crate::storage) struct PendingBatch {
@@ -106,17 +107,16 @@ impl PendingBatch {
     /// request. No caller opt-in, extra read, serialization or shadow map.
     fn require_final_format(&self) -> StorageResult<()> {
         let data = self.data.lock().expect("native final format admission");
-        for &at in data.latest.values() {
-            let record = &data.operations[at];
-            if let Some(body) = &record.body {
-                crate::storage::format::records::require_final_record_size(
-                    &record.collection,
-                    &record.key,
-                    body.len(),
-                )?;
-            }
-        }
-        Ok(())
+        crate::storage::format::records::require_final_record_sizes(
+            data.max_body_bytes,
+            data.latest.values().filter_map(|&at| {
+                let record = &data.operations[at];
+                record
+                    .body
+                    .as_ref()
+                    .map(|body| (record.collection.as_str(), record.key.as_str(), body.len()))
+            }),
+        )
     }
 
     pub(super) fn stage(&self, operations: Vec<HomeMutation>) -> StorageResult<()> {
@@ -142,12 +142,14 @@ impl PendingBatch {
             })?;
         accounting::record_stage(&data, &operations, self.operation_limit);
         let mut bytes = data.bytes;
+        let mut max_body_bytes = data.max_body_bytes;
         for operation in &operations {
+            let body_bytes = operation.body.as_ref().map_or(0, Vec::len);
+            max_body_bytes = max_body_bytes.max(body_bytes);
             bytes = bytes
                 .checked_add(
-                    (160 + operation.collection.len()
-                        + 2 * operation.key.len()
-                        + operation.body.as_ref().map_or(0, Vec::len)) as u64,
+                    (160 + operation.collection.len() + 2 * operation.key.len() + body_bytes)
+                        as u64,
                 )
                 .filter(|bytes| {
                     *bytes <= lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES - 256
@@ -174,6 +176,7 @@ impl PendingBatch {
             }));
         }
         data.bytes = bytes;
+        data.max_body_bytes = max_body_bytes;
         Ok(())
     }
 
