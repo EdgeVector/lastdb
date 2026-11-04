@@ -70,7 +70,7 @@ PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
     # This qualifies the generic engine capacity check; fewer stored records are
     # not evidence of lost data. Alternate-key savings use a fixed-input pass.
-    "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
+    "seed": {"base": 6500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 
