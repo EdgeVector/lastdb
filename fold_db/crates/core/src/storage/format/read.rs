@@ -44,14 +44,14 @@ impl ReadStore {
         self.store.list_keys_with_prefix(prefix).await
     }
 
-    pub(crate) async fn scan_items_with_prefix<T: DeserializeOwned>(
+    pub(crate) async fn scan_items_with_prefix<T: DeserializeOwned + Send + Sync>(
         &self,
         prefix: &str,
     ) -> StorageResult<Vec<(String, T)>> {
         self.store.scan_items_with_prefix(prefix).await
     }
 
-    pub(crate) async fn scan_items_with_prefix_paged<T: DeserializeOwned>(
+    pub(crate) async fn scan_items_with_prefix_paged<T: DeserializeOwned + Send + Sync>(
         &self,
         prefix: &str,
         limit: usize,
@@ -59,7 +59,7 @@ impl ReadStore {
         self.store.scan_items_with_prefix_paged(prefix, limit).await
     }
 
-    pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned>(
+    pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(
         &self,
         start: &str,
         end: &str,
