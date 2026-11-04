@@ -214,12 +214,14 @@ fn validate_entries(
     values: &QueryRecords,
 ) -> Result<(), SchemaError> {
     for entry in entries {
-        if values
-            .get(&entry.primary)
-            .and_then(|record| record.alternates.get(name))
-            .and_then(Option::as_ref)
-            != Some(&entry.matched)
-        {
+        let record = values.get(&entry.primary).ok_or_else(|| {
+            SchemaError::InvalidData(format!(
+                "alternate page is missing a primary record ({} entries, {} records)",
+                entries.len(),
+                values.len()
+            ))
+        })?;
+        if record.alternates.get(name).and_then(Option::as_ref) != Some(&entry.matched) {
             return Err(alternate_keys::invalid(
                 "alternate entry does not match its primary record",
             ));

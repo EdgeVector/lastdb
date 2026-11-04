@@ -190,7 +190,7 @@ async fn range_page(
         None => None,
     };
     Ok(RangePage {
-        keys: rows.into_iter().map(|(key, _)| key).collect(),
+        keys: rows.into_keys().collect(),
         resume,
     })
 }
