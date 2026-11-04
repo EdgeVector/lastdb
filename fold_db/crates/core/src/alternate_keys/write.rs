@@ -12,12 +12,13 @@
 use super::*;
 use crate::db_operations::record_store::RecordStore;
 use crate::storage::format::records::AlternateChange;
+use lastdb_model::record_space::record_space_uuid;
 
 /// One entry that a record leaves: the storage key and the record's primary key.
 type Leave<'a> = (AlternateAddress, &'a KeyValue);
 
-/// The entries that the records put (format address to value) and leave.
-type EntryMoves<'a> = (BTreeMap<AlternateAddress, AlternateEntry>, Vec<Leave<'a>>);
+/// Opaque format puts by address, plus entries that the records leave.
+type EntryMoves<'a> = (BTreeMap<AlternateAddress, AlternateChange>, Vec<Leave<'a>>);
 
 impl RecordStore {
     /// The entry changes between the old and the new field values at each
@@ -45,12 +46,9 @@ impl RecordStore {
             .owned_entries(schema, leaves)
             .await?
             .into_iter()
-            .map(AlternateChange::Delete)
+            .map(AlternateChange::delete)
             .collect();
-        changes.extend(
-            puts.into_iter()
-                .map(|(key, entry)| AlternateChange::Put(key, entry)),
-        );
+        changes.extend(puts.into_values());
         Ok(changes)
     }
 
@@ -65,6 +63,8 @@ impl RecordStore {
     ) -> Result<EntryMoves<'a>, SchemaError> {
         let mut puts = BTreeMap::new();
         let mut leaves = Vec::new();
+        let space = record_space_uuid(&schema.name);
+        let primary_codec = self.key_codec_for_field_key(&space)?;
         for ((primary, before), after) in keys.iter().zip(before).zip(after) {
             let old = derived(schema, before)?;
             let new = derived(schema, after)?;
@@ -77,11 +77,16 @@ impl RecordStore {
                     leaves.push((storage, primary));
                 }
                 if let Some(key) = new.get(name) {
-                    let entry = AlternateEntry {
-                        primary: primary.clone(),
-                        matched: key.clone(),
-                    };
-                    puts.insert(storage_address(self, schema, name, key)?, entry);
+                    let field_key = field_key(schema, name);
+                    let change = AlternateChange::put(
+                        &primary_codec,
+                        &space,
+                        primary.clone(),
+                        &self.key_codec_for_field_key(&field_key)?,
+                        &field_key,
+                        key.clone(),
+                    )?;
+                    puts.insert(change.address().clone(), change);
                 }
             }
         }
