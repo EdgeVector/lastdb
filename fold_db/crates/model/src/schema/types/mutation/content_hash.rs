@@ -7,12 +7,12 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 impl Mutation {
-    /// Hash the complete written content and its author order.
+    /// Bind a stable request ID to the complete intent and acceptance condition.
     ///
     /// The domain, field count, and length prefixes preserve every boundary.
     /// Optional JSON fields preserve absence separately from an empty value.
-    /// UUID and local acceptance/durability policy remain outside this hash;
-    /// the author signature binds UUID separately. Record identity stays unchanged.
+    /// UUID is the retry-cache key. Author clocks and durability/convergence are
+    /// excluded, so a local retry can retain its original committed revision.
     #[must_use]
     pub fn intent_hash(&self) -> String {
         let mut digest = Sha256::new();

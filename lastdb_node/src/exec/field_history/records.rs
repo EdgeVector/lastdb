@@ -52,7 +52,7 @@ pub(super) async fn execute(host: &Host, request: Request) -> Result<Value, Host
                 .record_history_value(&schema, key, &identity, &id)
                 .await?
                 .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
-            restore(host, request.location, &value, mutation).await
+            restore(host, request.location, &value, *mutation).await
         }
     }
 }

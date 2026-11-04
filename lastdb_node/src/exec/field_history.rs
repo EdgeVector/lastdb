@@ -31,7 +31,7 @@ enum Action {
     },
     Restore {
         id: String,
-        mutation: Operation,
+        mutation: Box<Operation>,
     },
 }
 

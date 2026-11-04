@@ -66,8 +66,11 @@ if (!fold.hasCapability) {                                    // first run: no s
 
 await fold.mutate('fbrain/Concept', {                          // capability auto-attached
   mutationType: 'create',
-  fields: { id: 'c1', title: 'hello' },
-  key: { hash: null, range: 'c1' },
+  mutationId: crypto.randomUUID(),
+  alternates: {},
+  expected: { type: 'absent' },
+  record: { id: 'c1', title: 'hello' },
+  key: { hash: 'c1', range: null },
 });
 const { rows } = await fold.query('fbrain/Concept', { fields: ['id', 'title'] });
 for (const row of rows) {
@@ -108,11 +111,9 @@ try {
 - `GET /api/version` answers on both sockets with no node state:
   `{ok, api_version, build, capabilities, instance_id, ...}`. `fold.version()`
   reads it; a body without `api_version` throws `UnexpectedResponseError`.
-- `requireApiVersion: 0` (or unset) declares no requirement and skips the
-  read. Raise the number only when the app starts sending a key an older node
-  would refuse — `LASTDB_SDK_API_VERSION` is the lowest node grammar this SDK
-  needs (`1`). A node that reports a higher `api_version` (version `2` removed
-  three owner-socket routes the SDK never calls) still serves it.
+- SDK 0.6 requires API 27. `connect()` checks this minimum automatically;
+  an app may request a higher version. Owner clients can call
+  `requireApiVersion(LASTDB_SDK_API_VERSION)` before data operations.
 - A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
   too (`.kind === 'unknown_key'`). It subclasses `RequestRejectedError`, so an
   existing `catch` keeps working. The node never echoes the unknown key.
@@ -200,8 +201,11 @@ const db = ownerClient({
 const records = await db.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
 await db.mutate('fbrain/Concept', {
   mutationType: 'create',
-  fields: { id: 'c1', title: 'hello' },
-  key: { hash: null, range: 'c1' },
+  mutationId: crypto.randomUUID(),
+  alternates: {},
+  expected: { type: 'absent' },
+  record: { id: 'c1', title: 'hello' },
+  key: { hash: 'c1', range: null },
 });
 ```
 
@@ -235,8 +239,11 @@ await db.query('some-other-app/PublicNote', { fields: ['id', 'text'] });
 // check this today.
 await db.mutate('my-app/Note', {
   mutationType: 'create',
-  fields: { id: 'n1', text: 'hi' },
-  key: { hash: null, range: 'n1' },
+  mutationId: crypto.randomUUID(),
+  alternates: {},
+  expected: { type: 'absent' },
+  record: { id: 'n1', text: 'hi' },
+  key: { hash: 'n1', range: null },
 });
 ```
 
@@ -280,8 +287,11 @@ const db = await connect({
 
 await db.mutate('LocalNote', {
   mutationType: 'create',
-  fields: { title: 'hello', body: 'renamed at the edge' },
-  key: { hash: null, range: 'n1' },
+  mutationId: crypto.randomUUID(),
+  alternates: {},
+  expected: { type: 'absent' },
+  record: { title: 'hello', body: 'renamed at the edge' },
+  key: { hash: 'n1', range: null },
 });
 ```
 
@@ -433,14 +443,9 @@ const second = first.has_more
   ? await db.list('SomeSchema', { limit: 100, cursor: first.next_cursor! })
   : null;
 
-for (const key of first.keys) {
-  // Point-read only the members whose fields the app actually needs.
-  await db.query('SomeSchema', {
-    filter: key.range === undefined
-      ? { HashKey: key.hash }
-      : { HashRangeKey: { hash: key.hash, range: key.range } },
-  });
-}
+const records = await db.query('SomeSchema', {
+  filter: { HashRangeKeys: first.keys.map(key => [key.hash, key.range ?? '']) },
+});
 ```
 
 `list()` returns only `{ schema, keys, next_cursor, has_more, truncated }`.
@@ -457,12 +462,14 @@ field map. Each `QueryRow` (the SDK type name) carries:
 |---|---|
 | `key` | the record key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
 | `keyValue` | the **structured** `{hash, range}` key of the record — pass it back verbatim as `MutationOp.key` to update/delete this exact record; `null` only when the key has neither a hash nor a range |
-| `fields` | the field values, keyed by field name (the flattened convenience shape) |
+| `fields` | the selected field values; request all fields before constructing a replacement |
+| `revision` | the whole-record condition token returned by the read |
+| `alternates` | all named alternate addresses, independent of payload fields |
 | `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
 
-This is the API 25 shape of `lastdbd`'s `/api/query`. Each item of `results`
-is one record: `{key, fields, metadata}`.
-`metadata` is `{source_file_name, metadata?}` or `null`.
+This is the API 27 shape of `lastdbd`'s `/api/query`. Each item of `results`
+is one record: `{key, revision, alternates, fields, metadata}`.
+`metadata` is `{source_file_name, metadata?, file?}` or `null`.
 The SDK surfaces the key, field, and metadata parts and invents none. A body
 without a `results` array, or a record without an object `key` and `fields`,
 throws `UnexpectedResponseError`.
@@ -595,51 +602,43 @@ single optional narrowing filter and cannot widen scope. Cursors are opaque;
 `gap` is explicit so a long-offline worker cannot silently treat an incomplete
 event history as complete.
 
-## Compare-and-set writes (`expected`)
+## Complete conditional records
 
-A `mutate` can carry an optional `expected` **CAS precondition** on a single
-field — the write is applied only if the field still holds the value you expect,
-so contended writers (ref updates, state-machine transitions, first-writer-wins
-records) don't clobber each other:
+SDK 0.6 and node API 27 replace complete records. Omitted payload fields disappear.
+Keys are independent of fields. Supply exactly every declared alternate name;
+`null` is valid only for an alternate declared with `allow_absent`. Keep one
+`mutationId` for retries of the same request; a new logical write gets a new ID.
+The node keeps bounded retry receipts, so arbitrary delayed replay is not guaranteed.
 
-```ts
-// "update main from oldoid → newoid, but only if it's still at oldoid"
-await fold.mutate('myapp/Ref', {
-  mutationType: 'update',
-  fields: { oid: 'newoid' },
-  key: { hash: null, range: 'main' },
-  expected: { type: 'value', field: 'oid', value: 'oldoid' },
-});
-
-// "create-if-absent": succeed only if `oid` has no current value
-await fold.mutate('myapp/Ref', {
-  mutationType: 'create',
-  fields: { oid: 'firstoid' },
-  key: { hash: null, range: 'main' },
-  expected: { type: 'absent', field: 'oid' },
-});
-```
-
-When the precondition fails, the node returns `409 {error:"cas_conflict", …}`
-and the SDK throws a typed **`CasConflictError`** carrying `.schema`, `.field`,
-`.key`, `.expected`, and `.actual` — so you can re-read the current value and
-retry without parsing free text:
+Creation requires `{type: 'absent'}`. Replacement, deletion and purge require the
+record revision. Read the complete record with no field projection, then supply
+all values and metadata you want to retain:
 
 ```ts
-try {
-  await fold.mutate('myapp/Ref', { mutationType: 'update', fields, key, expected });
-} catch (e) {
-  if (e instanceof CasConflictError) {
-    // e.field / e.expected / e.actual tell you what moved — re-read and retry.
-  } else {
-    throw e;
-  }
-}
+const { rows } = await fold.query('myapp/Ref', { filter: { HashKey: 'main' } });
+const current = rows[0];
+const result = await fold.mutate('myapp/Ref', {
+  mutationId: crypto.randomUUID(),
+  mutationType: 'replace',
+  key: current.keyValue!,
+  alternates: current.alternates,
+  record: { ...current.fields, oid: 'newoid' },
+  metadata: current.metadata,
+  expected: { type: 'revision', revision: current.revision },
+});
+// result.recordRevision is available without another read.
 ```
 
-> Requires a node that implements the `/api/mutation` `expected` primitive.
-> Omitting `expected` is an unconditional write (the prior behavior); an older
-> node that doesn't understand `expected` ignores it.
+The SDK performs no implicit read or field merge. Absence of metadata also clears
+its file marker; copy metadata from a full read to retain an existing file. New
+file bytes go through the owner file route with a complete mutation. A stale
+condition raises `CasConflictError` with `.schema`, `.key`, `.expected` and
+`.actual`; re-read and recompute the complete record before a new attempt.
+
+`lastdb mutate --request-file request.json` submits the same native JSON grammar.
+`lastdb history ... restore ID --request-file request.json` restores an archived
+field only within that complete record. File puts and removals also take
+`--request-file`; fetch remains a read by schema and key.
 
 ## Typed errors
 
@@ -660,7 +659,7 @@ Every node failure maps to a specific error class — there is no catch-all.
 | `CapabilityVerificationError` | a granted/inline capability failed client-side verification under `verifyCapability` — `.problem` ∈ `malformed` / `audience_mismatch` / `integrity_mismatch` |
 | `RequestRejectedError` | query/mutation/search 400 — carries the node's `kind`, its message (`error` or `message`), and the raw parsed `.body` verbatim |
 | `NodeTooOldError` | the node is older than this client: `connect({ requireApiVersion })` read a lower `api_version` (or a 404 = `0`), or a data route answered `400 {kind:"unknown_key"}` — subclasses `RequestRejectedError`; `.message` is the one-line remedy, `.detail` the facts |
-| `CasConflictError` | mutation 409 `{error:"cas_conflict"}` — a `MutationOp.expected` precondition did not hold; carries `.schema` / `.field` / `.key` / `.expected` / `.actual` (+ verbatim `.body`) so an app can re-read and retry |
+| `CasConflictError` | mutation 409 `{error:"cas_conflict"}` — a `MutationOp.expected` precondition did not hold; carries `.schema` / `.key` / `.expected` / `.actual` (+ verbatim `.body`) so an app can re-read and retry |
 | `TransportError` / `UnexpectedResponseError` | network failure / unmodeled status |
 
 ## Public API
@@ -726,17 +725,21 @@ interface SearchHit extends QueryRow { // the full record envelope, plus:
   schemaDisplayName: string | null
 }
 
-interface MutationOp {
-  mutationType: 'create' | 'update' | 'delete'
-  fields: Record<string, JsonValue>
-  key: KeyValue                        // { hash, range } — pass a QueryRow.keyValue back verbatim
-  expected?: CasExpectation            // optional CAS precondition; a failure → CasConflictError
+// Discriminated union: create uses absent; replace/delete/purge use revision.
+// Deletion carries no payload or metadata.
+type MutationOp = {
+  mutationId: string
+  mutationType: 'create' | 'replace' | 'delete' | 'purge'
+  record?: Record<string, JsonValue>    // required on create/replace
+  metadata?: RecordMetadata | null     // complete selected metadata/file state
+  key: KeyValue
+  alternates: Record<string, KeyValue | null>
+  expected: CasExpectation
 }
-type CasExpectation =
-  | { type: 'absent'; field: string }               // succeed only if `field` has no current value
-  | { type: 'value'; field: string; value: JsonValue } // succeed only if `field` == value
+type CasExpectation = { type: 'absent' } | { type: 'revision'; revision: string }
 interface MutationResult {
-  mutationId: string                   // the node's `mutation_id` for this write
+  mutationId: string
+  recordRevision: string
   backgroundTasksDrained?: boolean
   convergencePending?: boolean
 }

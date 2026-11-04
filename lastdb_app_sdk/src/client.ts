@@ -1065,7 +1065,7 @@ export class LastDbClient {
     }
     if (status === 409 && b.error === 'cas_conflict') {
       // A CAS precondition (`MutationOp.expected`) did not hold: the node
-      // returns `409 {error:"cas_conflict", schema?, field?, key?, expected?,
+      // returns `409 {error:"cas_conflict", schema?, key?, expected?,
       // actual?, message?}`. Surface it as the typed CasConflictError so an app
       // can re-read + retry instead of hand-detecting the conflict off a
       // generic error body.
