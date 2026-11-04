@@ -9,10 +9,9 @@
 //! A batch that added an entry after the walk changed the token, so the row
 //! stays, and the reader starts the bucket again.
 //!
-//! The delete is a guarded delete (`counter::GuardedDelete`). It holds the write
-//! gate for one batch of one row, and it reads nothing but the row.
+//! The format owns the guarded delete. It holds the write gate for one batch
+//! of one row, and it reads nothing but the row.
 
-use crate::db_operations::record_store::counter::GuardedDelete;
 use crate::db_operations::record_store::RecordStore;
 use crate::schema::SchemaError;
 
@@ -25,13 +24,13 @@ impl RecordStore {
         token: Vec<u8>,
     ) -> Result<bool, SchemaError> {
         self.in_background_scope(async {
-            let deleted = self
-                .commit_guarded_deletes(vec![GuardedDelete {
-                    key: key.into_bytes(),
-                    expected: token,
-                }])
-                .await?;
-            Ok(deleted > 0)
+            crate::storage::format::history::retire_bucket(
+                self.main_store.inner().as_ref(),
+                &self.namespaced_store.disk_pack_runtime(),
+                key,
+                token,
+            )
+            .await
         })
         .await
     }

@@ -131,7 +131,7 @@ impl BatchShape {
                     (&mut shape.record_puts, &mut shape.record_deletes)
                 } else if key.starts_with(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX) {
                     (&mut shape.alternate_puts, &mut shape.alternate_deletes)
-                } else if key.starts_with(crate::records::field_history::RECORD_HISTORY_PREFIX) {
+                } else if crate::records::field_history::record_history_suffix(key).is_some() {
                     (&mut shape.history_puts, &mut shape.history_deletes)
                 } else {
                     continue;

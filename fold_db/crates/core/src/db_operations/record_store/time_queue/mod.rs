@@ -5,9 +5,10 @@
 //!
 //! - **Layout.** An entry lives in the bucket of its expiry: the hash is one
 //!   slice of time, and the range is the expiry and the id. A small directory
-//!   lists every bucket that holds, or held, an entry. See `keys.rs`.
+//!   lists every bucket that holds, or held, an entry. The history format
+//!   owns this layout.
 //! - **Writers.** A writer adds an entry and the directory row of its bucket in
-//!   one batch, through the row commit (`TimeQueue::rows`). The directory row gets
+//!   one batch, through the format encoder. The directory row gets
 //!   a new token with each entry. No writer writes a queue key on its own.
 //! - **Release.** An entry ends with a delete in the batch of the work that it
 //!   names. A deleted entry leaves a deleted key in its bucket.
@@ -27,10 +28,8 @@
 //! same retirement, and adds its own entry value and release.
 
 mod clock;
-mod keys;
 mod reader;
 mod retire;
 
 pub(crate) use clock::QueueClock;
-pub(crate) use keys::TimeQueue;
 pub(crate) use reader::QueueReader;

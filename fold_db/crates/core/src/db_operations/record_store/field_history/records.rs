@@ -9,15 +9,14 @@
 
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
-use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
+use crate::records::field_history::{record_history_suffix, RecordHistoryEntry};
 
 use crate::schema::{Schema, SchemaError};
-use crate::storage::KvMutation;
-use lastdb_model::record_space::RECORD_PREFIX;
-use lastdb_model::record_value::FieldStamp;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use crate::storage::format::history::{self as format, HistoryCapture, HistoryChange};
+pub(super) use crate::storage::format::history::{record_prefix, QueueEntry};
+use lastdb_model::record_value::StoredRecord;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// A purge releases at most this many history entries of one record in its
 /// own batch. A record with more refuses the purge until its field history is
@@ -27,19 +26,11 @@ const PURGE_RELEASE_CAP: u64 = 1_024;
 /// The field history rows of one record group.
 #[derive(Default)]
 pub(crate) struct RecordHistoryRows {
-    pub(crate) rows: Vec<KvMutation>,
+    pub(crate) changes: Vec<HistoryChange>,
     /// The entries that a purge released.
     pub(crate) released: u64,
     /// The change of the entry count of each record key.
     pub(super) counts: BTreeMap<String, i64>,
-}
-
-/// The value of one expiry queue entry: the history entry it ends, and its
-/// own key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct QueueEntry {
-    pub(super) history: String,
-    pub(super) queue: String,
 }
 
 /// One old field value that a write replaced or a delete removed.
@@ -47,8 +38,7 @@ struct Capture<'a> {
     change: &'a RecordChange,
     field: &'a str,
     identity: &'a str,
-    old: &'a Value,
-    stamp: &'a FieldStamp,
+    source: &'a Arc<StoredRecord>,
     policy: FieldHistoryPolicy,
 }
 
@@ -56,38 +46,22 @@ fn invalid(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("record history: {error}"))
 }
 
-/// `rh:{S}:{sha(record key)}:`, and the field identity when given.
-pub(super) fn record_prefix(record: &str, field: Option<&str>) -> Result<String, SchemaError> {
-    let space = record
-        .strip_prefix(RECORD_PREFIX)
-        .and_then(|rest| rest.split(':').next())
-        .filter(|space| !space.is_empty())
-        .ok_or_else(|| invalid("the location is not a record key"))?;
-    let mut base = format!(
-        "{RECORD_HISTORY_PREFIX}{space}:{}:",
-        digest(record.as_bytes())
-    );
-    if let Some(field) = field {
-        base.push_str(field);
-        base.push(':');
-    }
-    Ok(base)
-}
-
 /// True for the key of a field history entry of a home.
 pub(super) fn is_record_history(key: &str) -> bool {
-    key.starts_with(RECORD_HISTORY_PREFIX)
+    record_history_suffix(key).is_some()
 }
 
 /// Delete one entry and its queue entry, and lower the
 /// entry count of its record.
-pub(super) fn release(key: &str, entry: &RecordHistoryEntry, out: &mut RecordHistoryRows) {
-    out.rows.push(KvMutation::delete(key.as_bytes().to_vec()));
-    if let Some(queue) = &entry.queue_key {
-        out.rows.push(KvMutation::delete(queue.as_bytes().to_vec()));
-    }
+pub(super) fn release(
+    key: &str,
+    entry: &RecordHistoryEntry,
+    out: &mut RecordHistoryRows,
+) -> Result<(), SchemaError> {
+    out.changes.push(format::release(key, entry)?);
     *out.counts.entry(entry.record.clone()).or_default() -= 1;
     out.released += 1;
+    Ok(())
 }
 
 impl RecordStore {
@@ -113,11 +87,11 @@ impl RecordStore {
         let captures = self.history_captures(schema, changes, purges).await?;
         let now = self.queue_clock().now_nanos();
         for capture in &captures {
-            capture_value(&schema.name, capture, now, &mut out)?;
+            capture_value(&schema.name, capture, now, &mut out);
         }
         let counts = std::mem::take(&mut out.counts);
-        out.rows
-            .extend(self.record_history_count_mutations(counts).await?);
+        out.changes
+            .extend(self.record_history_count_changes(counts).await?);
         Ok(out)
     }
 
@@ -144,15 +118,14 @@ impl RecordStore {
                 {
                     continue;
                 }
-                let (Some(identity), Some(stamp)) = (schema.field_hashes.get(field), stamp) else {
+                let (Some(identity), Some(_)) = (schema.field_hashes.get(field), stamp) else {
                     continue;
                 };
                 found.push(Capture {
                     change,
                     field,
                     identity,
-                    old,
-                    stamp,
+                    source: before,
                     policy: FieldHistoryPolicy::Off,
                 });
             }
@@ -165,7 +138,7 @@ impl RecordStore {
         identities.dedup();
         let keys: Vec<String> = identities
             .iter()
-            .map(|identity| format!("ahp:{identity}"))
+            .map(|identity| format::policy_key(identity))
             .collect();
         let policies: Vec<Option<FieldHistoryPolicy>> = self.main_store.get_items(&keys).await?;
         let policies: HashMap<&str, FieldHistoryPolicy> = identities
@@ -198,7 +171,7 @@ impl RecordStore {
                 )));
             }
             for (key, entry) in self.history_entries(&record_prefix(record, None)?).await? {
-                release(&key, &entry, out);
+                release(&key, &entry, out)?;
             }
         }
         Ok(())
@@ -223,23 +196,28 @@ impl RecordStore {
     pub(super) async fn commit_history_release(
         &self,
         entries: &[(String, RecordHistoryEntry)],
-        orphan_queue_keys: Vec<String>,
+        orphan_queue_keys: Vec<QueueEntry>,
     ) -> Result<u64, SchemaError> {
         let mut out = RecordHistoryRows::default();
         for (key, entry) in entries {
-            release(key, entry, &mut out);
+            release(key, entry, &mut out)?;
         }
-        let mut batch = out.rows;
-        batch.extend(
+        let mut changes = out.changes;
+        changes.extend(
             orphan_queue_keys
                 .into_iter()
-                .map(|key| KvMutation::delete(key.into_bytes())),
+                .map(HistoryChange::OrphanQueue),
         );
-        if batch.is_empty() {
+        if changes.is_empty() {
             return Ok(0);
         }
-        batch.extend(self.record_history_count_mutations(out.counts).await?);
-        self.main_store.inner().batch_mutate(batch).await?;
+        changes.extend(self.record_history_count_changes(out.counts).await?);
+        format::encode(changes)?
+            .stage(
+                self.main_store.inner().as_ref(),
+                &self.namespaced_store.disk_pack_runtime(),
+            )
+            .await?;
         Ok(out.released)
     }
 
@@ -259,7 +237,7 @@ impl RecordStore {
         let mut orphans = Vec::new();
         for (queued, stored) in due.into_iter().zip(stored) {
             let Some(entry) = stored else {
-                orphans.push(queued.queue);
+                orphans.push(queued);
                 continue;
             };
             if !entry.expired(now) || entry.queue_key.as_deref() != Some(queued.queue.as_str()) {
@@ -273,60 +251,19 @@ impl RecordStore {
 
 /// Add one entry, its queue entry when it expires, and one to the entry count
 /// of its record.
-fn capture_value(
-    schema: &str,
-    capture: &Capture<'_>,
-    now: u64,
-    out: &mut RecordHistoryRows,
-) -> Result<(), SchemaError> {
+fn capture_value(schema: &str, capture: &Capture<'_>, now: u64, out: &mut RecordHistoryRows) {
     let record = capture.change.key.as_str();
-    let identity =
-        serde_json::to_vec(&(record, capture.identity, capture.stamp)).map_err(invalid)?;
-    let key = format!(
-        "{}{}",
-        record_prefix(record, Some(capture.identity))?,
-        digest(&identity)
-    );
-    let expires_at = history_expiry(capture.policy, now)?;
-    let queue_key = match expires_at {
-        Some(at) => {
-            let id = digest(key.as_bytes());
-            let queue_key = queue().entry_key(at, &id);
-            let queued = serde_json::to_value(QueueEntry {
-                history: key.clone(),
-                queue: queue_key.clone(),
-            })
-            .map_err(invalid)?;
-            for (row, value) in queue().rows(at, &id, &queued) {
-                let bytes = serde_json::to_vec(&value).map_err(invalid)?;
-                out.rows.push(KvMutation::put(row.into_bytes(), bytes));
-            }
-            Some(queue_key)
-        }
-        None => None,
-    };
-    let reason = if capture.change.after.fields.contains_key(capture.field) {
-        "replace"
-    } else {
-        "delete"
-    };
-    let entry = RecordHistoryEntry {
-        v: RecordHistoryEntry::VERSION,
+    out.changes.push(HistoryChange::Capture(HistoryCapture {
         schema: schema.to_string(),
-        field: capture.field.to_string(),
-        field_identity: capture.identity.to_string(),
         record: record.to_string(),
-        value: capture.old.clone(),
-        stamp: capture.stamp.clone(),
-        archived_at: now,
-        expires_at,
-        reason: reason.into(),
-        queue_key,
-    };
-    let bytes = serde_json::to_vec(&entry).map_err(invalid)?;
-    out.rows.push(KvMutation::put(key.into_bytes(), bytes));
+        field: capture.field.to_string(),
+        identity: capture.identity.to_string(),
+        source: Arc::clone(capture.source),
+        policy: capture.policy,
+        now,
+        replaced: capture.change.after.fields.contains_key(capture.field),
+    }));
     *out.counts.entry(record.to_string()).or_default() += 1;
-    Ok(())
 }
 
 pub(super) fn decode_row(
@@ -336,19 +273,4 @@ pub(super) fn decode_row(
     let key = String::from_utf8(key).map_err(invalid)?;
     let entry = serde_json::from_slice(bytes).map_err(invalid)?;
     Ok((key, entry))
-}
-
-/// The expiry time of a history entry under `policy`, or `None` to keep it.
-fn history_expiry(policy: FieldHistoryPolicy, now: u64) -> Result<Option<u64>, SchemaError> {
-    Ok(match policy {
-        FieldHistoryPolicy::Ttl { seconds } => Some(
-            now.checked_add(
-                seconds
-                    .checked_mul(1_000_000_000)
-                    .ok_or_else(|| SchemaError::InvalidData("history TTL overflow".into()))?,
-            )
-            .ok_or_else(|| SchemaError::InvalidData("history expiry overflow".into()))?,
-        ),
-        _ => None,
-    })
 }

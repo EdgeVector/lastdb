@@ -28,9 +28,7 @@ impl super::RecordStore {
     }
 }
 
-use super::time_queue::TimeQueue;
 use base64::Engine as _;
-use sha2::{Digest, Sha256};
 
 /// A bounded walk of the history rows under one exact prefix, from a cursor.
 fn prefix_walk(
@@ -74,10 +72,4 @@ fn validate_id(id: &str) -> Result<(), crate::schema::SchemaError> {
     ))
 }
 
-pub(crate) fn queue() -> TimeQueue {
-    TimeQueue::with_slice("ahq", "ahb", 3_600_000_000_000)
-}
-
-pub(crate) fn digest(value: &[u8]) -> String {
-    lastdb_model::hex::hex_lower(Sha256::digest(value))
-}
+pub(crate) use crate::storage::format::history::queue;

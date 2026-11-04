@@ -2,13 +2,14 @@ use super::*;
 use crate::db_operations::record_store::RecordStore;
 
 use crate::schema::SchemaError;
+use crate::storage::format::history as format;
 
 impl RecordStore {
     pub async fn field_history_policy(
         &self,
         field: &str,
     ) -> Result<FieldHistoryPolicy, SchemaError> {
-        let key = format!("ahp:{field}");
+        let key = format::policy_key(field);
         Ok(self.main_store.get_item(&key).await?.unwrap_or_default())
     }
 
@@ -17,18 +18,7 @@ impl RecordStore {
         field: &str,
         policy: FieldHistoryPolicy,
     ) -> Result<(), SchemaError> {
-        if let FieldHistoryPolicy::Ttl { seconds } = policy {
-            if seconds == 0 || seconds.checked_mul(1_000_000_000).is_none() {
-                return Err(SchemaError::InvalidData(
-                    "history TTL must be positive and fit nanoseconds".into(),
-                ));
-            }
-        }
-        if field.len() != 64 || !field.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(SchemaError::InvalidData(
-                "history needs a canonical field identity".into(),
-            ));
-        }
+        let encoded = format::policy_batch(field, policy)?;
         if policy != FieldHistoryPolicy::Off {
             // Wake before the write: cancellation after native acceptance must
             // not strand a committed policy without its expiry worker. The
@@ -36,19 +26,12 @@ impl RecordStore {
             self.history_activation.notify_one();
         }
         self.in_background_scope(async {
-            let mut writes = vec![crate::storage::KvMutation::put(
-                format!("ahp:{field}").into_bytes(),
-                serde_json::to_vec(&policy).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-            )];
-            if policy != FieldHistoryPolicy::Off {
-                writes.push(crate::storage::KvMutation::put(
-                    crate::records::key_format::FIELD_HISTORY_KEY
-                        .as_bytes()
-                        .to_vec(),
-                    crate::records::key_format::FIELD_HISTORY_ON.to_vec(),
-                ));
-            }
-            self.main_store.inner().batch_mutate(writes).await?;
+            encoded
+                .stage(
+                    self.main_store.inner().as_ref(),
+                    &self.namespaced_store.disk_pack_runtime(),
+                )
+                .await?;
             Ok(())
         })
         .await

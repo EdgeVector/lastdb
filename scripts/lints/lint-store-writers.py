@@ -43,7 +43,7 @@ RAW = re.compile(
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {
-    "H": re.compile(r'\bRECORD_HISTORY_PREFIX\b|"rh:|"ahq\b|"ahk:|"ahb\b'),
+    "H": re.compile(r'\bRECORD_HISTORY_(?:PREFIX|FAMILY)\b|"rh:|"ahq\b|"ahk:|"ahb\b'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 

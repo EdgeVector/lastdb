@@ -63,14 +63,19 @@ impl RecordStore {
                     "field history row {key} of a dropped schema is unreadable: {error}"
                 ))
             })?;
-            super::records::release(key, &entry, &mut out);
+            super::records::release(key, &entry, &mut out)?;
         }
-        if out.rows.is_empty() {
+        if out.changes.is_empty() {
             return Ok(0);
         }
-        let mut batch = out.rows;
-        batch.extend(super::key_counts::history_count_deletes(out.counts.keys()));
-        self.main_store.inner().batch_mutate(batch).await?;
+        let mut changes = out.changes;
+        changes.extend(super::key_counts::history_count_deletes(out.counts.keys()));
+        crate::storage::format::history::encode(changes)?
+            .stage(
+                self.main_store.inner().as_ref(),
+                &self.namespaced_store.disk_pack_runtime(),
+            )
+            .await?;
         Ok(out.released)
     }
 }
