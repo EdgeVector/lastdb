@@ -50,17 +50,29 @@ fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
 /// (each socket executor) parses the wire body into this shape; the shared
 /// handler owns schema resolution + the write.
 pub struct MutationComponents {
+    /// Stable caller UUID retained across retries of this exact request.
     pub mutation_id: String,
+    /// Schema that owns the record.
     pub schema: String,
+    /// Complete replacement payload; omitted fields disappear.
     pub record_fields: HashMap<String, Value>,
+    /// Explicit primary address, independent of payload fields.
     pub key_value: KeyValue,
+    /// Every declared alternate name and its explicit address or permitted null.
     pub alternates: std::collections::BTreeMap<String, Option<KeyValue>>,
+    /// Create, replace, delete, or purge.
     pub mutation_type: MutationType,
+    /// Complete replacement of the optional source file name.
     pub source_file_name: Option<String>,
+    /// Complete replacement of record metadata; absence clears it.
     pub metadata: Option<HashMap<String, String>>,
+    /// Complete selected file marker; changes require an opaque file operation.
     pub file: Option<fold_db::record_value::FileMarker>,
+    /// Required whole-record revision or expected-absent creation condition.
     pub expected: fold_db::schema::types::cas::CasExpectation,
+    /// Whether to wait for post-commit background work.
     pub convergence: MutationConvergence,
+    /// Requested local persistence policy; native commits remain durable.
     pub durability: MutationDurability,
     /// Only a file-blob executor can issue this opaque operation.
     pub file_write: Option<FileWrite>,
@@ -89,6 +101,7 @@ impl MutationComponents {
         mutation
     }
 
+    /// Move a decoded native request into its host components.
     #[must_use]
     pub fn from_operation(
         operation: Operation,

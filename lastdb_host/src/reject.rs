@@ -174,8 +174,11 @@ pub enum WireKey {
     Schema,
     /// `record` — the field map a mutation writes.
     Record,
+    /// Stable caller request identity.
     MutationId,
+    /// Every schema-declared alternate address.
     Alternates,
+    /// Whole-record acceptance condition.
     Expected,
     /// `key_value` — the `{hash, range}` selector a mutation addresses.
     KeyValue,
