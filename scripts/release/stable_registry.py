@@ -23,10 +23,12 @@ def download(url):
     return raw
 
 
-def catalog(api):
+def catalog(api, channel="stable"):
+    if channel not in ("stable", "next"):
+        raise ValueError("Invalid app channel")
     base = json.loads(PROFILE.read_text())["environments"]["prod"]["registry_index"]
-    raw = download(f"{base}/stable/api/{api}.json")
-    envelope = json.loads(download(f"{base}/stable/api/{api}.json.sig"))
+    raw = download(f"{base}/{channel}/api/{api}.json")
+    envelope = json.loads(download(f"{base}/{channel}/api/{api}.json.sig"))
     digest = hashlib.sha256(raw).hexdigest()
     key = base64.b64decode(KEY, validate=True)
     if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
@@ -35,7 +37,7 @@ def catalog(api):
     Ed25519PublicKey.from_public_bytes(key).verify(
         base64.b64decode(envelope["sig"], validate=True), digest.encode())
     catalog = json.loads(raw)
-    if catalog.get("api_version") != api or catalog.get("channel") != "stable" or catalog.get("list_version") != 1:
+    if catalog.get("api_version") != api or catalog.get("channel") != channel or catalog.get("list_version") != 1:
         raise ValueError("Registry list belongs to another interface")
     return catalog
 

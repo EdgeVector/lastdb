@@ -87,10 +87,14 @@ pub fn install(
                 .into(),
         );
     }
-    if prior
-        .as_ref()
-        .is_some_and(|r| r.sha == resolution.sha && r.inactive == options.inactive)
-    {
+    if prior.as_ref().is_some_and(|r| {
+        r.sha == resolution.sha
+            && r.inactive == options.inactive
+            && resolution
+                .list_entry
+                .as_ref()
+                .is_some_and(|entry| r.publisher == entry.publisher_key)
+    }) {
         let current = prior.ok_or("missing current receipt")?;
         verify_or_restore(&root, home, &current)?;
         return Ok(current);
@@ -146,12 +150,11 @@ fn stage_version(
     let source = stage.join("source");
     let plan = InstallPlan::load(&source, &resolution.app_id)?;
     let hash = plan.consent_hash()?;
-    let changed = prior.is_none_or(|r| {
-        r.consent_hash != hash
-            || r.publisher != entry.publisher_key
-            || r.inactive != options.inactive
-    });
-    if prior.is_some_and(|r| r.publisher != entry.publisher_key) {
+    let changed = prior.is_none_or(|r| r.consent_hash != hash || r.inactive != options.inactive);
+    if prior.is_some_and(|r| {
+        r.publisher != entry.publisher_key
+            && !super::managed_publisher::authorized_transition(r, resolution, entry)
+    }) {
         return Err("publisher key changed; explicit owner rotation is required".into());
     }
     if changed && !options.accept_install {

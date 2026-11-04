@@ -21,6 +21,10 @@ def app_sources():
     match = re.search(r"pub const API_VERSION: u32 = ([0-9]+);", text)
     if match is None:
         raise ValueError("The source has no definite API version")
+    outbox = re.search(r"pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = ([0-9]+);",
+                       Path("lastdb_node/src/version.rs").read_text())
+    if outbox is None:
+        raise ValueError("The source has no definite outbox interface")
     try:
         listing = catalog(int(match[1]))
     except HTTPError as error:
@@ -30,10 +34,11 @@ def app_sources():
     result = {}
     for app in APPS:
         entries = [row for row in listing["apps"] if row.get("app_id") == app and row.get("status") == "listed"
-                   and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
+                   and row.get("source") == f"https://github.com/EdgeVector/{app}.git"
+                   and row.get("outbox_format_version") in (None, int(outbox[1]))]
         # Re-prove the published compatible commit, instead of requiring a
-        # person to sign every unrelated app main update. A missing API list
-        # produces bootstrap evidence only; publication still fails closed.
+        # publisher to follow every unrelated app main update. Missing API or
+        # outbox compatibility selects app main for fresh CI proof instead.
         result[app] = (max(entries, key=lambda row: row["published_at"])["sha"] if entries
                        else api(f"repos/EdgeVector/{app}/commits/main")["sha"])
     return result
