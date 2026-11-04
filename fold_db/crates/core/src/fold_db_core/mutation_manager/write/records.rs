@@ -23,7 +23,7 @@ use std::sync::Arc;
 use super::super::cas_rules::{check_expectation, CurrentHead};
 use super::super::key_values::validate_field_value;
 use super::record_effects::ChangedRecord;
-use super::record_rules::{loud_erasure, purges_deleted_record, take_file_rows, FileRows};
+use super::record_rules::{loud_erasure, purges_deleted_record, take_file_writes, FileWrites};
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
@@ -48,8 +48,14 @@ impl MutationManager {
         }
         let stored = records.read_records(&record_keys).await?;
         let stored = record_keys.into_iter().zip(stored).collect();
-        let file_rows = take_file_rows(&mut mutations);
-        let group = merge_group(schema_name, &schema, (&mutations, file_rows), &keys, stored)?;
+        let file_writes = take_file_writes(&mut mutations);
+        let group = merge_group(
+            schema_name,
+            &schema,
+            (&mutations, file_writes),
+            &keys,
+            stored,
+        )?;
         let entries = records
             .alternate_entry_changes(&schema, &group.keys, &group.before, &group.after)
             .await?;
@@ -180,7 +186,7 @@ struct GroupChanges<'a> {
 fn merge_group<'a>(
     schema_name: &str,
     schema: &Schema,
-    (mutations, file_rows): (&'a [Mutation], FileRows),
+    (mutations, file_writes): (&'a [Mutation], FileWrites),
     keys: &'a [KeyValue],
     stored: Vec<(RecordAddress, Option<Arc<StoredRecord>>)>,
 ) -> Result<GroupChanges<'a>, SchemaError> {
@@ -191,10 +197,16 @@ fn merge_group<'a>(
         before: Vec::with_capacity(mutations.len()),
         after: Vec::with_capacity(mutations.len()),
     };
-    let merges = mutations.iter().zip(file_rows).zip(keys).zip(stored);
-    for (((mutation, file_row), key), (record_key, before)) in merges {
+    let merges = mutations.iter().zip(file_writes).zip(keys).zip(stored);
+    for (((mutation, file_write), key), (record_key, before)) in merges {
         let mut after = before.as_deref().cloned().unwrap_or_default();
-        let merged = merge_mutation(schema_name, schema, mutation, &mut after)?;
+        let merged = merge_mutation(
+            schema_name,
+            schema,
+            mutation,
+            file_write.as_ref(),
+            &mut after,
+        )?;
         if !merged && !purges_deleted_record(mutation, before.as_deref()) {
             continue;
         }
@@ -211,7 +223,7 @@ fn merge_group<'a>(
             key: record_key,
             before,
             after,
-            file_row,
+            file_write,
         });
     }
     Ok(group)
@@ -230,6 +242,7 @@ fn merge_mutation(
     schema_name: &str,
     schema: &Schema,
     mutation: &Mutation,
+    file_write: Option<&FileWrite>,
     record: &mut StoredRecord,
 ) -> Result<bool, SchemaError> {
     let stamp = field_stamp(mutation)?;
@@ -276,8 +289,8 @@ fn merge_mutation(
             FieldMerge::Written { .. }
         );
     }
-    changed |= match &mutation.file_write {
-        Some(FileWrite::Put { marker, .. }) => record.set_file(marker.clone(), stamp),
+    changed |= match file_write {
+        Some(FileWrite::Put(file)) => record.set_file(file.marker().clone(), stamp),
         Some(FileWrite::Clear) => record.clear_file(&stamp),
         None => false,
     };

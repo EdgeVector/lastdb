@@ -18,6 +18,7 @@
 
 use super::RecordFormat;
 use crate::error::FoldDbError;
+use crate::schema::types::FileWrite;
 use crate::schema::SchemaError;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -100,14 +101,14 @@ impl RecordFormat {
         })
     }
 
-    /// Seal a new file under the account key. Returns its marker and the row
-    /// that a record write puts at the record's file path.
+    /// Seal a new file under the account key and bind the immutable output
+    /// to this format instance. The issuer never leaves this writer.
     pub(crate) fn seal_record_file(
         &self,
         plaintext: &[u8],
         name: Option<String>,
         media_type: Option<String>,
-    ) -> Result<(FileMarker, Vec<u8>), FoldDbError> {
+    ) -> Result<FileWrite, FoldDbError> {
         if plaintext.len() as u64
             > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
         {
@@ -131,7 +132,7 @@ impl RecordFormat {
             size_bytes: plaintext.len() as u64,
             sha256,
         };
-        Ok((marker, row))
+        Ok(self.file_issuer.issue(marker, row))
     }
 
     /// The plaintext of the file of the record at `record_key`, checked

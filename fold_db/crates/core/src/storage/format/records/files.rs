@@ -1,44 +1,62 @@
 //! Compose the existing record-owned file row with its record write.
 
 use super::RecordAddress;
+use crate::schema::types::{FileWrite, FileWriteIssuer};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 
-/// A changed file marker puts its sealed row; losing a marker deletes its
-/// path. Sealing the file bytes remains the existing account-key operation.
+pub(super) struct FileChange {
+    pub(super) key: RecordAddress,
+    pub(super) after: Arc<StoredRecord>,
+    pub(super) write: Option<FileWrite>,
+}
+
+/// Compare against the writer's current record, including every marker field.
+/// A new reference needs its bound payload; unchanged references reuse bytes.
 pub(super) fn encode(
-    key: &RecordAddress,
+    change: FileChange,
     before: Option<&StoredRecord>,
-    after: &StoredRecord,
-    row: Option<Arc<Vec<u8>>>,
+    issuer: &FileWriteIssuer,
     content_key: Option<&[u8; 32]>,
 ) -> Result<Option<KvMutation>, SchemaError> {
+    let FileChange { key, after, write } = change;
     let had = before.is_some_and(|record| record.file.is_some());
-    let stamp_of = |record: Option<&StoredRecord>| {
-        record.and_then(|record| record.file.as_ref().map(|file| file.stamp.clone()))
-    };
-    let set = after.file.is_some() && stamp_of(before) != stamp_of(Some(after));
-    Ok(match row {
-        Some(row) if set => {
-            let marker = after
-                .file
-                .as_ref()
-                .ok_or_else(|| {
-                    SchemaError::InvalidData("a file row requires its record marker".into())
-                })?
-                .marker();
-            super::file_crypto::require_row(content_key, &marker, &row)?;
-            Some(KvMutation::put(
-                record_file_path(key.as_str())?.into_bytes(),
-                Arc::try_unwrap(row).unwrap_or_else(|row| row.as_ref().clone()),
-            ))
+    let set = after.file.is_some()
+        && before.and_then(|record| record.file.as_ref()) != after.file.as_ref();
+    Ok(if set {
+        let Some(FileWrite::Put(file)) = write else {
+            return Err(SchemaError::InvalidData(
+                "a selected file requires its sealed payload".into(),
+            ));
+        };
+        let marker = after
+            .file
+            .as_ref()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("a file row requires its record marker".into())
+            })?
+            .marker();
+        if file.marker() != &marker {
+            return Err(SchemaError::InvalidData(
+                "file payload differs from its record marker".into(),
+            ));
         }
-        _ if had && after.file.is_none() => Some(KvMutation::delete(
+        let row = issuer.admit(file).ok_or_else(|| {
+            SchemaError::InvalidData("file payload belongs to another format writer".into())
+        })?;
+        super::file_crypto::require_row(content_key, &marker, &row)?;
+        Some(KvMutation::put(
             record_file_path(key.as_str())?.into_bytes(),
-        )),
-        _ => None,
+            row,
+        ))
+    } else if had && after.file.is_none() {
+        Some(KvMutation::delete(
+            record_file_path(key.as_str())?.into_bytes(),
+        ))
+    } else {
+        None
     })
 }

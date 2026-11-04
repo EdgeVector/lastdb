@@ -118,10 +118,10 @@ pub(super) async fn execute_db_put_blob_route(
             .seal_record_file(&plaintext, metadata.name, metadata.media_type)
             .map_err(HostError::from)?;
         drop(plaintext);
-        let FileWrite::Put { marker, .. } = &file_write else {
+        let FileWrite::Put(file) = &file_write else {
             return Err(HostError::new(500, "a sealed file is a put"));
         };
-        let marker = marker.clone();
+        let marker = file.marker().clone();
         let components = file_mutation(schema, target.key, metadata.fields, file_write, None);
         let value = commit_mutation_components(host, components).await?;
         Ok(serde_json::json!({

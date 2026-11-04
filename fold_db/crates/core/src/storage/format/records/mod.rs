@@ -27,12 +27,14 @@ pub(crate) use maintenance::validate_cutoff_raise;
 pub(crate) use release::{release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use store::RecordFormat;
 
+use crate::schema::types::FileWrite;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::history::EncodedHistory;
 use crate::storage::{KvMutation, KvStore, StorageError};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Prepared values of one record, after the existing mutation merge.
@@ -40,54 +42,61 @@ pub(crate) struct RecordChange {
     pub key: RecordAddress,
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
-    pub file_row: Option<Arc<Vec<u8>>>,
+    pub file_write: Option<FileWrite>,
 }
 
 /// Only this format module can create the batch or add primary/alternate rows.
 struct EncodedRecords {
     main: Vec<KvMutation>,
-    effects: RecordEffects,
-}
-
-/// Private file changes and memory publications consumed by the bound writer.
-/// Neither the raw main batch nor these effects escape to a provider.
-struct RecordEffects {
-    files: Vec<KvMutation>,
+    files: Vec<files::FileChange>,
     written: Vec<WrittenRecord>,
 }
 
 fn encode(
     changes: Vec<RecordChange>,
     alternates: Vec<AlternateChange>,
-    content_key: Option<&[u8; 32]>,
 ) -> Result<EncodedRecords, SchemaError> {
     let mut main = Vec::with_capacity(changes.len() + alternates.len());
     let mut files = Vec::new();
     let mut written = Vec::with_capacity(changes.len());
-    for mut change in changes {
-        files.extend(files::encode(
-            &change.key,
-            change.before.as_deref(),
-            &change.after,
-            change.file_row.take(),
-            content_key,
-        )?);
+    for change in changes {
         // Structure is checked now; complete-request admission checks the
         // final encoded body at each key, including repeated-key writes.
         let value = change.after.encode_uncapped().map_err(record_value_error)?;
-        written.push(WrittenRecord::new(
-            change.key.as_str(),
-            Arc::new(change.after),
-            &value,
-        ));
+        let after = Arc::new(change.after);
+        if change
+            .before
+            .as_ref()
+            .is_some_and(|record| record.file.is_some())
+            || after.file.is_some()
+            || change.file_write.is_some()
+        {
+            files.push(files::FileChange {
+                key: change.key.clone(),
+                after: Arc::clone(&after),
+                write: change.file_write,
+            });
+        }
+        written.push(WrittenRecord::new(change.key.as_str(), after, &value));
         main.push(KvMutation::put(change.key.into_string(), value));
+    }
+    if !files.is_empty() {
+        // File decisions use one current preimage per key. The coordinator
+        // splits repeated keys into successive groups in the same request.
+        let mut keys = HashSet::with_capacity(main.len());
+        if main.iter().any(|row| !keys.insert(row.key())) {
+            return Err(SchemaError::InvalidData(
+                "a file record batch repeats a record address".into(),
+            ));
+        }
     }
     for change in alternates {
         main.push(alternates::encode(change)?);
     }
     Ok(EncodedRecords {
         main,
-        effects: RecordEffects { files, written },
+        files,
+        written,
     })
 }
 
@@ -99,7 +108,7 @@ impl EncodedRecords {
         main_store: &dyn KvStore,
         runtime: &PackRuntime,
         history: EncodedHistory,
-    ) -> Result<RecordEffects, SchemaError> {
+    ) -> Result<Vec<WrittenRecord>, SchemaError> {
         if !transaction::publication::active(runtime) {
             return Err(SchemaError::InvalidData(
                 "row commits require a complete native write scope".into(),
@@ -109,7 +118,7 @@ impl EncodedRecords {
         // Keep the original single staging call and its native admission
         // bound, including no-op deletes. The complete request owns commit.
         main_store.batch_mutate(self.main).await?;
-        Ok(self.effects)
+        Ok(self.written)
     }
 }
 
