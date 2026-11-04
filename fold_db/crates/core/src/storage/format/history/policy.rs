@@ -32,10 +32,10 @@ pub(crate) fn policy_batch(
     )];
     if policy != FieldHistoryPolicy::Off {
         rows.push(KvMutation::put(
-            crate::records::key_format::FIELD_HISTORY_KEY
+            crate::storage::format::control::FIELD_HISTORY_KEY
                 .as_bytes()
                 .to_vec(),
-            crate::records::key_format::FIELD_HISTORY_ON.to_vec(),
+            crate::storage::format::control::FIELD_HISTORY_ON.to_vec(),
         ));
     }
     Ok(EncodedHistory { rows })

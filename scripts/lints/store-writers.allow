@@ -6,11 +6,9 @@
 
 
 
-fold_db/crates/core/src/db_operations/record_store/delete_replay.rs|raise_replay_cutoff|-|explicit stopped-home maintenance (`lastdb db recount --delete-cutoff-unix-secs`): puts the one replay cutoff row; no record or history row
 
 
 
-fold_db/crates/core/src/db_operations/record_store/erase_meters.rs|record_record_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no record or counter keys
 
 fold_db/crates/core/src/storage/format/records/mod.rs|stage|-|consumes the format-minted opaque record, pointer and history batches in one staging call inside the existing write scope; never starts or commits an independent request
 fold_db/crates/core/src/storage/format/history/mod.rs|stage|-|consumes only opaque batches minted by history capture/release/count/policy encoders or guarded queue retirement, inside the existing native request; providers supply data, not raw mutations
@@ -19,4 +17,7 @@ fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|-|private metadata 
 fold_db/crates/core/src/storage/format/change_feed/mod.rs|stage|-|private feed writer consumes only format-minted event/sequence/expiry batches in the existing native request; the nested encoder and domain coordinator have no raw namespace handle
 fold_db/crates/core/src/storage/format/schemas/mod.rs|stage|-|private schema/state writer consumes only format-minted definition/state/claim/retention batches and validated deletions in its native scope; providers hold read-only views
 fold_db/crates/core/src/storage/format/field_keys/mod.rs|stage|-|private field-key writer stages only format-generated node wrap/metadata batches in the existing mint scope; key/cache providers hold read-only views and no raw namespace handle
-fold_db/crates/core/src/db_operations/record_store/schema_release.rs|release_batch|-|schema drop: in one write scope, reads one bounded batch of the rk: records or ak: entries of a dropped schema again by key and deletes them in one native batch, then deletes the file paths of those records in that batch
+fold_db/crates/core/src/storage/format/records/store.rs|stage_files|-|private record-file sink consumes only file rows encoded by record changes or schema release; requires the existing native scope, with no provider raw append operation
+fold_db/crates/core/src/storage/format/records/release.rs|release_schema_batch|-|format-minted schema family validates selected keys and re-reads at most 256 under the same native scope, composing exact record/alternate/history/file cleanup
+fold_db/crates/core/src/storage/format/records/maintenance.rs|raise_replay_cutoff|-|stopped-home control writer rechecks the floor and current marker under its native gate, enforces monotonicity and configured version, then flushes
+fold_db/crates/core/src/storage/format/records/maintenance.rs|record_delete_audit|-|format selects the audit family/key and serializes typed erase facts inside the existing erase scope

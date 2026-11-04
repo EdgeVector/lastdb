@@ -3,11 +3,11 @@
 //! moves it, and only up.
 
 use super::RecordStore;
-use crate::records::key_format::{
-    validate_frozen_replay_floor, Cutoff, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY,
-};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvMutation, StorageError};
+use crate::storage::format::control::{
+    validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY,
+};
+use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
 /// What a raise of the replay cutoff did.
@@ -37,7 +37,7 @@ impl RecordStore {
     /// The serving process cannot advance this boundary. The offline raise uses
     /// a separate instance without this cache and always reads its disk state.
     pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
-        self.namespaced_store.disk_pack_runtime().begin_serving();
+        self.runtime.begin_serving();
         let cutoff = self.read_minimum_replay_time().await?;
         if let Err(cutoff) = self.serving_replay_cutoff.set(cutoff) {
             if self.serving_replay_cutoff.get() != Some(&cutoff) {
@@ -76,15 +76,7 @@ impl RecordStore {
             ));
         }
         let previous = self.minimum_replay_time().await?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(invalid)?
-            .as_nanos();
-        if cutoff == 0 || cutoff < previous || (cutoff > previous && u128::from(cutoff) > now) {
-            return Err(invalid(
-                "the cutoff must be positive, cannot decrease, and cannot move into the future",
-            ));
-        }
+        crate::storage::format::records::validate_cutoff_raise(previous, cutoff)?;
         let mut report = ReplayCutoffReport {
             executed: execute,
             cutoff_before_nanos: previous,
@@ -97,16 +89,7 @@ impl RecordStore {
         report.operations = 1;
         report.batches = 1;
         if execute {
-            let floor = serde_json::to_vec(&Cutoff {
-                v: 1,
-                minimum_written_at_nanos: cutoff,
-            })
-            .map_err(invalid)?;
-            self.main_store
-                .inner()
-                .batch_mutate(vec![KvMutation::put(CUTOFF_KEY.as_bytes(), floor)])
-                .await?;
-            self.main_store.inner().flush().await?;
+            self.format.raise_replay_cutoff(cutoff).await?;
         }
         Ok(report)
     }

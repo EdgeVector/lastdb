@@ -6,7 +6,6 @@ use super::DbOperations;
 use crate::storage::field_key_store::FieldKeyStore;
 use crate::storage::format;
 use crate::storage::traits::*;
-use crate::storage::TypedKvStore;
 use std::sync::Arc;
 
 /// The namespace handles `DbOperationsCore` opens at construction.
@@ -84,8 +83,7 @@ impl DbOperations {
         );
         let record_store = Self::open_record_store(
             &store,
-            Arc::new(TypedKvStore::new(main_kv)),
-            content_key,
+            format::records::RecordFormat::new(main_kv, Arc::clone(&store), content_key),
             &field_keys,
             content_key.or(field_key_wrap_key),
         )
@@ -112,14 +110,12 @@ impl DbOperations {
 
     async fn open_record_store(
         store: &Arc<dyn NamespacedStore>,
-        main: Arc<TypedKvStore<dyn KvStore>>,
-        content_key: Option<[u8; 32]>,
+        format: format::records::RecordFormat,
         field_keys: &FieldKeyStore,
         proof_key: Option<[u8; 32]>,
     ) -> Result<RecordStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
-        let record_store = RecordStore::new_with_content_key(main, Arc::clone(store), content_key)
-            .with_field_keys(field_keys.clone());
+        let record_store = RecordStore::new(format).with_field_keys(field_keys.clone());
         Self::initialize_fresh_native_refs(store, &record_store, proof_key).await?;
         Ok(record_store)
     }

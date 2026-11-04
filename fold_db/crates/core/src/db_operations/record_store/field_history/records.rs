@@ -212,12 +212,7 @@ impl RecordStore {
             return Ok(0);
         }
         changes.extend(self.record_history_count_changes(out.counts).await?);
-        format::encode(changes)?
-            .stage(
-                self.main_store.inner().as_ref(),
-                &self.namespaced_store.disk_pack_runtime(),
-            )
-            .await?;
+        self.format.stage_history(format::encode(changes)?).await?;
         Ok(out.released)
     }
 

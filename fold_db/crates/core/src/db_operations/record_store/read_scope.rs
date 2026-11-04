@@ -10,7 +10,7 @@ impl RecordStore {
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
-        crate::storage::disk_pack::PackReadScope::for_store(&self.namespaced_store)
+        crate::storage::disk_pack::PackReadScope::for_runtime(&self.runtime)
             .await?
             .run_result(future)
             .await

@@ -21,10 +21,10 @@ impl super::RecordStore {
         let setting = self
             .main_store
             .inner()
-            .get(crate::records::key_format::FIELD_HISTORY_KEY.as_bytes())
+            .get(crate::storage::format::control::FIELD_HISTORY_KEY.as_bytes())
             .await
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))?;
-        Ok(setting.as_deref() == Some(crate::records::key_format::FIELD_HISTORY_ON))
+        Ok(setting.as_deref() == Some(crate::storage::format::control::FIELD_HISTORY_ON))
     }
 }
 

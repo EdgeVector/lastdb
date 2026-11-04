@@ -23,15 +23,7 @@ impl RecordStore {
         key: String,
         token: Vec<u8>,
     ) -> Result<bool, SchemaError> {
-        self.in_background_scope(async {
-            crate::storage::format::history::retire_bucket(
-                self.main_store.inner().as_ref(),
-                &self.namespaced_store.disk_pack_runtime(),
-                key,
-                token,
-            )
+        self.in_background_scope(async { self.format.retire_history_bucket(key, token).await })
             .await
-        })
-        .await
     }
 }

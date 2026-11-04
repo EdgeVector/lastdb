@@ -1,32 +1,14 @@
-//! The erase audit row joins the same native snapshot as the removed data.
+//! Audit facts join the native erase through the format writer.
 
-use super::*;
+use super::RecordStore;
 use crate::db_operations::RecordDeleteLedgerEntry;
-
 use crate::schema::SchemaError;
-use chrono::Utc;
 
 impl RecordStore {
-    /// Stage final audit facts with the native erase. Failure aborts the scope.
     pub(crate) async fn record_record_delete_audit(
         &self,
         entry: RecordDeleteLedgerEntry,
     ) -> Result<(), SchemaError> {
-        if !crate::storage::disk_pack::transaction::publication::active(
-            &self.namespaced_store.disk_pack_runtime(),
-        ) {
-            return Err(SchemaError::InvalidData(
-                "erase audit requires a complete native write scope".into(),
-            ));
-        }
-        let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
-        let key = lastdb_model::kind_partition::anchored(
-            "dellog",
-            &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
-        );
-        self.raw()
-            .put_item(&key, &entry)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("stage erase audit: {error}")))
+        self.format.record_delete_audit(entry).await
     }
 }

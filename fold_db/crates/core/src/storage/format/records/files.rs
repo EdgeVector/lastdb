@@ -14,6 +14,7 @@ pub(super) fn encode(
     before: Option<&StoredRecord>,
     after: &StoredRecord,
     row: Option<Arc<Vec<u8>>>,
+    content_key: Option<&[u8; 32]>,
 ) -> Result<Option<KvMutation>, SchemaError> {
     let had = before.is_some_and(|record| record.file.is_some());
     let stamp_of = |record: Option<&StoredRecord>| {
@@ -21,10 +22,20 @@ pub(super) fn encode(
     };
     let set = after.file.is_some() && stamp_of(before) != stamp_of(Some(after));
     Ok(match row {
-        Some(row) if set => Some(KvMutation::put(
-            record_file_path(key.as_str())?.into_bytes(),
-            Arc::try_unwrap(row).unwrap_or_else(|row| row.as_ref().clone()),
-        )),
+        Some(row) if set => {
+            let marker = after
+                .file
+                .as_ref()
+                .ok_or_else(|| {
+                    SchemaError::InvalidData("a file row requires its record marker".into())
+                })?
+                .marker();
+            super::file_crypto::require_row(content_key, &marker, &row)?;
+            Some(KvMutation::put(
+                record_file_path(key.as_str())?.into_bytes(),
+                Arc::try_unwrap(row).unwrap_or_else(|row| row.as_ref().clone()),
+            ))
+        }
         _ if had && after.file.is_none() => Some(KvMutation::delete(
             record_file_path(key.as_str())?.into_bytes(),
         )),

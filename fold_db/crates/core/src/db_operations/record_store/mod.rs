@@ -1,7 +1,7 @@
 //! Record domain store.
 //!
-//! Owns the main storage namespace where the records of a home, their
-//! alternate keys and field history live. External callers use
+//! Supplies record values and read coordination to the format-owned main/file
+//! writer. It has no raw store or namespace factory. External callers use
 //! `DbOperations::records()` to reach these operations.
 //!
 //! Layout:
@@ -45,10 +45,8 @@ pub(crate) use record_walk::{WalkWindow, PAGE_READ_KEYS};
 pub(crate) use records::RecordChange;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
-use crate::storage::{
-    traits::{KvStore, NamespacedStore},
-    TypedKvStore,
-};
+use crate::storage::disk_pack::PackRuntime;
+use crate::storage::format::{read::ReadStore, records::RecordFormat};
 use std::sync::Arc;
 
 /// Record store for a home. One record at each primary key.
@@ -56,16 +54,12 @@ use std::sync::Arc;
 /// Backed by the `main` namespace.
 #[derive(Clone)]
 pub struct RecordStore {
-    main_store: Arc<TypedKvStore<dyn KvStore>>,
+    main_store: ReadStore,
+    format: Arc<RecordFormat>,
+    runtime: Arc<PackRuntime>,
     /// Validated once before serving. Only stopped-home maintenance can move
     /// this floor; replay cannot write its two metadata records.
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
-    /// Owner namespace factory for physical-plane maintenance.
-    namespaced_store: Arc<dyn NamespacedStore>,
-    /// The account key that seals a record file (see `record_files.rs`).
-    /// Record rows do not use it: a record row is plain JSON, and the block
-    /// encryption of each run file protects it at rest.
-    content_key: Option<[u8; 32]>,
     /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
     field_keys: Option<crate::db_operations::FieldKeyStore>,
     /// The clock of the field history expiry queue. Shared by clones.
@@ -104,15 +98,13 @@ impl RecordStore {
         })
     }
 
-    /// Access the underlying typed KV store. Crate-internal helper for
-    /// code paths that need generic typed access (field loading, the delete
-    /// ledger, alternate entries).
-    pub(crate) fn raw(&self) -> &Arc<TypedKvStore<dyn KvStore>> {
+    /// A read-only view with no raw-handle extraction or write methods.
+    pub(crate) fn reader(&self) -> &ReadStore {
         &self.main_store
     }
 
     /// Flush all pending writes in the record namespace to durable storage.
     pub async fn flush(&self) -> Result<(), crate::storage::StorageError> {
-        self.main_store.inner().flush().await
+        self.format.flush().await
     }
 }

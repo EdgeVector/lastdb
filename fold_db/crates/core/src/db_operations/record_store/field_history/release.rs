@@ -1,7 +1,6 @@
 use super::records::QueueEntry;
 use crate::db_operations::record_store::time_queue::QueueReader;
 use crate::db_operations::record_store::RecordStore;
-use crate::records::field_history::RecordHistoryEntry;
 use crate::schema::SchemaError;
 
 impl RecordStore {
@@ -43,39 +42,5 @@ impl RecordStore {
             return Ok(released);
         }
         Ok(0)
-    }
-
-    /// Release field history rows of a dropped schema in one batch: each
-    /// entry and its queue entry. The drop releases every
-    /// entry of the schema, so the entry count of each named record is deleted,
-    /// not lowered: an entry of the record in a later batch deletes the gone
-    /// count again, and a count that drifted cannot stop the drop. The caller
-    /// read the rows by key in its write scope. A row that does not decode
-    /// fails the release.
-    pub(crate) async fn release_dropped_history(
-        &self,
-        rows: &[(String, Vec<u8>)],
-    ) -> Result<u64, SchemaError> {
-        let mut out = super::records::RecordHistoryRows::default();
-        for (key, bytes) in rows {
-            let entry = serde_json::from_slice::<RecordHistoryEntry>(bytes).map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "field history row {key} of a dropped schema is unreadable: {error}"
-                ))
-            })?;
-            super::records::release(key, &entry, &mut out)?;
-        }
-        if out.changes.is_empty() {
-            return Ok(0);
-        }
-        let mut changes = out.changes;
-        changes.extend(super::key_counts::history_count_deletes(out.counts.keys()));
-        crate::storage::format::history::encode(changes)?
-            .stage(
-                self.main_store.inner().as_ref(),
-                &self.namespaced_store.disk_pack_runtime(),
-            )
-            .await?;
-        Ok(out.released)
     }
 }

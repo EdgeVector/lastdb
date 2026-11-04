@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
-use crate::schema::SchemaError;
 use lastdb_model::record_value::FileMarker;
 
 use super::FoldDB;
@@ -36,13 +35,6 @@ impl FoldDB {
         name: Option<String>,
         media_type: Option<String>,
     ) -> Result<FileWrite, FoldDbError> {
-        if plaintext.len() as u64
-            > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
-        {
-            return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
-                detail: "local file input exceeds native pending memory allowance".into(),
-            }));
-        }
         let (marker, row) = self
             .db_ops()
             .records()
