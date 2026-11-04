@@ -124,7 +124,7 @@ def arm(args, label, pair, output):
     binary = getattr(args, label)
     revision = getattr(args, label + "_revision")
     node = Node(binary, revision, output, environment=ENVIRONMENT,
-                temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
+                temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve(), record_protocol=True)
     records = []
     try:
         node.start()

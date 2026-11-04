@@ -34,9 +34,9 @@ def metrics(rows):
 def report(args, records):
     selected = [r for r in records if r["case"].startswith("replacement_")]
     lines = ["## Whole-record replacement preparation", "",
-             "Both labels currently use the existing API with complete records and a payload CAS.",
+             "API 26 uses complete field maps and a payload CAS; API 27 uses complete records and acknowledged record revisions.",
              "Application cases include the keyed read, complete reply, serialization and durable write.",
-             "Each worker owns distinct records; zero-conflict results do not establish contention/retry cost.",
+             "Each worker owns distinct records; actual RPC and retry counts are retained. Zero conflicts do not establish contention cost.",
              "Request/response body bytes exclude HTTP headers. Throughput counts successful logical updates.",
              "Four AB/BA pairs and all per-pair results are retained; no best-run selection.",
              f"Each case has {OPERATIONS} successful updates, including 16 per client at 16 clients.",

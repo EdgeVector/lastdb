@@ -94,7 +94,7 @@ def checkpoint(node, model, deleted, output, name):
 def storage_arm(args, label, pair, output):
     environment = {**PRIMARY_SETTINGS, **ENVIRONMENT}
     node = Node(getattr(args, label), getattr(args, label + "_revision"), output,
-                environment=environment, temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
+                environment=environment, temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve(), record_protocol=True)
     model = {f"space-{i:05}": record(i) for i in range(COUNT)}
     try:
         node.start()

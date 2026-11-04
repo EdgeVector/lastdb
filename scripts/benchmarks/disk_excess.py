@@ -60,7 +60,7 @@ def measure(binary, recipe, folder):
     folder.mkdir(parents=True, exist_ok=False)
     node, result = None, {"complete": False}
     try:
-        node = Node(Path(binary["path"]), binary["revision"], folder)
+        node = Node(Path(binary["path"]), binary["revision"], folder, record_protocol=True)
         node.start()
         workload = DiskBudgetWorkload(node, {"growth": recipe}, folder)
         workload.seed()

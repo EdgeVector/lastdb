@@ -44,7 +44,7 @@ def measure(args, mode, folder):
     environment = {"LASTDB_SEARCH_QUEUE_MAX_BYTES": str(cap)}
     try:
         node = Node(args.candidate, args.candidate_revision, folder, environment=environment,
-                    arguments=("--enable-search",) if mode == "enabled" else ())
+                    arguments=("--enable-search",) if mode == "enabled" else (), record_protocol=True)
         node.start()
         # The checkpoints read the stored record bytes of the home.
         result["home_format"] = node.home_format()

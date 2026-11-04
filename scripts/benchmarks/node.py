@@ -12,6 +12,7 @@ import tempfile
 import time
 
 from disk_usage import usage
+from record_protocol import RecordProtocol
 
 
 def marker_format(marker):
@@ -57,8 +58,10 @@ class UnixConnection(http.client.HTTPConnection):
 
 class Node:
     def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
-                 start_seconds=120, arguments=(), temporary_directory=None):
+                 start_seconds=120, arguments=(), temporary_directory=None, record_protocol=False):
         self.binary, self.revision, self.output = binary, revision, output
+        self.api_version = 0
+        self.record_protocol = RecordProtocol() if record_protocol else None
         self.native_timing = native_timing
         self.workers = workers
         self.environment = environment or {}
@@ -75,7 +78,14 @@ class Node:
         save(output / "ownership.json", self.owner)
         self.process, self.log = None, None
 
-    def call(self, path, body=None, receipt=False, request_id=None, transport=None):
+    def call(self, path, body=None, receipt=False, request_id=None, transport=None,
+             complete_records=False, timeout=60):
+        if self.record_protocol is not None and self.api_version >= 27:
+            return self.record_protocol.call(self._exchange, path, body, receipt=receipt,
+                request_id=request_id, transport=transport, complete_records=complete_records, timeout=timeout)
+        return self._exchange(path, body, receipt=receipt, request_id=request_id, transport=transport, timeout=timeout)
+
+    def _exchange(self, path, body=None, receipt=False, request_id=None, transport=None, timeout=60):
         if body is not None and not isinstance(body, bytes):
             body = json.dumps(body, separators=(",", ":")).encode()
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark"}
@@ -84,6 +94,7 @@ class Node:
         if receipt:
             headers["x-lastdb-read-receipt"] = "true"
         connection = UnixConnection(self.socket)
+        connection.timeout = timeout
         started = time.perf_counter_ns()
         try:
             connection.request("GET" if body is None else "POST", path, body, headers)
@@ -92,10 +103,13 @@ class Node:
             elapsed = (time.perf_counter_ns() - started) / 1e6
             if transport is not None:
                 transport.update(request_body_bytes=len(body or b""),
-                                 response_body_bytes=len(raw))
+                                 response_body_bytes=len(raw), rpc_count=1,
+                                 response_status=response.status, latency_ms=elapsed)
             cost = response.getheader("x-lastdb-read-receipt")
             if response.status != 200:
-                raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
+                error = RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
+                error.status = response.status
+                raise error
             try:
                 result = json.loads(raw)
             except json.JSONDecodeError as error:
@@ -134,6 +148,7 @@ class Node:
                     health, _, _ = self.call("/health")
                     if health.get("ok") is True or health.get("status") == "ok":
                         version, _, _ = self.call("/api/version")
+                        self.api_version = version["api_version"]
                         save(self.output / "version.json", version)
                         if f"bench-{self.revision}" not in json.dumps(version):
                             raise RuntimeError("The actual daemon version differs from the selected revision")
@@ -163,6 +178,8 @@ class Node:
                 process.kill()
                 process.wait(timeout=5)
         self.process = None
+        if self.record_protocol is not None:
+            save(self.output / "client-protocol.json", {"api_version": self.api_version, **self.record_protocol.status()})
         self.log.close()
         self.log = None
         receipt_path = self.home / ".shutdown_flush_ready"

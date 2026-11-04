@@ -11,25 +11,30 @@ def capture_phases(node, output, case, sequence, samples):
     response, _, _ = node.call("/api/status?recent=1")
     operations = response.get("status", {}).get("request_ops", {})
     recent = operations.get("recent", [])
-    requested = {sample["request_id"] for sample in samples}
-    if len(requested) != len(samples):
-        raise RuntimeError("Measured request IDs are not unique within the case")
+    requested = {item["request_id"] for sample in samples
+                 for item in sample.get("physical_requests", [{"request_id": sample["request_id"]}])}
     matched = {}
     for operation in recent:
         request_id = operation.get("request_id")
         if request_id not in requested or operation.get("client") != "github-benchmark":
             continue
         if request_id in matched:
-            raise RuntimeError("The request ring repeats a measured request ID")
+            raise RuntimeError("The request ring repeats a measured physical request ID")
         matched[request_id] = operation
+    complete = 0
     for sample in samples:
-        if sample["request_id"] in matched:
-            sample["server_request_ops"] = matched[sample["request_id"]]
-    coverage = {"requests": len(samples), "matched": len(matched),
+        physical = sample.get("physical_requests", [{"request_id": sample["request_id"]}])
+        ids = [item["request_id"] for item in physical]
+        sample["server_physical_ops"] = [matched[key] for key in ids if key in matched]
+        sample["response_request_id"] = ids[-1]
+        if ids[-1] in matched:
+            sample["server_request_ops"] = matched[ids[-1]]
+        complete += all(key in matched for key in ids)
+    coverage = {"requests": len(samples), "matched": complete,
+                "physical_requests": len(requested), "physical_matched": len(matched),
                 "with_phases": sum(bool(row.get("phases")) for row in matched.values()),
-                "ring_capacity": operations.get("ring_capacity"),
-                "complete": len(matched) == len(samples),
-                "scope": "Absent samples or phase fields are unreported, not measured zero"}
+                "ring_capacity": operations.get("ring_capacity"), "complete": complete == len(samples),
+                "scope": "Every physical RPC is retained; server_request_ops is the final response RPC. Missing phases are unreported."}
     destination = output / "request-phases"
     destination.mkdir(exist_ok=True)
     save(destination / f"{sequence:02d}.json",
@@ -44,7 +49,7 @@ def phase_lines(output, manifest):
              "The request ring is finite. Missing coverage and omitted phases mean unreported, not zero.",
              "Socket queue wait precedes server duration; it is not part of that duration.",
              "Phase totals can overlap; do not add a parent phase to its children.", "",
-             "| Run | Matching requests | Slow write RPC ms | Server ms | Largest reported phases ms |",
+             "| Run | Matching requests | Slow logical write ms | Server ms | Largest reported phases ms |",
              "|---|---:|---:|---:|---|"]
     for run in manifest["runs"]:
         path = output / run["directory"] / "samples.jsonl.gz"

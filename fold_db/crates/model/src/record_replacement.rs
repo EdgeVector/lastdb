@@ -34,7 +34,7 @@ impl RecordTarget {
             let declared = &definition.alternates[name];
             match key {
                 Some(key) => {
-                    declared.validate_coordinates(key.hash.as_deref(), key.range.as_deref())?
+                    declared.validate_coordinates(key.hash.as_deref(), key.range.as_deref())?;
                 }
                 None if declared.allow_absent => (),
                 None => return Err(format!("alternate {name} requires an address")),
