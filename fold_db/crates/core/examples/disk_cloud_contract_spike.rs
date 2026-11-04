@@ -13,7 +13,7 @@ use fold_db::storage::cloud_contract::{
     BACKUP_PROFILE, CLOUD_PROTOCOL,
 };
 use fold_db::storage::disk_pack::{pin_disk_export, PackNamespacedStore, CAS_COLLECTION};
-use fold_db::storage::traits::{KvStore, NamespacedStore};
+use fold_db::storage::traits::NamespacedStore;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -40,13 +40,15 @@ async fn run() -> Result<()> {
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
     write_generated(&shared).await?;
     let pin = tokio::task::block_in_place(|| pin_disk_export(&store, &hold))?;
-    let records_on_r2 = derive_cloud_format(envelope(BACKUP_PROFILE), records_on_r2())?;
-    let records_on_b2 = derive_cloud_format(envelope(BACKUP_PROFILE), records_on_b2())?;
-    let profile_one = derive_cloud_format(envelope(1), records_on_r2())?;
+    let policy_r2 = records_on_r2();
+    let policy_b2 = records_on_b2();
+    let format_r2 = derive_cloud_format(envelope(BACKUP_PROFILE), policy_r2)?;
+    let format_b2 = derive_cloud_format(envelope(BACKUP_PROFILE), policy_b2)?;
+    let profile_one = derive_cloud_format(envelope(1), policy_r2)?;
     let selected = [ExportRole::Snapshot, ExportRole::RecordOwnedBlob];
-    let plan_r2 = plan(pin.descriptors(), &records_on_r2, &selected)?;
-    let plan_b2 = plan(pin.descriptors(), &records_on_b2, &selected)?;
-    checks::check_derived(&records_on_r2, &profile_one)?;
+    let plan_r2 = plan(pin.descriptors(), &format_r2, &selected)?;
+    let plan_b2 = plan(pin.descriptors(), &format_b2, &selected)?;
+    checks::check_derived(&format_r2, &profile_one)?;
     checks::check_capture(&plan_r2)?;
     checks::check_placement(&plan_r2, &plan_b2)?;
     checks::check_bytes(&pin, &plan_r2, &plan_b2)?;
