@@ -12,6 +12,8 @@ import time
 
 from node import Node, save
 from alternate_key_workload import ENVIRONMENT, install, require, task_definition
+import record_replacement_report
+import record_replacement_workload
 
 FIELDS = ["record_id", "group_id", "owner_id", "payload"]
 PAYLOAD = "p" * 4096
@@ -132,8 +134,10 @@ def arm(args, label, pair, output):
         measure_reads(node, label, pair, records)
         measure_writes(node, label, pair, records)
         mixed(node, label, pair, records)
+        record_replacement_workload.measure(node, label, pair, records)
         node.stop()
         node.start()
+        record_replacement_workload.verify_reopened(node)
         check_rows(node.call("/api/query", query("by_group", {"HashKey": "new"}))[0],
                    {f"new{i:02}-{j:02}": values(f"new{i:02}-{j:02}", "new")
                     for i in range(16) for j in range(32)})
@@ -141,7 +145,7 @@ def arm(args, label, pair, output):
     finally:
         node.close()
         save(output / "samples.json", records)
-    require(len(records) == 1936, "comparison request coverage differs")
+    require(len(records) == 1936 + record_replacement_workload.CALLS, "comparison request coverage differs")
     return records
 
 
@@ -169,7 +173,8 @@ def summary(args, records):
                          for label, items in samples.items()}
         lines.append(f"| {case} | {statistics.median(base):.3f} | {statistics.median(new):.3f} | "
                      f"{b95:.3f} | {n95:.3f} | {(n95 / b95 - 1) * 100:+.1f}% |")
-    lines += ["", f"Valid timed calls: {len(records)}. Request errors: 0.",
+    rpc_calls = sum(record.get("rpc_count", 1) for record in records)
+    lines += ["", f"Valid timed operations: {len(records)}. Timed RPC calls: {rpc_calls}. Request errors: 0.",
               "Mixed clients alternate a read and a write throughout each arm.",
               "Cold cases start with empty logical memory after reopen; OS file pages remain uncontrolled.",
               "The primary_read case follows alternate reads, so both releases can reuse primary-field memory.",
@@ -177,7 +182,7 @@ def summary(args, records):
               "All arms verify durable writes, records, reopen, and owned-home cleanup.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,
-                                      "cases": results, "calls": len(records), "errors": 0,
+                                      "cases": results, "calls": len(records), "rpc_calls": rpc_calls, "errors": 0,
                                       "machine": platform.uname()._asdict()})
     (args.output / "summary.md").write_text(text)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
@@ -205,6 +210,7 @@ def main():
             directory.mkdir(mode=0o700)
             records.extend(arm(args, label, pair, directory))
     summary(args, records)
+    record_replacement_report.report(args, records)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,30 @@
 # LastDB benchmarks in GitHub Actions
 
+## Whole-record replacement preparation
+
+The named alternate-key workflow also measures conditional complete-record
+writes and complete application read/edit/replace operations against both exact
+revisions. It keeps the original cases and adds 128 B, 4 KiB and 48 KiB payloads,
+4/16 fields, zero/two alternate keys, and 1/4/16 independent update clients.
+Seed writes are batched; complete verification uses one known-hash query.
+Every logical update must receive a durable acknowledgement. Reopen verifies
+every generated record. These are actual CI daemon requests, not a fixture suite.
+
+The baseline currently uses the existing API and a payload-value CAS. The
+application measurement includes its keyed read, full reply, serialization and
+conditional full write. Request/response body counts exclude HTTP headers.
+Successful-update throughput uses the entire concurrent case wall duration.
+Workers own distinct keys, so these observations do not establish shared-key
+conflict or retry cost; the existing contention workloads remain separate.
+
+All four AB/BA pairs remain visible in replacement-summary.json. The additional
+summary flags aggregate deterioration above five percent that occurs in at least
+three pairs. That is an investigation signal for this cutover, not a change to
+the global speed-advisory or required completion policy. Runner noise needs
+paired/control evidence; a green check alone is not proof of no regression.
+Actual backup, disk, memory and sustained-workload qualification still use the
+existing product gates. Raw outputs stay in the CI artifact, never in Git.
+
 ## Call-local metadata reuse and compression admission
 
 Ordinary keyed reads share authenticated index blocks across lookups in the same held native read call.
