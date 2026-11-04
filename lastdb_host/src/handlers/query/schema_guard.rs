@@ -45,12 +45,7 @@ pub(in crate::handlers) fn full_schema_scan_rejection(
 ) -> HostError {
     let schema_name = product_schema_name(requested, schema);
     let schema_id = schema.map_or(requested, |schema| schema.name.as_str());
-    let hash_field = schema
-        .and_then(|schema| schema.key.as_ref())
-        .and_then(|key| key.hash_field.as_deref());
-    let range_field = schema
-        .and_then(|schema| schema.key.as_ref())
-        .and_then(|key| key.range_field.as_deref());
+    let record_keys = schema.and_then(|schema| schema.record_keys.as_ref());
     let message = format!(
         "full_schema_scan_not_allowed: unfiltered query on product schema \
          '{schema_name}' is not supported; add a keyed filter using the \
@@ -67,8 +62,7 @@ pub(in crate::handlers) fn full_schema_scan_rejection(
         "remediation": {
             "action": "add_key_filter",
             "request_key": "filter",
-            "hash_field": hash_field,
-            "range_field": range_field,
+            "record_keys": record_keys,
             "filter_variants": KEYED_FILTER_VARIANTS,
             "admin_override": {
                 "header": "X-LastDB-Allow-Full-Scan",

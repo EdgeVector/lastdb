@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use crate::schema::types::declarative_schemas::DeclarativeSchemaDefinition;
 use crate::schema::types::declarative_schemas::SchemaSource;
-use crate::schema::types::key_config::KeyConfig;
 use crate::schema::types::schema::DeclarativeSchemaType;
 
 /// State of a schema within the system.
@@ -234,9 +233,9 @@ pub struct SchemaListEntry {
     pub purpose_statement: Option<String>,
     /// Schema type ("Single" | "Hash" | "Range" | "HashRange").
     pub schema_type: DeclarativeSchemaType,
-    /// Key configuration for keyed schemas.
+    /// Explicit record addresses, independent of payload fields.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<KeyConfig>,
+    pub record_keys: Option<schema_types::record_keys::RecordKeys>,
     /// Declared data field names.
     pub fields: Option<Vec<String>>,
     /// Transform fields are needed to distinguish transform schemas in a list.
@@ -267,7 +266,7 @@ impl SchemaListEntry {
             descriptive_name: schema.descriptive_name.clone(),
             purpose_statement: schema.purpose_statement.clone(),
             schema_type: schema.schema_type.clone(),
-            key: schema.key.clone(),
+            record_keys: schema.record_keys.clone(),
             fields: schema.fields.clone(),
             transform_fields: schema.transform_fields.clone(),
             hash: schema.hash.clone(),
