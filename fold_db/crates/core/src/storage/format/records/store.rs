@@ -55,9 +55,9 @@ impl RecordFormat {
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
-        // Resolve selected file records in one batch under the same native
-        // scope. Providers cannot authorize a new reference by claiming that
-        // an unrelated marker was already present. No file body is read.
+        // File-free results always delete their owned path idempotently.
+        // Retained references need the actual record preimage in one batch;
+        // a provider cannot suppress cleanup or authorize a new reference.
         let files = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
@@ -80,18 +80,28 @@ impl RecordFormat {
         if changes.is_empty() {
             return Ok(Vec::new());
         }
-        let keys = changes
+        let keys: Vec<_> = changes
             .iter()
+            .filter(|change| change.after.file.is_some())
             .map(|change| change.key.as_str().as_bytes().to_vec())
             .collect();
+        let expected = keys.len();
         let stored = self.main_store.inner().get_many(keys).await?;
-        if stored.len() != changes.len() {
+        if stored.len() != expected {
             return Err(SchemaError::InvalidData(
                 "incomplete file record read".into(),
             ));
         }
+        let mut stored = stored.into_iter();
         let mut rows = Vec::with_capacity(changes.len());
-        for (change, bytes) in changes.into_iter().zip(stored) {
+        for change in changes {
+            let bytes = if change.after.file.is_some() {
+                stored
+                    .next()
+                    .ok_or_else(|| SchemaError::InvalidData("incomplete file record read".into()))?
+            } else {
+                None
+            };
             let before = bytes
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
