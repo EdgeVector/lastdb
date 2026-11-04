@@ -70,10 +70,11 @@ class OwnedNode:
             response = connection.getresponse()
             raw = response.read(1024 * 1024 + 1)
             if response.status != 200 or len(raw) > 1024 * 1024:
-                raise RuntimeError(f"Release operation {path} failed: HTTP {response.status}")
+                raise RuntimeError(
+                    f"Release operation {path} failed: HTTP {response.status}: {raw[:600]!r}")
             value = json.loads(raw)
             if not isinstance(value, dict) or value.get("ok") is False:
-                raise RuntimeError(f"Release operation {path} returned an error")
+                raise RuntimeError(f"Release operation {path} returned an error: {raw[:600]!r}")
             return value.get("data", value)
         finally:
             connection.close()
@@ -173,18 +174,42 @@ def unpack(bundle, manifest, directory, expected_version, source):
     validate_architecture(directory, manifest["target"])
 
 
-def mutation(number, updated, create):
+def record(number, updated):
     key = f"record-{number:02d}"
-    fields = {"body": f"nightly-record-{number}-{'updated' if updated else 'created'}"}
-    if create:
-        fields.update(bucket=HASH, id=key)
-    return {"type": "mutation", "schema": SCHEMA, "mutation_type": "create" if create else "update",
-            "durability": "durable", "key_value": {"hash": HASH, "range": key}, "fields_and_values": fields}
+    return key, {"bucket": HASH, "id": key,
+                 "body": f"nightly-record-{number}-{'updated' if updated else 'created'}"}
+
+
+def mutation(number, updated, create, revision=None):
+    key, fields = record(number, updated)
+    return {"type": "mutation", "schema": SCHEMA,
+            "key_value": {"hash": HASH, "range": key}, "record": fields, "alternates": {},
+            "mutation_type": "create" if create else "replace",
+            "expected": {"type": "absent"} if create else {"type": "revision", "revision": revision},
+            "durability": "durable", "convergence": "sync"}
+
+
+def revisions_for(node, numbers):
+    keys = [f"record-{number:02d}" for number in numbers]
+    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": len(keys),
+                                      "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}})
+    found = {}
+    for row in result.get("results", []):
+        key = row.get("key", {})
+        revision = row.get("revision")
+        if key.get("hash") == HASH and isinstance(revision, str) and revision:
+            found[key.get("range")] = revision
+    if any(key not in found for key in keys):
+        raise RuntimeError("The packaged daemon did not return the records to replace")
+    return found
 
 
 def write(node, numbers, create=False):
     numbers = list(numbers)
-    result = node.call("/api/mutations/batch", {"mutations": [mutation(n, not create, create) for n in numbers]})
+    revisions = {} if create else revisions_for(node, numbers)
+    result = node.call("/api/mutations/batch", {"mutations": [
+        mutation(number, not create, create, None if create else revisions[f"record-{number:02d}"])
+        for number in numbers]})
     identities = result.get("mutation_ids")
     if (result.get("count") != len(numbers) or result.get("durability") != "durable" or result.get("errors")
             or not isinstance(identities, list) or len(identities) != len(numbers)
@@ -223,8 +248,8 @@ def operations(node):
         raise RuntimeError("The packaged daemon did not initialize a home in the current format")
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
-        "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,
-        "field_types": {"bucket": "String", "id": "String"},
+        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
+        "fields": FIELDS, "field_types": {"bucket": "String", "id": "String"},
         "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS}}})
     write(node, range(8), create=True)
     read(node, set())
