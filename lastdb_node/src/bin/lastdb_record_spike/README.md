@@ -45,8 +45,9 @@ replacement mints a fresh record revision, even when the values are unchanged.
 Stale revisions reject the entire mutation. There are no per-field stamps,
 field updates, field merging or field-level conditions.
 
-Deletion takes schema, primary key and revision. It uses the stored alternate
-addresses to remove pointers. Delete and recreate cannot reuse an old token.
+Deletion takes schema, primary key, every alternate key and revision. Supplied
+alternates must match the current record. It uses the stored addresses to remove
+pointers. Delete and recreate cannot reuse an old token.
 
 ## Components and sequence
 

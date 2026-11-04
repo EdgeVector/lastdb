@@ -389,7 +389,10 @@ jobs:
               current="$(jq -er .revision <<<"$receipt")"
               spike lookup notes by_team --hash other
               echo '### Conditional deletion removes both alternate pointers'
-              jq -nc --arg revision "$current" '{schema:"notes",key:{hash:"alpha"},revision:$revision}' | spike delete
+              deletion="$(jq -c --arg revision "$current" '{schema,key,alternates,revision:$revision}' <<<"$replacement")"
+              if jq -c 'del(.alternates.by_order)' <<<"$deletion" | spike delete; then exit 1; fi
+              if jq -c '.alternates.by_team.hash="wrong"' <<<"$deletion" | spike delete; then exit 1; fi
+              printf '%s\n' "$deletion" | spike delete
               spike get notes --hash alpha
               spike lookup notes by_team --hash other
               spike lookup notes by_order --hash queue --range 003

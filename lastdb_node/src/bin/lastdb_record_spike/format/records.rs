@@ -68,9 +68,13 @@ impl Definition {
         schema: &Schema,
         previous: &Record,
     ) -> Result<Batch> {
+        schema.validate_keys(&mutation.key, &mutation.alternates)?;
         schema.validate_keys(&mutation.key, &previous.alternates)?;
         if mutation.revision != previous.revision {
             return Err("revision conflict; no writes accepted".into());
+        }
+        if mutation.alternates != previous.alternates {
+            return Err("delete alternate keys differ from the current record".into());
         }
         let mut operations = self.pointer_changes(
             &mutation.schema,

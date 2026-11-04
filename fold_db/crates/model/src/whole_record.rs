@@ -82,12 +82,13 @@ pub struct PutRecord {
     pub record: Map<String, Value>,
 }
 
-/// Deletion uses the stored alternate addresses, never guessed caller values.
+/// Deletion supplies every alternate and must match the complete current record.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeleteRecord {
     pub schema: String,
     pub key: Key,
+    pub alternates: BTreeMap<String, Key>,
     pub revision: String,
 }
 
