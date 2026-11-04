@@ -8,7 +8,7 @@ import time
 
 from record_runs import definition, mutation, seed, write, FIELDS, RANGED, TTL_SECONDS
 
-TRACKED_HASHES = 4_200
+TRACKED_HASHES = 40_050
 
 
 def require(value, message):
@@ -17,7 +17,21 @@ def require(value, message):
 
 
 def state(node, schema):
-    return node.call("/api/db/schema-retention", {"action": "get", "schema": schema})[0]
+    current = node.call("/api/db/schema-retention", {"action": "get", "schema": schema})[0]
+    hashes, cursor = [], None
+    for _ in range(1_000):
+        request = {"action": "partitions", "schema": schema, "limit": 256}
+        if cursor:
+            request["cursor"] = cursor
+        page = node.call("/api/db/schema-retention", request)[0]
+        hashes.extend(page["observed_hash_partitions"])
+        following = page["next_cursor"]
+        if following is None:
+            current["observed_hash_partitions"] = sorted(hashes)
+            return current
+        require(following != cursor, "the partition page cursor did not advance")
+        cursor = following
+    raise RuntimeError("partition registry did not end in 1,000 pages")
 
 
 def check(node):
@@ -40,7 +54,7 @@ def exercise(node):
               {"action": "set", "schema": kept["name"], "ttl_seconds": TTL_SECONDS})
     write(node, [mutation(kept["name"], {"hash": "aged", "range": key},
                           {"id": key, "bucket": "aged", "value": "kept"}, "create")])
-    hashes = [f"drop-{number:04d}" for number in range(TRACKED_HASHES)]
+    hashes = [f"drop-{number:05d}" for number in range(TRACKED_HASHES)]
     write(node, [mutation("RecordAged", {"hash": hash_key, "range": key},
                           {"id": key, "bucket": hash_key, "value": "drop"}, "create")
                  for hash_key in hashes])

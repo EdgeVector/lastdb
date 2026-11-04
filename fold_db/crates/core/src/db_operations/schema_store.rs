@@ -25,6 +25,7 @@ mod retention_format;
 mod retention_layers;
 mod retention_move;
 mod retention_page;
+mod retention_partitions;
 mod retention_recheck;
 mod retention_sharing;
 mod write;

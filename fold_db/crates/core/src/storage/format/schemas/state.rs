@@ -34,6 +34,15 @@ pub(crate) enum StateChange<'a> {
     },
 }
 
+pub(super) fn tracking_owner(change: &StateChange<'_>) -> Option<String> {
+    match change {
+        StateChange::Age { schema, .. } | StateChange::Partition { schema, .. } => {
+            Some((*schema).to_owned())
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn encode(change: StateChange<'_>) -> StorageResult<Row> {
     let schema = match &change {
         StateChange::State { schema, .. }

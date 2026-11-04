@@ -3,6 +3,7 @@
 use super::*;
 
 mod retention_backfill;
+mod retention_partitions;
 
 #[derive(Deserialize)]
 struct RetentionBody {
@@ -101,8 +102,8 @@ async fn open_retention_audit(
 }
 
 /// `POST /api/db/schema-retention` — owner read/set/clear of one installed
-/// schema's node-local retention policy. Body: `{ action: "get"|"set"|"clear",
-/// schema: string, ttl_seconds?: u64, hash_partitions?: string[] }`.
+/// schema's node-local retention policy. Body: `{ action: "get"|"set"|"clear"|"partitions",
+/// schema: string, ttl_seconds?: u64, hash_partitions?: string[], cursor?: string, limit?: usize }`.
 ///
 /// `set` writes an operator policy, which wins over a manifest policy until
 /// `clear` removes it. The response names the `anchor` schema that holds the
@@ -140,6 +141,9 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             return error_response(400, &format!("schema retention failed: {error}"), ctx)
         }
     };
+    if body.action == "partitions" {
+        return retention_partitions::execute(body, ctx, host).await;
+    }
     let may_expire = match clear_may_expire(&body, &previous) {
         Ok(may_expire) => may_expire,
         Err(message) => return error_response(409, &message, ctx),
@@ -199,12 +203,8 @@ async fn retention_response(
     may_expire: bool,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    let tracking = tokio::try_join!(
-        store.retention_anchor(schema),
-        store.schema_retention_hash_partitions(schema),
-    );
-    let (anchor, observed_hash_partitions) = match tracking {
-        Ok(tracking) => tracking,
+    let anchor = match store.retention_anchor(schema).await {
+        Ok(anchor) => anchor,
         Err(error) => {
             return error_response(400, &format!("schema retention failed: {error}"), ctx)
         }
@@ -214,7 +214,6 @@ async fn retention_response(
             "schema": schema,
             "retention_policy": policy,
             "anchor": anchor,
-            "observed_hash_partitions": observed_hash_partitions,
             "existing_records_may_expire": may_expire,
         }),
         ctx.user_id.as_str(),
