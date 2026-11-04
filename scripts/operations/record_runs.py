@@ -388,6 +388,8 @@ def drop_race(node, scan):
         require(time.time() < deadline, "the race writer wrote nothing: " + repr(outcome))
         time.sleep(0.05)
     try:
+        require(outcome["written"] >= 3 and not outcome["other"],
+                "the race writer failed before the drop: " + repr(outcome))
         reply = node.call("/api/schemas/drop", {"schema": "RecordRace", "must_exist": True})[0]
     finally:
         stop.set()
