@@ -1,10 +1,10 @@
 //! Check the logical format through read-only snapshots before writer cleanup.
 
 use super::{map, native_routing, run_node, StorageError, StorageResult, NODE_MARKER};
-use crate::records::key_format::{
+use crate::storage::content_key_proof;
+use crate::storage::format::control::{
     validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
 };
-use crate::storage::content_key_proof;
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::fs::OpenOptions;

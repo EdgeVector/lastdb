@@ -1,9 +1,9 @@
 use super::{invalid, map, read_budget, RunRead, StorageResult};
-use crate::records::key_format::{
-    validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
-};
 use crate::storage::content_key_proof;
 use crate::storage::disk_pack::native_routing;
+use crate::storage::format::control::{
+    validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+};
 use lastdb_storage_policy::backup_decode as budget;
 
 pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {

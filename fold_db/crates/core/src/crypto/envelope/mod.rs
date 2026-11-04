@@ -10,9 +10,9 @@ use rand::RngCore;
 pub const ENVELOPE_VERSION: u8 = 0x01;
 
 /// Size constants for the envelope format
-const NONCE_SIZE: usize = 12;
+pub(crate) const NONCE_SIZE: usize = 12;
 const VERSION_SIZE: usize = 1;
-const TAG_SIZE: usize = 16;
+pub(crate) const TAG_SIZE: usize = 16;
 /// Minimum ciphertext size: version(1) + nonce(12) + tag(16)
 const MIN_ENVELOPE_SIZE: usize = VERSION_SIZE + NONCE_SIZE + TAG_SIZE;
 

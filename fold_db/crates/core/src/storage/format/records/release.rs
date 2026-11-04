@@ -1,0 +1,130 @@
+//! A schema release selects format-owned families, never caller-built prefixes.
+
+use super::{file_crypto::dropped_file_paths, RecordFormat};
+use crate::records::field_history::RecordHistoryEntry;
+use crate::schema::{Schema, SchemaError};
+use crate::storage::format::{history, HISTORY_RECORD_FAMILY, MAIN_NAMESPACE};
+use crate::storage::KvMutation;
+use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
+use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Copy)]
+pub(crate) enum ReleaseKind {
+    Records,
+    History,
+    Alternates,
+}
+
+pub(crate) struct ReleaseFamily {
+    prefix: String,
+    kind: ReleaseKind,
+}
+
+pub(crate) fn release_families(schema: &Schema) -> Vec<ReleaseFamily> {
+    let space = record_space_uuid(&schema.name);
+    let mut families = vec![
+        ReleaseFamily {
+            prefix: format!("{HISTORY_RECORD_FAMILY}:{space}:"),
+            kind: ReleaseKind::History,
+        },
+        ReleaseFamily {
+            prefix: format!("{RECORD_PREFIX}{space}:"),
+            kind: ReleaseKind::Records,
+        },
+    ];
+    families.extend(schema.alternate_keys.keys().map(|name| ReleaseFamily {
+        prefix: format!(
+            "{ALTERNATE_ENTRY_PREFIX}{}:",
+            alternate_field_key_id(schema, name)
+        ),
+        kind: ReleaseKind::Alternates,
+    }));
+    families
+}
+
+impl ReleaseFamily {
+    pub(crate) fn prefix(&self) -> &str {
+        &self.prefix
+    }
+    pub(crate) fn kind(&self) -> ReleaseKind {
+        self.kind
+    }
+
+    fn require_key(&self, key: &[u8]) -> Result<(), SchemaError> {
+        if !key.starts_with(self.prefix.as_bytes()) {
+            return Err(SchemaError::InvalidData(
+                "schema release key has a different owner or family".into(),
+            ));
+        }
+        Ok(crate::storage::current_keys::validate(MAIN_NAMESPACE, key)?)
+    }
+}
+
+impl RecordFormat {
+    /// Re-read selected keys under the same gate, then stage the exact child deletes.
+    pub(crate) async fn release_schema_batch(
+        &self,
+        keys: Vec<Vec<u8>>,
+        family: &ReleaseFamily,
+    ) -> Result<u64, SchemaError> {
+        self.require_scope()?;
+        if keys.len() > super::super::SCHEMA_RELEASE_ROWS {
+            return Err(SchemaError::InvalidData(
+                "schema release exceeds its row bound".into(),
+            ));
+        }
+        for key in &keys {
+            family.require_key(key)?;
+        }
+        let stored = self.main_store.inner().get_many(keys.clone()).await?;
+        if stored.len() != keys.len() {
+            return Err(SchemaError::InvalidData(
+                "schema release read batch is incomplete".into(),
+            ));
+        }
+        let rows: Vec<_> = keys
+            .into_iter()
+            .zip(stored)
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect();
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let count = rows.len() as u64;
+        if matches!(family.kind, ReleaseKind::History) {
+            self.stage_history(release_history(&rows)?).await?;
+        } else {
+            let files = if matches!(family.kind, ReleaseKind::Records) {
+                dropped_file_paths(rows.iter().map(|(k, v)| (k.as_slice(), v.as_slice())))?
+            } else {
+                Vec::new()
+            };
+            let deletes = rows
+                .into_iter()
+                .map(|(key, _)| KvMutation::delete(key))
+                .collect();
+            self.main_store.inner().batch_mutate(deletes).await?;
+            self.stage_files(files.into_iter().map(KvMutation::delete).collect())
+                .await?;
+        }
+        Ok(count)
+    }
+}
+
+fn release_history(rows: &[(Vec<u8>, Vec<u8>)]) -> Result<history::EncodedHistory, SchemaError> {
+    let mut changes = Vec::new();
+    let mut records = BTreeSet::new();
+    for (key, bytes) in rows {
+        let key = std::str::from_utf8(key).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        let entry: RecordHistoryEntry = serde_json::from_slice(bytes).map_err(|error| {
+            SchemaError::InvalidData(format!(
+                "field history row {key} of a dropped schema is unreadable: {error}"
+            ))
+        })?;
+        changes.push(history::release(key, &entry)?);
+        records.insert(entry.record);
+    }
+    changes.extend(records.into_iter().map(history::HistoryChange::DeleteCount));
+    history::encode(changes)
+}

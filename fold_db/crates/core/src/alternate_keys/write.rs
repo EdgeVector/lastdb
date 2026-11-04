@@ -107,7 +107,7 @@ impl RecordStore {
             return Ok(Vec::new());
         }
         let stored = self
-            .raw()
+            .reader()
             .inner()
             .get_many(
                 leaves

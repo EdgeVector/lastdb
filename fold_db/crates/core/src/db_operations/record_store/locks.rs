@@ -11,11 +11,7 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        crate::storage::disk_pack::transaction::scope(
-            self.namespaced_store.disk_pack_runtime(),
-            work,
-        )
-        .boxed()
+        crate::storage::disk_pack::transaction::scope(self.runtime.clone(), work).boxed()
     }
 
     /// Run `work` inside one native write request scope of a background job.
@@ -26,10 +22,6 @@ impl RecordStore {
         &'a self,
         work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
-        crate::storage::disk_pack::transaction::background_scope(
-            self.namespaced_store.disk_pack_runtime(),
-            work,
-        )
-        .boxed()
+        crate::storage::disk_pack::transaction::background_scope(self.runtime.clone(), work).boxed()
     }
 }

@@ -6,15 +6,25 @@
 //! It stages into an already-open request; it never opens or commits a home.
 //!
 //! History uses the sibling encoder and appends only its opaque encoded batch.
-//! Other retained raw writers still need migration and handle closure.
+//! The provider holds read-only views; this format owns retained file/control
+//! and schema-release writes too. Broad bootstrap factories remain separate.
 
 mod alternates;
+mod audit;
+mod file_crypto;
 mod files;
 mod keys;
+mod maintenance;
+mod release;
+mod store;
 
 pub(crate) use alternates::AlternateChange;
 pub use alternates::AlternateEntry;
+pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use keys::{AlternateAddress, RecordAddress};
+pub(crate) use maintenance::validate_cutoff_raise;
+pub(crate) use release::{release_families, ReleaseFamily, ReleaseKind};
+pub(crate) use store::RecordFormat;
 
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
@@ -35,21 +45,22 @@ pub(crate) struct RecordChange {
 }
 
 /// Only this format module can create the batch or add primary/alternate rows.
-pub(crate) struct EncodedRecords {
+struct EncodedRecords {
     main: Vec<KvMutation>,
     effects: RecordEffects,
 }
 
-/// Request-private file changes and memory publications, consumed by the
-/// existing coordinator. These do not contain the primary/alternate batch.
-pub(crate) struct RecordEffects {
-    pub files: Vec<KvMutation>,
-    pub written: Vec<WrittenRecord>,
+/// Private file changes and memory publications consumed by the bound writer.
+/// Neither the raw main batch nor these effects escape to a provider.
+struct RecordEffects {
+    files: Vec<KvMutation>,
+    written: Vec<WrittenRecord>,
 }
 
-pub(crate) fn encode(
+fn encode(
     changes: Vec<RecordChange>,
     alternates: Vec<AlternateChange>,
+    content_key: Option<&[u8; 32]>,
 ) -> Result<EncodedRecords, SchemaError> {
     let mut main = Vec::with_capacity(changes.len() + alternates.len());
     let mut files = Vec::new();
@@ -60,6 +71,7 @@ pub(crate) fn encode(
             change.before.as_deref(),
             &change.after,
             change.file_row.take(),
+            content_key,
         )?);
         let value = if change.cap_deferred {
             change.after.encode_uncapped()
@@ -86,7 +98,7 @@ pub(crate) fn encode(
 impl EncodedRecords {
     /// Stage only into the coordinator's current request. No child writer
     /// gets a namespace factory or starts an independent transaction.
-    pub(crate) async fn stage(
+    async fn stage(
         mut self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,

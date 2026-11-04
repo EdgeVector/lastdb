@@ -26,12 +26,7 @@ impl RecordStore {
             self.history_activation.notify_one();
         }
         self.in_background_scope(async {
-            encoded
-                .stage(
-                    self.main_store.inner().as_ref(),
-                    &self.namespaced_store.disk_pack_runtime(),
-                )
-                .await?;
+            self.format.stage_history(encoded).await?;
             Ok(())
         })
         .await

@@ -84,6 +84,22 @@ impl KvRead<'_> {
         self.store.get_many(keys).await
     }
 
+    pub(crate) async fn scan_prefix(self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.store.scan_prefix(prefix).await
+    }
+
+    pub(crate) async fn scan_range_yielding(
+        self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+        future_reads: usize,
+    ) -> StorageResult<crate::storage::traits::YieldedScan> {
+        self.store
+            .scan_range_yielding(start, end, limit, future_reads)
+            .await
+    }
+
     pub(crate) async fn scan_range_paged(
         self,
         start: &[u8],

@@ -27,7 +27,7 @@ impl RecordStore {
             start = format!("{cursor}\0");
         }
         let rows = self
-            .raw()
+            .reader()
             .inner()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
             .await?;

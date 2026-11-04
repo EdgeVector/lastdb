@@ -5,11 +5,12 @@
 //! LastStore's internal run/block grammar remains owned by LastStore.
 //!
 //! The record writer composes the existing model codecs through typed inputs
-//! and an opaque batch. Other domain encoders, file/backup sidecars and raw
-//! writer handles still need their later migrations. This partial boundary
-//! introduces no startup key audit.
+//! and an opaque batch. Domain providers have read-only views and typed
+//! writers. Broad bootstrap/factory closure and sidecar admission remain
+//! separate work. This boundary introduces no startup key audit.
 
 pub(crate) mod change_feed;
+pub(crate) mod control;
 pub(crate) mod field_keys;
 pub(crate) mod history;
 pub(crate) mod metadata;
@@ -92,7 +93,13 @@ pub(in crate::storage) const HISTORY_DATA_FAMILIES: &[&str] = &[
 /// Main families admitted by the existing current-key check. Grouping the
 /// history child avoids a second definition of its family names.
 pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
-    &["rk", "ak", HISTORY_POLICY_FAMILY, "dellog", "layout"],
+    &[
+        "rk",
+        "ak",
+        HISTORY_POLICY_FAMILY,
+        DELETE_AUDIT_FAMILY,
+        "layout",
+    ],
     HISTORY_DATA_FAMILIES,
 ];
 
@@ -103,3 +110,20 @@ pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
+
+pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:keys";
+pub(crate) const DELETE_REPLAY_CUTOFF_KEY: &str = "layout:delete-replay-cutoff";
+pub(crate) const FIELD_HISTORY_KEY: &str = "layout:field-history";
+pub(crate) const FIELD_HISTORY_ON: &[u8] = b"on";
+pub(in crate::storage::format) const REPLAY_CUTOFF_VERSION: u8 = 1;
+pub(crate) const DELETE_AUDIT_FAMILY: &str = "dellog";
+pub(in crate::storage::format) const FILE_KEY_SALT: &[u8] = b"lastdb-file-blob-account-v2";
+pub(in crate::storage::format) const FILE_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
+pub(in crate::storage::format) const FILE_DEK_LABEL: &[u8] = b"file-dek\0";
+pub(in crate::storage::format) const FILE_NONCE_LABEL: &[u8] = b"aes-256-gcm-nonce";
+pub(in crate::storage::format) use crate::crypto::envelope::{
+    ENVELOPE_VERSION as FILE_ENVELOPE_VERSION, NONCE_SIZE as FILE_NONCE_SIZE,
+    TAG_SIZE as FILE_TAG_SIZE,
+};
+
+pub(crate) const SCHEMA_RELEASE_ROWS: usize = 256;

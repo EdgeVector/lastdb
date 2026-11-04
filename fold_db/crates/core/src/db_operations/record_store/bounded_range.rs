@@ -206,7 +206,7 @@ impl RecordStore {
                 return Ok(Step::default());
             };
             let result = self
-                .raw()
+                .reader()
                 .inner()
                 .scan_range_yielding(&start, &end, asked, 0)
                 .await;

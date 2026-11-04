@@ -5,4 +5,3 @@
 //! below both. Nothing here opens a store or starts a task.
 
 pub(crate) mod field_history;
-pub(crate) mod key_format;

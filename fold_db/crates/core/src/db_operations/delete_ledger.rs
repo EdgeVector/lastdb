@@ -9,7 +9,6 @@
 //! have no automatic retention policy.
 
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::RecordStore;
@@ -19,31 +18,7 @@ use crate::schema::SchemaError;
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
 
-/// One audit row per erase batch. The row joins the native erase atomically,
-/// so a stored row always names a committed erase.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordDeleteLedgerEntry {
-    /// [`LEDGER_VERB_PURGE`] or [`LEDGER_VERB_DELETE`].
-    pub verb: String,
-    /// When the batch was planned (RFC3339). Matches the key's timestamp.
-    pub at: String,
-    /// Who asked. Free-form caller tag, e.g. `"mutation-pipeline"` or
-    /// `"admin-api"`. Not authenticated — evidence of provenance, not identity.
-    pub caller: String,
-    /// The schema whose records were erased.
-    pub schema: String,
-    /// SHA-256 hex over `{schema}\0{described key}`. See the module docs for
-    /// why the key itself is not stored.
-    pub key_fingerprint: String,
-    /// `rh:` field history rows removed (purge only).
-    pub history_rows_deleted: u64,
-    /// Records the batch erased.
-    pub records_erased: u64,
-    /// Erased records that had a file. The same batch deleted each file. A
-    /// count, never the file hashes: a hash of the plaintext would be the
-    /// confirmation oracle that the records-uuid rule closes (see module docs).
-    pub file_records_erased: u64,
-}
+pub use crate::storage::format::records::RecordDeleteLedgerEntry;
 
 impl RecordDeleteLedgerEntry {
     /// A hard-erasure row (`delete` or `purge`) with zero counts, stamped now,
@@ -85,9 +60,10 @@ impl RecordStore {
         &self,
         limit: usize,
     ) -> Result<Vec<RecordDeleteLedgerEntry>, SchemaError> {
-        let prefix = lastdb_model::kind_partition::anchored("dellog", "");
+        let prefix =
+            lastdb_model::kind_partition::anchored(crate::storage::format::DELETE_AUDIT_FAMILY, "");
         let rows = self
-            .raw()
+            .reader()
             .inner()
             .scan_prefix(prefix.as_bytes())
             .await

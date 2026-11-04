@@ -13,10 +13,10 @@ use super::RecordStore;
 use crate::storage::StorageError;
 
 impl RecordStore {
-    /// The marker key lives in `crate::records::key_format`; the restore proof
+    /// The marker key lives in `crate::storage::format::control`; the restore proof
     /// and run admission read it without the store.
     pub(crate) const CURRENT_KEY_FORMAT_KEY: &str =
-        crate::records::key_format::CURRENT_KEY_FORMAT_KEY;
+        crate::storage::format::control::CURRENT_KEY_FORMAT_KEY;
 
     pub(crate) async fn require_current_key_format(&self) -> Result<(), StorageError> {
         let stored = self

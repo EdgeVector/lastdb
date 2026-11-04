@@ -8,19 +8,9 @@ use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
-/// This logical format includes framed field key identities and exact
-/// tuple-based binding sources. Snapshots require the same marker key.
-pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:keys";
-
-/// The durable delete replay floor of a home.
-pub(crate) const DELETE_REPLAY_CUTOFF_KEY: &str = "layout:delete-replay-cutoff";
-
-/// The field history setting of a home. The first field history policy
-/// that is not off writes [`FIELD_HISTORY_ON`]; nothing turns it off.
-pub(crate) const FIELD_HISTORY_KEY: &str = "layout:field-history";
-
-/// The value of [`FIELD_HISTORY_KEY`] in a home that keeps field history.
-pub(crate) const FIELD_HISTORY_ON: &[u8] = b"on";
+pub(crate) use super::{
+    CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY, FIELD_HISTORY_KEY, FIELD_HISTORY_ON,
+};
 
 /// The stored value of [`DELETE_REPLAY_CUTOFF_KEY`].
 #[derive(Serialize, Deserialize)]
@@ -29,7 +19,7 @@ pub(crate) struct Cutoff {
     pub(crate) minimum_written_at_nanos: u64,
 }
 
-fn invalid(text: impl std::fmt::Display) -> StorageError {
+pub(in crate::storage::format) fn invalid(text: impl std::fmt::Display) -> StorageError {
     StorageError::InvalidOperation(format!("delete replay cutoff: {text}"))
 }
 
@@ -45,7 +35,7 @@ pub(crate) fn validate_frozen_replay_floor(
         return Ok(0);
     };
     let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
-    if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
+    if floor.v != super::REPLAY_CUTOFF_VERSION || floor.minimum_written_at_nanos == 0 {
         return Err(invalid("invalid floor record"));
     }
     Ok(floor.minimum_written_at_nanos)

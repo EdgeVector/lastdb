@@ -4,17 +4,6 @@ use crate::schema::SchemaError;
 use crate::storage::format::history::{count_key, HistoryChange, KeyCount};
 use std::collections::BTreeMap;
 
-/// The deletes of the entry counts of `records`. The drop of a schema releases
-/// every field history entry of its records, so each of their counts ends.
-pub(super) fn history_count_deletes<'a>(
-    records: impl IntoIterator<Item = &'a String>,
-) -> Vec<HistoryChange> {
-    records
-        .into_iter()
-        .map(|record| HistoryChange::DeleteCount(record.clone()))
-        .collect()
-}
-
 impl RecordStore {
     /// The count rows after `deltas`, a change for each count key. A count
     /// that reaches zero is deleted; one that would go below zero is refused.

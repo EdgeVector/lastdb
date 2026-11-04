@@ -16,7 +16,7 @@ pub(crate) use keys::{count_key, policy_key, record_prefix};
 pub(crate) use policy::policy_batch;
 pub(crate) use queue::TimeQueue;
 pub(crate) use release::HistoryRelease;
-pub(crate) use retire::retire_bucket;
+pub(in crate::storage::format) use retire::retire_bucket;
 
 use crate::records::field_history::RecordHistoryEntry;
 use crate::schema::SchemaError;
@@ -92,7 +92,7 @@ impl EncodedHistory {
         batch.extend(self.rows);
     }
 
-    pub(crate) async fn stage(
+    pub(in crate::storage::format) async fn stage(
         self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,

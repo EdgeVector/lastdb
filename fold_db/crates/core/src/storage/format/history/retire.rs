@@ -5,7 +5,7 @@ use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::{KvMutation, KvStore};
 
-pub(crate) async fn retire_bucket(
+pub(in crate::storage::format) async fn retire_bucket(
     main_store: &dyn KvStore,
     runtime: &PackRuntime,
     key: String,

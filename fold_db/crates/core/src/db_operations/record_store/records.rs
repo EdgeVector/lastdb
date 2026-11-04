@@ -13,7 +13,7 @@
 use super::RecordStore;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use crate::storage::format::history::{self as history_format, HistoryChange};
+use crate::storage::format::history::HistoryChange;
 use crate::storage::format::records::{self as format, AlternateChange, RecordAddress};
 use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
@@ -67,7 +67,7 @@ impl RecordStore {
         &self,
         keys: &[K],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        let runtime = self.namespaced_store.disk_pack_runtime();
+        let runtime = self.runtime.clone();
         let mut warm = runtime
             .warm_records(keys)
             .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
@@ -125,18 +125,9 @@ impl RecordStore {
         alternates: Vec<AlternateChange>,
         history: Vec<HistoryChange>,
     ) -> Result<(), SchemaError> {
-        let effects = format::encode(changes, alternates)?
-            .stage(
-                self.main_store.inner().as_ref(),
-                &self.namespaced_store.disk_pack_runtime(),
-                history_format::encode(history)?,
-            )
+        self.format
+            .stage_records(changes, alternates, history)
             .await?;
-        self.stage_file_rows(effects.files).await?;
-        // The values enter the warm set after the flush puts the request on disk.
-        self.namespaced_store
-            .disk_pack_runtime()
-            .stage_written_records(effects.written);
         Ok(())
     }
 }
