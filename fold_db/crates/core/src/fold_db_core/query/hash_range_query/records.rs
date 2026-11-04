@@ -289,6 +289,15 @@ fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
     })
 }
 
+/// Pure projection shared by primary and alternate reads after keyed selection.
+pub(in crate::fold_db_core::query) fn project_records(
+    schema: &Schema,
+    fields: &[String],
+    rows: Vec<KeyedRecord>,
+) -> QueryRecords {
+    to_records(&record_fields(schema, fields), rows)
+}
+
 /// The reply rows: the selected fields of each record and its one metadata
 /// block. An empty payload or projection still represents a live record.
 fn to_records(selected: &[String], rows: Vec<KeyedRecord>) -> QueryRecords {

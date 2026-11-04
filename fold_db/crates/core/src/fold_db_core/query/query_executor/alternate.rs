@@ -136,21 +136,18 @@ impl QueryExecutor {
         let has_more = entries.len() > limit;
         entries.truncate(limit);
         let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-        query.filter = Some(crate::schema::types::field::HashRangeFilter::HashRangeKeys(
-            keys.iter()
-                .map(|key| {
-                    (
-                        key.hash.clone().unwrap_or_default(),
-                        key.range.clone().unwrap_or_default(),
-                    )
-                })
+        // Entries already select exact primary keys in this captured schema.
+        // Read them in one batch, then use the common pure projection; do not
+        // resolve names or run another key-selection query inside this page.
+        let records = self.db_ops.records().records_at(&schema, &keys).await?;
+        let values = crate::fold_db_core::query::hash_range_query::project_records(
+            &schema,
+            &query.fields,
+            records
+                .into_iter()
+                .filter(|(_, record)| record.is_live())
                 .collect(),
-        ));
-        let values = if keys.is_empty() {
-            QueryRecords::new()
-        } else {
-            self.query_current(query, None).await?
-        };
+        );
         validate_entries(&name, &entries, &values)?;
         Ok(AlternatePage {
             values,

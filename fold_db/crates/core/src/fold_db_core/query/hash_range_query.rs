@@ -22,6 +22,7 @@ mod records;
 mod redacted_filter;
 
 pub use condition_rules::FieldQueryOptions;
+pub(super) use records::project_records;
 
 /// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
 /// [`redacted_filter::RedactedHashRangeFilter`] view.
