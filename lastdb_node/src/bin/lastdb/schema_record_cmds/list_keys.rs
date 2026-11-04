@@ -87,28 +87,14 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
         .get("schema")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("?");
-    let hash_field = report
-        .get("hash_field")
+    let ranged = report
+        .pointer("/key_definition/kind")
         .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
-    let range_field = report
-        .get("range_field")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
-    let key_field = report
-        .get("key_field")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
+        == Some("hash_range");
     let hash_filter = report
         .get("hash_filter")
         .and_then(serde_json::Value::as_str);
-    let layout = match (hash_field, range_field, key_field) {
-        (Some(h), Some(r), _) => format!(" hash={h} range={r}"),
-        (Some(h), None, _) => format!(" hash={h}"),
-        (None, Some(r), _) => format!(" range={r}"),
-        (None, None, Some(k)) => format!(" key={k}"),
-        _ => String::new(),
-    };
+    let layout = if ranged { " hash+range" } else { " hash" };
     let partition = hash_filter
         .map(|h| format!(" --key-hash {h:?}"))
         .unwrap_or_default();
@@ -126,14 +112,7 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
     if !key_flag.is_empty() {
         eprintln!("For writes, use primary_keys from --json.");
     }
-    if hash_field.is_some() || range_field.is_some() {
-        match (hash_field, range_field) {
-            (Some(h), Some(r)) => eprintln!("{h}\t{r}"),
-            (Some(h), None) => eprintln!("{h}"),
-            (None, Some(r)) => eprintln!("{r}"),
-            _ => {}
-        }
-    }
+    eprintln!("{}", if ranged { "hash\trange" } else { "hash" });
     for key in &keys {
         let hash = key
             .get("hash")

@@ -43,27 +43,13 @@ impl FoldDB {
         self.schema_manager()
             .require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
-        let hash_field = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.clone())
-            .filter(|name| !name.is_empty());
-        let range_field = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.range_field.clone())
-            .filter(|name| !name.is_empty());
-        let key_field = hash_field.as_ref().cloned().ok_or_else(|| {
-            SchemaError::InvalidField(format!("schema '{requested}' has no hash_field to list"))
-        })?;
+        let key_definition = schema.require_record_keys()?.primary.clone();
         let (field_key, (pairs, next_cursor, has_more)) =
             self.schema_key_page(&schema, &request).await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
             schema_id: schema.name.clone(),
-            key_field,
-            hash_field,
-            range_field,
+            key_definition,
             hash_filter: hash_filter.map(str::to_owned),
             field_key,
             keys: pairs

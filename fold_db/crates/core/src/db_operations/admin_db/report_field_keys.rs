@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// One live record identity from a schema's key-field key.
+/// One live record identity from a schema's record space.
 ///
 /// Product `lastdb list` returns these — never record bodies. `range` is empty
 /// for HashKey / hash-only slots.
@@ -14,21 +14,16 @@ pub struct SchemaRecordKey {
 }
 
 /// Paged API keys for one schema's current records.
-/// Schema-facing reads check the selected field bodies for membership and hash
-/// recovery. Physical-key cursors retain progress across rejected candidates.
+/// Membership and external coordinates come from the complete stored record.
+/// Physical-key cursors retain progress across rejected candidates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaRecordKeysReport {
     /// Caller-facing name (descriptive / `app/Name` when that is what was asked).
     pub schema: String,
     /// Canonical schema identity the walk used.
     pub schema_id: String,
-    pub key_field: String,
-    /// Hash half of the schema key, when declared.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hash_field: Option<String>,
-    /// Range half of the schema key, when declared.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub range_field: Option<String>,
+    /// Primary address shape, independent of payload fields.
+    pub key_definition: schema_types::record_keys::RecordKeyDefinition,
     /// API hash this page was restricted to, when the caller passed `hash=`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash_filter: Option<String>,

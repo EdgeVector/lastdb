@@ -265,7 +265,10 @@ def exercise(node, binary):
     require(history(node, {"op": "get", "id": entry})["value"] == "second", "restart lost history")
     write(node, operation="delete")
     require(len(history(node, {"op": "list"})["entries"]) >= 3, "delete removed ordinary history")
-    cli(node, binary, "restore", entry, "--absent")
+    restore = request(node, "HistoryById", {"hash": "one"},
+                      {"id": "one", "bucket": "bucket-one", "value": "second"}, "create")
+    source.write_text(json.dumps(restore))
+    cli(node, binary, "restore", entry, "--request-file", str(source))
     print("restart, delete retention, and restore of an absent key passed", flush=True)
     cli(node, binary, "policy", "ttl", "--seconds", "2")
     write(node, "short-lived-old")

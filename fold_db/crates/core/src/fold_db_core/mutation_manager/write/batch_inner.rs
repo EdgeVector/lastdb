@@ -21,9 +21,8 @@ impl MutationManager {
         for mutation in &mutations {
             mutation.validate_record_intent()?;
         }
-        // Every verb merges into its record inside the native request: a
-        // delete or a purge merges as the delete floor, in caller order with
-        // the other writes (write/records.rs).
+        // Complete replacements and erasures share one native request.
+        // Every revision condition succeeds before any record is published.
         let mut receipt = self
             .write_create_update_batch_async(mutations, author_clock_barrier)
             .await?;

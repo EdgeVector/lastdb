@@ -1,6 +1,6 @@
-//! Product-owned definitions of the existing format 11 home.
+//! Product-owned definitions of the format 12 whole-record home.
 //!
-//! Moving a definition here does not change its encoded bytes. Creation,
+//! Creation,
 //! admission, namespace opening and native routing share these definitions.
 //! LastStore's internal run/block grammar remains owned by LastStore.
 //!

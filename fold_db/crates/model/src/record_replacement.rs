@@ -1,6 +1,6 @@
 //! Complete local record intents. Data and validation only, no write authority.
 //!
-//! These preparatory types do not activate a new serving API or disk format.
+//! The native writer consumes these values without granting storage authority.
 //! A format writer must still validate payload fields, the stored revision,
 //! complete key equality on delete and the issuing context for changed files.
 use crate::record_value::FileMarker;

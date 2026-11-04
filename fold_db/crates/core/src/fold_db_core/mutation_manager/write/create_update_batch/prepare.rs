@@ -108,9 +108,8 @@ impl MutationManager {
     }
 }
 
-/// Independent keys prepare together. A repeated key starts the next group
-/// so its unchanged fields come from the earlier private write, not the
-/// request's original state. The complete request still publishes once.
+/// Independent records prepare together. A repeated primary key is rejected:
+/// its replacement would require the revision of an unacknowledged write.
 impl MutationManager {
     fn independent_key_groups(
         &self,
