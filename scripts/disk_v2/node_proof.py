@@ -36,6 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 
 from home_format import NODE_MARKER as RUN_NODE  # noqa: E402
 from node import Node, save  # noqa: E402  (the benchmark daemon driver)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "operations"))
+from record_requests import conditioned  # noqa: E402
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
 import cleanup  # noqa: E402
@@ -147,7 +149,7 @@ class Case:
         self.node.start()
         self.check_new_home()
         for schema in SCHEMAS:
-            self.node.call("/api/schemas/seed-system", schema_request(schema))
+            self.node.call("/api/schemas/seed-system", schema_request(schema, native=self.node.api_version >= 27))
         name = f"seed (new v2 home, {self.candidate[1][:12]})"
         writes = self.write(self.seed.phase(**PROFILE["seed"]))
         # The writes start from an empty home, under the 16 MiB that the limit
@@ -244,7 +246,10 @@ class Case:
         total = sum(len(batch) for batch in batches)
         done, started = 0, time.monotonic()
         for batch in batches:
-            result, _, _ = self.node.call("/api/mutations/batch", batch_request(batch))
+            request = batch_request(batch, native=self.node.api_version >= 27)
+            if self.node.api_version >= 27:
+                request["mutations"] = conditioned(self.node, request["mutations"])
+            result, _, _ = self.node.call("/api/mutations/batch", request)
             if result.get("count") != len(batch) or result.get("durability") != "durable":
                 raise ProofError(f"a write lacks a complete durable acknowledgement: {brief(result)}")
             done += len(batch)

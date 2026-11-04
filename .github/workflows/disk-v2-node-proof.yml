@@ -26,6 +26,7 @@ on:
       - 'fold_db/crates/core/src/db_operations/record_store/**'
       - 'lastdb_node/src/host/**'
       - 'scripts/disk_v2/**'
+      - 'scripts/operations/record_requests.py'
       - 'scripts/benchmarks/node.py'
       - '.github/workflows/disk-v2-node-proof.yml'
   workflow_dispatch:

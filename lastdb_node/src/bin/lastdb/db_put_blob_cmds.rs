@@ -7,8 +7,9 @@ const PUT_BLOB_PATH: &str = "/api/db/put-blob";
 /// Arguments of `lastdb db put-blob`.
 #[derive(clap::Args, Debug)]
 pub(crate) struct PutBlobArgs {
-    #[command(flatten)]
-    pub(crate) target: BlobTargetArgs,
+    /// Complete conditional record request as JSON.
+    #[arg(long)]
+    pub(crate) request_file: PathBuf,
     /// File with the bytes to store. Omit it to read stdin.
     #[arg(long)]
     pub(crate) file: Option<PathBuf>,
@@ -18,9 +19,6 @@ pub(crate) struct PutBlobArgs {
     /// Optional media type of the file, kept in the record's file marker.
     #[arg(long)]
     pub(crate) media_type: Option<String>,
-    /// Other fields of the record as one JSON object, written in the same write.
-    #[arg(long)]
-    pub(crate) fields: Option<String>,
 }
 
 /// The raw HTTP request: the bytes are the body, so there is no base64 tax.
@@ -57,20 +55,16 @@ fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8
 /// The header metadata of one put: the record, the file description and the
 /// other fields.
 fn put_blob_metadata(args: &PutBlobArgs) -> Result<serde_json::Value, String> {
-    let mut metadata = blob_target_json(&args.target);
+    let raw =
+        std::fs::read(&args.request_file).map_err(|e| format!("read complete record: {e}"))?;
+    let mutation: serde_json::Value =
+        serde_json::from_slice(&raw).map_err(|e| format!("parse complete record: {e}"))?;
+    let mut metadata = serde_json::json!({"mutation": mutation});
     if let Some(name) = &args.name {
         metadata["name"] = name.as_str().into();
     }
     if let Some(media_type) = &args.media_type {
         metadata["media_type"] = media_type.as_str().into();
-    }
-    if let Some(fields) = &args.fields {
-        let fields: serde_json::Value =
-            serde_json::from_str(fields).map_err(|e| format!("parse --fields JSON: {e}"))?;
-        if !fields.is_object() {
-            return Err("--fields must be one JSON object".into());
-        }
-        metadata["fields"] = fields;
     }
     Ok(metadata)
 }

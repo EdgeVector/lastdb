@@ -43,7 +43,9 @@ class RecordProtocol:
         body = copy.deepcopy(body)
         schema = body["schema"]
         self.schemas[schema["name"]] = copy.deepcopy(schema)
-        primary = schema.pop("key")
+        if "record_keys" in schema:
+            return body
+        primary = schema.pop("key", {}) or {}
         alternates = schema.pop("alternate_keys", {})
 
         def definition(key, optional=False):
@@ -95,7 +97,8 @@ class RecordProtocol:
             if path == "/api/schemas/seed-system":
                 result = send(path, self.declaration(decoded))
             elif path in ("/api/mutation", "/api/mutations/batch"):
-                result = self.mutations(send, path, decoded, complete_records)
+                operations = [decoded] if path == "/api/mutation" else decoded if isinstance(decoded, list) else decoded["mutations"]
+                result = send(path, decoded) if all("record" in item for item in operations) else self.mutations(send, path, decoded, complete_records)
             else:
                 result = send(path, body)
                 if path == "/api/query" and isinstance(decoded, dict):
