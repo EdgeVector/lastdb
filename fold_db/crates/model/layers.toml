@@ -25,6 +25,7 @@ modules = [
   "field_key_id",
   "record_space",
   "record_value",
+  "record_replacement",
   "schema",
 ]
 

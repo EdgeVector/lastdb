@@ -61,7 +61,7 @@ impl Mutation {
         push_field(&mut digest, b"lastdb-record-retry-v1");
         push_field(&mut digest, self.pub_key.as_bytes());
         push_field(&mut digest, self.uuid.as_bytes());
-        format!("{digest:x}")
+        format!("{:x}", digest.finalize())
     }
 
     pub fn record_stamp(&self) -> Result<crate::record_value::RecordStamp, String> {
