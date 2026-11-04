@@ -241,8 +241,10 @@ def ttl_resume(node):
     erased = []
     for group in [["z0", "z1", "z2"], ["z7", "z8"]]:
         keys = [f"{old:020d}-{suffix}" for suffix in group]
+        # External coordinates alone determine age, including an empty payload.
         write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
-                              {"id": key, "bucket": "aged", "value": key}, "create") for key in keys])
+                              {} if number == 0 else {"value": key}, "create")
+                     for number, key in enumerate(keys)])
         wait_gone(node, keys, "the TTL sweep did not erase the expired records after a run of "
                   f"{RUN} deleted records: {group}")
         erased += keys
