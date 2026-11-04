@@ -4,10 +4,12 @@
 //! admission, namespace opening and native routing share these definitions.
 //! LastStore's internal run/block grammar remains owned by LastStore.
 //!
-//! This is the first extraction, not the closed write boundary: record/key
-//! codecs in lastdb_model, domain value encoders, file/backup sidecars and raw
-//! writer handles still need their later migrations. No startup key audit is
-//! introduced by centralizing these facts.
+//! The record writer composes the existing model codecs through typed inputs
+//! and an opaque batch. Other domain encoders, file/backup sidecars and raw
+//! writer handles still need their later migrations. This partial boundary
+//! introduces no startup key audit.
+
+pub(crate) mod records;
 
 /// The home format: one stored record per primary key and record-owned files.
 pub const HOME_FORMAT: u32 = 11;
@@ -41,9 +43,15 @@ pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
 pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
-/// Main families admitted by the existing current-key check.
-pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
-    "rk", "ak", "rh", "ahp", "ahk", "ahq", "ahb", "dellog", "layout",
+/// Legacy history data families. The record writer's temporary bridge and
+/// native main-family admission share this exact definition.
+pub(in crate::storage) const HISTORY_DATA_FAMILIES: &[&str] = &["rh", "ahk", "ahq", "ahb"];
+
+/// Main families admitted by the existing current-key check. Grouping the
+/// history child avoids a second definition of its family names.
+pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
+    &["rk", "ak", "ahp", "dellog", "layout"],
+    HISTORY_DATA_FAMILIES,
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
