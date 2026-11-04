@@ -40,6 +40,7 @@ use std::sync::Arc;
 /// Prepared values of one record, after the existing mutation merge.
 pub(crate) struct RecordChange {
     pub key: RecordAddress,
+    /// Logical change context; never authorizes skipping file admission.
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
     pub file_write: Option<FileWrite>,
@@ -57,38 +58,30 @@ fn encode(
     alternates: Vec<AlternateChange>,
 ) -> Result<EncodedRecords, SchemaError> {
     let mut main = Vec::with_capacity(changes.len() + alternates.len());
-    let mut files = Vec::new();
+    let mut files = Vec::with_capacity(changes.len());
     let mut written = Vec::with_capacity(changes.len());
     for change in changes {
         // Structure is checked now; complete-request admission checks the
         // final encoded body at each key, including repeated-key writes.
         let value = change.after.encode_uncapped().map_err(record_value_error)?;
         let after = Arc::new(change.after);
-        if change
-            .before
-            .as_ref()
-            .is_some_and(|record| record.file.is_some())
-            || after.file.is_some()
-            || change.file_write.is_some()
-        {
-            files.push(files::FileChange {
-                key: change.key.clone(),
-                after: Arc::clone(&after),
-                write: change.file_write,
-            });
-        }
+        // Every changed address participates: only the writer's actual
+        // preimage can establish that no file cleanup is needed.
+        files.push(files::FileChange {
+            key: change.key.clone(),
+            after: Arc::clone(&after),
+            write: change.file_write,
+        });
         written.push(WrittenRecord::new(change.key.as_str(), after, &value));
         main.push(KvMutation::put(change.key.into_string(), value));
     }
-    if !files.is_empty() {
-        // File decisions use one current preimage per key. The coordinator
-        // splits repeated keys into successive groups in the same request.
-        let mut keys = HashSet::with_capacity(main.len());
-        if main.iter().any(|row| !keys.insert(row.key())) {
-            return Err(SchemaError::InvalidData(
-                "a file record batch repeats a record address".into(),
-            ));
-        }
+    // File decisions use one current preimage per key. The coordinator
+    // splits repeated keys into successive groups in the same request.
+    let mut keys = HashSet::with_capacity(main.len());
+    if main.iter().any(|row| !keys.insert(row.key())) {
+        return Err(SchemaError::InvalidData(
+            "a record batch repeats a record address".into(),
+        ));
     }
     for change in alternates {
         main.push(alternates::encode(change)?);

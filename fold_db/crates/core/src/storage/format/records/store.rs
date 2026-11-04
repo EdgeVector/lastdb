@@ -55,9 +55,10 @@ impl RecordFormat {
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
-        // Resolve selected file records in one batch under the same native
-        // scope. Providers cannot authorize a new reference by claiming that
-        // an unrelated marker was already present. No file body is read.
+        // Resolve every changed record in one batch under the native scope.
+        // Providers cannot suppress cleanup with a false no-file preimage,
+        // or authorize a changed reference from an unrelated marker.
+        // Ordinary records use this same admission; no file body is read.
         let files = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
