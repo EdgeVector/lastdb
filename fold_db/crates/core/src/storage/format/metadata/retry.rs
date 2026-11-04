@@ -4,14 +4,17 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 use super::super::{
-    RETRY_CACHE_BUCKETS, RETRY_CACHE_BUCKET_BYTES, RETRY_CACHE_ENTRIES, RETRY_CACHE_PREFIX,
+    RETRY_CACHE_BUCKETS, RETRY_CACHE_BUCKET_BYTES, RETRY_CACHE_DIGEST_BYTES, RETRY_CACHE_ENTRIES,
+    RETRY_CACHE_ENTRY_BYTES, RETRY_CACHE_PREFIX,
 };
 use super::EncodedMetadata;
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 
 use lastdb_model::record_replacement::RetryReceipt;
-type Bucket = Vec<(String, RetryReceipt)>;
+type DigestBytes = [u8; RETRY_CACHE_DIGEST_BYTES];
+type Entry = [u8; RETRY_CACHE_ENTRY_BYTES];
+type Bucket = Vec<Entry>;
 
 pub(super) fn status() -> serde_json::Value {
     serde_json::json!({
@@ -21,11 +24,11 @@ pub(super) fn status() -> serde_json::Value {
     })
 }
 
-fn coordinate(key: &str) -> (String, String) {
+fn coordinate(key: &str) -> (String, DigestBytes) {
     let digest = Sha256::digest(key.as_bytes());
     (
         format!("{RETRY_CACHE_PREFIX}{:02x}", digest[0]),
-        format!("{digest:x}"),
+        digest.into(),
     )
 }
 
@@ -33,20 +36,22 @@ fn decode(bytes: Option<&[u8]>) -> StorageResult<Bucket> {
     let Some(bytes) = bytes else {
         return Ok(Vec::new());
     };
-    let entries = (bytes.len() <= RETRY_CACHE_BUCKET_BYTES)
-        .then(|| serde_json::from_slice::<Bucket>(bytes).ok())
-        .flatten()
-        .filter(|entries| {
-            entries.len() <= RETRY_CACHE_ENTRIES
-                && entries
-                    .iter()
-                    .all(|(hash, id)| hash.len() == 64 && valid(id))
-        });
-    entries.ok_or_else(|| StorageError::SerializationError("invalid retry-cache bucket".into()))
+    if bytes.len() > RETRY_CACHE_BUCKET_BYTES
+        || !bytes.len().is_multiple_of(RETRY_CACHE_ENTRY_BYTES)
+        || bytes.len() / RETRY_CACHE_ENTRY_BYTES > RETRY_CACHE_ENTRIES
+    {
+        return Err(StorageError::SerializationError(
+            "invalid retry-cache bucket".into(),
+        ));
+    }
+    Ok(bytes
+        .chunks_exact(RETRY_CACHE_ENTRY_BYTES)
+        .map(|entry| entry.try_into().expect("complete retry entry"))
+        .collect())
 }
 
 pub(super) struct Lookup {
-    coordinates: Vec<(String, String)>,
+    coordinates: Vec<(String, DigestBytes)>,
     buckets: BTreeMap<String, Bucket>,
 }
 
@@ -88,7 +93,13 @@ impl Lookup {
             .map(|(key, fingerprint)| {
                 self.buckets[&key]
                     .iter()
-                    .find_map(|(hash, id)| (hash == &fingerprint).then(|| id.clone()))
+                    .find(|entry| entry[..RETRY_CACHE_DIGEST_BYTES] == fingerprint)
+                    .map(|entry| RetryReceipt {
+                        intent_hash: hex(
+                            &entry[RETRY_CACHE_DIGEST_BYTES..2 * RETRY_CACHE_DIGEST_BYTES]
+                        ),
+                        revision: hex(&entry[2 * RETRY_CACHE_DIGEST_BYTES..]),
+                    })
             })
             .collect())
     }
@@ -99,16 +110,18 @@ pub(super) struct Batch {
 }
 
 impl Batch {
-    pub(super) fn new(entries: Vec<(String, RetryReceipt)>) -> Self {
+    pub(super) fn new(entries: Vec<(String, RetryReceipt)>) -> StorageResult<Self> {
         let mut grouped: BTreeMap<String, Bucket> = BTreeMap::new();
         for (key, id) in entries {
-            // Invalid receipts are a safe miss; no unbounded value enters a bucket.
-            if valid(&id) {
-                let (bucket, fingerprint) = coordinate(&key);
-                grouped.entry(bucket).or_default().push((fingerprint, id));
-            }
+            let (bucket, fingerprint) = coordinate(&key);
+            let mut entry = [0; RETRY_CACHE_ENTRY_BYTES];
+            entry[..RETRY_CACHE_DIGEST_BYTES].copy_from_slice(&fingerprint);
+            entry[RETRY_CACHE_DIGEST_BYTES..2 * RETRY_CACHE_DIGEST_BYTES]
+                .copy_from_slice(&parse_digest(&id.intent_hash)?);
+            entry[2 * RETRY_CACHE_DIGEST_BYTES..].copy_from_slice(&parse_digest(&id.revision)?);
+            grouped.entry(bucket).or_default().push(entry);
         }
-        Self { grouped }
+        Ok(Self { grouped })
     }
 
     pub(super) fn is_empty(&self) -> bool {
@@ -134,38 +147,51 @@ impl Batch {
             .zip(old)
             .map(|((key, added), bytes)| {
                 let mut bucket = decode(bytes.as_deref())?;
-                for (fingerprint, id) in added {
-                    bucket.retain(|(hash, _)| *hash != fingerprint);
-                    bucket.push((fingerprint, id));
-                    if bucket.len() > RETRY_CACHE_ENTRIES {
+                for entry in added {
+                    bucket.retain(|old| {
+                        old[..RETRY_CACHE_DIGEST_BYTES] != entry[..RETRY_CACHE_DIGEST_BYTES]
+                    });
+                    bucket.push(entry);
+                    if bucket.len()
+                        > RETRY_CACHE_ENTRIES
+                            .min(RETRY_CACHE_BUCKET_BYTES / RETRY_CACHE_ENTRY_BYTES)
+                    {
                         bucket.remove(0);
                     }
                 }
-                Ok((key.into_bytes(), encode(bucket)?))
+                Ok((key.into_bytes(), bucket.into_iter().flatten().collect()))
             })
             .collect::<StorageResult<Vec<_>>>()?;
         Ok(EncodedMetadata::Retry(rows))
     }
 }
 
-fn encode(mut bucket: Bucket) -> StorageResult<Vec<u8>> {
-    loop {
-        let bytes = serde_json::to_vec(&bucket)
-            .map_err(|error| StorageError::SerializationError(error.to_string()))?;
-        if bytes.len() <= RETRY_CACHE_BUCKET_BYTES {
-            return Ok(bytes);
-        }
-        bucket.remove(0);
+fn parse_digest(value: &str) -> StorageResult<DigestBytes> {
+    let invalid = || StorageError::SerializationError("invalid retry receipt digest".into());
+    if value.len() != 2 * RETRY_CACHE_DIGEST_BYTES {
+        return Err(invalid());
     }
+    let nibble = |byte| match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(invalid()),
+    };
+    let mut digest = [0; RETRY_CACHE_DIGEST_BYTES];
+    for (out, pair) in digest.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
+        *out = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    }
+    Ok(digest)
 }
 
-fn valid(receipt: &RetryReceipt) -> bool {
-    [&receipt.intent_hash, &receipt.revision]
+fn hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    bytes
         .iter()
-        .all(|value| {
-            value.len() == 64
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        .flat_map(|byte| {
+            [
+                HEX[(byte >> 4) as usize] as char,
+                HEX[(byte & 15) as usize] as char,
+            ]
         })
+        .collect()
 }

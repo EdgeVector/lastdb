@@ -248,6 +248,8 @@ def deletes(node):
     again = node.call("/api/mutation", request)[0]
     require(first["record_revision"] == again["record_revision"] and again["operations"]["no_op"] == 1,
             "a stable-ID delete retry lost its original revision")
+    refused(lambda: node.call("/api/mutation", {**request,
+            "expected": {"type": "revision", "revision": "0" * 64}}), "reused")
     stale = {**request, "mutation_id": str(uuid.uuid4())}
     refused(lambda: node.call("/api/mutation", stale), "HTTP 409")
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
@@ -507,8 +509,14 @@ def main():
         record_runs.check(node, scan)
         record_drop_tracking.exercise(node)
         entries = history(node, {"op": "list"})["entries"]
+        retry = conditioned(node, [mutation("RecordById", {"hash": "four"},
+            {"id": "four", "bucket": "b5"})])[0]
+        acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
         node.stop()
         node.start()
+        replayed = node.call("/api/mutation", retry)[0]
+        require(replayed["record_revision"] == acknowledged and replayed["operations"]["no_op"] == 1,
+                "a retained retry did not replay its original revision after restart")
         record_drop_tracking.check(node)
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")

@@ -102,7 +102,7 @@ impl Metadata {
         &self,
         entries: Vec<(String, lastdb_model::record_replacement::RetryReceipt)>,
     ) -> StorageResult<()> {
-        let batch = retry::Batch::new(entries);
+        let batch = retry::Batch::new(entries)?;
         if batch.is_empty() {
             return Ok(());
         }
