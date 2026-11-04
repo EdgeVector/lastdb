@@ -82,7 +82,8 @@ class Node:
              complete_records=False, timeout=60):
         if self.record_protocol is not None and self.api_version >= 27:
             return self.record_protocol.call(self._exchange, path, body, receipt=receipt,
-                request_id=request_id, transport=transport, complete_records=complete_records, timeout=timeout)
+                request_id=request_id, transport=transport, complete_records=complete_records,
+                api_version=self.api_version, timeout=timeout)
         return self._exchange(path, body, receipt=receipt, request_id=request_id, transport=transport, timeout=timeout)
 
     def _exchange(self, path, body=None, receipt=False, request_id=None, transport=None, timeout=60):

@@ -88,7 +88,6 @@ pub const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_hydrate_format_us",
     "sum_hydrate_sort_us",
     "sum_apply_us",
-    "sum_idempotency_check_us",
     "sum_grouping_us",
     "sum_index_wait_us",
     "sum_change_record_us",

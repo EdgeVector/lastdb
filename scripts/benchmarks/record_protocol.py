@@ -1,4 +1,4 @@
-"""Explicit benchmark-only client for equivalent API 26 and 27 operations.
+"""Explicit benchmark-only client for equivalent historical and current record operations.
 
 Older partial edits become client read/edit/replace operations. Reads, serialization,
 conflicts and bounded retries remain inside the measured call. Full-record cases
@@ -80,7 +80,7 @@ class RecordProtocol:
             for row in rows:
                 self.revisions[(schema, *coordinate(row["key"]))] = row["revision"]
 
-    def call(self, exchange, path, body, *, complete_records=False, transport=None, **options):
+    def call(self, exchange, path, body, *, api_version, complete_records=False, transport=None, **options):
         started, physical = time.perf_counter_ns(), []
 
         def send(route, value, **overrides):
@@ -105,7 +105,7 @@ class RecordProtocol:
                 result = send(path, self.declaration(decoded))
             elif path in ("/api/mutation", "/api/mutations/batch"):
                 operations = [decoded] if path == "/api/mutation" else decoded if isinstance(decoded, list) else decoded["mutations"]
-                result = send(path, decoded) if all("record" in item for item in operations) else self.mutations(send, path, decoded, complete_records)
+                result = send(path, decoded) if all("record" in item for item in operations) else self.mutations(send, path, decoded, complete_records, api_version)
             else:
                 result = send(path, body)
                 if path == "/api/query" and isinstance(decoded, dict):
@@ -144,7 +144,7 @@ class RecordProtocol:
         return {(schema, *coordinate(row["key"])): row
                 for schema, reply in zip(grouped, replies) for row in reply["results"]}
 
-    def mutations(self, send, path, body, complete):
+    def mutations(self, send, path, body, complete, api_version):
         original = [body] if path == "/api/mutation" else body if isinstance(body, list) else body["mutations"]
         for attempt in range(9):
             current = {} if complete else self.read_current(send, original)
@@ -166,7 +166,7 @@ class RecordProtocol:
                 if deleting and not prior:
                     raise RuntimeError("benchmark delete target is absent")
                 metadata = (prior or {}).get("metadata") or {}
-                converted.append({"type": "mutation", "mutation_id": str(uuid.uuid4()),
+                converted.append({"type": "mutation",
                     "schema": mutation["schema"], "key_value": mutation["key_value"],
                     "mutation_type": mutation["mutation_type"] if deleting else "replace" if revision else "create",
                     "record": {} if deleting else fields,
@@ -177,6 +177,10 @@ class RecordProtocol:
                     "file": None if deleting else metadata.get("file"),
                     "durability": mutation.get("durability", "durable"),
                     "convergence": mutation.get("convergence", "async")})
+            # Historical API27 requires caller IDs; current product requests never send them.
+            if api_version == 27:
+                for mutation in converted:
+                    mutation["mutation_id"] = str(uuid.uuid4())
             try:
                 reply = send(path, converted[0] if path == "/api/mutation" else {"mutations": converted})
             except RuntimeError as error:
@@ -186,9 +190,12 @@ class RecordProtocol:
                     self.totals.update(conflicts=1, retries=1)
                 continue
             with self.lock:
-                for mutation in converted:
+                ids = [reply[0]["mutation_id"]] if path == "/api/mutation" else reply[0]["mutation_ids"]
+                if len(ids) != len(converted) or len(set(ids)) != len(ids):
+                    raise RuntimeError("benchmark response has incomplete server identities")
+                for mutation, mutation_id in zip(converted, ids):
                     identity = (mutation["schema"], *coordinate(mutation["key_value"]))
-                    revision = reply[0]["record_revisions"][mutation["mutation_id"]]
+                    revision = reply[0]["record_revisions"][mutation_id]
                     if mutation["mutation_type"] in ("delete", "purge"):
                         self.revisions.pop(identity, None)
                     else:

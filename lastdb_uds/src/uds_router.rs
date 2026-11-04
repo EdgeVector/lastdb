@@ -184,7 +184,7 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/storage/home/reconcile`. No other request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// API 27 requires complete record mutations, external keys and record revisions.
-pub const API_VERSION: u32 = 27;
+pub const API_VERSION: u32 = 28;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

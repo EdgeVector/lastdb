@@ -19,7 +19,6 @@ pub(super) fn phase_timings(
         hydrate_format_us: phase_totals.hydrate_format_us,
         hydrate_sort_us: phase_totals.hydrate_sort_us,
         apply_us: phase_totals.apply_us,
-        idempotency_check_us: phase_totals.idempotency_check_us,
         grouping_us: phase_totals.grouping_us,
         index_wait_us: phase_totals.index_wait_us,
         change_record_us: phase_totals.change_record_us,

@@ -68,8 +68,8 @@ pub enum RequestPhase {
     /// because "the sort is the cost" is a claim that should be checkable
     /// before anyone rewrites a comparator.
     HydrateSort,
-    /// Mutation: the batch write's wall time less [`Self::Grouping`] and
-    /// [`Self::IdempotencyCheck`] — a RESIDUAL, not a direct measurement. It
+    /// Mutation: the batch write's wall time less [`Self::Grouping`] —
+    /// a residual, not a direct measurement. It
     /// covers the native request's staging, commit and durability wait.
     /// [`Self::CasPrecondition`] runs inside the same window and is not
     /// subtracted. See
@@ -78,9 +78,6 @@ pub enum RequestPhase {
     /// Mutation: grouping the batch's mutations by schema before the
     /// per-schema loop runs.
     Grouping,
-    /// Mutation: the idempotency-duplicate filter pass at the top of the
-    /// batch pipeline.
-    IdempotencyCheck,
     /// The handler's bounded wait for background index tasks.
     IndexWait,
     /// Post-write process-local outbox recording. The durable change-feed

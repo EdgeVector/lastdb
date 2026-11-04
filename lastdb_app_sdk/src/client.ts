@@ -809,7 +809,6 @@ export class LastDbClient {
     const body: Record<string, unknown> = {
       type: 'mutation',
       schema: resolved.nodeSchemaName,
-      mutation_id: op.mutationId,
       record: mapFieldRecord(op.record ?? {}, resolved.appToNodeFields),
       key_value: op.key,
       alternates: op.alternates,

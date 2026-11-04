@@ -59,9 +59,10 @@ def schema_request(name, native=False):
     return request
 
 
-def batch_request(batch, native=False):
+def batch_request(batch, native=False, caller_ids=False):
     if native:
-        return {"mutations": [{"type": "mutation", "mutation_id": str(uuid.uuid4()),
+        return {"mutations": [{"type": "mutation",
+            **({"mutation_id": str(uuid.uuid4())} if caller_ids else {}),
             "schema": edit[1], "key_value": {"hash": edit[2][0], "range": edit[2][1]},
             "record": edit.complete, "alternates": {}, "expected": None,
             "mutation_type": "delete" if edit[0] == "delete" else "replace" if edit.existed else "create",

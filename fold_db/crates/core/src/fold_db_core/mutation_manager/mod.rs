@@ -3,12 +3,11 @@
 //! Layout:
 //! - [`write`] — public write entry points and the record batch pipeline
 //! - [`key_values`] — primary keys and declared field values of a mutation
-//! - [`cas_rules`] — write preconditions; [`cas_idempotency`] — retry filter
+//! - [`cas_rules`] — whole-record write preconditions
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
 
 mod author_clock;
-mod cas_idempotency;
 mod cas_rules;
 mod index;
 mod key_values;

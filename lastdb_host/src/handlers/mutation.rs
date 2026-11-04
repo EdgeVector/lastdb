@@ -1,7 +1,7 @@
 //! Mutation and batch-mutation handlers.
 //!
-//! `request` shows the single-request steps, and `plan` holds pure request
-//! rules. The write helpers here use the existing host interface directly.
+//! `request` shows the single-request steps. The write helpers here use the
+//! existing host interface directly.
 
 use fold_db::schema::types::MutationIds;
 use std::collections::HashMap;
@@ -21,9 +21,6 @@ use crate::host_node::HostNode;
 use crate::qos::Lane;
 use crate::HostError;
 
-use self::plan::MutationPlan;
-
-mod plan;
 mod request;
 pub use request::execute_mutation;
 
@@ -50,8 +47,6 @@ fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
 /// (each socket executor) parses the wire body into this shape; the shared
 /// handler owns schema resolution + the write.
 pub struct MutationComponents {
-    /// Stable caller UUID retained across retries of this exact request.
-    pub mutation_id: String,
     /// Schema that owns the record.
     pub schema: String,
     /// Complete replacement payload; omitted fields disappear.
@@ -86,7 +81,7 @@ impl MutationComponents {
             alternates: self.alternates,
         };
         let mut mutation = Mutation::new(
-            self.mutation_id,
+            uuid::Uuid::new_v4().to_string(),
             target,
             self.record_fields,
             public_key,
@@ -108,7 +103,6 @@ impl MutationComponents {
         default_convergence: Option<MutationConvergence>,
     ) -> Self {
         let Operation::Mutation {
-            mutation_id,
             schema,
             record_fields,
             key_value,
@@ -122,7 +116,6 @@ impl MutationComponents {
             durability,
         } = operation;
         Self {
-            mutation_id,
             schema,
             record_fields,
             key_value,
@@ -145,7 +138,6 @@ pub(super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
         "created": operations.created,
         "updated": operations.updated,
         "deleted": operations.deleted,
-        "no_op": operations.no_op,
         "total": operations.total(),
     })
 }
@@ -232,12 +224,11 @@ fn mutation_response(
 /// Build, admit, and commit the selected mutations.
 async fn commit_mutation<H: HostNode>(
     host: &H,
-    plan: MutationPlan,
+    components: MutationComponents,
+    canonical: String,
     payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
-    let mutations = vec![plan
-        .components
-        .into_mutation(plan.canonical, host.public_key())];
+    let mutations = vec![components.into_mutation(canonical, host.public_key())];
     let admission_started = std::time::Instant::now();
     let permit = host
         .acquire_op_permit(Lane::for_write_bytes(payload_bytes))

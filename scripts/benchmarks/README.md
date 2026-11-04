@@ -558,9 +558,9 @@ The workload has no cloud, external file blobs, or crash-recovery phase.
 
 ### Whole-record protocol comparison
 
-Benchmark drivers explicitly opt into `record_protocol.py` for API 27. Operational
+Benchmark drivers explicitly opt into `record_protocol.py` for API 27 and later. Operational
 proofs do not use this adapter. The API 26 baseline keeps its original requests.
-API 27 declarations carry explicit key definitions. Existing partial-edit logical
+Current declarations carry explicit key definitions. Existing partial-edit logical
 workloads perform a batched client read, edit the complete record, supply explicit
 alternate addresses, and condition the replacement on its revision. The timer
 includes these reads, serialization, conflicts and up to eight CAS retries. Physical
@@ -574,3 +574,8 @@ includes the full keyed read before the same complete write. Workers own distinc
 keys in that matrix, so it does not measure contention. The existing concurrent
 logical workloads retain their read/edit and retry costs rather than presenting
 those operations as engine-only replacements.
+
+API 28 mutation requests omit caller IDs. The benchmark adapter consumes server IDs
+in input order from each receipt. Only historical API 27 baselines receive caller
+UUIDs; this translation is confined to the benchmark client. Replayed successful
+requests may fail their revision condition; no original-acknowledgement cache exists.

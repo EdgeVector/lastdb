@@ -11,7 +11,6 @@ use crate::qos::Lane;
 use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
-use super::plan::validate_identity;
 use super::{commit_core_json, extend_json, wait_for_requested_convergence, MutationComponents};
 
 mod rules;
@@ -32,8 +31,6 @@ pub async fn execute_mutations_batch<H: HostNode>(
     let mut mutations = Vec::with_capacity(components.len());
     let mut payload_bytes = 0usize;
     for components in components {
-        validate_identity(&components)?;
-
         // Sum per-item phases without changing which rejection wins first.
         let resolve_started = std::time::Instant::now();
         let resolved = resolve_required_schema_name(host, &components.schema);

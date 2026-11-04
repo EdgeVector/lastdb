@@ -10,9 +10,8 @@ pub(in crate::exec) async fn execute(
         return error_response(403, "the native status route is owner-only", ctx);
     }
     let runtime = host.db.db_ops().native_runtime();
-    let retry_cache = host.db.db_ops().metadata().retry_cache_status();
     let mut status = serde_json::json!({
-        "native_disk": runtime.status_native(), "retry_cache": retry_cache,
+        "native_disk": runtime.status_native(),
         "search": fold_db::db_operations::search_index::queue_policy::status(
             &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home)),
     });

@@ -57,7 +57,7 @@ phase_timings! {
     /// reports them, these fields answer *where inside the node* a slow request
     /// spent its time — waiting in the socket queue, waiting at the QoS
     /// admission gate, or doing parse / schema-resolve / validate /
-    /// cas-precondition / idempotency-check / grouping / apply / index-wait /
+    /// cas-precondition / grouping / apply / index-wait /
     /// change-record / response-envelope work.
     /// This struct is the shared vocabulary; the recording sites land separately.
     ///
@@ -117,13 +117,10 @@ phase_timings! {
         /// Query: the deterministic total-order sort that makes offset/limit
         /// pagination non-overlapping. `O(rows log rows)` JSON-keyed comparisons.
         hydrate_sort_us => "hydrate_sort",
-        /// Mutation: the batch write's wall time less `idempotency_check` and
-        /// `grouping` — a residual, not a sum of named steps. See
+        /// Mutation: the batch write's wall time less `grouping` —
+        /// a residual, not a sum of named steps. See
         /// `fold_db::request_phases::RequestPhase::Apply`.
         apply_us => "apply",
-        /// Mutation: the idempotency-duplicate filter pass at the top of the
-        /// batch pipeline.
-        idempotency_check_us => "idempotency_check",
         /// Mutation: grouping the batch's mutations by schema.
         grouping_us => "grouping",
         /// The handler's bounded wait for background index tasks — NOT the
