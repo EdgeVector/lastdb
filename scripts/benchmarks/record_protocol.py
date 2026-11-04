@@ -37,7 +37,9 @@ class RecordProtocol:
         with self.lock:
             return {"client": "explicit benchmark protocol adapter", "totals": dict(self.totals),
                     "acknowledged_revision_tokens": len(self.revisions), "payload_cache": False,
-                    "retry_limit": 8, "timing_includes_all_client_work": True}
+                    "retry_limit": 8, "mutation_timing_includes_all_client_work": True,
+                    "passthrough_timing": "same RPC timer as baseline",
+                    "application_timing": "complete-flow outer timer on both labels"}
 
     def declaration(self, body):
         body = copy.deepcopy(body)
@@ -93,6 +95,11 @@ class RecordProtocol:
                 physical.append({"path": route, "request_id": settings["request_id"], **metrics})
 
         try:
+            prepares_values = path in ("/api/schemas/seed-system", "/api/mutation", "/api/mutations/batch")
+            if not prepares_values and not (path == "/api/query" and complete_records):
+                # Unchanged reads use the baseline's RPC timer. Only callers
+                # preparing a complete replacement need revision bookkeeping.
+                return send(path, body)
             decoded = json.loads(body) if isinstance(body, bytes) else body
             if path == "/api/schemas/seed-system":
                 result = send(path, self.declaration(decoded))

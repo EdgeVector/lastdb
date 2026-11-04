@@ -18,6 +18,10 @@ The baseline currently uses the existing API and a payload-value CAS. The
 application measurement includes its keyed read, full reply, serialization and
 conditional full write. Request/response body counts exclude HTTP headers.
 Successful-update throughput uses the entire concurrent case wall duration.
+Unchanged read-only calls retain the same RPC timer on both APIs. Only schema
+and mutation preparation, plus reads explicitly preparing a complete replacement,
+enter the protocol adapter. Application cases keep the complete-flow outer timer
+on both labels, including JSON decoding, serialization and every physical RPC.
 Workers own distinct keys, so these observations do not establish shared-key
 conflict or retry cost; the existing contention workloads remain separate.
 

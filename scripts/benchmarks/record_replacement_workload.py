@@ -70,7 +70,7 @@ def execute(node, config, number, mode, before, after):
     observed = []
     if mode == "application_read_replace":
         transport = {}
-        reply = node.call("/api/query", query(config, number), transport=transport)[0]
+        reply = node.call("/api/query", query(config, number), transport=transport, complete_records=True)[0]
         rows = reply.get("results", [])
         require(len(rows) == 1 and rows[0]["fields"] == values(config, number, before),
                 "read/edit/replace fetched a partial or unexpected record")
