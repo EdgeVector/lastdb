@@ -12,6 +12,7 @@ import uuid
 
 import native_records
 from automatic_source import completion, durable_batch
+from restore_log import position
 from support import ACCOUNT, OperationError, canonical_uuid, require
 
 # A clean stop needs only seconds; the next log tick must not start before it.
@@ -52,6 +53,7 @@ class StoppedFinal:
                 "stopped_key_excludes_baseline")
         self.notes = ("stopped-final:" + stream, "after-stopped-final:" + stream)
         self.expected, self.accepted = None, None
+        self.final_expected, self.final_accepted, self.final_minimum = None, None, None
 
     def write(self, note, previous):
         """One durable create or update of the run-owned key; the baseline records stay unchanged."""
@@ -72,7 +74,7 @@ class StoppedFinal:
         source.policy(value)
         head = value["mutation_log"]["head"]
         require(head is not None, "stopped_write_journal_head")
-        return expected, value, frontiers(head["frontiers"])
+        return expected, value, copy.deepcopy(position(head))
 
     def idle(self):
         """A released, complete journal with most of one log interval before the next tick."""
@@ -125,7 +127,8 @@ class StoppedFinal:
         before = self.idle()
         policy = before["automatic_backup"]
         backed = frontiers(policy["last_backed_up_frontiers"])
-        first, after_write, written = self.write(self.notes[0], None)
+        first, after_write, minimum = self.write(self.notes[0], None)
+        written = frontiers(minimum["frontiers"])
         late = after_write["automatic_backup"]
         require(late["pending_request_id"] is None and late["revision"] == policy["revision"]
                 and frontiers(late["last_backed_up_frontiers"]) == backed
@@ -143,8 +146,8 @@ class StoppedFinal:
                 and covers(frontiers(restarted_policy["last_backed_up_frontiers"]), stopped),
                 "automatic_policy_records_stopped_snapshot")
         source.node.verify_records(first)
-        _final, _moved, through = self.write(self.notes[1], self.notes[0])
-        log = source.published("mutation_log", self.accepted["commit_sha256"], through=through)
+        final, _moved, minimum = self.write(self.notes[1], self.notes[0])
+        log = source.published("mutation_log", self.accepted["commit_sha256"], through=minimum["frontiers"])
         source.caught_up(log)
         latest = source.cloud("status")["mutation_log"]
         accepted = log["last_accepted_backup"]
@@ -152,6 +155,9 @@ class StoppedFinal:
                 and latest["head"]["epoch"] == anchor["epoch"]
                 and ordinal(accepted) > ordinal(self.accepted), "automatic_log_on_stopped_snapshot")
         predecessor = accepted["begin"]["predecessor"]
+        self.final_expected = final
+        self.final_accepted = copy.deepcopy(accepted)
+        self.final_minimum = minimum
         return {"request_id": self.accepted["begin"]["job"]["commit_id"],
                 "commit_sha256": self.accepted["commit_sha256"],
                 "automatic_backup_enabled": True, "automatic_policy_revision_unchanged": True,

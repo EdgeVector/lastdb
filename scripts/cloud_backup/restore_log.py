@@ -105,10 +105,15 @@ def verified(read, chain_names, replay, accepted, observe):
             and final["sequence"] >= minimum["sequence"]
             and all(final["frontiers"][name] >= minimum["frontiers"][name] for name in ("main", "cas")),
             "selected_log_covers_exact_written_prefix")
+    require_cas = replay.get("require_cas_additions", True)
+    require(type(require_cas) is bool, "log_cas_addition_requirement")
     require(0 < sums["native_files"] <= 4096 and 0 < sums["objects"] <= 4096
-            and sums["main_files"] > 0 and sums["cas_add_files"] > 0,
+            and sums["main_files"] > 0 and (not require_cas or sums["cas_add_files"] > 0),
             "real_main_and_cas_log_bytes")
-    return {"main_r2": True, "cas_b2": True, "metadata_r2": True,
+    cas_applicable = sums["cas_add_files"] + sums["cas_delete_files"] > 0
+    return {"main_r2": True, "cas_b2": cas_applicable, "cas_applicable": cas_applicable,
+            "metadata_r2": True,
+            "cas_add_files": sums["cas_add_files"], "cas_delete_files": sums["cas_delete_files"],
             "native_files": sums["native_files"], "native_bytes": sums["native_bytes"],
             "object_receipt_references": sums["objects"], "accepted_log_links": links,
             "product_validated_routes": True, "written_prefix_verified": True}
