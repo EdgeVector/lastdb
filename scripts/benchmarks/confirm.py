@@ -39,6 +39,8 @@ def main():
         command.append("--growth-only")
     if manifest["recipe"]["native_timing"]:
         command.append("--native-timing")
+    if manifest["recipe"].get("reads_only"):
+        command.append("--reads-only")
     subprocess.run(command, check=True)
     return 0
 

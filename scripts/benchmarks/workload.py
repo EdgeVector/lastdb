@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import threading
 import time
 
@@ -260,6 +261,12 @@ class Workload:
 
     def run(self):
         try:
+            if self.recipe.get("reads_only"):
+                named = os.environ.get("LASTDB_BENCH_FULL_FIELDS", "").split(",")
+                if named != FIELDS:
+                    raise RuntimeError(
+                        "A whole-record comparison requires the previous daemon to name "
+                        "every schema field: bucket, id, title, body")
             self.seed()
             self.cold_next = 0
             self.measure("cold-read/1", "cold")
@@ -271,6 +278,12 @@ class Workload:
                 validate_read(result, numbers)
             self.measure("hot-read/1", "hot")
             self.measure("hot-read/32", "hot", batch=32)
+            if self.recipe.get("reads_only"):
+                native, _, _ = self.node.call("/api/db/native-status")
+                save(self.output / "native-status.json", native)
+                if native["native_disk"].get("writer_failed") is not False:
+                    raise RuntimeError("The final native writer is unhealthy")
+                return
             modes = ("insert",) if self.recipe.get("insert_only") else ("insert", "update")
             for mode in modes:
                 for batch in (1, 128):

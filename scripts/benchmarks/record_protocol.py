@@ -9,6 +9,7 @@ payload cache or server compatibility path exists.
 from collections import Counter, defaultdict
 import copy
 import json
+import os
 import threading
 import time
 import uuid
@@ -18,12 +19,21 @@ def coordinate(key):
     return key.get("hash"), key.get("range")
 
 
+def historical_field_list():
+    """Every schema field for a whole-record read on a daemon before API 29.
+
+    LASTDB_BENCH_FULL_FIELDS is a comma-separated list of those names.
+    An unset variable keeps the older empty-list sentinel, which also means
+    every runtime field. A one-name list is not a whole-record read.
+    """
+    return [name for name in os.environ.get("LASTDB_BENCH_FULL_FIELDS", "").split(",") if name]
+
+
 def historical_query(body, api_version):
     """Add the field list that releases before API 29 require.
 
-    An empty list means every stored field. API 29 rejects the key, so a
-    current daemon keeps the request unchanged. The addition is outside the
-    RPC timer.
+    API 29 rejects the key, so a current daemon keeps the request unchanged.
+    The addition is outside the RPC timer.
     """
     if body is None or not 0 < api_version < 29:
         return body
@@ -39,7 +49,7 @@ def historical_query(body, api_version):
 def query_with_fields(body):
     if not isinstance(body, dict) or "fields" in body:
         return body
-    return {**body, "fields": []}
+    return {**body, "fields": historical_field_list()}
 
 
 def field_value(record, path):
