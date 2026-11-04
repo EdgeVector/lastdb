@@ -7,12 +7,14 @@ import time
 from alternate_key_workload import install, require, task_definition
 
 RECORDS = 32
+ROUNDS = 8
+OPERATIONS = RECORDS * ROUNDS
 PAYLOAD_SIZES = (128, 4096, 48 * 1024)
 FIELD_COUNTS = (4, 16)
 ALTERNATE_COUNTS = (0, 2)
 MODES = (("engine_full_replace", 1), ("application_read_replace", 1),
          ("application_read_replace", 4), ("application_read_replace", 16))
-CALLS = len(PAYLOAD_SIZES) * len(FIELD_COUNTS) * len(ALTERNATE_COUNTS) * len(MODES) * RECORDS
+CALLS = len(PAYLOAD_SIZES) * len(FIELD_COUNTS) * len(ALTERNATE_COUNTS) * len(MODES) * OPERATIONS
 
 
 def configurations():
@@ -95,8 +97,14 @@ def measure_case(node, label, pair, config, mode, clients, before, after):
 
     def worker(client):
         barrier.wait(timeout=30)
-        return [(number, execute(node, config, number, mode, before, after))
-                for number in range(client, RECORDS, clients)]
+        completed = []
+        for round_number in range(ROUNDS):
+            prior = before if round_number == 0 else f"{after}:r{round_number - 1}"
+            current = f"{after}:r{round_number}"
+            for number in range(client, RECORDS, clients):
+                ordinal = round_number * RECORDS + number
+                completed.append((ordinal, execute(node, config, number, mode, prior, current)))
+        return completed
 
     with ThreadPoolExecutor(max_workers=clients) as pool:
         futures = [pool.submit(worker, client) for client in range(clients)]
@@ -104,9 +112,9 @@ def measure_case(node, label, pair, config, mode, clients, before, after):
         barrier.wait(timeout=30)
         completed = [item for future in futures for item in future.result()]
         wall_ms = (time.perf_counter_ns() - started) / 1e6
-    require(len(completed) == RECORDS, "replacement measurement omitted logical operations")
+    require(len(completed) == OPERATIONS, "replacement measurement omitted logical operations")
     case = f"replacement_s{config['size']}_f{config['fields']}_a{config['alternates']}_{mode}_c{clients}"
-    verify(node, config, after)
+    verify(node, config, f"{after}:r{ROUNDS - 1}")
     return [dict(sample, label=label, pair=pair, case=case, ordinal=number,
                  case_wall_ms=wall_ms, clients=clients, retries=0, rejected_attempts=0)
             for number, sample in completed]
@@ -124,10 +132,10 @@ def measure(node, label, pair, records):
         for index, (mode, clients) in enumerate(MODES):
             after = suffix + f":v{index}"
             records.extend(measure_case(node, label, pair, config, mode, clients, suffix, after))
-            suffix = after
+            suffix = f"{after}:r{ROUNDS - 1}"
 
 
 def verify_reopened(node):
-    suffix = "".join(f":v{index}" for index in range(len(MODES)))
+    suffix = "".join(f":v{index}:r{ROUNDS - 1}" for index in range(len(MODES)))
     for config in configurations():
         verify(node, config, suffix)

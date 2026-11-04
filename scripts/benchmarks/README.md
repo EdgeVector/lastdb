@@ -6,6 +6,10 @@ The named alternate-key workflow also measures conditional complete-record
 writes and complete application read/edit/replace operations against both exact
 revisions. It keeps the original cases and adds 128 B, 4 KiB and 48 KiB payloads,
 4/16 fields, zero/two alternate keys, and 1/4/16 independent update clients.
+Each case completes 256 successful updates over 32 owned records, giving each
+of 16 clients 16 updates. Earlier 32-update observations were too short for
+this decision. A manual comparison with equal source SHAs uses one built daemon
+and CLI for both labels; the artifact records their identical binary hashes.
 Seed writes are batched; complete verification uses one batch of known keys.
 Every logical update must receive a durable acknowledgement. Reopen verifies
 every generated record. These are actual CI daemon requests, not a fixture suite.

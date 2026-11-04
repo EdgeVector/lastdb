@@ -6,6 +6,7 @@ import statistics
 
 from alternate_key_workload import require
 from node import save
+from record_replacement_workload import OPERATIONS
 
 
 def quantile(values, fraction):
@@ -20,7 +21,7 @@ def metrics(rows):
         groups.setdefault(row["pair"], []).append(row)
     wall_ms = 0
     for items in groups.values():
-        require(len(items) == 32 and len({r["ordinal"] for r in items}) == 32,
+        require(len(items) == OPERATIONS and len({r["ordinal"] for r in items}) == OPERATIONS,
                 "replacement case lost successful operations")
         require(len({r["case_wall_ms"] for r in items}) == 1, "case wall duration differs")
         wall_ms += items[0]["case_wall_ms"]
@@ -38,6 +39,7 @@ def report(args, records):
              "Each worker owns distinct records; zero-conflict results do not establish contention/retry cost.",
              "Request/response body bytes exclude HTTP headers. Throughput counts successful logical updates.",
              "Four AB/BA pairs and all per-pair results are retained; no best-run selection.",
+             f"Each case has {OPERATIONS} successful updates, including 16 per client at 16 clients.",
              "Repeated >5% deterioration in at least three pairs is an investigation signal for this series.",
              "It does not alter the repository's global advisory or required completion gates.", "",
              "| Case | Base p95 ms | New p95 ms | p95 change | Throughput change | Investigate |",
