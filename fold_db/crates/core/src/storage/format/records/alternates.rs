@@ -1,6 +1,6 @@
 //! The existing alternate-pointer wire type and its typed write inputs.
 
-use super::AlternateAddress;
+use super::{AlternateAddress, RecordAddress};
 use crate::schema::types::KeyValue;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -23,18 +23,18 @@ pub(crate) struct AlternateChange {
 
 impl AlternateChange {
     pub(crate) fn put(
-        codec: &FieldKeyCodec,
-        field_key: &str,
+        primary_codec: &FieldKeyCodec,
+        record_space: &str,
         primary: KeyValue,
+        alternate_codec: &FieldKeyCodec,
+        field_key: &str,
         matched: KeyValue,
     ) -> Result<Self, SchemaError> {
-        if primary.hash.is_none() {
-            return Err(SchemaError::InvalidData(
-                "an alternate entry requires a primary hash".into(),
-            ));
-        }
+        // The reader resolves this target with the primary key's codec,
+        // whose range type may differ from the alternate's range type.
+        RecordAddress::new(primary_codec, record_space, &primary)?;
         Ok(Self {
-            key: AlternateAddress::new(codec, field_key, &matched)?,
+            key: AlternateAddress::new(alternate_codec, field_key, &matched)?,
             entry: Some(AlternateEntry { primary, matched }),
         })
     }

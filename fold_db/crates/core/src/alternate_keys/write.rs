@@ -12,6 +12,7 @@
 use super::*;
 use crate::db_operations::record_store::RecordStore;
 use crate::storage::format::records::AlternateChange;
+use lastdb_model::record_space::record_space_uuid;
 
 /// One entry that a record leaves: the storage key and the record's primary key.
 type Leave<'a> = (AlternateAddress, &'a KeyValue);
@@ -62,6 +63,8 @@ impl RecordStore {
     ) -> Result<EntryMoves<'a>, SchemaError> {
         let mut puts = BTreeMap::new();
         let mut leaves = Vec::new();
+        let space = record_space_uuid(&schema.name);
+        let primary_codec = self.key_codec_for_field_key(&space)?;
         for ((primary, before), after) in keys.iter().zip(before).zip(after) {
             let old = derived(schema, before)?;
             let new = derived(schema, after)?;
@@ -76,9 +79,11 @@ impl RecordStore {
                 if let Some(key) = new.get(name) {
                     let field_key = field_key(schema, name);
                     let change = AlternateChange::put(
+                        &primary_codec,
+                        &space,
+                        primary.clone(),
                         &self.key_codec_for_field_key(&field_key)?,
                         &field_key,
-                        primary.clone(),
                         key.clone(),
                     )?;
                     puts.insert(change.address().clone(), change);
