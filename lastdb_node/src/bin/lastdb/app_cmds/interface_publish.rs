@@ -35,25 +35,7 @@ fn signing_key(
     home: &Path,
     path: Option<PathBuf>,
 ) -> Result<app_identity_crypto::SigningKey, String> {
-    let path = resolve_key_file(home, path);
-    if let Some(slug) = path.to_str().and_then(|v| v.strip_prefix("lastsecrets://")) {
-        let output = Command::new("lastsecrets")
-            .args(["get", slug])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err("LastSecrets publisher key lookup failed".into());
-        }
-        let text = String::from_utf8(output.stdout).map_err(|_| "publisher key is not UTF-8")?;
-        let bytes = BASE64
-            .decode(text.trim())
-            .map_err(|_| "publisher key is not base64")?;
-        let secret: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| "publisher key must be 32 bytes")?;
-        return Ok(app_identity_crypto::SigningKey::from_bytes(&secret));
-    }
-    app_publish::load_dev_key(&path)
+    app_publish::load_dev_key(&resolve_key_file(home, path))
 }
 
 fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, String> {

@@ -10,7 +10,7 @@ pub(crate) fn public_list(
     trust_key: Option<&str>,
 ) -> Result<registry::InterfaceList, String> {
     let channel = channel.unwrap_or(registry::DEFAULT_CHANNEL);
-    let location = registry::IndexLocation::resolve(index);
+    let location = registry::IndexLocation::resolve(index)?;
     let (trust, source) = registry::resolve_list_trust_key(trust_key)?;
     warn_trust_override(&source);
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
