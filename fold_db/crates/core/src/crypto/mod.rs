@@ -12,7 +12,6 @@ pub mod e2e;
 pub mod envelope;
 pub mod error;
 pub mod provider;
-pub mod stream;
 
 pub use at_rest::{
     is_sealed_at_rest, seal_at_rest_raw, seal_at_rest_utf8, AT_REST_ENC_BINARY_PREFIX,
