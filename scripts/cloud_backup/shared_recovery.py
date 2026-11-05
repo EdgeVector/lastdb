@@ -228,7 +228,7 @@ class Operation:
         a, b = self.writers
         self.summary["stage"] = "prepare-writers"
         first, peer = self.initialize("first", a), self.initialize("peer", b)
-        self.summary["stage"] = "publish-checkpoint"
+        self.summary["stage"] = "prepare-checkpoint"
         first.start()
         checkpoint, losing, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
         durable_batch(first, [native_records.create(self.schema, native_records.key(record["id"]), record)
@@ -239,10 +239,8 @@ class Operation:
         publication = self.root / "publication"
         reply = self.writer(first, a, "publish", "--workspace", str(publication),
                             "--snapshot-id", self.snapshot, "--schema-bindings", str(self.bindings),
-                            "--deadline-seconds", "90")
-        require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
-                "shared_exact_snapshot_receipt")
-        self.summary["snapshot_published"] = True
+                            "--deadline-seconds", "360", "--prepare-only")
+        require(reply.splitlines() == [b"Prepared shared snapshot cut"], "shared_prepared_snapshot_cut")
 
         self.summary["stage"] = "publish-post-checkpoint-tails"
         first.start()
@@ -262,6 +260,12 @@ class Operation:
         winner_file = self.attach(peer, winner, "winning-tail")
         peer.stop()
         self.summary["peer_tail_through"] = self.push(peer, b, 3)
+
+        self.summary["stage"] = "publish-prepared-checkpoint"
+        reply = self.writer(first, a, "resume", "--workspace", str(publication))
+        require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
+                "shared_exact_snapshot_receipt")
+        self.summary["snapshot_published_after_both_tails"] = True
         require(first.clean_stops == 3 and peer.clean_stops == 2, "shared_source_strict_clean_stops")
         self.remove_sources((first, peer))
         if os.path.lexists(publication):

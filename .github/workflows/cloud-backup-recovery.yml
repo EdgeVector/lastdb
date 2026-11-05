@@ -336,7 +336,7 @@ jobs:
             -C "$CLIENT_BIN_DIR" lastdb lastdbd
           sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
           printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
-      - name: Publish one checkpoint, upload two tails and restore to an absent home
+      - name: Capture one checkpoint, upload two tails, publish the cut and restore
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
