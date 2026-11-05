@@ -567,9 +567,8 @@ paths:
         wrapper: production gates this route on `X-API-Key`; the dev
         binary leaves it open for localhost loopback.
 
-        For **resolver-pack publishing**, prefer
-        `GET /v1/snapshot/shared-only` so private legacy bootstrap
-        schemas never enter pack artifacts.
+        `GET /v1/snapshot/shared-only` is the same export without private
+        legacy bootstrap schemas.
       responses:
         '200':
           description: A snapshot envelope.
@@ -584,7 +583,7 @@ paths:
     get:
       tags: [snapshot]
       operationId: snapshot_export_shared_only
-      summary: Export the shared-only registry projection for resolver packs
+      summary: Export the shared-only registry projection
       description: |
         Same envelope shape as `GET /v1/snapshot`, but schemas are
         filtered to the shared-surface projection:
@@ -594,9 +593,6 @@ paths:
 
         Embeddings are stripped on the wire (same as full snapshot).
         Auth matches `GET /v1/snapshot` (X-API-Key in production).
-
-        Pack publishers also re-apply the projection client-side when
-        building from a full snapshot file, so either input is safe.
       responses:
         '200':
           description: Shared-only snapshot envelope.

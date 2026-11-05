@@ -7,7 +7,7 @@
 //! This module defines:
 //! - the explicit publish/attach request shape and validation;
 //! - inventory classification of existing registry rows;
-//! - the shared-only projection used by resolver packs;
+//! - the shared-only projection of system-owned and explicit shared schemas;
 //! - observe-mode telemetry for legacy callers that still use
 //!   `POST /v1/schemas` without a full shared-surface envelope.
 //!

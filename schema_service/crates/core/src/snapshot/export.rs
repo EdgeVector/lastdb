@@ -123,8 +123,8 @@ impl SchemaServiceState {
     /// envelope is fully self-contained; no follow-up calls are required
     /// for an importer to reach a working state.
     ///
-    /// **Full registry** (includes private legacy bootstrap rows). For
-    /// resolver-pack publishing use [`Self::export_shared_only_snapshot`].
+    /// **Full registry** (includes private legacy bootstrap rows).
+    /// [`Self::export_shared_only_snapshot`] drops those rows.
     pub fn export_snapshot(&self) -> FoldDbResult<SnapshotEnvelope> {
         let schemas = read_lock(&self.schemas, "schemas")?;
         let canonical_fields = read_lock(&self.canonical_fields, "canonical_fields")?;
@@ -169,7 +169,7 @@ impl SchemaServiceState {
         })
     }
 
-    /// Capture a **shared-only** snapshot for resolver-pack publishing.
+    /// Capture a **shared-only** snapshot.
     ///
     /// Equivalent to [`Self::export_snapshot`] followed by
     /// [`project_snapshot_shared_only`]. Private legacy bootstrap and

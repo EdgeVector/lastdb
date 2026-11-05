@@ -11,8 +11,7 @@ default = []
 actix = ["dep:actix-web"]
 # Opt-in local FastEmbed adapter for schema-service binaries that should
 # compute embeddings themselves. Default local and dev builds stay
-# no-embedder and rely on resolver packs, imported artifacts, or an
-# injected embedder.
+# no-embedder unless a caller injects an embedder.
 fastembed = [
     "dep:fastembed_crate",
     "fastembed_crate/hf-hub-native-tls",
