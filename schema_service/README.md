@@ -45,10 +45,9 @@ The `core` crate has **no** `fastembed`/`ONNX` dependencies — callers
 inject an `Arc<dyn Embedder>` into `SchemaServiceState::new_in_memory()` or
 `SchemaServiceState::new_with_external()`, so a
 Lambda deployment can swap embedder implementations without touching core.
-Default local/dev binaries inject a disabled embedder: exact matching,
-resolver packs and imported embedding artifacts
-work without initializing or downloading a model. Real FastEmbed is an
-explicit build feature for semantic/full-product validation.
+Default local/dev binaries inject a disabled embedder. Exact name matching
+works without initializing or downloading a model. Real FastEmbed is an
+explicit build feature for semantic matching.
 
 ## Run locally
 
@@ -79,55 +78,12 @@ curl -s http://127.0.0.1:9102/v1/health
 # {"status":"healthy"}
 ```
 
-## Operations — publish Schema Resolver Packs
+## Operations
 
-> Packs are **format_version 2** (signed `resolver_config.json` + snapshot +
-> embeddings; no WASM). Wire snapshot exports strip embeddings — use
-> `build --recompute-embeddings` (feature `recompute-embeddings`) or feed a
-> snapshot that already has embeddings. Local dogfood:
-> `publish --local-out-dir ./serve --dry-run` then `python3 -m http.server`.
-> Mini resolves live. Its timeout config is in
-> `lastdb_node/src/schema_resolver_host.rs`.
+Mini calls the live schema service. It does not load an offline resolver pack.
 
-`schema_resolver_pack_publish` is the local-machine release publisher for
-Schema Resolver Packs. It runs on Tom's provisioned machine, not Forgejo CI,
-so the Ed25519 signing key and R2 write credentials stay local. It signs the
-manifest with purpose `schema_resolver_pack`, uploads content-addressed
-artifacts first, then promotes the latest manifest pointer.
-
-Secret locators are references, not raw values. Supported signing-key
-locators:
-
-- `lastsecrets://schema-resolver-pack-signing-dev`
-- `keychain://<service>/<account>`
-- `envelope-file:/path/to/ciphertext-envelope.json`
-- `file:/path/to/seed.b64` for local tests
-- `env:VAR_NAME` for local tests only
-
-Print the public trusted-key tuple for a signing locator (safe to paste into
-docs or install config; it does not print the private seed):
-
-```bash
-cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  trusted-key \
-  --signing-key-locator lastsecrets://schema-resolver-pack-signing-dev
-```
-
-```bash
-TRUSTED_KEY="$(cargo run -q -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  trusted-key \
-  --signing-key-locator lastsecrets://schema-resolver-pack-signing-dev)"
-```
-
-Brain-backed storage must contain only ciphertext or `lastsecrets://`
-references. Raw private keys, PEM blocks, Ed25519 seeds, R2 tokens, and
-decryption roots must not be stored in Brain, Git, Forgejo, R2, shell args,
-or logs. For `envelope-file:...`, the JSON envelope stores AES-GCM ciphertext
-plus a macOS Keychain service/account for the decrypt root; a new machine
-must provision that Keychain root once before it can sign.
-
-The shared-surface native-resolver capstone uses the production shared-only
-snapshot endpoint from `folddb_profile/environments.json`
+The shared-only snapshot stays available for operators. It is the production
+shared-surface projection from `folddb_profile/environments.json`
 (`environments.prod.schema_service` plus `/v1/snapshot/shared-only`), which is
 gated by `X-API-Key`. Scheduled agents must use the documented locator
 `lastsecrets://schema-service-prod-api-key`; provision it with
@@ -140,71 +96,8 @@ schema_service/scripts/capstone-shared-surface-native-resolver/fetch_shared_only
 
 The helper resolves the key at point of use with `lastsecrets get`, feeds the
 header to `curl` through stdin config, and prints only the locator and sanitized
-HTTP status. Raw API-key material must not be committed, stored in Brain or
-Kanban, pasted into PRs, or passed as a CLI argument.
-
-Dry-run a dev pack (format_version 2 — declarative `resolver_config.json`, no WASM):
-
-```bash
-cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  build \
-  --snapshot ./schema_service_snapshot.json \
-  --out-dir ./resolver-pack-dev
-
-# Optional: pass --resolver-config ./my_config.json; default is embedding-beam shadow defaults.
-
-cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  publish \
-  --env dev \
-  --resolver-config ./resolver-pack-dev/resolver_config.json \
-  --schema-snapshot ./resolver-pack-dev/schema_snapshot.json \
-  --embedding-artifact ./resolver-pack-dev/embedding_artifact.json \
-  --signing-key-locator lastsecrets://schema-resolver-pack-signing-dev \
-  --trusted-key "$TRUSTED_KEY" \
-  --dry-run \
-  --audit-log ./resolver-pack-dev-audit.json
-```
-
-Publish after the dry-run manifest and target keys look right:
-
-```bash
-export AWS_REGION=auto
-export SCHEMA_RESOLVER_PACK_BUCKET=schema-resolver-packs
-export SCHEMA_RESOLVER_PACK_R2_ENDPOINT=https://3e872c20f10d065dc3ac1687c17cec60.r2.cloudflarestorage.com
-export AWS_ACCESS_KEY_ID="$R2_KEY_ID"
-export AWS_SECRET_ACCESS_KEY="$R2_APP_KEY"
-
-cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  publish \
-  --env dev \
-  --resolver-config ./resolver-pack-dev/resolver_config.json \
-  --schema-snapshot ./resolver-pack-dev/schema_snapshot.json \
-  --embedding-artifact ./resolver-pack-dev/embedding_artifact.json \
-  --signing-key-locator lastsecrets://schema-resolver-pack-signing-dev \
-  --trusted-key "$TRUSTED_KEY" \
-  --audit-log ./resolver-pack-dev-audit.json
-```
-
-The public dev read origin for pack tooling is
-`https://pub-a27a88cf1c0b47cdb158819600250b98.r2.dev`.
-
-Promote a previous signed manifest without rebuilding:
-
-```bash
-cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -- \
-  rollback \
-  --env prod \
-  --manifest ./previous-manifest.json \
-  --trusted-key fe6e3d682497da4e05d1a87b2116765140714e11773dc1868cf8e629e0845202=7ldjSUcjTa0DSEeHpCMbt3Bo4BW/Jmmq1DFu9Lm+sYE= \
-  --audit-log ./resolver-pack-prod-rollback.json
-```
-
-For rollback, pass the three artifact files (`--resolver-config`,
-`--schema-snapshot`, `--embedding-artifact`) when they are available; the
-binary then performs full hash/signature/config verification before promoting.
-Without artifacts, it still fails closed on wrong env, wrong purpose,
-key-id mismatch, or untrusted signing key before writing the latest pointer.
-v1 (WASM) manifests are rejected — only format_version 2 packs can be promoted.
+HTTP status. Raw API-key material must not be committed, pasted into PRs, or
+passed as a CLI argument.
 
 ## Canonicalization — dual-signal flag
 

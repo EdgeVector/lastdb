@@ -4478,25 +4478,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schema_resolver_pack_publisher"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "app_identity_crypto",
- "aws-config",
- "aws-sdk-s3",
- "base64 0.22.1",
- "chrono",
- "clap",
- "schema_service_core",
- "schema_service_server_shared",
- "schema_types",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "schema_service_client"
 version = "0.1.0"
 dependencies = [

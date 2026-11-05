@@ -17,7 +17,6 @@ members = [
     "schema_service/crates/server_lambda",
     "schema_service/crates/client",
     "schema_service/crates/schema_service_s3",
-    "schema_service/crates/resolver_pack_publisher",
     "schema_service/scripts/generate_schema_org_classifications",
     "schema_service/scripts/generate_validated_schema_org_seeds",
 

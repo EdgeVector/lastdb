@@ -74,7 +74,7 @@ fn root_listing() -> serde_json::Value {
             "POST /v1/schemas/reload": "Reload schemas from storage",
             "GET /v1/canonicalization-near-misses": "Shadow-mode audit log of single-signal vs dual-signal canonicalization disagreements",
             "GET /v1/snapshot": "Export the registry as a single JSON envelope (requires X-API-Key)",
-            "GET /v1/snapshot/shared-only": "Export shared-only projection for resolver packs (requires X-API-Key)"
+            "GET /v1/snapshot/shared-only": "Export shared-only projection (requires X-API-Key)"
         }
     })
 }

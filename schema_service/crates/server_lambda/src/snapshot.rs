@@ -118,9 +118,8 @@ pub(crate) async fn handle_snapshot_export(
 /// `GET /v1/snapshot/shared-only` — auth-gated shared-surface projection.
 ///
 /// Same X-API-Key gate and embedding strip as [`handle_snapshot_export`], but
-/// only system-owned / explicit shared schemas are included. Used by
-/// resolver-pack publishing so private legacy bootstrap rows never leave the
-/// control plane as pack inputs.
+/// only system-owned / explicit shared schemas are included. Private legacy
+/// bootstrap rows never leave the control plane.
 pub(crate) async fn handle_snapshot_export_shared_only(
     event: &Request,
     state: &SchemaServiceState,
