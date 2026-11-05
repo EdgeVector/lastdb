@@ -22,6 +22,7 @@ mod release;
 mod store;
 
 pub use alternates::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
+pub(crate) use applied_deletes::ReclaimedDeletes;
 pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use keys::{alternate_range_key, AlternateAddress, RecordAddress};
 pub(crate) use maintenance::validate_cutoff_raise;
@@ -98,6 +99,9 @@ fn encode(
             main.push(KvMutation::put(change.key.into_string(), value));
         } else {
             main.push(applied_deletes::encode(&change.key, &after.stamp)?);
+            if !matches!(change.portable, PortableEffect::Local) {
+                main.push(applied_deletes::encode_age(&change.key, &after.stamp)?);
+            }
             main.push(KvMutation::delete(change.key.into_string()));
         }
     }

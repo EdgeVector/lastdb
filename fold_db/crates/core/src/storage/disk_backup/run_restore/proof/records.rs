@@ -37,6 +37,10 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
         applied_deletes::decode(body)?;
         return Ok(false);
     }
+    if applied_deletes::is_age_key(raw) {
+        applied_deletes::validate_age_row(raw, body)?;
+        return Ok(false);
+    }
     let history = record_history_suffix(raw).is_some();
     if !history && !raw.starts_with(RECORD_PREFIX) {
         return Ok(false);

@@ -37,8 +37,8 @@ pub const PURGE_READS_PER_FIELD: usize = 12;
 pub const DELETE_READS_PER_FIELD: usize = 13;
 /// Conservative native admission/preimage reads for each explicit pointer delete.
 const ALTERNATE_READS_PER_ENTRY: usize = 4;
-/// A live row removal now stages a separate applied-delete stamp.
-const APPLIED_DELETE_OPERATIONS_PER_KEY: usize = 1;
+/// A live row removal stages a delete stamp and may stage its shared age index.
+const APPLIED_DELETE_OPERATIONS_PER_KEY: usize = 2;
 /// The native delete probe and the lookup for a guarded purge of an erased key.
 const APPLIED_DELETE_READS_PER_KEY: usize = 2;
 /// The parts of a schema that set the cost of erasing one key.
