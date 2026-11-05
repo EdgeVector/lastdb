@@ -29,7 +29,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, c-cpp, javascript-typescript, python, ruby, rust]
+        # No c-cpp. The only C file left with the field-history diagnostics.
+        language: [actions, javascript-typescript, python, ruby, rust]
     env:
       CARGO_INCREMENTAL: '0'
     steps:
