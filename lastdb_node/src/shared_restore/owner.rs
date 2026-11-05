@@ -5,8 +5,8 @@ use crate::byte_cloud_restore::{RecoveryKeys, RestoreError, Result};
 use cloud_backup_client::shared_recovery::{BackupTransportError, SharedRecoveryClient};
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::shared::{
-    LogBatch, LogHead, RecoveryHoldRequest, RecoveryLogRequest, RecoveryView, SealedObject,
-    SnapshotManifest,
+    LogBatch, LogHead, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectParent, RecoveryView,
+    SealedObject, SnapshotManifest,
 };
 use cloud_backup_protocol::{AccountId, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
@@ -90,12 +90,18 @@ impl SharedRecoverySource for OwnerSource {
         &self,
         view: &RecoveryView,
         object: &SealedObject,
+        parent: &RecoveryObjectParent,
     ) -> Result<RecoveryObject> {
         let current = now();
         self.client
-            .open_object(view, object, current, proof_expiry(current), |message| {
-                Ok(self.signature(message))
-            })
+            .open_object(
+                view,
+                object,
+                parent,
+                current,
+                proof_expiry(current),
+                |message| Ok(self.signature(message)),
+            )
             .await
             .map_err(transport_error)
     }

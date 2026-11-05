@@ -3,7 +3,7 @@
 use super::{RestoreCut, SharedRestore};
 use crate::byte_cloud_restore::{check_capacity, local, RestoreError, Result};
 use cloud_backup_protocol::shared::{
-    LogBatch, LogHead, RecoveryView, SealedObject, SnapshotManifest,
+    LogBatch, LogHead, RecoveryObjectParent, RecoveryView, SealedObject, SnapshotManifest,
 };
 use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::portable_mutation::{MutationOperation, Position, StreamId};
@@ -46,6 +46,7 @@ pub trait SharedRecoverySource: Sync {
         &self,
         view: &RecoveryView,
         object: &SealedObject,
+        parent: &RecoveryObjectParent,
     ) -> Result<RecoveryObject>;
 }
 
@@ -61,22 +62,28 @@ pub struct PreparedSharedRestore<'a, S> {
 pub struct HeldFileVersions<'a, S> {
     source: &'a S,
     view: RecoveryView,
-    objects: BTreeMap<Position, SealedObject>,
+    objects: BTreeMap<Position, HeldObject>,
     _admission: NativeCloudWorkGuard,
+}
+
+struct HeldObject {
+    object: SealedObject,
+    parent: RecoveryObjectParent,
 }
 
 impl<S: SharedRecoverySource> HeldFileVersions<'_, S> {
     /// Return exact sealed bytes within the staged writer's admission budget.
     /// The writer verifies them against the winning record's file marker.
     pub async fn fetch(&self, position: &Position, maximum: u64) -> Result<Vec<u8>> {
-        read_object(self.source, &self.view, self.object(position)?, maximum).await
+        let held = self.object(position)?;
+        read_object(self.source, &self.view, &held.object, &held.parent, maximum).await
     }
 
     pub(super) fn bytes(&self, position: &Position) -> Result<u64> {
-        Ok(self.object(position)?.bytes.get())
+        Ok(self.object(position)?.object.bytes.get())
     }
 
-    fn object(&self, position: &Position) -> Result<&SealedObject> {
+    fn object(&self, position: &Position) -> Result<&HeldObject> {
         self.objects
             .get(position)
             .ok_or(RestoreError::Invalid("missing held file version"))
@@ -104,6 +111,7 @@ pub async fn prepare<'a, S: SharedRecoverySource>(
         source,
         &view,
         &manifest.encrypted_manifest,
+        &snapshot_parent(&view),
         MAX_MANIFEST_BYTES,
     )
     .await?;
@@ -159,6 +167,7 @@ async fn install_checkpoint(
         builder.create(data.join(home))?;
     }
     local::prepare_native_ephemera(&data)?;
+    let parent = snapshot_parent(view);
     for member in &contents.files {
         let destination = data.join(member.path.as_str());
         let mut file = OpenOptions::new()
@@ -166,7 +175,7 @@ async fn install_checkpoint(
             .create_new(true)
             .mode(0o600)
             .open(destination)?;
-        copy_exact(source, view, &member.object, &mut file).await?;
+        copy_exact(source, view, &member.object, &parent, &mut file).await?;
         file.sync_all()?;
     }
 
@@ -202,7 +211,7 @@ async fn load_tails(
     manifest: &SnapshotManifest,
     key: &[u8; 32],
     session: &mut SharedRestore,
-) -> Result<BTreeMap<Position, SealedObject>> {
+) -> Result<BTreeMap<Position, HeldObject>> {
     let mut objects = BTreeMap::new();
     for cut in &view.streams {
         let mut previous = manifest.cover(&cut.source_stream).cloned();
@@ -219,9 +228,14 @@ async fn load_tails(
                 .ok_or(RestoreError::Invalid("shared log sequence"))?;
             let id = LogRangeId::new(stream_id(&cut.source_stream)?, first, next.sequence.get())
                 .map_err(|_| RestoreError::Invalid("shared log range"))?;
-            let sealed = read_object(source, view, &batch.segment, MAX_SEALED_LOG_BYTES).await?;
+            let parent = RecoveryObjectParent::LogBatch {
+                source_stream: cut.source_stream.clone(),
+                head: next.clone(),
+            };
+            let sealed =
+                read_object(source, view, &batch.segment, &parent, MAX_SEALED_LOG_BYTES).await?;
             let range = manifest::open_log(key, &manifest.database_id, id, &sealed)?;
-            bind_file_versions(&range, batch, &mut objects)?;
+            bind_file_versions(&range, batch, &parent, &mut objects)?;
             session.ingest(std::slice::from_ref(&range))?;
             previous = Some(next);
         }
@@ -232,7 +246,8 @@ async fn load_tails(
 fn bind_file_versions(
     range: &VerifiedLogRange,
     batch: LogBatch,
-    objects: &mut BTreeMap<Position, SealedObject>,
+    parent: &RecoveryObjectParent,
+    objects: &mut BTreeMap<Position, HeldObject>,
 ) -> Result<()> {
     let needed: BTreeSet<_> = range
         .entries()
@@ -256,14 +271,20 @@ fn bind_file_versions(
             return Err(RestoreError::Invalid("undeclared shared log file version"));
         }
         if let Some(saved) = objects.get(&position) {
-            if *saved != dependency.object {
+            if saved.object != dependency.object {
                 return Err(RestoreError::Invalid("conflicting shared log file version"));
             }
         } else {
             if objects.len() == cloud_backup_protocol::limits::NATIVE_FILES_MAX {
                 return Err(RestoreError::Limit("held file versions"));
             }
-            objects.insert(position, dependency.object);
+            objects.insert(
+                position,
+                HeldObject {
+                    object: dependency.object,
+                    parent: parent.clone(),
+                },
+            );
         }
     }
     Ok(())
@@ -273,13 +294,14 @@ async fn read_object(
     source: &impl SharedRecoverySource,
     view: &RecoveryView,
     object: &SealedObject,
+    parent: &RecoveryObjectParent,
     maximum: u64,
 ) -> Result<Vec<u8>> {
     if object.bytes.get() > maximum {
         return Err(RestoreError::Limit("shared object decode"));
     }
     let mut bytes = Vec::new();
-    copy_exact(source, view, object, &mut bytes).await?;
+    copy_exact(source, view, object, parent, &mut bytes).await?;
     Ok(bytes)
 }
 
@@ -287,11 +309,12 @@ async fn copy_exact(
     source: &impl SharedRecoverySource,
     view: &RecoveryView,
     object: &SealedObject,
+    parent: &RecoveryObjectParent,
     output: &mut impl Write,
 ) -> Result<()> {
     require_live(view)?;
     object.validate()?;
-    let mut input = source.open_object(view, object).await?;
+    let mut input = source.open_object(view, object, parent).await?;
     let mut left = object.bytes.get();
     let mut digest = Sha256::new();
     let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
@@ -312,6 +335,12 @@ async fn copy_exact(
         return Err(RestoreError::Invalid("shared object digest"));
     }
     require_live(view)
+}
+
+fn snapshot_parent(view: &RecoveryView) -> RecoveryObjectParent {
+    RecoveryObjectParent::Snapshot {
+        snapshot_id: view.snapshot.snapshot_id.clone(),
+    }
 }
 
 fn require_live(view: &RecoveryView) -> Result<()> {
