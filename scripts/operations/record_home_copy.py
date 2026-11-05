@@ -1,22 +1,16 @@
-#!/usr/bin/env python3
-"""Rehearse the supported format 12 live-record copy into a fresh format 13 home."""
+"""Format 12 live-record copy mode for the record-home operation."""
 
-import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
-import os
-from pathlib import Path
-import sys
 import time
 from urllib.parse import quote, urlencode
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
-from home_format import HOME_FORMAT  # noqa: E402
-from node import Node  # noqa: E402
-from record_requests import conditioned, mutation  # noqa: E402
+from home_format import HOME_FORMAT
+from node import Node
+from record_requests import conditioned, mutation
 
 
 HASH_SCHEMA = "FormatCopyHash"
@@ -305,22 +299,10 @@ def owned_node(stack, binary, revision, output, root):
     return node
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-daemon", type=Path, required=True)
-    parser.add_argument("--source-revision", required=True)
-    parser.add_argument("--target-daemon", type=Path, required=True)
-    parser.add_argument("--target-revision", required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product operation in CI")
-    root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
-    output = args.output.resolve()
-    require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
-    output.mkdir(mode=0o700)
+def exercise(source_daemon, source_revision, target_daemon, target_revision, output, root):
     with ExitStack() as stack:
-        source = owned_node(stack, args.source_daemon, args.source_revision, output / "source", root)
-        target = owned_node(stack, args.target_daemon, args.target_revision, output / "target", root)
+        source = owned_node(stack, source_daemon, source_revision, output / "source", root)
+        target = owned_node(stack, target_daemon, target_revision, output / "target", root)
         require(source.home_format() == 12 and target.home_format() == HOME_FORMAT == 13,
                 "the two running daemons are not the expected format 12 and 13 pair")
         stale, old, fresh = seed(source)
@@ -336,7 +318,3 @@ def main():
         target.environment["LASTDB_TTL_SWEEP"] = "1"
         target.start()
         verify_range_age(target, old, fresh)
-
-
-if __name__ == "__main__":
-    main()

@@ -6,7 +6,8 @@ writer allocates new record revisions and file versions as it accepts them.
 The format 12 home and its Backup V2 recovery points remain the source for
 historical recovery with the matching program.
 
-The record-home workflow rehearses this sequence with generated data. It
+The existing record-home operation rehearses this sequence with generated
+data using its format 12 copy mode. The workflow
 builds the accepted format 12 source at `5373c5c514e612104204baca69cbd3b82995c5f1`
 and the candidate on the same runner. Both daemons report their exact source
 and home format before the operation starts.

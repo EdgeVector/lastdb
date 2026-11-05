@@ -10,6 +10,8 @@ unfiltered cursor pages and records the time of each page, reads past a run
 of more deleted records than one request examines, lets the TTL sweep read
 past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
 expiry tracking spans more than one native batch (`record_drop_tracking.py`).
+With an accepted format 12 daemon, it can also rehearse the live-record copy
+into a fresh format 13 home.
 It runs no test runner or benchmark. The home contains generated data only and
 never reads or copies a primary.
 """
@@ -28,6 +30,7 @@ from node import Node, marker_format, UnixConnection  # noqa: E402
 import record_runs  # noqa: E402
 from record_requests import mutation as native_mutation, conditioned  # noqa: E402
 import record_drop_tracking  # noqa: E402
+import record_home_copy  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -477,12 +480,20 @@ def main():
     parser.add_argument("--daemon", type=Path, required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--copy-format12-daemon", type=Path)
+    parser.add_argument("--copy-format12-revision")
     args = parser.parse_args()
+    if (args.copy_format12_daemon is None) != (args.copy_format12_revision is None):
+        parser.error("the format 12 daemon and revision must be supplied together")
     require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
     output = args.output.resolve()
     require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
     output.mkdir(mode=0o700)
+    if args.copy_format12_daemon is not None:
+        record_home_copy.exercise(args.copy_format12_daemon, args.copy_format12_revision,
+                                  args.daemon, args.revision, output, root)
+        return
     node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
                 environment={"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
                              # The TTL sweep runs from the sampler tick.
