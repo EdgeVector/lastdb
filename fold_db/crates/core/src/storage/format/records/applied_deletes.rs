@@ -135,7 +135,7 @@ impl RecordFormat {
         let rows = self
             .main_store
             .inner()
-            .scan_range_paged(start.as_bytes(), end.as_bytes(), 128)
+            .scan_range_paged(start.as_bytes(), end.as_bytes(), 32)
             .await?;
         let mut markers = Vec::with_capacity(rows.len());
         for (key, value) in &rows {
