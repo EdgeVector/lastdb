@@ -277,9 +277,17 @@ impl Metadata {
         decode_state(row.as_deref())
     }
 
-    pub(crate) async fn portable_delete_cutoff(&self) -> StorageResult<Option<u64>> {
+    pub(crate) async fn portable_delete_cutoff(
+        &self,
+        participants: &BTreeSet<StreamId>,
+    ) -> StorageResult<Option<u64>> {
         self.require_scope()?;
         let state = self.replay_state().await?;
+        if &state.participating_streams != participants {
+            return Err(invalid(
+                "delete cleanup requires the complete admitted writer directory",
+            ));
+        }
         let keys = state
             .participating_streams
             .iter()

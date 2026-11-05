@@ -17,11 +17,15 @@ pub struct ReplayBinding<'a> {
 
 impl MutationManager {
     /// Reclaim one bounded batch after shared publish and recovery are qualified.
-    /// Each participating stream must already have passed the erased timestamp.
-    pub async fn reclaim_portable_deletes(&self) -> Result<u64, SchemaError> {
+    /// The authorized owner supplies the complete writer directory. Each
+    /// participant must already have passed the erased timestamp.
+    pub async fn reclaim_portable_deletes(
+        &self,
+        participants: &BTreeSet<StreamId>,
+    ) -> Result<u64, SchemaError> {
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let metadata = self.db_ops.metadata();
-            let Some(cutoff) = metadata.portable_delete_cutoff().await? else {
+            let Some(cutoff) = metadata.portable_delete_cutoff(participants).await? else {
                 return Ok(0);
             };
             let reclaimed = self

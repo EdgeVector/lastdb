@@ -16,8 +16,11 @@ pub struct MetadataStore {
 }
 
 impl MetadataStore {
-    pub(crate) async fn portable_delete_cutoff(&self) -> Result<Option<u64>, SchemaError> {
-        Ok(self.format.portable_delete_cutoff().await?)
+    pub(crate) async fn portable_delete_cutoff(
+        &self,
+        participants: &BTreeSet<StreamId>,
+    ) -> Result<Option<u64>, SchemaError> {
+        Ok(self.format.portable_delete_cutoff(participants).await?)
     }
 
     pub(crate) async fn stage_delete_reclaimed(
