@@ -4,7 +4,7 @@ use super::{portable_schema::PortableReplaySchema, MutationManager};
 use crate::db_operations::record_store::RecordChange;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::records::RecordAddress;
+use crate::storage::format::records::{PortableEffect, RecordAddress};
 use lastdb_model::portable_mutation::{MutationEntry, Position, Stamp, StreamId, StreamProgress};
 use lastdb_model::record_value::StoredRecord;
 use schema_types::PortableSchemaDefinition;
@@ -117,6 +117,7 @@ impl MutationManager {
                         before,
                         after,
                         file_write,
+                        portable: PortableEffect::SharedReplay,
                     });
             }
             for (schema, changes) in groups {

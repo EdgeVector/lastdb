@@ -17,6 +17,7 @@ mod files;
 mod keys;
 mod maintenance;
 mod open;
+mod outgoing;
 mod release;
 mod store;
 
@@ -44,6 +45,13 @@ pub(crate) struct RecordChange {
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
     pub file_write: Option<FileWrite>,
+    pub portable: PortableEffect,
+}
+
+pub(crate) enum PortableEffect {
+    Local,
+    SharedAuthor(String),
+    SharedReplay,
 }
 
 /// Only this format module can create the batch or add primary/alternate rows.
@@ -82,6 +90,7 @@ fn encode(
             key: change.key.clone(),
             after: Arc::clone(&after),
             write: change.file_write,
+            retain_previous: !matches!(change.portable, PortableEffect::Local),
         });
         if after.is_live() {
             let value = after.encode_uncapped().map_err(record_value_error)?;
