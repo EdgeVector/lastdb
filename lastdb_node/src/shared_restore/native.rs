@@ -142,74 +142,6 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
         })
     }
 
-    async fn ensure_schemas(&mut self, entries: &[&MutationEntry]) -> Result<()> {
-        let mut missing = BTreeSet::new();
-        for entry in entries {
-            let id = schema_id(&entry.schema)?;
-            if !self.schemas.contains_key(&id) {
-                missing.insert(id);
-            }
-        }
-        let service = self.service;
-        let resolved: Vec<_> = futures::stream::iter(missing)
-            .map(|id| async move {
-                let definition = service
-                    .get_portable_schema(&id)
-                    .await
-                    .map_err(|_| RestoreError::Source("immutable schema definition"))?;
-                let wire = definition
-                    .verify(&id)
-                    .map_err(|_| RestoreError::Invalid("resolved schema identity"))?;
-                let local_schema = wire.name.clone();
-                let schema: Schema = wire.clone().into();
-                Ok::<_, RestoreError>((
-                    SnapshotSchema {
-                        local_schema,
-                        definition,
-                    },
-                    schema,
-                ))
-            })
-            .buffered(4)
-            .try_collect()
-            .await?;
-        let manager = self.db.schema_manager();
-        let mut aliases: BTreeSet<_> = self
-            .schemas
-            .values()
-            .map(|schema| &schema.local_schema)
-            .collect();
-        let mut install = Vec::new();
-        for (binding, schema) in &resolved {
-            if !aliases.insert(&binding.local_schema) {
-                return Err(RestoreError::Invalid("portable schema alias collision"));
-            }
-            if let Some(existing) = manager
-                .get_schema_metadata(&binding.local_schema)
-                .map_err(|_| RestoreError::Invalid("resolved schema read"))?
-            {
-                binding
-                    .definition
-                    .bind_local_alias(binding.definition.id(), &existing.to_wire())
-                    .map_err(|_| RestoreError::Invalid("resolved schema alias collision"))?;
-            } else {
-                install.push(schema.clone());
-            }
-        }
-        if !install.is_empty() {
-            manager
-                .load_schema_batch(install)
-                .await
-                .map_err(|_| RestoreError::Invalid("install resolved schema definitions"))?;
-        }
-        self.schemas.extend(
-            resolved
-                .into_iter()
-                .map(|(binding, _)| (binding.definition.id().clone(), binding)),
-        );
-        Ok(())
-    }
-
     async fn apply(&self, candidates: &[ReplayCandidate<'_>], needed: Vec<usize>) -> Result<()> {
         let mut group = Vec::new();
         let mut files = BTreeMap::new();
@@ -265,7 +197,7 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
     }
 
     async fn apply_candidates(&mut self, entries: &[&MutationEntry]) -> Result<()> {
-        self.ensure_schemas(entries).await?;
+        resolve_schemas(&self.db, self.service, &mut self.schemas, entries).await?;
         let candidates = entries
             .iter()
             .map(|entry| {
@@ -312,7 +244,78 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
     }
 }
 
-fn schema_id(identity: &SchemaIdentity) -> Result<PortableSchemaId> {
+pub(crate) async fn resolve_schemas(
+    db: &FoldDB,
+    service: &SchemaServiceClient,
+    schemas: &mut BTreeMap<PortableSchemaId, SnapshotSchema>,
+    entries: &[&MutationEntry],
+) -> Result<()> {
+    let mut missing = BTreeSet::new();
+    for entry in entries {
+        let id = schema_id(&entry.schema)?;
+        if !schemas.contains_key(&id) {
+            missing.insert(id);
+        }
+    }
+    let resolved: Vec<_> = futures::stream::iter(missing)
+        .map(|id| async move {
+            let definition = service
+                .get_portable_schema(&id)
+                .await
+                .map_err(|_| RestoreError::Source("immutable schema definition"))?;
+            let wire = definition
+                .verify(&id)
+                .map_err(|_| RestoreError::Invalid("resolved schema identity"))?;
+            let local_schema = wire.name.clone();
+            let schema: Schema = wire.clone().into();
+            Ok::<_, RestoreError>((
+                SnapshotSchema {
+                    local_schema,
+                    definition,
+                },
+                schema,
+            ))
+        })
+        .buffered(4)
+        .try_collect()
+        .await?;
+    let manager = db.schema_manager();
+    let mut aliases: BTreeSet<_> = schemas
+        .values()
+        .map(|schema| &schema.local_schema)
+        .collect();
+    let mut install = Vec::new();
+    for (binding, schema) in &resolved {
+        if !aliases.insert(&binding.local_schema) {
+            return Err(RestoreError::Invalid("portable schema alias collision"));
+        }
+        if let Some(existing) = manager
+            .get_schema_metadata(&binding.local_schema)
+            .map_err(|_| RestoreError::Invalid("resolved schema read"))?
+        {
+            binding
+                .definition
+                .bind_local_alias(binding.definition.id(), &existing.to_wire())
+                .map_err(|_| RestoreError::Invalid("resolved schema alias collision"))?;
+        } else {
+            install.push(schema.clone());
+        }
+    }
+    if !install.is_empty() {
+        manager
+            .load_schema_batch(install)
+            .await
+            .map_err(|_| RestoreError::Invalid("install resolved schema definitions"))?;
+    }
+    schemas.extend(
+        resolved
+            .into_iter()
+            .map(|(binding, _)| (binding.definition.id().clone(), binding)),
+    );
+    Ok(())
+}
+
+pub(crate) fn schema_id(identity: &SchemaIdentity) -> Result<PortableSchemaId> {
     let SchemaIdentity::Shared(id) = identity else {
         return Err(RestoreError::Invalid("local schema in shared replay"));
     };
