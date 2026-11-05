@@ -7,12 +7,6 @@ publish.workspace = true
 description = "Typed HTTP client for the schema service /v1/* API."
 autoexamples = false
 
-[[bin]]
-bench = false
-test = false
-name = "schema_pow_live_probe"
-path = "examples/schema_pow_live_probe.rs"
-
 [dependencies]
 schema_service_core = { path = "../core" }
 schema_types = { workspace = true }
