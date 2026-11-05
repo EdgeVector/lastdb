@@ -283,9 +283,13 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
     }
 
     async fn finish(self, cut: &RestoreCut, local_stream: &StreamId) -> Result<()> {
+        let mut progress = cut.progress.clone();
+        for stream in cut.captured_heads.keys() {
+            progress.entry(stream.clone()).or_default();
+        }
         self.db
             .mutation_manager()
-            .finish_portable_restore(&cut.progress, cut.delete_reclaimed_through_ms, local_stream)
+            .finish_portable_restore(&progress, cut.delete_reclaimed_through_ms, local_stream)
             .await
             .map_err(|_| RestoreError::Invalid("seal portable restore progress"))?;
         self.db
