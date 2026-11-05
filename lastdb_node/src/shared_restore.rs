@@ -9,7 +9,9 @@ use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
+mod native;
 pub mod recovery;
+pub use native::restore_from_source;
 mod spool;
 use spool::CandidateSpool;
 

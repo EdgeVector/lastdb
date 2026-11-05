@@ -19,7 +19,7 @@ use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 mod manifest;
-pub use manifest::{seal_log, SnapshotContents, SnapshotFile};
+pub use manifest::{seal_log, SnapshotContents, SnapshotFile, SnapshotSchema};
 
 const MAX_MANIFEST_BYTES: u64 = cloud_backup_protocol::limits::DECODED_VALUES_MAX_BYTES / 2;
 const MAX_SEALED_LOG_BYTES: u64 = MAX_LOG_BYTES as u64 + 64;
@@ -51,6 +51,7 @@ pub trait SharedRecoverySource: Sync {
 pub struct PreparedSharedRestore<'a, S> {
     pub session: SharedRestore,
     pub checkpoint: RestoreCut,
+    pub schemas: Vec<SnapshotSchema>,
     pub files: HeldFileVersions<'a, S>,
 }
 
@@ -66,11 +67,17 @@ impl<S: SharedRecoverySource> HeldFileVersions<'_, S> {
     /// Return exact sealed bytes within the staged writer's admission budget.
     /// The writer verifies them against the winning record's file marker.
     pub async fn fetch(&self, position: &Position, maximum: u64) -> Result<Vec<u8>> {
-        let object = self
-            .objects
+        read_object(self.source, &self.view, self.object(position)?, maximum).await
+    }
+
+    pub(super) fn bytes(&self, position: &Position) -> Result<u64> {
+        Ok(self.object(position)?.bytes.get())
+    }
+
+    fn object(&self, position: &Position) -> Result<&SealedObject> {
+        self.objects
             .get(position)
-            .ok_or(RestoreError::Invalid("missing held file version"))?;
-        read_object(self.source, &self.view, object, maximum).await
+            .ok_or(RestoreError::Invalid("missing held file version"))
     }
 }
 
@@ -118,6 +125,7 @@ pub async fn prepare<'a, S: SharedRecoverySource>(
     Ok(PreparedSharedRestore {
         session,
         checkpoint,
+        schemas: contents.schemas,
         files: HeldFileVersions {
             source,
             view,

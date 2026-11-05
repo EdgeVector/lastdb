@@ -12,9 +12,10 @@ use fold_db::storage::disk_pack::{
     HOME_FORMAT,
 };
 use hkdf::Hkdf;
+use schema_types::PortableSchemaDefinition;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use zeroize::Zeroizing;
 
 use crate::shared_restore::RestoreCut;
@@ -31,6 +32,14 @@ pub struct SnapshotFile {
     pub object: SealedObject,
 }
 
+/// Exact service definition and the runtime alias in the frozen files.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotSchema {
+    pub local_schema: String,
+    pub definition: PortableSchemaDefinition,
+}
+
 /// Private plaintext of the checkpoint manifest. The public cloud protocol
 /// commits to the sealed bytes and exact object inventory.
 #[derive(Serialize, Deserialize)]
@@ -44,6 +53,7 @@ pub struct SnapshotContents {
     pub progress: BTreeMap<StreamId, StreamProgress>,
     pub delete_reclaimed_through_ms: Option<u64>,
     pub files: Vec<SnapshotFile>,
+    pub schemas: Vec<SnapshotSchema>,
 }
 
 impl SnapshotContents {
@@ -68,10 +78,7 @@ impl SnapshotContents {
         let plaintext = open(content_key, &manifest.database_id, MANIFEST_ROLE, sealed)?;
         let contents: Self = serde_json::from_slice(&plaintext)
             .map_err(|_| RestoreError::Invalid("snapshot manifest JSON"))?;
-        let canonical = Zeroizing::new(
-            serde_json::to_vec(&contents)
-                .map_err(|_| RestoreError::Invalid("snapshot manifest JSON"))?,
-        );
+        let canonical = contents.encode_plaintext()?;
         if *canonical != *plaintext {
             return Err(RestoreError::Invalid("noncanonical snapshot manifest"));
         }
@@ -91,6 +98,16 @@ impl SnapshotContents {
         manifest.validate_inventory(&objects)?;
         contents.validate_covers(manifest)?;
         Ok(contents)
+    }
+
+    fn encode_plaintext(&self) -> Result<Zeroizing<Vec<u8>>> {
+        // JSON value maps have ordered keys, including the schema definition's
+        // HashMaps. Keep the full integer precision of stream positions.
+        let ordered = serde_json::to_value(self)
+            .map_err(|_| RestoreError::Invalid("snapshot manifest JSON"))?;
+        serde_json::to_vec(&ordered)
+            .map(Zeroizing::new)
+            .map_err(|_| RestoreError::Invalid("snapshot manifest JSON"))
     }
 
     fn validate(&self) -> Result<()> {
@@ -124,6 +141,31 @@ impl SnapshotContents {
             if cursor.uploaded_through.is_some() {
                 return Err(RestoreError::Invalid("device-local checkpoint progress"));
             }
+        }
+        self.validate_schemas()
+    }
+
+    fn validate_schemas(&self) -> Result<()> {
+        if self
+            .schemas
+            .windows(2)
+            .any(|pair| pair[0].definition.id() >= pair[1].definition.id())
+        {
+            return Err(RestoreError::Invalid("ordered snapshot schema identities"));
+        }
+        let mut aliases = BTreeSet::new();
+        for schema in &self.schemas {
+            if schema.local_schema.is_empty()
+                || schema.local_schema.len() > 1024
+                || schema.local_schema.chars().any(char::is_control)
+                || !aliases.insert(&schema.local_schema)
+            {
+                return Err(RestoreError::Invalid("snapshot schema runtime name"));
+            }
+            schema
+                .definition
+                .verify(schema.definition.id())
+                .map_err(|_| RestoreError::Invalid("snapshot schema definition"))?;
         }
         Ok(())
     }
