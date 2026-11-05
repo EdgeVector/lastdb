@@ -10,9 +10,14 @@ mod payments;
 mod recovery_home;
 #[path = "cloud_cmds/shared_restore.rs"]
 mod shared_restore;
+#[path = "cloud_cmds/shared_writer.rs"]
+mod shared_writer;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
+        CloudCommand::SharedWriter(selection) => {
+            return shared_writer::run(data_dir.as_deref(), selection);
+        }
         CloudCommand::RestoreShared(selection) => {
             return shared_restore::run(data_dir.as_deref(), selection);
         }
@@ -41,6 +46,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         CloudCommand::PrepareRecoveryHome { .. }
         | CloudCommand::RecoverCredentialsHome { .. }
         | CloudCommand::RecoverDevCredentialsHome { .. }
+        | CloudCommand::SharedWriter(_)
         | CloudCommand::RestoreShared(_)
         | CloudCommand::ResumeSharedRestore { .. }
         | CloudCommand::Payments { .. } => {
