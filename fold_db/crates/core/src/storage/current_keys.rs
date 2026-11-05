@@ -28,7 +28,9 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if !CURRENT_FAMILIES.iter().any(|group| group.contains(&family)) {
         return Err(unsupported("unknown key family"));
     }
-    if let Some(record) = applied_deletes::record_key(key) {
+    if family == applied_deletes::DELETE_AGE_FAMILY {
+        applied_deletes::validate_age_key(key)?;
+    } else if let Some(record) = applied_deletes::record_key(key) {
         let rest = record
             .strip_prefix(lastdb_model::record_space::RECORD_PREFIX)
             .ok_or_else(|| unsupported("invalid applied-delete record key"))?;

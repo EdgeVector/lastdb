@@ -25,6 +25,13 @@ const READ_CHUNK: usize = 10_000;
 pub(crate) use format::RecordChange;
 
 impl RecordStore {
+    pub(crate) async fn stage_delete_reclamation(
+        &self,
+        cutoff_ms: u64,
+    ) -> Result<format::ReclaimedDeletes, SchemaError> {
+        Ok(self.format.stage_delete_reclamation(cutoff_ms).await?)
+    }
+
     pub(crate) async fn read_applied_deletes(
         &self,
         keys: &[&RecordAddress],

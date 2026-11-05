@@ -276,6 +276,50 @@ impl Metadata {
         let row = self.metadata_store.get(REPLAY_STATE_KEY.as_bytes()).await?;
         decode_state(row.as_deref())
     }
+
+    pub(crate) async fn portable_delete_cutoff(&self) -> StorageResult<Option<u64>> {
+        self.require_scope()?;
+        let state = self.replay_state().await?;
+        let keys = state
+            .participating_streams
+            .iter()
+            .map(|stream| progress_key(stream).into_bytes())
+            .collect();
+        let rows = self.metadata_store.get_many(keys).await?;
+        if rows.len() != state.participating_streams.len() {
+            return Err(invalid("incomplete delete cleanup stream directory"));
+        }
+        let mut cutoff = u64::MAX;
+        for bytes in rows {
+            let cursor = decode_cursor(bytes.as_deref())?;
+            let Some(time) = cursor.applied_through_ms else {
+                return Ok(None);
+            };
+            cutoff = cutoff.min(time);
+        }
+        Ok(Some(cutoff))
+    }
+
+    pub(crate) async fn stage_delete_reclaimed(
+        &self,
+        through_ms: u64,
+        cutoff_ms: u64,
+    ) -> StorageResult<()> {
+        self.require_scope()?;
+        if through_ms >= cutoff_ms {
+            return Err(invalid("delete cleanup crossed its stream cutoff"));
+        }
+        let mut state = self.replay_state().await?;
+        if state
+            .delete_reclaimed_through_ms
+            .is_none_or(|prior| through_ms > prior)
+        {
+            state.delete_reclaimed_through_ms = Some(through_ms);
+            self.stage(encoded(REPLAY_STATE_KEY.into(), &state)?)
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 fn encoded(key: String, value: &impl Serialize) -> StorageResult<EncodedMetadata> {

@@ -16,6 +16,27 @@ pub struct ReplayBinding<'a> {
 }
 
 impl MutationManager {
+    /// Reclaim one bounded batch after shared publish and recovery are qualified.
+    /// Each participating stream must already have passed the erased timestamp.
+    pub async fn reclaim_portable_deletes(&self) -> Result<u64, SchemaError> {
+        transaction::request_scope(self.db_ops.native_runtime(), async {
+            let metadata = self.db_ops.metadata();
+            let Some(cutoff) = metadata.portable_delete_cutoff().await? else {
+                return Ok(0);
+            };
+            let reclaimed = self
+                .db_ops
+                .records()
+                .stage_delete_reclamation(cutoff)
+                .await?;
+            if let Some(through) = reclaimed.through_ms {
+                metadata.stage_delete_reclaimed(through, cutoff).await?;
+            }
+            Ok(reclaimed.markers)
+        })
+        .await
+    }
+
     /// Persist the service-authorized admission of a peer with a safe checkpoint.
     pub async fn admit_portable_peer(
         &self,
