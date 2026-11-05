@@ -113,7 +113,7 @@ impl SchemaCore {
 
         let refresh = existing.is_some();
         if let Some(stored) = existing {
-            rules::prepare_refresh(&mut schema, stored)?;
+            rules::prepare_refresh(&mut schema, &stored)?;
         }
         let name = schema.name.clone();
         self.db_ops.store_schema(&name, &schema).await?;

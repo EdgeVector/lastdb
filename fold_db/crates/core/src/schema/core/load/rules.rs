@@ -3,7 +3,7 @@
 use crate::schema::types::{Schema, SchemaError};
 
 /// Same-identity loads refresh metadata. Key declarations stay immutable.
-pub(super) fn prepare_refresh(schema: &mut Schema, stored: Schema) -> Result<(), SchemaError> {
+pub(super) fn prepare_refresh(schema: &mut Schema, stored: &Schema) -> Result<(), SchemaError> {
     if schema.record_keys != stored.record_keys || schema.alternate_keys != stored.alternate_keys {
         return Err(SchemaError::InvalidData(
             "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly"
