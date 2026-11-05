@@ -7,6 +7,7 @@
 
 mod append;
 mod checkpoint;
+pub mod objects;
 mod recovery;
 
 pub use append::{
