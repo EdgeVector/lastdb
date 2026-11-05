@@ -36,7 +36,7 @@ impl AppendAuthorization {
         let head = batch.head()?;
         let digest = append_authority_digest(account, &batch.stream, device, expires_at_ms, &head)?;
         let signature = sign(digest.as_str().as_bytes())?;
-        let mut signature = header(&lastdb_model::hex::hex_lower(&signature))?;
+        let mut signature = header(&lastdb_model::hex::hex_lower(signature))?;
         signature.set_sensitive(true);
         let mut headers = HeaderMap::new();
         headers.insert("x-lastdb-device", header(device.as_str())?);
