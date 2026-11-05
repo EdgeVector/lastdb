@@ -260,14 +260,22 @@ class Operation:
         a, b = self.writers
         self.summary["stage"] = "prepare-writers"
         first, peer = self.initialize("first", a), self.initialize("peer", b)
-        self.summary["stage"] = "prepare-checkpoint"
+        self.summary["stage"] = "author-publisher-prefix"
         first.start()
-        checkpoint, losing, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
+        checkpoint, original, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
         durable_batch(first, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
-                              for record in (checkpoint, losing, deleted)])
+                              for record in (checkpoint, original, deleted)])
         checkpoint_file = self.attach(first, checkpoint, "checkpoint")
         first.stop()
         self.summary["checkpoint_through"] = self.push(first, a, 4)
+        self.summary["stage"] = "apply-publisher-prefix-on-peer"
+        applied = self.writer(peer, b, "pull", "--schema-bindings", str(self.bindings), "--ranges", "1")
+        require(applied.splitlines() == [f"Applied shared peer {a['source_stream']} through 4".encode(),
+                                         b"Applied 1 shared peer ranges"],
+                "shared_exact_peer_apply")
+        self.summary["peer_applied_publisher_through"] = 4
+
+        self.summary["stage"] = "prepare-checkpoint"
         publication = self.root / "publication"
         reply = self.writer(first, a, "publish", "--workspace", str(publication),
                             "--snapshot-id", self.snapshot, "--schema-bindings", str(self.bindings),
@@ -286,9 +294,16 @@ class Operation:
         self.summary["publisher_tail_through"] = self.push(first, a, 7)
 
         peer.start()
+        prior, copied = native_records.read_records(peer, self.schema, [
+            native_records.key("winner"), native_records.key("checkpoint")])
+        require(prior["fields"] == original and copied["fields"] == checkpoint,
+                "shared_peer_exact_imported_records")
+        peer.verify_file({"schema": self.schema, "records": [{"id": "checkpoint"}],
+                          "file_bytes": FILE_BYTES, "file_sha256": checkpoint_file})
+        self.summary["peer_read_publisher_records_and_file"] = True
         winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
-        durable_batch(peer, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
-                             for record in (winner, peer_only)])
+        durable_batch(peer, [native_records.replace(self.schema, prior, winner),
+                             native_records.create(self.schema, native_records.key("peer-only"), peer_only)])
         winner_file = self.attach(peer, winner, "winning-tail")
         peer.stop()
         self.summary["peer_tail_through"] = self.push(peer, b, 3)
@@ -310,7 +325,9 @@ class Operation:
         try:
             self.restore(rejected, b["device_id"])
         except OperationError as error:
-            require(str(error) == "product_cli_refused" and not os.path.lexists(rejected),
+            require(str(error) == "product_cli_refused" and error.cli_refusal is not None
+                    and error.cli_refusal["reason"] == "shared_device_signature_refused"
+                    and not os.path.lexists(rejected),
                     "shared_wrong_device_refusal")
         else:
             raise OperationError("shared_wrong_device_accepted")

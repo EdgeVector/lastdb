@@ -124,6 +124,12 @@ fn proof_expiry(now: DecimalU64) -> DecimalU64 {
 
 fn transport_error(error: BackupTransportError) -> RestoreError {
     match error {
+        BackupTransportError::Protocol(error)
+            if error.code == cloud_backup_protocol::ErrorCode::Unauthorized
+                && error.field == "shared.device.signature" =>
+        {
+            RestoreError::Source("shared recovery device signature refused")
+        }
         BackupTransportError::Protocol(error) => RestoreError::Protocol(error),
         _ => RestoreError::Source("authenticated shared recovery transport"),
     }
