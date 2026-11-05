@@ -16,7 +16,9 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
+mod owner;
 mod state;
+pub use owner::SignedSnapshotTransport;
 use state::{Intent, IntentStore, Phase};
 
 pub struct FrozenFile {
