@@ -177,7 +177,6 @@ jobs:
           ulimit -n 8192 || true
           cargo clippy --workspace --lib --bins --locked \
             --exclude generate_validated_schema_org_seeds \
-            --exclude schema_service_worker \
             -- -D warnings
       # The production feature set (schema-infra builds the Lambda with
       # --features fastembed). It loads ONNX Runtime at run time, so this
@@ -192,7 +191,6 @@ jobs:
           ulimit -n 8192 || true
           cargo clippy --locked \
             -p generate_validated_schema_org_seeds \
-            -p schema_service_worker \
             --bins \
             -- -D warnings
       - name: Start the default schema service and read its seed vocabulary
