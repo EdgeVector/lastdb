@@ -4,6 +4,7 @@ use super::super::SharedRestoreCommand;
 use super::recovery_home::files;
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::Id;
+use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::shared_restore::{restore_owner, SharedRestore};
@@ -24,6 +25,7 @@ pub(super) fn run(
         .map_err(|_| "shared database ID must be a canonical UUID")?;
     let device = Id::try_from(selection.device_id)
         .map_err(|_| "registered device ID must be a canonical UUID")?;
+    let signer = device_signer(&selection.device_key_file)?;
     let environment = match selection.env.as_str() {
         "dev" => Environment::Dev,
         "prod" => Environment::Prod,
@@ -31,7 +33,6 @@ pub(super) fn run(
     };
     let auth = protected_auth(home, environment)?;
     let phrase = super::read_recovery_phrase()?;
-    let account = lastdb_node::backup_access::account_from_phrase(&phrase)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -39,8 +40,8 @@ pub(super) fn run(
     let home = runtime
         .block_on(restore_owner(
             auth,
-            account,
             device,
+            signer,
             &database,
             &selection.into,
             &phrase,
@@ -49,6 +50,21 @@ pub(super) fn run(
         .map_err(|error| error.to_string())?;
     print(&home, selection.json);
     Ok(())
+}
+
+pub(super) fn device_signer(path: &Path) -> Result<Ed25519KeyPair, String> {
+    let parent = path.parent().ok_or("missing shared device key directory")?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("invalid shared device key file name")?;
+    let directory = files::open_directory(parent)?;
+    files::require_owned_directory(&directory)?;
+    let seed = Zeroizing::new(files::read_private_file(&directory, name, 32)?);
+    if seed.len() != 32 {
+        return Err("shared device signing seed must be exactly 32 bytes".into());
+    }
+    Ed25519KeyPair::from_secret_key(&seed).map_err(|_| "invalid shared device signing key".into())
 }
 
 pub(super) fn resume(

@@ -8,7 +8,7 @@ use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectParent, RecoveryView,
     SealedObject, SnapshotManifest,
 };
-use cloud_backup_protocol::{AccountId, DecimalU64, Id};
+use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{schema_service_url_for, Environment};
 use schema_service_client::SchemaServiceClient;
@@ -23,18 +23,19 @@ struct OwnerSource {
 /// explicit connection. The destination gets a fresh stream and account key.
 pub async fn restore_owner(
     auth: AuthClient,
-    account: AccountId,
     device: Id,
+    signer: Ed25519KeyPair,
     database: &Id,
     destination: &Path,
     recovery_phrase: &str,
     environment: Environment,
 ) -> Result<PathBuf> {
+    let account = crate::backup_access::account_from_phrase(recovery_phrase)
+        .map_err(|_| RestoreError::Invalid("shared recovery account phrase"))?;
     let keys = RecoveryKeys::from_scope_phrase(recovery_phrase, &account)?;
     let source = OwnerSource {
         client: SharedRecoveryClient::from_auth(auth, account, device).map_err(transport_error)?,
-        signer: Ed25519KeyPair::from_secret_key(keys.account_seed())
-            .map_err(|_| RestoreError::Invalid("shared recovery signer"))?,
+        signer,
     };
     let schemas = SchemaServiceClient::new(schema_service_url_for(environment));
     super::restore_from_source(&source, database, destination, &keys, &schemas).await
