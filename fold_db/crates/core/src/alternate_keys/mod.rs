@@ -4,14 +4,10 @@ use crate::schema::SchemaError;
 use crate::storage::format::records::{alternate_range_key, AlternateAddress};
 
 pub(crate) mod read;
-mod write;
 
-pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
 pub(crate) const PREFIX: &str = lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
-pub use crate::storage::format::records::AlternateEntry;
+pub use crate::storage::format::records::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
 pub use lastdb_model::field_key_id::alternate_field_key_id as field_key;
-
-pub(crate) type AlternateValues = std::collections::BTreeMap<String, Option<KeyValue>>;
 
 pub(crate) fn storage_key(
     records: &crate::db_operations::record_store::RecordStore,

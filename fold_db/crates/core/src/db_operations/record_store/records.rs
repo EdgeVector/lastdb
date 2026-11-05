@@ -1,9 +1,7 @@
 //! Records of a home: one stored value at each primary key.
 //!
-//! The mutation manager merges the fields of a record (decision D1). This
-//! file reads the records by key and puts the changed ones, with their
-//! alternate entry changes and their file rows (`record_files.rs`), in one
-//! batch of the native request.
+//! This file reads whole records by key and supplies each record transition
+//! to the format writer in the native request.
 //! Its field history entries hold copies of old values (`field_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A
@@ -14,7 +12,7 @@ use super::RecordStore;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use crate::storage::format::history::HistoryChange;
-use crate::storage::format::records::{self as format, AlternateChange, RecordAddress};
+use crate::storage::format::records::{self as format, RecordAddress};
 use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
@@ -111,23 +109,18 @@ impl RecordStore {
         Ok(out)
     }
 
-    /// Put the changed records, their alternate entry changes and their file
-    /// rows in one batch of the native request. A record that gets a file puts
-    /// its sealed row at its file path; a record that loses its file (a
-    /// delete, a purge, `delete-blob`) deletes the path. History is still a
-    /// encoded from data-only intents by the history child format. All rows
-    /// retain their original order in one main staging call.
-    /// The caller holds the native write gate and read each `before` in the
-    /// same scope.
+    /// Stage record, pointer, file and history changes in the native request.
+    /// The caller read each preimage under the same write gate.
     pub(crate) async fn stage_records(
         &self,
+        schema: &Schema,
         changes: Vec<RecordChange>,
-        alternates: Vec<AlternateChange>,
         history: Vec<HistoryChange>,
     ) -> Result<(), SchemaError> {
         self.format
-            .stage_records(changes, alternates, history)
-            .await?;
-        Ok(())
+            .stage_records(schema, changes, history, |id| {
+                self.key_codec_for_field_key(id)
+            })
+            .await
     }
 }

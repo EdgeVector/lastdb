@@ -46,8 +46,6 @@ impl MutationManager {
         let file_writes = take_file_writes(&mut mutations);
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        let mut before_addresses = Vec::with_capacity(mutations.len());
-        let mut after_addresses = Vec::with_capacity(mutations.len());
         for (((mutation, key), (address, before)), file_write) in mutations
             .iter()
             .zip(&keys)
@@ -56,18 +54,6 @@ impl MutationManager {
         {
             check_expectation(mutation, before.as_deref())?;
             let after = replace_record(&schema, mutation, before.as_deref())?;
-            before_addresses.push(
-                before
-                    .as_ref()
-                    .filter(|record| record.is_live())
-                    .map(|record| record.alternates.clone())
-                    .unwrap_or_default(),
-            );
-            after_addresses.push(if after.is_live() {
-                after.alternates.clone()
-            } else {
-                std::collections::BTreeMap::new()
-            });
             changed.push(ChangedRecord { mutation, key });
             changes.push(RecordChange {
                 key: address,
@@ -76,9 +62,7 @@ impl MutationManager {
                 file_write,
             });
         }
-        let entries =
-            records.alternate_entry_changes(&schema, &keys, &before_addresses, &after_addresses)?;
-        self.stage_records_with_effects(&schema, &changed, changes, entries)
+        self.stage_records_with_effects(&schema, &changed, changes)
             .await?;
         runtime.record_read_stage("record-stores-done", keys.len());
         if schema.schema_type == DeclarativeSchemaType::HashRange {
