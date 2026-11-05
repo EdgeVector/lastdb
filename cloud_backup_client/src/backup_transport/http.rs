@@ -57,7 +57,7 @@ impl BackupTransport {
     }
 }
 
-async fn bounded(response: reqwest::Response, maximum: u64) -> Result<Vec<u8>> {
+pub(super) async fn bounded(response: reqwest::Response, maximum: u64) -> Result<Vec<u8>> {
     if response
         .content_length()
         .is_some_and(|bytes| bytes > maximum)

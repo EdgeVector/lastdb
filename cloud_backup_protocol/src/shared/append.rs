@@ -1,7 +1,22 @@
 use super::{error, LogHead, SealedObject, WriterStream, MAX_BATCH_FILES};
-use crate::{input_digest, limits, DecimalU64, ErrorCode, Id, ProtocolError};
+use crate::{input_digest, limits, AccountId, DecimalU64, Digest, ErrorCode, Id, ProtocolError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+
+/// Compute the device's append authorization claim for an authenticated account.
+/// The signature is over the digest's lowercase hexadecimal bytes.
+pub fn append_authority_digest(
+    account: &AccountId,
+    stream: &WriterStream,
+    device: &Id,
+    expires_at_ms: DecimalU64,
+    head: &LogHead,
+) -> Result<Digest, ProtocolError> {
+    input_digest(
+        "lastdb:shared-log:append-authority:v1",
+        &(account, stream, device, expires_at_ms, head),
+    )
+}
 
 /// Bind a file version in a portable record to its exact sealed object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
