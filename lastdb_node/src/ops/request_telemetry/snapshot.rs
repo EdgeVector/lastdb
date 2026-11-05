@@ -69,7 +69,7 @@ impl RequestTelemetrySnapshot {
     }
 }
 
-/// Durable rollup query result rendered by `lastdb ops --since`.
+/// Merged view of persisted request-ops rollup rows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RequestOpsRollupSnapshot {
     /// Aggregates merged across persisted sampler rollup rows.
@@ -99,9 +99,8 @@ pub struct RequestOpsRollupSnapshot {
 impl RequestOpsRollupSnapshot {
     /// True when the window rendered nothing. Says only that no rows came
     /// back — NOT that no traffic happened. A failing sampler produces an
-    /// empty window indistinguishable from an idle one, which is why
-    /// `lastdb ops --since` cross-checks `sampler.last_error` before letting
-    /// a reader conclude "quiet period".
+    /// empty window indistinguishable from an idle one. A reader must not
+    /// treat that empty window as a quiet period without the sampler error.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.top_by_total_ms.is_empty() && self.idle_wait.is_empty()

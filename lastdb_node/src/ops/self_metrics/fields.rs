@@ -47,8 +47,7 @@ pub(crate) const SELF_METRIC_FIELDS: &[&str] = &[
     "slowest_request_ms",
 ];
 /// Every field of one `RequestOpsRollup` record. The writer stores all of
-/// them on every record and `lastdb ops --since` reads all of them, so a
-/// missing field is a defect, never a zero.
+/// them on every record, so a missing field is a defect, never a zero.
 pub const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "series",
     "sample_id",
@@ -66,8 +65,8 @@ pub const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "max_ms",
     "last_ts_ms",
     "error_count",
-    // Interval SUM of request body bytes, so `lastdb ops --since` can answer
-    // "who stuffed the node" after restarts.
+    // Interval SUM of request body bytes. Answers who sent the bytes after a
+    // restart.
     "sum_body_bytes",
     // Process max of request body on the key (same semantics as `max_ms`:
     // not delta'd; persisted as the current max for the interval snapshot).
@@ -96,8 +95,8 @@ pub const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_status_data_dir_us",
     "sum_status_request_ops_us",
     "phase_count",
-    // The wall clock matching `phase_count`'s population, so `--since` can
-    // compute the same unattributed residual the live snapshot renders
+    // The wall clock matching `phase_count`'s population, so a rollup window
+    // can compute the same unattributed residual the live snapshot renders
     // instead of subtracting `sum_ms` (which spans every request, phased or
     // not).
     "phased_sum_ms",

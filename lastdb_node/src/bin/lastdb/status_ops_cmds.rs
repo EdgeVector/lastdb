@@ -174,8 +174,6 @@ fn run_layout_status_line(store_root: &Path) -> Option<String> {
 
 #[path = "status_ops_cmds/ops_rollup.rs"]
 mod ops_rollup;
-#[path = "status_ops_cmds/ops_rollup_merge.rs"]
-mod ops_rollup_merge;
 pub(crate) use ops_rollup::*;
 #[path = "status_ops_cmds/probes.rs"]
 mod probes;

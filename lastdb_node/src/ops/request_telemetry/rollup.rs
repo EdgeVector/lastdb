@@ -155,9 +155,8 @@ pub fn rollup_lines_with_schema_labels(
     }
 
     // Merged interval phase SUMS from the persisted rollup records — the same
-    // table shape as the live view, so an operator pivots between `lastdb
-    // ops` and `--since` without relearning the vocabulary. Absent when no
-    // key in the window reported a phase.
+    // table shape as the live view. Absent when no key in the window reported
+    // a phase.
     lines.extend(phase_table_lines(&snap.top_by_total_ms, labels));
 
     lines
