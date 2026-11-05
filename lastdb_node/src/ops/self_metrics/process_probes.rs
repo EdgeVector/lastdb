@@ -1,10 +1,5 @@
 use super::*;
 
-pub(crate) fn sample_id(sampled_at: u64) -> String {
-    let nanos = fold_db::clock::unix_nanos() % 1_000_000_000;
-    format!("{sampled_at:020}-{nanos:09}-{}", std::process::id())
-}
-
 #[cfg(target_os = "linux")]
 pub(crate) fn current_rss_bytes() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;

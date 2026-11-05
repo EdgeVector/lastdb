@@ -204,13 +204,11 @@ fn data_dir_line(snapshot: &StatusSnapshot) -> String {
 
 fn sampler_line(snapshot: &StatusSnapshot) -> String {
     format!(
-        "Sampler: last_sample={} retention_cap={}{}",
+        "Sampler: last_sample={}{}",
         snapshot
             .sampler
             .last_sample_at
             .map_or_else(|| "none".to_string(), |ts| ts.to_string()),
-        wire_u64(&snapshot.sampler.retention_max_samples)
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string()),
         snapshot
             .sampler
             .last_error

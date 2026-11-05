@@ -14,8 +14,7 @@ use serde_json::Value;
 
 use super::gauge::Gauge;
 use super::self_metrics::{
-    LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot, UdsPoolHealth,
-    WatchersHealth,
+    LimitsHealth, QosHealth, ResidentHealth, StatusSnapshot, UdsPoolHealth, WatchersHealth,
 };
 
 /// One gauge declaration in the additive contract block.
@@ -99,15 +98,6 @@ fn collect_watchers(out: &mut Vec<GaugeContractEntry>, w: &WatchersHealth) {
     push_gauge(out, "watchers.sheds", &w.sheds);
 }
 
-fn collect_sampler(out: &mut Vec<GaugeContractEntry>, s: &SamplerStatus) {
-    push_gauge(out, "sampler.sample_count", &s.sample_count);
-    push_gauge(
-        out,
-        "sampler.retention_max_samples",
-        &s.retention_max_samples,
-    );
-}
-
 fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
     push_gauge(out, "resident.warm_lookup_hits", &r.warm_lookup_hits);
     push_gauge(out, "resident.warm_lookup_misses", &r.warm_lookup_misses);
@@ -147,7 +137,6 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
 /// Build the additive contract from every typed gauge on the snapshot.
 pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     let mut gauges = Vec::with_capacity(128);
-    collect_sampler(&mut gauges, &snapshot.sampler);
     collect_qos(&mut gauges, &snapshot.qos);
     collect_uds(&mut gauges, &snapshot.uds);
     collect_watchers(&mut gauges, &snapshot.watchers);

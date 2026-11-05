@@ -55,10 +55,6 @@ pub(super) fn g_instant_wire(opt: Option<u64>, unit: Unit) -> Gauge {
     gauge_from_wire(opt, unit, GAUGE_INSTANT)
 }
 
-pub(super) fn g_lifetime_wire(opt: Option<u64>, unit: Unit) -> Gauge {
-    gauge_from_wire(opt, unit, GAUGE_PROCESS_LIFETIME)
-}
-
 pub(super) fn serialize_gauge_wire<S: serde::Serializer>(
     g: &Gauge,
     serializer: S,

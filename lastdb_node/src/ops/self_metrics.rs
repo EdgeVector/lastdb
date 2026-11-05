@@ -4,14 +4,11 @@
 //! The host holds this state, so it sits below the host. The sampler loop and
 //! the snapshot build take `&Host`; they live in [`crate::jobs::self_metrics`].
 //!
-//! **Primary sink (default):** append-only JSONL under the node home
-//! (`logs/self-metrics.jsonl`). This does **not** depend on LastDB mutations, so
+//! **Sink:** append-only JSONL under the node home (`logs/self-metrics.jsonl`),
+//! plus the in-memory snapshot `GET /api/status`, `lastdb status`, and
+//! `lastdb ops` read. The JSONL file does not depend on LastDB mutations, so
 //! RSS / UDS vitals remain reviewable when the database is wedged
-//! (Tom 2026-07-19).
-//!
-//! **Optional sink:** set `LASTDB_SELF_METRICS_TO_DB=1` to also best-effort write
-//! `lastdb_telemetry/SelfMetricSample` rows (series `lastdbd-self`). DB write
-//! failures never fail the sample once the log line is written.
+//! (Tom 2026-07-19). The sampler does not write those numbers into LastDB.
 
 use fold_db::clock::unix_secs;
 use std::collections::HashMap;
@@ -31,7 +28,6 @@ mod build_health;
 mod constants;
 mod durability;
 mod env;
-mod fields;
 mod footprint_governor;
 mod format;
 mod gauge_wire;
@@ -44,7 +40,6 @@ mod qos_uds_watchers;
 mod read_health;
 mod recoverability;
 mod request_ops_lines;
-mod request_ops_rollup;
 mod resident;
 mod sampler_state;
 mod status_lines;
@@ -56,8 +51,6 @@ pub use build_health::*;
 pub use constants::*;
 pub use durability::*;
 pub use env::*;
-pub use fields::REQUEST_OPS_ROLLUP_FIELDS;
-pub(crate) use fields::*;
 pub use footprint_governor::*;
 pub(crate) use format::*;
 pub(crate) use gauge_wire::*;
@@ -70,7 +63,6 @@ pub use qos_uds_watchers::*;
 pub use read_health::*;
 use recoverability::*;
 pub use request_ops_lines::*;
-use request_ops_rollup::*;
 pub use resident::*;
 pub use sampler_state::*;
 pub use status_lines::*;

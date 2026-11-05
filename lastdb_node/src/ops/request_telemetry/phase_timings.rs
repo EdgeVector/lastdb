@@ -20,23 +20,9 @@ macro_rules! phase_timings {
         }
 
         impl $type {
-            /// Stable pipeline names; serde fields are `<name>_us` and durable
-            /// rollup fields are `sum_<name>_us`. Keep names and order stable.
+            /// Stable pipeline names. Serde fields are `<name>_us`. Keep names
+            /// and order stable.
             pub const PHASE_NAMES: [&'static str; PHASE_COUNT] = [$($name),*];
-
-            /// Read the durable interval sums of one rollup record. Every
-            /// `sum_<name>_us` field is required; a missing or non-integer
-            /// field is an error that names the field and `sample_id`.
-            pub fn from_rollup_fields(
-                fields: &serde_json::Value,
-                sample_id: &str,
-            ) -> Result<Self, String> {
-                Ok(Self { $($field: required_rollup_u64(
-                    fields,
-                    concat!("sum_", $name, "_us"),
-                    sample_id,
-                )?),* })
-            }
 
             pub(super) fn as_array(&self) -> [u64; PHASE_COUNT] {
                 [$(self.$field),*]
@@ -71,10 +57,8 @@ phase_timings! {
     ///   sets (and zero fields within a set), and [`Self::detail`] renders the
     ///   empty string, so surfaces stay byte-identical until a phase is
     ///   actually reported.
-    /// - On aggregates phases are **field-wise sums, never maxes** — the
-    ///   durable rollup's delta writer subtracts consecutive cumulative
-    ///   snapshots, and only sums survive subtraction honestly
-    ///   ([`Self::saturating_sub`]).
+    /// - On aggregates phases are **field-wise sums, never maxes**. Only sums
+    ///   survive subtraction honestly ([`Self::saturating_sub`]).
 
     struct PhaseTimings {
         /// Socket-queue wait before a worker picked the connection up.
