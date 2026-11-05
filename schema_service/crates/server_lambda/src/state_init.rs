@@ -125,10 +125,6 @@ async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
             ))
         })?;
 
-    // Schema.org types and property rows are not live language
-    // (preference-schema-org-not-live-language). Do not call
-    // schema_org_seeds::seed here.
-
     // Seed service-owned built-in schemas. Idempotent:
     // already-present schemas are skipped by identity_hash match.
     schema_service_server_shared::builtin_schemas::seed(state)

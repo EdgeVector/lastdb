@@ -108,7 +108,7 @@ jobs:
       - name: cargo clippy (schema_service_core functional core)
         env:
           CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (schema_service_core)" -- cargo clippy --locked -p schema_service_core --lib --features schema-org-seed-data -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (schema_service_core)" -- cargo clippy --locked -p schema_service_core --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
       - name: Schema core statics gate
         run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
       - name: Assert fastembed is NOT compiled in the Mini gate lane
@@ -176,7 +176,6 @@ jobs:
         run: |
           ulimit -n 8192 || true
           cargo clippy --workspace --lib --bins --locked \
-            --exclude generate_validated_schema_org_seeds \
             -- -D warnings
       # The production feature set (schema-infra builds the Lambda with
       # --features fastembed). It loads ONNX Runtime at run time, so this
@@ -186,13 +185,6 @@ jobs:
           ulimit -n 8192 || true
           cargo clippy --locked -p schema_service_server_lambda --bins \
             --features fastembed -- -D warnings
-      - name: cargo clippy off-lane fastembed bins
-        run: |
-          ulimit -n 8192 || true
-          cargo clippy --locked \
-            -p generate_validated_schema_org_seeds \
-            --bins \
-            -- -D warnings
       - name: Start the default schema service and read its seed vocabulary
         run: |
           set -euo pipefail

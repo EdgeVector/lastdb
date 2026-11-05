@@ -6,12 +6,6 @@ edition.workspace = true
 publish.workspace = true
 description = "Schema service registry brain — schema dedup, canonical fields, views, transforms. Embedder injected by callers (no fastembed/ONNX dep)."
 
-[features]
-# Offline generators only. The Lambda crate must not
-# enable this: include_str! of the Schema.org JSON-LD and classification
-# overlay is several MiB in the bootstrap zip.
-schema-org-seed-data = []
-
 [dependencies]
 schema_core_resolver = { workspace = true }
 schema_types = { workspace = true }

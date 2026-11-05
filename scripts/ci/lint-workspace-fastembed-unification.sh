@@ -20,12 +20,15 @@
 #      .github/workflows/ci-required.yml.
 #   2. cargo tree: bulk workspace (allowlist excluded) must NOT link fastembed.
 #   3. cargo tree: each allowlisted package MUST link fastembed (coverage still
-#      exists for the off-lane path).
-#   4. cargo tree: bare --workspace (no excludes) MUST link fastembed — proving
-#      why the heavy job must exclude the force-packages.
+#      exists for the off-lane path). An empty allowlist skips this check.
+#   4. cargo tree: bare --workspace (no excludes) must NOT link fastembed.
+#      The generator that forced FastEmbed into that resolve is gone. A future
+#      hard features=["fastembed"] fails check 1, and fails this check too if
+#      that dependency is active in the bare resolve.
 #   5. GitHub workflow hygiene: full_workspace_check timeout ≤45m, bulk clippy
 #      excludes the allowlist, off-lane step names each allowlist package, and
 #      the heavy job keeps the fastembed force-packages in a separate lane.
+#      An empty allowlist has nothing to exclude.
 #
 # Runs on the required GitHub Mini gate (every PR) so this cannot wait for a
 # post-merge 60m blowup to be noticed.
@@ -36,10 +39,9 @@ cd "$ROOT"
 
 # Packages that force features=["fastembed"] (or equivalent) as a hard dep.
 # Keep in sync with .github/workflows/ci-required.yml full_workspace_check
-# excludes.
-ONNX_FORCE_PACKAGES=(
-  generate_validated_schema_org_seeds
-)
+# excludes. Empty: the validated Schema.org seed generator was the only
+# package that forced FastEmbed into a bare workspace resolve.
+ONNX_FORCE_PACKAGES=()
 
 GITHUB_HEAVY_CI=".github/workflows/ci-required.yml"
 # The required GitHub job has a 45-minute deadline, including a cold build.
@@ -203,8 +205,8 @@ for p in "${ONNX_FORCE_PACKAGES[@]}"; do
     -p "$p" -i fastembed
 done
 
-assert_present \
-  "bare --workspace resolve (shows why force-packages need exclusion)" \
+assert_absent \
+  "bare --workspace resolve" \
   --workspace -i fastembed
 
 # --- 5. GitHub workflow must keep the split + job deadline -----------------

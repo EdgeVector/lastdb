@@ -236,7 +236,7 @@ jobs:
             mapfile -t packages < <(
               cargo metadata --no-deps --format-version 1 \
                 | jq -r '.packages[].name' \
-                | grep -Ev '^(fold_db|observability|lastdb_node|lastdb_host|lastdb_uds|lastdb_identity|schema_service_core|schema_service_client|schema_service_server_shared|wasm_compiler|schema_service_server_http|schema_service_server_lambda|schema_service_s3|app_identity_crypto|folddb_profile|generate_schema_org_classifications|generate_validated_schema_org_seeds)$' \
+                | grep -Ev '^(fold_db|observability|lastdb_node|lastdb_host|lastdb_uds|lastdb_identity|schema_service_core|schema_service_client|schema_service_server_shared|wasm_compiler|schema_service_server_http|schema_service_server_lambda|schema_service_s3|app_identity_crypto|folddb_profile)$' \
                 | sort
             )
             if [ "${#packages[@]}" -eq 0 ]; then
