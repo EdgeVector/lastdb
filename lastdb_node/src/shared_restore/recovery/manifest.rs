@@ -59,10 +59,7 @@ pub struct SnapshotContents {
 impl SnapshotContents {
     pub fn seal(&self, content_key: &[u8; 32]) -> Result<Vec<u8>> {
         self.validate()?;
-        let plaintext = Zeroizing::new(
-            serde_json::to_vec(self)
-                .map_err(|_| RestoreError::Invalid("snapshot manifest JSON"))?,
-        );
+        let plaintext = self.encode_plaintext()?;
         let sealed = seal(content_key, &self.database_id, MANIFEST_ROLE, &plaintext)?;
         if sealed.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(RestoreError::Limit("shared snapshot manifest"));
