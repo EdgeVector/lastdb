@@ -176,7 +176,9 @@ class Operation:
             self.schema = self.scope["schema_name"]
             identity = {"portable_id": self.scope["schema_id"]}
         else:
-            namespace = "cloud-shared-proof-" + self.scope["database_id"].replace("-", "")
+            database = uuid.UUID(self.scope["database_id"])
+            suffix = base64.b32encode(database.bytes).decode().lower().rstrip("=")
+            namespace = "cloud-proof-" + suffix
             name = "CloudSharedProof"
             declaration = self.root / "declaration.json"
             save_json(declaration, {
