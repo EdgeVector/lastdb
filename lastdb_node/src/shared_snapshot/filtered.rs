@@ -53,7 +53,7 @@ impl FilteredCheckpoint {
             .map_err(|_| RestoreError::Invalid("shared checkpoint accepted ends"))?;
         let progress = source.progress().clone();
         let delete_reclaimed_through_ms = source.delete_reclaimed_through_ms();
-        let schemas: Vec<_> = source
+        let mut schemas: Vec<_> = source
             .definitions()
             .iter()
             .map(|(local_schema, definition)| SnapshotSchema {
@@ -61,6 +61,7 @@ impl FilteredCheckpoint {
                 definition: definition.clone(),
             })
             .collect();
+        schemas.sort_unstable_by(|left, right| left.definition.id().cmp(right.definition.id()));
         check_root(root)?;
         fs::DirBuilder::new().mode(0o700).create(root)?;
         File::open(
