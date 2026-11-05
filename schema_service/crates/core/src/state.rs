@@ -184,8 +184,7 @@ pub struct SchemaServiceState {
     /// re-runs on every Lambda cold start / actix binary start, so
     /// the set doesn't need to be persisted.
     pub system_schema_hashes: Arc<RwLock<HashSet<String>>>,
-    /// True while an authoritative seeder (`builtin_schemas::seed`,
-    /// `schema_org_seeds::seed`) is loading
+    /// True while an authoritative seeder (`builtin_schemas::seed`) is loading
     /// its committed schemas at startup. Gates OFF the fuzzy
     /// **reuse-before-NEW** path ([`crate::state_matching::SchemaServiceState::find_purpose_reuse_target`])
     /// so an authoritative schema can never be silently expanded into a

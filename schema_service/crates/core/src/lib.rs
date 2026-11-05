@@ -65,7 +65,6 @@ pub mod resolver_config;
 pub mod schema_config;
 pub mod schema_expansion_commit;
 pub mod schema_mutation_gate;
-pub mod schema_org_seeds;
 pub mod schema_resolver_abi;
 pub mod shared_surface;
 pub mod snapshot;

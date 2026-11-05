@@ -45,9 +45,7 @@ SCHEMA_RUNTIME_ARGS =
   "-p schema_service_server_http -p schema_service_server_lambda " \
   "-p schema_service_s3"
 SUPPORT_ARGS =
-  "-p app_identity_crypto -p folddb_profile " \
-  "-p exemem_common -p generate_schema_org_classifications " \
-  "-p generate_validated_schema_org_seeds"
+  "-p app_identity_crypto -p folddb_profile -p exemem_common"
 
 def matrices(fam)
   clippy = [{ shard: "fmt", args: "fmt" }]

@@ -193,7 +193,6 @@ Two `FoldDB` instances in one process cannot have different budgets.
 | `lastdb_uds` | 3,208 | `access` types, `access::peer_cred`, one clock call |
 | `lastdb_host` | 5,319 | `schema::types` (33 references), `db_operations`, `mutation_manager`, `access` |
 | `lastdb_node` | 60,194 | almost every module |
-| `generate_schema_org_classifications` | 859 | nothing: the manifest declares `fold_db`, and the source has no `fold_db` path |
 
 Each crate in the table builds the full `fold_db` dependency set:
 `reqwest`, `openssl`, `laststore`, `tokio`, `aes-gcm`, `ed25519-dalek`, and `libc`.
@@ -311,7 +310,6 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 
 | PR | Change | Done when |
 |---|---|---|
-| 1a | Remove the unused `fold_db` dependency from `generate_schema_org_classifications`. | The manifest has no `fold_db`. |
 | 1b | Add the leaf crate `lastdb_primitives` with `hex`, the `security` key types, and the `access` request types. Move `access::peer_cred` (libc FFI) into `lastdb_uds`. `lastdb_uds` reads its one clock value directly. | `lastdb_identity` and `lastdb_uds` do not depend on `fold_db`. |
 | 1c | Move `sync/auth` into a new crate, `lastdb_backup_transport`, that `lastdb_node` uses. Rename `sync::capture` to `fold_db_core::admission`. Drop `reqwest` and the `otel` feature from the `fold_db` manifest. | `fold_db` has no `reqwest` reference. |
 

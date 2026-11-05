@@ -2072,29 +2072,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate_schema_org_classifications"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "schema_service_core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "generate_validated_schema_org_seeds"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "schema_service_core",
- "schema_service_server_shared",
- "schema_types",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

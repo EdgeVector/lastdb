@@ -99,9 +99,7 @@ impl Default for FoldDbFastEmbedder {
 
 impl Embedder for FoldDbFastEmbedder {
     fn embedder_id(&self) -> &'static str {
-        // Matches the `embedder` field in
-        // `schema_service_core/data/schema_org/validated_canonical_fields.json`
-        // and the snapshot envelope's `embedder_version`.
+        // Matches the snapshot envelope's `embedder_version`.
         EMBEDDER_ID
     }
 

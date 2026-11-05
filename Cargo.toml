@@ -17,8 +17,6 @@ members = [
     "schema_service/crates/server_lambda",
     "schema_service/crates/client",
     "schema_service/crates/schema_service_s3",
-    "schema_service/scripts/generate_schema_org_classifications",
-    "schema_service/scripts/generate_validated_schema_org_seeds",
 
     # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
     "app_identity_crypto",
@@ -79,8 +77,6 @@ default-members = [
     "schema_service/crates/server_lambda",
     "schema_service/crates/client",
     "schema_service/crates/schema_service_s3",
-    "schema_service/scripts/generate_schema_org_classifications",
-    "schema_service/scripts/generate_validated_schema_org_seeds",
     "app_identity_crypto",
     "folddb_profile",
 
