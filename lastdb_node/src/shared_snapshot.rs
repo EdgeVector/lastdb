@@ -80,13 +80,15 @@ pub trait SnapshotTransport: Sync {
         deadline_ms: u64,
     ) -> Result<SealedObject>;
 
-    /// Repeating this exact input must reconcile to its durable receipt, even
-    /// if a later snapshot has become current.
-    async fn publish(
+    async fn stage_inventory(
         &self,
         manifest: &SnapshotManifest,
         inventory: &[SealedObject],
-    ) -> Result<PublishReply>;
+    ) -> Result<()>;
+
+    /// Repeating this exact input must reconcile to its durable receipt, even
+    /// if a later snapshot has become current.
+    async fn publish(&self, manifest: &SnapshotManifest) -> Result<PublishReply>;
 }
 
 pub enum SnapshotOutcome {
@@ -123,8 +125,16 @@ pub async fn publish(
         require_capture(source.cut(), &contents)?;
         let first_submission = matches!(intent.phase, Phase::Prepared);
         if first_submission {
-            if let Err(error) = upload(source, transport, &intent.manifest, &contents, sealed).await
-            {
+            let transfer = async {
+                upload(source, transport, &intent.manifest, &contents, sealed).await?;
+                within_freeze(
+                    source.cut(),
+                    transport.stage_inventory(&intent.manifest, &inventory),
+                )
+                .await
+            }
+            .await;
+            if let Err(error) = transfer {
                 intent.phase = Phase::Abandoned;
                 store.save(&intent)?;
                 source.thaw(&intent.manifest.snapshot_id).await?;
@@ -133,7 +143,7 @@ pub async fn publish(
             intent.phase = Phase::Submitting;
             store.save(&intent)?;
         }
-        let publish = transport.publish(&intent.manifest, &inventory);
+        let publish = transport.publish(&intent.manifest);
         let reply = if first_submission {
             within_freeze(source.cut(), publish).await?
         } else {
