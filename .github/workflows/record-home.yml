@@ -65,7 +65,13 @@ jobs:
                       ;;
                   esac
                   case "$path" in
-                    fold_db/crates/core/src/storage/format.rs|scripts/operations/record_home_copy.py|scripts/operations/record_requests.py|scripts/benchmarks/node.py|scripts/benchmarks/home_format.py|.github/workflows/record-home.yml)
+                    fold_db/crates/core/src/storage/format.rs|fold_db/crates/model/src/record_value.rs|\
+                    lastdb_host/src/handlers/query/response.rs|lastdb_host/src/handlers/mutation.rs|\
+                    lastdb_node/src/exec/file_blob*.rs|lastdb_node/src/exec/schema_routes.rs|\
+                    lastdb_node/src/exec/app_routes.rs|lastdb_node/src/exec/app_routes/*.rs|\
+                    lastdb_node/src/exec/db_maintenance/schema_maps.rs|\
+                    scripts/operations/record_home_copy.py|scripts/operations/record_requests.py|\
+                    scripts/benchmarks/node.py|scripts/benchmarks/home_format.py|.github/workflows/record-home.yml)
                       copy_v12=true
                       ;;
                   esac

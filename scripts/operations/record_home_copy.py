@@ -225,6 +225,7 @@ def seed(source):
     require(any(row["schema"] == HASH_SCHEMA and row["records_erased"] == 1
                 for row in source.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]),
             "source delete was absent from its audit ledger")
+    stale.update(mutation_type="replace", record={"text": "stale before the delete"})
     now = int(time.time())
     old, fresh = f"{now - TTL_SECONDS - 5:020d}-old", f"{now:020d}-fresh"
     retention(source, RANGE_SCHEMA, "set", ttl_seconds=TTL_SECONDS)
@@ -243,6 +244,8 @@ def verify_legacy_boundaries(source, target, stale):
         require(getattr(error, "status", None) == 409, "legacy condition refused for the wrong reason")
     else:
         raise RuntimeError("a legacy revision condition wrote to the new home")
+    require(("removed", "") not in list_keys(target, HASH_SCHEMA),
+            "a stale replacement brought back the deleted source record")
     retention(source, HASH_SCHEMA, "set", ttl_seconds=TTL_SECONDS)
     try:
         capture(source, HASH_SCHEMA)
