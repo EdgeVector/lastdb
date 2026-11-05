@@ -55,7 +55,9 @@ def replace_bytes(node, number):
     reply = node.call("/api/db/put-blob", {
         "mutation": request, "bytes_b64": base64.b64encode(data).decode()})[0]
     digest = hashlib.sha256(data).hexdigest()
-    require(reply["file"]["sha256"] == digest and reply["record_revision"],
+    row = read_records(node, [request])[coordinate(SCHEMA, request["key_value"])]
+    require(reply["file"]["sha256"] == digest
+            and row["revision"] != request["expected"]["revision"],
             "put-blob replacement did not publish the new file version")
     return digest
 
