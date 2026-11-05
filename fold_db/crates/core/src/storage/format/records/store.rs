@@ -58,9 +58,8 @@ impl RecordFormat {
         self.require_scope()?;
         let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
-        // File-free results always delete their owned path idempotently.
-        // Retained references need the actual record preimage in one batch;
-        // a provider cannot suppress cleanup or authorize a new reference.
+        // Resolve the prior file version from the actual record preimage.
+        // A provider cannot suppress cleanup or authorize a new reference.
         let files = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
@@ -85,7 +84,6 @@ impl RecordFormat {
         }
         let keys: Vec<_> = changes
             .iter()
-            .filter(|change| change.after.file.is_some())
             .map(|change| change.key.as_str().as_bytes().to_vec())
             .collect();
         let expected = keys.len();
@@ -95,16 +93,8 @@ impl RecordFormat {
                 "incomplete file record read".into(),
             ));
         }
-        let mut stored = stored.into_iter();
         let mut rows = Vec::with_capacity(changes.len());
-        for change in changes {
-            let bytes = if change.after.file.is_some() {
-                stored
-                    .next()
-                    .ok_or_else(|| SchemaError::InvalidData("incomplete file record read".into()))?
-            } else {
-                None
-            };
+        for (change, bytes) in changes.into_iter().zip(stored) {
             let before = bytes
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()

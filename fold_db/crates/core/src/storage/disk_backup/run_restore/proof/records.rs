@@ -60,10 +60,10 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
         return Ok(false);
     }
     let record = StoredRecord::decode(body).map_err(|_| invalid("run backup record format"))?;
-    if record.file.is_none() {
+    let Some(version) = record.file_version else {
         return Ok(false);
-    }
-    let path = crate::storage::current_keys::families::record_file_path(raw)
+    };
+    let path = crate::storage::current_keys::families::record_file_path(raw, &version)
         .map_err(|_| invalid("run backup record file path"))?;
     super::phase(super::Stage::NativeCas, file_in_backup(proof, &path))?;
     Ok(true)

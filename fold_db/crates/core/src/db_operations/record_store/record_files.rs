@@ -3,6 +3,7 @@
 use super::RecordStore;
 use crate::error::FoldDbError;
 use crate::schema::types::FileWrite;
+use lastdb_model::portable_mutation::Position;
 use lastdb_model::record_value::FileMarker;
 
 impl RecordStore {
@@ -18,8 +19,11 @@ impl RecordStore {
     pub(crate) async fn open_record_file(
         &self,
         record_key: &str,
+        version: &Position,
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        self.format.open_record_file(record_key, marker).await
+        self.format
+            .open_record_file(record_key, version, marker)
+            .await
     }
 }

@@ -77,8 +77,7 @@ fn encode(
             ));
         }
         let after = Arc::new(change.after);
-        // Every changed address participates. A file-free result requires
-        // its owned path to be absent, independent of the before hint.
+        // Every changed address participates in the file-version decision.
         files.push(files::FileChange {
             key: change.key.clone(),
             after: Arc::clone(&after),

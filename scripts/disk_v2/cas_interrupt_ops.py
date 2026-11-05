@@ -48,6 +48,18 @@ def put(node, number):
     return sha256
 
 
+def replace_bytes(node, number):
+    fields = {"id": key(number), "note": NOTE, "detail": "initial"}
+    request = replacement(node, number, fields, retain_file=False)
+    data = hashlib.shake_256(b"generated replacement file").digest(FILE_BYTES)
+    reply = node.call("/api/db/put-blob", {
+        "mutation": request, "bytes_b64": base64.b64encode(data).decode()})[0]
+    digest = hashlib.sha256(data).hexdigest()
+    require(reply["file"]["sha256"] == digest and reply["record_revision"],
+            "put-blob replacement did not publish the new file version")
+    return digest
+
+
 def seed(node):
     """Put COUNT + 2 records, each with one file. Return the expected state."""
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
@@ -55,6 +67,7 @@ def seed(node):
         "record_keys": {"primary": {"kind": "hash"}, "alternates": {}}, "fields": list(FIELDS), "field_types": {"id": "String"},
         "field_descriptions": {field: SCHEMA + " " + field for field in FIELDS}}})
     expected = parallel(lambda number: put(node, number), range(COUNT + 2))
+    expected[0] = replace_bytes(node, 0)
     # Each ordinary replacement supplies the complete fields and retained marker.
     # A second replacement is conditional on the first replacement's revision.
     for fields in ({"id": key(COUNT), "note": NOTE + " updated", "detail": "initial"},
