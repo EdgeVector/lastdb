@@ -33,7 +33,7 @@ pub struct SnapshotFile {
 }
 
 /// Exact service definition and the runtime alias in the frozen files.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotSchema {
     pub local_schema: String,
@@ -67,7 +67,7 @@ impl SnapshotContents {
         Ok(sealed)
     }
 
-    pub(super) fn open(
+    pub(crate) fn open(
         sealed: &[u8],
         manifest: &SnapshotManifest,
         content_key: &[u8; 32],
@@ -86,15 +86,15 @@ impl SnapshotContents {
         {
             return Err(RestoreError::Invalid("snapshot manifest scope"));
         }
-        let mut objects: Vec<_> = contents
-            .files
-            .iter()
-            .map(|file| file.object.clone())
-            .collect();
-        objects.sort_unstable_by(|left, right| left.version_id.cmp(&right.version_id));
-        manifest.validate_inventory(&objects)?;
+        manifest.validate_inventory(&contents.inventory())?;
         contents.validate_covers(manifest)?;
         Ok(contents)
+    }
+
+    pub(crate) fn inventory(&self) -> Vec<SealedObject> {
+        let mut objects: Vec<_> = self.files.iter().map(|file| file.object.clone()).collect();
+        objects.sort_unstable_by(|left, right| left.version_id.cmp(&right.version_id));
+        objects
     }
 
     fn encode_plaintext(&self) -> Result<Zeroizing<Vec<u8>>> {

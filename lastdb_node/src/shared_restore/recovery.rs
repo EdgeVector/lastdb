@@ -23,7 +23,8 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 mod manifest;
 pub use manifest::{seal_log, SnapshotContents, SnapshotFile, SnapshotSchema};
 
-const MAX_MANIFEST_BYTES: u64 = cloud_backup_protocol::limits::DECODED_VALUES_MAX_BYTES / 2;
+pub(crate) const MAX_MANIFEST_BYTES: u64 =
+    cloud_backup_protocol::limits::DECODED_VALUES_MAX_BYTES / 2;
 const MAX_SEALED_LOG_BYTES: u64 = MAX_LOG_BYTES as u64 + 64;
 
 /// A response body from the authenticated service or its exact-object grant.

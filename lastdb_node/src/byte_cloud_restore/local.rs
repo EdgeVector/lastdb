@@ -74,7 +74,7 @@ fn validate_file(file: &File) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn writable_file(path: &Path, truncate: bool) -> Result<File> {
+pub(crate) fn writable_file(path: &Path, truncate: bool) -> Result<File> {
     let file = OpenOptions::new()
         .write(true)
         .create(true)
