@@ -18,8 +18,6 @@
 # auto-resolve (e.g. a partially-staged file whose unstaged hunks would still
 # be unformatted after fmt).
 #
-# To install (idempotent; run.sh also does this on every launch):
-#   scripts/install-hooks.sh
 # To bypass (use sparingly): git commit --no-verify
 
 set -euo pipefail
