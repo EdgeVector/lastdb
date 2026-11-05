@@ -20,6 +20,7 @@ pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
 pub mod portable_mutation;
+pub mod portable_replay;
 pub mod record_replacement;
 pub mod record_space;
 pub mod record_value;
