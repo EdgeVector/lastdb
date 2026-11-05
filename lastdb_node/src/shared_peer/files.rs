@@ -1,13 +1,12 @@
 use super::{proof_expires, PeerWorker, RestoreError, Result};
 use cloud_backup_protocol::shared::peer::PeerFileRequest;
-use cloud_backup_protocol::shared::WriterStream;
+use cloud_backup_protocol::shared::{
+    WriterStream, MAX_BATCH_FILE_BYTES, MAX_SINGLE_BATCH_FILE_BYTES,
+};
 use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::portable_mutation::{MutationEntry, MutationOperation, Position, StreamId};
 use std::collections::BTreeMap;
 use tokio::io::{AsyncRead, AsyncReadExt};
-
-const FILE_INPUT_BYTES: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
-const ENVELOPE_ALLOWANCE: u64 = 64;
 
 impl PeerWorker<'_> {
     pub(super) async fn files(
@@ -17,7 +16,7 @@ impl PeerWorker<'_> {
         needed: Vec<usize>,
     ) -> Result<BTreeMap<Position, Vec<u8>>> {
         let mut files = BTreeMap::new();
-        let mut remaining = FILE_INPUT_BYTES + ENVELOPE_ALLOWANCE;
+        let mut remaining = MAX_SINGLE_BATCH_FILE_BYTES;
         for index in needed {
             let entry = entries
                 .get(index)
@@ -31,8 +30,8 @@ impl PeerWorker<'_> {
             }
             let maximum = marker
                 .size_bytes
-                .checked_add(ENVELOPE_ALLOWANCE)
-                .filter(|size| *size <= FILE_INPUT_BYTES + ENVELOPE_ALLOWANCE)
+                .checked_add(MAX_SINGLE_BATCH_FILE_BYTES - MAX_BATCH_FILE_BYTES)
+                .filter(|size| *size <= MAX_SINGLE_BATCH_FILE_BYTES)
                 .ok_or(RestoreError::Limit("peer native file input"))?
                 .min(remaining);
             let request = PeerFileRequest {

@@ -8,7 +8,7 @@ use crate::shared_restore::{resolve_schemas, schema_id};
 use cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
 use cloud_backup_protocol::shared::peer::{PeerHeadsRequest, PeerNextRequest};
 use cloud_backup_protocol::shared::{StreamCut, WriterStream};
-use cloud_backup_protocol::{DecimalU64, Id};
+use cloud_backup_protocol::{DecimalU64, ErrorCode, Id};
 use fold_db::fold_db_core::mutation_manager::portable_replay::{ReplayBinding, ReplayCandidate};
 use fold_db::fold_db_core::MutationManager;
 use fold_db::portable_mutation::StreamId;
@@ -113,31 +113,57 @@ impl<'a> PeerWorker<'a> {
             self.last_peer = Some(cut.source_stream.clone());
             let cursor = progress.get(&stream);
             let after = cursor.map_or(0, |cursor| cursor.applied_through);
+            let through = cut.head.as_ref().map_or(0, |head| head.sequence.get());
+            if after > through {
+                return Err(RestoreError::Invalid("peer head predates the local position").into());
+            }
+            if after == through {
+                continue;
+            }
+            if cursor.is_some() {
+                match self.apply(native, &reader, &stream).await {
+                    Ok(Some(through)) => {
+                        return Ok(PeerOutcome::Applied {
+                            stream: cut.source_stream.clone(),
+                            through,
+                        })
+                    }
+                    Ok(None) => {}
+                    Err(PeerError::Transport(BackupTransportError::Protocol(error)))
+                        if error.code == ErrorCode::SourceUnavailable
+                            && error.field == "shared.peer.reclaimed" =>
+                    {
+                        return Ok(PeerOutcome::NeedsCheckpoint {
+                            stream: cut.source_stream.clone(),
+                        });
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             if after < cut.reclaimed_through.get() {
                 return Ok(PeerOutcome::NeedsCheckpoint {
                     stream: cut.source_stream.clone(),
                 });
             }
-            let through = cut.head.as_ref().map_or(0, |head| head.sequence.get());
-            if after > through {
-                return Err(RestoreError::Invalid("peer head predates the local position").into());
-            }
-            if after < through {
-                self.stage(
-                    native,
-                    &reader,
-                    cut,
-                    stream.clone(),
-                    after,
-                    cursor.is_none(),
-                )
-                .await?;
-                let through = self.apply(native, &reader, stream).await?;
-                return Ok(PeerOutcome::Applied {
-                    stream: cut.source_stream.clone(),
-                    through,
-                });
-            }
+            self.stage(
+                native,
+                &reader,
+                cut,
+                stream.clone(),
+                after,
+                cursor.is_none(),
+            )
+            .await?;
+            let through =
+                self.apply(native, &reader, &stream)
+                    .await?
+                    .ok_or(RestoreError::Invalid(
+                        "staged peer range did not reach replay",
+                    ))?;
+            return Ok(PeerOutcome::Applied {
+                stream: cut.source_stream.clone(),
+                through,
+            });
         }
         Ok(PeerOutcome::Idle)
     }
@@ -194,10 +220,13 @@ impl<'a> PeerWorker<'a> {
         &mut self,
         native: &MutationManager,
         reader: &WriterStream,
-        stream: StreamId,
-    ) -> Result<u64> {
+        stream: &StreamId,
+    ) -> Result<Option<u64>> {
         let streams = BTreeSet::from([stream.clone()]);
         let entries = native.portable_peer_candidates(&streams).await?;
+        if entries.is_empty() {
+            return Ok(None);
+        }
         let refs = entries.iter().collect::<Vec<_>>();
         resolve_schemas(self.db, self.schema_service, &mut self.schemas, &refs).await?;
         let candidates = entries
@@ -233,10 +262,12 @@ impl<'a> PeerWorker<'a> {
             .apply_portable_inbox(&streams, &definitions, files)
             .await?;
         let cursor = native.portable_peer_progress(&streams).await?;
-        Ok(cursor
-            .get(&stream)
-            .ok_or(RestoreError::Invalid("missing peer cursor"))?
-            .applied_through)
+        Ok(Some(
+            cursor
+                .get(stream)
+                .ok_or(RestoreError::Invalid("missing peer cursor"))?
+                .applied_through,
+        ))
     }
 }
 
