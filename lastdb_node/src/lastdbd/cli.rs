@@ -19,8 +19,7 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) data_dir: Option<PathBuf>,
 
-    /// Worker socket path. The proxy owns the public socket when this option
-    /// points at a private path. The default is `<home>/data/folddb.sock`.
+    /// Worker socket path. The default is `<home>/data/folddb.sock`.
     #[arg(long)]
     pub(crate) socket_path: Option<PathBuf>,
 
