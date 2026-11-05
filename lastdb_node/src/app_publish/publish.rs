@@ -1,5 +1,6 @@
 //! Lockfile and promote.
 
+use super::release::{mint_dev_cert, sign_envelope_b64};
 use super::*;
 
 // ─── Manifest lockfile (schema name → stored catalog identity) ────────────

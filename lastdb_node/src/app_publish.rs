@@ -52,5 +52,4 @@ use http::*;
 pub use install::*;
 pub use manifest::*;
 pub use publish::*;
-pub use release::*;
 pub use schema_check::*;
