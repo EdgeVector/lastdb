@@ -10,14 +10,14 @@ pub use schema_types::SchemaSource;
 /// Declarative schema definition - the primary schema representation.
 ///
 /// This is [`schema_types::DeclarativeSchemaDefinition`] (the wire fields, the
-/// identity hash, construction, equality and parsing) plus `runtime_fields` for
-/// field key hydration. Every wire field and method is reached through `Deref`,
-/// so there is one definition of the schema shape in the workspace.
+/// identity hash, construction, equality and parsing) plus `runtime_fields`.
+/// Every wire field and method is reached through `Deref`, so there is one
+/// definition of the schema shape in the workspace.
 #[derive(Debug, Clone)]
 pub struct DeclarativeSchemaDefinition {
     wire: schema_types::DeclarativeSchemaDefinition,
-    /// Runtime field storage with field keys (for database operations). Not
-    /// serialized and not part of equality.
+    /// Runtime field storage for database operations. Not serialized and not
+    /// part of equality. A payload field has no key.
     pub runtime_fields: HashMap<String, FieldVariant>,
 }
 

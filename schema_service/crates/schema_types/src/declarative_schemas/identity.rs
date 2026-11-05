@@ -62,8 +62,8 @@ pub fn refuses_identity_downgrade(
 ///
 /// This takes primitives rather than a schema so that every schema type in the
 /// monorepo can call it. `fold_db`'s `DeclarativeSchemaDefinition` is a
-/// genuinely distinct struct (it carries `runtime_fields` for field key
-/// hydration), and it used to carry a byte-identical *copy* of this function
+/// genuinely distinct struct (it carries `runtime_fields`), and it used to
+/// carry a byte-identical *copy* of this function
 /// kept in sync by a doc comment reading "Must match Schema Service". The
 /// comments drifted first and the logic drifted later: a binary computing
 /// without the `:key:` segment persisted its own answer over the correct one,

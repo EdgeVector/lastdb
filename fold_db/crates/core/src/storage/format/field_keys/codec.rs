@@ -75,8 +75,8 @@ pub(super) fn open_wrap(
             "field key bundle wrap is not encrypted".into(),
         ));
     }
-    // The generated bundle contains only three fixed-size keys, so a wrap
-    // above this bound is not one that `make_wrap` wrote.
+    // A generated bundle is one blind key. A wrap above this bound is not
+    // one that `make_wrap` wrote. Older wraps may also contain unused keys.
     let plaintext = zeroize::Zeroizing::new(
         crate::crypto::at_rest::open_at_rest_bounded(
             wrapping_key,

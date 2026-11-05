@@ -11,8 +11,7 @@ impl QueryExecutor {
         &self,
         query: &Query,
     ) -> Result<Option<Schema>, SchemaError> {
-        // Reads and counts replace their field keys. Keep the registry clone
-        // free of hydrated field key data that either path would discard.
+        // The record-space and alternate bundles load ahead of the read.
         let Some(schema) = self
             .schema_manager
             .get_schema_following_supersession_for_read(&query.schema_name)

@@ -80,15 +80,6 @@ impl FieldKeyCodec {
         }
     }
 
-    /// Public format identity only; no encryption key material enters a cursor.
-    ///
-    /// The `kc1:`/`qc1:` cursor identity hashes this text, so it must stay
-    /// byte-identical or open client cursors stop resolving.
-    #[must_use]
-    pub fn comparison_format(&self) -> &'static str {
-        "blind-v1/plain:typed-scalar-v1"
-    }
-
     /// Map API HashKey to storage-form hash segment.
     ///
     /// Empty API hash (range-only / Single slots) is never blinded.

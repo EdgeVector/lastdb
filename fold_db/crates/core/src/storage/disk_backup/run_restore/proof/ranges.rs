@@ -34,34 +34,26 @@ pub(super) fn verify(
         schema
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
-        let profile = schema
+        schema
             .require_record_keys()
             .map_err(|_| invalid("run backup schema has no explicit record keys"))?
             .primary
             .range_profile()
             .map_err(|_| invalid("run backup record key has no typed profile"))?;
-        let mut field_keys = schema
-            .runtime_fields
-            .values()
-            .map(|field| {
-                field
-                    .common()
-                    .field_key_id
-                    .as_deref()
-                    .ok_or_else(|| invalid("run backup field key is absent"))
-            })
-            .collect::<StorageResult<Vec<_>>>()?;
-        field_keys.sort_unstable();
-        field_keys.dedup();
-        for chunk in field_keys.chunks(128) {
-            batch(main, account_key, profile, chunk)?;
-        }
-        // A home adds the record space of each schema.
-        for (field_key, alternate_profile) in
+        let mut grouped: Vec<(FieldRangeProfile, Vec<String>)> = Vec::new();
+        for (field_key, profile) in
             crate::storage::field_key_store::schema_field_key_profiles(&schema)?
         {
-            if !field_keys.contains(&field_key.as_str()) {
-                batch(main, account_key, alternate_profile, &[field_key.as_str()])?;
+            if let Some((_, keys)) = grouped.iter_mut().find(|(found, _)| *found == profile) {
+                keys.push(field_key);
+            } else {
+                grouped.push((profile, vec![field_key]));
+            }
+        }
+        for (profile, field_keys) in grouped {
+            let refs: Vec<&str> = field_keys.iter().map(String::as_str).collect();
+            for chunk in refs.chunks(128) {
+                batch(main, account_key, profile, chunk)?;
             }
         }
     }

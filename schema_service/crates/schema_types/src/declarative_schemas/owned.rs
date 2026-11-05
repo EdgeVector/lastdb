@@ -77,11 +77,10 @@ impl DeclarativeSchemaDefinition {
         })
     }
 
-    /// Drop declared field hashes and field keys, so an owned schema computes
-    /// them from its own declaration.
+    /// Drop declared field hashes so an owned schema computes them from its
+    /// own declaration.
     pub fn reset_field_hashes(&mut self) {
         self.field_hashes.clear();
-        self.field_key_ids = None;
     }
 
     /// The normalization every wire load applies: `hash` and `superseded_by`

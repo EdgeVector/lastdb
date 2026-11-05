@@ -25,10 +25,7 @@ pub struct KeyComparisonContext {
 }
 
 impl KeyComparisonContext {
-    pub(crate) fn for_schema(
-        schema: &Schema,
-        formats: &[(String, String, &'static str)],
-    ) -> Result<Self, SchemaError> {
+    pub(crate) fn for_schema(schema: &Schema) -> Result<Self, SchemaError> {
         let keys = schema.require_record_keys()?;
         let range_type = keys
             .primary
@@ -42,14 +39,13 @@ impl KeyComparisonContext {
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
         let bytes = serde_json::to_vec(&(
-            "lastdb-key-comparison-v1",
+            "lastdb-key-comparison-v2",
             &schema.name,
             &schema.identity_hash,
             &schema.owner_app_id,
             &schema.schema_type,
             keys,
             &range_comparison,
-            formats,
         ))
         .map_err(|_| SchemaError::InvalidData("cannot encode key comparison context".into()))?;
         Ok(Self {
@@ -78,7 +74,7 @@ impl KeyComparisonContext {
         Ok(format!("qc1:{:x}", Sha256::digest(bytes)))
     }
 
-    /// Nested field reads must retain the same captured declaration and formats.
+    /// Nested reads must retain the same captured declaration.
     pub async fn run<T, E>(
         self: Arc<Self>,
         future: impl Future<Output = Result<T, E>>,
