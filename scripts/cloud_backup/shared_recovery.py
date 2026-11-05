@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Publish and restore a generated two-device database in protected DEV CI."""
+
+import argparse
+import base64
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import sys
+import tempfile
+import uuid
+
+sys.dont_write_bytecode = True
+
+import baseline_data
+import native_records
+from automatic_source import durable_batch
+from baseline import private_write
+from node import OwnedNode
+from ownership import run_identity
+from programs import Programs, execute
+from recover import step_summary
+from support import (ACCOUNT, CREDENTIALS_FILE, OperationError, canonical_uuid,
+                     child_environment, decode_json, dev_endpoint, failure,
+                     private_directory, require, save_json)
+
+
+SCHEMA = "lastdb.cloud-dev-shared-recovery.v1"
+FILE_BYTES = 65536
+KEYS = ("checkpoint", "winner", "deleted", "peer-only")
+
+
+def protected_json(name):
+    raw = os.environ.pop(name, "")
+    require(0 < len(raw.encode()) <= 4096, "shared_protected_input_size")
+    return decode_json(raw)
+
+
+def scope():
+    value = protected_json("LASTDB_CLOUD_DEV_SHARED_SCOPE")
+    require(isinstance(value, dict) and set(value) == {
+        "account_id", "database_id", "publisher_device", "writers", "schema_name", "schema_id"}
+        and value["account_id"] == ACCOUNT, "shared_admitted_scope")
+    require(isinstance(value["schema_name"], str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value["schema_name"])
+            and isinstance(value["schema_id"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", value["schema_id"]), "shared_immutable_schema")
+    writers = value["writers"]
+    require(isinstance(writers, list) and len(writers) == 2
+            and all(isinstance(writer, dict) and set(writer) == {
+                "device_id", "source_stream", "public_key"} for writer in writers),
+            "shared_admitted_writers")
+    ids = [value["database_id"]]
+    keys = set()
+    for writer in writers:
+        ids.extend([writer["device_id"], writer["source_stream"]])
+        key = writer["public_key"]
+        require(isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key),
+                "shared_admitted_public_key")
+        keys.add(key)
+    require(len(set(map(canonical_uuid, ids))) == len(ids) and len(keys) == 2
+            and value["publisher_device"] in {writer["device_id"] for writer in writers},
+            "shared_distinct_writers")
+    return value
+
+
+class Operation:
+    def __init__(self, args):
+        self.args = args
+        self.root = None
+        self.root_identity = None
+        self.nodes = []
+        self.output_owned = False
+        self.summary = {"schema": SCHEMA, "result": "failed", "stage": "admission",
+                        "primary_access": False, "provider_deletions": 0}
+
+    def prepare(self):
+        source = self.args.source
+        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                and re.fullmatch(r"[0-9a-f]{40}", source), "shared_manual_accepted_source")
+        self.owner = run_identity(source)
+        require(re.fullmatch(r"[A-Za-z0-9.+_-]{1,128}", self.args.version)
+                and self.args.version.endswith(".g" + source[:9]), "shared_source_version")
+        runner = Path(os.environ.get("RUNNER_TEMP", ""))
+        require(runner.is_absolute() and runner.is_dir(), "shared_runner_temp")
+        require(self.args.output == runner / "cloud-shared-recovery", "shared_runner_output")
+        self.args.output.mkdir(mode=0o700)
+        self.output_owned = True
+        self.summary.update(owner=self.owner, source=source, version=self.args.version)
+
+        self.scope = scope()
+        self.summary["scope"] = self.scope
+        self.schema = self.scope["schema_name"]
+        self.writers = sorted(self.scope["writers"],
+                              key=lambda writer: writer["device_id"] != self.scope["publisher_device"])
+        self.snapshot = str(uuid.uuid4())
+        self.summary["snapshot_id"] = self.snapshot
+
+        phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "")
+        require(0 < len(phrase.encode()) <= 4096, "shared_recovery_phrase")
+        self.phrase = phrase.encode()
+        try:
+            self.account_seed = baseline_data.seed(self.phrase)
+        except baseline_data.BaselineDataError as error:
+            raise OperationError(str(error)) from None
+        api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
+        require(0 < len(api_key.encode()) <= 4096 and api_key.strip() == api_key
+                and all(32 <= ord(character) < 127 for character in api_key), "shared_dev_api_key")
+        self.credentials = {"api_url": dev_endpoint(), "api_key": api_key}
+        seeds = protected_json("LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS")
+        require(isinstance(seeds, dict) and set(seeds) == {
+            writer["device_id"] for writer in self.writers}, "shared_device_seed_scope")
+        require(all(isinstance(seed, str) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", seed)
+                    for seed in seeds.values()), "shared_device_seed_encoding")
+        seeds = {device: base64.b64decode(seed, validate=True) for device, seed in seeds.items()}
+        require(len(set(seeds.values()) | {self.account_seed}) == 3, "shared_independent_device_seeds")
+
+        self.root = Path(tempfile.mkdtemp(prefix="ldb-sr-", dir="/tmp")).resolve()
+        info = private_directory(self.root)
+        self.root_identity = info.st_dev, info.st_ino, info.st_uid
+        for name in ("credentials", "device-keys", "os-home", "tmp"):
+            (self.root / name).mkdir(mode=0o700)
+        for device, seed in seeds.items():
+            private_write(self.device_file(device), seed)
+        save_json(self.root / "credentials" / CREDENTIALS_FILE, self.credentials)
+        self.bindings = self.root / "schemas.json"
+        save_json(self.bindings, {self.schema: self.scope["schema_id"]})
+        self.programs = Programs(self.args.bin_dir, self.args.version, child_environment(self.root))
+        self.summary["binaries"] = self.programs.identities
+
+    def device_file(self, device):
+        return self.root / "device-keys" / device
+
+    def command(self, home, args, timeout=120):
+        self.programs.verify()
+        return execute([str(self.programs.directory / "lastdb"), "--data-dir", str(home),
+                        "cloud", *args], self.programs.environment, self.phrase, timeout)
+
+    def writer(self, node, writer, *args):
+        require(node.process is None, "shared_writer_stopped")
+        path = node.home / CREDENTIALS_FILE
+        save_json(path, self.credentials)
+        try:
+            device = writer["device_id"]
+            return self.command(node.home, ["shared-writer", "--device-id", device,
+                                "--device-key-file", str(self.device_file(device)),
+                                "--recovery-phrase-stdin", *args])
+        finally:
+            path.unlink()
+
+    def initialize(self, name, writer):
+        home = self.root / name
+        home.mkdir(mode=0o700)
+        private_write(home / "identity.key", self.account_seed)
+        node = OwnedNode(home, self.programs)
+        self.nodes.append(node)
+        node.start()
+        node.stop()
+        self.writer(node, writer, "install", "--schema-bindings", str(self.bindings))
+        self.writer(node, writer, "bind", "--database-id", self.scope["database_id"],
+                    "--source-stream", writer["source_stream"], "--schema-bindings", str(self.bindings))
+        return node
+
+    def record(self, kind, version):
+        owner = self.owner
+        return {"id": kind, "note": f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
+
+    def attach(self, node, record, label):
+        payload = hashlib.shake_256((self.snapshot + label).encode()).digest(FILE_BYTES)
+        digest = hashlib.sha256(payload).hexdigest()
+        path = self.root / "payload.bin"
+        private_write(path, payload)
+        try:
+            reply = native_records.put_file(node, self.schema, record, path)
+            require(reply["file"]["sha256"] == digest, "shared_native_file_marker")
+        finally:
+            path.unlink()
+        return digest
+
+    def push(self, node, writer, sequence):
+        raw = self.writer(node, writer, "push", "--batches", "2")
+        require(raw.splitlines() == [f"Accepted shared writer position {sequence}".encode(),
+                                    b"Shared writer caught up"], "shared_exact_accepted_end")
+        return sequence
+
+    def restore(self, destination, key_device):
+        device = self.scope["publisher_device"]
+        return self.command(self.root / "credentials", [
+            "restore-shared", "--env", "dev", "--database-id", self.scope["database_id"],
+            "--device-id", device, "--device-key-file", str(self.device_file(key_device)),
+            "--into", str(destination), "--recovery-phrase-stdin", "--json"])
+
+    def verify(self, node, records, files):
+        queries = [{"schema_name": self.schema, "filter": {"HashKey": kind}, "limit": 2, "offset": 0}
+                   for kind in KEYS]
+        replies = node.call("/api/queries/batch", {"queries": queries})["results"]
+        require(len(replies) == len(KEYS), "shared_restored_keyed_read_count")
+        for kind, reply in zip(KEYS, replies):
+            response = reply["response"]
+            rows = response["results"]
+            count = int(kind in records)
+            require(reply["status"] == 200 and response["ok"] is True
+                    and response["returned_count"] == count and len(rows) == count
+                    and response["has_more"] is False and response["next_cursor"] is None,
+                    "shared_exact_key_presence")
+            if count == 0:
+                continue
+            row = rows[0]
+            require(row["key"] == native_records.key(kind) and row["fields"] == records[kind]
+                    and row["alternates"] == {}, "shared_exact_record_value")
+            marker = (row.get("metadata") or {}).get("file")
+            if kind in files:
+                require(isinstance(marker, dict) and marker.get("size_bytes") == FILE_BYTES
+                        and marker.get("sha256") == files[kind], "shared_exact_restored_file_marker")
+            else:
+                require(marker is None, "shared_exact_record_without_file")
+        targets = [{"schema": self.schema, "records": [records[kind]], "file_bytes": FILE_BYTES,
+                    "file_sha256": digest} for kind, digest in files.items()]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(node.verify_file, targets))
+        node.health()
+
+    def execute(self):
+        a, b = self.writers
+        self.summary["stage"] = "prepare-writers"
+        first, peer = self.initialize("first", a), self.initialize("peer", b)
+        self.summary["stage"] = "publish-checkpoint"
+        first.start()
+        checkpoint, losing, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
+        durable_batch(first, [native_records.create(self.schema, native_records.key(record["id"]), record)
+                              for record in (checkpoint, losing, deleted)])
+        checkpoint_file = self.attach(first, checkpoint, "checkpoint")
+        first.stop()
+        self.summary["checkpoint_through"] = self.push(first, a, 4)
+        publication = self.root / "publication"
+        reply = self.writer(first, a, "publish", "--workspace", str(publication),
+                            "--snapshot-id", self.snapshot, "--schema-bindings", str(self.bindings),
+                            "--deadline-seconds", "90")
+        require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
+                "shared_exact_snapshot_receipt")
+        self.summary["snapshot_published"] = True
+
+        self.summary["stage"] = "publish-post-checkpoint-tails"
+        first.start()
+        previous, removed = native_records.read_records(first, self.schema, [
+            native_records.key("winner"), native_records.key("deleted")])
+        losing = self.record("winner", "first-tail")
+        durable_batch(first, [native_records.replace(self.schema, previous, losing),
+                              native_records.delete(self.schema, removed)])
+        self.attach(first, losing, "losing-tail")
+        first.stop()
+        self.summary["publisher_tail_through"] = self.push(first, a, 7)
+
+        peer.start()
+        winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
+        durable_batch(peer, [native_records.create(self.schema, native_records.key(record["id"]), record)
+                             for record in (winner, peer_only)])
+        winner_file = self.attach(peer, winner, "winning-tail")
+        peer.stop()
+        self.summary["peer_tail_through"] = self.push(peer, b, 3)
+        require(first.clean_stops == 3 and peer.clean_stops == 2, "shared_source_strict_clean_stops")
+        self.remove_sources((first, peer))
+        if os.path.lexists(publication):
+            private_directory(publication)
+            shutil.rmtree(publication)
+        self.summary.update(source_homes_removed=True, publication_workspace_removed=True)
+
+        self.summary["stage"] = "restore-owner-and-reject-impersonation"
+        rejected = self.root / "rejected"
+        try:
+            self.restore(rejected, b["device_id"])
+        except OperationError as error:
+            require(str(error) == "product_cli_refused" and not os.path.lexists(rejected),
+                    "shared_wrong_device_refusal")
+        else:
+            raise OperationError("shared_wrong_device_accepted")
+        self.summary["wrong_device_refused"] = True
+        destination = self.root / "restored"
+        receipt = decode_json(self.restore(destination, a["device_id"]))
+        require(receipt == {"activated": True, "destination": str(destination)},
+                "shared_restore_activation")
+        node = OwnedNode(destination, self.programs)
+        self.nodes.append(node)
+        records = {record["id"]: record for record in (checkpoint, winner, peer_only)}
+        files = {"checkpoint": checkpoint_file, "winner": winner_file}
+        self.summary["stage"] = "verify-restored-native-home"
+        for _ in range(2):
+            node.start()
+            self.verify(node, records, files)
+            node.stop()
+        require(node.clean_stops == 2, "shared_restored_strict_clean_stops")
+        self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
+                            exact_live_records=3, exact_absent_records=1, file_sha256=files)
+
+    def assert_owned_root(self):
+        info = private_directory(self.root)
+        require((info.st_dev, info.st_ino, info.st_uid) == self.root_identity,
+                "shared_owned_root_identity")
+
+    def remove_sources(self, nodes):
+        self.assert_owned_root()
+        for node in nodes:
+            require(node.process is None and node.home.parent == self.root, "shared_owned_stopped_source")
+            private_directory(node.home)
+            shutil.rmtree(node.home)
+
+    def cleanup(self):
+        if self.root is None:
+            return
+        self.assert_owned_root()
+        for node in self.nodes:
+            node.cleanup_stop()
+        shutil.rmtree(self.root)
+        self.summary["cleanup"] = "owned runner data removed"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bin-dir", required=True, type=Path)
+    parser.add_argument("--source", required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    os.umask(0o077)
+    operation = Operation(args)
+
+    def interrupted(_signal, _frame):
+        raise OperationError("shared_operation_cancelled_or_deadline")
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
+        signal.signal(signum, interrupted)
+    signal.alarm(340)
+    try:
+        operation.prepare()
+        operation.execute()
+    except OperationError as error:
+        operation.summary.update(failure(error))
+    except BaseException:
+        operation.summary["failure"] = "unexpected_shared_operation_error"
+    finally:
+        signal.alarm(0)
+        try:
+            operation.cleanup()
+        except BaseException:
+            operation.summary.update(result="failed", cleanup="incomplete",
+                                     failure="shared_owned_cleanup_failed", stage="cleanup")
+        if operation.summary["result"] == "passed":
+            operation.summary["stage"] = "complete"
+        if operation.output_owned:
+            save_json(args.output / "summary.json", operation.summary)
+            step_summary(operation.summary)
+        print({name: operation.summary.get(name) for name in ("result", "stage", "failure")})
+    return 0 if operation.summary["result"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
