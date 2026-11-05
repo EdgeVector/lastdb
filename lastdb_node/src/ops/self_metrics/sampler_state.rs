@@ -15,7 +15,7 @@ pub struct SamplerStatus {
     ///
     /// A config fact, not a sampling outcome — without it, "sampled recently
     /// and no error" reads as *healthy and durable* when the durable sink was
-    /// never switched on. `lastdb ops --since` needs the distinction to tell a
+    /// never switched on. Status readers need the distinction to tell a
     /// genuinely idle window from one whose rollups were never written.
     pub db_write_enabled: bool,
 }

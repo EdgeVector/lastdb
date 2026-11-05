@@ -100,8 +100,7 @@ pub(super) enum Command {
     /// By default this shows the live in-process forensic ring (full
     /// `request_ops.recent` + rankings via `GET /api/status?recent=1`). Plain
     /// `lastdb status` stays on the cheap health path without that ring.
-    /// Pass `--since` to include durable sampler rollups, or `--by-app` for a
-    /// compact app/verb view.
+    /// Pass `--by-app` for a compact app/verb view.
     ///
     /// The default tables label process-lifetime and recent-ring populations.
     /// `--by-app` keeps the compact key-value contract for external parsers.
