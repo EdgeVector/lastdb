@@ -6,6 +6,10 @@ use std::io::{self, Write};
 /// Room for the exact record value plus its schema and operation framing.
 pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4096;
 
+// The existing JSON decoder allows fewer than 128 containers. Leave space
+// for the extra portable envelope objects while bounding both directions.
+const MAX_JSON_DEPTH: usize = 132;
+
 impl MutationEntry {
     pub fn encode(&self) -> Result<Vec<u8>, PortableMutationError> {
         self.validate()?;
@@ -44,8 +48,13 @@ pub(super) fn parse<T: DeserializeOwned>(
     if bytes.len() > max_bytes {
         return Err(PortableMutationError::TooLarge { max_bytes });
     }
-    serde_json::from_slice(bytes)
-        .map_err(|_| PortableMutationError::Invalid("invalid portable JSON"))
+    JsonDepth::default().admit(bytes)?;
+    let mut decoder = serde_json::Deserializer::from_slice(bytes);
+    decoder.disable_recursion_limit();
+    let invalid = |_| PortableMutationError::Invalid("invalid portable JSON");
+    let value = T::deserialize(&mut decoder).map_err(invalid)?;
+    decoder.end().map_err(invalid)?;
+    Ok(value)
 }
 
 pub(super) fn require_canonical(
@@ -65,7 +74,8 @@ pub(super) fn require_canonical(
 struct BoundedJson<'a> {
     max_bytes: usize,
     remaining: usize,
-    overflowed: bool,
+    depth: JsonDepth,
+    failure: Option<PortableMutationError>,
     output: Option<&'a mut Vec<u8>>,
 }
 
@@ -74,31 +84,35 @@ impl<'a> BoundedJson<'a> {
         Self {
             max_bytes,
             remaining: max_bytes,
-            overflowed: false,
+            depth: JsonDepth::default(),
+            failure: None,
             output,
         }
     }
 
     fn serialize(mut self, value: &impl Serialize) -> Result<(), PortableMutationError> {
         serde_json::to_writer(&mut self, value).map_err(|_| {
-            if self.overflowed {
-                PortableMutationError::TooLarge {
-                    max_bytes: self.max_bytes,
-                }
-            } else {
-                PortableMutationError::Invalid("cannot encode portable JSON")
-            }
+            self.failure.unwrap_or(PortableMutationError::Invalid(
+                "cannot encode portable JSON",
+            ))
         })
     }
 }
 
 impl Write for BoundedJson<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let Some(remaining) = self.remaining.checked_sub(bytes.len()) else {
-            self.overflowed = true;
-            return Err(io::ErrorKind::InvalidData.into());
+        let admission = if bytes.len() <= self.remaining {
+            self.depth.admit(bytes)
+        } else {
+            Err(PortableMutationError::TooLarge {
+                max_bytes: self.max_bytes,
+            })
         };
-        self.remaining = remaining;
+        if let Err(error) = admission {
+            self.failure = Some(error);
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        self.remaining -= bytes.len();
         if let Some(output) = self.output.as_mut() {
             output.extend_from_slice(bytes);
         }
@@ -107,5 +121,50 @@ impl Write for BoundedJson<'_> {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// This counts JSON containers, ignoring escaped punctuation in strings.
+/// Serde still owns syntax checks. Retain state across serializer writes
+/// since quoted strings and their escapes may span several chunks.
+#[derive(Default)]
+struct JsonDepth {
+    containers: usize,
+    quoted: bool,
+    escaped: bool,
+}
+
+impl JsonDepth {
+    fn admit(&mut self, bytes: &[u8]) -> Result<(), PortableMutationError> {
+        for &byte in bytes {
+            if self.quoted {
+                self.read_string_byte(byte);
+                continue;
+            }
+            match byte {
+                b'"' => self.quoted = true,
+                b'[' | b'{' => {
+                    self.containers += 1;
+                    if self.containers > MAX_JSON_DEPTH {
+                        return Err(PortableMutationError::Invalid(
+                            "portable JSON exceeds its nesting limit",
+                        ));
+                    }
+                }
+                b']' | b'}' => self.containers = self.containers.saturating_sub(1),
+                _ => (),
+            }
+        }
+        Ok(())
+    }
+
+    fn read_string_byte(&mut self, byte: u8) {
+        if self.escaped {
+            self.escaped = false;
+        } else if byte == b'\\' {
+            self.escaped = true;
+        } else if byte == b'"' {
+            self.quoted = false;
+        }
     }
 }
