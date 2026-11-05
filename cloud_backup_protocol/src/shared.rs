@@ -33,6 +33,10 @@ use serde::{Deserialize, Serialize};
 pub const MAX_WRITERS: usize = 1_024;
 /// Maximum file dependencies in one log batch, also subject to its byte limit.
 pub const MAX_BATCH_FILES: usize = 1_024;
+/// Maximum total sealed file bytes for an atomically applied log batch.
+pub const MAX_BATCH_FILE_BYTES: u64 = lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES;
+/// Maximum single sealed file, including native envelope overhead.
+pub const MAX_SINGLE_BATCH_FILE_BYTES: u64 = MAX_BATCH_FILE_BYTES + 64;
 /// Shared append path after the service API prefix.
 pub const APPEND_PATH: &str = "/cloud/shared/v1/logs/append";
 

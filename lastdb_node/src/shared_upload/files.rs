@@ -1,12 +1,44 @@
 use super::{Result, SharedObjectUploader, UploadError};
-use cloud_backup_protocol::shared::{FileDependency, LogBatch, SealedObject, WriterStream};
+use cloud_backup_protocol::shared::{
+    FileDependency, LogBatch, SealedObject, WriterStream, MAX_BATCH_FILE_BYTES,
+    MAX_SINGLE_BATCH_FILE_BYTES,
+};
 use cloud_backup_protocol::{bytes_sha256, input_digest, DecimalU64, Id};
 use fold_db::fold_db_core::MutationManager;
 use fold_db::portable_mutation::{MutationEntry, MutationOperation, Position};
 use futures::{stream, StreamExt, TryStreamExt};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const FILE_TRANSFER_SLOTS: usize = 2;
+
+pub(super) fn bounded_prefix(entries: &[MutationEntry]) -> Result<&[MutationEntry]> {
+    let mut versions = BTreeSet::new();
+    let mut bytes = 0u64;
+    for (index, entry) in entries.iter().enumerate() {
+        let MutationOperation::ReplaceRecord { data, .. } = &entry.operation else {
+            continue;
+        };
+        let Some(file) = &data.file else {
+            continue;
+        };
+        if !versions.insert(&file.version) {
+            continue;
+        }
+        // The marker carries plaintext length. Reserve the bounded envelope
+        // overhead before reading or allocating any retained file bytes.
+        let sealed = file
+            .size_bytes
+            .checked_add(MAX_SINGLE_BATCH_FILE_BYTES - MAX_BATCH_FILE_BYTES)
+            .filter(|size| *size <= MAX_SINGLE_BATCH_FILE_BYTES)
+            .ok_or(UploadError::Invalid("portable file bytes"))?;
+        let next = bytes + sealed;
+        if versions.len() > 1 && next > MAX_BATCH_FILE_BYTES {
+            return Ok(&entries[..index]);
+        }
+        bytes = next;
+    }
+    Ok(entries)
+}
 
 fn file_entries(entries: &[MutationEntry]) -> BTreeMap<&Position, &MutationEntry> {
     entries

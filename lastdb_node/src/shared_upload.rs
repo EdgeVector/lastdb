@@ -131,7 +131,7 @@ async fn prepare(
     // Each admitted entry has a fixed upper bound. Reserve frame/header bytes
     // so every selected prefix fits without a second encode or a sealing retry.
     let limit = ((MAX_LOG_BYTES - 64) / (MAX_MUTATION_ENTRY_BYTES + 4)).min(MAX_LOG_ENTRIES);
-    let entries = &entries[..entries.len().min(limit)];
+    let entries = files::bounded_prefix(&entries[..entries.len().min(limit)])?;
     let first = after
         .map_or(0, |head| head.sequence.get())
         .checked_add(1)
