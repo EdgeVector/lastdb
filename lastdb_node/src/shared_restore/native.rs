@@ -67,7 +67,14 @@ async fn replay_and_activate<S: SharedRecoverySource>(
             return Err(error);
         }
     };
-    session.finish(writer).await
+    let path = session.workspace().to_path_buf();
+    session
+        .finish(writer)
+        .await
+        .map_err(|cause| RestoreError::SharedWorkspace {
+            path,
+            cause: Box::new(cause),
+        })
 }
 
 struct NativeWriter<'a, 'source, S> {

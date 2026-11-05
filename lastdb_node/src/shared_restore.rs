@@ -10,8 +10,10 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 mod native;
+mod owner;
 pub mod recovery;
 pub use native::restore_from_source;
+pub use owner::restore_owner;
 mod spool;
 use spool::CandidateSpool;
 

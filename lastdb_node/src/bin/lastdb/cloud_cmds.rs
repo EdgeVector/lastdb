@@ -1,5 +1,6 @@
 //! Explicit V2 backup and credentials-only recovery-home commands.
 use super::*;
+use std::io::Read;
 
 #[path = "cloud_cmds/byte_backup.rs"]
 mod byte_backup;
@@ -7,9 +8,17 @@ mod byte_backup;
 mod payments;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
+#[path = "cloud_cmds/shared_restore.rs"]
+mod shared_restore;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
+        CloudCommand::RestoreShared(selection) => {
+            return shared_restore::run(data_dir.as_deref(), selection);
+        }
+        CloudCommand::ResumeSharedRestore { workspace, json } => {
+            return shared_restore::resume(data_dir.as_deref(), &workspace, json);
+        }
         CloudCommand::Payments { action, json } => {
             return payments::command(data_dir.as_deref(), action, json);
         }
@@ -32,8 +41,29 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         CloudCommand::PrepareRecoveryHome { .. }
         | CloudCommand::RecoverCredentialsHome { .. }
         | CloudCommand::RecoverDevCredentialsHome { .. }
+        | CloudCommand::RestoreShared(_)
+        | CloudCommand::ResumeSharedRestore { .. }
         | CloudCommand::Payments { .. } => {
             unreachable!("handled before home resolution")
         }
     }
+}
+
+fn read_recovery_phrase() -> Result<zeroize::Zeroizing<String>, String> {
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    std::io::stdin()
+        .lock()
+        .take(4097)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "cannot read recovery phrase")?;
+    if bytes.len() > 4096 {
+        return Err("recovery phrase exceeds its byte limit".into());
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| "recovery phrase must be UTF8")?
+        .trim();
+    if text.is_empty() {
+        return Err("recovery phrase is empty".into());
+    }
+    Ok(zeroize::Zeroizing::new(text.to_owned()))
 }

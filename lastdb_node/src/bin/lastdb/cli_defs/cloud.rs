@@ -20,6 +20,15 @@ pub(crate) enum CloudCommand {
         #[command(subcommand)]
         action: ByteBackupCommand,
     },
+    /// Restore a held shared snapshot and its captured tails into a fresh home.
+    RestoreShared(SharedRestoreCommand),
+    /// Complete a sealed shared restore after an interrupted directory publication.
+    ResumeSharedRestore {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Register a credentials-only device from stdin; never open a source home.
     RecoverCredentialsHome {
         #[arg(long)]
@@ -70,6 +79,27 @@ pub(crate) enum CloudCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct SharedRestoreCommand {
+    /// Shared database to recover.
+    #[arg(long)]
+    pub database_id: String,
+    /// Registered device ID for the explicit credential home.
+    #[arg(long)]
+    pub device_id: String,
+    /// Require the saved credentials to match this compiled cloud environment.
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub env: String,
+    /// Fresh, absolute destination home. The parent must already exist.
+    #[arg(long)]
+    pub into: PathBuf,
+    /// Read the recovery phrase only from bounded stdin.
+    #[arg(long, required = true)]
+    pub recovery_phrase_stdin: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Clone, Copy, Debug)]
