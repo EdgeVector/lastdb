@@ -23,7 +23,8 @@ pub use session::RestoreSession;
 
 use cloud_backup_client::byte_backup::ByteBackupClient;
 use context::{NativeFileProof, NativeInventory, VerifiedNativeContext};
-use file_proof::{bounded_bytes, check_capacity, verify_file};
+pub(crate) use file_proof::check_capacity;
+use file_proof::{bounded_bytes, verify_file};
 
 /// Static errors never contain keys, record values, provider URLs, or local secrets.
 #[derive(Debug)]

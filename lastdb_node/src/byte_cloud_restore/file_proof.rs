@@ -45,7 +45,7 @@ pub(super) fn verify_file(path: &Path, sha: &Digest, length: u64) -> Result<()> 
     }
     Ok(())
 }
-pub(super) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
+pub(crate) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
     let fs = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
     let available = (fs.f_bavail as u64)
         .checked_mul(fs.f_frsize as u64)
