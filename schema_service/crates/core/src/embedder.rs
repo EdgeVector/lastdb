@@ -38,7 +38,8 @@ impl Embedder for DisabledEmbeddingModel {
 
     fn embed_text(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
         Err(EmbedError::InitFailed(
-            "schema semantic embedder is disabled; enable an explicit FastEmbed feature".to_string(),
+            "schema semantic embedder is disabled; enable an explicit FastEmbed feature"
+                .to_string(),
         ))
     }
 }
