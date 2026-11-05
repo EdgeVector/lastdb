@@ -3,12 +3,16 @@
 use super::{RecordAddress, RecordFormat};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
-use lastdb_model::portable_mutation::{AppliedDelete, Stamp};
+use lastdb_model::portable_mutation::{AppliedDelete, Stamp, MAX_MUTATION_ENTRY_BYTES};
+use laststore::disk_run::MAX_RUN_KEY_BYTES;
 use serde::{Deserialize, Serialize};
 
 pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
 pub(in crate::storage) const DELETE_AGE_FAMILY: &str = "ade";
 const MAX_DELETE_BYTES: usize = 512;
+// The physical key can contain JSON escapes. Leave room for the logical
+// portable key and framing while admitting the full native key range.
+const MAX_DELETE_AGE_BYTES: usize = 6 * MAX_RUN_KEY_BYTES + MAX_MUTATION_ENTRY_BYTES + 1024;
 
 pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
     let value = serde_json::to_vec(&AppliedDelete::from(stamp.clone())).map_err(invalid)?;
@@ -28,6 +32,7 @@ pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> StorageResult<Kv
         stamp: stamp.clone(),
     };
     let bytes = serde_json::to_vec(&age).map_err(invalid)?;
+    require_age_size(&bytes)?;
     Ok(KvMutation::put(
         age_key(stamp.authored_at_ms, &age.marker),
         bytes,
@@ -51,9 +56,7 @@ pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageRe
 }
 
 fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
-    if bytes.len() > 8192 {
-        return Err(invalid("delete age row exceeds its bound"));
-    }
+    require_age_size(bytes)?;
     let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
     age.stamp.position.validate().map_err(invalid)?;
     let Some(time) = age_ms(key) else {
@@ -70,6 +73,13 @@ fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
         age.marker.as_bytes(),
     )?;
     Ok(age)
+}
+
+fn require_age_size(bytes: &[u8]) -> StorageResult<()> {
+    if bytes.len() > MAX_DELETE_AGE_BYTES {
+        return Err(invalid("delete age row exceeds its bound"));
+    }
+    Ok(())
 }
 
 fn age_ms(key: &str) -> Option<u64> {
