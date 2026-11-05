@@ -21,11 +21,12 @@ use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 mod manifest;
+pub(crate) use manifest::open_log_plaintext;
 pub use manifest::{seal_log, SnapshotContents, SnapshotFile, SnapshotSchema};
 
 pub(crate) const MAX_MANIFEST_BYTES: u64 =
     cloud_backup_protocol::limits::DECODED_VALUES_MAX_BYTES / 2;
-const MAX_SEALED_LOG_BYTES: u64 = MAX_LOG_BYTES as u64 + 64;
+pub(crate) const MAX_SEALED_LOG_BYTES: u64 = MAX_LOG_BYTES as u64 + 64;
 
 /// A response body from the authenticated service or its exact-object grant.
 pub type RecoveryObject = Pin<Box<dyn AsyncRead + Send>>;
@@ -250,6 +251,31 @@ fn bind_file_versions(
     parent: &RecoveryObjectParent,
     objects: &mut BTreeMap<Position, HeldObject>,
 ) -> Result<()> {
+    for (position, object) in exact_file_versions(range, batch)? {
+        if let Some(saved) = objects.get(&position) {
+            if saved.object != object {
+                return Err(RestoreError::Invalid("conflicting shared log file version"));
+            }
+        } else {
+            if objects.len() == cloud_backup_protocol::limits::NATIVE_FILES_MAX {
+                return Err(RestoreError::Limit("held file versions"));
+            }
+            objects.insert(
+                position,
+                HeldObject {
+                    object,
+                    parent: parent.clone(),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn exact_file_versions(
+    range: &VerifiedLogRange,
+    batch: LogBatch,
+) -> Result<Vec<(Position, SealedObject)>> {
     let needed: BTreeSet<_> = range
         .entries()
         .iter()
@@ -263,32 +289,20 @@ fn bind_file_versions(
     if needed.len() != batch.file_versions.len() {
         return Err(RestoreError::Invalid("shared log file version coverage"));
     }
-    for dependency in batch.file_versions {
-        let position = Position {
-            source_stream: stream_id(&dependency.source_stream)?,
-            sequence: dependency.sequence.get(),
-        };
-        if !needed.contains(&position) {
-            return Err(RestoreError::Invalid("undeclared shared log file version"));
-        }
-        if let Some(saved) = objects.get(&position) {
-            if saved.object != dependency.object {
-                return Err(RestoreError::Invalid("conflicting shared log file version"));
+    batch
+        .file_versions
+        .into_iter()
+        .map(|dependency| {
+            let position = Position {
+                source_stream: stream_id(&dependency.source_stream)?,
+                sequence: dependency.sequence.get(),
+            };
+            if !needed.contains(&position) {
+                return Err(RestoreError::Invalid("undeclared shared log file version"));
             }
-        } else {
-            if objects.len() == cloud_backup_protocol::limits::NATIVE_FILES_MAX {
-                return Err(RestoreError::Limit("held file versions"));
-            }
-            objects.insert(
-                position,
-                HeldObject {
-                    object: dependency.object,
-                    parent: parent.clone(),
-                },
-            );
-        }
-    }
-    Ok(())
+            Ok((position, dependency.object))
+        })
+        .collect()
 }
 
 async fn read_object(

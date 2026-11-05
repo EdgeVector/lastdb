@@ -225,9 +225,17 @@ pub(super) fn open_log(
     id: LogRangeId,
     sealed: &[u8],
 ) -> Result<VerifiedLogRange> {
-    let plaintext = open(content_key, database, LOG_ROLE, sealed)?;
+    let plaintext = open_log_plaintext(content_key, database, sealed)?;
     VerifiedLogRange::decode(id, &plaintext)
         .map_err(|_| RestoreError::Invalid("shared mutation log"))
+}
+
+pub(crate) fn open_log_plaintext(
+    content_key: &[u8; 32],
+    database: &Id,
+    sealed: &[u8],
+) -> Result<Zeroizing<Vec<u8>>> {
+    open(content_key, database, LOG_ROLE, sealed)
 }
 
 fn seal(content_key: &[u8; 32], database: &Id, role: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
