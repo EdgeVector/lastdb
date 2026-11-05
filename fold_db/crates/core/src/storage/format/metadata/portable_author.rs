@@ -99,10 +99,15 @@ impl Metadata {
         if progress.len() > 4094 || progress.contains_key(fresh_stream) {
             return Err(invalid("invalid restored stream directory"));
         }
+        let prior = progress
+            .values()
+            .filter_map(|cursor| cursor.applied_through_ms)
+            .chain(cutoff)
+            .max();
         let author = LocalAuthor {
             stream: fresh_stream.clone(),
             progress: StreamProgress::default(),
-            clock_floor_ms: cutoff
+            clock_floor_ms: prior
                 .map(|ms| {
                     ms.checked_add(1)
                         .ok_or_else(|| invalid("delete boundary exhausted"))

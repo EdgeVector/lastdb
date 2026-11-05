@@ -112,6 +112,48 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         self.stage_record_delete_audit(&schema.name, changed, outcomes, history_released)
             .await?;
+        self.stage_record_retention(schema, changed.iter().map(|record| record.key), outcomes)
+            .await
+    }
+
+    pub(in crate::fold_db_core::mutation_manager) async fn stage_replayed_record_group(
+        &self,
+        schema: &Schema,
+        changes: Vec<RecordChange>,
+    ) -> Result<(), SchemaError> {
+        let outcomes = record_outcomes(&changes);
+        let keys: Vec<_> = changes
+            .iter()
+            .map(|change| change.key.api_key().clone())
+            .collect();
+        self.db_ops
+            .records()
+            .stage_records(schema, changes, Vec::new())
+            .await?;
+        let schemas = self.db_ops.schemas();
+        schemas.note_live_writes(
+            schema,
+            keys.iter()
+                .zip(&outcomes)
+                .filter(|(_, outcome)| outcome.live)
+                .map(|(key, _)| key),
+        )?;
+        self.stage_record_retention(schema, keys.iter(), &outcomes)
+            .await?;
+        if schema.schema_type == DeclarativeSchemaType::HashRange {
+            schemas
+                .record_schema_retention_hash_partitions(&schema.name, &keys)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn stage_record_retention<'a>(
+        &self,
+        schema: &Schema,
+        keys: impl Iterator<Item = &'a KeyValue>,
+        outcomes: &[RecordOutcome],
+    ) -> Result<(), SchemaError> {
         if !matches!(
             schema.schema_type,
             DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
@@ -128,10 +170,10 @@ impl MutationManager {
         }
         let mut ages = Vec::new();
         let mut removed = Vec::new();
-        for (record, outcome) in changed.iter().zip(outcomes) {
+        for (key, outcome) in keys.zip(outcomes) {
             match outcome.written_at.filter(|_| outcome.live) {
-                Some(nanos) => ages.push((record.key.clone(), nanos / 1_000_000_000)),
-                None => removed.push(record.key.clone()),
+                Some(nanos) => ages.push((key.clone(), nanos / 1_000_000_000)),
+                None => removed.push(key.clone()),
             }
         }
         schemas

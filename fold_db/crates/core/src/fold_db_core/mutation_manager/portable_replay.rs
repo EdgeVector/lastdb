@@ -120,8 +120,7 @@ impl MutationManager {
                     });
             }
             for (schema, changes) in groups {
-                records
-                    .stage_records(&prepared.schemas[schema], changes, Vec::new())
+                self.stage_replayed_record_group(&prepared.schemas[schema], changes)
                     .await?;
             }
             Ok(())
