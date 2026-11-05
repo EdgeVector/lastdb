@@ -9,7 +9,6 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Text};
 use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
-use std::io::Read;
 
 #[path = "offline/dependencies.rs"]
 mod dependencies;
@@ -24,7 +23,7 @@ struct Selection {
 }
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
-    let phrase = phrase()?;
+    let phrase = super::super::read_recovery_phrase()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -236,23 +235,4 @@ async fn accepted(
 
 fn id(value: String) -> Result<Id, String> {
     Id::try_from(value).map_err(|_| "V2 selection requires a canonical UUID".into())
-}
-
-fn phrase() -> Result<zeroize::Zeroizing<String>, String> {
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    std::io::stdin()
-        .lock()
-        .take(4097)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read recovery phrase")?;
-    if bytes.len() > 4096 {
-        return Err("recovery phrase exceeds its byte limit".into());
-    }
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|_| "recovery phrase must be UTF8")?
-        .trim();
-    if text.is_empty() {
-        return Err("recovery phrase is empty".into());
-    }
-    Ok(zeroize::Zeroizing::new(text.to_owned()))
 }
