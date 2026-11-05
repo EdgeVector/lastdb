@@ -39,7 +39,7 @@ deleted the desktop node on **2026-07-12**.
 ├── lastdb_identity/            # node identity helpers
 ├── lastdb_app_sdk/             # app SDK (separate docs card may refine this)
 ├── schema_service/             # cloud schema registry
-│   ├── crates/{core,client,server_shared,server_http,server_lambda,worker,…}
+│   ├── crates/{core,client,server_shared,server_http,server_lambda,…}
 │   └── openapi.yaml
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
 └── docs/                       # designs for work in progress
@@ -51,7 +51,6 @@ deleted the desktop node on **2026-07-12**.
 | --- | --- | --- |
 | LastDB Mini (`lastdb` + `lastdbd`) | `lastdb_node` | Homebrew `edgevector/lastdb/lastdb` via tag → [`.github/workflows/release.yml`](.github/workflows/release.yml) → `EdgeVector/homebrew-lastdb` |
 | schema_service Lambda | `schema_service/crates/server_lambda` | schema registry via [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) (submodules this repo) |
-| schema_service compile worker | `schema_service/crates/worker` | DockerImageFunction via schema-infra |
 
 Releases: nightly GitHub prereleases from `.github/workflows/nightly-release.yml`. There is no DMG
 or desktop-app channel.

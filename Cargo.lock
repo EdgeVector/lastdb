@@ -4615,23 +4615,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schema_service_worker"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "clap",
- "observability",
- "schema_service_core",
- "schema_service_s3",
- "schema_service_server_shared",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "schema_types"
 version = "0.1.0"
 dependencies = [
