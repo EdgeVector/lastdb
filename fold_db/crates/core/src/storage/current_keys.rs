@@ -5,13 +5,14 @@
 //! [`validate`], which refuses every other family.
 
 use super::error::{StorageError, StorageResult};
-use super::format::{CURRENT_FAMILIES, MAIN_NAMESPACE};
+use super::format::{records::applied_deletes, CURRENT_FAMILIES, MAIN_NAMESPACE};
 
 pub(crate) mod families;
 
 /// The `main` key families of a home.
 ///
 /// - `rk`: one record for each key. `ak`: the alternate key entries.
+/// - `ad`: one applied-delete stamp at the erased record's address.
 /// - `rh`: field history copies of old record values. `ahp`, `ahk`, `ahq`,
 ///   `ahb`: the history policy of a field, the history count of a key, and the
 ///   expiry queue of the history entries and its bucket directory.
@@ -27,7 +28,12 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if !CURRENT_FAMILIES.iter().any(|group| group.contains(&family)) {
         return Err(unsupported("unknown key family"));
     }
-    if let Some(rest) = key
+    if let Some(record) = applied_deletes::record_key(key) {
+        let rest = record
+            .strip_prefix(lastdb_model::record_space::RECORD_PREFIX)
+            .ok_or_else(|| unsupported("invalid applied-delete record key"))?;
+        validate_record(rest)?;
+    } else if let Some(rest) = key
         .strip_prefix(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX)
         .or_else(|| key.strip_prefix(lastdb_model::record_space::RECORD_PREFIX))
     {

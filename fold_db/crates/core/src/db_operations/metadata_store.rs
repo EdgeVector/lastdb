@@ -3,6 +3,7 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::format::metadata::Metadata;
+use lastdb_model::portable_mutation::Stamp;
 
 /// Domain access to author clocks; no raw store handle.
 #[derive(Clone)]
@@ -37,5 +38,9 @@ impl MetadataStore {
         state: &MutationAuthorClockState,
     ) -> Result<(), SchemaError> {
         self.format.stage_author_clock(writer, state).await
+    }
+
+    pub(crate) async fn stage_local_stamps(&self, count: usize) -> Result<Vec<Stamp>, SchemaError> {
+        Ok(self.format.stage_local_stamps(count).await?)
     }
 }

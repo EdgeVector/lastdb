@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};
+use lastdb_model::portable_mutation::Stamp;
 
 use super::receipt::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
@@ -19,11 +20,15 @@ mod layout;
 mod native;
 mod receipt_entry;
 mod record_effects;
-mod record_rules;
 mod records;
 mod replay_cutoff;
 mod schema_delta_helpers;
 mod timing;
+
+pub(super) struct AuthoredMutation {
+    mutation: Mutation,
+    stamp: Stamp,
+}
 
 impl MutationManager {
     /// [`Self::write_mutations_receipt`] returning only the accepted input
@@ -67,19 +72,17 @@ impl MutationManager {
     /// Returns groups in first-seen schema order.
     pub(super) fn group_mutations_by_schema(
         &self,
-        mutations: Vec<Mutation>,
-    ) -> Vec<(String, Vec<Mutation>)> {
+        mutations: Vec<AuthoredMutation>,
+    ) -> Vec<(String, Vec<AuthoredMutation>)> {
         let mut order: Vec<String> = Vec::new();
-        let mut grouped: HashMap<String, Vec<Mutation>> = HashMap::new();
+        let mut grouped: HashMap<String, Vec<AuthoredMutation>> = HashMap::new();
 
         for mutation in mutations {
-            if !grouped.contains_key(&mutation.schema_name) {
-                order.push(mutation.schema_name.clone());
+            let schema = &mutation.mutation.schema_name;
+            if !grouped.contains_key(schema) {
+                order.push(schema.clone());
             }
-            grouped
-                .entry(mutation.schema_name.clone())
-                .or_default()
-                .push(mutation);
+            grouped.entry(schema.clone()).or_default().push(mutation);
         }
 
         order

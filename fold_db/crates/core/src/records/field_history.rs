@@ -79,8 +79,8 @@ impl RecordHistoryEntry {
     pub(crate) fn entry(&self, key: &str) -> FieldHistoryEntry {
         FieldHistoryEntry {
             id: key.rsplit(':').next().unwrap_or_default().to_string(),
-            written_at: self.stamp.written_at,
-            mutation: self.stamp.mutation_id.clone(),
+            written_at: self.stamp.written_at_nanos(),
+            mutation: self.stamp.mutation_identity(),
             archived_at: self.archived_at,
             expires_at: self.expires_at,
             reason: self.reason.clone(),

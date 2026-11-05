@@ -44,8 +44,8 @@ impl RecordStore {
                 .flatten()
                 .find_map(|record| {
                     record.fields.contains_key(field).then(|| {
-                        json!({"mutation": record.stamp.mutation_id,
-                               "written_at": record.stamp.written_at,
+                        json!({"mutation": record.stamp.mutation_identity(),
+                               "written_at": record.stamp.written_at_nanos(),
                                "revision": record.stamp.revision()})
                     })
                 });

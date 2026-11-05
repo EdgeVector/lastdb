@@ -14,6 +14,7 @@ use crate::schema::SchemaError;
 use crate::storage::format::history::HistoryChange;
 use crate::storage::format::records::{self as format, RecordAddress};
 use futures::FutureExt;
+use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
@@ -24,6 +25,13 @@ const READ_CHUNK: usize = 10_000;
 pub(crate) use format::RecordChange;
 
 impl RecordStore {
+    pub(crate) async fn read_applied_deletes(
+        &self,
+        keys: &[&RecordAddress],
+    ) -> Result<Vec<Option<Stamp>>, SchemaError> {
+        Ok(self.format.applied_deletes(keys).await?)
+    }
+
     /// The storage key of the record at one canonical primary key. The record
     /// space codec of the schema blinds the hash and types the range.
     pub(crate) fn record_key(

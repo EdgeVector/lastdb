@@ -8,6 +8,7 @@
 use super::{budget, invalid, map, read_budget, rows::Rows, Proof, StorageResult};
 use crate::records::field_history::{record_history_suffix, RecordHistoryEntry};
 use crate::storage::disk_pack::native_routing;
+use crate::storage::format::records::applied_deletes;
 use crate::storage::format::MAX_HISTORY_ENTRY_BYTES;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
@@ -31,15 +32,15 @@ pub(super) fn verify_records(proof: &Proof<'_>) -> StorageResult<u64> {
 fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     let raw = native_routing::decode(key)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;
-    let history = record_history_suffix(raw).is_some();
-    if !history && !raw.starts_with(RECORD_PREFIX) {
-        crate::storage::current_keys::validate(
-            crate::storage::format::MAIN_NAMESPACE,
-            raw.as_bytes(),
-        )?;
+    crate::storage::current_keys::validate(crate::storage::format::MAIN_NAMESPACE, raw.as_bytes())?;
+    if applied_deletes::record_key(raw).is_some() {
+        applied_deletes::decode(body)?;
         return Ok(false);
     }
-    crate::storage::current_keys::validate(crate::storage::format::MAIN_NAMESPACE, raw.as_bytes())?;
+    let history = record_history_suffix(raw).is_some();
+    if !history && !raw.starts_with(RECORD_PREFIX) {
+        return Ok(false);
+    }
     let cap = if history {
         MAX_HISTORY_ENTRY_BYTES
     } else {

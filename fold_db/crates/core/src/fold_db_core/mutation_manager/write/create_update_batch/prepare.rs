@@ -2,13 +2,13 @@
 
 use super::*;
 
-type KeyGroups = Vec<(String, Vec<Mutation>)>;
+type KeyGroups = Vec<(String, Vec<AuthoredMutation>)>;
 
 impl MutationManager {
     /// Stage every group's conditional replacements before publication.
     pub(in crate::fold_db_core::mutation_manager::write) async fn stage_record_groups(
         &self,
-        mutations: Vec<Mutation>,
+        mutations: Vec<AuthoredMutation>,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
         stages: &mut ResidentCommitStages,
         runtime: &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
@@ -44,7 +44,7 @@ impl MutationManager {
             let mut current_keys = HashSet::new();
             let mut current = Vec::new();
             for mutation in mutations {
-                let key = self.resolve_mutation_key_value(&name, &schema, &mutation)?;
+                let key = self.resolve_mutation_key_value(&name, &schema, &mutation.mutation)?;
                 if current_keys.contains(&key) {
                     return Err(SchemaError::InvalidData(
                         "a batch cannot replace the same record twice".into(),

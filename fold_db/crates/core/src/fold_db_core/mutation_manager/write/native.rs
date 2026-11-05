@@ -56,18 +56,22 @@ impl MutationManager {
             let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
-            for mutation in &mutations {
-                record_revisions.insert(
-                    mutation.uuid.clone(),
-                    mutation
-                        .record_stamp()
-                        .map_err(SchemaError::InvalidData)?
-                        .revision(),
-                );
+            let stamps = self
+                .db_ops
+                .metadata()
+                .stage_local_stamps(mutations.len())
+                .await?;
+            for (mutation, stamp) in mutations.iter().zip(&stamps) {
+                record_revisions.insert(mutation.uuid.clone(), stamp.revision());
             }
             let mutation_ids = mutations
                 .iter()
                 .map(|mutation| mutation.uuid.clone())
+                .collect();
+            let mutations = mutations
+                .into_iter()
+                .zip(stamps)
+                .map(|(mutation, stamp)| AuthoredMutation { mutation, stamp })
                 .collect();
             // Revision conditions and record changes share this exclusive gate.
             let group_count = self

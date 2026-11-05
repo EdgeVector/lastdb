@@ -1,4 +1,4 @@
-//! Product-owned definitions of the format 12 whole-record home.
+//! Product-owned definitions of the format 13 whole-record home.
 //!
 //! Creation,
 //! admission, namespace opening and native routing share these definitions.
@@ -22,9 +22,9 @@ pub(crate) mod records;
 pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
-pub const HOME_FORMAT: u32 = 12;
+pub const HOME_FORMAT: u32 = 13;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=12\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=13\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 9;
 
@@ -94,6 +94,7 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
     &[
         "rk",
         "ak",
+        records::applied_deletes::APPLIED_DELETE_FAMILY,
         HISTORY_POLICY_FAMILY,
         DELETE_AUDIT_FAMILY,
         "layout",

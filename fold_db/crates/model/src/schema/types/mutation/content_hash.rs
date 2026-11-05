@@ -39,21 +39,6 @@ impl Mutation {
         push_field(&mut digest, self.author_clock_writer_id.as_bytes());
         format!("{:x}", digest.finalize())
     }
-
-    pub fn record_stamp(&self) -> Result<crate::record_value::RecordStamp, String> {
-        Ok(crate::record_value::RecordStamp {
-            written_at: self
-                .imported_written_at
-                .ok_or("record write lacks an author clock")?,
-            logical_counter: self.logical_counter,
-            device_id: if self.author_clock_writer_id.is_empty() {
-                self.pub_key.clone()
-            } else {
-                self.author_clock_writer_id.clone()
-            },
-            mutation_id: self.uuid.clone(),
-        })
-    }
 }
 
 fn json_field<T: Serialize>(digest: &mut Sha256, value: &T) {

@@ -5,7 +5,7 @@
 //! from capacities; only the per-object constants are estimates. Admission
 //! purges clean records against this byte charge.
 
-use lastdb_model::record_value::{RecordMeta, RecordStamp, StoredRecord};
+use lastdb_model::record_value::{RecordMeta, StoredRecord};
 use serde_json::Value;
 
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
@@ -61,12 +61,12 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + addresses
             + meta
             + file
-            + stamp_heap_bytes(&record.stamp),
+            + record.stamp.position.source_stream.as_str().len()
+            + record
+                .file_version
+                .as_ref()
+                .map_or(0, |version| version.source_stream.as_str().len()),
     )
-}
-
-fn stamp_heap_bytes(stamp: &RecordStamp) -> usize {
-    stamp.device_id.capacity() + stamp.mutation_id.capacity()
 }
 
 fn key_heap_bytes(key: &lastdb_model::schema::types::KeyValue) -> usize {

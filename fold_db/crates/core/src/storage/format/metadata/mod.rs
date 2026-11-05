@@ -12,6 +12,11 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvStore, StorageError};
 
+mod portable_author;
+pub(in crate::storage) use portable_author::{
+    initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
+};
+
 #[derive(Clone)]
 pub(crate) struct Metadata {
     metadata_store: Arc<dyn KvStore>,
