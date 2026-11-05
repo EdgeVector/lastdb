@@ -6,9 +6,7 @@ use crate::db_operations::{record_store::RangeWalk, DbOperations};
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::PackReadScope;
 use crate::storage::format::metadata::CheckpointDirectory;
-use crate::storage::format::records::{
-    decode_age_row, delete_record_key, portable_record_data, DELETE_AGE_FAMILY,
-};
+use crate::storage::format::records::{delete_record_key, portable_record_data, DELETE_AGE_FAMILY};
 use cloud_backup_protocol::shared::{LogHead, StreamCover, WriterStream};
 use cloud_backup_protocol::Id;
 use lastdb_model::kind_partition::exact_prefix_bounds;
@@ -257,45 +255,33 @@ impl PortableCheckpoint {
         rows: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Result<Vec<CheckpointRow>, SchemaError> {
         let records = self.db_ops.records();
-        let mut deletes = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            let key = std::str::from_utf8(&key).map_err(detail)?;
-            let age = decode_age_row(key, &value)?;
-            let physical = delete_record_key(&age.marker)
-                .ok_or_else(|| invalid("checkpoint marker has no record address"))?;
-            let (space, _) = physical
-                .strip_prefix(RECORD_PREFIX)
-                .and_then(|rest| rest.split_once(':'))
-                .ok_or_else(|| invalid("checkpoint delete has an invalid space"))?;
-            let name = self
-                .spaces
-                .get(space)
-                .ok_or_else(|| invalid("shared delete schema is outside the checkpoint"))?;
-            let address =
-                records.record_address(&self.schemas[name], &age.primary.clone().into())?;
-            if address.as_str() != physical {
-                return Err(invalid("checkpoint delete has the wrong storage address"));
-            }
-            deletes.push((name, age, address));
-        }
-        let current = records
-            .read_applied_deletes(
-                &deletes
-                    .iter()
-                    .map(|(_, _, address)| address)
-                    .collect::<Vec<_>>(),
-            )
-            .await?;
-        deletes
+        let active = records.current_delete_ages(rows).await?;
+        active
             .into_iter()
-            .zip(current)
-            .filter(|((_, age, _), current)| current.as_ref() == Some(&age.stamp))
-            .map(|((name, age, _), _)| {
+            .map(|age| {
+                let physical = delete_record_key(&age.marker)
+                    .ok_or_else(|| invalid("checkpoint marker has no record address"))?;
+                let (space, _) = physical
+                    .strip_prefix(RECORD_PREFIX)
+                    .and_then(|rest| rest.split_once(':'))
+                    .ok_or_else(|| invalid("checkpoint delete has an invalid space"))?;
+                let name = self
+                    .spaces
+                    .get(space)
+                    .ok_or_else(|| invalid("shared delete schema is outside the checkpoint"))?;
+                let primary = age.primary.ok_or_else(|| {
+                    invalid("an active legacy shared delete has no exportable primary coordinates")
+                })?;
+                let address =
+                    records.record_address(&self.schemas[name], &primary.clone().into())?;
+                if address.as_str() != physical {
+                    return Err(invalid("checkpoint delete has the wrong storage address"));
+                }
                 self.row(
                     name,
                     age.stamp,
                     MutationOperation::DeleteRecord {
-                        primary_key: age.primary,
+                        primary_key: primary,
                     },
                 )
             })

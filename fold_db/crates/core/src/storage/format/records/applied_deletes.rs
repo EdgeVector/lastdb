@@ -24,14 +24,15 @@ pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMuta
 pub(crate) struct DeleteAge {
     pub(crate) marker: String,
     pub(crate) stamp: Stamp,
-    pub(crate) primary: RecordKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) primary: Option<RecordKey>,
 }
 
 pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
     let age = DeleteAge {
         marker: address(key.as_str()),
         stamp: stamp.clone(),
-        primary: RecordKey::try_from(key.api_key().clone()).map_err(invalid)?,
+        primary: Some(RecordKey::try_from(key.api_key().clone()).map_err(invalid)?),
     };
     let bytes = serde_json::to_vec(&age).map_err(invalid)?;
     require_age_size(&bytes)?;
@@ -57,11 +58,13 @@ pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageRe
     decode_age_row(key, bytes).map(|_| ())
 }
 
-pub(crate) fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
+fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
     require_age_size(bytes)?;
     let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
     age.stamp.position.validate().map_err(invalid)?;
-    age.primary.validate().map_err(invalid)?;
+    if let Some(primary) = &age.primary {
+        primary.validate().map_err(invalid)?;
+    }
     let Some(time) = age_ms(key) else {
         return Err(invalid("invalid delete age coordinate"));
     };
@@ -186,6 +189,42 @@ impl RecordFormat {
             self.main_store.inner().batch_mutate(mutations).await?;
         }
         Ok(reclaimed)
+    }
+
+    pub(crate) async fn current_delete_ages(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> StorageResult<Vec<DeleteAge>> {
+        let mut ages = Vec::with_capacity(rows.len());
+        for (key, value) in rows {
+            ages.push(decode_age_row(
+                std::str::from_utf8(&key).map_err(invalid)?,
+                &value,
+            )?);
+        }
+        if ages.is_empty() {
+            return Ok(ages);
+        }
+        let current = self
+            .main_store
+            .inner()
+            .get_many(
+                ages.iter()
+                    .map(|age| age.marker.as_bytes().to_vec())
+                    .collect(),
+            )
+            .await?;
+        if current.len() != ages.len() {
+            return Err(invalid("incomplete checkpoint delete preimages"));
+        }
+        let mut active = Vec::new();
+        for (age, value) in ages.into_iter().zip(current) {
+            let stamp = value.as_deref().map(decode).transpose()?;
+            if stamp.as_ref() == Some(&age.stamp) {
+                active.push(age);
+            }
+        }
+        Ok(active)
     }
 
     pub(crate) async fn applied_deletes(

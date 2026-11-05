@@ -23,7 +23,7 @@ mod store;
 
 pub use alternates::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
 pub(crate) use applied_deletes::{
-    decode_age_row, record_key as delete_record_key, ReclaimedDeletes, DELETE_AGE_FAMILY,
+    record_key as delete_record_key, DeleteAge, ReclaimedDeletes, DELETE_AGE_FAMILY,
 };
 pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use keys::{alternate_range_key, AlternateAddress, RecordAddress};

@@ -32,6 +32,13 @@ impl RecordStore {
         Ok(self.format.stage_delete_reclamation(cutoff_ms).await?)
     }
 
+    pub(crate) async fn current_delete_ages(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<Vec<format::DeleteAge>, SchemaError> {
+        Ok(self.format.current_delete_ages(rows).await?)
+    }
+
     pub(crate) async fn read_applied_deletes(
         &self,
         keys: &[&RecordAddress],
