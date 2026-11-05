@@ -118,12 +118,7 @@ lastdb status
 
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus
-service-owned Search/schema resolver surfaces. For the release proof of the
-clean default no-embedder lane:
-
-```bash
-scripts/release/validate-no-ai-install.sh
-```
+service-owned Search/schema resolver surfaces.
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —

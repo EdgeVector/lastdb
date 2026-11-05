@@ -12,7 +12,6 @@
 #   cargo clippy -p lastdb_node --lib --bins -- -D warnings
 # Scoped to lastdb_node lib+bins only — not full-workspace clippy.
 #
-# Install: scripts/install-hooks.sh
 # Bypass (sparingly): git push --no-verify
 
 set -euo pipefail
