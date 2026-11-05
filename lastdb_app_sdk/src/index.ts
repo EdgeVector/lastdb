@@ -25,23 +25,6 @@ export {
   LASTDB_UDS_SHARED_ROUTES,
 } from './apiRoutes.js';
 
-export {
-  LASTDB_DB_ENV,
-  LASTDB_DB_HEADER,
-  PERSONAL_DB_LOCATOR,
-  DbLocatorError,
-  orgDb,
-  parseDbLocator,
-  personalDb,
-  resolveDbLocator,
-} from './dbHandle.js';
-export type {
-  DbHandle,
-  DbHashHandle,
-  OrgDbHandle,
-  PersonalDbHandle,
-} from './dbHandle.js';
-
 export { ownerClient } from './ownerClient.js';
 export type { OwnerClientOptions } from './ownerClient.js';
 

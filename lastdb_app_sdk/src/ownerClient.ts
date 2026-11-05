@@ -26,10 +26,6 @@ import { existsSync } from 'node:fs';
 
 import { capabilityStoreKey, type CapabilityStore } from './capabilityStore.js';
 import { LastDbClient } from './client.js';
-import {
-  LASTDB_DB_HEADER,
-  resolveDbLocator,
-} from './dbHandle.js';
 import { TransportError } from './errors.js';
 import {
   discoverTransport,
@@ -42,11 +38,6 @@ import {
 export interface OwnerClientOptions {
   /** Canonical app id this client acts as (e.g. `"fbrain"`). */
   appId: string;
-  /**
-   * Explicit multi-DB handle. Defaults to `process.env.LASTDB_DB` then
-   * `lastdb://personal`. Forwarded as `X-LastDB-Db` on every request.
-   */
-  db?: string;
   /**
    * Loopback TCP base URL of the node (e.g. `http://127.0.0.1:9101`), used as
    * the fallback when no socket is available. Optional only when a
@@ -192,19 +183,7 @@ function resolveOwnerTransport(options: OwnerClientOptions): Transport {
  * ```
  */
 export function ownerClient(options: OwnerClientOptions): LastDbClient {
-  const dbLocator = resolveDbLocator(options.db);
-  // Inject X-LastDB-Db into transport default headers when not already set.
-  const defaultHeaders: Record<string, string> = {
-    ...(options.defaultHeaders ?? {}),
-  };
-  if (
-    !Object.keys(defaultHeaders).some(
-      (k) => k.toLowerCase() === LASTDB_DB_HEADER.toLowerCase(),
-    )
-  ) {
-    defaultHeaders[LASTDB_DB_HEADER] = dbLocator;
-  }
-  const transport = resolveOwnerTransport({ ...options, defaultHeaders });
+  const transport = resolveOwnerTransport(options);
   return new LastDbClient(
     options.appId,
     transport,
@@ -212,6 +191,5 @@ export function ownerClient(options: OwnerClientOptions): LastDbClient {
     null,
     capabilityStoreKey(options.appId, transport.target),
     transport.target,
-    { dbLocator },
   );
 }

@@ -189,7 +189,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/query`. A query returns every stored field of each live record.
 /// A request that still sends `fields` is rejected.
 /// `MIN_SUPPORTED_API_VERSION` moves to `29`.
-pub const API_VERSION: u32 = 29;
+/// `30` (2026-11-05) removes the app SDK org-database locator. The node
+/// stopped reading `X-LastDB-Db` at API 26, when the org catalog routes
+/// left. The SDK no longer sends that header or exports the locator. No
+/// request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
+pub const API_VERSION: u32 = 30;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

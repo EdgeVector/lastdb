@@ -44,10 +44,6 @@ import {
   UnknownAppError,
 } from './errors.js';
 import {
-  LASTDB_DB_HEADER,
-  resolveDbLocator,
-} from './dbHandle.js';
-import {
   discoverTransport,
   httpTransport,
   udsTransport,
@@ -180,16 +176,6 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
       defaultHeaders['X-LastDB-Client'] = clientLabel;
     }
   }
-  // Multi-DB handle: explicit option → LASTDB_DB env → personal. Never
-  // clobber a caller-supplied X-LastDB-Db.
-  const dbLocator = resolveDbLocator(options.db);
-  if (
-    !Object.keys(defaultHeaders).some(
-      (k) => k.toLowerCase() === LASTDB_DB_HEADER.toLowerCase(),
-    )
-  ) {
-    defaultHeaders[LASTDB_DB_HEADER] = dbLocator;
-  }
   const discoverSocket = options.discoverSocket ?? true;
   let transport: Transport;
   if (socketPath) {
@@ -258,7 +244,6 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
     {
       verifyCapability,
       schemaResolver: options.schemaResolver,
-      dbLocator,
     },
   );
   // The compatibility handshake runs before any data request so an app that
@@ -277,11 +262,6 @@ export interface LastDbClientOptions {
   verifyCapability?: boolean;
   /** See `ConnectOptions.schemaResolver`. Default pass-through. */
   schemaResolver?: SchemaResolver;
-  /**
-   * Canonical DB locator this client targets (also sent as `X-LastDB-Db`).
-   * Defaults to personal when omitted.
-   */
-  dbLocator?: string;
 }
 
 /** A connected LastDB app client. Construct via {@link connect}. */
@@ -291,8 +271,6 @@ const QUERY_BATCH_MAX_ITEMS = 64;
 export class LastDbClient {
   private readonly verifyCapability: boolean;
   private readonly schemaResolver: SchemaResolver | null;
-  /** Canonical multi-DB locator forwarded on every data-path request. */
-  readonly dbLocator: string;
 
   constructor(
     readonly appId: string,
@@ -307,7 +285,6 @@ export class LastDbClient {
   ) {
     this.verifyCapability = options.verifyCapability ?? false;
     this.schemaResolver = options.schemaResolver ?? null;
-    this.dbLocator = options.dbLocator ?? resolveDbLocator(undefined);
   }
 
   /** Where this client is pointed (for diagnostics). */
@@ -1010,14 +987,7 @@ export class LastDbClient {
 
   /** Capability headers, present only when a capability is loaded. */
   private capabilityHeaders(): Record<string, string> {
-    // Always stamp the DB handle on data-path calls so Mini scopes storage
-    // even when the transport was built without defaultHeaders (ownerClient
-    // / hand-built transports). Transport defaultHeaders of the same name win
-    // only when the caller merges them after this object — here we set it
-    // unconditionally on the per-call headers.
-    const headers: Record<string, string> = {
-      [LASTDB_DB_HEADER]: this.dbLocator,
-    };
+    const headers: Record<string, string> = {};
     if (this.capability !== null) {
       headers[CAPABILITY_HEADER] = this.capability;
       headers[CAPABILITY_TS_HEADER] = nowEpochSecs();

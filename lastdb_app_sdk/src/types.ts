@@ -190,13 +190,6 @@ export interface ConnectOptions {
    */
   defaultHeaders?: Record<string, string>;
   /**
-   * Explicit multi-DB handle (`lastdb://personal`, `lastdb://org/…`, or
-   * 64-hex). Defaults to `process.env.LASTDB_DB` then personal. Sent on every
-   * request as `X-LastDB-Db` so Mini scopes mutate/query (org cohabitation).
-   * Prefer letting `org <app>` inject `LASTDB_DB` rather than hard-coding.
-   */
-  db?: string;
-  /**
    * Best-effort ops label for Mini request telemetry (`X-LastDB-Client`).
    * Not a security boundary — any process can claim any string. Defaults to
    * {@link ConnectOptions.appId} when unset. Pass explicitly to override
