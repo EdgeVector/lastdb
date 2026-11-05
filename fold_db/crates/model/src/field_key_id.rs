@@ -1,36 +1,11 @@
-//! Deterministic field key IDs hash a framed domain, schema and field tuple.
-//! The digest uses the current unpadded base64url spelling.
+//! Identities for record-space and alternate-key bundles.
 //!
-//! Reads, writes, and physical cleanup use the supplied UUID exactly.
+//! Both use the current unpadded base64url spelling of a 32-byte digest.
+//! A payload field has no field key. Reads, writes, and physical cleanup use
+//! the supplied id exactly.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
-
-/// SHA-256 of the domain, schema and field, each with its own length prefix.
-#[must_use]
-pub fn field_key_id_digest(schema_name: &str, field_name: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    for part in [
-        b"lastdb:field-key:v1".as_slice(),
-        schema_name.as_bytes(),
-        field_name.as_bytes(),
-    ] {
-        crate::canonical::push_field(&mut hasher, part);
-    }
-    hasher.finalize().into()
-}
-
-/// Current write form: unpadded base64url of the 32-byte digest (43 chars).
-#[must_use]
-pub fn encode_field_key_id_bytes(digest: &[u8; 32]) -> String {
-    URL_SAFE_NO_PAD.encode(digest)
-}
-
-/// The field key id of one schema field. The spelling is the current base64url form.
-#[must_use]
-pub fn deterministic_field_key_id(schema_name: &str, field_name: &str) -> String {
-    encode_field_key_id_bytes(&field_key_id_digest(schema_name, field_name))
-}
 
 /// Accept only the current unpadded base64url spelling of a 32-byte digest.
 #[must_use]

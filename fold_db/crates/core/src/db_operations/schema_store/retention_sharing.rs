@@ -1,15 +1,15 @@
 //! Who else shares the records a manifest TTL would delete.
 //!
-//! The sweep reads and deletes through the anchor schema. The anchor's field keys
-//! are shared with every schema bound to it, so a TTL on one name deletes the
-//! records of all of them. This is the guard that runs before an alias or a
-//! policy is written.
+//! The sweep reads and deletes through the anchor schema. A retention alias
+//! binds another schema to that anchor, so a TTL on one name deletes the
+//! records of every schema the alias chain reaches. This is the guard that
+//! runs before an alias or a policy is written.
 
 use super::catalog_keys::*;
 use super::SchemaStore;
 use crate::schema::manifest_retention::{RetentionPolicyInReach, RetentionReach, RetentionSharing};
 use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 impl SchemaStore {
     /// Every retention alias row: `(manifest name, anchor)`. Reads only the
@@ -45,8 +45,8 @@ impl SchemaStore {
     /// `binding` is the manifest name that declares the TTL. It and the anchor
     /// are the two names of one manifest entry, so they are not reported.
     /// Another schema counts as bound to the anchor when a retention alias
-    /// points at it (or at a schema bound to it), or when it holds a field key
-    /// the anchor holds. A schema the anchor was expanded from is the same
+    /// points at it, or at a schema bound to it. A schema the anchor was
+    /// expanded from is the same
     /// app's earlier version and is not reported, unless another app owns it.
     ///
     /// `predecessors` seeds the expansion chain with schemas the anchor will be
@@ -123,27 +123,13 @@ impl SchemaStore {
     }
 }
 
-fn field_keys_of<'a>(
-    schemas: &'a HashMap<String, Schema>,
-    names: &BTreeSet<String>,
-) -> HashSet<&'a str> {
-    names
-        .iter()
-        .filter_map(|name| schemas.get(name))
-        .filter_map(|schema| schema.field_key_ids.as_ref())
-        .flat_map(|map| map.values())
-        .map(String::as_str)
-        .filter(|uuid| !uuid.is_empty())
-        .collect()
-}
-
 /// The schemas a TTL sweep through an anchor reaches: the anchor's expansion
 /// chain, and every schema bound to the chain.
 struct Reach {
     /// The anchor and the schemas it was expanded from.
     chain: BTreeSet<String>,
-    /// Other schemas bound to the chain, by retention alias or by a field key
-    /// that the chain holds, transitively. Neither `binding` nor the chain.
+    /// Other schemas bound to the chain by a retention alias, transitively.
+    /// Neither `binding` nor the chain.
     shared: BTreeSet<String>,
 }
 
@@ -157,13 +143,12 @@ fn compute_reach(
     // The anchor and the schemas it was expanded from: the same data's history.
     let mut chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
     chain.extend(predecessors.iter().cloned());
-    let field_keys = field_keys_of(schemas, &chain);
     let mut reach = chain.clone();
     reach.insert(binding.to_string());
     let mut shared: BTreeSet<String> = BTreeSet::new();
     loop {
         let mut added = Vec::new();
-        for (name, schema) in schemas {
+        for name in schemas.keys() {
             if reach.contains(name) || shared.contains(name) {
                 continue;
             }
@@ -171,11 +156,7 @@ fn compute_reach(
             let aliased = aliases
                 .iter()
                 .any(|(alias, target)| alias == name && in_reach(target));
-            let overlaps = schema.field_key_ids.as_ref().is_some_and(|map| {
-                map.values()
-                    .any(|uuid| !uuid.is_empty() && field_keys.contains(uuid.as_str()))
-            });
-            if aliased || overlaps {
+            if aliased {
                 added.push(name.clone());
             }
         }

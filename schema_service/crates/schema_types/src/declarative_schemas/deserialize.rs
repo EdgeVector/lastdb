@@ -25,8 +25,6 @@ struct DeclarativeSchemaDefinitionHelper {
     fields: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transform_fields: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    field_key_ids: Option<HashMap<String, String>>,
     #[serde(default)]
     field_classifications: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -71,9 +69,7 @@ impl DeclarativeSchemaDefinitionHelper {
     fn into_definition(self) -> Result<DeclarativeSchemaDefinition, String> {
         for name in ["field_key_id", "record_mapper"] {
             if self.unknown.contains_key(name) {
-                return Err(format!(
-                    "schema-level '{name}' is not supported; each field uses its own field key"
-                ));
+                return Err(format!("schema-level '{name}' is not supported"));
             }
         }
         let normalized_fields = normalize_fields(self.fields)?;
@@ -124,10 +120,9 @@ impl DeclarativeSchemaDefinitionHelper {
             self.transform_fields,
         );
 
-        // Preserve descriptive_name and field_key_ids from deserialization
+        // Preserve descriptive fields the constructor does not derive.
         schema.descriptive_name = self.descriptive_name;
         schema.purpose_statement = self.purpose_statement;
-        schema.field_key_ids = self.field_key_ids;
 
         // Merge classifications from helper
         for (field_name, classifications) in self.field_classifications {

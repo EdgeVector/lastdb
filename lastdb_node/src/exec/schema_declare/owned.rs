@@ -177,7 +177,6 @@ fn owned_schema(
                     .or_insert_with(|| category.clone());
             }
         }
-        schema.field_key_ids = installed.field_key_ids.clone();
         schema.name = installed.name.clone();
     }
     schema.ensure_field_hashes();

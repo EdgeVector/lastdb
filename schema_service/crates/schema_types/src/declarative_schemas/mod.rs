@@ -56,7 +56,7 @@ pub enum SchemaSource {
 /// Declarative schema definition - pure wire/domain form (no runtime FieldVariant).
 ///
 /// This is the unified schema type used by schema_service. fold_db wraps this
-/// type and adds `runtime_fields` for field key hydration.
+/// type and adds `runtime_fields`.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct DeclarativeSchemaDefinition {
     /// Schema name
@@ -91,10 +91,6 @@ pub struct DeclarativeSchemaDefinition {
     /// SHA256 hash of the schema content for integrity verification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
-    /// Field key UUIDs for each field (persisted for data continuity after mutations)
-    /// Maps field_name -> field_key_id. Synced from runtime_fields before persistence.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub field_key_ids: Option<HashMap<String, String>>,
     /// Classification tags for each field (e.g. "word", "name:person", "date", "number")
     /// Maps field_name -> list of classification strings
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

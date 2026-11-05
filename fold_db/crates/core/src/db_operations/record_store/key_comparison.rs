@@ -3,7 +3,7 @@ use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::SchemaError;
 
 impl RecordStore {
-    /// Capture actual field key bindings and formats, not environment defaults.
+    /// Load the record-space and alternate bundles, then capture key order.
     pub async fn key_comparison_context(
         &self,
         schema: &crate::schema::Schema,
@@ -11,16 +11,6 @@ impl RecordStore {
         if let Some(store) = &self.field_keys {
             store.load_schema(schema).await?;
         }
-        let mut formats = Vec::new();
-        for name in schema.runtime_field_names() {
-            let field = &schema.runtime_fields[&name];
-            if let Some(field_key) = field.common().field_key_id() {
-                let codec = self.key_codec_for_field_key(field_key)?;
-                formats.push((name, field_key.clone(), codec.comparison_format()));
-            }
-        }
-        Ok(Arc::new(KeyComparisonContext::for_schema(
-            schema, &formats,
-        )?))
+        Ok(Arc::new(KeyComparisonContext::for_schema(schema)?))
     }
 }

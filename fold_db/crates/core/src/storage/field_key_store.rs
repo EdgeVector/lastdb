@@ -1,9 +1,10 @@
 //! Field-key contracts and their shared process cache.
 //!
-//! A field key's three-key bundle is minted once; its blind-index key blinds
-//! the field key hashes. The plaintext bundle stays only in the process cache.
-//! The format owns the metadata and encrypted node-wrap wire definitions.
-//! This provider holds only a read view and typed format capability.
+//! A record-space or alternate-key bundle is minted once. Its blind key blinds
+//! that key's hashes. A payload field has no bundle. The plaintext bundle stays
+//! only in the process cache. The format owns the metadata and encrypted
+//! node-wrap wire definitions. This provider holds only a read view and typed
+//! format capability.
 
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
@@ -82,8 +83,8 @@ impl FieldKeyStore {
         self.load_schema(schema).await
     }
 
-    /// Only schema publication may mint new typed contracts. Existing fields
-    /// must resolve their old contracts before any replacement can publish.
+    /// Only schema publication may mint new bundles. An existing record-space
+    /// or alternate bundle must resolve before a replacement can publish.
     pub(crate) async fn establish_schema_for_publication(
         &self,
         schema: &Schema,
@@ -95,7 +96,7 @@ impl FieldKeyStore {
         self.establish_schema(schema).await
     }
 
-    /// Load established field bundles for a catalog read without minting keys.
+    /// Load the record-space and alternate bundles without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
         self.load_existing(&schema_field_key_ids(schema)).await?;
         self.require_schema_profiles(schema)
@@ -113,32 +114,22 @@ fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
     })
 }
 
-/// Every field and alternate field key of a schema, and its record space.
+/// The record space and every named alternate key of a schema.
 pub(crate) fn schema_field_key_ids(schema: &Schema) -> Vec<String> {
     let mut field_keys = schema
-        .runtime_fields
+        .record_keys
         .iter()
-        .map(|(field_name, field)| {
-            field.common().field_key_id().cloned().unwrap_or_else(|| {
-                lastdb_model::field_key_id::deterministic_field_key_id(&schema.name, field_name)
-            })
-        })
+        .flat_map(|keys| keys.alternates.keys())
+        .map(|name| lastdb_model::field_key_id::alternate_field_key_id(schema, name))
         .collect::<Vec<_>>();
-    field_keys.extend(
-        schema
-            .record_keys
-            .iter()
-            .flat_map(|keys| keys.alternates.keys())
-            .map(|name| lastdb_model::field_key_id::alternate_field_key_id(schema, name)),
-    );
     field_keys.push(lastdb_model::record_space::record_space_uuid(&schema.name));
     field_keys.sort();
     field_keys.dedup();
     field_keys
 }
 
-/// Every field and alternate owns its own declared range profile. The record
-/// space of the schema uses the range profile of the primary key.
+/// Each alternate uses its own range profile. The record space uses the
+/// primary key's range profile. A payload field has no profile here.
 pub(crate) fn schema_field_key_profiles(
     schema: &Schema,
 ) -> StorageResult<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>> {
@@ -149,18 +140,7 @@ pub(crate) fn schema_field_key_profiles(
         .primary
         .range_profile()
         .map_err(StorageError::InvalidOperation)?;
-    let mut result: Vec<_> = schema
-        .runtime_fields
-        .iter()
-        .map(|(name, field)| {
-            (
-                field.common().field_key_id().cloned().unwrap_or_else(|| {
-                    lastdb_model::field_key_id::deterministic_field_key_id(&schema.name, name)
-                }),
-                primary,
-            )
-        })
-        .collect();
+    let mut result = Vec::new();
     for (name, key) in &definitions.alternates {
         let profile = key
             .range_profile()

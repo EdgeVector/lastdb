@@ -48,12 +48,6 @@ impl DeclarativeSchemaDefinition {
                     .flat_map(|map| map.keys())
                     .map(String::as_str),
             )
-            .chain(
-                self.field_key_ids
-                    .iter()
-                    .flat_map(|map| map.keys())
-                    .map(String::as_str),
-            )
             .chain(self.field_classifications.keys().map(String::as_str))
             .chain(self.field_descriptions.keys().map(String::as_str))
             .chain(self.field_data_classifications.keys().map(String::as_str))

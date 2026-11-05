@@ -240,7 +240,6 @@ pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
         .chain(schema.field_hashes.keys())
         .chain(schema.field_versions.keys())
         .chain(schema.field_declarations.keys())
-        .chain(schema.field_key_ids.iter().flat_map(|map| map.keys()))
         .collect()
 }
 

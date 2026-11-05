@@ -1980,11 +1980,6 @@ components:
         hash:
           type: string
           nullable: true
-        field_key_ids:
-          type: object
-          nullable: true
-          additionalProperties:
-            type: string
         field_classifications:
           type: object
           additionalProperties:

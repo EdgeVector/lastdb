@@ -12,19 +12,6 @@ impl FieldKeyStore {
         if !self.is_enabled() {
             return Ok(());
         }
-        let populated;
-        let schema = if schema.runtime_fields.is_empty() {
-            populated = {
-                let mut populated = schema.clone();
-                populated.populate_runtime_fields().map_err(|error| {
-                    StorageError::InvalidOperation(format!("resolve schema field keys: {error}"))
-                })?;
-                populated
-            };
-            &populated
-        } else {
-            schema
-        };
         let profiles = schema_field_key_profiles(schema)?;
         let field_keys: Vec<_> = profiles.iter().map(|(id, _)| id.clone()).collect();
         if self.missing_contracts(&profiles)?.is_empty() {
