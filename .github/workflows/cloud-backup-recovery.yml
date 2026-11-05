@@ -72,6 +72,7 @@ jobs:
   ownership-readback:
     name: Read real CI ownership records
     needs: recipe-syntax
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'shared-recovery'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
