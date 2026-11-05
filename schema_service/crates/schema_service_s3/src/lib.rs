@@ -31,6 +31,7 @@ mod definition_namespace;
 mod definitions;
 mod per_record;
 mod persistence_impl;
+mod portable_schema;
 mod quota_store;
 pub mod store_config;
 

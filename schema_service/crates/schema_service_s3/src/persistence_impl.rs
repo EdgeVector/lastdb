@@ -2,6 +2,7 @@
 
 use super::*;
 use schema_service_core::CanonicalVocabularyWrite;
+use schema_types::{PortableSchemaDefinition, PortableSchemaId};
 
 #[async_trait]
 impl ExternalSchemaPersistence for S3BlobPersistence {
@@ -38,6 +39,17 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
         Ok(self.load_definition_set().await?.schemas)
+    }
+
+    async fn pin_portable_schema(&self, definition: &PortableSchemaDefinition) -> FoldDbResult<()> {
+        self.put_portable_schema(definition).await
+    }
+
+    async fn load_portable_schema(
+        &self,
+        id: &PortableSchemaId,
+    ) -> FoldDbResult<Option<PortableSchemaDefinition>> {
+        self.get_portable_schema(id).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {

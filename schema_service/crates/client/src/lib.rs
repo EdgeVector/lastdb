@@ -142,6 +142,7 @@ use publish_auth::*;
 use retry::*;
 
 mod client_add_schema;
+mod client_portable_schema;
 mod client_pow;
 mod client_reads;
 mod client_snapshot;

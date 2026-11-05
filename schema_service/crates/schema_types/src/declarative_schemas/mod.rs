@@ -13,6 +13,7 @@ mod key_type_resolution;
 mod key_types;
 mod metadata;
 mod owned;
+mod portable;
 mod validation;
 
 pub use identity::{
@@ -26,6 +27,7 @@ pub use metadata::{derive_transform_metadata, hash_expression, TransformMetadata
 pub use owned::{
     manifest_schema_definition, owned_catalog_definition, schema_from_value, OwnedDeclaration,
 };
+pub use portable::{PortableSchemaDefinition, PortableSchemaId};
 
 /// Origin of a schema in the service.
 ///

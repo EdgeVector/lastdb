@@ -60,6 +60,7 @@ mod lock_helpers;
 pub mod memory_persistence;
 pub mod name_validator;
 pub mod near_miss;
+pub mod portable_schema;
 pub mod registry_index;
 pub mod resolver_config;
 pub mod schema_config;

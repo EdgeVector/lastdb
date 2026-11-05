@@ -20,11 +20,12 @@ use crate::near_miss::NearMissRecord;
 use crate::snapshot::AppRecord;
 use crate::types::CanonicalField;
 use crate::CanonicalVocabularyWrite;
-use schema_types::{FoldDbError, FoldDbResult, Schema};
+use schema_types::{FoldDbError, FoldDbResult, PortableSchemaDefinition, PortableSchemaId, Schema};
 
 #[derive(Default)]
 struct Registry {
     schemas: HashMap<String, Schema>,
+    portable_schemas: HashMap<PortableSchemaId, PortableSchemaDefinition>,
     canonical_fields: HashMap<String, CanonicalField>,
     descriptive_name_embeddings: HashMap<String, Vec<f32>>,
     canonical_field_embeddings: HashMap<String, Vec<f32>>,
@@ -125,6 +126,25 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
         Ok(self.read()?.schemas.clone())
+    }
+
+    async fn pin_portable_schema(&self, definition: &PortableSchemaDefinition) -> FoldDbResult<()> {
+        let id = definition.id();
+        definition.verify(id).map_err(FoldDbError::Config)?;
+        let mut registry = self.write()?;
+        let stored = registry
+            .portable_schemas
+            .entry(id.clone())
+            .or_insert_with(|| definition.clone());
+        stored.verify(id).map_err(FoldDbError::Config)?;
+        Ok(())
+    }
+
+    async fn load_portable_schema(
+        &self,
+        id: &PortableSchemaId,
+    ) -> FoldDbResult<Option<PortableSchemaDefinition>> {
+        Ok(self.read()?.portable_schemas.get(id).cloned())
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {

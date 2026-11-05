@@ -11,6 +11,7 @@ mod author_clock;
 mod cas_rules;
 mod index;
 mod key_values;
+pub mod portable_schema;
 pub mod receipt;
 mod write;
 
