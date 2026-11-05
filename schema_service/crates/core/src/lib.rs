@@ -62,8 +62,6 @@ pub mod name_validator;
 pub mod near_miss;
 pub mod registry_index;
 pub mod resolver_config;
-pub mod resolver_pack;
-mod resolver_pack_vocabulary;
 pub mod schema_config;
 pub mod schema_expansion_commit;
 pub mod schema_mutation_gate;

@@ -87,8 +87,8 @@ pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Respo
 /// `GET /v1/snapshot/shared-only` — shared-surface projection of the registry.
 ///
 /// Same auth/embedding-strip behavior as [`snapshot_export`], but schemas
-/// are filtered to the shared-only set used by resolver-pack publishing
-/// (system-owned + explicit shared; no private legacy bootstrap).
+/// are filtered to system-owned and explicit shared rows. Private legacy
+/// bootstrap rows are excluded.
 #[allow(
     clippy::unused_async,
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"

@@ -26,9 +26,9 @@ pub trait Embedder: Send + Sync {
 
 /// Runtime no-embedder implementation for default local/dev builds.
 ///
-/// Schema matching paths that can use exact names, resolver packs, imported
-/// artifacts, or injected test embedders still work. Paths that truly need a
-/// local embedding model degrade explicitly instead of initializing FastEmbed.
+/// Schema matching paths that can use exact names or an injected embedder
+/// still work. Paths that truly need a local embedding model degrade
+/// explicitly instead of initializing FastEmbed.
 pub struct DisabledEmbeddingModel;
 
 impl Embedder for DisabledEmbeddingModel {
@@ -38,7 +38,7 @@ impl Embedder for DisabledEmbeddingModel {
 
     fn embed_text(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
         Err(EmbedError::InitFailed(
-            "schema semantic embedder is disabled; use resolver packs/artifacts or enable an explicit FastEmbed feature".to_string(),
+            "schema semantic embedder is disabled; enable an explicit FastEmbed feature".to_string(),
         ))
     }
 }
