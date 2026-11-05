@@ -89,6 +89,18 @@ impl SchemaCore {
         Ok(None)
     }
 
+    /// Install already verified definitions in one private native request.
+    pub async fn load_schema_batch(&self, schemas: Vec<Schema>) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        crate::storage::disk_pack::transaction::request_scope(runtime, async {
+            for schema in schemas {
+                self.load_schema_internal(schema).await?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// Prepare definitions, write durable metadata, then publish the matching cache state.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
         schema

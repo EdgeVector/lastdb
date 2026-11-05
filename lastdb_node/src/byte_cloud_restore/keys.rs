@@ -52,6 +52,10 @@ impl RecoveryKeys {
         Ok(())
     }
 
+    pub(crate) fn account_seed(&self) -> &[u8; 32] {
+        &self.seed
+    }
+
     pub(crate) fn content_key(&self) -> &[u8; 32] {
         &self.content
     }
