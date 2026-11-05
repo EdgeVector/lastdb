@@ -32,6 +32,8 @@ from support import (ACCOUNT, CREDENTIALS_FILE, OperationError, canonical_uuid,
 SCHEMA = "lastdb.cloud-dev-shared-recovery.v1"
 FILE_BYTES = 65536
 KEYS = ("checkpoint", "winner", "deleted", "peer-only")
+IDENTIFIER = "shared_proof_record_identifier"
+NOTE = "shared_proof_record_note"
 
 
 def protected_json(name):
@@ -42,13 +44,14 @@ def protected_json(name):
 
 def scope():
     value = protected_json("LASTDB_CLOUD_DEV_SHARED_SCOPE")
-    require(isinstance(value, dict) and set(value) == {
-        "account_id", "database_id", "publisher_device", "writers", "schema_name", "schema_id"}
-        and value["account_id"] == ACCOUNT, "shared_admitted_scope")
-    require(isinstance(value["schema_name"], str)
-            and re.fullmatch(r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value["schema_name"])
-            and isinstance(value["schema_id"], str)
-            and re.fullmatch(r"[0-9a-f]{64}", value["schema_id"]), "shared_immutable_schema")
+    required = {"account_id", "database_id", "publisher_device", "writers"}
+    require(isinstance(value, dict) and set(value) in (
+        required, required | {"schema_name", "schema_id"}) and value["account_id"] == ACCOUNT,
+        "shared_admitted_scope")
+    if "schema_name" in value:
+        require(isinstance(value["schema_name"], str)
+                and re.fullmatch(r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value["schema_name"])
+                and is_digest(value["schema_id"]), "shared_immutable_schema")
     writers = value["writers"]
     require(isinstance(writers, list) and len(writers) == 2
             and all(isinstance(writer, dict) and set(writer) == {
@@ -59,13 +62,16 @@ def scope():
     for writer in writers:
         ids.extend([writer["device_id"], writer["source_stream"]])
         key = writer["public_key"]
-        require(isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key),
-                "shared_admitted_public_key")
+        require(is_digest(key), "shared_admitted_public_key")
         keys.add(key)
     require(len(set(map(canonical_uuid, ids))) == len(ids) and len(keys) == 2
             and value["publisher_device"] in {writer["device_id"] for writer in writers},
             "shared_distinct_writers")
     return value
+
+
+def is_digest(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 class Operation:
@@ -94,7 +100,6 @@ class Operation:
 
         self.scope = scope()
         self.summary["scope"] = self.scope
-        self.schema = self.scope["schema_name"]
         self.writers = sorted(self.scope["writers"],
                               key=lambda writer: writer["device_id"] != self.scope["publisher_device"])
         self.snapshot = str(uuid.uuid4())
@@ -128,7 +133,6 @@ class Operation:
             private_write(self.device_file(device), seed)
         save_json(self.root / "credentials" / CREDENTIALS_FILE, self.credentials)
         self.bindings = self.root / "schemas.json"
-        save_json(self.bindings, {self.schema: self.scope["schema_id"]})
         self.programs = Programs(self.args.bin_dir, self.args.version, child_environment(self.root))
         self.summary["binaries"] = self.programs.identities
 
@@ -160,14 +164,41 @@ class Operation:
         self.nodes.append(node)
         node.start()
         node.stop()
+        if not self.bindings.exists():
+            self.provision_schema(node, writer)
         self.writer(node, writer, "install", "--schema-bindings", str(self.bindings))
         self.writer(node, writer, "bind", "--database-id", self.scope["database_id"],
                     "--source-stream", writer["source_stream"], "--schema-bindings", str(self.bindings))
         return node
 
+    def provision_schema(self, node, writer):
+        if "schema_id" in self.scope:
+            self.schema = self.scope["schema_name"]
+            identity = {"portable_id": self.scope["schema_id"]}
+        else:
+            namespace = "cloud-shared-proof-" + self.scope["database_id"].replace("-", "")
+            name = "CloudSharedProof"
+            declaration = self.root / "declaration.json"
+            save_json(declaration, {
+                "name": name, "descriptive_name": "Shared Storage Recovery Proof Record",
+                "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+                "fields": [IDENTIFIER, NOTE], "field_types": {IDENTIFIER: "String", NOTE: "String"},
+                "field_descriptions": {
+                    IDENTIFIER: "Stable identifier for the generated record in a DEV shared storage recovery operation.",
+                    NOTE: "Synthetic text that distinguishes versions of the generated DEV shared recovery record.",
+                },
+            })
+            identity = decode_json(self.writer(node, writer, "publish-schema", "--namespace",
+                                              namespace, "--declaration", str(declaration)))
+            require(isinstance(identity, dict) and set(identity) == {"catalog_id", "portable_id"}
+                    and all(map(is_digest, identity.values())), "shared_exact_pinned_schema")
+            self.schema = f"{namespace}/{name}"
+        save_json(self.bindings, {self.schema: identity["portable_id"]})
+        self.summary["schema_binding"] = {"runtime_name": self.schema, **identity}
+
     def record(self, kind, version):
         owner = self.owner
-        return {"id": kind, "note": f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
+        return {IDENTIFIER: kind, NOTE: f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
 
     def attach(self, node, record, label):
         payload = hashlib.shake_256((self.snapshot + label).encode()).digest(FILE_BYTES)
@@ -175,7 +206,8 @@ class Operation:
         path = self.root / "payload.bin"
         private_write(path, payload)
         try:
-            reply = native_records.put_file(node, self.schema, record, path)
+            reply = native_records.put_file(node, self.schema, record, path,
+                                            target=native_records.key(record[IDENTIFIER]))
             require(reply["file"]["sha256"] == digest, "shared_native_file_marker")
         finally:
             path.unlink()
@@ -218,7 +250,7 @@ class Operation:
                         and marker.get("sha256") == files[kind], "shared_exact_restored_file_marker")
             else:
                 require(marker is None, "shared_exact_record_without_file")
-        targets = [{"schema": self.schema, "records": [records[kind]], "file_bytes": FILE_BYTES,
+        targets = [{"schema": self.schema, "records": [{"id": kind}], "file_bytes": FILE_BYTES,
                     "file_sha256": digest} for kind, digest in files.items()]
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(node.verify_file, targets))
@@ -231,7 +263,7 @@ class Operation:
         self.summary["stage"] = "prepare-checkpoint"
         first.start()
         checkpoint, losing, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
-        durable_batch(first, [native_records.create(self.schema, native_records.key(record["id"]), record)
+        durable_batch(first, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
                               for record in (checkpoint, losing, deleted)])
         checkpoint_file = self.attach(first, checkpoint, "checkpoint")
         first.stop()
@@ -255,7 +287,7 @@ class Operation:
 
         peer.start()
         winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
-        durable_batch(peer, [native_records.create(self.schema, native_records.key(record["id"]), record)
+        durable_batch(peer, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
                              for record in (winner, peer_only)])
         winner_file = self.attach(peer, winner, "winning-tail")
         peer.stop()
@@ -289,7 +321,7 @@ class Operation:
                 "shared_restore_activation")
         node = OwnedNode(destination, self.programs)
         self.nodes.append(node)
-        records = {record["id"]: record for record in (checkpoint, winner, peer_only)}
+        records = {record[IDENTIFIER]: record for record in (checkpoint, winner, peer_only)}
         files = {"checkpoint": checkpoint_file, "winner": winner_file}
         self.summary["stage"] = "verify-restored-native-home"
         for _ in range(2):
