@@ -92,6 +92,6 @@ pub use ops_render::*;
 pub use phase_timings::*;
 pub use render_helpers::*;
 pub use request_parse::*;
-pub use rollup::*;
+use rollup::*;
 pub use runtime::*;
 pub use snapshot::*;

@@ -17,7 +17,7 @@
 //! (named by the identity hash) the anchor of both. The sweep reads, queries and
 //! deletes through the anchor, so a write through either name is covered.
 //!
-//! Safety properties borrowed from `drain_orphaned_telemetry`:
+//! Safety properties of the sweep:
 //! - never create an absent schema
 //! - bounded batches
 //! - report a completed no-op, but recheck on the next sampler tick because

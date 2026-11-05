@@ -1,57 +1,5 @@
 use super::*;
 
-pub fn retention_max_samples_from_env() -> usize {
-    // An explicit row cap still wins, exactly as it does for the rollup plane:
-    // an operator who has measured their own plane should not have to work
-    // backwards through the derivation.
-    if let Some(rows) =
-        env_flag::var_parsed::<usize>("LASTDB_SELF_METRICS_MAX_SAMPLES").filter(|n| *n > 0)
-    {
-        return rows;
-    }
-    let max_bytes = env_flag::var_parsed::<u64>("LASTDB_SELF_METRICS_MAX_BYTES")
-        .filter(|n| *n > 0)
-        .unwrap_or(DEFAULT_SELF_METRIC_MAX_BYTES);
-    max_rows_for_budget(max_bytes, SELF_METRIC_FIELDS.len())
-}
-
-/// Row cap derived from a byte budget and the plane's per-row cost.
-///
-/// Every telemetry record stores every declared field, so the divisor is the
-/// plane's full declared field count.
-///
-/// The property this buys, which a row constant cannot: adding an
-/// observability field now *shrinks* the row cap in proportion, instead of
-/// silently growing the plane. Retention is the thing that gives, and it
-/// gives visibly, at the moment the field is added.
-///
-/// Schema-agnostic, and named that way on purpose. It was called
-/// `request_ops_rollup_max_rows_for_budget`, and that name is the whole reason
-/// the sibling plane sat on a raw row cap for a day after the fix landed: the
-/// function that would have fixed it read as though it belonged to the plane
-/// that already had it.
-#[must_use]
-pub fn max_rows_for_budget(max_bytes: u64, fields_per_row: usize) -> usize {
-    let per_row = ROLLUP_FIELD_BYTES.saturating_mul(fields_per_row.max(1) as u64);
-    usize::try_from(max_bytes / per_row.max(1))
-        .unwrap_or(usize::MAX)
-        .max(1)
-}
-
-pub fn request_ops_rollup_retention_from_env() -> usize {
-    // An explicit row cap still wins: an operator who has measured their own
-    // plane should not have to work backwards through the derivation.
-    if let Some(rows) =
-        env_flag::var_parsed::<usize>("LASTDB_REQUEST_OPS_ROLLUP_MAX_ROWS").filter(|n| *n > 0)
-    {
-        return rows;
-    }
-    let max_bytes = env_flag::var_parsed::<u64>("LASTDB_REQUEST_OPS_ROLLUP_MAX_BYTES")
-        .filter(|n| *n > 0)
-        .unwrap_or(DEFAULT_REQUEST_OPS_ROLLUP_MAX_BYTES);
-    max_rows_for_budget(max_bytes, REQUEST_OPS_ROLLUP_FIELDS.len())
-}
-
 /// How long a measured data-dir size stays fresh before a background refresh
 /// is kicked off. See [`DataDirSizeCache`] for why this is cached.
 pub fn data_dir_size_ttl_from_env() -> Duration {
@@ -64,13 +12,6 @@ pub fn sample_interval_from_env() -> Duration {
     env_flag::var_parsed::<u64>("LASTDB_SELF_METRICS_SAMPLE_SECS")
         .filter(|n| *n > 0)
         .map_or(DEFAULT_SAMPLE_INTERVAL, Duration::from_secs)
-}
-
-/// When true (default **false**), also best-effort write SelfMetricSample into
-/// LastDB after the log-file line. Log file is always the primary sink so a
-/// wedged node still leaves a trail (Tom 2026-07-19).
-pub fn self_metrics_db_write_enabled() -> bool {
-    env_flag::var_truthy("LASTDB_SELF_METRICS_TO_DB")
 }
 
 /// Absolute path for the self-metrics JSONL file.
