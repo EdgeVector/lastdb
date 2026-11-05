@@ -7,12 +7,6 @@ use crate::schema::SchemaState;
 use schema_types::IdentityRecompute;
 
 impl SchemaCore {
-    /// Publish definition updates through the same normalization, bindings and
-    /// cache-state boundary as schema declaration.
-    pub async fn update_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
-        self.load_schema_internal(schema.clone()).await
-    }
-
     /// Fetches a schema by name, checking both in-memory cache and database.
     /// This is the resolution the executor uses, so any field/owner-validation
     /// gate that runs alongside the executor must use this method — not

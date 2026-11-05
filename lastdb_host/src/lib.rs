@@ -19,15 +19,12 @@
 //! - [`reject`] — the typed request-shape rejection contract: one
 //!   `{ok:false, kind, error, key?, try?}` body, built only from compile-time
 //!   constants, replacing the discriminator-free `400 "Bad Request"`.
-//! - [`catalog`] — the internal-index schema allow-list hidden from
-//!   native-index search unless `include_internal=true`.
 //! - [`pagination`] — the query page constants and `has_more` computation.
 //!
 //! It depends only on `fold_db` core and `lastdb_uds` (the socket transport),
 //! never on either node crate, so both binaries consume it without a cycle.
 #![warn(missing_docs)]
 
-pub mod catalog;
 pub mod envelope;
 pub mod handlers;
 pub mod host_node;

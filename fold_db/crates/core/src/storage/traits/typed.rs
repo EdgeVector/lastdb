@@ -1,6 +1,6 @@
 //! `TypedKvStore`: JSON serialize/deserialize helper over any `KvStore`.
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
 use super::*;
@@ -40,17 +40,6 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
             items.push((key, value));
         }
         Ok(items)
-    }
-
-    /// Store a typed item
-    pub async fn put_item<T: Serialize + Send + Sync>(
-        &self,
-        key: &str,
-        item: &T,
-    ) -> StorageResult<()> {
-        let bytes = serde_json::to_vec(item)
-            .map_err(|e| StorageError::SerializationError(e.to_string()))?;
-        self.inner.put(key.as_bytes(), bytes).await
     }
 
     /// Get a typed item
@@ -93,11 +82,6 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
             }
         }
         Ok(out)
-    }
-
-    /// Delete an item
-    pub async fn delete_item(&self, key: &str) -> StorageResult<bool> {
-        self.inner.delete(key.as_bytes()).await
     }
 
     /// List all keys with a given prefix
@@ -148,28 +132,5 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
                 .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
                 .await?,
         )
-    }
-
-    /// Batch store items
-    pub async fn batch_put_items<T: Serialize + Send + Sync>(
-        &self,
-        items: Vec<(String, T)>,
-    ) -> StorageResult<()> {
-        let serialized: Result<Vec<_>, StorageError> = items
-            .into_iter()
-            .map(|(k, v)| {
-                let bytes = serde_json::to_vec(&v)
-                    .map_err(|e| StorageError::SerializationError(e.to_string()))?;
-                Ok::<(Vec<u8>, Vec<u8>), StorageError>((k.into_bytes(), bytes))
-            })
-            .collect();
-
-        self.inner.batch_put(serialized?).await
-    }
-
-    /// Batch delete keys
-    pub async fn batch_delete_keys(&self, keys: Vec<String>) -> StorageResult<()> {
-        let selected = keys.into_iter().map(String::into_bytes).collect();
-        self.inner.batch_delete(selected).await
     }
 }

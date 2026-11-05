@@ -6,13 +6,11 @@
 //! - [`mutation_manager`] — write path
 //! - [`query`] — query executor + hash-range paths
 //! - [`purge`] — schema/data purge
-//! - [`orchestration`] — coordination helpers
 //! - [`pending_task_tracker`] — background task bookkeeping
 
 pub mod factory;
 mod field_history;
 pub mod fold_db;
-pub mod orchestration;
 pub mod pending_task_tracker;
 
 pub mod query;
