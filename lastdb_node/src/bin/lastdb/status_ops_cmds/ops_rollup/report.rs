@@ -1,6 +1,6 @@
 use super::*;
 
-/// Print request-ops offender tables from live status and optional durable rollups.
+/// Print request-ops offender tables from the live in-memory ring.
 pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), String> {
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let health = lastdb_node::health_alert::probe_health(&socket);
@@ -18,9 +18,6 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
     )?;
     let schema_labels = load_schema_labels(&socket, args);
     print_ops_tables(&snapshot, &schema_labels, &socket, args);
-    if let Some(raw_since) = args.since.as_deref() {
-        print_since_rollup(&socket, raw_since, &snapshot, &schema_labels)?;
-    }
     println!();
     println!(
         "Note: clients should send header `X-LastDB-Client: <name>` (e.g. kanban, brain). \
@@ -38,7 +35,7 @@ fn load_schema_labels(
     // Resolve runtime schema `name` values after the forensic snapshot. This
     // keeps the catalog request from perturbing the ring that we are about to
     // render. Failure is non-fatal: short runtime IDs remain unambiguous.
-    if args.by_app && args.since.is_none() {
+    if args.by_app {
         lastdb_node::request_telemetry::SchemaLabels::new()
     } else {
         match probe_schema_labels(
@@ -97,119 +94,4 @@ fn print_ops_tables(
             println!("{line}");
         }
     }
-}
-
-/// Print the durable `--since` rollup section, or the reason it is empty.
-fn print_since_rollup(
-    socket: &Path,
-    raw_since: &str,
-    snapshot: &lastdb_node::self_metrics::StatusSnapshot,
-    schema_labels: &lastdb_node::request_telemetry::SchemaLabels,
-) -> Result<(), String> {
-    let duration_ms = parse_since_duration_ms(raw_since)?;
-    let until_ms = fold_db::clock::unix_millis();
-    let since_ms = until_ms.saturating_sub(duration_ms);
-    println!();
-    match query_request_ops_rollup(socket, since_ms, until_ms) {
-        // The plane has never been registered, so it has certainly never
-        // been written. That is the "sink was never switched on" state, and
-        // the ladder below already words it correctly — reuse it instead of
-        // inventing a second phrasing that could drift out of agreement.
-        Ok(RollupRead::SchemaAbsent) => {
-            println!(
-                "Request ops rollup: rows=0 since={since_ms} until={until_ms} \
-                     (schema {} is not registered on this daemon)",
-                lastdb_node::self_metrics::REQUEST_OPS_ROLLUP_SCHEMA
-            );
-            for line in rollup_empty_reason(&snapshot.sampler) {
-                println!("{line}");
-            }
-        }
-        Ok(RollupRead::Rows {
-            snapshot: rollup,
-            truncated,
-        }) => {
-            for line in lastdb_node::request_telemetry::rollup_lines_with_schema_labels(
-                &rollup,
-                schema_labels,
-            ) {
-                println!("{line}");
-            }
-            if truncated {
-                println!(
-                    "  ^ TRUNCATED: the server capped the page and reported more rows in \
-                         range. The totals above are a lower bound, not the window."
-                );
-            }
-            // An empty window and a broken writer look identical from the
-            // read side. The primary spent 12 days reporting "no durable
-            // rollups in that window yet" while the sampler's retention
-            // read was failing on a dangling record every tick, so say which
-            // one this is rather than leaving the reader to assume idle.
-            //
-            // There are three ways to get zero rows, not two. The third —
-            // the durable sink is simply switched off — is the DEFAULT
-            // (`LASTDB_SELF_METRICS_TO_DB` unset), and it was reported as
-            // "this window really had no rollups" on a primary that had
-            // just served ~45k requests in the window. Silence about a
-            // disabled sink reads as evidence of an idle node, which is
-            // the opposite of the truth.
-            if rollup.is_empty() {
-                for line in rollup_empty_reason(&snapshot.sampler) {
-                    println!("{line}");
-                }
-            }
-        }
-        // `--since` asked for the durable window; a read that cannot
-        // produce it, including a malformed record, fails the command.
-        Err(e) => return Err(format!("request ops rollup: {e}")),
-    }
-    Ok(())
-}
-
-/// Explain an empty `--since` window in terms of the sampler's actual state.
-///
-/// Zero durable rollup rows has three causes, and only one of them means the
-/// node was quiet:
-///
-/// 1. the sink is on but **failing** — writes are attempted and lost;
-/// 2. the durable sink is **off** (the default) — nothing was ever written;
-/// 3. the sink is on and healthy — the window really was idle.
-///
-/// Ordered so the strongest claim ("really had no rollups") is made only when
-/// every weaker explanation has been ruled out.
-pub(crate) fn rollup_empty_reason(
-    sampler: &lastdb_node::self_metrics::SamplerStatus,
-) -> Vec<String> {
-    if let Some(err) = sampler.last_error.as_deref() {
-        return vec![
-            "  ^ NOT an idle window: durable telemetry writes are FAILING.".to_string(),
-            format!("    sampler last_error={err}"),
-        ];
-    }
-    if sampler.db_write_enabled {
-        vec!["    (sampler reports healthy — this window really had no rollups)".to_string()]
-    } else {
-        vec![
-            "  ^ NOT an idle window: durable telemetry persistence is OFF.".to_string(),
-            "    LASTDB_SELF_METRICS_TO_DB is unset on the daemon, so request-ops".to_string(),
-            "    rollups are never written and `--since` has nothing to read. Live".to_string(),
-            "    counters above are in-memory only and reset on restart.".to_string(),
-        ]
-    }
-}
-
-/// What a `--since` rollup read found.
-///
-/// `SchemaAbsent` is not an error and not an idle window — it is the
-/// signature of a daemon whose durable sink has never run, which the
-/// empty-window ladder already knows how to explain.
-pub(crate) enum RollupRead {
-    /// `lastdb_telemetry/RequestOpsRollup` is not registered on this daemon.
-    SchemaAbsent,
-    Rows {
-        snapshot: lastdb_node::request_telemetry::RequestOpsRollupSnapshot,
-        /// The server capped the page and said there was more.
-        truncated: bool,
-    },
 }

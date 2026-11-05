@@ -65,11 +65,11 @@ pub fn spawn_sampler(
 /// forever, while the reader projects this binary's full field list.
 ///
 /// The consequence is not a degraded read, it is no read at all: a field the
-/// schema does not declare is a hard `400 Invalid field` for the whole query,
-/// so `lastdb ops --since` fails on EVERY window. Measured on the primary
-/// 2026-08-08 — registered schema 12 fields, binary projecting 39, 400 on every
-/// `--since`. The schema is a READ contract; it cannot be maintained only on a
-/// write path that the default configuration never executes.
+/// schema does not declare is a hard `400 Invalid field` for the whole query.
+/// Measured on the primary 2026-08-08 — registered schema 12 fields, binary
+/// projecting 39, 400 on every rollup query. The schema is a READ contract; it
+/// cannot be maintained only on a write path that the default configuration
+/// never executes.
 ///
 /// Two properties, both borrowed from [`drain_orphaned_telemetry`] because they
 /// are the same hazard:
@@ -152,7 +152,7 @@ pub(super) async fn heal_registered_telemetry_schemas(host: &Host) {
                 target: "lastdbd::self_metrics",
                 schema = name,
                 error = %e,
-                "telemetry schema heal failed; `--since` reads fail until the schema declares every field"
+                "telemetry schema heal failed; rollup reads fail until the schema declares every field"
             );
         }
     }

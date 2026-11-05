@@ -14,21 +14,12 @@ pub(super) fn client_headers() -> String {
     )
 }
 
-pub(super) fn post_json(
-    socket: &Path,
-    path: &str,
-    body: &serde_json::Value,
-) -> Result<String, String> {
-    post_json_with_timeout(socket, path, body, Duration::from_secs(10))
-}
-
 /// POST JSON over the owner socket with the **admin** UDS deadline.
 ///
 /// Use for long owner routes that the server already dispatches via
 /// [`lastdb_node::exec::block_on_admin_route`] (inventory-class walks,
-/// laststore snapshot, heal-staging, …). Generic [`post_json`] stays at
-/// 10s for status calls. Durable GC admission and attachment use that short
-/// deadline; neither request waits for the cloud executor.
+/// laststore snapshot, heal-staging, …). Durable GC admission and attachment
+/// use a short deadline; neither request waits for the cloud executor.
 pub(super) fn post_json_admin(
     socket: &Path,
     path: &str,

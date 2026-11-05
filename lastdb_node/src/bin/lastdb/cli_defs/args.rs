@@ -5,9 +5,6 @@ pub(crate) struct OpsArgs {
     /// Show one compact row per app/client and request verb.
     #[arg(long)]
     pub(crate) by_app: bool,
-    /// Include durable rollups for the trailing window (examples: 30m, 6h, 2d).
-    #[arg(long)]
-    pub(crate) since: Option<String>,
     /// Seconds to wait for the daemon's status read (default: the shared
     /// admin-scan budget, `LASTDB_UDS_ADMIN_TIMEOUT_SECS` / 600s). This is a
     /// diagnostic for an already-slow node, so it waits rather than giving up.
