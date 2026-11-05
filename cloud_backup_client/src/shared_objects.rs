@@ -5,9 +5,10 @@ use crate::shared_authority::device_headers;
 use crate::AuthClient;
 use cloud_backup_protocol::shared::objects::{
     ObjectAuthorityRequest, SharedObjectPrepare, SharedObjectRequest, SharedObjectStatus,
-    SnapshotHeadRequest, SnapshotInventoryPage, INVENTORY_PAGE_ENTRIES,
+    SnapshotHeadRequest, SnapshotInventoryPage, SnapshotLogEndsReply, SnapshotLogEndsRequest,
+    INVENTORY_PAGE_ENTRIES,
 };
-use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt};
+use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
 use cloud_backup_protocol::{limits, AccountId, DecimalU64, ErrorCode, Id};
 use serde::de::DeserializeOwned;
 use std::io::Read;
@@ -123,6 +124,22 @@ impl SharedObjectClient {
             return Err(BackupTransportError::Integrity("shared snapshot head"));
         }
         Ok(head)
+    }
+
+    /// Obtain all exact commitments for a local checkpoint, including before
+    /// the first snapshot exists. Missing accepted ends fail the whole lookup.
+    pub async fn snapshot_log_ends(
+        &self,
+        request: &SnapshotLogEndsRequest,
+        sign: &(impl Fn(&[u8]) -> Result<[u8; 64]> + Sync),
+    ) -> Result<Vec<StreamCover>> {
+        let reply: SnapshotLogEndsReply = self
+            .post(ObjectAuthorityRequest::LogEnds(request), None, sign)
+            .await?;
+        reply
+            .validate_for(request)
+            .map_err(|_| BackupTransportError::Integrity("shared snapshot log ends"))?;
+        Ok(reply.covers)
     }
 
     /// Register the immutable, exact inventory before submitting publication.
