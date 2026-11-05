@@ -103,4 +103,15 @@ impl Metadata {
             .put(encoded.key.as_bytes(), encoded.bytes)
             .await
     }
+
+    async fn stage_batch(&self, rows: Vec<EncodedMetadata>) -> StorageResult<()> {
+        self.require_scope()?;
+        self.metadata_store
+            .batch_put(
+                rows.into_iter()
+                    .map(|row| (row.key.into_bytes(), row.bytes))
+                    .collect(),
+            )
+            .await
+    }
 }

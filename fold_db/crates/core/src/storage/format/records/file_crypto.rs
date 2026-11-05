@@ -88,6 +88,30 @@ impl RecordFormat {
         })
     }
 
+    pub(crate) fn admit_portable_file(
+        &self,
+        marker: FileMarker,
+        sealed: Vec<u8>,
+    ) -> Result<FileWrite, SchemaError> {
+        require_row(self.content_key.as_ref(), &marker, &sealed)?;
+        let key = self
+            .content_key
+            .as_ref()
+            .ok_or_else(|| SchemaError::InvalidData("portable file lacks a content key".into()))?;
+        let (key, _) = file_key(key, &marker.sha256)
+            .map_err(|_| SchemaError::InvalidData("portable file key".into()))?;
+        let plaintext = crate::crypto::envelope::decrypt_envelope(&key, &sealed)
+            .map_err(|_| SchemaError::InvalidData("portable file authentication".into()))?;
+        if plaintext.len() as u64 != marker.size_bytes
+            || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
+        {
+            return Err(SchemaError::InvalidData(
+                "portable file differs from its marker".into(),
+            ));
+        }
+        Ok(self.file_issuer.issue(marker, sealed))
+    }
+
     /// Seal a new file under the account key and bind the immutable output
     /// to this format instance. The issuer never leaves this writer.
     pub(crate) fn seal_record_file(

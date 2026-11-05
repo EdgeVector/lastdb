@@ -3,7 +3,8 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::format::metadata::Metadata;
-use lastdb_model::portable_mutation::Stamp;
+use lastdb_model::portable_mutation::{Stamp, StreamId, StreamProgress};
+use std::collections::BTreeMap;
 
 /// Domain access to author clocks; no raw store handle.
 #[derive(Clone)]
@@ -42,5 +43,28 @@ impl MetadataStore {
 
     pub(crate) async fn stage_local_stamps(&self, count: usize) -> Result<Vec<Stamp>, SchemaError> {
         Ok(self.format.stage_local_stamps(count).await?)
+    }
+
+    pub(crate) async fn stage_portable_restore(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+        fresh_stream: &StreamId,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .stage_portable_restore(progress, cutoff, fresh_stream)
+            .await?)
+    }
+
+    pub(crate) async fn validate_portable_restore_checkpoint(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .validate_portable_restore_checkpoint(progress, cutoff)
+            .await?)
     }
 }
