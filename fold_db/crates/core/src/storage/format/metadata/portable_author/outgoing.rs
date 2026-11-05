@@ -1,10 +1,14 @@
 //! The local shared outbox is written under the native record transaction.
 
-use super::{invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata, SharedAuthor};
+use super::{
+    author_row, inbox, invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata,
+    SharedAuthor, REPLAY_STATE_KEY,
+};
 use crate::storage::error::StorageResult;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream};
 use lastdb_model::portable_mutation::{
-    MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId, StreamProgress,
+    HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
+    StreamProgress,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -86,16 +90,14 @@ impl Metadata {
         if state.progress.applied_through != 0 {
             return Err(invalid("a shared journal requires a fresh local author"));
         }
-        if state.stream.as_str() == stream.source_stream.as_str() {
-            let restored = self
-                .metadata_store
-                .get(super::REPLAY_STATE_KEY.as_bytes())
-                .await?;
-            if restored.is_none() {
+        let prior_stream = state.stream.clone();
+        let existing = self.metadata_store.get(REPLAY_STATE_KEY.as_bytes()).await?;
+        if prior_stream.as_str() == stream.source_stream.as_str() {
+            if existing.is_none() {
                 return Err(invalid("the shared writer needs a distinct source stream"));
             }
-            // After restore, the coordinator already selected the fresh shared
-            // source. Give device-only writes their own independent position.
+            // The restored author already owns this fresh source. Keep
+            // subsequent device-only mutations on a separate sequence.
             state.stream = StreamId::try_from(uuid::Uuid::new_v4().to_string()).map_err(invalid)?;
         }
         let shared = SharedAuthor {
@@ -105,8 +107,50 @@ impl Metadata {
             uploaded_head: None,
         };
         shared.validate()?;
+        let local_stream: StreamId = shared
+            .scope
+            .source_stream
+            .as_str()
+            .parse()
+            .map_err(invalid)?;
+        let mut replay = existing
+            .as_deref()
+            .map(|bytes| inbox::decode_state(Some(bytes)))
+            .transpose()?
+            .unwrap_or_else(|| HomeReplayState {
+                local_stream_id: prior_stream.clone(),
+                participating_streams: BTreeSet::new(),
+                delete_reclaimed_through_ms: None,
+            });
+        if replay.local_stream_id != prior_stream
+            || (local_stream != prior_stream
+                && replay.participating_streams.contains(&local_stream))
+        {
+            return Err(invalid(
+                "registered writer collides with a checkpoint stream",
+            ));
+        }
+        replay.participating_streams.remove(&prior_stream);
+        replay.participating_streams.insert(local_stream.clone());
+        replay.local_stream_id = local_stream;
         state.shared = Some(shared);
-        self.stage_local_author(&state).await
+        self.stage_batch(vec![
+            author_row(&state)?,
+            EncodedMetadata {
+                key: REPLAY_STATE_KEY.into(),
+                bytes: serde_json::to_vec(&replay).map_err(invalid)?,
+            },
+        ])
+        .await
+    }
+
+    pub(crate) async fn portable_bound_schemas(&self) -> StorageResult<BTreeMap<String, String>> {
+        let state = self.local_author().await?;
+        Ok(shared(&state)?
+            .schemas
+            .iter()
+            .map(|(alias, schema)| (schema.id.clone(), alias.clone()))
+            .collect())
     }
 
     pub(crate) async fn stage_outgoing(&self, entries: Vec<MutationEntry>) -> StorageResult<()> {

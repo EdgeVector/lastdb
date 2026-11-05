@@ -17,7 +17,7 @@ pub use portable_author::OutgoingPortablePage;
 pub(in crate::storage) use portable_author::{
     initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };
-pub(crate) use portable_author::{AuthoredStamp, JournalSchema};
+pub(crate) use portable_author::{AuthoredStamp, InboxWindow, JournalSchema};
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
@@ -115,5 +115,10 @@ impl Metadata {
                     .collect(),
             )
             .await
+    }
+
+    async fn stage_deletes(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
+        self.require_scope()?;
+        self.metadata_store.batch_delete(keys).await
     }
 }
