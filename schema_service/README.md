@@ -82,22 +82,14 @@ curl -s http://127.0.0.1:9102/v1/health
 
 Mini calls the live schema service. It does not load an offline resolver pack.
 
-The shared-only snapshot stays available for operators. It is the production
-shared-surface projection from `folddb_profile/environments.json`
-(`environments.prod.schema_service` plus `/v1/snapshot/shared-only`), which is
-gated by `X-API-Key`. Scheduled agents must use the documented locator
-`lastsecrets://schema-service-prod-api-key`; provision it with
-`lastsecrets put schema-service-prod-api-key --value-stdin`, then run:
-
-```bash
-schema_service/scripts/capstone-shared-surface-native-resolver/fetch_shared_only_snapshot.sh \
-  --out /tmp/schema-service-shared-only.json
-```
-
-The helper resolves the key at point of use with `lastsecrets get`, feeds the
-header to `curl` through stdin config, and prints only the locator and sanitized
-HTTP status. Raw API-key material must not be committed, pasted into PRs, or
-passed as a CLI argument.
+The shared-only snapshot stays available for operators as
+`GET /v1/snapshot/shared-only` on the production schema service URL from
+`folddb_profile/environments.json` (`environments.prod.schema_service`).
+The route is gated by `X-API-Key`. The key locator is
+`lastsecrets://schema-service-prod-api-key`. Provision it with
+`lastsecrets put schema-service-prod-api-key --value-stdin`.
+Read the key from LastSecrets at point of use. Do not print it, commit it,
+or pass it as a CLI argument.
 
 ## Canonicalization — dual-signal flag
 
