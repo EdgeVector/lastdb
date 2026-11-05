@@ -3,10 +3,11 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 pub use crate::storage::format::metadata::OutgoingPortablePage;
-use crate::storage::format::metadata::{AuthoredStamp, JournalSchema, Metadata};
+use crate::storage::format::metadata::{AuthoredStamp, InboxWindow, JournalSchema, Metadata};
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
 use lastdb_model::portable_mutation::{SchemaIdentity, Stamp, StreamId, StreamProgress};
-use std::collections::BTreeMap;
+use lastdb_model::portable_replay::LogRangeId;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Domain access to author clocks; no raw store handle.
 #[derive(Clone)]
@@ -17,6 +18,56 @@ pub struct MetadataStore {
 impl MetadataStore {
     pub(crate) async fn shared_schema_bound(&self, name: &str) -> Result<bool, SchemaError> {
         Ok(self.format.shared_schema_bound(name).await?)
+    }
+
+    pub(crate) async fn stage_portable_peer(
+        &self,
+        stream: &StreamId,
+        first_authored_at_ms: u64,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .stage_portable_peer(stream, first_authored_at_ms)
+            .await?)
+    }
+
+    pub(crate) async fn stage_portable_range(
+        &self,
+        id: LogRangeId,
+        bytes: Vec<u8>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.stage_portable_range(id, bytes).await?)
+    }
+
+    pub(crate) async fn portable_peer_progress(
+        &self,
+        streams: &BTreeSet<StreamId>,
+    ) -> Result<BTreeMap<StreamId, StreamProgress>, SchemaError> {
+        Ok(self.format.portable_peer_progress(streams).await?)
+    }
+
+    pub(crate) async fn portable_bound_schemas(
+        &self,
+    ) -> Result<BTreeMap<String, String>, SchemaError> {
+        Ok(self.format.portable_bound_schemas().await?)
+    }
+
+    pub(crate) async fn portable_inbox(
+        &self,
+        streams: &BTreeSet<StreamId>,
+    ) -> Result<InboxWindow, SchemaError> {
+        Ok(self.format.portable_inbox(streams).await?)
+    }
+
+    pub(crate) async fn stage_portable_inbox_progress(
+        &self,
+        window: InboxWindow,
+        progress: BTreeMap<StreamId, StreamProgress>,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .stage_portable_inbox_progress(window, progress)
+            .await?)
     }
 
     pub(crate) fn new(format: Metadata) -> Self {

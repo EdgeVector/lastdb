@@ -11,7 +11,9 @@ use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
+mod peer;
 mod values;
+pub use peer::ReplayBinding;
 
 const MAX_CANDIDATES: usize = 256;
 
@@ -85,48 +87,57 @@ impl MutationManager {
     pub async fn apply_portable_candidates(
         &self,
         candidates: &[ReplayCandidate<'_>],
+        files: BTreeMap<Position, Vec<u8>>,
+    ) -> Result<(), SchemaError> {
+        transaction::request_scope(
+            self.db_ops.native_runtime(),
+            self.stage_portable_candidates(candidates, files),
+        )
+        .await
+    }
+
+    async fn stage_portable_candidates(
+        &self,
+        candidates: &[ReplayCandidate<'_>],
         mut files: BTreeMap<Position, Vec<u8>>,
     ) -> Result<(), SchemaError> {
-        transaction::request_scope(self.db_ops.native_runtime(), async {
-            let prepared = self.prepare_portable_replay(candidates).await?;
-            let mut groups = BTreeMap::<&str, Vec<RecordChange>>::new();
-            let records = self.db_ops.records();
-            for index in prepared.winners(candidates) {
-                let input = &candidates[index];
-                let before = prepared.before[index].clone();
-                let after = values::record(input.entry)?;
-                let file_write = match (&after.file, &after.file_version) {
-                    (Some(marker), Some(version))
-                        if before
-                            .as_ref()
-                            .and_then(|record| record.file_version.as_ref())
-                            != Some(version) =>
-                    {
-                        let bytes = files
-                            .remove(version)
-                            .ok_or_else(|| invalid("replay file version is missing"))?;
-                        Some(records.admit_portable_file(marker.clone(), bytes)?)
-                    }
-                    _ => None,
-                };
-                groups
-                    .entry(input.local_schema)
-                    .or_default()
-                    .push(RecordChange {
-                        key: prepared.addresses[index].clone(),
-                        before,
-                        after,
-                        file_write,
-                        portable: PortableEffect::SharedReplay,
-                    });
-            }
-            for (schema, changes) in groups {
-                self.stage_replayed_record_group(&prepared.schemas[schema], changes)
-                    .await?;
-            }
-            Ok(())
-        })
-        .await
+        let prepared = self.prepare_portable_replay(candidates).await?;
+        let mut groups = BTreeMap::<&str, Vec<RecordChange>>::new();
+        let records = self.db_ops.records();
+        for index in prepared.winners(candidates) {
+            let input = &candidates[index];
+            let before = prepared.before[index].clone();
+            let after = values::record(input.entry)?;
+            let file_write = match (&after.file, &after.file_version) {
+                (Some(marker), Some(version))
+                    if before
+                        .as_ref()
+                        .and_then(|record| record.file_version.as_ref())
+                        != Some(version) =>
+                {
+                    let bytes = files
+                        .remove(version)
+                        .ok_or_else(|| invalid("replay file version is missing"))?;
+                    Some(records.admit_portable_file(marker.clone(), bytes)?)
+                }
+                _ => None,
+            };
+            groups
+                .entry(input.local_schema)
+                .or_default()
+                .push(RecordChange {
+                    key: prepared.addresses[index].clone(),
+                    before,
+                    after,
+                    file_write,
+                    portable: PortableEffect::SharedReplay,
+                });
+        }
+        for (schema, changes) in groups {
+            self.stage_replayed_record_group(&prepared.schemas[schema], changes)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Seal the private staged restore before its owning coordinator activates it.

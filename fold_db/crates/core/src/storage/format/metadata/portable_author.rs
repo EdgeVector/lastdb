@@ -13,7 +13,9 @@ const REPLAY_STATE_KEY: &str = "portable-replay-state";
 const PROGRESS_PREFIX: &str = "portable-progress:";
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
+mod inbox;
 mod outgoing;
+pub(crate) use inbox::InboxWindow;
 pub use outgoing::OutgoingPortablePage;
 
 pub(crate) struct AuthoredStamp {
@@ -152,7 +154,19 @@ impl Metadata {
                 state.author(schema, now_ms)
             })
             .collect::<StorageResult<_>>()?;
-        if schemas.iter().any(|(_, imported)| imported.is_none()) {
+        if let Some(shared) = state.shared.as_ref().filter(|_| {
+            stamps
+                .iter()
+                .any(|stamp: &AuthoredStamp| stamp.shared_schema.is_some())
+        }) {
+            let mut progress = shared.progress;
+            progress.uploaded_through = None;
+            let cursor = EncodedMetadata {
+                key: format!("{PROGRESS_PREFIX}{}", shared.scope.source_stream.as_str()),
+                bytes: serde_json::to_vec(&progress).map_err(invalid)?,
+            };
+            self.stage_batch(vec![author_row(&state)?, cursor]).await?;
+        } else if schemas.iter().any(|(_, imported)| imported.is_none()) {
             self.stage_local_author(&state).await?;
         }
         Ok(stamps)
@@ -164,15 +178,7 @@ impl Metadata {
     }
 
     async fn stage_local_author(&self, state: &LocalAuthor) -> StorageResult<()> {
-        let bytes = serde_json::to_vec(state).map_err(invalid)?;
-        if bytes.len() > MAX_LOCAL_AUTHOR_BYTES {
-            return Err(invalid("local stream state exceeds its bound"));
-        }
-        self.stage(EncodedMetadata {
-            key: LOCAL_AUTHOR_KEY.into(),
-            bytes,
-        })
-        .await
+        self.stage(author_row(state)?).await
     }
 
     pub(crate) async fn stage_portable_restore(
@@ -182,7 +188,9 @@ impl Metadata {
         fresh_stream: &StreamId,
     ) -> StorageResult<()> {
         self.require_scope()?;
-        if progress.len() > 4094 || progress.contains_key(fresh_stream) {
+        if progress.len() >= cloud_backup_protocol::shared::MAX_WRITERS
+            || progress.contains_key(fresh_stream)
+        {
             return Err(invalid("invalid restored stream directory"));
         }
         let prior = progress
@@ -280,6 +288,17 @@ impl Metadata {
         }
         Ok(())
     }
+}
+
+fn author_row(state: &LocalAuthor) -> StorageResult<EncodedMetadata> {
+    let bytes = serde_json::to_vec(state).map_err(invalid)?;
+    if bytes.len() > MAX_LOCAL_AUTHOR_BYTES {
+        return Err(invalid("local stream state exceeds its bound"));
+    }
+    Ok(EncodedMetadata {
+        key: LOCAL_AUTHOR_KEY.into(),
+        bytes,
+    })
 }
 
 fn invalid(error: impl std::fmt::Display) -> StorageError {
