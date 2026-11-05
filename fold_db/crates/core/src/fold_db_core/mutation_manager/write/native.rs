@@ -9,6 +9,7 @@ pub(super) struct NativeRequest {
     pub runtime: Arc<PackRuntime>,
     pub mutations: Vec<Mutation>,
     pub author_clock: Option<super::super::author_clock::AuthorClockPersistBarrier>,
+    pub imports: Vec<Option<Stamp>>,
 }
 
 struct NativeCommit {
@@ -56,11 +57,7 @@ impl MutationManager {
             let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
-            let stamps = self
-                .db_ops
-                .metadata()
-                .stage_local_stamps(mutations.len())
-                .await?;
+            let stamps = self.stage_record_stamps(request.imports).await?;
             for (mutation, stamp) in mutations.iter().zip(&stamps) {
                 record_revisions.insert(mutation.uuid.clone(), stamp.revision());
             }
@@ -103,6 +100,29 @@ impl MutationManager {
         })
         .await?;
         Ok(committed)
+    }
+
+    async fn stage_record_stamps(
+        &self,
+        imports: Vec<Option<Stamp>>,
+    ) -> Result<Vec<Stamp>, SchemaError> {
+        let local_count = imports.iter().filter(|stamp| stamp.is_none()).count();
+        let mut local = self
+            .db_ops
+            .metadata()
+            .stage_local_stamps(local_count)
+            .await?
+            .into_iter();
+        Ok(imports
+            .into_iter()
+            .map(|imported| {
+                imported.unwrap_or_else(|| {
+                    local
+                        .next()
+                        .expect("one authored stamp for each local mutation")
+                })
+            })
+            .collect())
     }
 
     pub(in crate::fold_db_core::mutation_manager) async fn stage_native_author_clock(
