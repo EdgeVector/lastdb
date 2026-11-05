@@ -139,6 +139,55 @@ impl Metadata {
         });
         self.stage_batch(rows).await
     }
+
+    pub(crate) async fn validate_portable_restore_checkpoint(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+    ) -> StorageResult<()> {
+        if progress.len() > 4094 {
+            return Err(invalid("invalid restored stream directory"));
+        }
+        let keys = std::iter::once(REPLAY_STATE_KEY.as_bytes().to_vec())
+            .chain(
+                progress
+                    .keys()
+                    .map(|stream| format!("{PROGRESS_PREFIX}{stream}").into_bytes()),
+            )
+            .collect();
+        let rows = self.metadata_store.get_many(keys).await?;
+        if rows.len() != progress.len() + 1 {
+            return Err(invalid("incomplete restored replay state"));
+        }
+        let Some(bytes) = rows[0].as_deref() else {
+            if progress.is_empty() && cutoff.is_none() {
+                return Ok(());
+            }
+            return Err(invalid("checkpoint replay state is missing"));
+        };
+        let state: HomeReplayState = serde_json::from_slice(bytes).map_err(invalid)?;
+        let participants = state
+            .participating_streams
+            .iter()
+            .filter(|stream| **stream != state.local_stream_id || progress.contains_key(*stream));
+        if state.delete_reclaimed_through_ms != cutoff || participants.ne(progress.keys()) {
+            return Err(invalid("checkpoint participants or delete boundary differ"));
+        }
+        for (expected, bytes) in progress.values().zip(&rows[1..]) {
+            expected.validate().map_err(invalid)?;
+            let bytes = bytes
+                .as_deref()
+                .ok_or_else(|| invalid("checkpoint stream cursor missing"))?;
+            let actual: StreamProgress = serde_json::from_slice(bytes).map_err(invalid)?;
+            actual.validate().map_err(invalid)?;
+            if (actual.applied_through, actual.applied_through_ms)
+                != (expected.applied_through, expected.applied_through_ms)
+            {
+                return Err(invalid("checkpoint stream cursor differs"));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn invalid(error: impl std::fmt::Display) -> StorageError {

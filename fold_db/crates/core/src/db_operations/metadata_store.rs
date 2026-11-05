@@ -56,4 +56,15 @@ impl MetadataStore {
             .stage_portable_restore(progress, cutoff, fresh_stream)
             .await?)
     }
+
+    pub(crate) async fn validate_portable_restore_checkpoint(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .validate_portable_restore_checkpoint(progress, cutoff)
+            .await?)
+    }
 }

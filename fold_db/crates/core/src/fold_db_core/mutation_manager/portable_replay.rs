@@ -52,6 +52,18 @@ impl Prepared {
 }
 
 impl MutationManager {
+    /// Verify the staged disk checkpoint against its authenticated manifest.
+    pub async fn validate_portable_restore_checkpoint(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+    ) -> Result<(), SchemaError> {
+        self.db_ops
+            .metadata()
+            .validate_portable_restore_checkpoint(progress, cutoff)
+            .await
+    }
+
     /// Resolve winners before acquiring their external file dependencies.
     /// The native commit repeats the comparison against its own write view.
     pub async fn portable_replay_needed(
