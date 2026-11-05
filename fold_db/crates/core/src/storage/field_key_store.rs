@@ -1,10 +1,13 @@
 //! Field-key contracts and their shared process cache.
 //!
 //! A record-space or alternate-key bundle is minted once. Its blind key blinds
-//! that key's hashes. A payload field has no bundle. The plaintext bundle stays
-//! only in the process cache. The format owns the metadata and encrypted
-//! node-wrap wire definitions. This provider holds only a read view and typed
-//! format capability.
+//! that key's hashes. A payload field has no bundle. An older home may still
+//! hold payload-field bundles. Opening the catalog deletes those rows by the
+//! exact ids the old writer used. The record-space bundle and each alternate
+//! bundle stay. The plaintext bundle stays only in
+//! the process cache. The format owns the metadata and encrypted node-wrap
+//! wire definitions. This provider holds only a read view and typed format
+//! capability.
 
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
@@ -13,7 +16,7 @@ use crate::storage::format::field_keys::{
 };
 use crate::storage::format::read::ReadStore;
 use crate::storage::StorageError;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
@@ -22,6 +25,7 @@ mod cache;
 mod contracts;
 mod establish;
 mod metadata_batch;
+mod release;
 
 pub(crate) use crate::storage::format::field_keys::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
@@ -112,6 +116,27 @@ fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
     metadata.map_or(256, |value| {
         value.field_key_id.capacity().saturating_add(256)
     })
+}
+
+/// Payload-field ids still stored on catalog rows from the retired field-key map.
+///
+/// The key is the schema name. The inner map is the old `field_key_ids` object:
+/// field name to the id the old writer stored. An empty map is not recorded.
+#[derive(Default)]
+pub(crate) struct StoredPayloadFieldKeys {
+    by_schema: HashMap<String, BTreeMap<String, String>>,
+}
+
+impl StoredPayloadFieldKeys {
+    pub(crate) fn insert(&mut self, schema_name: String, ids: BTreeMap<String, String>) {
+        if !ids.is_empty() {
+            self.by_schema.insert(schema_name, ids);
+        }
+    }
+
+    fn get(&self, schema_name: &str) -> Option<&BTreeMap<String, String>> {
+        self.by_schema.get(schema_name)
+    }
 }
 
 /// The record space and every named alternate key of a schema.
