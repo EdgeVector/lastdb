@@ -1,7 +1,7 @@
 //! Format-driven record encoding, using the request's existing commit owner.
 //!
-//! The mutation provider supplies values and format-created addresses. This module alone
-//! assembles their raw mutations, composing the existing record-file encoder.
+//! The mutation provider supplies values and format-created addresses. This module
+//! derives alternate pointer changes and composes the record-file encoder.
 //! The encoded batch has no public fields or raw append/unwrap operation.
 //! It stages into an already-open request; it never opens or commits a home.
 //!
@@ -19,8 +19,7 @@ mod open;
 mod release;
 mod store;
 
-pub(crate) use alternates::AlternateChange;
-pub use alternates::AlternateEntry;
+pub use alternates::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
 pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use keys::{alternate_range_key, AlternateAddress, RecordAddress};
 pub(crate) use maintenance::validate_cutoff_raise;
@@ -55,7 +54,7 @@ struct EncodedRecords {
 
 fn encode(
     changes: Vec<RecordChange>,
-    alternates: Vec<AlternateChange>,
+    alternates: Vec<KvMutation>,
 ) -> Result<EncodedRecords, SchemaError> {
     let mut main = Vec::with_capacity(changes.len() + alternates.len());
     let mut files = Vec::with_capacity(changes.len());
@@ -88,9 +87,7 @@ fn encode(
             "a record batch repeats a record address".into(),
         ));
     }
-    for change in alternates {
-        main.push(alternates::encode(change)?);
-    }
+    main.extend(alternates);
     Ok(EncodedRecords {
         main,
         files,

@@ -18,7 +18,6 @@ use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
-use crate::storage::format::records::AlternateChange;
 use std::collections::BTreeMap;
 
 /// One record that a mutation of the group changed.
@@ -66,13 +65,12 @@ impl MutationManager {
         schema: &Schema,
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
-        entries: Vec<AlternateChange>,
     ) -> Result<(), SchemaError> {
         let history = self.record_history_rows(schema, changed, &changes).await?;
         let outcomes = record_outcomes(&changes);
         self.db_ops
             .records()
-            .stage_records(changes, entries, history.changes)
+            .stage_records(schema, changes, history.changes)
             .await?;
         // A live record below a floor of the TTL sweep removes the floor.
         let live = changed

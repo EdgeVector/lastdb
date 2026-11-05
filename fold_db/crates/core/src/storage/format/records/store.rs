@@ -1,13 +1,14 @@
 //! Bound main/file capabilities; the record provider never gets raw stores.
 
-use super::{AlternateChange, EncodedRecords, RecordChange};
-use crate::schema::types::FileWriteIssuer;
+use super::{EncodedRecords, RecordChange};
+use crate::schema::types::{FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::history::{self, EncodedHistory, HistoryChange};
 use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
+use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 
@@ -49,11 +50,13 @@ impl RecordFormat {
 
     pub(crate) async fn stage_records(
         &self,
+        schema: &Schema,
         changes: Vec<RecordChange>,
-        alternates: Vec<AlternateChange>,
         history: Vec<HistoryChange>,
+        resolve_codec: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
+        let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         // File-free results always delete their owned path idempotently.
         // Retained references need the actual record preimage in one batch;
