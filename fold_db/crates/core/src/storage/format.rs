@@ -26,7 +26,7 @@ pub const HOME_FORMAT: u32 = 13;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
 pub const RECORD_NODE_BYTES: &[u8] = b"format=13\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 9;
+pub(in crate::storage) const RECORD_PROFILE: u16 = 10;
 
 /// Clear node marker file inside the data directory.
 pub const NODE_MARKER: &str = "laststore-pack-node-v1";
