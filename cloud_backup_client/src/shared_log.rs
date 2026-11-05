@@ -1,9 +1,10 @@
 //! Explicit client for one signed shared writer append. Construction starts no work.
 use crate::backup_transport::BackupTransport;
+use crate::shared_authority::device_headers;
 use crate::AuthClient;
 use cloud_backup_protocol::shared::{append_authority_digest, BatchReceipt, LogBatch, LogHead};
 use cloud_backup_protocol::{AccountId, DecimalU64, Id};
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::HeaderMap;
 
 pub use crate::backup_transport::BackupTransportError;
 
@@ -36,22 +37,9 @@ impl AppendAuthorization {
         let head = batch.head()?;
         let digest = append_authority_digest(account, &batch.stream, device, expires_at_ms, &head)?;
         let signature = sign(digest.as_str().as_bytes())?;
-        let mut signature = header(&lastdb_model::hex::hex_lower(signature))?;
-        signature.set_sensitive(true);
-        let mut headers = HeaderMap::new();
-        headers.insert("x-lastdb-device", header(device.as_str())?);
-        headers.insert(
-            "x-lastdb-device-expires-ms",
-            header(&expires_at_ms.get().to_string())?,
-        );
-        headers.insert("x-lastdb-device-signature", signature);
+        let headers = device_headers(device, expires_at_ms, signature)?;
         Ok(Self { headers, head })
     }
-}
-
-fn header(value: &str) -> Result<HeaderValue, BackupTransportError> {
-    HeaderValue::from_bytes(value.as_bytes())
-        .map_err(|_| BackupTransportError::Configuration("shared append proof"))
 }
 
 /// Shared-log control client using the existing protected account transport.

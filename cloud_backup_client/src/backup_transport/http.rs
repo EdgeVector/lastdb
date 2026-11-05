@@ -1,5 +1,6 @@
 use super::*;
 use futures::StreamExt;
+use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -14,21 +15,39 @@ impl BackupTransport {
         request: &Q,
         maximum: u64,
     ) -> Result<R> {
+        self.post_bounded_with_headers(url, request, maximum, HeaderMap::new())
+            .await
+    }
+
+    pub(crate) async fn post_bounded_with_headers<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        url: Url,
+        request: &Q,
+        maximum: u64,
+        headers: HeaderMap,
+    ) -> Result<R> {
         let bytes = cloud_backup_protocol::canonical_bytes(request)?;
         if bytes.len() as u64 > maximum {
             return Err(BackupTransportError::Configuration("request bytes"));
         }
-        tokio::time::timeout(self.timeout, self.once(&url, &bytes, maximum))
+        tokio::time::timeout(self.timeout, self.once(&url, bytes, maximum, headers))
             .await
             .map_err(|_| BackupTransportError::Timeout)?
     }
 
-    async fn once<R: DeserializeOwned>(&self, url: &Url, bytes: &[u8], maximum: u64) -> Result<R> {
+    async fn once<R: DeserializeOwned>(
+        &self,
+        url: &Url,
+        bytes: Vec<u8>,
+        maximum: u64,
+        headers: HeaderMap,
+    ) -> Result<R> {
         let request = self
             .http
             .post(url.clone())
+            .headers(headers)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(bytes.to_vec());
+            .body(bytes);
         let request = self.auth.apply_auth(request);
         let response = observability::propagation::inject_w3c(request)
             .send()
