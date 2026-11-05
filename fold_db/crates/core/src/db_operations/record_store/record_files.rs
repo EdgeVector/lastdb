@@ -2,11 +2,19 @@
 
 use super::RecordStore;
 use crate::error::FoldDbError;
-use crate::schema::types::FileWrite;
+use crate::schema::{types::FileWrite, SchemaError};
 use lastdb_model::portable_mutation::Position;
 use lastdb_model::record_value::FileMarker;
 
 impl RecordStore {
+    pub(crate) fn admit_portable_file(
+        &self,
+        marker: FileMarker,
+        sealed: Vec<u8>,
+    ) -> Result<FileWrite, SchemaError> {
+        self.format.admit_portable_file(marker, sealed)
+    }
+
     pub(crate) fn seal_record_file(
         &self,
         plaintext: &[u8],
