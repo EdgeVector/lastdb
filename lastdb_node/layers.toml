@@ -70,6 +70,7 @@ modules = [
   "offline_home",
   "offline_recount",
   "shared_restore",
+  "shared_snapshot",
 ]
 
 [[layer]]
