@@ -4,6 +4,7 @@ use super::{RecordAddress, RecordFormat};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
 use lastdb_model::portable_mutation::{AppliedDelete, Stamp};
+use serde::{Deserialize, Serialize};
 
 pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
 pub(in crate::storage) const DELETE_AGE_FAMILY: &str = "ade";
@@ -14,9 +15,23 @@ pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMuta
     Ok(KvMutation::put(address(key.as_str()), value))
 }
 
-pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> KvMutation {
-    let record = address(key.as_str());
-    KvMutation::put(age_key(stamp.authored_at_ms, &record), record.into_bytes())
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteAge {
+    marker: String,
+    stamp: Stamp,
+}
+
+pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
+    let age = DeleteAge {
+        marker: address(key.as_str()),
+        stamp: stamp.clone(),
+    };
+    let bytes = serde_json::to_vec(&age).map_err(invalid)?;
+    Ok(KvMutation::put(
+        age_key(stamp.authored_at_ms, &age.marker),
+        bytes,
+    ))
 }
 
 pub(in crate::storage) fn validate_age_key(key: &str) -> StorageResult<()> {
@@ -31,16 +46,30 @@ pub(in crate::storage) fn is_age_key(key: &str) -> bool {
         .is_some_and(|(family, _)| family == DELETE_AGE_FAMILY)
 }
 
-pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageResult<String> {
-    let marker = std::str::from_utf8(bytes).map_err(invalid)?;
+pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageResult<()> {
+    decode_age_row(key, bytes).map(|_| ())
+}
+
+fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
+    if bytes.len() > 8192 {
+        return Err(invalid("delete age row exceeds its bound"));
+    }
+    let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
+    age.stamp.position.validate().map_err(invalid)?;
     let Some(time) = age_ms(key) else {
         return Err(invalid("invalid delete age coordinate"));
     };
-    if record_key(marker).is_none() || age_key(time, marker) != key {
+    if record_key(&age.marker).is_none()
+        || age.stamp.authored_at_ms != time
+        || age_key(time, &age.marker) != key
+    {
         return Err(invalid("delete age row points outside its marker"));
     }
-    crate::storage::current_keys::validate(crate::storage::format::MAIN_NAMESPACE, bytes)?;
-    Ok(marker.to_owned())
+    crate::storage::current_keys::validate(
+        crate::storage::format::MAIN_NAMESPACE,
+        age.marker.as_bytes(),
+    )?;
+    Ok(age)
 }
 
 fn age_ms(key: &str) -> Option<u64> {
@@ -100,7 +129,7 @@ impl RecordFormat {
             .await?;
         let mut markers = Vec::with_capacity(rows.len());
         for (key, value) in &rows {
-            markers.push(validate_age_row(
+            markers.push(decode_age_row(
                 std::str::from_utf8(key).map_err(invalid)?,
                 value,
             )?);
@@ -108,14 +137,19 @@ impl RecordFormat {
         let values = self
             .main_store
             .inner()
-            .get_many(markers.iter().map(|key| key.as_bytes().to_vec()).collect())
+            .get_many(
+                markers
+                    .iter()
+                    .map(|age| age.marker.as_bytes().to_vec())
+                    .collect(),
+            )
             .await?;
         if values.len() != rows.len() {
             return Err(invalid("incomplete delete reclamation preimages"));
         }
         let mut mutations = Vec::with_capacity(rows.len() * 2);
         let mut reclaimed = ReclaimedDeletes::default();
-        for ((age, marker), body) in rows
+        for ((age, entry), body) in rows
             .into_iter()
             .map(|(key, _)| key)
             .zip(markers)
@@ -123,16 +157,14 @@ impl RecordFormat {
         {
             if let Some(bytes) = body {
                 let stamp = decode(&bytes)?;
-                if stamp.authored_at_ms < cutoff_ms
-                    && age_key(stamp.authored_at_ms, &marker).as_bytes() == age
-                {
+                if stamp.authored_at_ms < cutoff_ms && stamp == entry.stamp {
                     reclaimed.markers += 1;
                     reclaimed.through_ms = Some(
                         reclaimed
                             .through_ms
                             .map_or(stamp.authored_at_ms, |time| time.max(stamp.authored_at_ms)),
                     );
-                    mutations.push(KvMutation::delete(marker.into_bytes()));
+                    mutations.push(KvMutation::delete(entry.marker.into_bytes()));
                 }
             }
             mutations.push(KvMutation::delete(age));

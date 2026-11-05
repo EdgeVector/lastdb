@@ -100,7 +100,7 @@ fn encode(
         } else {
             main.push(applied_deletes::encode(&change.key, &after.stamp)?);
             if !matches!(change.portable, PortableEffect::Local) {
-                main.push(applied_deletes::encode_age(&change.key, &after.stamp));
+                main.push(applied_deletes::encode_age(&change.key, &after.stamp)?);
             }
             main.push(KvMutation::delete(change.key.into_string()));
         }
