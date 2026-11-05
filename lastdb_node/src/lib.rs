@@ -31,7 +31,6 @@ pub mod seal;
 pub mod service_home;
 pub mod shared_surface;
 pub mod version;
-pub mod volume_isolation;
 pub mod watch_gate;
 
 pub use host::Host;

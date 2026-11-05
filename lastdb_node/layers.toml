@@ -54,11 +54,10 @@ modules = [
 
 [[layer]]
 name = "host"
-doc = "The booted node host, which holds the ops state, and the host-level gates: delivery and volume isolation."
+doc = "The booted node host, which holds the ops state, and the host-level delivery gate."
 modules = [
   "deliver",
   "host",
-  "volume_isolation",
 ]
 
 [[layer]]
