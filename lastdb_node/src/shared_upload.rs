@@ -57,7 +57,7 @@ pub trait SharedObjectUploader: Sync {
 pub async fn upload_next(
     home_data: &Path,
     native: &MutationManager,
-    identity: UploadIdentity<'_>,
+    identity: &UploadIdentity<'_>,
     client: &SharedLogClient,
     uploader: &impl SharedObjectUploader,
 ) -> Result<UploadOutcome> {

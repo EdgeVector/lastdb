@@ -39,7 +39,7 @@ pub(super) async fn dependencies(
                     "lastdb:shared-log:file-object:v1",
                     &(&writer.database_id, &source_stream, sequence, &sha256),
                 )?;
-                let digest = lastdb_model::hex::hex_decode_array::<32>(identity.as_str())
+                let digest = fold_db::hex::hex_decode_array::<32>(identity.as_str())
                     .ok_or(UploadError::Invalid("file object digest"))?;
                 let mut uuid: [u8; 16] = std::array::from_fn(|index| digest[index]);
                 uuid[6] = (uuid[6] & 0x0f) | 0x80;
