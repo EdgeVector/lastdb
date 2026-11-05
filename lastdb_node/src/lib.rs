@@ -32,6 +32,7 @@ pub mod service_home;
 pub mod shared_restore;
 pub mod shared_snapshot;
 pub mod shared_surface;
+pub mod shared_upload;
 pub mod version;
 pub mod watch_gate;
 

@@ -1,4 +1,7 @@
-use super::{error, LogHead, SealedObject, WriterStream, MAX_BATCH_FILES};
+use super::{
+    error, LogHead, SealedObject, WriterStream, MAX_BATCH_FILES, MAX_BATCH_FILE_BYTES,
+    MAX_SINGLE_BATCH_FILE_BYTES,
+};
 use crate::{input_digest, limits, AccountId, DecimalU64, Digest, ErrorCode, Id, ProtocolError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -88,6 +91,12 @@ impl LogBatch {
             return Err(ProtocolError::invalid("shared.batch.file_order"));
         }
         let mut objects = BTreeSet::from([&self.segment.version_id]);
+        let file_limit = if self.file_versions.len() == 1 {
+            MAX_SINGLE_BATCH_FILE_BYTES
+        } else {
+            MAX_BATCH_FILE_BYTES
+        };
+        let mut bytes = 0u64;
         for file in &self.file_versions {
             if file.sequence.get() == 0
                 || (file.source_stream == self.stream.source_stream && file.sequence > self.through)
@@ -96,6 +105,10 @@ impl LogBatch {
                 return Err(ProtocolError::invalid("shared.batch.file_version"));
             }
             file.object.validate()?;
+            bytes = bytes
+                .checked_add(file.object.bytes.get())
+                .filter(|bytes| *bytes <= file_limit)
+                .ok_or_else(|| ProtocolError::limit("shared.batch.file_bytes"))?;
         }
         Ok(())
     }
