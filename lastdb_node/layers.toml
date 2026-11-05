@@ -69,6 +69,7 @@ modules = [
   "byte_cloud_restore",
   "offline_home",
   "offline_recount",
+  "shared_restore",
 ]
 
 [[layer]]
