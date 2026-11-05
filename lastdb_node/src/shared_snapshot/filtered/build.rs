@@ -26,7 +26,7 @@ pub(super) async fn open(root: &Path, keys: &RecoveryKeys) -> Result<Arc<FoldDB>
     let signer = Ed25519KeyPair::from_secret_key(keys.account_seed())
         .map_err(|_| RestoreError::Invalid("filtered checkpoint account signer"))?;
     create_fold_db_with_options(
-        &DatabaseConfig::local(root),
+        &DatabaseConfig::local(root.to_path_buf()),
         &e2e,
         Arc::new(signer),
         FoldDbOptions {
