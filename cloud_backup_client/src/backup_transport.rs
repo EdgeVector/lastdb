@@ -10,6 +10,7 @@ mod download;
 mod error;
 mod feed;
 mod http;
+mod shared;
 mod upload;
 mod urls;
 

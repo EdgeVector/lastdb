@@ -10,7 +10,8 @@ mod checkpoint;
 mod recovery;
 
 pub use append::{
-    AppendContext, AppendDecision, BatchObject, BatchReceipt, FileDependency, LogBatch,
+    append_authority_digest, AppendContext, AppendDecision, BatchObject, BatchReceipt,
+    FileDependency, LogBatch,
 };
 pub use checkpoint::{
     inventory_sha256, PublicationContext, PublicationDecision, SnapshotManifest, SnapshotReceipt,
@@ -25,6 +26,8 @@ use serde::{Deserialize, Serialize};
 pub const MAX_WRITERS: usize = 1_024;
 /// Maximum file dependencies in one log batch, also subject to its byte limit.
 pub const MAX_BATCH_FILES: usize = 1_024;
+/// Shared append path after the service API prefix.
+pub const APPEND_PATH: &str = "/cloud/shared/v1/logs/append";
 
 /// A log stream within one shared database.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
