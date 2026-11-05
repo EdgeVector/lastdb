@@ -179,12 +179,6 @@ fn run(cli: Cli) -> Result<(), String> {
             log_filter_command(cli.data_dir, directive.as_deref(), json)
         }
         Command::ServiceHome { action } => service_home_command(action),
-        Command::IsolateVolume {
-            volume_name,
-            skip_volume,
-            execute,
-            json,
-        } => isolate_volume_command(cli.data_dir, &volume_name, skip_volume, execute, json),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
         cmd @ (Command::Mutate { .. }
         | Command::List(_)
@@ -202,9 +196,6 @@ fn run(cli: Cli) -> Result<(), String> {
     }
 }
 
-#[path = "lastdb/lifecycle_cmds.rs"]
-mod lifecycle_cmds;
-use lifecycle_cmds::*;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
 #[path = "lastdb/record_cmds.rs"]

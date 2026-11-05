@@ -148,39 +148,6 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: ServiceHomeCommand,
     },
-    /// Isolate a FRESH node home from macOS Time Machine and FSEvents.
-    ///
-    /// Spotlight exclusion already happens automatically on every boot and
-    /// needs no attention here. Time Machine and FSEvents do not have that:
-    /// `tmutil addexclusion` requires root, and FSEvents can only be turned
-    /// off per APFS *volume*, not per directory — so isolating a home from
-    /// FSEvents means giving it its own volume.
-    ///
-    /// Without `--execute`, prints the plan only; nothing on disk changes.
-    /// With `--execute`, needs root (re-run with sudo) and:
-    ///   1. excludes the home from Time Machine (`tmutil addexclusion`);
-    ///   2. unless `--skip-volume`, creates a new APFS volume in the same
-    ///      container as the reference path, mounts it at
-    ///      `/Volumes/<volume-name>`, writes `.fseventsd/no_log` at its
-    ///      root, and initializes the node home there instead of `--data-dir`.
-    ///
-    /// Refuses when the target home already holds a store: this is for a
-    /// new install, not a migration of a live one.
-    IsolateVolume {
-        /// Name for the new APFS volume (ignored with --skip-volume).
-        #[arg(long, default_value = "LastDB")]
-        volume_name: String,
-        /// Only apply the Time Machine exclusion; skip APFS volume creation.
-        #[arg(long)]
-        skip_volume: bool,
-        /// Actually create the volume / set the exclusion. Without this,
-        /// only the plan is printed and nothing changes.
-        #[arg(long)]
-        execute: bool,
-        /// Emit machine-readable JSON instead of human lines.
-        #[arg(long)]
-        json: bool,
-    },
     /// Explicit V2 backup, restore, and paused credentials.
     Cloud {
         #[command(subcommand)]
