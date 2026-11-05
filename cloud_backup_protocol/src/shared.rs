@@ -9,6 +9,7 @@ mod access;
 mod append;
 mod checkpoint;
 pub mod objects;
+pub mod peer;
 mod recovery;
 
 pub use access::{
