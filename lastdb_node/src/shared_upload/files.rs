@@ -84,7 +84,7 @@ pub(super) async fn upload(
         {
             return Err(UploadError::Invalid("frozen file bytes"));
         }
-        uploader.put_file(&batch.stream, expected, &sealed).await
+        uploader.put_file(&batch.stream, expected, sealed).await
     }))
     .buffer_unordered(FILE_TRANSFER_SLOTS)
     .try_for_each(|()| async { Ok(()) })

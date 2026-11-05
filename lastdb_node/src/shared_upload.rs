@@ -1,6 +1,8 @@
 //! Explicit shared writer upload. The caller owns provider admission and activation.
 mod files;
+mod service;
 mod spool;
+pub use service::ServiceObjects;
 
 use crate::shared_restore::recovery::seal_log;
 use cloud_backup_client::shared_log::{
@@ -46,10 +48,10 @@ pub trait SharedObjectUploader: Sync {
         &self,
         stream: &WriterStream,
         file: &FileDependency,
-        sealed: &[u8],
+        sealed: Vec<u8>,
     ) -> Result<()>;
 
-    async fn put_segment(&self, batch: &LogBatch, sealed: &[u8]) -> Result<()>;
+    async fn put_segment(&self, batch: &LogBatch, sealed: Vec<u8>) -> Result<()>;
 }
 
 /// Freeze the exact next batch, confirm its file dependencies and log segment,
@@ -99,7 +101,7 @@ pub async fn upload_next(
         .get(..count)
         .ok_or(UploadError::Invalid("frozen mutation prefix"))?;
     files::upload(native, uploader, &frozen.batch, entries).await?;
-    uploader.put_segment(&frozen.batch, &frozen.sealed).await?;
+    uploader.put_segment(&frozen.batch, frozen.sealed).await?;
     let proof = AppendAuthorization::sign(
         identity.account,
         identity.device,
