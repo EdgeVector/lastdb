@@ -1,7 +1,7 @@
 # schema_service
 
 Canonical schema service of the `EdgeVector/lastdb` workspace
-(`crates/{core,client,server_shared,server_http,server_lambda,worker,schema_service_s3}`).
+(`crates/{core,client,server_shared,server_http,server_lambda,schema_service_s3}`).
 Cloud-only: prod is the AWS Lambda at `schema.folddb.com` (deployed via
 EdgeVector/schema-infra); the `server_http` actix binary is dev-only.
 

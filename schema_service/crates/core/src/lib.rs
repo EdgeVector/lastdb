@@ -141,6 +141,6 @@ pub use snapshot::{
     offline_is_system_schema, project_snapshot_shared_only, AppArtifact, AppMetadata, AppRecord,
     AppTier, SnapshotEmbeddings, SnapshotEnvelope, SnapshotImportReport, SNAPSHOT_FORMAT_VERSION,
 };
-pub use state::{BackfillPurposeReport, SchemaServiceState, SchemaStorage};
+pub use state::{SchemaServiceState, SchemaStorage};
 pub use state_compositional::ComponentReuseAdvice;
 pub use state_matching::{REUSE_PURPOSE_THRESHOLD, REUSE_STRUCT_FLOOR};

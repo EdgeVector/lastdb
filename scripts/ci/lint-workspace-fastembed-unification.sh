@@ -39,7 +39,6 @@ cd "$ROOT"
 # excludes.
 ONNX_FORCE_PACKAGES=(
   generate_validated_schema_org_seeds
-  schema_service_worker
 )
 
 GITHUB_HEAVY_CI=".github/workflows/ci-required.yml"

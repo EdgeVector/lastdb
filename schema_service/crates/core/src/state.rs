@@ -33,7 +33,6 @@ mod add_schema_guards;
 mod add_schema_persist;
 mod add_schema_race;
 mod add_schema_validate;
-mod backfill;
 mod candidate_seams;
 mod canonical_field;
 mod canonicalization_candidates;
@@ -50,7 +49,6 @@ mod telemetry_reply;
 mod vocabulary_validation;
 
 pub use add_schema::SchemaAddReply;
-pub use backfill::BackfillPurposeReport;
 pub use lifecycle::{DedupeNamesReply, DeprecateSchemasReply};
 pub use lookup::{IdempotentRepostReply, SchemaByNameReply};
 pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};
