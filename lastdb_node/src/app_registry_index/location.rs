@@ -105,39 +105,6 @@ impl IndexLocation {
             Self::Local { path, rev } => format!("{}@{}", path.display(), rev),
         }
     }
-
-    /// Fetch `<channel>.json` and `<channel>.json.sig`.
-    ///
-    /// # Errors
-    /// Returns the transport or filesystem error, naming the address.
-    pub async fn fetch(&self, channel: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
-        validate_channel(channel)?;
-        match self {
-            Self::Dir(dir) => {
-                let index_path = dir.join(format!("{channel}.json"));
-                let sig_path = dir.join(format!("{channel}.json.sig"));
-                let index = std::fs::read(&index_path)
-                    .map_err(|e| format!("failed to read {}: {e}", index_path.display()))?;
-                let sig = std::fs::read(&sig_path)
-                    .map_err(|e| format!("failed to read {}: {e}", sig_path.display()))?;
-                Ok((index, sig))
-            }
-            Self::Url(base) => {
-                // trace-egress: propagate (anonymous static index endpoint)
-                let client = reqwest::Client::builder()
-                    .timeout(HTTP_TIMEOUT)
-                    .no_proxy()
-                    .build()
-                    .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-                let index = fetch_url(&client, &format!("{base}/{channel}.json")).await?;
-                let sig = fetch_url(&client, &format!("{base}/{channel}.json.sig")).await?;
-                Ok((index, sig))
-            }
-            Self::Local { .. } => Err(
-                "local install source does not fetch from an index (use resolve_local)".to_string(),
-            ),
-        }
-    }
 }
 
 async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {

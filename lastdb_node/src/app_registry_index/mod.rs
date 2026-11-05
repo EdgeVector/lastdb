@@ -30,7 +30,7 @@ pub use install::{
 pub use list_cache::fetch_list;
 pub use location::IndexLocation;
 pub use node_version::{running_lastdb_version, running_node};
-pub use resolve::{fetch_verified, pick_row, resolve, ContractVersions, NodeVersion, Resolution};
+pub use resolve::{resolve, ContractVersions, NodeVersion, Resolution};
 pub use resolve_local::resolve_local;
 pub use signing::{
     load_verified_index, parse_index, resolve_list_trust_key, resolve_trust_key, CompatRow,
