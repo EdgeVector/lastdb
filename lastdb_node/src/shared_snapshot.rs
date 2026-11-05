@@ -280,6 +280,7 @@ async fn upload_exact(
             &manifest.snapshot_id,
             expected,
             bytes,
+            deadline_ms,
         )
         .await?;
     if &stored != expected {
