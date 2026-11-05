@@ -8,6 +8,7 @@
 mod access;
 mod append;
 mod checkpoint;
+pub mod objects;
 mod recovery;
 
 pub use access::{
