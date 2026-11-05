@@ -2,12 +2,12 @@
 use super::super::cas_rules::check_expectation;
 use super::super::key_values::validate_field_value;
 use super::record_effects::ChangedRecord;
-use super::record_rules::take_file_writes;
 use super::*;
-use crate::db_operations::record_store::RecordChange;
+use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ impl MutationManager {
     pub(super) async fn stage_record_group(
         &self,
         schema_name: &str,
-        mut mutations: Vec<Mutation>,
+        mut mutations: Vec<AuthoredMutation>,
         runtime: &Arc<PackRuntime>,
     ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
@@ -26,7 +26,7 @@ impl MutationManager {
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut addresses = Vec::with_capacity(mutations.len());
-        for mutation in &mut mutations {
+        for AuthoredMutation { mutation, .. } in &mut mutations {
             let key = self.resolve_mutation_key_value(schema_name, &schema, mutation)?;
             mutation.key_value = key.clone();
             for (name, key) in &mut mutation.alternates {
@@ -42,18 +42,17 @@ impl MutationManager {
             addresses.push(records.record_address(&schema, &key)?);
             keys.push(key);
         }
-        let stored = records.read_records(&addresses).await?;
-        let file_writes = take_file_writes(&mut mutations);
+        let stored = read_write_preimages(records, &addresses, &mutations).await?;
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        for (((mutation, key), (address, before)), file_write) in mutations
-            .iter()
+        for ((AuthoredMutation { mutation, stamp }, key), (address, before)) in mutations
+            .iter_mut()
             .zip(&keys)
             .zip(addresses.into_iter().zip(stored))
-            .zip(file_writes)
         {
             check_expectation(mutation, before.as_deref())?;
-            let after = replace_record(&schema, mutation, before.as_deref())?;
+            let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
+            let file_write = mutation.file_write.take();
             changed.push(ChangedRecord { mutation, key });
             changes.push(RecordChange {
                 key: address,
@@ -71,8 +70,12 @@ impl MutationManager {
                 .record_schema_retention_hash_partitions(schema_name, &keys)
                 .await?;
         }
-        if let Some(batch) = Self::build_index_change_batch(schema_name, &schema, &mutations, &keys)
-        {
+        if let Some(batch) = Self::build_index_change_batch(
+            schema_name,
+            &schema,
+            mutations.iter().map(|authored| &authored.mutation),
+            &keys,
+        ) {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
                 Self::deliver_search_outbox(inbox, batch).await
@@ -82,23 +85,45 @@ impl MutationManager {
     }
 }
 
+async fn read_write_preimages(
+    records: &RecordStore,
+    addresses: &[RecordAddress],
+    mutations: &[AuthoredMutation],
+) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
+    let mut stored = records.read_records(addresses).await?;
+    let purge_misses: Vec<_> = mutations
+        .iter()
+        .zip(&stored)
+        .enumerate()
+        .filter(|(_, (mutation, record))| {
+            mutation.mutation.mutation_type == MutationType::Purge && record.is_none()
+        })
+        .map(|(index, _)| index)
+        .collect();
+    if !purge_misses.is_empty() {
+        let addresses: Vec<_> = purge_misses
+            .iter()
+            .map(|&index| &addresses[index])
+            .collect();
+        let deletes = records.read_applied_deletes(&addresses).await?;
+        for (index, stamp) in purge_misses.into_iter().zip(deletes) {
+            stored[index] = stamp.map(|stamp| Arc::new(StoredRecord::erased(stamp)));
+        }
+    }
+    Ok(stored)
+}
+
 fn replace_record(
     schema: &Schema,
     mutation: &Mutation,
+    stamp: Stamp,
     before: Option<&StoredRecord>,
 ) -> Result<StoredRecord, SchemaError> {
-    let stamp = mutation.record_stamp().map_err(SchemaError::InvalidData)?;
     if matches!(
         mutation.mutation_type,
         MutationType::Delete | MutationType::Purge
     ) {
-        let mut after = before
-            .cloned()
-            .ok_or_else(|| SchemaError::InvalidData("deletion record is absent".into()))?;
-        after.delete(stamp.clone());
-        // A purge of a tombstone still gets a new revision for its history release.
-        after.stamp = stamp;
-        return Ok(after);
+        return Ok(StoredRecord::erased(stamp));
     }
     for (field, value) in &mutation.record_fields {
         validate_field_value(&schema.name, schema, field, value)?;
@@ -125,5 +150,5 @@ fn replace_record(
     replacement
         .validate(schema.require_record_keys()?)
         .map_err(SchemaError::InvalidData)?;
-    Ok(StoredRecord::replacement(replacement, stamp))
+    Ok(StoredRecord::replacement(replacement, stamp, before))
 }

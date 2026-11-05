@@ -37,6 +37,10 @@ pub const PURGE_READS_PER_FIELD: usize = 12;
 pub const DELETE_READS_PER_FIELD: usize = 13;
 /// Conservative native admission/preimage reads for each explicit pointer delete.
 const ALTERNATE_READS_PER_ENTRY: usize = 4;
+/// A live row removal now stages a separate applied-delete stamp.
+const APPLIED_DELETE_OPERATIONS_PER_KEY: usize = 1;
+/// The native delete probe and the lookup for a guarded purge of an erased key.
+const APPLIED_DELETE_READS_PER_KEY: usize = 2;
 /// The parts of a schema that set the cost of erasing one key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EraseShape {
@@ -86,6 +90,7 @@ pub fn erase_operations_upper_bound(delete: bool, keys: usize, shape: EraseShape
         .saturating_mul(operations_per_field(delete))
         .saturating_add(chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
         .saturating_add(keys.saturating_mul(shape.alternates))
+        .saturating_add(keys.saturating_mul(APPLIED_DELETE_OPERATIONS_PER_KEY))
 }
 
 /// The most examined keys that an erase of `keys` keys of a schema with `shape`
@@ -100,6 +105,7 @@ pub fn erase_reads_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> 
             keys.saturating_mul(shape.alternates)
                 .saturating_mul(ALTERNATE_READS_PER_ENTRY),
         )
+        .saturating_add(keys.saturating_mul(APPLIED_DELETE_READS_PER_KEY))
 }
 
 fn fits_alternate_caps(keys: usize, shape: EraseShape) -> bool {

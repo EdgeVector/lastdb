@@ -14,10 +14,10 @@ use super::MutationManager;
 impl MutationManager {
     /// Build one Search change batch without durable side effects. An upsert
     /// carries only the searchable fields, with file keys removed.
-    pub(super) fn build_index_change_batch(
+    pub(super) fn build_index_change_batch<'a>(
         schema_name: &str,
         schema: &Schema,
-        schema_mutations: &[Mutation],
+        schema_mutations: impl ExactSizeIterator<Item = &'a Mutation>,
         mutation_key_values: &[KeyValue],
     ) -> Option<IndexChangeBatch> {
         if !crate::db_operations::search_index::queue_policy::enabled() {
@@ -25,8 +25,7 @@ impl MutationManager {
         }
         let searchable = searchable_fields(schema);
         let mut changes = Vec::with_capacity(schema_mutations.len());
-        for (idx, mutation) in schema_mutations.iter().enumerate() {
-            let key_value = &mutation_key_values[idx];
+        for (mutation, key_value) in schema_mutations.zip(mutation_key_values) {
             match mutation.mutation_type {
                 MutationType::Create | MutationType::Replace => {
                     changes.push(IndexChange {

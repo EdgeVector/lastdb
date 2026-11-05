@@ -10,6 +10,7 @@
 //! and schema-release writes too. Broad bootstrap factories remain separate.
 
 mod alternates;
+pub(in crate::storage) mod applied_deletes;
 mod audit;
 mod file_crypto;
 mod files;
@@ -59,6 +60,14 @@ fn encode(
     let mut main = Vec::with_capacity(changes.len() + alternates.len());
     let mut files = Vec::with_capacity(changes.len());
     let mut written = Vec::with_capacity(changes.len());
+    let mut keys = HashSet::with_capacity(changes.len());
+    for change in &changes {
+        if !keys.insert(change.key.as_str()) {
+            return Err(SchemaError::InvalidData(
+                "a record batch repeats a record address".into(),
+            ));
+        }
+    }
     for change in changes {
         // Structure is checked now; complete-request admission checks the
         // final encoded body at each key, including repeated-key writes.
@@ -67,25 +76,21 @@ fn encode(
                 "record payload differs from its bound primary address".into(),
             ));
         }
-        let value = change.after.encode_uncapped().map_err(record_value_error)?;
         let after = Arc::new(change.after);
-        // Every changed address participates. A file-free result requires
-        // its owned path to be absent, independent of the before hint.
+        // Every changed address participates in the file-version decision.
         files.push(files::FileChange {
             key: change.key.clone(),
             after: Arc::clone(&after),
             write: change.file_write,
         });
-        written.push(WrittenRecord::new(change.key.as_str(), after, &value));
-        main.push(KvMutation::put(change.key.into_string(), value));
-    }
-    // File decisions use one current preimage per key. Repeated primary
-    // addresses are refused before their nested effects can be staged.
-    let mut keys = HashSet::with_capacity(main.len());
-    if main.iter().any(|row| !keys.insert(row.key())) {
-        return Err(SchemaError::InvalidData(
-            "a record batch repeats a record address".into(),
-        ));
+        if after.is_live() {
+            let value = after.encode_uncapped().map_err(record_value_error)?;
+            written.push(WrittenRecord::new(change.key.as_str(), after, &value));
+            main.push(KvMutation::put(change.key.into_string(), value));
+        } else {
+            main.push(applied_deletes::encode(&change.key, &after.stamp)?);
+            main.push(KvMutation::delete(change.key.into_string()));
+        }
     }
     main.extend(alternates);
     Ok(EncodedRecords {

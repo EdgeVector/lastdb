@@ -7,6 +7,7 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
+        imports: Vec<Option<Stamp>>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
@@ -19,7 +20,7 @@ impl MutationManager {
         }
         // Complete replacements and erasures share one native request.
         // Every revision condition succeeds before any record is published.
-        self.write_create_update_batch_async(mutations, author_clock_barrier)
+        self.write_create_update_batch_async(mutations, author_clock_barrier, imports)
             .await
     }
 }

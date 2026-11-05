@@ -1,14 +1,13 @@
 //! The one file of a record (design `design-lastdb-no-shared-file-blobs`).
 //!
 //! The file lives in `cas_blobs`, the CAS run home that the backup sends to
-//! B2, at a path made from the record key:
-//! `fb:{S}:{sha256(record storage key)}`. One record has one path, so
-//! two records never share bytes and nothing counts references. The marker of
-//! the record (`StoredRecord::file`) says whether the path holds a file.
+//! B2, at a path made from the record key and originating mutation position.
+//! Each record selects its live file version. Other records own their own
+//! versions, even when the contents match.
 //!
 //! Every write that changes the marker changes the path in the same native
-//! request: `put-blob` puts the sealed row, and `delete-blob`, a record
-//! delete and a schema release delete it.
+//! request. Native commit publishes new bytes before the record selects them
+//! and removes the previous version after the record publication is durable.
 //!
 //! The row is the envelope `0x01 ‖ nonce ‖ AES-256-GCM ciphertext and tag`.
 //! The key comes from the account key and the marker's plaintext SHA-256
@@ -24,6 +23,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
 use lastdb_model::hex::hex_lower;
+use lastdb_model::portable_mutation::Position;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use sha2::{Digest, Sha256};
@@ -33,12 +33,7 @@ use super::super::{
     FILE_NONCE_SIZE, FILE_TAG_SIZE,
 };
 
-/// The file path of the record at one storage key.
-fn file_path(record: &str) -> Result<String, SchemaError> {
-    Ok(crate::storage::current_keys::families::record_file_path(
-        record,
-    )?)
-}
+use crate::storage::current_keys::families::record_file_path;
 
 /// The file paths that a drop of these stored rows releases: one for each
 /// record row with a file. Other rows hold no file. A key that does not parse
@@ -51,25 +46,17 @@ pub(super) fn dropped_file_paths<'a>(
         let key = std::str::from_utf8(key).map_err(|error| {
             SchemaError::InvalidData(format!("a dropped row key is not UTF-8: {error}"))
         })?;
-        let Some(path) = record_row_path(key)? else {
+        if !key.starts_with(RECORD_PREFIX) {
             continue;
-        };
+        }
         let record = StoredRecord::decode(value).map_err(|error| {
             SchemaError::InvalidData(format!("dropped record row {key} is unreadable: {error}"))
         })?;
-        if record.file.is_some() {
-            paths.push(path.into_bytes());
+        if let Some(version) = record.file_version {
+            paths.push(record_file_path(key, &version)?.into_bytes());
         }
     }
     Ok(paths)
-}
-
-/// The file path of a record row key, or `None` for a row of another family.
-fn record_row_path(key: &str) -> Result<Option<String>, SchemaError> {
-    if !key.starts_with(RECORD_PREFIX) {
-        return Ok(None);
-    }
-    file_path(key).map(Some)
 }
 
 fn file_crypto_error(detail: impl std::fmt::Display) -> FoldDbError {
@@ -140,9 +127,10 @@ impl RecordFormat {
     pub(crate) async fn open_record_file(
         &self,
         record_key: &str,
+        version: &Position,
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        let path = file_path(record_key)?;
+        let path = record_file_path(record_key, version)?;
         let Some(row) = self.file_store().await?.get(path.as_bytes()).await? else {
             return Ok(None);
         };

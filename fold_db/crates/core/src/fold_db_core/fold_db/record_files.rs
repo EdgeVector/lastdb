@@ -8,7 +8,8 @@
 
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
-use lastdb_model::record_value::FileMarker;
+use lastdb_model::record_value::{FileMarker, StoredRecord};
+use std::sync::Arc;
 
 use super::FoldDB;
 
@@ -44,14 +45,7 @@ impl FoldDB {
         schema_name: &str,
         key: &KeyValue,
     ) -> Result<(String, RecordFileState), FoldDbError> {
-        let schema = self.schema_manager().require_schema_metadata(schema_name)?;
-        let records = self.db_ops().records();
-        let record_key = records.record_key(&schema, key)?;
-        let record = records
-            .read_records(std::slice::from_ref(&record_key))
-            .await?
-            .pop()
-            .flatten();
+        let (record_key, record) = self.read_file_record(schema_name, key).await?;
         let state = match record {
             Some(record) if record.is_live() => match &record.file {
                 Some(file) => RecordFileState::File(file.clone()),
@@ -62,6 +56,22 @@ impl FoldDB {
         Ok((record_key, state))
     }
 
+    async fn read_file_record(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+    ) -> Result<(String, Option<Arc<StoredRecord>>), FoldDbError> {
+        let schema = self.schema_manager().require_schema_metadata(schema_name)?;
+        let records = self.db_ops().records();
+        let record_key = records.record_key(&schema, key)?;
+        let record = records
+            .read_records(std::slice::from_ref(&record_key))
+            .await?
+            .pop()
+            .flatten();
+        Ok((record_key, record))
+    }
+
     /// The file of the record at `key`: its marker and its plaintext, checked
     /// against the marker. `None` when the record or its file is absent.
     pub async fn read_record_file(
@@ -69,15 +79,24 @@ impl FoldDB {
         schema_name: &str,
         key: &KeyValue,
     ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        let (record_key, state) = self.record_file_state(schema_name, key).await?;
-        let RecordFileState::File(marker) = state else {
-            return Ok(None);
-        };
-        let bytes = self
-            .db_ops()
-            .records()
-            .open_record_file(&record_key, &marker)
-            .await?;
-        Ok(bytes.map(|bytes| (marker, bytes)))
+        self.db_ops()
+            .read_scope()
+            .await?
+            .run_result(async {
+                let (record_key, record) = self.read_file_record(schema_name, key).await?;
+                let Some((marker, version)) = record
+                    .as_ref()
+                    .and_then(|record| record.file.as_ref().zip(record.file_version.as_ref()))
+                else {
+                    return Ok(None);
+                };
+                let bytes = self
+                    .db_ops()
+                    .records()
+                    .open_record_file(&record_key, version, marker)
+                    .await?;
+                Ok(bytes.map(|bytes| (marker.clone(), bytes)))
+            })
+            .await
     }
 }

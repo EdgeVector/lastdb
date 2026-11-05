@@ -5,6 +5,8 @@ use crate::storage::content_key_proof;
 use crate::storage::format::control::{
     validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
 };
+use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
+use crate::storage::format::METADATA_NAMESPACE;
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::fs::OpenOptions;
@@ -70,6 +72,10 @@ pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult
             content_key_proof::NAMESPACE.into(),
             native_routing::encode(content_key_proof::KEY),
         ),
+        (
+            METADATA_NAMESPACE.into(),
+            native_routing::encode(LOCAL_AUTHOR_KEY.as_bytes()),
+        ),
     ];
     let values = main
         .get_many_bounded(&coordinates, 8192)
@@ -87,6 +93,7 @@ pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult
         return Err(invalid("the logical format differs from the node marker"));
     }
     validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
+    validate_local_author(values[3].as_deref())?;
     let proof = values[2]
         .as_deref()
         .ok_or_else(|| invalid("the account proof is absent"))?;

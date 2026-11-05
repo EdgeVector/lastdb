@@ -34,6 +34,7 @@ impl RecordStore {
                 ReleaseKind::Records => out.records += count,
                 ReleaseKind::History => out.history += count,
                 ReleaseKind::Alternates => out.alternates += count,
+                ReleaseKind::AppliedDeletes => {}
             }
         }
         Ok(out)

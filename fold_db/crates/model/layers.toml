@@ -23,6 +23,7 @@ modules = [
   "content_limit",
   "field_key_codec",
   "field_key_id",
+  "portable_mutation",
   "record_space",
   "record_value",
   "record_replacement",

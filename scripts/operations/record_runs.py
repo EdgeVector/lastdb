@@ -1,13 +1,11 @@
 """Reads past a run of deleted records in a home, and a schema drop.
 
-One hash holds more deleted records between two live records than one
-request may examine (8,192 keys). A range page that meets the run ends early
-with has_more and a cursor past the last key it examined, so the caller reads
-the range to its end page by page. An unfiltered walk page does the same with
-a record key cursor. A count needs the complete range and fails with a read
-limit that names next_cursor. A sample that the run ends early says that it
-is not complete and names a cursor for the walk. A Hash schema with no hash
-key field walks and samples with opaque keys.
+One hash has a long run of deleted keys between two live records. Draining
+range and walk cursors returns both live keys in order, regardless of when
+native compaction removes the deleted keys. A count is exact when it finishes
+and otherwise reports the read limit with next_cursor. A partial sample names
+a cursor that reaches the rest of the live records. A Hash schema with no
+hash key field walks and samples with opaque keys.
 
 A share snapshot reads a keyed leg past the same run, page by page, and
 delivers the records after it.
@@ -34,7 +32,7 @@ FIELDS = ["id", "bucket", "value"]
 # More deleted records under one hash than one request may examine.
 RUN = 12_000
 BATCH = 500
-LIMIT = 10
+LIMIT = 1
 # Generous page bounds: the run needs two pages of each kind.
 MAX_PAGES = 50
 # The expired records of the TTL proof are this old, against a policy of half that age.
@@ -149,11 +147,18 @@ def range_reads(node):
     rows, pages, short = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the range read past deleted records differs: " + repr(ids(rows)))
-    require(short >= 1, "no range page ended early in the run of deleted records")
+    require(pages >= 2, "the range proof did not exercise its cursor")
     for extra in [{"expected_total_count": 2}, {"response_format": "count"}]:
         request = {**body, **extra}
-        refused(lambda request=request: node.call("/api/query", request),
-                ["HTTP 503", "next_cursor"])
+        try:
+            result = node.call("/api/query", request)[0]
+        except RuntimeError as error:
+            require("HTTP 503" in str(error) and "next_cursor" in str(error),
+                    "complete-count request failed for another reason: " + str(error))
+        else:
+            require(result.get("total_count") == 2,
+                    "completed count differs from the two live keys")
+    print(f"Range cursor crossed the erased keys with {short} short pages", flush=True)
     return pages
 
 
@@ -162,7 +167,8 @@ def walks(node, scan):
     rows, pages, short = drain(lambda request: scan(node, request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the walk past deleted records differs: " + repr(ids(rows)))
-    require(short >= 1, "no walk page ended early in the run of deleted records")
+    require(pages >= 2, "the walk proof did not exercise its cursor")
+    print(f"Walk cursor crossed the erased keys with {short} short pages", flush=True)
     return pages
 
 
@@ -170,8 +176,13 @@ def incomplete_sample(node, scan):
     """A sample that the run of deleted records ends early says so, and the walk continues it."""
     page, _ = scan(node, {"schema_name": "RecordRun", "filter": {"SampleN": 5}})
     shown = {name: page.get(name) for name in ["has_more", "total_count", "next_cursor"]}
-    require(ids(page["results"]) == ["a-first"],
-            "the sample before the run of deleted records differs: " + repr(ids(page["results"])))
+    sample = ids(page["results"])
+    if not page.get("has_more"):
+        require(sample == ["a-first", "z-last"] and page.get("next_cursor") is None,
+                "the complete sample differs from the two live keys")
+        return
+    require(sample == ["a-first"],
+            "the partial sample before the erased keys differs: " + repr(sample))
     require(page.get("has_more") is True and page.get("total_count") is None and page.get("next_cursor"),
             "a sample that a run of deleted records ended early reads as complete: " + repr(shown))
     body = {"schema_name": "RecordRun", "filter": None}
@@ -416,9 +427,8 @@ def check(node, scan):
     incomplete_sample(node, scan)
     opaque_keys(node, scan)
     print(f"Deleted runs: {RUN} deleted records under one hash; the range read took {range_pages} "
-          f"pages and the walk {walk_pages} pages of {LIMIT}, both complete and in key order; a "
-          "count failed with a read limit that names next_cursor; a sample said it was not "
-          "complete and the walk continued it; a schema with no key field walked and sampled "
+          f"pages and the walk {walk_pages} pages of {LIMIT}, both complete and in key order; "
+          "count and sample reported complete results or resumable reads; a schema with no key field walked and sampled "
           "with opaque keys", flush=True)
     share_snapshot(node)
     print(f"Share snapshot: two keyed legs read past {RUN} deleted records page by page and "
