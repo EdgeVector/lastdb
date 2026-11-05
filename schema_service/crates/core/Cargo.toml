@@ -39,8 +39,6 @@ tokio = { version = "1.0", default-features = false, features = ["sync", "macros
 # v4 minted at the call site so a retried registration won't double-log.
 uuid = { workspace = true, features = ["v4"] }
 
-thiserror = { workspace = true }
-
 [lints]
 workspace = true
 
