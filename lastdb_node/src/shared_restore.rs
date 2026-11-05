@@ -9,12 +9,14 @@ use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
+pub mod recovery;
 mod spool;
 use spool::CandidateSpool;
 
 const READY_FILE: &str = "shared-restore-ready.json";
 
 /// Authenticated recovery selection and the replay positions read from its checkpoint.
+#[derive(Clone)]
 pub struct RestoreCut {
     pub captured_heads: BTreeMap<StreamId, u64>,
     pub progress: BTreeMap<StreamId, StreamProgress>,
@@ -75,6 +77,15 @@ impl SharedRestore {
             spool,
             _owner: owner,
         })
+    }
+
+    fn discard_unsealed(self) -> Result<()> {
+        local::directory(&self.root)?;
+        if self.root.join(READY_FILE).try_exists()? {
+            return Err(RestoreError::Invalid("sealed restore workspace"));
+        }
+        fs::remove_dir_all(&self.root)?;
+        Ok(())
     }
 
     /// Install only authenticated recoverable checkpoint files here.
