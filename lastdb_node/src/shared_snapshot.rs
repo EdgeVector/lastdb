@@ -16,11 +16,14 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
+pub mod filtered;
 mod owner;
 mod state;
 pub use owner::SignedSnapshotTransport;
 use state::{Intent, IntentStore, Phase};
 
+#[derive(PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FrozenFile {
     pub path: RelativePath,
     pub bytes: DecimalU64,
@@ -28,6 +31,8 @@ pub struct FrozenFile {
 }
 
 /// The one cut owned by the freeze, with accepted per-stream covers.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FrozenSnapshot {
     pub database_id: Id,
     pub snapshot_id: Id,
