@@ -442,6 +442,65 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /v1/schema-versions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    get:
+      tags: [schemas]
+      operationId: get_portable_schema
+      summary: Read an immutable portable schema version by its content ID
+      responses:
+        '200':
+          description: The exact pinned typed definition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortableSchemaDefinition'
+        '400':
+          description: The ID has an invalid format.
+        '404':
+          description: The immutable version has not been pinned.
+        '503':
+          description: The stored version is unavailable or invalid.
+    put:
+      tags: [schemas]
+      operationId: pin_portable_schema
+      summary: Pin an already published catalog definition for portable replay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [catalog_id]
+              additionalProperties: false
+              properties:
+                catalog_id:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+      responses:
+        '200':
+          description: The exact version was stored or already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortableSchemaDefinition'
+        '400':
+          description: The request or an ID has an invalid format.
+        '404':
+          description: The catalog identity is absent.
+        '409':
+          description: The catalog definition differs from the requested version.
+        '422':
+          description: The catalog definition cannot be used for portable replay.
+        '503':
+          description: The registry could not confirm durable storage.
+
   /v1/snapshot:
     get:
       tags: [snapshot]
@@ -1094,6 +1153,22 @@ components:
                 True for infrastructure schemas seeded by the
                 schema service itself; false for user-proposed
                 schemas.
+
+    PortableSchemaDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, catalog_id, definition]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the versioned canonical definition.
+        catalog_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Identity of the published catalog slot that supplied the definition.
+        definition:
+          $ref: '#/components/schemas/Schema'
 
     # ---------- Add schema ----------
     SchemaMutationChallengeRequest:

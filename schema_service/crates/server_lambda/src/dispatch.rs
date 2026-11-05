@@ -59,6 +59,8 @@ fn root_listing() -> serde_json::Value {
             "GET /v1/schemas/available": "Get all schemas with definitions",
             "GET /v1/schemas/similar/{name}?threshold=0.5": "Find similar schemas",
             "GET /v1/schema/{name}": "Get specific schema",
+            "GET /v1/schema-versions/{id}": "Read an immutable portable schema",
+            "PUT /v1/schema-versions/{id}": "Pin a published catalog definition for replay",
             "POST /v1/schemas": "Add new schema",
             "POST /v1/schemas/mutation-challenge": "Issue a short-lived node-key proof-of-work challenge for shared schema mutation",
             "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
@@ -117,6 +119,12 @@ async fn dispatch_schemas(
     m: &str,
     p: &str,
 ) -> RouteResult {
+    if let Some(id) = p.strip_prefix("/v1/schema-versions/") {
+        return match m {
+            "GET" | "PUT" => Some(routes::portable_schema::handle(state, event, id).await),
+            _ => None,
+        };
+    }
     Some(match (m, p) {
         ("GET", "/v1/schemas") => match state.get_schema_names() {
             Ok(schema_names) => json_response(200, &json!({ "schemas": schema_names })),

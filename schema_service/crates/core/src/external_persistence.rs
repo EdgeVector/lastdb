@@ -30,8 +30,7 @@ use super::near_miss::NearMissRecord;
 use super::snapshot::AppRecord;
 use super::types::CanonicalField;
 use crate::CanonicalVocabularyWrite;
-use schema_types::FoldDbResult;
-use schema_types::Schema;
+use schema_types::{FoldDbError, FoldDbResult, PortableSchemaDefinition, PortableSchemaId, Schema};
 
 /// Persistence backend for the schema service.
 ///
@@ -69,6 +68,27 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     /// Called once during schema service startup to populate the
     /// in-memory cache. Returns a map from `schema.name` → Schema.
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>>;
+
+    /// Insert the verified version by its immutable content ID. A retry must
+    /// return success only when the stored definition matches that ID.
+    async fn pin_portable_schema(
+        &self,
+        _definition: &PortableSchemaDefinition,
+    ) -> FoldDbResult<()> {
+        Err(FoldDbError::Config(
+            "portable schema storage is unavailable".into(),
+        ))
+    }
+
+    /// Read one immutable version by ID, independently of the catalog head.
+    async fn load_portable_schema(
+        &self,
+        _id: &PortableSchemaId,
+    ) -> FoldDbResult<Option<PortableSchemaDefinition>> {
+        Err(FoldDbError::Config(
+            "portable schema storage is unavailable".into(),
+        ))
+    }
 
     // ============== Canonical fields ==============
 

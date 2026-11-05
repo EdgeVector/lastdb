@@ -94,6 +94,7 @@ mod add_schema;
 mod admin;
 mod apps;
 mod fields;
+mod portable_schema;
 mod resolve;
 mod schemas;
 mod vocabulary;
@@ -101,6 +102,7 @@ pub use add_schema::*;
 pub use admin::*;
 pub use apps::*;
 pub use fields::*;
+pub use portable_schema::*;
 pub use resolve::*;
 pub use schemas::*;
 

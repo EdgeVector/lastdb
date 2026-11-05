@@ -78,6 +78,11 @@ fn v1_schema_routes(scope: actix_web::Scope) -> actix_web::Scope {
             web::get().to(handlers::find_similar),
         )
         .route("/schema/{name}", web::get().to(handlers::get_schema))
+        .service(
+            web::resource("/schema-versions/{id}")
+                .route(web::get().to(handlers::get_portable_schema))
+                .route(web::put().to(handlers::pin_portable_schema)),
+        )
         // Phase C: shadow-mode canonicalization audit log.
         .route(
             "/canonicalization-near-misses",
