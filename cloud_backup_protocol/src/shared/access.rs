@@ -37,6 +37,24 @@ pub struct RecoveryLogRequest {
     pub after: Option<LogHead>,
 }
 
+/// An exact parent that the service can verify without a reverse object scan.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RecoveryObjectParent {
+    /// This recovery view's accepted snapshot.
+    Snapshot {
+        /// Exact accepted publication.
+        snapshot_id: Id,
+    },
+    /// One retained accepted batch in a captured writer's suffix.
+    LogBatch {
+        /// Origin of the accepted batch.
+        source_stream: Id,
+        /// Exact accepted end and prefix commitment.
+        head: LogHead,
+    },
+}
+
 /// Read one exact sealed object from a held snapshot or uncovered log.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +65,51 @@ pub struct RecoveryObjectRequest {
     pub hold_id: Id,
     /// Exact expected sealed object metadata.
     pub object: SealedObject,
+    /// Held snapshot or accepted batch declaring this object.
+    pub parent: RecoveryObjectParent,
+}
+
+impl RecoveryObjectRequest {
+    /// Check that the claimed parent lies in this recovery view's capture.
+    /// The service checks the retained parent and its actual object references.
+    pub fn validate_for(&self, view: &RecoveryView) -> Result<(), ProtocolError> {
+        self.object.validate()?;
+        let mismatch = || {
+            error(
+                ErrorCode::IntegrityMismatch,
+                "shared.recovery.object_parent",
+            )
+        };
+        if self.database_id != view.snapshot.database_id || self.hold_id != view.hold_id {
+            return Err(mismatch());
+        }
+        match &self.parent {
+            RecoveryObjectParent::Snapshot { snapshot_id } => {
+                if snapshot_id != &view.snapshot.snapshot_id {
+                    return Err(mismatch());
+                }
+            }
+            RecoveryObjectParent::LogBatch {
+                source_stream,
+                head,
+            } => {
+                head.validate()?;
+                let index = view
+                    .streams
+                    .binary_search_by(|cut| cut.source_stream.cmp(source_stream))
+                    .map_err(|_| mismatch())?;
+                let cut = &view.streams[index];
+                let captured = cut.head.as_ref().ok_or_else(mismatch)?;
+                if head.sequence <= cut.reclaimed_through
+                    || head.sequence > captured.sequence
+                    || (head.sequence == captured.sequence && head != captured)
+                {
+                    return Err(mismatch());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A provider GET authorized for an exact object version until a fixed time.
@@ -69,12 +132,8 @@ impl SharedReadGrant {
         view: &RecoveryView,
         now: DecimalU64,
     ) -> Result<(), ProtocolError> {
-        self.object.validate()?;
-        if request.database_id != view.snapshot.database_id
-            || request.hold_id != view.hold_id
-            || self.object != request.object
-            || self.expires_at_ms > view.expires_at_ms
-        {
+        request.validate_for(view)?;
+        if self.object != request.object || self.expires_at_ms > view.expires_at_ms {
             return Err(error(ErrorCode::IntegrityMismatch, "shared.recovery.grant"));
         }
         if self.expires_at_ms <= now {
@@ -130,6 +189,9 @@ impl RecoveryAuthorityRequest<'_> {
             }
             Self::Object(request) => {
                 request.object.validate()?;
+                if let RecoveryObjectParent::LogBatch { head, .. } = &request.parent {
+                    head.validate()?;
+                }
                 "lastdb:shared-log:recovery-object-authority:v1"
             }
         };

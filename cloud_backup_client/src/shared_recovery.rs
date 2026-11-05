@@ -5,7 +5,8 @@ use crate::shared_authority::device_headers;
 use crate::AuthClient;
 use cloud_backup_protocol::shared::{
     LogBatch, RecoveryAuthorityRequest, RecoveryHoldRequest, RecoveryLogRequest,
-    RecoveryObjectRequest, RecoveryView, SealedObject, SharedReadGrant, SnapshotManifest,
+    RecoveryObjectParent, RecoveryObjectRequest, RecoveryView, SealedObject, SharedReadGrant,
+    SnapshotManifest,
 };
 use cloud_backup_protocol::{limits, AccountId, DecimalU64, Id};
 use serde::de::DeserializeOwned;
@@ -90,6 +91,7 @@ impl SharedRecoveryClient {
         &self,
         view: &RecoveryView,
         object: &SealedObject,
+        parent: &RecoveryObjectParent,
         now: DecimalU64,
         proof_expires: DecimalU64,
         sign: impl FnOnce(&[u8]) -> Result<[u8; 64]>,
@@ -98,7 +100,9 @@ impl SharedRecoveryClient {
             database_id: view.snapshot.database_id.clone(),
             hold_id: view.hold_id.clone(),
             object: object.clone(),
+            parent: parent.clone(),
         };
+        request.validate_for(view)?;
         let grant: SharedReadGrant = self
             .post(
                 RecoveryAuthorityRequest::Object(&request),
