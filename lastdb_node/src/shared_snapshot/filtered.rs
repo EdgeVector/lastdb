@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 mod build;
 mod publish;
-pub use publish::{publish_native, resume_native, NativePublishRequest};
+pub use publish::{prepare_native, publish_native, resume_native, NativePublishRequest};
 
 const DATA: &str = "filtered-native";
 const CUT: &str = "shared-checkpoint-cut.json";
@@ -71,38 +71,56 @@ impl FilteredCheckpoint {
         .sync_all()?;
         let owner = owner(root, true)?;
         fs::DirBuilder::new().mode(0o700).create(root.join(DATA))?;
-        let db = build::open(&root.join(DATA), keys).await?;
-        build::copy(&db, &mut source, &schemas, request.expires_at_ms).await?;
-        drop(source);
-        let capture = db
-            .db_ops()
-            .native_runtime()
-            .capture_shared_checkpoint_files(uuid(&request.snapshot_id)?, keys.content_key(), false)
-            .await
-            .map_err(RestoreError::native_proof)?;
-        db.shutdown().await.map_err(RestoreError::native_proof)?;
-        drop(db);
-        let profile = capture.profile().map_err(RestoreError::native_proof)?;
-        let (capture, files) = hash_inventory(capture, request.expires_at_ms).await?;
-        let cut = FrozenSnapshot {
-            database_id,
-            snapshot_id: request.snapshot_id,
-            replaces: request.replaces,
-            expires_at_ms: request.expires_at_ms,
-            profile,
-            covers,
-            progress,
-            delete_reclaimed_through_ms,
-            files,
-            schemas,
-        };
-        local::atomic_json_bounded(&root.join(CUT), &cut, CUT_BYTES)?;
-        Ok(Self {
-            root: root.to_path_buf(),
-            cut,
-            capture: Some(capture),
-            _owner: owner,
-        })
+        let result = async {
+            let db = build::open(&root.join(DATA), keys).await?;
+            let capture = async {
+                build::copy(&db, &mut source, &schemas, request.expires_at_ms).await?;
+                db.db_ops()
+                    .native_runtime()
+                    .capture_shared_checkpoint_files(
+                        uuid(&request.snapshot_id)?,
+                        keys.content_key(),
+                        false,
+                    )
+                    .await
+                    .map_err(RestoreError::native_proof)
+            }
+            .await;
+            drop(source);
+            let shutdown = db.shutdown().await.map_err(RestoreError::native_proof);
+            drop(db);
+            let capture = capture?;
+            shutdown?;
+            let profile = capture.profile().map_err(RestoreError::native_proof)?;
+            let (capture, files) = hash_inventory(capture, request.expires_at_ms).await?;
+            let cut = FrozenSnapshot {
+                database_id,
+                snapshot_id: request.snapshot_id,
+                replaces: request.replaces,
+                expires_at_ms: request.expires_at_ms,
+                profile,
+                covers,
+                progress,
+                delete_reclaimed_through_ms,
+                files,
+                schemas,
+            };
+            local::atomic_json_bounded(&root.join(CUT), &cut, CUT_BYTES)?;
+            Ok((cut, capture))
+        }
+        .await;
+        match result {
+            Ok((cut, capture)) => Ok(Self {
+                root: root.to_path_buf(),
+                cut,
+                capture: Some(capture),
+                _owner: owner,
+            }),
+            Err(error) => {
+                retire_owned(root).await?;
+                Err(error)
+            }
+        }
     }
 
     /// Reopen exactly the saved export. After a terminal remote outcome, a
@@ -190,11 +208,15 @@ impl FrozenCheckpoint for FilteredCheckpoint {
             ));
         }
         drop(self.capture.take());
-        let root = self.root.clone();
-        tokio::task::spawn_blocking(move || retire(&root))
-            .await
-            .map_err(|_| RestoreError::Invalid("retire filtered checkpoint task"))?
+        retire_owned(&self.root).await
     }
+}
+
+async fn retire_owned(root: &Path) -> Result<()> {
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || retire(&root))
+        .await
+        .map_err(|_| RestoreError::Invalid("retire filtered checkpoint task"))?
 }
 
 fn retire(root: &Path) -> Result<()> {

@@ -25,6 +25,18 @@ pub async fn publish_native(
     transport: &SignedSnapshotTransport,
     keys: &RecoveryKeys,
 ) -> Result<SnapshotOutcome> {
+    let mut export = prepare_native(writer, request, transport, keys).await?;
+    publish(&mut export, transport, keys.content_key()).await
+}
+
+/// Save the exact export so another invocation can resume while the source
+/// returns to normal service.
+pub async fn prepare_native(
+    writer: &MutationManager,
+    request: NativePublishRequest<'_>,
+    transport: &SignedSnapshotTransport,
+    keys: &RecoveryKeys,
+) -> Result<FilteredCheckpoint> {
     build::require_time(request.expires_at_ms)?;
     let source = writer
         .capture_portable_checkpoint(request.definitions)
@@ -61,7 +73,7 @@ pub async fn publish_native(
             Ok((stream, cover.through))
         })
         .collect::<Result<_>>()?;
-    let mut export = FilteredCheckpoint::prepare(
+    FilteredCheckpoint::prepare(
         request.workspace,
         source,
         FilteredCheckpointRequest {
@@ -72,8 +84,7 @@ pub async fn publish_native(
         },
         keys,
     )
-    .await?;
-    publish(&mut export, transport, keys.content_key()).await
+    .await
 }
 
 pub async fn resume_native(
