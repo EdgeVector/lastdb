@@ -45,8 +45,16 @@ pub(crate) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Resul
 }
 
 pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    atomic_json_bounded(
+        path,
+        value,
+        cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES,
+    )
+}
+
+pub(crate) fn atomic_json_bounded(path: &Path, value: &impl Serialize, maximum: u64) -> Result<()> {
     let bytes = cloud_backup_protocol::canonical_bytes(value)?;
-    if bytes.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
+    if bytes.len() as u64 > maximum {
         return Err(RestoreError::Limit("saved metadata"));
     }
     let pending = path.with_extension("pending");

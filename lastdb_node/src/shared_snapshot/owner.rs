@@ -7,9 +7,9 @@ use cloud_backup_client::shared_objects::{
 };
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::shared::objects::{
-    SharedObjectRequest, SharedObjectRole, SnapshotHeadRequest,
+    SharedObjectRequest, SharedObjectRole, SnapshotHeadRequest, SnapshotLogEndsRequest,
 };
-use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt};
+use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use std::io::Read;
@@ -44,6 +44,16 @@ impl SignedSnapshotTransport {
                 },
                 &|message| Ok(self.signature(message)),
             )
+            .await
+            .map_err(transport_error)
+    }
+
+    pub(super) async fn accepted_log_ends(
+        &self,
+        request: &SnapshotLogEndsRequest,
+    ) -> Result<Vec<StreamCover>> {
+        self.client
+            .snapshot_log_ends(request, &|message| Ok(self.signature(message)))
             .await
             .map_err(transport_error)
     }

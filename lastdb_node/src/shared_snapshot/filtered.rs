@@ -16,10 +16,13 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 mod build;
+mod publish;
+pub use publish::{publish_native, resume_native, NativePublishRequest};
 
 const DATA: &str = "filtered-native";
 const CUT: &str = "shared-checkpoint-cut.json";
-const CUT_BYTES: u64 = cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
+const CUT_BYTES: u64 = crate::shared_restore::recovery::MAX_MANIFEST_BYTES
+    + cloud_backup_protocol::limits::REQUEST_JSON_MAX_BYTES;
 
 pub struct FilteredCheckpointRequest {
     pub snapshot_id: Id,
@@ -92,7 +95,7 @@ impl FilteredCheckpoint {
             files,
             schemas,
         };
-        local::atomic_json(&root.join(CUT), &cut)?;
+        local::atomic_json_bounded(&root.join(CUT), &cut, CUT_BYTES)?;
         Ok(Self {
             root: root.to_path_buf(),
             cut,
