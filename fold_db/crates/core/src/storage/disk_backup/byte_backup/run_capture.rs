@@ -141,7 +141,14 @@ fn renew_intent(
     intent.journal_anchor = runtime.mutation_log.snapshot_anchor(&runtime.physical)?;
     store.write(RUN_INTENT_FILE, intent)
 }
-fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
+pub(super) fn require_shared_hold(root: &Path) -> StorageResult<()> {
+    if !ready::complete(root)? {
+        return Err(invalid("shared checkpoint hold is incomplete"));
+    }
+    Ok(())
+}
+
+pub(super) fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     let homes = &runtime.physical;
     let holds = root.parent().ok_or_else(|| invalid("run capture parent"))?;
     private_directory(

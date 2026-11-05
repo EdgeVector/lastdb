@@ -10,6 +10,7 @@ mod reader;
 mod run_capture;
 mod run_codec;
 mod run_source;
+mod shared_run;
 mod store;
 mod terminal;
 
@@ -34,6 +35,7 @@ pub const HELD_NODE_FILE: &str = "node";
 pub use codec::*;
 pub use reader::ByteBackupReader;
 pub use run_codec::*;
+pub use shared_run::SharedRunCapture;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
