@@ -34,10 +34,7 @@ impl MutationManager {
 /// Independent records prepare together. A repeated primary key is rejected:
 /// its replacement would require the revision of an unacknowledged write.
 impl MutationManager {
-    fn independent_key_groups(
-        &self,
-        groups: Vec<(String, Vec<Mutation>)>,
-    ) -> Result<KeyGroups, SchemaError> {
+    fn independent_key_groups(&self, groups: KeyGroups) -> Result<KeyGroups, SchemaError> {
         let mut result = Vec::new();
         for (name, mutations) in groups {
             let schema = self.schema_manager.require_schema_metadata(&name)?;
