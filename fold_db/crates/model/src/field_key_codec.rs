@@ -106,20 +106,6 @@ impl FieldKeyCodec {
             .map_err(FieldKeyCodecError::InvalidRange)
     }
 
-    /// `{F}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
-    ///
-    /// Reads and writes use one key under the caller's exact `field_key_id`.
-    pub fn api_hash_range_record_key(
-        &self,
-        field_key_id: &str,
-        api_hash: &str,
-        api_range: &str,
-    ) -> Result<String, FieldKeyCodecError> {
-        let h = self.storage_hash(field_key_id, api_hash)?;
-        let r = self.storage_range(field_key_id, api_range)?;
-        Ok(hash_range_record_key(field_key_id, &h, &r))
-    }
-
     /// An ordered range prefix that can safely precede a NUL member delimiter.
     /// Stuffing both control bytes preserves order and arbitrary UTF-8 prefixes.
     pub fn api_hash_range_member_prefix(

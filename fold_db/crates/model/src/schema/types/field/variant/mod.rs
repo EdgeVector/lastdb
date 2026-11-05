@@ -48,9 +48,4 @@ impl FieldVariant {
     pub fn common(&self) -> &FieldCommon {
         &self.inner
     }
-
-    /// Gets the common field data mutably.
-    pub fn common_mut(&mut self) -> &mut FieldCommon {
-        &mut self.inner
-    }
 }

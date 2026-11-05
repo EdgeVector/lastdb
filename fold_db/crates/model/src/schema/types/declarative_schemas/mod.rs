@@ -1,5 +1,5 @@
 use crate::schema::types::field::FieldVariant;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
 mod runtime;
@@ -45,16 +45,6 @@ impl DeclarativeSchemaDefinition {
                 "this home requires explicit record_keys".into(),
             )
         })
-    }
-    /// The fields that derive the alternate keys of one record, with the primary
-    /// hash field. An erase budget counts the same set.
-    #[must_use]
-    pub fn alternate_dependency_fields(&self) -> BTreeSet<&str> {
-        self.alternate_keys
-            .values()
-            .flat_map(schema_types::AlternateKey::fields)
-            .chain(self.key.iter().filter_map(|key| key.hash_field.as_deref()))
-            .collect()
     }
 
     /// Share the wire contract with direct core mutation callers.
