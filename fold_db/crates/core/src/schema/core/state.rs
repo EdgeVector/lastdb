@@ -23,18 +23,10 @@ impl SchemaCore {
         };
 
         // Hydrate from durable store (may take minutes on large post-rekey homes).
-        // The raw catalog still names the payload-field bundles an older writer
-        // stored. Delete those rows before the catalog is ready, and before any
-        // later save drops the map that names them.
-        let catalog = db_ops.schemas().load_open_catalog().await?;
-        for schema in catalog.schemas.values() {
+        let stored_schemas = db_ops.get_all_schemas().await?;
+        for schema in stored_schemas.values() {
             super::load::owned::admit_stored_schema(schema)?;
         }
-        db_ops
-            .field_keys()
-            .release_retired_payload_bundles(&catalog.schemas, &catalog.stored_field_key_ids)
-            .await?;
-        let stored_schemas = catalog.schemas;
         let schema_states = db_ops.get_all_schema_states().await?;
         let retired_name_claims = db_ops.list_retired_name_claims().await?;
 

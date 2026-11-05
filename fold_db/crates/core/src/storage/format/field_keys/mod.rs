@@ -103,15 +103,4 @@ impl FieldKeyFormat {
         self.require_scope()?;
         self.field_store.inner().batch_mutate(encoded.rows).await
     }
-
-    /// Delete metadata and wrap rows that are already known to exist.
-    ///
-    /// Catalog open uses this for retired payload-field bundles. It does not
-    /// mint, and it does not require the publication scope.
-    pub(crate) async fn release_rows(&self, keys: Vec<String>) -> StorageResult<()> {
-        if keys.is_empty() {
-            return Ok(());
-        }
-        self.field_store.batch_delete_keys(keys).await
-    }
 }
