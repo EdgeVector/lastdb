@@ -3,12 +3,12 @@
 use super::{RecordAddress, RecordFormat};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
-use lastdb_model::portable_mutation::{AppliedDelete, Stamp, MAX_MUTATION_ENTRY_BYTES};
+use lastdb_model::portable_mutation::{AppliedDelete, RecordKey, Stamp, MAX_MUTATION_ENTRY_BYTES};
 use laststore::disk_run::MAX_RUN_KEY_BYTES;
 use serde::{Deserialize, Serialize};
 
 pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
-pub(in crate::storage) const DELETE_AGE_FAMILY: &str = "ade";
+pub(crate) const DELETE_AGE_FAMILY: &str = "ade";
 const MAX_DELETE_BYTES: usize = 512;
 // The physical key can contain JSON escapes. Leave room for the logical
 // portable key and framing while admitting the full native key range.
@@ -21,15 +21,18 @@ pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMuta
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DeleteAge {
-    marker: String,
-    stamp: Stamp,
+pub(crate) struct DeleteAge {
+    pub(crate) marker: String,
+    pub(crate) stamp: Stamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) primary: Option<RecordKey>,
 }
 
 pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
     let age = DeleteAge {
         marker: address(key.as_str()),
         stamp: stamp.clone(),
+        primary: Some(RecordKey::try_from(key.api_key().clone()).map_err(invalid)?),
     };
     let bytes = serde_json::to_vec(&age).map_err(invalid)?;
     require_age_size(&bytes)?;
@@ -59,6 +62,9 @@ fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
     require_age_size(bytes)?;
     let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
     age.stamp.position.validate().map_err(invalid)?;
+    if let Some(primary) = &age.primary {
+        primary.validate().map_err(invalid)?;
+    }
     let Some(time) = age_ms(key) else {
         return Err(invalid("invalid delete age coordinate"));
     };
@@ -115,7 +121,7 @@ pub(in crate::storage) fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
     Ok(entry.into())
 }
 
-pub(in crate::storage) fn record_key(key: &str) -> Option<&str> {
+pub(crate) fn record_key(key: &str) -> Option<&str> {
     let (family, record) = key.split_once(':')?;
     (family == APPLIED_DELETE_FAMILY).then_some(record)
 }
@@ -183,6 +189,42 @@ impl RecordFormat {
             self.main_store.inner().batch_mutate(mutations).await?;
         }
         Ok(reclaimed)
+    }
+
+    pub(crate) async fn current_delete_ages(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> StorageResult<Vec<DeleteAge>> {
+        let mut ages = Vec::with_capacity(rows.len());
+        for (key, value) in rows {
+            ages.push(decode_age_row(
+                std::str::from_utf8(&key).map_err(invalid)?,
+                &value,
+            )?);
+        }
+        if ages.is_empty() {
+            return Ok(ages);
+        }
+        let current = self
+            .main_store
+            .inner()
+            .get_many(
+                ages.iter()
+                    .map(|age| age.marker.as_bytes().to_vec())
+                    .collect(),
+            )
+            .await?;
+        if current.len() != ages.len() {
+            return Err(invalid("incomplete checkpoint delete preimages"));
+        }
+        let mut active = Vec::new();
+        for (age, value) in ages.into_iter().zip(current) {
+            let stamp = value.as_deref().map(decode).transpose()?;
+            if stamp.as_ref() == Some(&age.stamp) {
+                active.push(age);
+            }
+        }
+        Ok(active)
     }
 
     pub(crate) async fn applied_deletes(

@@ -3,7 +3,9 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 pub use crate::storage::format::metadata::OutgoingPortablePage;
-use crate::storage::format::metadata::{AuthoredStamp, InboxWindow, JournalSchema, Metadata};
+use crate::storage::format::metadata::{
+    AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema, Metadata,
+};
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
 use lastdb_model::portable_mutation::{SchemaIdentity, Stamp, StreamId, StreamProgress};
 use lastdb_model::portable_replay::LogRangeId;
@@ -16,6 +18,12 @@ pub struct MetadataStore {
 }
 
 impl MetadataStore {
+    pub(crate) async fn portable_checkpoint_directory(
+        &self,
+    ) -> Result<CheckpointDirectory, SchemaError> {
+        Ok(self.format.portable_checkpoint_directory().await?)
+    }
+
     pub(crate) async fn portable_delete_cutoff(
         &self,
         participants: &BTreeSet<StreamId>,
