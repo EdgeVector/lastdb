@@ -1,19 +1,21 @@
 //! Verify and load one authenticated shared recovery selection into staging.
 
 use super::{RestoreCut, SharedRestore};
-use crate::byte_cloud_restore::{check_capacity, RestoreError, Result};
+use crate::byte_cloud_restore::{check_capacity, local, RestoreError, Result};
 use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryView, SealedObject, SnapshotManifest,
 };
 use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::portable_mutation::{MutationOperation, Position, StreamId};
 use fold_db::portable_replay::{LogRangeId, VerifiedLogRange, MAX_LOG_BYTES};
-use fold_db::storage::disk_pack::{run_restore, NativeCloudWorkGuard, HOME_FORMAT};
+use fold_db::storage::disk_pack::{
+    run_restore, NativeCloudWorkGuard, CAS_DIR, HOME_FORMAT, RUN_DIR,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -150,12 +152,15 @@ async fn install_checkpoint(
     })?;
     check_capacity(stage, bytes)?;
     let data = stage.join("data");
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder.create(&data)?;
+    for home in [RUN_DIR, CAS_DIR] {
+        builder.create(data.join(home))?;
+    }
+    local::prepare_native_ephemera(&data)?;
     for member in &contents.files {
         let destination = data.join(member.path.as_str());
-        let parent = destination
-            .parent()
-            .ok_or(RestoreError::Invalid("native checkpoint parent"))?;
-        fs::create_dir_all(parent)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)

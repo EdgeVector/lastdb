@@ -1,8 +1,6 @@
 use super::super::{local, native, NativeFileProof, RecoveryKeys};
 use super::super::{RestoreError, RestoreSession, Result};
 use fold_db::storage::disk_pack::{byte_backup::ClientRoot, run_restore};
-use std::fs::{self, File};
-use std::os::unix::fs::DirBuilderExt;
 
 pub(super) fn verify(
     session: &RestoreSession,
@@ -10,33 +8,7 @@ pub(super) fn verify(
     root: &ClientRoot,
 ) -> Result<run_restore::RunRestoreGuard> {
     let data = session.root.join("home/data");
-    for name in [
-        fold_db::storage::disk_pack::RUN_DIR,
-        fold_db::storage::disk_pack::CAS_DIR,
-    ] {
-        let home = data.join(name);
-        local::directory(&home)?;
-        let runs = home.join(laststore::disk_run::home::RUNS);
-        match fs::DirBuilder::new().mode(0o700).create(&runs) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        local::directory(&runs)?;
-        let path = home.join(laststore::disk_run::home::LOCK);
-        let lock = match local::owner_file(&path, true) {
-            Ok(lock) => lock,
-            Err(RestoreError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                local::owner_file(&path, false)?
-            }
-            Err(error) => return Err(error),
-        };
-        if lock.metadata()?.len() != 0 {
-            return Err(RestoreError::Invalid("run ephemeral lock"));
-        }
-        lock.sync_all()?;
-        File::open(&home)?.sync_all()?;
-    }
+    local::prepare_native_ephemera(&data)?;
     let profile = &root.run;
     let proof = run_restore::verify(&data, profile, &root.native_root, keys.content_key())
         .map_err(RestoreError::native_proof)?;
