@@ -5,10 +5,16 @@
 //! do not authorize storage access by themselves. The node interprets the sealed
 //! disk inventory, portable mutations and file contents.
 
+mod access;
 mod append;
 mod checkpoint;
 mod recovery;
 
+pub use access::{
+    RecoveryAuthorityRequest, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectRequest,
+    SharedReadGrant, RECOVERY_LOG_PATH, RECOVERY_MANIFEST_PATH, RECOVERY_OBJECT_PATH,
+    RECOVERY_OPEN_PATH,
+};
 pub use append::{
     append_authority_digest, AppendContext, AppendDecision, BatchObject, BatchReceipt,
     FileDependency, LogBatch,

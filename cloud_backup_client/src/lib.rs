@@ -9,7 +9,9 @@ use std::time::Duration;
 
 mod backup_transport;
 pub mod byte_backup;
+mod shared_authority;
 pub mod shared_log;
+pub mod shared_recovery;
 
 pub(crate) const DEFAULT_AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SHARED_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
