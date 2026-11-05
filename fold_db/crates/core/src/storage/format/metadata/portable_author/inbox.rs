@@ -349,7 +349,7 @@ pub(super) fn decode_state(bytes: Option<&[u8]>) -> StorageResult<HomeReplayStat
     Ok(state)
 }
 
-fn decode_cursor(bytes: Option<&[u8]>) -> StorageResult<StreamProgress> {
+pub(super) fn decode_cursor(bytes: Option<&[u8]>) -> StorageResult<StreamProgress> {
     let cursor: StreamProgress = bytes
         .map(serde_json::from_slice)
         .transpose()

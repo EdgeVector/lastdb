@@ -13,7 +13,9 @@ const REPLAY_STATE_KEY: &str = "portable-replay-state";
 const PROGRESS_PREFIX: &str = "portable-progress:";
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
+mod checkpoint;
 mod inbox;
+pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;
 pub(crate) use inbox::InboxWindow;
 pub use outgoing::OutgoingPortablePage;

@@ -22,10 +22,13 @@ mod release;
 mod store;
 
 pub use alternates::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
-pub(crate) use applied_deletes::ReclaimedDeletes;
+pub(crate) use applied_deletes::{
+    decode_age_row, record_key as delete_record_key, ReclaimedDeletes, DELETE_AGE_FAMILY,
+};
 pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use keys::{alternate_range_key, AlternateAddress, RecordAddress};
 pub(crate) use maintenance::validate_cutoff_raise;
+pub(crate) use outgoing::record_data as portable_record_data;
 pub(crate) use release::{release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use store::RecordFormat;
 

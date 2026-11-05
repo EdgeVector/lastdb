@@ -3,12 +3,12 @@
 use super::{RecordAddress, RecordFormat};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
-use lastdb_model::portable_mutation::{AppliedDelete, Stamp, MAX_MUTATION_ENTRY_BYTES};
+use lastdb_model::portable_mutation::{AppliedDelete, RecordKey, Stamp, MAX_MUTATION_ENTRY_BYTES};
 use laststore::disk_run::MAX_RUN_KEY_BYTES;
 use serde::{Deserialize, Serialize};
 
 pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
-pub(in crate::storage) const DELETE_AGE_FAMILY: &str = "ade";
+pub(crate) const DELETE_AGE_FAMILY: &str = "ade";
 const MAX_DELETE_BYTES: usize = 512;
 // The physical key can contain JSON escapes. Leave room for the logical
 // portable key and framing while admitting the full native key range.
@@ -21,15 +21,17 @@ pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMuta
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DeleteAge {
-    marker: String,
-    stamp: Stamp,
+pub(crate) struct DeleteAge {
+    pub(crate) marker: String,
+    pub(crate) stamp: Stamp,
+    pub(crate) primary: RecordKey,
 }
 
 pub(super) fn encode_age(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
     let age = DeleteAge {
         marker: address(key.as_str()),
         stamp: stamp.clone(),
+        primary: RecordKey::try_from(key.api_key().clone()).map_err(invalid)?,
     };
     let bytes = serde_json::to_vec(&age).map_err(invalid)?;
     require_age_size(&bytes)?;
@@ -55,10 +57,11 @@ pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageRe
     decode_age_row(key, bytes).map(|_| ())
 }
 
-fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
+pub(crate) fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
     require_age_size(bytes)?;
     let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
     age.stamp.position.validate().map_err(invalid)?;
+    age.primary.validate().map_err(invalid)?;
     let Some(time) = age_ms(key) else {
         return Err(invalid("invalid delete age coordinate"));
     };
@@ -115,7 +118,7 @@ pub(in crate::storage) fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
     Ok(entry.into())
 }
 
-pub(in crate::storage) fn record_key(key: &str) -> Option<&str> {
+pub(crate) fn record_key(key: &str) -> Option<&str> {
     let (family, record) = key.split_once(':')?;
     (family == APPLIED_DELETE_FAMILY).then_some(record)
 }

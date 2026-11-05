@@ -17,7 +17,7 @@ pub use portable_author::OutgoingPortablePage;
 pub(in crate::storage) use portable_author::{
     initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };
-pub(crate) use portable_author::{AuthoredStamp, InboxWindow, JournalSchema};
+pub(crate) use portable_author::{AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema};
 
 #[derive(Clone)]
 pub(crate) struct Metadata {

@@ -41,7 +41,7 @@ pub(super) fn entries(
     Ok(entries)
 }
 
-fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaError> {
+pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaError> {
     let metadata = record
         .meta
         .as_ref()
