@@ -36,13 +36,7 @@ pub(super) fn published_context(
     }
     // A prior call can lose either post-rename directory barrier. The receipt
     // proves the selected data, but success also requires both barriers again.
-    File::open(session.root)?.sync_all()?;
-    File::open(
-        destination
-            .parent()
-            .ok_or(RestoreError::Invalid("destination parent"))?,
-    )?
-    .sync_all()?;
+    sync_publish_parents(session.root, destination)?;
     report::atomic_json(&session.root.join("result.json"), &receipt.report)?;
     Ok(Some(receipt.report))
 }
@@ -91,25 +85,34 @@ fn publish_context(
             report: report.clone(),
         },
     )?;
+    activate_owned_home(session.root, session.destination)?;
+    report::atomic_json(&session.root.join("result.json"), &report)?;
+    Ok(report)
+}
+
+pub(crate) fn activate_owned_home(root: &Path, destination: &Path) -> Result<()> {
+    let home = root.join("home");
     sync_owned_tree(&home, 0)?;
     rustix::fs::renameat_with(
         rustix::fs::CWD,
         &home,
         rustix::fs::CWD,
-        session.destination,
+        destination,
         rustix::fs::RenameFlags::NOREPLACE,
     )
     .map_err(std::io::Error::from)?;
-    File::open(session.root)?.sync_all()?;
+    sync_publish_parents(root, destination)
+}
+
+pub(crate) fn sync_publish_parents(root: &Path, destination: &Path) -> Result<()> {
+    File::open(root)?.sync_all()?;
     File::open(
-        session
-            .root
+        destination
             .parent()
             .ok_or(RestoreError::Invalid("destination parent"))?,
     )?
     .sync_all()?;
-    report::atomic_json(&session.root.join("result.json"), &report)?;
-    Ok(report)
+    Ok(())
 }
 
 fn install_identity(home: &Path, keys: &RecoveryKeys) -> Result<()> {

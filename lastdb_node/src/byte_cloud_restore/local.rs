@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
-pub(super) fn directory(path: &Path) -> Result<()> {
+pub(crate) fn directory(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
         return Err(RestoreError::Invalid("owned session directory"));
@@ -13,7 +13,7 @@ pub(super) fn directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn owner_file(path: &Path, new: bool) -> Result<File> {
+pub(crate) fn owner_file(path: &Path, new: bool) -> Result<File> {
     let mut options = OpenOptions::new();
     options
         .read(true)
@@ -28,7 +28,7 @@ pub(super) fn owner_file(path: &Path, new: bool) -> Result<File> {
     Ok(file)
 }
 
-pub(super) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Result<T> {
+pub(crate) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Result<T> {
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
@@ -44,7 +44,7 @@ pub(super) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Resul
     serde_json::from_slice(&bytes).map_err(|_| RestoreError::Invalid("metadata JSON"))
 }
 
-pub(super) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = cloud_backup_protocol::canonical_bytes(value)?;
     if bytes.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
         return Err(RestoreError::Limit("saved metadata"));
