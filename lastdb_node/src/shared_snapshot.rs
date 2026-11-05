@@ -4,9 +4,7 @@
 //! exact inventory and publication ID through uncertain transport results.
 
 use crate::byte_cloud_restore::{RestoreError, Result};
-use crate::shared_restore::recovery::{
-    RecoveryObject, SnapshotContents, SnapshotFile, SnapshotSchema,
-};
+use crate::shared_restore::recovery::{SnapshotContents, SnapshotFile, SnapshotSchema};
 use cloud_backup_protocol::shared::{
     inventory_sha256, SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover,
 };
@@ -14,6 +12,7 @@ use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
 use fold_db::portable_mutation::{StreamId, StreamProgress};
 use fold_db::storage::disk_pack::{byte_backup::RunBackupProfile, HOME_FORMAT};
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -53,7 +52,7 @@ pub trait FrozenCheckpoint: Send + Sync {
     /// already filtered with the same durable checkpoint and dependencies.
     fn require_recoverable_cut(&self) -> Result<()>;
 
-    async fn open_file(&self, path: &RelativePath) -> Result<RecoveryObject>;
+    fn open_file(&self, path: &RelativePath) -> Result<Box<dyn Read + Send>>;
 
     /// Thaw this exact publication and catch up its journal. A repeat of an
     /// already completed thaw for this ID succeeds.
@@ -71,12 +70,14 @@ pub enum PublishReply {
 /// the conditional publication as the designated device.
 #[async_trait::async_trait]
 pub trait SnapshotTransport: Sync {
+    /// Finish or cancel and release the source reader before returning.
     async fn upload(
         &self,
         database: &Id,
         snapshot: &Id,
         object: &SealedObject,
-        bytes: RecoveryObject,
+        bytes: Box<dyn Read + Send>,
+        deadline_ms: u64,
     ) -> Result<SealedObject>;
 
     /// Repeating this exact input must reconcile to its durable receipt, even
@@ -237,16 +238,19 @@ async fn upload(
 ) -> Result<()> {
     let cut = source.cut();
     for file in &contents.files {
-        within_freeze(cut, async {
-            let bytes = source.open_file(&file.path).await?;
-            upload_exact(transport, manifest, &file.object, bytes).await
-        })
-        .await?;
+        remaining(cut)?;
+        let bytes = source.open_file(&file.path)?;
+        upload_exact(transport, manifest, &file.object, bytes, cut.expires_at_ms).await?;
     }
-    within_freeze(cut, async {
-        let bytes = Box::pin(std::io::Cursor::new(sealed));
-        upload_exact(transport, manifest, &manifest.encrypted_manifest, bytes).await
-    })
+    remaining(cut)?;
+    let bytes = Box::new(std::io::Cursor::new(sealed));
+    upload_exact(
+        transport,
+        manifest,
+        &manifest.encrypted_manifest,
+        bytes,
+        cut.expires_at_ms,
+    )
     .await?;
     source.require_recoverable_cut()?;
     remaining(cut)?;
@@ -257,7 +261,8 @@ async fn upload_exact(
     transport: &impl SnapshotTransport,
     manifest: &SnapshotManifest,
     expected: &SealedObject,
-    bytes: RecoveryObject,
+    bytes: Box<dyn Read + Send>,
+    deadline_ms: u64,
 ) -> Result<()> {
     let stored = transport
         .upload(
