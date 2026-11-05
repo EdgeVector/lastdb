@@ -6,7 +6,7 @@ use super::*;
 pub(crate) enum AppLifecycleCommand {
     /// Generate the developer Ed25519 signing key used to publish apps.
     DevInit {
-        /// Key path or lastsecrets://slug (default: <home>/dev-signing.key).
+        /// Key path (default: <home>/dev-signing.key).
         #[arg(long)]
         key_file: Option<PathBuf>,
     },

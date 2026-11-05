@@ -42,7 +42,7 @@ fn resolutions(
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     let (build, _, _) = registry::running_node(&socket);
     let (trust, _) = registry::resolve_list_trust_key(None)?;
-    let index = registry::IndexLocation::resolve(source.index.as_deref())
+    let index = registry::IndexLocation::resolve(source.index.as_deref())?
         .describe_interface(channel, list.api_version);
     Ok(list
         .apps
