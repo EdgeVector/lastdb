@@ -89,6 +89,9 @@ pub(crate) struct SharedRestoreCommand {
     /// Registered device ID for the explicit credential home.
     #[arg(long)]
     pub device_id: String,
+    /// Absolute owner-only file containing this device's 32-byte signing seed.
+    #[arg(long)]
+    pub device_key_file: PathBuf,
     /// Require the saved credentials to match this compiled cloud environment.
     #[arg(long, value_parser = ["dev", "prod"])]
     pub env: String,
