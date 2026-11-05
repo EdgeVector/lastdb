@@ -1,13 +1,14 @@
 //! Complete record replacements and their nested effects share one native commit.
 use super::super::cas_rules::check_expectation;
 use super::super::key_values::validate_field_value;
+use super::super::portable_journal::schema_fingerprint;
 use super::record_effects::ChangedRecord;
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
-use crate::storage::format::records::RecordAddress;
+use crate::storage::format::records::{PortableEffect, RecordAddress};
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self.load_schema_for_delta(schema_name).await?;
+        require_current_binding(&schema, &mutations)?;
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut addresses = Vec::with_capacity(mutations.len());
@@ -45,20 +47,15 @@ impl MutationManager {
         let stored = read_write_preimages(records, &addresses, &mutations).await?;
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        for ((AuthoredMutation { mutation, stamp }, key), (address, before)) in mutations
+        for ((authored, key), (address, before)) in mutations
             .iter_mut()
             .zip(&keys)
             .zip(addresses.into_iter().zip(stored))
         {
-            check_expectation(mutation, before.as_deref())?;
-            let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
-            let file_write = mutation.file_write.take();
-            changed.push(ChangedRecord { mutation, key });
-            changes.push(RecordChange {
-                key: address,
-                before,
-                after,
-                file_write,
+            changes.push(prepare_record(&schema, authored, address, before)?);
+            changed.push(ChangedRecord {
+                mutation: &authored.mutation,
+                key,
             });
         }
         self.stage_records_with_effects(&schema, &changed, changes)
@@ -96,7 +93,9 @@ async fn read_write_preimages(
         .zip(&stored)
         .enumerate()
         .filter(|(_, (mutation, record))| {
-            mutation.mutation.mutation_type == MutationType::Purge && record.is_none()
+            (mutation.shared_schema.is_some()
+                || mutation.mutation.mutation_type == MutationType::Purge)
+                && record.is_none()
         })
         .map(|(index, _)| index)
         .collect();
@@ -111,6 +110,63 @@ async fn read_write_preimages(
         }
     }
     Ok(stored)
+}
+
+fn require_current_binding(
+    schema: &Schema,
+    mutations: &[AuthoredMutation],
+) -> Result<(), SchemaError> {
+    if let Some(binding) = mutations
+        .first()
+        .and_then(|item| item.shared_schema.as_ref())
+    {
+        if schema_fingerprint(schema)? != binding.local_sha256 {
+            return Err(SchemaError::InvalidData(
+                "shared schema differs from its admitted revision".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn prepare_record(
+    schema: &Schema,
+    authored: &mut AuthoredMutation,
+    address: RecordAddress,
+    before: Option<Arc<StoredRecord>>,
+) -> Result<RecordChange, SchemaError> {
+    let AuthoredMutation {
+        mutation,
+        stamp,
+        shared_schema,
+    } = authored;
+    let portable = if let Some(binding) = shared_schema {
+        if mutation
+            .erase_caller
+            .is_some_and(|caller| caller.starts_with("ttl-sweep-"))
+        {
+            return Err(SchemaError::InvalidData(
+                "shared expiry policy is deferred".into(),
+            ));
+        }
+        if before.as_ref().is_some_and(|record| record.stamp >= *stamp) {
+            return Err(SchemaError::InvalidData(
+                "local write would lose to a newer shared stamp".into(),
+            ));
+        }
+        PortableEffect::SharedAuthor(binding.id.clone())
+    } else {
+        PortableEffect::Local
+    };
+    check_expectation(mutation, before.as_deref())?;
+    let after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
+    Ok(RecordChange {
+        key: address,
+        before,
+        after,
+        file_write: mutation.file_write.take(),
+        portable,
+    })
 }
 
 fn replace_record(

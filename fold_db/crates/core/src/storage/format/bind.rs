@@ -34,7 +34,14 @@ pub(crate) async fn open(
     let feed = store.open_namespace(super::CHANGE_FEED_NAMESPACE).await?;
     let schemas = SchemaFormat::new(schemas, states, Arc::clone(&runtime));
     let field_keys = FieldKeyFormat::new(fields, Arc::clone(&runtime), wrapping_key);
-    let records = RecordFormat::new(main, Arc::clone(&store), Arc::clone(&runtime), content_key);
+    let metadata = Metadata::new(metadata, Arc::clone(&runtime));
+    let records = RecordFormat::new(
+        main,
+        Arc::clone(&store),
+        Arc::clone(&runtime),
+        content_key,
+        metadata.clone(),
+    );
     transaction::scope(Arc::clone(&runtime), async {
         records.require_current_key_format().await?;
         if let Some(key) = content_key.or(wrapping_key) {
@@ -48,7 +55,7 @@ pub(crate) async fn open(
         schemas,
         field_keys,
         records,
-        metadata: Metadata::new(metadata, Arc::clone(&runtime)),
+        metadata,
         feed: ChangeFeed::new(feed, Arc::clone(&runtime)),
         runtime,
     })

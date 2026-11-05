@@ -6,6 +6,7 @@ use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::history::{self, EncodedHistory, HistoryChange};
+use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
 use lastdb_model::field_key_codec::FieldKeyCodec;
@@ -18,6 +19,7 @@ pub(crate) struct RecordFormat {
     pub(super) runtime: Arc<PackRuntime>,
     pub(super) content_key: Option<[u8; 32]>,
     pub(super) file_issuer: FileWriteIssuer,
+    metadata: Metadata,
 }
 
 impl RecordFormat {
@@ -26,6 +28,7 @@ impl RecordFormat {
         file_owner: Arc<dyn NamespacedStore>,
         runtime: Arc<PackRuntime>,
         content_key: Option<[u8; 32]>,
+        metadata: Metadata,
     ) -> Self {
         Self {
             main_store: Arc::new(TypedKvStore::new(main)),
@@ -33,6 +36,7 @@ impl RecordFormat {
             runtime,
             content_key,
             file_issuer: FileWriteIssuer::default(),
+            metadata,
         }
     }
 
@@ -56,6 +60,7 @@ impl RecordFormat {
         resolve_codec: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
+        let entries = super::outgoing::entries(schema, &changes)?;
         let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         // Resolve the prior file version from the actual record preimage.
@@ -71,6 +76,7 @@ impl RecordFormat {
             )
             .await?;
         self.stage_files(files).await?;
+        self.metadata.stage_outgoing(entries).await?;
         self.runtime.stage_written_records(written);
         Ok(())
     }

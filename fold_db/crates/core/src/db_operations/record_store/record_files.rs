@@ -3,10 +3,20 @@
 use super::RecordStore;
 use crate::error::FoldDbError;
 use crate::schema::{types::FileWrite, SchemaError};
+use crate::storage::format::records::RecordAddress;
 use lastdb_model::portable_mutation::Position;
 use lastdb_model::record_value::FileMarker;
 
 impl RecordStore {
+    pub(crate) async fn portable_file(
+        &self,
+        key: &RecordAddress,
+        version: &Position,
+        marker: &FileMarker,
+    ) -> Result<Vec<u8>, SchemaError> {
+        self.format.portable_file(key, version, marker).await
+    }
+
     pub(crate) fn admit_portable_file(
         &self,
         marker: FileMarker,

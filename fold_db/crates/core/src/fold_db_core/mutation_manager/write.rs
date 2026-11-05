@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::schema::types::Mutation;
 use crate::schema::{SchemaError, SchemaState};
+use crate::storage::format::metadata::JournalSchema;
 use lastdb_model::portable_mutation::Stamp;
 
 use super::receipt::{
@@ -28,6 +29,7 @@ mod timing;
 pub(super) struct AuthoredMutation {
     mutation: Mutation,
     stamp: Stamp,
+    shared_schema: Option<JournalSchema>,
 }
 
 impl MutationManager {

@@ -12,6 +12,7 @@ pub(super) struct FileChange {
     pub(super) key: RecordAddress,
     pub(super) after: Arc<StoredRecord>,
     pub(super) write: Option<FileWrite>,
+    pub(super) retain_previous: bool,
 }
 
 /// Compare against the writer's current record, including every marker field.
@@ -22,7 +23,12 @@ pub(super) fn encode(
     issuer: &FileWriteIssuer,
     content_key: Option<&[u8; 32]>,
 ) -> Result<Vec<KvMutation>, SchemaError> {
-    let FileChange { key, after, write } = change;
+    let FileChange {
+        key,
+        after,
+        write,
+        retain_previous,
+    } = change;
     let previous = before.and_then(|record| record.file_version.as_ref());
     let next = after.file_version.as_ref();
     if previous == next {
@@ -61,7 +67,7 @@ pub(super) fn encode(
             row,
         ));
     }
-    if let Some(version) = previous {
+    if let Some(version) = previous.filter(|_| !retain_previous) {
         rows.push(KvMutation::delete(
             record_file_path(key.as_str(), version)?.into_bytes(),
         ));

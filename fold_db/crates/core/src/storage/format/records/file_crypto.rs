@@ -82,6 +82,23 @@ fn file_key(
 }
 
 impl RecordFormat {
+    pub(crate) async fn portable_file(
+        &self,
+        key: &super::RecordAddress,
+        version: &Position,
+        marker: &FileMarker,
+    ) -> Result<Vec<u8>, SchemaError> {
+        let path = record_file_path(key.as_str(), version)?;
+        let row = self
+            .file_store()
+            .await?
+            .get(path.as_bytes())
+            .await?
+            .ok_or_else(|| SchemaError::InvalidData("retained portable file is missing".into()))?;
+        require_row(self.content_key.as_ref(), marker, &row)?;
+        Ok(row)
+    }
+
     fn account_key(&self) -> Result<&[u8; 32], FoldDbError> {
         self.content_key.as_ref().ok_or_else(|| {
             FoldDbError::SecurityError("local file encryption requires the account key".into())

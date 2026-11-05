@@ -57,9 +57,14 @@ impl MutationManager {
             let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
-            let stamps = self.stage_record_stamps(request.imports).await?;
+            let schemas: Vec<_> = mutations
+                .iter()
+                .zip(request.imports)
+                .map(|(mutation, imported)| (mutation.schema_name.as_str(), imported))
+                .collect();
+            let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
             for (mutation, stamp) in mutations.iter().zip(&stamps) {
-                record_revisions.insert(mutation.uuid.clone(), stamp.revision());
+                record_revisions.insert(mutation.uuid.clone(), stamp.stamp.revision());
             }
             let mutation_ids = mutations
                 .iter()
@@ -68,7 +73,11 @@ impl MutationManager {
             let mutations = mutations
                 .into_iter()
                 .zip(stamps)
-                .map(|(mutation, stamp)| AuthoredMutation { mutation, stamp })
+                .map(|(mutation, authored)| AuthoredMutation {
+                    mutation,
+                    stamp: authored.stamp,
+                    shared_schema: authored.shared_schema,
+                })
                 .collect();
             // Revision conditions and record changes share this exclusive gate.
             let group_count = self
@@ -100,29 +109,6 @@ impl MutationManager {
         })
         .await?;
         Ok(committed)
-    }
-
-    async fn stage_record_stamps(
-        &self,
-        imports: Vec<Option<Stamp>>,
-    ) -> Result<Vec<Stamp>, SchemaError> {
-        let local_count = imports.iter().filter(|stamp| stamp.is_none()).count();
-        let mut local = self
-            .db_ops
-            .metadata()
-            .stage_local_stamps(local_count)
-            .await?
-            .into_iter();
-        Ok(imports
-            .into_iter()
-            .map(|imported| {
-                imported.unwrap_or_else(|| {
-                    local
-                        .next()
-                        .expect("one authored stamp for each local mutation")
-                })
-            })
-            .collect())
     }
 
     pub(in crate::fold_db_core::mutation_manager) async fn stage_native_author_clock(

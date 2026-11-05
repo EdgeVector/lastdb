@@ -155,13 +155,21 @@ impl DbOperations {
         &self,
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {
-        let Some(schema) = self.schemas().get_schema(schema_name).await? else {
-            return Ok(None);
-        };
-        if self.schemas().get_schema_state(schema_name).await? != Some(SchemaState::Blocked) {
-            self.store_schema_state(schema_name, &SchemaState::Blocked)
-                .await?;
-        }
-        Ok(Some(schema))
+        crate::storage::disk_pack::transaction::scope(self.native_runtime(), async {
+            if self.metadata().shared_schema_bound(schema_name).await? {
+                return Err(SchemaError::InvalidData(
+                    "a shared schema requires coordinated retirement".into(),
+                ));
+            }
+            let Some(schema) = self.schemas().get_schema(schema_name).await? else {
+                return Ok(None);
+            };
+            if self.schemas().get_schema_state(schema_name).await? != Some(SchemaState::Blocked) {
+                self.store_schema_state(schema_name, &SchemaState::Blocked)
+                    .await?;
+            }
+            Ok(Some(schema))
+        })
+        .await
     }
 }
