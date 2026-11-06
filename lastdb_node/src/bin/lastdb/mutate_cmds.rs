@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordInput {
+    mutation: serde_json::Value,
+    file: InputFile,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputFile {
+    source: PathBuf,
+    name: Option<String>,
+    media_type: Option<String>,
+}
+
 pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
     if durable {
         durable_mutation_client_timeout()
@@ -45,10 +60,16 @@ pub(super) fn mutate_command(
     };
     let mut body: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))?;
-    if let Some(object) = body.as_object_mut() {
-        if durable {
-            object.insert("durability".into(), serde_json::json!("durable"));
-        }
+    let file = if body.get("mutation").is_some() {
+        let input: RecordInput = serde_json::from_value(body)
+            .map_err(|error| format!("invalid record input: {error}"))?;
+        body = input.mutation;
+        Some(input.file)
+    } else {
+        None
+    };
+    if let Some(object) = body.as_object_mut().filter(|_| durable) {
+        object.insert("durability".into(), serde_json::json!("durable"));
     }
     lastdb_host::wire::parse_mutation_body(
         serde_json::to_vec(&body)
@@ -57,6 +78,18 @@ pub(super) fn mutate_command(
     )
     .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
+    if let Some(file) = file {
+        let source = request_file
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(file.source);
+        let metadata = serde_json::json!({
+            "mutation": body, "name": file.name, "media_type": file.media_type,
+        });
+        let receipt = put_record_file(&socket, &metadata, Some(&source))?;
+        println!("{receipt}");
+        return Ok(());
+    }
     let raw = post_json_with_timeout(
         &socket,
         "/api/mutation",

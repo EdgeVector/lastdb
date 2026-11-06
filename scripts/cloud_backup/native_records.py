@@ -1,7 +1,10 @@
 """Explicit native record requests for the owned cloud-recovery homes."""
 
 import copy
+import hashlib
 import os
+from pathlib import Path
+import tempfile
 
 from support import canonical_uuid, require, save_json, sync_directory
 
@@ -68,17 +71,43 @@ def delete(schema, row):
 
 
 def put_file(node, schema, record, payload, *, target=None):
-    row = read_records(node, schema, [target if target is not None else key(record["id"])])[0]
+    target = target if target is not None else key(record["id"])
+    row = read_records(node, schema, [target])[0]
     require(row["fields"] == record, "file_write_complete_preimage")
     request = replace(schema, row, record)
     # The file executor issues the replacement marker from the supplied bytes.
     request.pop("file", None)
     path = payload.with_name(payload.name + ".record.json")
-    save_json(path, request)
-    reply = node.programs.command(node.home, ["db", "put-blob", "--request-file", str(path),
-                                             "--file", str(payload)])
+    hydrate = "--hydrate" in node.programs.help("get")
+    if hydrate:
+        save_json(path, {"mutation": request, "file": {"source": payload.name}})
+        arguments = ["mutate", "--request-file", str(path)]
+    else:
+        save_json(path, request)
+        arguments = ["db", "put-blob", "--request-file", str(path), "--file", str(payload)]
+    reply = node.programs.command(node.home, arguments)
     require(isinstance(reply.get("file"), dict), "native_file_write_receipt")
     canonical_uuid(reply.get("mutation_id"))
+    if hydrate:
+        verify_hydrated_file(node, schema, target, record, payload, reply["file"]["sha256"])
     os.unlink(path)
     sync_directory(path.parent)
     return reply
+
+
+def verify_hydrated_file(node, schema, target, record, payload, expected_digest):
+    with tempfile.TemporaryDirectory(dir=payload.parent, prefix="hydrated-") as folder:
+        output = Path(folder) / "file"
+        arguments = ["get", schema, "--key-hash", target["hash"],
+                     "--hydrate", str(output), "--json"]
+        if target["range"] is not None:
+            arguments += ["--key-range", target["range"]]
+        hydrated = node.programs.command(node.home, arguments)["results"]
+        require(len(hydrated) == 1 and hydrated[0]["key"] == target
+                and hydrated[0]["fields"] == record
+                and hydrated[0]["hydrated_file"] == str(output)
+                and hydrated[0]["metadata"]["file"]["sha256"] == expected_digest,
+                "hydrated_record_and_file_identity")
+        with output.open("rb") as stream:
+            require(hashlib.file_digest(stream, "sha256").hexdigest() == expected_digest,
+                    "hydrated_file_digest")

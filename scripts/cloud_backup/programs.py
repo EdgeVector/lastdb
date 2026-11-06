@@ -209,6 +209,11 @@ class Programs:
         for name, identity in self.identities.items():
             require(executable(self.directory / name) == identity, "binary_pair_changed")
 
+    def help(self, *arguments):
+        self.verify()
+        command = [str(self.directory / "lastdb"), *arguments, "--help"]
+        return execute(command, self.environment, timeout=20).decode("utf-8")
+
     def command(self, home, arguments, input_bytes=None, extra=None, timeout=120):
         self.verify()
         environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")

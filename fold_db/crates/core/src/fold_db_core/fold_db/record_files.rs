@@ -8,6 +8,7 @@
 
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
+use crate::schema::SchemaError;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use std::sync::Arc;
 
@@ -51,11 +52,44 @@ impl FoldDB {
         schema_name: &str,
         key: &KeyValue,
     ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
+        self.read_record_file_checked(schema_name, key, None).await
+    }
+
+    /// Read the file only if the exact record revision is still available.
+    /// A promised file with missing bytes is an error.
+    pub async fn read_record_file_at_revision(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+        revision: &str,
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
+        self.read_record_file_checked(schema_name, key, Some(revision))
+            .await
+    }
+
+    async fn read_record_file_checked(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+        revision: Option<&str>,
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
         self.db_ops()
             .read_scope()
             .await?
             .run_result(async {
                 let (record_key, record) = self.read_file_record(schema_name, key).await?;
+                if let Some(expected) = revision {
+                    let actual = record.as_ref().map(|record| record.stamp.revision());
+                    if actual.as_deref() != Some(expected) {
+                        return Err(SchemaError::CasConflict {
+                            schema: schema_name.to_owned(),
+                            key: key.to_storage_key(),
+                            expected: expected.to_owned(),
+                            actual,
+                        }
+                        .into());
+                    }
+                }
                 let Some((marker, version)) = record
                     .as_ref()
                     .and_then(|record| record.file.as_ref().zip(record.file_version.as_ref()))
@@ -67,6 +101,11 @@ impl FoldDB {
                     .records()
                     .open_record_file(&record_key, version, marker)
                     .await?;
+                if revision.is_some() && bytes.is_none() {
+                    return Err(FoldDbError::Database(
+                        "record file bytes are missing".into(),
+                    ));
+                }
                 Ok(bytes.map(|bytes| (marker.clone(), bytes)))
             })
             .await

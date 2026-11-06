@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 /// their order, the separators, or the empty-value handling in
 /// [`compute_identity_hash_parts`]. A change without a bump is exactly the
 /// failure this constant exists to prevent.
-pub const IDENTITY_HASH_ALGO_VERSION: u32 = 3;
+pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
+/// Optional-file record schemas retain their existing identities and version.
+const RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION: u32 = 3;
 /// Published field-derived descriptors retain their existing identities/version.
 const FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION: u32 = 2;
 
@@ -211,8 +213,15 @@ impl DeclarativeSchemaDefinition {
             hash.update(b"lastdb:record-schema:v1\0");
             hash.update(base.as_bytes());
             hash.update(serde_json::to_vec(keys).expect("record key definitions serialize"));
+            if self.file_required {
+                hash.update(b"\0file-required");
+            }
             self.identity_hash = Some(format!("{:x}", hash.finalize()));
-            self.identity_hash_algo_version = Some(IDENTITY_HASH_ALGO_VERSION);
+            self.identity_hash_algo_version = Some(if self.file_required {
+                IDENTITY_HASH_ALGO_VERSION
+            } else {
+                RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION
+            });
         } else {
             self.identity_hash = Some(base);
             self.identity_hash_algo_version = Some(FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION);

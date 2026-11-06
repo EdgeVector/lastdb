@@ -83,6 +83,9 @@ pub struct DeclarativeSchemaDefinition {
     /// Complete external record addresses, independent of payload fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_keys: Option<crate::record_keys::RecordKeys>,
+    /// Every live record must own a file.
+    #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
+    pub file_required: bool,
     /// Field names - plain data fields without transformations
     pub fields: Option<Vec<String>>,
     /// Transform fields - computed fields with expressions (optional, only for transform schemas)
