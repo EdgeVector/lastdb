@@ -24,15 +24,9 @@ on:
       resource_only:
         type: boolean
         default: false
-      disk_excess:
-        type: boolean
-        default: false
       search_queue:
         type: boolean
         default: true
-      ttl_active:
-        type: boolean
-        default: false
       whole_record_reads:
         type: boolean
         default: false
@@ -223,21 +217,6 @@ jobs:
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
 
-      - name: Attribute v2 disk excess in separate generated homes
-        if: matrix.lane == 'disk' && inputs.disk_excess
-        env:
-          CANDIDATE_SHA: ${{ inputs.candidate }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          DRIVER_SHA: ${{ inputs.driver }}
-        run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/disk_excess.py \
-              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
-              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
-              --baseline-revision "$BASELINE_SHA" \
-              --candidate-revision "$CANDIDATE_SHA" \
-              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/disk-excess"
-
       - name: Measure default-off Search and a full queue without a consumer
         if: matrix.lane == 'search' && inputs.search_queue
         run: |
@@ -263,21 +242,6 @@ jobs:
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
-
-      - name: Measure writes with active TTL and full compaction
-        if: matrix.lane == 'speed' && inputs.ttl_active
-        env:
-          CANDIDATE_SHA: ${{ inputs.candidate }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          DRIVER_SHA: ${{ inputs.driver }}
-        run: |
-          timeout --signal=TERM --kill-after=120s 90m \
-            python3 driver/scripts/benchmarks/ttl_latency.py \
-              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
-              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
-              --baseline-revision "$BASELINE_SHA" \
-              --candidate-revision "$CANDIDATE_SHA" \
-              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/ttl-active"
 
       - name: Record remaining runner space
         if: always()
