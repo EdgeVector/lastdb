@@ -101,8 +101,12 @@ pub async fn prepare<'a, S: SharedRecoverySource>(
     let destination = super::fresh_destination(destination)?;
     let admission = NativeCloudWorkGuard::acquire()
         .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
-    let (view, manifest) = source.select(database_id).await?;
-    view.validate_for(&manifest, now_ms())?;
+    let (view, manifest) = source
+        .select(database_id)
+        .await
+        .map_err(|error| error.shared_stage("selection"))?;
+    view.validate_for(&manifest, now_ms())
+        .map_err(|error| RestoreError::from(error).shared_stage("selection"))?;
     if &manifest.database_id != database_id || manifest.disk_format != HOME_FORMAT {
         return Err(RestoreError::Invalid(
             "shared snapshot scope or disk format",
@@ -116,13 +120,21 @@ pub async fn prepare<'a, S: SharedRecoverySource>(
         &snapshot_parent(&view),
         MAX_MANIFEST_BYTES,
     )
-    .await?;
-    let contents = SnapshotContents::open(&sealed, &manifest, content_key)?;
-    let checkpoint = contents.cut(&view)?;
+    .await
+    .map_err(|error| error.shared_stage("manifest-read"))?;
+    let contents = SnapshotContents::open(&sealed, &manifest, content_key)
+        .map_err(|error| error.shared_stage("manifest-verify"))?;
+    let checkpoint = contents
+        .cut(&view)
+        .map_err(|error| error.shared_stage("manifest-verify"))?;
     let mut session = SharedRestore::begin(&destination, checkpoint.clone())?;
     let prepared = async {
-        install_checkpoint(source, &view, &contents, content_key, session.stage()).await?;
-        let objects = load_tails(source, &view, &manifest, content_key, &mut session).await?;
+        install_checkpoint(source, &view, &contents, content_key, session.stage())
+            .await
+            .map_err(|error| error.shared_stage("checkpoint-install"))?;
+        let objects = load_tails(source, &view, &manifest, content_key, &mut session)
+            .await
+            .map_err(|error| error.shared_stage("tail-read"))?;
         require_live(&view)?;
         Ok(objects)
     }

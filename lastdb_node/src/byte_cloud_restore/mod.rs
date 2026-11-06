@@ -34,6 +34,10 @@ pub enum RestoreError {
     Io(std::io::Error),
     Protocol(cloud_backup_protocol::ProtocolError),
     Source(&'static str),
+    SharedStage {
+        stage: &'static str,
+        cause: Box<Self>,
+    },
     SharedWorkspace {
         path: std::path::PathBuf,
         cause: Box<Self>,
@@ -56,6 +60,13 @@ impl From<cloud_backup_protocol::ProtocolError> for RestoreError {
     }
 }
 impl RestoreError {
+    pub(crate) fn shared_stage(self, stage: &'static str) -> Self {
+        Self::SharedStage {
+            stage,
+            cause: Box::new(self),
+        }
+    }
+
     pub(crate) fn native_proof(error: fold_db::storage::StorageError) -> Self {
         let (stage, cause) =
             error.native_proof_context(fold_db::storage::error::NativeProofStage::Restore);
@@ -71,6 +82,7 @@ impl std::fmt::Display for RestoreError {
             Self::Io(_) => f.write_str("restore disk operation failed"),
             Self::Protocol(_) => f.write_str("restore protocol validation failed"),
             Self::Source(field) => write!(f, "restore source unavailable: {field}"),
+            Self::SharedStage { stage, cause } => write!(f, "shared restore {stage}: {cause}"),
             Self::SharedWorkspace { path, cause } => {
                 write!(
                     f,

@@ -8,6 +8,7 @@ name: Cloud backup recovery
 # A baseline run also points the two protected inputs at the new baseline.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
+# Shared-readback reuses only a completed operation's exact published cut.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.
 on:
@@ -39,10 +40,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; baseline = approved format-specific baseline; writer-check = read-only credential metadata; shared-recovery = preadmitted shared DEV operation."
+        description: "recovery = full operation; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new shared cut; shared-readback = verify a retained cut."
         type: choice
-        options: [recovery, baseline, writer-check, shared-recovery]
+        options: [recovery, baseline, writer-check, shared-recovery, shared-readback]
         default: recovery
+      proof_run:
+        description: "Earlier accepted-main shared recovery run ID, for shared-readback only."
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -72,7 +77,7 @@ jobs:
   ownership-readback:
     name: Read real CI ownership records
     needs: recipe-syntax
-    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'shared-recovery'
+    if: github.event_name != 'workflow_dispatch' || (inputs.mode != 'shared-recovery' && inputs.mode != 'shared-readback')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -308,7 +313,7 @@ jobs:
   recover-shared-dev:
     name: Shared DEV snapshot and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared-recovery'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'shared-recovery' || inputs.mode == 'shared-readback')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -337,17 +342,56 @@ jobs:
             -C "$CLIENT_BIN_DIR" lastdb lastdbd
           sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
           printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
-      - name: Capture one checkpoint, upload two tails, publish the cut and restore
+      - name: Bind the earlier accepted-main operation
+        if: inputs.mode == 'shared-readback'
+        id: prior
         env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_RUN: ${{ inputs.proof_run }}
+        run: |
+          set -euo pipefail
+          [[ "$PRIOR_RUN" =~ ^[1-9][0-9]{0,19}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRIOR_RUN" > "$RUNNER_TEMP/cloud-shared-prior.json"
+          prior_source="$(jq -er --arg run "$PRIOR_RUN" '
+            select((.id | tostring) == $run and .head_branch == "main" and .event == "workflow_dispatch"
+              and .status == "completed" and .run_attempt == 1
+              and .path == ".github/workflows/cloud-backup-recovery.yml")
+            | .head_sha | select(test("^[0-9a-f]{40}$"))
+          ' "$RUNNER_TEMP/cloud-shared-prior.json")"
+          printf 'source=%s\n' "$prior_source" >> "$GITHUB_OUTPUT"
+      - name: Download the exact retained shared recovery summary
+        if: inputs.mode == 'shared-readback'
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.proof_run }}
+          name: cloud-shared-recovery-${{ inputs.proof_run }}-1
+          path: ${{ runner.temp }}/cloud-shared-prior
+          digest-mismatch: error
+      - name: Run the selected shared recovery operation
+        env:
+          RUN_MODE: ${{ inputs.mode }}
+          PRIOR_RUN: ${{ inputs.proof_run }}
+          PRIOR_SOURCE: ${{ steps.prior.outputs.source }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_SHARED_SCOPE }}
           LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS }}
         run: |
+          set -euo pipefail
+          args=()
+          if [[ "$RUN_MODE" == shared-readback ]]; then
+            test -n "$PRIOR_SOURCE"
+            prior="$RUNNER_TEMP/cloud-shared-prior/summary.json"
+            chmod 600 "$prior"
+            args+=(--prior-summary "$prior" --prior-run "$PRIOR_RUN" --prior-source "$PRIOR_SOURCE")
+          else
+            test -z "$PRIOR_RUN"
+          fi
           python3 scripts/cloud_backup/shared_recovery.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
-            --output "$RUNNER_TEMP/cloud-shared-recovery"
+            --output "$RUNNER_TEMP/cloud-shared-recovery" "${args[@]}"
       - name: Retain the value-free shared recovery summary
         if: always()
         id: shared-receipt

@@ -27,7 +27,26 @@ RESTORE_REFUSALS = {
     b"restore source unavailable: byte transport": "byte_transport",
     b"restore source unavailable: object grant": "object_grant",
     b"restore source unavailable: shared recovery device signature refused": "shared_device_signature_refused",
+    b"restore source unavailable: authenticated shared recovery transport": "shared_recovery_transport",
+    b"restore source unavailable: captured shared log continuation": "shared_log_continuation",
+    b"restore source unavailable: shared recovery hold expired": "shared_hold_expired",
+    b"invalid restore selected shared snapshot ID": "shared_snapshot_selection",
+    b"invalid restore snapshot manifest JSON": "shared_manifest_json",
+    b"invalid restore noncanonical snapshot manifest": "shared_manifest_order",
+    b"invalid restore snapshot manifest scope": "shared_manifest_scope",
+    b"invalid restore shared object authentication": "shared_object_authentication",
+    b"invalid restore verified native checkpoint inventory": "shared_native_inventory",
+    b"invalid restore unlisted native checkpoint file": "shared_unlisted_native_file",
+    b"invalid restore staged native writer open": "shared_writer_open",
+    b"invalid restore staged replay checkpoint": "shared_checkpoint_progress",
+    b"invalid restore checkpoint schema binding": "shared_checkpoint_schema",
+    b"invalid restore shared mutation log": "shared_mutation_log",
+    b"invalid restore shared object digest": "shared_object_digest",
+    b"invalid restore commit native replay candidates": "shared_replay_commit",
+    b"invalid restore seal portable restore progress": "shared_replay_progress",
 }
+SHARED_STAGES = {name.encode(): name for name in ("selection", "manifest-read", "manifest-verify",
+    "checkpoint-install", "tail-read", "writer-open", "replay-activate")}
 PROOF_STAGES = {name.encode(): name for name in (
     "native_reader", "admission", "validation", "restore", "profile", "physical_root",
     "account", "schemas", "directories", "native_cas", "records", "final_binding")}
@@ -57,13 +76,18 @@ def cli_refusal(stderr, exit_code):
     if len(errors) != 1:
         return result
     message = errors[0]
-    if message.startswith(b"V2 restore retains session "):
-        # offline.rs inserts the private session path before this separator.
+    if message.startswith((b"V2 restore retains session ", b"shared restore retained workspace ")):
+        # The CLI inserts its private workspace path before this separator.
         _path, separator, message = message.partition(b": ")
         if not separator:
             return result
+    if message.startswith(b"shared restore "):
+        stage, separator, message = message[len(b"shared restore "):].partition(b": ")
+        if not separator or stage not in SHARED_STAGES:
+            return result
+        result["shared_stage"] = SHARED_STAGES[stage]
     if message in RESTORE_REFUSALS:
-        return {"exit_code": exit_code, "reason": RESTORE_REFUSALS[message]}
+        return {**result, "reason": RESTORE_REFUSALS[message]}
     prefix = b"native restore proof "
     if not message.startswith(prefix):
         return result
@@ -73,7 +97,7 @@ def cli_refusal(stderr, exit_code):
     category = PROOF_CAUSES.get(cause, "unrecognized")
     if re.fullmatch(rb"io kind=[A-Za-z]+ os_code=(?:None|Some\(-?[0-9]{1,10}\))", cause):
         category = "io"
-    return {"exit_code": exit_code, "reason": "native_proof",
+    return {**result, "reason": "native_proof",
             "stage": PROOF_STAGES[stage], "cause": category}
 
 

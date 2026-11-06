@@ -64,7 +64,7 @@ async fn replay_and_activate<S: SharedRecoverySource>(
         Ok(writer) => writer,
         Err(error) => {
             session.discard_unsealed()?;
-            return Err(error);
+            return Err(error.shared_stage("writer-open"));
         }
     };
     let path = session.workspace().to_path_buf();
@@ -73,7 +73,7 @@ async fn replay_and_activate<S: SharedRecoverySource>(
         .await
         .map_err(|cause| RestoreError::SharedWorkspace {
             path,
-            cause: Box::new(cause),
+            cause: Box::new(cause.shared_stage("replay-activate")),
         })
 }
 

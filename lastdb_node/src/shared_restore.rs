@@ -14,7 +14,7 @@ mod owner;
 pub mod recovery;
 pub use native::restore_from_source;
 pub(crate) use native::{resolve_schemas, schema_id};
-pub use owner::restore_owner;
+pub use owner::{restore_owner, OwnerRestoreSelection};
 mod spool;
 use spool::CandidateSpool;
 
