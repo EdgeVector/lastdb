@@ -17,11 +17,9 @@
 //! `list` and `info` read the signed public index, not this module.
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
 use app_identity_crypto::{
@@ -33,12 +31,11 @@ use base64::Engine as _;
 use schema_service_client::SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT;
 use schema_service_core::app_identity::validate_app_version;
 use schema_service_core::snapshot::{AppArtifact, AppMetadata};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod devkey;
 mod http;
-mod install;
 mod manifest;
 mod publish;
 mod release;
@@ -46,7 +43,6 @@ mod schema_check;
 
 pub use devkey::*;
 use http::*;
-pub use install::*;
 pub use manifest::*;
 pub use publish::*;
 pub use schema_check::*;
