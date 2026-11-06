@@ -2,7 +2,7 @@
 
 use super::{parse_json_response, socket_client, SnapshotArgs};
 use cloud_backup_protocol::Id;
-use lastdb_node::shared_snapshot::SharedSnapshotRequest;
+use lastdb_node::exec::SharedSnapshotRequest;
 use std::path::Path;
 
 pub(super) fn run(home: Option<&Path>, args: SnapshotArgs) -> Result<(), String> {

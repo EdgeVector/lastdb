@@ -54,7 +54,7 @@ pub async fn prepare_native(
     .await
 }
 
-pub(in crate::shared_snapshot) async fn prepare_from_source(
+pub(crate) async fn prepare_from_source(
     source: PortableCheckpoint,
     workspace: &Path,
     snapshot_id: Id,

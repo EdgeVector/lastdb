@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 mod build;
 mod publish;
-pub(super) use publish::prepare_from_source;
+pub(crate) use publish::prepare_from_source;
 pub use publish::{prepare_native, publish_native, resume_native, NativePublishRequest};
 
 const DATA: &str = "filtered-native";
@@ -26,7 +26,7 @@ const CUT_BYTES: u64 = crate::shared_restore::recovery::MAX_MANIFEST_BYTES
     + cloud_backup_protocol::limits::REQUEST_JSON_MAX_BYTES;
 
 /// Remove an owned partial export that never reached a saved cut or upload.
-pub(super) fn saved_cut(root: &Path) -> Result<Option<Id>> {
+pub(crate) fn saved_cut(root: &Path) -> Result<Option<Id>> {
     if !root.try_exists()? {
         return Ok(None);
     }

@@ -2,16 +2,16 @@
 
 mod workspace;
 
-use super::filtered::{prepare_from_source, resume_native, saved_cut};
-use super::{publish, SignedSnapshotTransport, SnapshotOutcome};
 use crate::byte_cloud_restore::{local, RecoveryKeys, RestoreError, Result};
 use crate::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use crate::host::Host;
+use crate::shared_snapshot::filtered::{prepare_from_source, resume_native, saved_cut};
+use crate::shared_snapshot::{publish, SignedSnapshotTransport, SnapshotOutcome};
 use crate::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, AuthClient,
 };
-use cloud_backup_protocol::{DecimalU64, Id};
+use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::MutationManager;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, schema_service_url_for, Environment};
@@ -46,7 +46,7 @@ pub(crate) struct SharedSnapshotResult {
 
 pub(crate) async fn run_shared_snapshot(
     host: &Host,
-    request: SharedSnapshotRequest,
+    request: &SharedSnapshotRequest,
     budget: Duration,
 ) -> Result<SharedSnapshotResult> {
     crate::offline_home::refuse_primary(&host.home)
@@ -60,7 +60,6 @@ pub(crate) async fn run_shared_snapshot(
         .await
         .map_err(native_error)?;
     let home = host.db.db_ops().native_runtime().native_home_id();
-    let mut state = Workspace::open(&request.workspace, home, &request.device_id, &stream)?;
     let keys = RecoveryKeys::from_seed(Zeroizing::new(host.keypair.secret_key_bytes()))?;
     let auth = dev_auth(&host.home)?;
     let device_signer = Arc::new(device_signer(&request.device_key_file)?);
@@ -70,6 +69,8 @@ pub(crate) async fn run_shared_snapshot(
         request.device_id.clone(),
         Arc::clone(&device_signer),
     )?;
+    transport.current_snapshot(&stream.database_id).await?;
+    let mut state = Workspace::open(&request.workspace, home, &request.device_id, &stream)?;
     let logs = SharedLogClient::from_auth(auth.clone()).map_err(|_| transport_error())?;
     let objects =
         SharedObjectClient::from_auth(auth, keys.account_id().clone(), request.device_id.clone())
@@ -89,7 +90,7 @@ pub(crate) async fn run_shared_snapshot(
         objects: ServiceObjects {
             client: &objects,
             device_signer: &device_signer,
-            deadline_ms: DecimalU64::new(deadline),
+            deadline_ms: deadline,
         },
     };
 

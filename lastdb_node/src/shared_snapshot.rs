@@ -18,11 +18,8 @@ use std::time::Duration;
 
 pub mod filtered;
 mod owner;
-mod sequence;
 mod state;
 pub use owner::SignedSnapshotTransport;
-pub(crate) use sequence::run_shared_snapshot;
-pub use sequence::SharedSnapshotRequest;
 use state::{Intent, IntentStore, Phase};
 
 #[derive(PartialEq, Eq, serde::Serialize, serde::Deserialize)]

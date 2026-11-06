@@ -100,12 +100,14 @@ mod file_blob_put;
 mod logical_sync_routes;
 mod query_batch;
 mod schema_declare;
+mod shared_snapshot_sequence;
 use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_put::*;
 use self::query_batch::*;
 use self::schema_declare::*;
 pub use self::schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
+pub use self::shared_snapshot_sequence::SharedSnapshotRequest;
 
 /// Heap future for one data route.
 ///
