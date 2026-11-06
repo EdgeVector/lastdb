@@ -81,7 +81,10 @@ pub async fn upload_next(
             }
             frozen
         }
-        None if page.entries.is_empty() => return Ok(UploadOutcome::Idle),
+        None if page.entries.is_empty() => {
+            native.reclaim_legacy_shared_retention().await?;
+            return Ok(UploadOutcome::Idle);
+        }
         None => {
             let frozen = prepare(
                 native,

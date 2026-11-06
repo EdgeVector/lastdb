@@ -13,6 +13,8 @@ use schema_types::PortableSchemaDefinition;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+mod retention;
+
 impl MutationManager {
     /// Bind a new, explicitly registered writer to exact local schemas.
     pub async fn bind_portable_journal(
@@ -132,13 +134,36 @@ impl MutationManager {
         batch: &LogBatch,
         receipt: &BatchReceipt,
     ) -> Result<(), SchemaError> {
-        transaction::request_scope(
-            self.db_ops.native_runtime(),
-            self.db_ops
+        transaction::request_scope(self.db_ops.native_runtime(), async {
+            let retired = self
+                .db_ops
                 .metadata()
-                .stage_outgoing_receipt(batch, receipt),
-        )
+                .stage_outgoing_receipt(batch, receipt)
+                .await?;
+            self.release_uploaded_files(&retired).await
+        })
         .await
+    }
+
+    /// Advance the one-time cleanup of homes written before retention tracking.
+    pub async fn reclaim_legacy_shared_retention(&self) -> Result<(), SchemaError> {
+        let records = self.db_ops.records();
+        if records.file_retention_complete().await? {
+            return Ok(());
+        }
+        // Each step releases the native write gate and saves its continuation.
+        // A large old home can finish on subsequent shared sync invocations.
+        for _ in 0..64 {
+            let more = transaction::background_scope(
+                self.db_ops.native_runtime(),
+                records.stage_file_retention_step(),
+            )
+            .await?;
+            if !more {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 

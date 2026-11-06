@@ -8,7 +8,9 @@ use crate::storage::format::metadata::{
 pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 use cloud_backup_protocol::shared::peer::PeerHeads;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
-use lastdb_model::portable_mutation::{SchemaIdentity, Stamp, StreamId, StreamProgress};
+use lastdb_model::portable_mutation::{
+    MutationEntry, SchemaIdentity, Stamp, StreamId, StreamProgress,
+};
 use lastdb_model::portable_replay::LogRangeId;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -161,7 +163,7 @@ impl MetadataStore {
         &self,
         batch: &LogBatch,
         receipt: &BatchReceipt,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Vec<MutationEntry>, SchemaError> {
         Ok(self.format.stage_outgoing_receipt(batch, receipt).await?)
     }
 

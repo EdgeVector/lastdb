@@ -18,6 +18,7 @@ mod cleanup;
 mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;
+mod retention;
 pub(crate) use inbox::InboxWindow;
 pub use inbox::PortablePeerProgress;
 pub use outgoing::OutgoingPortablePage;
@@ -41,6 +42,8 @@ struct SharedAuthor {
     schemas: BTreeMap<String, JournalSchema>,
     progress: StreamProgress,
     uploaded_head: Option<LogHead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    uploaded_through_ms: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]

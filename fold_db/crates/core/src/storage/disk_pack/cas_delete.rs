@@ -176,3 +176,29 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
 fn invalid(message: &str) -> StorageError {
     StorageError::InvalidOperation(message.into())
 }
+
+impl PackRuntime {
+    /// The format has already released the exact path's references. Stage a
+    /// tombstone without loading the retired payload into the write request.
+    pub(in crate::storage) fn stage_record_file_deletes(
+        self: &Arc<Self>,
+        keys: Vec<Vec<u8>>,
+    ) -> StorageResult<()> {
+        let pending = transaction::PendingBatch::current(self)
+            .ok_or_else(|| invalid("file retirement requires a native write request"))?;
+        let operations = keys
+            .into_iter()
+            .map(|key| {
+                if !key.starts_with(crate::storage::format::RECORD_FILE_PREFIX.as_bytes()) {
+                    return Err(invalid("file retirement requires a record file key"));
+                }
+                Ok(HomeMutation {
+                    collection: CAS_COLLECTION.into(),
+                    key: super::native_routing::encode(&key),
+                    body: None,
+                })
+            })
+            .collect::<StorageResult<_>>()?;
+        pending.stage(operations)
+    }
+}

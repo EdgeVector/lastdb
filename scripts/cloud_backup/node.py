@@ -29,7 +29,7 @@ class Connection(http.client.HTTPConnection):
 
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
-                 account=ACCOUNT, *, isolated_copy=False):
+                 account=ACCOUNT, *, isolated_copy=False, storage_inventory=False):
         self.home, self.programs = home, programs
         require(isinstance(account, str) and len(account) == 32
                 and all(char in "0123456789abcdef" for char in account), "owned_account")
@@ -39,6 +39,7 @@ class OwnedNode:
         self.clean_stops, self.forced = 0, False
         self.backup_source = backup_source
         self.isolated_copy = backup_source or isolated_copy
+        self.storage_inventory = storage_inventory
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
         require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
         self.ci_stream_id = None if ci_stream_id is None else canonical_uuid(ci_stream_id)
@@ -89,6 +90,8 @@ class OwnedNode:
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
             environment.pop(name, None)
         environment.update(self.ci_uploads())
+        if self.storage_inventory:
+            environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)], env=environment,
             stdin=subprocess.DEVNULL,

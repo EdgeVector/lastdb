@@ -14,7 +14,7 @@ use crate::schema::SchemaError;
 use crate::storage::format::history::HistoryChange;
 use crate::storage::format::records::{self as format, RecordAddress};
 use futures::FutureExt;
-use lastdb_model::portable_mutation::Stamp;
+use lastdb_model::portable_mutation::{Position, Stamp};
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
@@ -25,6 +25,24 @@ const READ_CHUNK: usize = 10_000;
 pub(crate) use format::RecordChange;
 
 impl RecordStore {
+    pub(crate) async fn stage_completed_file_references(
+        &self,
+        files: Vec<(RecordAddress, Position)>,
+        through: u64,
+    ) -> Result<(), SchemaError> {
+        self.format
+            .stage_completed_file_references(files, through)
+            .await
+    }
+
+    pub(crate) async fn file_retention_complete(&self) -> Result<bool, SchemaError> {
+        self.format.file_retention_complete().await
+    }
+
+    pub(crate) async fn stage_file_retention_step(&self) -> Result<bool, SchemaError> {
+        self.format.stage_file_retention_step().await
+    }
+
     pub(crate) async fn stage_delete_reclamation(
         &self,
         cutoff_ms: u64,

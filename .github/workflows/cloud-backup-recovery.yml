@@ -42,9 +42,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-readback = verify a retained two-writer cut."
+        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-retention = shared disk retention and restore; shared-readback = verify a retained two-writer cut."
         type: choice
-        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-readback]
+        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-retention, shared-readback]
         default: recovery
       proof_run:
         description: "Earlier accepted-main shared recovery run ID, for shared-readback only."
@@ -387,9 +387,10 @@ jobs:
           READBACK_READER: ${{ inputs.readback_reader }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars[inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_SCOPE' || 'LASTDB_CLOUD_DEV_SHARED_SCOPE'] }}
-          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ inputs.mode != 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars[inputs.mode == 'shared-retention' && 'LASTDB_CLOUD_DEV_RETENTION_SCOPE' || inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_SCOPE' || 'LASTDB_CLOUD_DEV_SHARED_SCOPE'] }}
+          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ inputs.mode != 'shared-multiwriter' && inputs.mode != 'shared-retention' && secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS || '' }}
           LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS: ${{ inputs.mode == 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_RETENTION_DEVICE_SEEDS: ${{ inputs.mode == 'shared-retention' && secrets.LASTDB_CLOUD_DEV_RETENTION_DEVICE_SEEDS || '' }}
         run: |
           set -euo pipefail
           args=()
@@ -404,9 +405,12 @@ jobs:
             if [[ "$RUN_MODE" == shared-multiwriter ]]; then
               args+=(--multiwriter)
               export LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS="$LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS"
+            elif [[ "$RUN_MODE" == shared-retention ]]; then
+              args+=(--multiwriter --retention)
+              export LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS="$LASTDB_CLOUD_DEV_RETENTION_DEVICE_SEEDS"
             fi
           fi
-          unset LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS
+          unset LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS LASTDB_CLOUD_DEV_RETENTION_DEVICE_SEEDS
           python3 scripts/cloud_backup/shared_recovery.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
