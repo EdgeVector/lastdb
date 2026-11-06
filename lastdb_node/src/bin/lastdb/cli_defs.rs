@@ -78,8 +78,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AdminCommand,
     },
-    /// Publish a filtered shared DEV snapshot and upload the writer's queued changes.
-    #[command(hide = true)]
+    /// Upload a frozen DEV database snapshot, then upload the writer's queued changes.
     Snapshot(SnapshotArgs),
     /// Field history policy, retained values, and recovery.
     #[command(hide = true)]

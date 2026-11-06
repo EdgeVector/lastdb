@@ -25,6 +25,10 @@ impl PreparedCommit {
         &self.space
     }
 
+    pub(super) fn operations(&self) -> &[HomeMutation] {
+        &self.operations
+    }
+
     pub(super) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
         cas_delete::key_bytes(&self.operations)
     }

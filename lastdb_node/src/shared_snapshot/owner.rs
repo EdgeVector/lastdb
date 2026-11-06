@@ -10,6 +10,7 @@ use cloud_backup_protocol::shared::objects::{
     SharedObjectRequest, SharedObjectRole, SnapshotHeadRequest, SnapshotLogEndsRequest,
 };
 use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
+use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use std::io::Read;
@@ -70,6 +71,7 @@ impl SnapshotTransport for SignedSnapshotTransport {
         database: &Id,
         snapshot: &Id,
         object: &SealedObject,
+        destination: Destination,
         bytes: Box<dyn Read + Send>,
         deadline_ms: u64,
     ) -> Result<SealedObject> {
@@ -78,8 +80,9 @@ impl SnapshotTransport for SignedSnapshotTransport {
                 &SharedObjectRequest {
                     database_id: database.clone(),
                     object: object.clone(),
-                    role: SharedObjectRole::Snapshot {
+                    role: SharedObjectRole::NativeSnapshot {
                         snapshot_id: snapshot.clone(),
+                        destination,
                     },
                 },
                 bytes,

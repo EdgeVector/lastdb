@@ -13,10 +13,13 @@ pub(super) fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> 
     let finish_ok = status.completed_through.is_some_and(|finish| {
         status.target.is_some_and(|target| finish.covers(target)) && current.covers(finish)
     });
-    if status.version != 1
-        || status.scope != model::SCOPE
+    let expected = NativeCleanupStatus::idle(v2);
+    if status.version != expected.version
+        || status.scope != expected.scope
         || status.main_home != v2.home.identity().to_string()
         || status.cas_home != v2.cas.identity().to_string()
+        || status.private_home != expected.private_home
+        || status.private.is_some() != expected.private.is_some()
         || !status.backup_copies_excluded
         || status.live_cas_orphan_repair_included
         || status

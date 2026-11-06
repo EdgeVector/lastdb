@@ -8,6 +8,9 @@ pub(crate) use byte_backup::*;
 #[derive(clap::Args, Debug)]
 pub(crate) struct SnapshotArgs {
     /// Registered shared writer device ID for the running DEV home.
+    ///
+    /// Create the home with LASTDB_NATIVE_SHARED_SCHEMAS set to a JSON array
+    /// of its shared schema aliases on first start.
     #[arg(long)]
     pub device_id: String,
     /// Absolute owner-only path to the enrolled device's signing key.
@@ -16,14 +19,14 @@ pub(crate) struct SnapshotArgs {
     /// Absolute private workspace. Reuse it to resume the same snapshot.
     #[arg(long)]
     pub workspace: PathBuf,
-    /// Print the snapshot and uploaded writer position as JSON.
+    /// Print the snapshot, provider file counts, and uploaded writer position as JSON.
     #[arg(long)]
     pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
-    /// Operate the shared journal and snapshots of an explicit stopped DEV home.
+    /// Operate the shared journal of an explicit stopped DEV home.
     SharedWriter(SharedWriterCommand),
     /// Read or manage Stripe payments for this home's existing native account.
     /// Requires an explicit absolute --data-dir; never starts a daemon or store.
@@ -116,25 +119,6 @@ pub(crate) enum SharedWriterAction {
         schema_bindings: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
         ranges: u16,
-    },
-    /// Capture and publish one shared checkpoint under a fresh private path.
-    Publish {
-        #[arg(long)]
-        workspace: PathBuf,
-        #[arg(long)]
-        snapshot_id: String,
-        #[arg(long)]
-        schema_bindings: PathBuf,
-        #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u32).range(1..=3600))]
-        deadline_seconds: u32,
-        /// Save the cut and release the source before a separate resume publishes it.
-        #[arg(long)]
-        prepare_only: bool,
-    },
-    /// Resume the exact prior publication from its private workspace.
-    Resume {
-        #[arg(long)]
-        workspace: PathBuf,
     },
 }
 

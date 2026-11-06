@@ -8,14 +8,21 @@
 //! store than the rest of the data.
 
 pub(in crate::storage) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLLECTION};
+use super::shared_layout::range::MergedRange;
 use super::*;
 use laststore::disk_run::home::RangeBounds;
-use laststore::disk_run::home::RunHashRange;
+use laststore::disk_run::home::{RunHashRange, RunRead};
 
 /// Most operations in one v2 commit.
 pub(in crate::storage) const V2_BATCH_OPERATIONS: usize = 16_384;
 
 impl V2Home {
+    pub(in crate::storage) fn private_home(
+        &self,
+    ) -> Option<&Arc<laststore::disk_run::home::RunHome>> {
+        self.shared.as_ref().map(|shared| &shared.private)
+    }
+
     pub(in crate::storage) fn identity(&self) -> uuid::Uuid {
         self.home.identity()
     }
@@ -50,9 +57,14 @@ pub(in crate::storage) type PhysicalRead = V2Read;
 impl V2Read {
     pub(in crate::storage) fn costs(&self) -> PhysicalCosts {
         let (main, cas) = (self.main.costs(), self.cas.costs());
+        let private = self
+            .private
+            .as_ref()
+            .map(RunRead::costs)
+            .unwrap_or_default();
         PhysicalCosts {
-            examined_keys: main.examined_keys + cas.examined_keys,
-            budget_bytes: main.budget_bytes + cas.budget_bytes,
+            examined_keys: main.examined_keys + cas.examined_keys + private.examined_keys,
+            budget_bytes: main.budget_bytes + cas.budget_bytes + private.budget_bytes,
             payload_blocks: 0,
             metadata_pages: 0,
         }
@@ -76,9 +88,20 @@ impl V2Read {
         prefix: &str,
         bounds: RangeBounds,
     ) -> laststore::Result<PhysicalCursor<'_>> {
-        self.home(collection)
-            .hash_range(collection, prefix, bounds)
-            .map(PhysicalCursor)
+        let read = match self.scope.as_ref() {
+            Some(scope)
+                if matches!(
+                    collection,
+                    crate::storage::format::RECORDS_COLLECTION | CAS_COLLECTION
+                ) =>
+            {
+                let lane = scope.lane(collection, prefix);
+                self.lane(lane)
+            }
+            _ => self.legacy_home(collection),
+        };
+        read.hash_range(collection, prefix, bounds)
+            .map(PhysicalCursor::Single)
     }
 
     pub(in crate::storage) fn administrative_range(
@@ -87,9 +110,29 @@ impl V2Read {
         start: &[u8],
         end: &[u8],
     ) -> laststore::Result<PhysicalCursor<'_>> {
-        self.home(collection)
-            .administrative_range(collection, start, end)
-            .map(PhysicalCursor)
+        let Some(scope) = &self.scope else {
+            return self
+                .legacy_home(collection)
+                .administrative_range(collection, start, end)
+                .map(PhysicalCursor::Single);
+        };
+        if let Some(lane) = scope.bounded_range_lane(collection, start, end) {
+            return self
+                .lane(lane)
+                .administrative_range(collection, start, end)
+                .map(PhysicalCursor::Single);
+        }
+        let public = if collection == CAS_COLLECTION {
+            &mut self.cas
+        } else {
+            &mut self.main
+        };
+        let private = self.private.as_mut().expect("shared private reader");
+        let public = public.administrative_range(collection, start, end)?;
+        let private = private.administrative_range(collection, start, end)?;
+        Ok(PhysicalCursor::Merged(Box::new(MergedRange::new(
+            public, private,
+        ))))
     }
 }
 
@@ -106,7 +149,10 @@ pub(in crate::storage) struct PhysicalPage {
 }
 
 /// An ordered range under one held read call.
-pub(in crate::storage) struct PhysicalCursor<'a>(RunHashRange<'a>);
+pub(in crate::storage) enum PhysicalCursor<'a> {
+    Single(RunHashRange<'a>),
+    Merged(Box<MergedRange<'a>>),
+}
 
 impl PhysicalCursor<'_> {
     pub(in crate::storage) fn account_memory_record(
@@ -114,14 +160,21 @@ impl PhysicalCursor<'_> {
         key_bytes: usize,
         body_bytes: usize,
     ) -> laststore::Result<()> {
-        self.0.account_memory_record(key_bytes, body_bytes)
+        match self {
+            Self::Single(cursor) => cursor.account_memory_record(key_bytes, body_bytes),
+            Self::Merged(cursor) => cursor.account_memory_record(key_bytes, body_bytes),
+        }
     }
 
     pub(in crate::storage) fn next_page(
         &mut self,
         limit: usize,
     ) -> laststore::Result<PhysicalPage> {
-        self.0.next_page(limit).map(page)
+        match self {
+            Self::Single(cursor) => cursor.next_page(limit),
+            Self::Merged(cursor) => cursor.page(limit, None),
+        }
+        .map(page)
     }
 
     pub(in crate::storage) fn next_page_yielding(
@@ -130,9 +183,11 @@ impl PhysicalCursor<'_> {
         held_rows: usize,
         keys_per_row: usize,
     ) -> laststore::Result<PhysicalPage> {
-        self.0
-            .next_page_yielding(limit, held_rows, keys_per_row)
-            .map(page)
+        match self {
+            Self::Single(cursor) => cursor.next_page_yielding(limit, held_rows, keys_per_row),
+            Self::Merged(cursor) => cursor.page(limit, Some((held_rows, keys_per_row))),
+        }
+        .map(page)
     }
 }
 
@@ -166,6 +221,13 @@ impl PackRuntime {
         V2Read {
             main: self.physical.home.read_root(&root.main, limits),
             cas: self.physical.cas.read_root(&root.cas, limits),
+            private: self
+                .physical
+                .shared
+                .as_ref()
+                .zip(root.private.as_ref())
+                .map(|(shared, root)| shared.private.read_root(root, limits)),
+            scope: root.scope.clone(),
         }
     }
 

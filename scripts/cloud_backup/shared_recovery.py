@@ -21,6 +21,7 @@ import baseline_data
 import native_records
 import shared_multiwriter
 import shared_retention
+import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
 from node import OwnedNode
@@ -74,10 +75,10 @@ class Operation:
                               key=lambda writer: writer["device_id"] != self.scope["publisher_device"])
         if self.args.prior_summary is None:
             require(self.args.prior_run is None and self.args.prior_source is None, "shared_no_prior_run")
-            self.snapshot = str(uuid.uuid4())
+            self.payload_id = str(uuid.uuid4())
+            self.summary["payload_id"] = self.payload_id
         else:
             self.admit_prior(runner)
-        self.summary["snapshot_id"] = self.snapshot
 
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "")
         require(0 < len(phrase.encode()) <= 4096, "shared_recovery_phrase")
@@ -128,8 +129,10 @@ class Operation:
                      "publisher_tail_through": 7, "peer_tail_through": 3}
         require(all(type(prior.get(name)) is int and prior[name] == value
                     for name, value in positions.items()), "shared_prior_accepted_positions")
-        checks = ("snapshot_published_after_both_tails", "peer_read_publisher_records_and_file",
-                  "source_homes_removed", "publication_workspace_removed", "wrong_device_refused")
+        publication = ("snapshot_published_before_both_tails" if "payload_id" in prior
+                       else "snapshot_published_after_both_tails")
+        checks = (publication, "peer_read_publisher_records_and_file", "source_homes_removed",
+                  "publication_workspace_removed", "wrong_device_refused")
         require(all(prior.get(name) is True for name in checks), "shared_prior_completed_publication")
         binding = prior.get("schema_binding")
         require(isinstance(binding, dict) and set(binding) in (
@@ -141,7 +144,9 @@ class Operation:
                     and binding["runtime_name"] == self.scope["schema_name"], "shared_prior_pinned_schema")
         self.schema = binding["runtime_name"]
         self.snapshot = canonical_uuid(prior.get("snapshot_id"))
-        self.summary.update(prior_operation=self.proof_owner, schema_binding=binding, **positions,
+        self.payload_id = canonical_uuid(prior.get("payload_id", self.snapshot))
+        self.summary.update(snapshot_id=self.snapshot, prior_operation=self.proof_owner,
+                            schema_binding=binding, **positions,
                             **{name: True for name in checks})
 
     def device_file(self, device):
@@ -172,7 +177,10 @@ class Operation:
         node = OwnedNode(home, self.programs, storage_inventory=inventory,
                          isolated_copy=inventory or (self.args.multiwriter and name == "first"))
         self.nodes.append(node)
-        node.start()
+        if name == "first":
+            node.start(shared_schema=self.runtime_schema())
+        else:
+            node.start()
         node.stop()
         if not self.bindings.exists():
             self.provision_schema(node, writer)
@@ -181,15 +189,19 @@ class Operation:
                     "--source-stream", writer["source_stream"], "--schema-bindings", str(self.bindings))
         return node
 
+    def runtime_schema(self):
+        if "schema_name" in self.scope:
+            return self.scope["schema_name"]
+        database = uuid.UUID(self.scope["database_id"])
+        suffix = base64.b32encode(database.bytes).decode().lower().rstrip("=")
+        return f"cloud-proof-{suffix}/CloudSharedProof"
+
     def provision_schema(self, node, writer):
+        self.schema = self.runtime_schema()
         if "schema_id" in self.scope:
-            self.schema = self.scope["schema_name"]
             identity = {"portable_id": self.scope["schema_id"]}
         else:
-            database = uuid.UUID(self.scope["database_id"])
-            suffix = base64.b32encode(database.bytes).decode().lower().rstrip("=")
-            namespace = "cloud-proof-" + suffix
-            name = "CloudSharedProof"
+            namespace, name = self.schema.split("/")
             declaration = self.root / "declaration.json"
             save_json(declaration, {
                 "name": name, "descriptive_name": "Shared Storage Recovery Proof Record",
@@ -204,7 +216,6 @@ class Operation:
                                               namespace, "--declaration", str(declaration)))
             require(isinstance(identity, dict) and set(identity) == {"catalog_id", "portable_id"}
                     and all(map(is_digest, identity.values())), "shared_exact_pinned_schema")
-            self.schema = f"{namespace}/{name}"
         save_json(self.bindings, {self.schema: identity["portable_id"]})
         self.summary["schema_binding"] = {"runtime_name": self.schema, **identity}
 
@@ -213,7 +224,7 @@ class Operation:
         return {IDENTIFIER: kind, NOTE: f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
 
     def payload(self, label):
-        return hashlib.shake_256((self.snapshot + label).encode()).digest(FILE_BYTES)
+        return hashlib.shake_256((self.payload_id + label).encode()).digest(FILE_BYTES)
 
     def attach(self, node, record, label):
         payload = self.payload(label)
@@ -278,27 +289,27 @@ class Operation:
         first, peer = self.initialize("first", a), self.initialize("peer", b)
         self.summary["stage"] = "author-publisher-prefix"
         first.start()
-        if self.args.multiwriter:
-            shared_multiwriter.seed_local_only(first)
+        local_file = shared_multiwriter.seed_local_only(self, first) if self.args.multiwriter else None
         checkpoint, original, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
         durable_batch(first, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
                               for record in (checkpoint, original, deleted)])
         checkpoint_file = self.attach(first, checkpoint, "checkpoint")
+        publication = self.root / "publication"
+        self.summary["stage"] = "publish-initial-native-snapshot"
+        receipt = shared_snapshot.invoke(self, first, a, publication, 4)
+        self.snapshot = receipt["snapshot_id"]
+        self.summary.update(snapshot_id=self.snapshot, checkpoint_through=4,
+                            initial_snapshot_files=shared_snapshot.provider_counts(receipt),
+                            snapshot_published_before_both_tails=True)
+        if local_file is not None:
+            first.verify_file(local_file)
         first.stop()
-        self.summary["checkpoint_through"] = self.push(first, a, 4)
         self.summary["stage"] = "apply-publisher-prefix-on-peer"
         applied = self.writer(peer, b, "pull", "--schema-bindings", str(self.bindings), "--ranges", "1")
         require(applied.splitlines() == [f"Applied shared peer {a['source_stream']} through 4".encode(),
                                          b"Applied 1 shared peer ranges"],
                 "shared_exact_peer_apply")
         self.summary["peer_applied_publisher_through"] = 4
-
-        self.summary["stage"] = "prepare-checkpoint"
-        publication = self.root / "publication"
-        reply = self.writer(first, a, "publish", "--workspace", str(publication),
-                            "--snapshot-id", self.snapshot, "--schema-bindings", str(self.bindings),
-                            "--deadline-seconds", "360", "--prepare-only")
-        require(reply.splitlines() == [b"Prepared shared snapshot cut"], "shared_prepared_snapshot_cut")
 
         self.summary["stage"] = "publish-post-checkpoint-tails"
         first.start()
@@ -331,11 +342,6 @@ class Operation:
         if self.args.multiwriter:
             shared_multiwriter.exchange_tails(self, first, a, b)
 
-        self.summary["stage"] = "publish-prepared-checkpoint"
-        reply = self.writer(first, a, "resume", "--workspace", str(publication))
-        require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
-                "shared_exact_snapshot_receipt")
-        self.summary["snapshot_published_after_both_tails"] = True
         if self.args.multiwriter:
             shared_multiwriter.snapshot_command(self, first, a)
             shared_multiwriter.publish_peer_tail(self, peer, b)

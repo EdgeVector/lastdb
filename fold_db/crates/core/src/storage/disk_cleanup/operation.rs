@@ -11,13 +11,7 @@ impl PackRuntime {
             Ok((status, owner))
         })
         .await?;
-        if !status.active()
-            || status.main.tiered_runs
-                + status.main.merging_runs
-                + status.cas.tiered_runs
-                + status.cas.merging_runs
-                > 0
-        {
+        if !status.active() || status.needs_merge() {
             return Ok(status);
         }
         // Complete against one stable accepted prefix, not two unrelated polls.
@@ -40,10 +34,12 @@ impl PackRuntime {
         status.last_error = None;
         self.cleanup_job.set(status.clone());
         let cas_policy = laststore::space::SpacePolicy::default();
-        for (home, policy) in [
+        let homes = [
             (&self.physical.home, &self.space_policy),
             (&self.physical.cas, &cas_policy),
-        ] {
+        ];
+        let private = self.physical.private_home().map(|home| (home, &cas_policy));
+        for (home, policy) in homes.into_iter().chain(private) {
             self.adopt_merged_root();
             if home.retired_bytes() > 0 {
                 status.phase = NativeCleanupPhase::WaitingForReads;
@@ -55,8 +51,7 @@ impl PackRuntime {
                 self.adopt_merged_root();
             }
         }
-        status.main = progress(&self.physical.home, status.main.removed_files);
-        status.cas = progress(&self.physical.cas, status.cas.removed_files);
+        self.update_cleanup_progress(&mut status);
         self.cleanup_job.set(status.clone());
         Ok(status)
     }
@@ -66,19 +61,18 @@ impl PackRuntime {
         crate::storage::disk_pack::cas_delete::require_clear(&self.physical)?;
         self.adopt_merged_root();
         let mut status = self.cleanup_job.get();
-        status.main = progress(&self.physical.home, status.main.removed_files);
-        status.cas = progress(&self.physical.cas, status.cas.removed_files);
-        if status.main.tiered_runs
-            + status.main.merging_runs
-            + status.cas.tiered_runs
-            + status.cas.merging_runs
-            > 0
-        {
+        self.update_cleanup_progress(&mut status);
+        if status.needs_merge() {
             self.cleanup_job.set(status.clone());
             return Ok(status);
         }
         let main = self.physical.home.cleanup_files().map_err(map)?;
         let cas = self.physical.cas.cleanup_files().map_err(map)?;
+        let private = self
+            .physical
+            .private_home()
+            .map(|home| home.cleanup_files().map_err(map))
+            .transpose()?;
         self.adopt_merged_root();
         status.main = progress(
             &self.physical.home,
@@ -88,10 +82,17 @@ impl PackRuntime {
             &self.physical.cas,
             status.cas.removed_files.saturating_add(cas.removed_files),
         );
-        if status.main.held_retired_bytes > 0
-            || status.cas.held_retired_bytes > 0
+        if let Some((home, removed)) = self.physical.private_home().zip(private.as_ref()) {
+            let earlier = status.private.as_ref().map_or(0, |home| home.removed_files);
+            status.private = Some(progress(
+                home,
+                earlier.saturating_add(removed.removed_files),
+            ));
+        }
+        if status.homes().any(|home| home.held_retired_bytes > 0)
             || main.held_bytes > 0
             || cas.held_bytes > 0
+            || private.is_some_and(|result| result.held_bytes > 0)
         {
             status.phase = NativeCleanupPhase::WaitingForReads;
         } else {
@@ -110,6 +111,13 @@ impl PackRuntime {
         }
         self.cleanup_job.set(status.clone());
         Ok(status)
+    }
+    fn update_cleanup_progress(&self, status: &mut NativeCleanupStatus) {
+        status.main = progress(&self.physical.home, status.main.removed_files);
+        status.cas = progress(&self.physical.cas, status.cas.removed_files);
+        if let Some((home, previous)) = self.physical.private_home().zip(status.private.as_mut()) {
+            *previous = progress(home, previous.removed_files);
+        }
     }
 }
 

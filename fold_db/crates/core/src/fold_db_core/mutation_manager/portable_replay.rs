@@ -140,6 +140,22 @@ impl MutationManager {
         Ok(())
     }
 
+    /// Install immutable tail schemas and their native placement together.
+    /// The restore owner supplies definitions verified against the schema service.
+    pub async fn install_staged_shared_restore_schemas(
+        &self,
+        schemas: Vec<Schema>,
+    ) -> Result<(), SchemaError> {
+        transaction::request_scope(self.db_ops.native_runtime(), async {
+            self.db_ops
+                .metadata()
+                .stage_shared_restore_aliases(schemas.iter().map(|schema| schema.name.as_str()))
+                .await?;
+            self.schema_manager.load_schema_batch(schemas).await
+        })
+        .await
+    }
+
     /// Seal the private staged restore before its owning coordinator activates it.
     pub async fn finish_portable_restore(
         &self,

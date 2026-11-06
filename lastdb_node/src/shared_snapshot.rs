@@ -8,6 +8,7 @@ use crate::shared_restore::recovery::{SnapshotContents, SnapshotFile, SnapshotSc
 use cloud_backup_protocol::shared::{
     inventory_sha256, SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover,
 };
+use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
 use fold_db::portable_mutation::{StreamId, StreamProgress};
 use fold_db::storage::disk_pack::{byte_backup::RunBackupProfile, HOME_FORMAT};
@@ -16,7 +17,7 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-pub mod filtered;
+pub(crate) mod native;
 mod owner;
 mod state;
 pub use owner::SignedSnapshotTransport;
@@ -26,6 +27,7 @@ use state::{Intent, IntentStore, Phase};
 #[serde(deny_unknown_fields)]
 pub struct FrozenFile {
     pub path: RelativePath,
+    pub destination: Destination,
     pub bytes: DecimalU64,
     pub sha256: Digest,
 }
@@ -55,9 +57,8 @@ pub trait FrozenCheckpoint: Send + Sync {
     /// An owned directory outside the exported recoverable files.
     fn intent_directory(&self) -> &Path;
 
-    /// Check that the exact cut is still frozen and recoverable-only, or
-    /// already filtered with the same durable checkpoint and dependencies.
-    fn require_recoverable_cut(&self) -> Result<()>;
+    /// Require the native file hold for this cut.
+    fn require_hold(&self) -> Result<()>;
 
     fn open_file(&self, path: &RelativePath) -> Result<Box<dyn Read + Send>>;
 
@@ -83,6 +84,7 @@ pub trait SnapshotTransport: Sync {
         database: &Id,
         snapshot: &Id,
         object: &SealedObject,
+        destination: Destination,
         bytes: Box<dyn Read + Send>,
         deadline_ms: u64,
     ) -> Result<SealedObject>;
@@ -113,25 +115,18 @@ pub async fn publish(
     let store = IntentStore::open(source.intent_directory())?;
     let mut intent = match store.load()? {
         Some(intent) => intent,
-        None => match prepare(source, &store, content_key) {
-            Ok(intent) => intent,
-            Err(error) => {
-                let id = source.cut().snapshot_id.clone();
-                source.thaw(&id).await?;
-                return Err(error);
-            }
-        },
+        None => prepare(source, &store, content_key)?,
     };
     require_identity(source.cut(), &intent.manifest)?;
 
     if matches!(intent.phase, Phase::Prepared | Phase::Submitting) {
-        source.require_recoverable_cut()?;
         let sealed = store.read_manifest(&intent.manifest.encrypted_manifest)?;
         let contents = SnapshotContents::open(&sealed, &intent.manifest, content_key)?;
         let inventory = contents.inventory();
         require_capture(source.cut(), &contents)?;
         let first_submission = matches!(intent.phase, Phase::Prepared);
         if first_submission {
+            source.require_hold()?;
             let transfer = async {
                 upload(source, transport, &intent.manifest, &contents, sealed).await?;
                 within_freeze(
@@ -142,9 +137,11 @@ pub async fn publish(
             }
             .await;
             if let Err(error) = transfer {
-                intent.phase = Phase::Abandoned;
-                store.save(&intent)?;
-                source.thaw(&intent.manifest.snapshot_id).await?;
+                if remaining(source.cut()).is_err() {
+                    intent.phase = Phase::Abandoned;
+                    store.save(&intent)?;
+                    source.thaw(&intent.manifest.snapshot_id).await?;
+                }
                 return Err(error);
             }
             intent.phase = Phase::Submitting;
@@ -188,7 +185,7 @@ pub async fn publish(
 }
 
 fn prepare(source: &impl FrozenCheckpoint, store: &IntentStore, key: &[u8; 32]) -> Result<Intent> {
-    source.require_recoverable_cut()?;
+    source.require_hold()?;
     let cut = source.cut();
     remaining(cut)?;
     let files = cut
@@ -254,10 +251,18 @@ async fn upload(
     sealed: Vec<u8>,
 ) -> Result<()> {
     let cut = source.cut();
-    for file in &contents.files {
+    for (held, file) in cut.files.iter().zip(&contents.files) {
         remaining(cut)?;
         let bytes = source.open_file(&file.path)?;
-        upload_exact(transport, manifest, &file.object, bytes, cut.expires_at_ms).await?;
+        upload_exact(
+            transport,
+            manifest,
+            &file.object,
+            held.destination,
+            bytes,
+            cut.expires_at_ms,
+        )
+        .await?;
     }
     remaining(cut)?;
     let bytes = Box::new(std::io::Cursor::new(sealed));
@@ -265,11 +270,12 @@ async fn upload(
         transport,
         manifest,
         &manifest.encrypted_manifest,
+        Destination::R2,
         bytes,
         cut.expires_at_ms,
     )
     .await?;
-    source.require_recoverable_cut()?;
+    source.require_hold()?;
     remaining(cut)?;
     Ok(())
 }
@@ -278,6 +284,7 @@ async fn upload_exact(
     transport: &impl SnapshotTransport,
     manifest: &SnapshotManifest,
     expected: &SealedObject,
+    destination: Destination,
     bytes: Box<dyn Read + Send>,
     deadline_ms: u64,
 ) -> Result<()> {
@@ -286,6 +293,7 @@ async fn upload_exact(
             &manifest.database_id,
             &manifest.snapshot_id,
             expected,
+            destination,
             bytes,
             deadline_ms,
         )

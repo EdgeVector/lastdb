@@ -32,11 +32,16 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
         return Err(invalid("run backup logical marker read is incomplete"));
     }
     validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
-    validate_local_author(values[2].as_deref())?;
+    use crate::storage::format::{RECORD_PROFILE, SHARED_RECORD_PROFILE};
+    match version {
+        SHARED_RECORD_PROFILE if values[2].is_none() => {}
+        SHARED_RECORD_PROFILE => return Err(invalid("shared root contains a private author")),
+        _ => validate_local_author(values[2].as_deref())?,
+    }
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("run backup logical marker is absent"))?;
-    if version != crate::storage::disk_pack::run_admission::RECORD_PROFILE
+    if !matches!(version, RECORD_PROFILE | SHARED_RECORD_PROFILE)
         || !lastdb_model::field_key_codec::current_key_format(marker)
     {
         return Err(invalid(

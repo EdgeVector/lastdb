@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCOPE: &str = "already_deleted_records_in_active_main_and_cas_stores";
+const SCOPE: &str = "already_deleted_records_in_active_main_and_cas_stores";
+const SHARED_SCOPE: &str = "already_deleted_records_in_active_shared_and_private_stores";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,17 +24,24 @@ pub struct NativeCleanupBoundary {
     pub cas_frontier: u64,
     pub main_generation: u64,
     pub cas_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_frontier: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_generation: Option<u64>,
 }
 
 impl NativeCleanupBoundary {
     pub(super) fn capture(v2: &crate::storage::disk_pack::physical::V2Home) -> Self {
         let main = v2.home.status();
         let cas = v2.cas.status();
+        let private = v2.private_home().map(|home| home.status());
         Self {
             main_frontier: main.frontier,
             cas_frontier: cas.frontier,
             main_generation: main.generation,
             cas_generation: cas.generation,
+            private_frontier: private.as_ref().map(|status| status.frontier),
+            private_generation: private.as_ref().map(|status| status.generation),
         }
     }
 
@@ -42,6 +50,10 @@ impl NativeCleanupBoundary {
             && self.cas_frontier >= earlier.cas_frontier
             && self.main_generation >= earlier.main_generation
             && self.cas_generation >= earlier.cas_generation
+            && self.private_frontier.is_some() == earlier.private_frontier.is_some()
+            && self.private_generation.is_some() == earlier.private_generation.is_some()
+            && self.private_frontier >= earlier.private_frontier
+            && self.private_generation >= earlier.private_generation
     }
 }
 
@@ -66,6 +78,8 @@ pub struct NativeCleanupStatus {
     pub scope: String,
     pub main_home: String,
     pub cas_home: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_home: Option<String>,
     pub requested_at: Option<u64>,
     pub target: Option<NativeCleanupBoundary>,
     pub completed_at: Option<u64>,
@@ -73,6 +87,8 @@ pub struct NativeCleanupStatus {
     pub merge_steps_since_resume: u64,
     pub main: NativeCleanupHome,
     pub cas: NativeCleanupHome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private: Option<NativeCleanupHome>,
     pub last_error: Option<String>,
     pub backup_copies_excluded: bool,
     pub live_cas_orphan_repair_included: bool,
@@ -80,14 +96,21 @@ pub struct NativeCleanupStatus {
 
 impl NativeCleanupStatus {
     pub(super) fn idle(v2: &crate::storage::disk_pack::physical::V2Home) -> Self {
+        let private = v2.private_home();
         Self {
             version: 1,
             request_id: None,
             phase: NativeCleanupPhase::Idle,
             complete: false,
-            scope: SCOPE.into(),
+            scope: if private.is_some() {
+                SHARED_SCOPE
+            } else {
+                SCOPE
+            }
+            .into(),
             main_home: v2.home.identity().to_string(),
             cas_home: v2.cas.identity().to_string(),
+            private_home: private.map(|home| home.identity().to_string()),
             requested_at: None,
             target: None,
             completed_at: None,
@@ -95,10 +118,22 @@ impl NativeCleanupStatus {
             merge_steps_since_resume: 0,
             main: NativeCleanupHome::default(),
             cas: NativeCleanupHome::default(),
+            private: private.map(|_| NativeCleanupHome::default()),
             last_error: None,
             backup_copies_excluded: true,
             live_cas_orphan_repair_included: false,
         }
+    }
+
+    pub(super) fn homes(&self) -> impl Iterator<Item = &NativeCleanupHome> {
+        [&self.main, &self.cas]
+            .into_iter()
+            .chain(self.private.iter())
+    }
+
+    pub(super) fn needs_merge(&self) -> bool {
+        self.homes()
+            .any(|home| home.tiered_runs != 0 || home.merging_runs != 0)
     }
 
     pub(super) fn active(&self) -> bool {

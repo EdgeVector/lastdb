@@ -216,7 +216,12 @@ async fn install_checkpoint(
             return Err(RestoreError::Invalid("unlisted native checkpoint file"));
         }
     }
-    verified.check_binding().map_err(RestoreError::native_proof)
+    verified
+        .check_binding()
+        .map_err(RestoreError::native_proof)?;
+    drop(verified);
+    fold_db::storage::disk_pack::prepare_shared_restored_run(&data, key)
+        .map_err(RestoreError::native_proof)
 }
 
 async fn load_tails(

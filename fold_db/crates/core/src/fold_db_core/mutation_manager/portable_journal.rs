@@ -25,6 +25,9 @@ impl MutationManager {
         if definitions.is_empty() || definitions.len() > 64 {
             return Err(invalid("invalid shared journal schema count"));
         }
+        self.db_ops
+            .native_runtime()
+            .require_shared_schema_set(definitions.keys().map(String::as_str))?;
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let schemas =
                 futures::future::try_join_all(definitions.iter().map(|(name, definition)| async {

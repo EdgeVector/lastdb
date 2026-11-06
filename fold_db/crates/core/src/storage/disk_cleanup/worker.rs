@@ -38,7 +38,11 @@ impl PackRuntime {
                             Err(error) => {
                                 let terminal = runtime.requires_recovery()
                                     || runtime.physical.home.is_poisoned()
-                                    || runtime.physical.cas.is_poisoned();
+                                    || runtime.physical.cas.is_poisoned()
+                                    || runtime
+                                        .physical
+                                        .private_home()
+                                        .is_some_and(|home| home.is_poisoned());
                                 let mut status = job.get();
                                 status.complete = false;
                                 status.phase = if terminal {

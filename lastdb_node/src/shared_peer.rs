@@ -4,7 +4,7 @@ use crate::byte_cloud_restore::RestoreError;
 use crate::shared_restore::recovery::{
     exact_file_versions, open_log_plaintext, SnapshotSchema, MAX_SEALED_LOG_BYTES,
 };
-use crate::shared_restore::{resolve_schemas, schema_id};
+use crate::shared_restore::{resolve_schemas, schema_id, SchemaTarget};
 use cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
 use cloud_backup_protocol::shared::peer::{PeerHeads, PeerHeadsRequest, PeerNextRequest};
 use cloud_backup_protocol::shared::{StreamCut, WriterStream};
@@ -231,7 +231,14 @@ impl<'a> PeerWorker<'a> {
             return Ok(None);
         }
         let refs = entries.iter().collect::<Vec<_>>();
-        resolve_schemas(self.db, self.schema_service, &mut self.schemas, &refs).await?;
+        resolve_schemas(
+            self.db,
+            self.schema_service,
+            &mut self.schemas,
+            &refs,
+            SchemaTarget::ActivePeer,
+        )
+        .await?;
         let candidates = entries
             .iter()
             .map(|entry| {

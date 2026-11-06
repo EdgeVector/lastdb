@@ -70,6 +70,12 @@ impl RecordFormat {
                 "this record requires a file".into(),
             ));
         }
+        for change in &changes {
+            self.runtime.require_shared_record_route(
+                change.key.as_str(),
+                !matches!(change.portable, super::PortableEffect::Local),
+            )?;
+        }
         let entries = super::outgoing::entries(schema, &changes)?;
         let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;

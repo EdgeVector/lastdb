@@ -3,6 +3,7 @@
 //! both. A read or a write routes by collection: `cas_blobs` goes to the CAS
 //! home, each other collection to the main home.
 
+use super::shared_layout::{Lane, Scope, SharedHome};
 use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunRoot};
 
@@ -13,6 +14,7 @@ pub(in crate::storage) struct V2Home {
     pub(in crate::storage) home: Arc<RunHome>,
     /// The CAS files only.
     pub(in crate::storage) cas: Arc<RunHome>,
+    pub(super) shared: Option<SharedHome>,
     /// Set while a merge thread runs; at most one runs at a time.
     pub(in crate::storage) merging: Arc<AtomicBool>,
     /// Set when the node store closes; the thread stops after its step.
@@ -28,6 +30,7 @@ impl V2Home {
         Self {
             home,
             cas,
+            shared: None,
             merging: Arc::default(),
             stop: Arc::default(),
             merger: Mutex::new(None),
@@ -43,6 +46,14 @@ impl V2Home {
         V2Root {
             main: self.home.current_root(),
             cas: self.cas.current_root(),
+            private: self
+                .shared
+                .as_ref()
+                .map(|shared| shared.private.current_root()),
+            scope: self
+                .shared
+                .as_ref()
+                .map(|shared| Arc::clone(&shared.scope.read().expect("shared disk scope"))),
         }
     }
 }
@@ -54,15 +65,21 @@ impl V2Home {
 pub(in crate::storage) struct V2Root {
     pub(in crate::storage) main: RunRoot,
     pub(in crate::storage) cas: RunRoot,
+    pub(super) private: Option<RunRoot>,
+    pub(super) scope: Option<Arc<Scope>>,
 }
 
 impl V2Root {
     pub(in crate::storage) fn generation(&self) -> u64 {
-        self.main.generation() + self.cas.generation()
+        self.main.generation()
+            + self.cas.generation()
+            + self.private.as_ref().map_or(0, RunRoot::generation)
     }
 
     pub(in crate::storage) fn frontier(&self) -> u64 {
-        self.main.frontier() + self.cas.frontier()
+        self.main.frontier()
+            + self.cas.frontier()
+            + self.private.as_ref().map_or(0, RunRoot::frontier)
     }
 }
 
@@ -70,10 +87,12 @@ impl V2Root {
 pub(in crate::storage) struct V2Read {
     pub(in crate::storage) main: RunRead,
     pub(in crate::storage) cas: RunRead,
+    pub(super) private: Option<RunRead>,
+    pub(super) scope: Option<Arc<Scope>>,
 }
 
 impl V2Read {
-    pub(in crate::storage) fn home(&mut self, collection: &str) -> &mut RunRead {
+    pub(super) fn legacy_home(&mut self, collection: &str) -> &mut RunRead {
         if collection == CAS_COLLECTION {
             &mut self.cas
         } else {
@@ -81,35 +100,56 @@ impl V2Read {
         }
     }
 
-    /// Batch read across both homes; results keep the input order.
+    pub(super) fn lane(&mut self, lane: Lane) -> &mut RunRead {
+        match lane {
+            Lane::Records => &mut self.main,
+            Lane::Files => &mut self.cas,
+            Lane::Private => self.private.as_mut().expect("shared private reader"),
+        }
+    }
+
+    /// Batch read across physical lanes while preserving coordinate order.
     pub(in crate::storage) fn get_many(
         &mut self,
         coordinates: &[(String, String)],
     ) -> laststore::Result<Vec<laststore::Result<Option<Vec<u8>>>>> {
-        if !coordinates.iter().any(|(c, _)| c == CAS_COLLECTION) {
+        if self.scope.is_none() && !coordinates.iter().any(|(c, _)| c == CAS_COLLECTION) {
             return self.main.get_many(coordinates);
         }
-        let (cas, main): (Vec<_>, Vec<_>) = coordinates
-            .iter()
-            .enumerate()
-            .partition(|(_, (collection, _))| collection == CAS_COLLECTION);
-        let limit = self.main.budget();
+        let mut batches = [Vec::new(), Vec::new(), Vec::new()];
+        for (slot, (collection, key)) in coordinates.iter().enumerate() {
+            let lane = self.scope.as_ref().map_or_else(
+                || {
+                    if collection == CAS_COLLECTION {
+                        Lane::Files
+                    } else {
+                        Lane::Records
+                    }
+                },
+                |scope| scope.lane(collection, key),
+            );
+            batches[lane as usize].push(slot);
+        }
         let mut out: Vec<Option<laststore::Result<Option<Vec<u8>>>>> =
             (0..coordinates.len()).map(|_| None).collect();
-        for (read, part) in [(&mut self.main, main), (&mut self.cas, cas)] {
-            if part.is_empty() {
+        for (lane, slots) in [Lane::Records, Lane::Files, Lane::Private]
+            .into_iter()
+            .zip(batches)
+        {
+            if slots.is_empty() {
                 continue;
             }
-            let wanted: Vec<_> = part.iter().map(|(_, c)| (*c).clone()).collect();
-            for ((slot, _), found) in part.iter().zip(read.get_many(&wanted)?) {
-                out[*slot] = Some(found);
+            let wanted: Vec<_> = slots
+                .iter()
+                .map(|slot| coordinates[*slot].clone())
+                .collect();
+            for (slot, found) in slots.into_iter().zip(self.lane(lane).get_many(&wanted)?) {
+                out[slot] = Some(found);
             }
         }
-        // Each home enforces its own limit; the call as a whole has one.
-        let (main, cas) = (self.main.costs(), self.cas.costs());
-        if main.examined_keys + cas.examined_keys > limit.keys
-            || main.budget_bytes + cas.budget_bytes > limit.bytes
-        {
+        let costs = self.costs();
+        let limit = self.main.budget();
+        if costs.examined_keys > limit.keys || costs.budget_bytes > limit.bytes {
             return Err(laststore::Error::ReadBudgetExceeded);
         }
         Ok(out

@@ -26,6 +26,7 @@
 //! Each run home key derives from the node encryption key with its own label
 //! and is never written to a file.
 
+use super::shared_layout::{Scope, SharedHome, PRIVATE_DIR};
 use super::*;
 use laststore::disk_run::home::RunHome;
 use std::io::Write;
@@ -34,7 +35,8 @@ mod creation;
 
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 use crate::storage::format::{
-    CAS_KEY_LABEL, CREATION_INTENT as INTENT, HOME_KEY_LABEL, STAGED_NODE_MARKER as STAGED_MARKER,
+    CAS_KEY_LABEL, CREATION_INTENT as INTENT, HOME_KEY_LABEL, PRIVATE_KEY_LABEL,
+    STAGED_NODE_MARKER as STAGED_MARKER,
 };
 
 /// True when `path` is absent or empty: a new node home, which is v2.
@@ -78,7 +80,7 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
         if kind.is_file() && name == INTENT {
             continue;
         }
-        let run_home = [RUN_DIR, CAS_DIR]
+        let run_home = [RUN_DIR, CAS_DIR, PRIVATE_DIR]
             .into_iter()
             .any(|home| name == home || staging(name, home));
         if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
@@ -154,7 +156,11 @@ impl PackNamespacedStore {
             folder.sync_all()?;
             let main = RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?;
             drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-            let marker = creation::initialize(&main, node_key)?;
+            let scope = Scope::requested()?;
+            if scope.is_some() {
+                create_private(path, node_key)?;
+            }
+            let marker = creation::initialize(&main, node_key, scope.as_ref())?;
             drop(main);
             let staged = path.join(STAGED_MARKER);
             let mut file = std::fs::OpenOptions::new()
@@ -182,7 +188,7 @@ impl PackNamespacedStore {
         resume_merges: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        super::run_admission::admit(path, node_key)?;
+        let version = super::run_admission::admit(path, node_key)?;
         let open = if resume_merges {
             RunHome::open
         } else {
@@ -191,6 +197,14 @@ impl PackNamespacedStore {
         let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut v2 = physical::V2Home::new(home, cas);
+        if version == super::run_admission::SHARED_RECORD_PROFILE {
+            if !resume_merges {
+                return Err(shared_layout::invalid(
+                    "shared homes use the shared snapshot command",
+                ));
+            }
+            open_shared(path, node_key, &mut v2)?;
+        }
         if resume_merges {
             v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         } else {
@@ -205,6 +219,46 @@ impl PackNamespacedStore {
         }
         Ok(store)
     }
+}
+
+/// Create the device-private disk home after authenticating a downloaded
+/// shared snapshot, before a writer can open the restored data directory.
+pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
+    let version = super::run_admission::admit(path, key)?;
+    if version == super::run_admission::SHARED_RECORD_PROFILE {
+        create_private(path, key)?;
+    }
+    Ok(())
+}
+
+fn create_private(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
+    let private = RunHome::create(&path.join(PRIVATE_DIR), &derive_key(key, PRIVATE_KEY_LABEL))
+        .map_err(map)?;
+    creation::initialize_private(&private)
+}
+
+fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> StorageResult<()> {
+    let private = Arc::new(
+        RunHome::open(&path.join(PRIVATE_DIR), &derive_key(key, PRIVATE_KEY_LABEL)).map_err(map)?,
+    );
+    shared_layout::journal::recover(v2, &private, &derive_key(key, PRIVATE_KEY_LABEL))?;
+    let mut main = v2.home.read_root(&v2.home.current_root(), budget());
+    let scope = Scope::load(&mut main)?;
+    let mut local = private.read_root(&private.current_root(), budget());
+    let (collection, author_key) = kv::coordinate(
+        crate::storage::format::METADATA_NAMESPACE,
+        crate::storage::format::metadata::LOCAL_AUTHOR_KEY.as_bytes(),
+    );
+    let author = local
+        .get_bounded(&collection, &author_key, 8192)
+        .map_err(map)?;
+    crate::storage::format::metadata::validate_local_author(author.as_deref())?;
+    v2.shared = Some(SharedHome {
+        private,
+        scope: Arc::new(RwLock::new(Arc::new(scope))),
+        journal_key: derive_key(key, PRIVATE_KEY_LABEL),
+    });
+    Ok(())
 }
 
 /// Remove the creation intent of the v2 node home that holds `run_home`.
