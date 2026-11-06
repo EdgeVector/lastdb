@@ -6,18 +6,21 @@ use cloud_backup_client::shared_recovery::{BackupTransportError, SharedRecoveryC
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectParent, RecoveryView,
-    SealedObject, SnapshotManifest,
+    SealedObject, SnapshotManifest, WriterStream,
 };
 use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{schema_service_url_for, Environment};
 use schema_service_client::SchemaServiceClient;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use zeroize::Zeroizing;
 
 struct OwnerSource {
     client: SharedRecoveryClient,
-    signer: Ed25519KeyPair,
+    signer: Arc<Ed25519KeyPair>,
     snapshot: Option<Id>,
+    writer_head: Option<(Id, Option<LogHead>)>,
 }
 
 /// Database and optional exact snapshot required by the caller.
@@ -45,8 +48,9 @@ pub async fn restore_owner(
     let source = OwnerSource {
         client: SharedRecoveryClient::from_auth(auth, account, device.clone())
             .map_err(transport_error)?,
-        signer,
+        signer: Arc::new(signer),
         snapshot: selection.snapshot.cloned(),
+        writer_head: None,
     };
     let schemas = SchemaServiceClient::new(schema_service_url_for(environment));
     super::restore_from_source(
@@ -56,6 +60,53 @@ pub async fn restore_owner(
         destination,
         &keys,
         &schemas,
+    )
+    .await
+}
+
+/// A stopped writer whose pending mutations have exact cloud receipts.
+pub struct OwnerRejoin<'a> {
+    pub auth: AuthClient,
+    pub device: &'a Id,
+    pub signer: Arc<Ed25519KeyPair>,
+    pub stream: &'a WriterStream,
+    pub confirmed_head: Option<&'a LogHead>,
+    pub seed: Zeroizing<[u8; 32]>,
+    pub source_data: &'a Path,
+    pub source: &'a fold_db::FoldDB,
+}
+
+pub async fn prepare_owner_rejoin(request: OwnerRejoin<'_>) -> Result<super::PreparedRejoin> {
+    let OwnerRejoin {
+        auth,
+        device,
+        signer,
+        stream,
+        confirmed_head,
+        seed,
+        source_data,
+        source,
+    } = request;
+    let keys = RecoveryKeys::from_seed(seed)?;
+    let remote = OwnerSource {
+        client: SharedRecoveryClient::from_auth(auth, keys.account_id().clone(), device.clone())
+            .map_err(transport_error)?,
+        signer,
+        snapshot: None,
+        writer_head: Some((stream.source_stream.clone(), confirmed_head.cloned())),
+    };
+    let schemas = SchemaServiceClient::new(schema_service_url_for(Environment::Dev));
+    super::native::prepare_rejoin(
+        &remote,
+        &keys,
+        &schemas,
+        super::native::RejoinSource {
+            device,
+            stream,
+            confirmed_head,
+            source_data,
+            source,
+        },
     )
     .await
 }
@@ -81,6 +132,19 @@ impl SharedRecoverySource for OwnerSource {
             .is_some_and(|snapshot| snapshot != &view.snapshot.snapshot_id)
         {
             return Err(RestoreError::Invalid("selected shared snapshot ID"));
+        }
+        if let Some((stream, expected)) = &self.writer_head {
+            let index = view
+                .streams
+                .binary_search_by(|cut| cut.source_stream.cmp(stream))
+                .map_err(|_| {
+                    RestoreError::Invalid("returning writer missing from recovery view")
+                })?;
+            if view.streams[index].head != *expected {
+                return Err(RestoreError::Invalid(
+                    "returning writer head differs from recovery view",
+                ));
+            }
         }
         let manifest = self
             .client

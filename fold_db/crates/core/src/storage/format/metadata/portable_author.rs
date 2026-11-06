@@ -24,6 +24,7 @@ mod cleanup;
 mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;
+mod rejoin;
 mod retention;
 pub(crate) use inbox::InboxWindow;
 pub use inbox::PortablePeerProgress;
@@ -257,59 +258,23 @@ impl Metadata {
         {
             return Err(invalid("invalid restored stream directory"));
         }
-        let prior = progress
-            .values()
-            .filter_map(|cursor| cursor.applied_through_ms)
-            .chain(cutoff)
-            .max();
         let author = LocalAuthor {
             stream: fresh_stream.clone(),
             progress: StreamProgress::default(),
-            clock_floor_ms: prior
-                .map(|ms| {
-                    ms.checked_add(1)
-                        .ok_or_else(|| invalid("delete boundary exhausted"))
-                })
-                .transpose()?,
+            clock_floor_ms: rejoin::restored_clock_floor(progress, cutoff)?,
             shared: None,
         };
-        let state = HomeReplayState {
-            local_stream_id: fresh_stream.clone(),
-            participating_streams: progress
-                .keys()
-                .cloned()
-                .chain([fresh_stream.clone()])
-                .collect(),
-            delete_reclaimed_through_ms: cutoff,
-        };
-        let mut rows = Vec::with_capacity(progress.len() + 3);
-        for (stream, cursor) in progress {
-            cursor.validate().map_err(invalid)?;
-            if cursor.uploaded_through.is_some() {
-                return Err(invalid("restored peer cursor has local upload state"));
-            }
-            rows.push(EncodedMetadata {
-                key: format!("{PROGRESS_PREFIX}{stream}"),
-                bytes: serde_json::to_vec(cursor).map_err(invalid)?,
-            });
-        }
-        rows.push(EncodedMetadata {
-            key: REPLAY_STATE_KEY.into(),
-            bytes: serde_json::to_vec(&state).map_err(invalid)?,
-        });
-        rows.push(EncodedMetadata {
-            key: LOCAL_AUTHOR_KEY.into(),
-            bytes: serde_json::to_vec(&author).map_err(invalid)?,
-        });
-        rows.push(EncodedMetadata {
-            key: RESTORE_OWNER_KEY.into(),
-            bytes: serde_json::to_vec(&RestoreOwner {
+        self.stage_restored_author(
+            progress,
+            cutoff,
+            fresh_stream,
+            &author,
+            RestoreOwner {
                 database: database.clone(),
                 device: device.clone(),
-            })
-            .map_err(invalid)?,
-        });
-        self.stage_batch(rows).await
+            },
+        )
+        .await
     }
 
     pub(crate) async fn validate_portable_restore_checkpoint(

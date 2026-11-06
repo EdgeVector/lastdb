@@ -7,7 +7,7 @@ use crate::storage::format::metadata::{
 };
 pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 use cloud_backup_protocol::shared::peer::PeerHeads;
-use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
+use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream};
 use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{
     MutationEntry, SchemaIdentity, Stamp, StreamId, StreamProgress,
@@ -202,6 +202,38 @@ impl MetadataStore {
         Ok(self
             .format
             .validate_portable_restore_checkpoint(progress, cutoff)
+            .await?)
+    }
+
+    pub(crate) async fn stage_reset_rejoin_file_references(
+        &self,
+        after: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, SchemaError> {
+        Ok(self
+            .format
+            .stage_reset_rejoin_file_references(after)
+            .await?)
+    }
+
+    pub(crate) async fn stage_reset_rejoin_inbox(
+        &self,
+        after: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, SchemaError> {
+        Ok(self.format.stage_reset_rejoin_inbox(after).await?)
+    }
+
+    pub(crate) async fn stage_portable_rejoin(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+        writer: &WriterStream,
+        device: &Id,
+        expected: Option<&LogHead>,
+        schemas: &BTreeMap<String, JournalSchema>,
+    ) -> Result<(), SchemaError> {
+        Ok(self
+            .format
+            .stage_portable_rejoin(progress, cutoff, writer, device, expected, schemas)
             .await?)
     }
 }

@@ -25,6 +25,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
+#[path = "shared_writer/rejoin.rs"]
+mod rejoin;
 #[path = "shared_writer/schema.rs"]
 mod schema;
 
@@ -89,6 +91,9 @@ impl Owner {
             action => action,
         };
         let store = home.join("data");
+        if matches!(action, SharedWriterAction::Rejoin { .. }) {
+            rejoin::require_source_data(&store)?;
+        }
         lastdb_node::offline_home::preflight_stopped_home(home, &store)?;
         let db = create_fold_db_with_options(
             &DatabaseConfig::local(store.clone()),
@@ -101,6 +106,9 @@ impl Owner {
         )
         .await
         .map_err(|_| "cannot open stopped shared writer home")?;
+        if let SharedWriterAction::Rejoin { batches } = action {
+            return self.rejoin(db, &store, e2e, batches).await;
+        }
         let result = self.run_on_writer(&db, &store, action, e2e).await;
         let shutdown = db
             .shutdown()
@@ -156,6 +164,7 @@ impl Owner {
             SharedWriterAction::PublishSchema { .. } => {
                 unreachable!("this action has no source writer")
             }
+            SharedWriterAction::Rejoin { .. } => unreachable!("rejoin owns writer shutdown"),
         }
         Ok(())
     }

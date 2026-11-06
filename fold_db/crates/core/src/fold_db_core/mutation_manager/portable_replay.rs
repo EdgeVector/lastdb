@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 mod peer;
+mod rejoin;
 mod values;
 pub use peer::ReplayBinding;
 

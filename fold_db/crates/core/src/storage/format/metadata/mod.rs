@@ -10,6 +10,7 @@ use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
+use crate::storage::traits::YieldedScan;
 use crate::storage::{KvStore, StorageError};
 
 mod file_references;
@@ -138,5 +139,25 @@ impl Metadata {
     async fn stage_deletes(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
         self.require_scope()?;
         self.metadata_store.batch_delete(keys).await
+    }
+
+    /// Read one bounded page of a private metadata family for rejoin.
+    async fn rejoin_prefix_page(
+        &self,
+        prefix: &str,
+        after: Option<&[u8]>,
+    ) -> StorageResult<YieldedScan> {
+        const PAGE: usize = 64;
+        self.require_scope()?;
+        let Some((&b':', stem)) = prefix.as_bytes().split_last() else {
+            return Err(StorageError::InvalidOperation(
+                "invalid metadata prefix".into(),
+            ));
+        };
+        let start = after.map_or_else(|| prefix.as_bytes().to_vec(), |key| [key, &[0]].concat());
+        let end = [stem, b";"].concat();
+        self.metadata_store
+            .scan_range_yielding(&start, &end, PAGE, 1)
+            .await
     }
 }

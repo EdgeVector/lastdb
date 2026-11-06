@@ -13,10 +13,12 @@ use std::path::{Path, PathBuf};
 mod native;
 mod owner;
 pub mod recovery;
+mod rejoin_disk;
 pub use native::restore_from_source;
 use native::NativeWriter;
+pub use native::PreparedRejoin;
 pub(crate) use native::{resolve_schemas, schema_id, SchemaTarget};
-pub use owner::{restore_owner, OwnerRestoreSelection};
+pub use owner::{prepare_owner_rejoin, restore_owner, OwnerRejoin, OwnerRestoreSelection};
 use recovery::{HeldFileVersions, SharedRecoverySource};
 
 const READY_FILE: &str = "shared-restore-ready.json";

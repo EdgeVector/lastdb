@@ -358,6 +358,8 @@ class Operation:
                 "shared_source_strict_clean_stops")
         if self.args.retention:
             shared_retention.run(self, first, peer, a, b)
+        elif self.args.multiwriter:
+            shared_multiwriter.rejoin_writer(self, first, a, local_file)
         self.remove_sources(self.nodes)
         if os.path.lexists(publication):
             private_directory(publication)
@@ -406,6 +408,10 @@ class Operation:
                  "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
         if self.args.retention:
             shared_retention.expect_restore(self, records, files)
+        elif self.args.multiwriter:
+            records.update(shared_multiwriter.rejoin_records(self))
+            pending = shared_multiwriter.REJOIN_PENDING
+            files[pending] = hashlib.sha256(self.payload(pending)).hexdigest()
         self.summary["stage"] = "verify-restored-native-home"
         for _ in range(2):
             node.start()

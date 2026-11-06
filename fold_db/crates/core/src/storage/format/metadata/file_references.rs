@@ -37,6 +37,23 @@ pub(crate) enum FileRetention {
 }
 
 impl Metadata {
+    pub(crate) async fn stage_reset_rejoin_file_references(
+        &self,
+        after: Option<&[u8]>,
+    ) -> StorageResult<Option<Vec<u8>>> {
+        if after.is_none() && !matches!(self.file_retention().await?, FileRetention::Uninitialized)
+        {
+            self.stage_file_retention(&FileRetention::Uninitialized)
+                .await?;
+        }
+        let page = self.rejoin_prefix_page(REFERENCE_PREFIX, after).await?;
+        if !page.rows.is_empty() {
+            self.stage_deletes(page.rows.into_iter().map(|(key, _)| key).collect())
+                .await?;
+        }
+        Ok(page.resume)
+    }
+
     pub(crate) async fn stage_file_references(
         &self,
         changes: BTreeMap<String, FileReferenceChange>,

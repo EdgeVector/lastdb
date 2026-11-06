@@ -16,7 +16,7 @@ use fold_db::portable_mutation::{
 };
 use fold_db::schema::Schema;
 use fold_db::security::Ed25519KeyPair;
-use fold_db::storage::{config::DatabaseConfig, disk_pack::run_restore};
+use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
 use futures::{StreamExt, TryStreamExt};
 use schema_service_client::SchemaServiceClient;
@@ -24,6 +24,10 @@ use schema_types::PortableSchemaId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+mod rejoin;
+pub use rejoin::PreparedRejoin;
+pub(super) use rejoin::{prepare_rejoin, RejoinSource};
 
 const FILE_INPUT_LIMIT: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
@@ -273,17 +277,10 @@ impl<'a> NativeWriter<'a> {
             )
             .await
             .map_err(|_| RestoreError::Invalid("seal portable restore progress"))?;
-        self.db
-            .shutdown()
-            .await
-            .map_err(RestoreError::native_proof)?;
-        drop(self.db);
-        run_restore::validate_replayed_shared_node(
-            &self.stage.join("data"),
-            self.keys.content_key(),
-        )
-        .map_err(RestoreError::native_proof)?;
-        lastdb_identity::write_seed(&self.stage, self.keys.account_seed())
+        let stage = self.stage.clone();
+        let seed = self.keys.account_seed();
+        self.close_verified().await?;
+        lastdb_identity::write_seed(&stage, seed)
             .map_err(|_| RestoreError::Invalid("restored account identity"))?;
         Ok(())
     }
