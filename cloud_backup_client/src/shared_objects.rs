@@ -51,11 +51,7 @@ impl SharedObjectClient {
         sign: &(impl Fn(&[u8]) -> Result<[u8; 64]> + Sync),
     ) -> Result<SealedObject> {
         let prepare = self
-            .post(
-                ObjectAuthorityRequest::Prepare(request),
-                Some(deadline_ms),
-                sign,
-            )
+            .post_transfer(ObjectAuthorityRequest::Prepare(request), deadline_ms, sign)
             .await?;
         let grant = match prepare {
             SharedObjectPrepare::Verified { object } => return exact(request, object),
@@ -87,11 +83,7 @@ impl SharedObjectClient {
         let mut previous = None;
         loop {
             let status = self
-                .post(
-                    ObjectAuthorityRequest::Complete(request),
-                    Some(deadline_ms),
-                    sign,
-                )
+                .post_transfer(ObjectAuthorityRequest::Complete(request), deadline_ms, sign)
                 .await?;
             match status {
                 SharedObjectStatus::Verified { object } => return exact(request, object),
@@ -186,6 +178,36 @@ impl SharedObjectClient {
                 Ok(SnapshotPublication::Refused)
             }
             Err(error) => Err(error),
+        }
+    }
+
+    /// Prepare and complete reconcile the same exact object on retry. The
+    /// provider upload consumes its source once and stays outside this loop.
+    async fn post_transfer<R: DeserializeOwned>(
+        &self,
+        request: ObjectAuthorityRequest<'_>,
+        deadline_ms: u64,
+        sign: &(impl Fn(&[u8]) -> Result<[u8; 64]> + Sync),
+    ) -> Result<R> {
+        let mut delays_ms = [25, 50, 100, 200, 400, 800].into_iter();
+        loop {
+            match self.post(request, Some(deadline_ms), sign).await {
+                Err(BackupTransportError::Protocol(error))
+                    if matches!(
+                        error.code,
+                        ErrorCode::RetryLater | ErrorCode::OutcomeUnknown
+                    ) =>
+                {
+                    let Some(delay_ms) = delays_ms.next() else {
+                        return Err(error.into());
+                    };
+                    if now_ms()?.saturating_add(delay_ms) >= deadline_ms {
+                        return Err(BackupTransportError::Timeout);
+                    }
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                }
+                result => return result,
+            }
         }
     }
 

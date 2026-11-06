@@ -15,6 +15,8 @@ from support import CHUNK, OperationError, decode_json, require, stable
 
 
 RESTORE_REFUSALS = {
+    b"native backup service error: RetryLater": "shared_service_retry_later",
+    b"native backup service error: OutcomeUnknown": "shared_service_outcome_unknown",
     b"invalid restore client native metadata": "client_native_metadata",
     b"invalid restore client mutation log root": "client_mutation_log_metadata",
     b"invalid restore run client page": "client_native_page",
