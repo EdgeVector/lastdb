@@ -394,7 +394,4 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
     blocked.next().is_none().then(|| first.schema.name.clone())
 }
 
-// ---------------------------------------------------------------------------
-// Identity + native index + history + record — shared handler bodies
-// ---------------------------------------------------------------------------
 // lint:file-size-ok moved verbatim from exec.rs; cohesive unit, split further in a later pass

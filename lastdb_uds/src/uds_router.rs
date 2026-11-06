@@ -86,9 +86,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `15` (2026-10-31) removes the owner-only routes that no current home
 /// serves: the drain, the unresolved-count read, the key repair,
 /// `POST /api/db/alternate-keys`, `POST /api/db/repair-hashrange-key-fields`,
-/// `POST /api/db/clear-history`, `POST /api/storage/schema`,
+/// `POST /api/storage/schema`,
 /// `GET /api/storage/schemas`, `POST /api/aggregate/repair`,
-/// `POST /api/aggregate/finalize`, the history read and the record read.
+/// `POST /api/aggregate/finalize`, and the record read.
 /// `POST /api/mutation` no longer accepts the `aggregate_set` key (the home
 /// already refused it), and the `atomic_aggregate_set_v1` and
 /// `alternate_key_changes_v1` capabilities are gone. No other app-socket

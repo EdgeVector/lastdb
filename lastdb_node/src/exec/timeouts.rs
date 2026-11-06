@@ -187,8 +187,8 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::SyncByteBackupV2Connect
         | DataRoute::SyncSharedSnapshot
         | DataRoute::DeclareSchema
-        // The drop releases every record, history entry and alternate entry
-        // of the schema in bounded batches before it removes the schema.
+        // The drop releases the schema's records and dependent entries
+        // in bounded batches before it removes the schema.
         | DataRoute::DropSchema => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),

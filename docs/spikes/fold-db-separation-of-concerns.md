@@ -352,7 +352,7 @@ The engine list is a subset of the `schema_service_core` list:
 | PR | Change | Done when |
 |---|---|---|
 | 5a | Move the fetch code out of `schema::types::field` (`variant::read*`, `filter_utils::fetch*`) into the engine query layer. | `schema` has no reference to `storage`, `db_operations`, or `fold_db_core`. |
-| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. `record::history_event_memo` moves to the engine. | `record` and `crypto` have no engine reference. |
+| 5b | Cut the small model edges: `crypto::content_key_proof` moves to the engine. | `record` and `crypto` have no engine reference. |
 | 5c | Split the backup planner: `plan_objects(&inventory, &policy)` in the model; file list, `job.json` writes, and request ids in the engine. Do the same split for the mutation write plan (`write_preparation.rs` and its commit type). | The pack rule runs on a file list without a store. |
 | 5d | Create `lastdb_model` with `record`, `schema::types`, the mutation type, key values, `canonical`, `kind_partition`, `json_order`, and the codecs. Its manifest has `uuid` without `v4`, `chrono` without `clock` and `now`, and no `tokio`, `reqwest`, or `laststore`. Its `clippy.toml` uses the full `schema_service_core` list. | A CI job runs `cargo check -p lastdb_model` alone, and the job passes. |
 | 5e | `lastdb_host` uses `lastdb_model` for its 33 `schema::types` references. | |
@@ -450,8 +450,6 @@ rg -o --no-filename 'crate::[a-z_]+' schema | sort | uniq -c | sort -rn
 | `memory_budget/env_parse.rs:87` | `PERCENT` | `OnceLock` |
 | `resident/warm_bytes.rs:17` | `CORE_WARM_BYTES_IN_FORCE` | `OnceLock` |
 | `record/size_limit.rs:55` | `EFFECTIVE_LIMIT` | `OnceLock` |
-| `record/history_event_memo.rs:46` | `MEMO` | `OnceLock<Mutex<..>>` |
-| `record/history_event_memo.rs:34` | `NEXT` | `AtomicU64` |
 | `db_operations/conflict_operations.rs:83` | `DISABLED` | `OnceLock` |
 | `db_operations/conflict_operations.rs:135` | `COUNTER` | `AtomicU64` |
 | `db_operations/search_index/queue_policy.rs:13` | `CLI_ENABLED` | `AtomicBool` |

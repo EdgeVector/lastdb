@@ -633,9 +633,8 @@ condition raises `CasConflictError` with `.schema`, `.key`, `.expected` and
 `.actual`; re-read and recompute the complete record before a new attempt.
 
 `lastdb mutate --request-file request.json` submits the same native JSON grammar.
-`lastdb history ... restore ID --request-file request.json` restores an archived
-field only within that complete record. File puts and removals also take
-`--request-file`; fetch remains a read by schema and key.
+To read the record and its file together, use `lastdb get` by schema and
+key with `--hydrate`.
 
 ## Typed errors
 

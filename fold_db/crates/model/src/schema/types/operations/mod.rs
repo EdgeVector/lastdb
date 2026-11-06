@@ -217,7 +217,7 @@ pub enum MutationType {
     Create,
     Replace,
     Delete,
-    /// Delete and release retained history, including that of a deleted record.
+    /// Delete with a revision condition that can match an applied delete.
     Purge,
 }
 
