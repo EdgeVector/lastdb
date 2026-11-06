@@ -13,17 +13,6 @@ use std::sync::Arc;
 
 use super::FoldDB;
 
-/// What one record holds of a file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RecordFileState {
-    /// No live record at the key.
-    NoRecord,
-    /// A live record without a file.
-    NoFile,
-    /// A live record with this file.
-    File(FileMarker),
-}
-
 impl FoldDB {
     /// Seal `plaintext` under the account key for a `put-blob` write. The
     /// returned file write carries the marker and the sealed row; the record
@@ -37,23 +26,6 @@ impl FoldDB {
         self.db_ops()
             .records()
             .seal_record_file(plaintext, name, media_type)
-    }
-
-    /// The file state of the record at `key`, and its storage key.
-    pub async fn record_file_state(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-    ) -> Result<(String, RecordFileState), FoldDbError> {
-        let (record_key, record) = self.read_file_record(schema_name, key).await?;
-        let state = match record {
-            Some(record) if record.is_live() => match &record.file {
-                Some(file) => RecordFileState::File(file.clone()),
-                None => RecordFileState::NoFile,
-            },
-            _ => RecordFileState::NoRecord,
-        };
-        Ok((record_key, state))
     }
 
     async fn read_file_record(
