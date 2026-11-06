@@ -102,6 +102,16 @@ impl PackRuntime {
         }
         Ok(())
     }
+
+    pub(crate) fn require_staged_shared_rejoin(&self) -> StorageResult<()> {
+        self.require_direct_shared_home()?;
+        if self.serving.load(Ordering::Acquire) {
+            return Err(shared_layout::invalid(
+                "shared rejoin requires a staged home",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// All namespaces on one native disk home.

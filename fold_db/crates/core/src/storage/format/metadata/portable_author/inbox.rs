@@ -10,9 +10,9 @@ use lastdb_model::portable_replay::{
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-const INDEX_PREFIX: &str = "portable-inbox-index:";
+pub(super) const INDEX_PREFIX: &str = "portable-inbox-index:";
 const RANGE_PREFIX: &str = "portable-inbox:";
-const LAST_APPLIED_PEER_KEY: &str = "portable-last-applied-peer";
+pub(super) const LAST_APPLIED_PEER_KEY: &str = "portable-last-applied-peer";
 const MAX_QUEUED_RANGES: usize = 4;
 // A complete accepted range has its own aggregate sealed-file allowance.
 const MAX_APPLIED_RANGES: usize = 1;
@@ -356,7 +356,7 @@ pub(super) fn decode_cursor(bytes: Option<&[u8]>) -> StorageResult<StreamProgres
     Ok(cursor)
 }
 
-fn decode_index(stream: &StreamId, bytes: Option<&[u8]>) -> StorageResult<Vec<String>> {
+pub(super) fn decode_index(stream: &StreamId, bytes: Option<&[u8]>) -> StorageResult<Vec<String>> {
     let index: Vec<String> = bytes
         .map(serde_json::from_slice)
         .transpose()
@@ -387,6 +387,6 @@ pub(super) fn progress_key(stream: &StreamId) -> String {
 fn index_key(stream: &StreamId) -> String {
     format!("{INDEX_PREFIX}{stream}")
 }
-fn range_key(name: &str) -> String {
+pub(super) fn range_key(name: &str) -> String {
     format!("{RANGE_PREFIX}{name}")
 }

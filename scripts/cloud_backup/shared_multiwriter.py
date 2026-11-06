@@ -1,9 +1,12 @@
-"""Exercise five remote writer tails and a fresh device joining from restore."""
+"""Exercise remote writer tails, a returning writer, and a fresh device."""
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
+from pathlib import Path
 import shutil
+import stat
 import time
 
 import native_records
@@ -21,6 +24,8 @@ LOCAL_SCHEMA = "CloudProofLocalOnly"
 LOCAL_RECORD = {"id": "local-only"}
 SNAPSHOT_WRITE = "during-snapshot"
 PEER_TAIL = "after-snapshot-peer"
+REJOIN_PENDING = "returning-pending"
+REJOIN_NEXT = "returning-next"
 
 
 def empty_home(operation, name):
@@ -180,6 +185,70 @@ def publish_peer_tail(operation, node, writer):
     node.stop()
     through = operation.summary["peer_tail_through"] + 1
     operation.summary["peer_after_replacement_through"] = operation.push(node, writer, through)
+
+
+def rejoin_records(operation):
+    return {REJOIN_PENDING: operation.record(REJOIN_PENDING, "authored-before-rejoin"),
+            REJOIN_NEXT: operation.record(REJOIN_NEXT, "authored-after-rejoin")}
+
+
+def rejoin_data_directory(path):
+    metadata = path.lstat()
+    require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.getuid()
+            and metadata.st_mode & 0o022 == 0, "shared_returning_data_directory")
+    return metadata
+
+
+def rejoin_writer(operation, node, writer, local_file):
+    operation.summary["stage"] = "author-pending-returning-writer"
+    records = rejoin_records(operation)
+    node.start()
+    missed, = node.call("/api/queries/batch", {"queries": [{
+        "schema_name": operation.schema, "filter": {"HashKey": PEER_TAIL}, "limit": 2, "offset": 0,
+    }]})["results"]
+    require(missed["status"] == 200 and missed["response"]["ok"] is True
+            and missed["response"]["returned_count"] == 0 and missed["response"]["results"] == [],
+            "shared_returning_writer_missed_peer_tail")
+    pending = native_records.key(REJOIN_PENDING)
+    durable_batch(node, [native_records.create(operation.schema, pending, records[REJOIN_PENDING])])
+    digest = operation.attach(node, records[REJOIN_PENDING], REJOIN_PENDING)
+    node.stop()
+
+    operation.summary["stage"] = "rejoin-returning-writer"
+    data = node.home / "data"
+    original = rejoin_data_directory(data)
+    through = operation.summary["snapshot_command_uploaded_through"] + 2
+    reply = operation.writer(node, writer, "rejoin", "--batches", "2").splitlines()
+    prefix = b"Shared writer rejoined. Previous data is at "
+    require(len(reply) == 3 and reply[:2] == [f"Accepted shared writer position {through}".encode(),
+                                              b"Shared writer caught up"]
+            and reply[2].startswith(prefix), "shared_returning_writer_accepted_pending_batch")
+    previous = Path(reply[2][len(prefix):].decode())
+    require(previous != data and previous.name == "data" and previous.is_relative_to(node.home)
+            and previous.resolve(strict=True) == previous, "shared_returning_previous_data_path")
+    retained, active = rejoin_data_directory(previous), rejoin_data_directory(data)
+    require((retained.st_dev, retained.st_ino) == (original.st_dev, original.st_ino)
+            and (active.st_dev, active.st_ino) != (original.st_dev, original.st_ino),
+            "shared_returning_previous_data_retained")
+
+    operation.summary["stage"] = "verify-returning-writer-and-append"
+    node.start()
+    local, = native_records.read_records(node, LOCAL_SCHEMA, [native_records.key(LOCAL_RECORD["id"])])
+    require(local["fields"] == LOCAL_RECORD, "shared_returning_private_record")
+    node.verify_file(local_file)
+    rows = native_records.read_records(node, operation.schema, [pending, native_records.key(PEER_TAIL)])
+    require([row["fields"] for row in rows] == [records[REJOIN_PENDING], peer_tail_record(operation)],
+            "shared_returning_pending_and_remote_records")
+    node.verify_file({"schema": operation.schema, "records": [{"id": REJOIN_PENDING}],
+                      "file_bytes": len(operation.payload(REJOIN_PENDING)), "file_sha256": digest})
+    durable_batch(node, [native_records.create(operation.schema, native_records.key(REJOIN_NEXT),
+                                               records[REJOIN_NEXT])])
+    node.stop()
+    operation.push(node, writer, through + 1)
+    operation.summary.update(returning_writer_stream=writer["source_stream"],
+                             returning_writer_pending_through=through,
+                             returning_writer_next_through=through + 1,
+                             returning_writer_private_file=True, returning_writer_previous_data=True)
 
 
 def pull(operation, node, writer):

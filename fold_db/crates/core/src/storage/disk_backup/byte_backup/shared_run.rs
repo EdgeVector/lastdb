@@ -2,7 +2,9 @@
 
 use super::{invalid, run_capture, run_source::RunSource, PackRuntime, RunBackupProfile};
 use crate::storage::disk_backup::NativeCloudWorkGuard;
+use crate::storage::disk_pack::{map, run_blocking};
 use crate::storage::error::{StorageError, StorageResult};
+use laststore::disk_run::home::CapturedRunHome;
 use std::fs::File;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -15,6 +17,38 @@ pub struct SharedRunCapture {
 }
 
 impl PackRuntime {
+    /// Retain the original main owner lock through a stopped data-directory exchange.
+    pub fn retain_rejoin_source_owner(&self) -> StorageResult<Arc<File>> {
+        self.require_direct_shared_home()?;
+        self.physical.home.retain_owner_lock().map_err(map)
+    }
+
+    /// Hold only the device-private generation for an offline rejoin.
+    pub async fn capture_rejoin_private(
+        self: &Arc<Self>,
+        destination: &Path,
+    ) -> StorageResult<CapturedRunHome> {
+        self.require_direct_shared_home()?;
+        let gate = self.enter_write().await;
+        self.require_initialized()?;
+        if self.failed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(invalid("shared rejoin writer needs recovery"));
+        }
+        let private = self
+            .physical
+            .private_home()
+            .cloned()
+            .ok_or_else(|| invalid("shared rejoin private home"))?;
+        let destination = destination.to_path_buf();
+        let holds = shared_holds(self);
+        run_blocking(move || {
+            let _gate = gate;
+            require_no_shared_holds(&holds)?;
+            private.capture_files(&destination).map_err(map)
+        })
+        .await
+    }
+
     /// Select logical positions and hold their exact files under one write barrier.
     pub(crate) async fn freeze_shared_checkpoint<T, E>(
         self: &Arc<Self>,
@@ -97,12 +131,27 @@ impl PackRuntime {
 }
 
 fn shared_hold(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
+    shared_holds(runtime).join(id.to_string())
+}
+
+fn shared_holds(runtime: &PackRuntime) -> PathBuf {
     runtime
         .physical
         .path()
         .join("cloud-shared")
         .join(super::HOLDS_DIR)
-        .join(id.to_string())
+}
+
+fn require_no_shared_holds(path: &Path) -> StorageResult<()> {
+    let mut entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if entries.next().transpose()?.is_some() {
+        return Err(invalid("finish the shared snapshot before rejoining"));
+    }
+    Ok(())
 }
 
 fn open_capture(

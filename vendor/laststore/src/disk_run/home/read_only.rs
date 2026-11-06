@@ -89,6 +89,7 @@ impl RunRead {
         }
         rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
             .map_err(|_| Error::Config("disk run snapshot: another owner holds the home".into()))?;
+        super::owner::require_path(&root, &lock)?;
         let identity = read_descriptor(&root)?;
         let manifest = Arc::new(match maximum {
             Some(bytes) => Manifest::load_paths_bounded(

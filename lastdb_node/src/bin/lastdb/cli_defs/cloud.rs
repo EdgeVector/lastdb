@@ -107,6 +107,12 @@ pub(crate) enum SharedWriterAction {
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
         batches: u16,
     },
+    /// Upload pending mutations and replace a stopped writer's stale shared data.
+    Rejoin {
+        /// Maximum pending batches to drain before staging the replacement.
+        #[arg(long, default_value_t = 32, value_parser = clap::value_parser!(u16).range(1..=32))]
+        batches: u16,
+    },
     /// Fetch and apply a bounded number of verified peer ranges.
     Pull {
         #[arg(long)]

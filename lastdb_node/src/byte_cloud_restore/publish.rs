@@ -140,7 +140,7 @@ fn install_identity(home: &Path, keys: &RecoveryKeys) -> Result<()> {
     Ok(())
 }
 
-fn sync_owned_tree(root: &Path, depth: usize) -> Result<()> {
+pub(crate) fn sync_owned_tree(root: &Path, depth: usize) -> Result<()> {
     if depth > 12 {
         return Err(RestoreError::Limit("destination depth"));
     }
