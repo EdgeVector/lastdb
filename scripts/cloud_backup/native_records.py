@@ -67,8 +67,8 @@ def delete(schema, row):
             "expected": {"type": "revision", "revision": row["revision"]}}
 
 
-def put_file(node, schema, record, payload):
-    row = read_records(node, schema, [key(record["id"])])[0]
+def put_file(node, schema, record, payload, *, target=None):
+    row = read_records(node, schema, [target if target is not None else key(record["id"])])[0]
     require(row["fields"] == record, "file_write_complete_preimage")
     request = replace(schema, row, record)
     # The file executor issues the replacement marker from the supplied bytes.

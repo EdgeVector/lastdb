@@ -26,6 +26,7 @@ RESTORE_REFUSALS = {
     b"restore protocol validation failed": "protocol",
     b"restore source unavailable: byte transport": "byte_transport",
     b"restore source unavailable: object grant": "object_grant",
+    b"restore source unavailable: shared recovery device signature refused": "shared_device_signature_refused",
 }
 PROOF_STAGES = {name.encode(): name for name in (
     "native_reader", "admission", "validation", "restore", "profile", "physical_root",

@@ -6,6 +6,8 @@ name: Cloud backup recovery
 # (scripts/cloud_backup/baseline.py), because a client restores only a
 # snapshot of its own home format.
 # A baseline run also points the two protected inputs at the new baseline.
+# The manual shared-recovery mode uses a separate preadmitted two-device DEV
+# scope. It never moves a V2 baseline or asks for cloud cleanup.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.
 on:
@@ -37,9 +39,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; baseline = approved format-specific baseline; writer-check = read-only credential metadata."
+        description: "recovery = full operation; baseline = approved format-specific baseline; writer-check = read-only credential metadata; shared-recovery = preadmitted shared DEV operation."
         type: choice
-        options: [recovery, baseline, writer-check]
+        options: [recovery, baseline, writer-check, shared-recovery]
         default: recovery
 
 permissions:
@@ -70,6 +72,7 @@ jobs:
   ownership-readback:
     name: Read real CI ownership records
     needs: recipe-syntax
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'shared-recovery'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -116,7 +119,7 @@ jobs:
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode != 'writer-check'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'recovery' || inputs.mode == 'baseline')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -301,3 +304,71 @@ jobs:
           python3 scripts/cloud_backup/baseline_inputs.py \
             --receipt "$RUNNER_TEMP/cloud-ci-baseline/ci-baseline.json" \
             --summary "$RUNNER_TEMP/cloud-ci-baseline/summary.json"
+
+  recover-shared-dev:
+    name: Shared DEV snapshot and recovery
+    needs: [recipe-syntax, build-client]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'shared-recovery'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+      CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build-client.outputs.artifact }}
+          path: ${{ runner.temp }}/cloud-backup-client
+      - name: Unpack the exact client
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          CLIENT_BIN_DIR="$RUNNER_TEMP/cloud-backup-bin"
+          mkdir -m 700 "$CLIENT_BIN_DIR"
+          tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$CLIENT_BIN_DIR" lastdb lastdbd
+          sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+          printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
+      - name: Capture one checkpoint, upload two tails, publish the cut and restore
+        env:
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_SHARED_SCOPE }}
+          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS }}
+        run: |
+          python3 scripts/cloud_backup/shared_recovery.py \
+            --bin-dir "$CLIENT_BIN_DIR" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --output "$RUNNER_TEMP/cloud-shared-recovery"
+      - name: Retain the value-free shared recovery summary
+        if: always()
+        id: shared-receipt
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-shared-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cloud-shared-recovery/summary.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Record summary artifact provenance
+        if: always() && steps.shared-receipt.outputs.artifact-id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.shared-receipt.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.shared-receipt.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.shared-receipt.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n[Shared recovery summary](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Source: %s; artifact ID: %s; ZIP SHA256: %s\n\n' "$SOURCE_COMMIT" "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+              --jq '"Shared recovery artifact expires: " + .expires_at'
+          } >> "$GITHUB_STEP_SUMMARY"
