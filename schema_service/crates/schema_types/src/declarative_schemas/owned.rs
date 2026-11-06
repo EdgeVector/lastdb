@@ -1,9 +1,7 @@
 //! Owned app declarations: the one normalization of an app's schema.
 //!
-//! The LastDB node runs this when an app declares a schema, and the Schema
-//! Service catalog feed runs it on each `lastdb-app.json` schema entry of a
-//! listed app. One implementation gives one identity hash for one
-//! declaration, so the catalog and the node never disagree about a schema.
+//! The LastDB node runs this when an app declares a schema. One
+//! implementation gives one identity hash for one declaration.
 
 use serde_json::Value;
 
@@ -129,22 +127,6 @@ impl DeclarativeSchemaDefinition {
     }
 }
 
-/// One `lastdb-app.json` `schemas` entry, parsed as the node's declare route
-/// parses it. `retention` is node-local policy that never reaches the schema,
-/// so it is dropped first, as `lastdb app check` does.
-///
-/// # Errors
-/// The entry is not a schema declaration.
-pub fn manifest_schema_definition(entry: &Value) -> Result<DeclarativeSchemaDefinition, String> {
-    let mut entry = entry.clone();
-    if let Some(object) = entry.as_object_mut() {
-        object.remove("retention");
-    }
-    let mut schema = schema_from_value(entry).map_err(|error| error.to_string())?;
-    schema.normalize_wire();
-    Ok(schema)
-}
-
 /// Parse one schema definition from a JSON value.
 ///
 /// Every caller in the Schema Service Lambda parses a definition from a
@@ -157,22 +139,4 @@ pub fn manifest_schema_definition(entry: &Value) -> Result<DeclarativeSchemaDefi
 #[inline(never)]
 pub fn schema_from_value(value: Value) -> Result<DeclarativeSchemaDefinition, serde_json::Error> {
     serde_json::from_value(value)
-}
-
-/// The definition a fresh install of `app_id`'s declaration loads: the owned
-/// normalization, then field hashes computed from the declaration alone.
-///
-/// # Errors
-/// Any error of [`DeclarativeSchemaDefinition::normalize_owned_declaration`],
-/// or an owned or definition check that fails after the field hashes.
-pub fn owned_catalog_definition(
-    app_id: &str,
-    mut schema: DeclarativeSchemaDefinition,
-) -> Result<DeclarativeSchemaDefinition, String> {
-    schema.normalize_owned_declaration("app_id", app_id)?;
-    schema.reset_field_hashes();
-    schema.ensure_field_hashes();
-    schema.validate_runtime_definition()?;
-    schema.validate_owned_schema()?;
-    Ok(schema)
 }
