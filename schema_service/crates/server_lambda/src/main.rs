@@ -28,7 +28,6 @@
 #![allow(clippy::result_large_err)]
 
 mod api_key;
-mod catalog_feed;
 mod cors;
 mod dispatch;
 mod http;

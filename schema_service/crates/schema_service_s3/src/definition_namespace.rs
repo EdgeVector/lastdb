@@ -48,7 +48,6 @@ impl S3BlobPersistence {
         let is_definition = matches!(
             key,
             "definitions.json"
-                | "catalog_feed.json"
                 | "schemas.json"
                 | "canonical_fields.json"
                 | "near_misses.json"

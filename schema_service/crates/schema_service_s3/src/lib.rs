@@ -5,7 +5,6 @@
 //! ```text
 //! s3://{bucket}/
 //! ├── definitions.json          # schemas, canonical fields and declarations
-//! ├── catalog_feed.json         # catalog feed state and catalog records
 //! ├── near_misses.json          # Phase C shadow audit log, keyed by registration_id
 //! ```
 //!
@@ -26,7 +25,6 @@
 //! sole arbiter of who wins a race. Atomic definitions require a fresh
 //! namespace; old two-blob stores remain untouched until explicit conversion.
 
-mod catalog_feed;
 mod definition_namespace;
 mod definitions;
 mod per_record;
