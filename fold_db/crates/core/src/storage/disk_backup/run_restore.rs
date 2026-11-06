@@ -12,7 +12,7 @@ use cloud_backup_protocol::NativeRoot;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::path::Path;
 
-pub use node::{validate_restored_node, RunNodeGuard};
+pub use node::{validate_replayed_shared_node, validate_restored_node, RunNodeGuard};
 pub use replay::{verify_replayed, MutationReplay};
 
 pub struct RunRestoreFile {

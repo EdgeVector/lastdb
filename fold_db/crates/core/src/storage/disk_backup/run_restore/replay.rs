@@ -13,7 +13,7 @@ pub struct MutationReplay {
 impl MutationReplay {
     pub fn open(data: &Path, key: &[u8; 32], anchor: &LogAnchor) -> StorageResult<Self> {
         files::directory(data)?;
-        files::require_root_members(data)?;
+        files::require_root_members(data, false)?;
         files::node_marker(data)?;
         let node = files::regular(&data.join(NODE_MARKER), true)?;
         node.try_lock()

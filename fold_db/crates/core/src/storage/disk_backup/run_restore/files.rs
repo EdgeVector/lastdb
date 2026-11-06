@@ -92,7 +92,9 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     Ok(crate::storage::disk_pack::run_admission::profile(&bytes))
 }
 
-pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
+pub(super) fn require_root_members(root: &Path, private: bool) -> StorageResult<()> {
+    let allowed = [NODE_MARKER, run_node::RUN_DIR, run_node::CAS_DIR];
+    let allowed_count = allowed.len() + usize::from(private);
     let mut names = BTreeSet::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -100,13 +102,16 @@ pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore name"))?;
-        if ![NODE_MARKER, run_node::RUN_DIR, run_node::CAS_DIR].contains(&name.as_str())
-            || !names.insert(name)
-        {
+        let admitted =
+            allowed.contains(&name.as_str()) || (private && name == run_node::PRIVATE_DIR);
+        if !admitted || !names.insert(name) {
             return Err(invalid("run restore wrapper closure"));
         }
     }
-    if names.len() != 3 {
+    if private && !names.contains(run_node::PRIVATE_DIR) {
+        return Err(invalid("restored private run home is missing"));
+    }
+    if names.len() != allowed_count {
         return Err(invalid("run restore wrapper closure"));
     }
     Ok(())
@@ -241,7 +246,7 @@ pub(super) fn backup_profile(
     Ok(profile)
 }
 
-fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResult<RunBackupHome> {
+pub(super) fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResult<RunBackupHome> {
     let path = root.join(name);
     let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
     let (current_sha256, current_bytes) = inspect(&path.join(CURRENT))?;
