@@ -50,7 +50,6 @@ pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<()
         query.channel,
         query.index,
         query.trust_key,
-        query.lastdb_version,
     )?;
     if query.json {
         if let Some(entry) = &resolution.list_entry {
@@ -122,7 +121,6 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
                 channel,
                 index,
                 trust_key,
-                lastdb_version,
             },
         dir,
         force,
@@ -142,7 +140,6 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
             channel.as_deref(),
             index.as_deref(),
             trust_key.as_deref(),
-            lastdb_version.as_deref(),
         )?;
         let install_dir = dir
             .clone()
@@ -181,7 +178,6 @@ pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String
                 channel,
                 index,
                 trust_key,
-                lastdb_version,
             },
         dir,
         json,
@@ -196,7 +192,6 @@ pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String
             channel.as_deref(),
             index.as_deref(),
             trust_key.as_deref(),
-            lastdb_version.as_deref(),
         )?;
         let install_dir = dir
             .clone()

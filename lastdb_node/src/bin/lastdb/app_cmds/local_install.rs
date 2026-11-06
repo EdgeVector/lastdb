@@ -24,7 +24,7 @@ pub(crate) fn app_install_local(
 
     check_dir_matches_app_count(&install.dir, &install.app_ids)?;
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-    let (node, node_source) = registry_index::running_lastdb_version(None, &socket);
+    let (node, node_source) = registry_index::running_lastdb_version(&socket);
     let versions = registry_index::ContractVersions {
         api_version: version::CURRENT_API_VERSION,
         min_supported_api_version: version::MIN_SUPPORTED_API_VERSION,

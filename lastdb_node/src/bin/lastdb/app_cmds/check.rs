@@ -204,19 +204,12 @@ pub(crate) fn resolve_by_proof(
     channel: Option<&str>,
     index: Option<&str>,
     trust_key: Option<&str>,
-    lastdb_version: Option<&str>,
 ) -> Result<lastdb_node::app_registry_index::Resolution, String> {
     use lastdb_node::app_registry_index as registry_index;
     let channel = channel.unwrap_or(registry_index::DEFAULT_CHANNEL);
     let location = registry_index::IndexLocation::resolve(index)?;
     let (trust, trust_source) = registry_index::resolve_list_trust_key(trust_key)?;
     warn_trust_override(&trust_source);
-    if lastdb_version.is_some() {
-        return Err(
-            "--lastdb-version is refused: registry resolve reads the running node's interface"
-                .into(),
-        );
-    }
     let (node, node_source, versions) = registry_index::running_node(socket);
     let node_version = registry_index::NodeVersion {
         version: &node,
