@@ -1,4 +1,4 @@
-//! Registry snapshot fetch and import calls.
+//! Registry snapshot fetch.
 
 use super::*;
 
@@ -43,40 +43,5 @@ impl SchemaServiceClient {
             })
         })
         .await
-    }
-
-    /// Push a `SnapshotEnvelope` via `POST /v1/snapshot/import`.
-    ///
-    /// Dev-server-only on the server side (the Lambda binary does not
-    /// mount this route). Useful for tests and for tooling that needs to
-    /// seed a local dev binary from a saved JSON file.
-    ///
-    /// Does not retry: import is a write that mutates server state,
-    /// and a partial-success retry could double-clear trees that the
-    /// caller already filled in another path.
-    pub async fn import_snapshot(
-        &self,
-        envelope: &SnapshotEnvelope,
-    ) -> FoldDbResult<SnapshotImportReport> {
-        let url = format!("{}/v1/snapshot/import", self.base_url);
-        // trace-egress: propagate (schema_service /v1/snapshot/import)
-        let response =
-            observability::propagation::inject_w3c(self.client.post(&url).json(envelope))
-                .send()
-                .await
-                .map_err(|e| {
-                    FoldDbError::Config(format!("Failed to submit snapshot import to {url}: {e}"))
-                })?;
-        let status = response.status();
-        if status.is_success() {
-            response.json::<SnapshotImportReport>().await.map_err(|e| {
-                FoldDbError::Config(format!("Failed to parse snapshot import response: {e}"))
-            })
-        } else {
-            let body = response_body_text(response).await;
-            Err(FoldDbError::Config(format!(
-                "Snapshot import to {url} returned {status}: {body}"
-            )))
-        }
     }
 }

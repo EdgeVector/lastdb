@@ -44,10 +44,7 @@ use std::time::Duration;
 /// returns control before the whole operation expires.
 pub const SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-use schema_service_core::snapshot::{
-    AppArtifact, AppCodeSignature, AppMetadata, AppRecord, AppTier, SnapshotEnvelope,
-    SnapshotImportReport,
-};
+use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_core::types::{
     AddSchemaRequest, AddSchemaResponse, DescriptiveNameConflict, SchemaEnvelope,
     SchemaResolveProposal, SchemaResolveRequest, SchemaResolveResponse,
@@ -70,48 +67,6 @@ pub fn validate_shared_surface_request_pub(
     request: &SharedSurfacePublishAttachRequest,
 ) -> Result<(), String> {
     validate_shared_surface_request(request).map_err(|e| e.to_string())
-}
-
-/// `GET /v1/apps/{app_id}` response. The persisted [`AppRecord`] fields
-/// plus a derived `revoked` flag (true when the owner's dev pubkey is on
-/// the schema service's offline denylist).
-///
-/// Public lookup-by-known-id, no auth — see
-/// `exemem-workspace/docs/designs/app_identity_node_as_verifier.md` Step 1.
-///
-/// [`AppRecord`]: schema_service_core::snapshot::AppRecord
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppLookup {
-    pub app_id: String,
-    pub owner_dev_pubkey: String,
-    pub metadata: AppMetadata,
-    /// Latest published SemVer. Older schema_service deployments/records omit
-    /// this and deserialize as `0.0.0`.
-    #[serde(default = "schema_service_core::snapshot::default_app_version")]
-    pub version: String,
-    pub registered_at: String,
-    /// Lifecycle tier (`sandbox` / `live`). Defaults to `live` when an
-    /// older schema_service omits the field, matching the registry's own
-    /// back-compat default.
-    #[serde(default)]
-    pub tier: AppTier,
-    /// macOS code-signature requirement declared in the app's manifest at
-    /// publish time (app-isolation I3b). `None` when the app has not
-    /// declared one, or when an older schema_service omits the field.
-    #[serde(default)]
-    pub code_signature: Option<AppCodeSignature>,
-    /// Source checkout pointer for source-first app installs.
-    #[serde(default)]
-    pub source: Option<String>,
-    /// Signed release tarball pointer.
-    #[serde(default)]
-    pub artifact: Option<AppArtifact>,
-    /// Cross-app schemas/outputs the app declares it consumes
-    /// ([`AppRecord::uses`] — transform-system-epic Phase E). Empty when the
-    /// app declares none, or when an older schema_service omits the field.
-    #[serde(default)]
-    pub uses: Vec<String>,
-    pub revoked: bool,
 }
 
 /// Outcome of `POST /v1/schemas`. Either the server accepted the proposal
