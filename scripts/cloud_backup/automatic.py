@@ -1,5 +1,6 @@
 """Automatic snapshot, real mutation log, restart and source-free DEV recovery."""
 
+import copy
 import hashlib
 import json
 import time
@@ -79,16 +80,18 @@ class Automatic:
                              observe=stopped.source.observe_accepted, temporary=temporary)
         return manual, final
 
-    def run(self):
+    def run(self, source=None):
         operation = self.operation
-        operation.summary["stage"] = "automatic-connect"
-        source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True,
-                                 ci_stream_id=operation.ci_stream_id, terminal_r2=operation.terminal_r2),
-                        self.baseline, operation.args.source, operation.summary)
-        operation.node = source.node
-        source.node.start()
-        source.node.verify_records(self.baseline)
-        source.connect(operation.api_key)
+        if source is None:
+            operation.summary["stage"] = "automatic-connect"
+            source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True,
+                                     ci_stream_id=operation.ci_stream_id, terminal_r2=operation.terminal_r2),
+                            self.baseline, operation.args.source, operation.summary)
+            operation.node = source.node
+            source.node.start()
+            source.node.verify_records(self.baseline)
+            source.connect(operation.api_key)
+        initial = copy.deepcopy(source.expected)
         lifecycle = Lifecycle(source)
         lifecycle.seed()
         operation.summary["stage"] = "automatic-snapshot"
@@ -103,7 +106,7 @@ class Automatic:
         operation.summary["stage"] = "ttl-log-expiry"
         first_ttl = lifecycle.await_expiry(2)
         operation.summary["stage"] = "mutation-log"
-        source.write(self.baseline["schema"])
+        source.write(initial["schema"])
         temporary = PrefixRecords(source)
         minimums = temporary.write()
         written = minimums["both_deleted"]
@@ -153,7 +156,7 @@ class Automatic:
         dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
                                   "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
         replay = {"base": snapshot["last_accepted_backup"], "minimum": written, "prefixes": minimums}
-        base_restore = self.recover("base-recovery", self.baseline, snapshot["last_accepted_backup"],
+        base_restore = self.recover("base-recovery", initial, snapshot["last_accepted_backup"],
                                     lifecycle=lifecycle, initial=True, temporary=temporary)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
                                    lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)

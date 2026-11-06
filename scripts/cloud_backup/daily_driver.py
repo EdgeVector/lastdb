@@ -22,6 +22,7 @@ PER_PAGE, MAX_PAGES, MAX_CALLS = 100, 10, 80
 MAX_BODY = 2 * 1024 * 1024
 # The exact client build is a required earlier job; this job cannot start without it.
 RECOVERY_STEP = "Run automatic snapshots, mutation logs, restart and both recoveries"
+FRESH_V2_STEP = "Run Backup V2 recovery from a fresh generated source"
 STEPS = (RECOVERY_STEP, "Retain successful CI stream ownership",
          "Save durable CI ownership before this run ends")
 BASELINE_STEP = "Make, upload and restore a new fixed CI baseline"
@@ -163,6 +164,10 @@ def successful_job(api, run, now):
     require(isinstance(steps, list) and len(steps) <= 100, "invalid_real_recovery_steps")
     recovery = [step for step in steps if step.get("name") == RECOVERY_STEP]
     baseline = [step for step in steps if step.get("name") == BASELINE_STEP]
+    fresh_v2 = [step for step in steps if step.get("name") == FRESH_V2_STEP]
+    if (not recovery and len(fresh_v2) == 1 and fresh_v2[0].get("conclusion") == "success"):
+        # A fresh qualification does not exercise the protected pinned restore.
+        return None
     if (len(recovery) == 1 and recovery[0].get("conclusion") == "skipped"
             and len(baseline) == 1 and baseline[0].get("conclusion") == "success"):
         # A manual baseline move is not a recovery result. Look at older runs.
