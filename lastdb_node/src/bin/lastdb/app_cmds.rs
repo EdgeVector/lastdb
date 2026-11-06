@@ -122,9 +122,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
         }) => app_promote(
             &home, &manifest, env, schema_url, api_url, key_file, api_key,
         ),
-        AppCommand::Lifecycle(AppLifecycleCommand::Run { app_id, dir, args }) => {
-            app_run(&home, app_id, dir, args)
-        }
         AppCommand::Catalog(action) => app_catalog_command(&home, action),
     }
 }
