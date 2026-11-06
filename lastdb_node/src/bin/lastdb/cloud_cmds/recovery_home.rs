@@ -14,7 +14,7 @@ pub(super) mod files;
 mod native_registration;
 #[path = "recovery_home/seed_registration.rs"]
 mod seed_registration;
-use super::CloudCommand;
+use super::{CloudCommand, PrepareRecoveryArgs, RecoverCredentialsArgs};
 use files::{open_directory, read_private_file, FreshHome};
 
 const API_KEY_LIMIT: u64 = 4096;
@@ -22,22 +22,22 @@ const API_KEY_LIMIT: u64 = 4096;
 pub(super) fn handles(action: &CloudCommand) -> bool {
     matches!(
         action,
-        CloudCommand::PrepareRecoveryHome { .. }
+        CloudCommand::PrepareRecoveryHome(_)
             | CloudCommand::RecoverDevCredentialsHome { .. }
-            | CloudCommand::RecoverCredentialsHome { .. }
+            | CloudCommand::RecoverCredentialsHome(_)
     )
 }
 
 pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(), String> {
     match action {
-        CloudCommand::RecoverCredentialsHome {
+        CloudCommand::RecoverCredentialsHome(RecoverCredentialsArgs {
             into,
             env,
             expected_user_hash,
             identity_seed_stdin,
             invite_code_file,
             json,
-        } => {
+        }) => {
             if source.is_some() || !identity_seed_stdin {
                 return Err(
                     "recover-credentials-home requires seed stdin without --data-dir".into(),
@@ -51,12 +51,12 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
                 json,
             )
         }
-        CloudCommand::PrepareRecoveryHome {
+        CloudCommand::PrepareRecoveryHome(PrepareRecoveryArgs {
             into,
             env,
             api_key_stdin,
             json,
-        } => {
+        }) => {
             if !api_key_stdin {
                 return Err("prepare-recovery-home requires --api-key-stdin".into());
             }

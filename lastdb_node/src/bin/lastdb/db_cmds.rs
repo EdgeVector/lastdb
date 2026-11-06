@@ -60,12 +60,12 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
-        DbOfflineCommand::Recount {
+        DbOfflineCommand::Recount(ReplayCutoffArgs {
             execute,
             delete_cutoff_unix_secs,
             i_know_this_is_primary,
             json,
-        } => lastdb_node::offline_recount::recount_offline(
+        }) => lastdb_node::offline_recount::recount_offline(
             &lastdb_node::offline_recount::RecountArgs {
                 home,
                 execute,

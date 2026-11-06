@@ -40,14 +40,14 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
             .await
             .map_err(|e| e.to_string())?;
         match action {
-            ByteBackupCommand::InspectDependencies {
+            ByteBackupCommand::InspectDependencies(BackupDependenciesArgs {
                 stream,
                 generation,
                 commit,
                 commit_sha256,
                 json,
                 ..
-            } => {
+            }) => {
                 let scope = generation_scope(context.scope, generation);
                 let stream = Stream {
                     scope,
@@ -65,16 +65,16 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
                 .map_err(|_| "dependency inspection exceeded its time limit")??;
                 print(&report, json)
             }
-            ByteBackupCommand::Discover {
+            ByteBackupCommand::Discover(BackupListArgs {
                 generation,
                 cursor,
                 json,
                 ..
-            } => {
+            }) => {
                 let scope = generation_scope(context.scope, generation);
                 discover(&client, scope, cursor, json).await
             }
-            ByteBackupCommand::Restore {
+            ByteBackupCommand::Restore(BackupRestoreArgs {
                 stream,
                 generation,
                 commit,
@@ -83,7 +83,7 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
                 resume,
                 json,
                 ..
-            } => {
+            }) => {
                 let selection = Selection {
                     stream,
                     generation,

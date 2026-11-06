@@ -6,8 +6,12 @@ use super::*;
 mod record_list;
 pub(crate) use record_list::RecordListArgs;
 
+#[path = "cli_defs/admin.rs"]
+mod admin;
 #[path = "cli_defs/app.rs"]
 mod app;
+#[path = "cli_defs/backup.rs"]
+mod backup;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
 #[path = "cli_defs/db.rs"]
@@ -15,7 +19,9 @@ mod db;
 #[path = "cli_defs/schema.rs"]
 mod schema;
 
+pub(super) use admin::*;
 pub(super) use app::*;
+pub(super) use backup::*;
 pub(super) use cloud::*;
 pub(super) use db::*;
 pub(super) use schema::*;
@@ -62,9 +68,21 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Command {
+    /// Manage personal backups and restore an accepted recovery point.
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommand,
+    },
+    /// Diagnose, maintain, or recover a LastDB home.
+    Admin {
+        #[command(subcommand)]
+        action: AdminCommand,
+    },
     /// Publish a filtered shared DEV snapshot and upload the writer's queued changes.
+    #[command(hide = true)]
     Snapshot(SnapshotArgs),
     /// Field history policy, retained values, and recovery.
+    #[command(hide = true)]
     History(super::history_cmds::HistoryArgs),
     /// Show whether the local daemon socket is reachable.
     ///
@@ -76,11 +94,11 @@ pub(super) enum Command {
     /// Human lines by default. Pass `--json` for a machine-readable summary:
     /// home, socket, `running`, the daemon and CLI builds, and the at-rest
     /// compression counters. Key counts are intentionally omitted — use
-    /// `lastdb db inventory` for scanned key totals.
+    /// `lastdb admin storage inventory` for scanned key totals.
     ///
     /// Live `/api/status` is the **cheap health** path: process vitals,
     /// backup, QoS, and request-ops *scalars* only. The forensic request-ops
-    /// ring (256 recent samples + rankings) is opt-in via `lastdb ops` or
+    /// ring (256 recent samples + rankings) is opt-in via `lastdb admin ops` or
     /// `GET /api/status?recent=1`.
     Status {
         /// Emit the machine-readable summary (`running`, builds, at-rest compression).
@@ -106,6 +124,7 @@ pub(super) enum Command {
     ///
     /// The default tables label process-lifetime and recent-ring populations.
     /// `--by-app` keeps the compact key-value contract for external parsers.
+    #[command(hide = true)]
     Ops(OpsArgs),
     /// Run one proactive Mini health alert check.
     ///
@@ -124,6 +143,7 @@ pub(super) enum Command {
     /// A degradation probe that cannot be completed reports
     /// `reachable; degradation unknown — <why>`, never `ok`. Pass
     /// `--no-degradation-probe` to go back to liveness only.
+    #[command(hide = true)]
     AlertCheck(AlertCheckArgs),
     /// Show or change the running daemon's tracing filter, without a restart.
     ///
@@ -134,10 +154,11 @@ pub(super) enum Command {
     ///
     /// The directive is `EnvFilter` syntax, so it can target one module:
     ///
-    ///   lastdb log-filter 'fold_db::fold_db_core::query::hash_range_query=debug,info'
+    ///   lastdb admin log-filter 'fold_db::fold_db_core::query::hash_range_query=debug,info'
     ///
     /// Pass `info` to restore the startup default. A malformed directive is
     /// refused and the active filter is left alone.
+    #[command(hide = true)]
     LogFilter {
         /// The `EnvFilter` directive to install. Omit to read the current one.
         directive: Option<String>,
@@ -146,11 +167,13 @@ pub(super) enum Command {
         json: bool,
     },
     /// Persist or inspect the home directory used by brew/launchd service starts.
+    #[command(hide = true)]
     ServiceHome {
         #[command(subcommand)]
         action: ServiceHomeCommand,
     },
     /// Explicit V2 backup, restore, and paused credentials.
+    #[command(hide = true)]
     Cloud {
         #[command(subcommand)]
         action: CloudCommand,
@@ -171,6 +194,7 @@ pub(super) enum Command {
     /// `--key-name`, reads the named alternate key entries under `--key-hash`.
     /// Default page is 100 keys; pass `--cursor` from the previous page to
     /// continue. Does not require `X-LastDB-Allow-Full-Scan`. Alias of `get-keys`.
+    #[command(hide = true)]
     List(RecordListArgs),
     /// List one page of primary keys, or named alternate keys under --key-hash.
     GetKeys(RecordListArgs),
@@ -199,11 +223,13 @@ pub(super) enum Command {
     /// Database admin.
     ///
     /// Most verbs talk to the running daemon over the owner socket.
+    #[command(hide = true)]
     Db {
         #[command(subcommand)]
         action: DbCommand,
     },
     /// Read, set, or clear one installed schema's node-local retention policy.
+    #[command(hide = true)]
     SchemaRetention {
         #[command(subcommand)]
         action: SchemaRetentionCommand,
@@ -219,6 +245,7 @@ pub(super) enum Command {
     ///
     /// Name the claimant by its canonical name or identity hash — naming it by
     /// the descriptive name it shares is exactly what is ambiguous.
+    #[command(hide = true)]
     SchemaNameClaim {
         #[command(subcommand)]
         action: SchemaNameClaimCommand,
@@ -229,6 +256,7 @@ pub(super) enum Command {
     /// for the primary home). Emits IndexChangeBatch JSON under
     /// `apps/search/inbox` for LastSeek or the Search app to read.
     /// After restore/cold home: run this, then `search rebuild` / drain.
+    #[command(hide = true)]
     SearchRebuild {
         /// Records per page when walking schemas (default 32).
         #[arg(long, default_value_t = 32)]

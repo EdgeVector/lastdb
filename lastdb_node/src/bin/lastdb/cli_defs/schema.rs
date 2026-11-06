@@ -26,19 +26,8 @@ pub(crate) enum SchemaInspectCommand {
             .required(true)
             .args(["schema", "owner_app"])
     ))]
-    Drop {
-        /// Canonical name or identity hash of one installed schema.
-        #[arg(long)]
-        schema: Option<String>,
-        /// Drop every installed identity owned by this app id.
-        #[arg(long)]
-        owner_app: Option<String>,
-        /// Refuse if nothing was dropped.
-        #[arg(long)]
-        must_exist: bool,
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(hide = true)]
+    Drop(SchemaDropArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -131,4 +120,19 @@ pub(crate) enum SchemaRetentionCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct SchemaDropArgs {
+    /// Canonical name or identity hash of one installed schema.
+    #[arg(long)]
+    pub(crate) schema: Option<String>,
+    /// Drop every installed identity owned by this app id.
+    #[arg(long)]
+    pub(crate) owner_app: Option<String>,
+    /// Refuse if nothing was dropped.
+    #[arg(long)]
+    pub(crate) must_exist: bool,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
