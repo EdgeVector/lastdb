@@ -135,7 +135,8 @@ Use a JSON object with `mutation` set to the complete conditional request and
 `file` set to an object with `source` and optional `name` and `media_type`. The
 source path is relative to the request file, or to the working directory for
 stdin. A record with a required file cannot be written without its file. A
-record replacement keeps the existing file unless it supplies new bytes.
+bare record replacement keeps the existing file. A replacement with
+`file: null` in the same envelope removes an optional file.
 
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus

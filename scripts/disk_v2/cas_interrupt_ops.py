@@ -86,6 +86,12 @@ def seed(node):
     return expected
 
 
+def record_cli(node, *arguments):
+    cli = node.binary.with_name("lastdb")
+    environment = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
+    return json.loads(subprocess.check_output([cli, *arguments], env=environment, timeout=60))
+
+
 def prove_required_file(node):
     schema, target = "RequiredRecordFile", {"hash": "required-file"}
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
@@ -102,10 +108,7 @@ def prove_required_file(node):
     source.write_bytes(payload(0))
     request_path = node.root / "record-input.json"
     request_path.write_text(json.dumps({"mutation": request, "file": {"source": source.name}}))
-    cli = node.binary.with_name("lastdb")
-    environment = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
-    stored = json.loads(subprocess.check_output(
-        [cli, "mutate", "--request-file", request_path], env=environment, timeout=60))
+    stored = record_cli(node, "mutate", "--request-file", request_path)
     update = conditioned(node, [mutation(schema, target, fields)])[0]
     update.pop("file", None)
     node.call("/api/mutation", update)
@@ -113,9 +116,8 @@ def prove_required_file(node):
     clear.pop("file", None)
     require_file_refusal(node, "/api/db/delete-blob", {"mutation": clear})
     destination = node.root / "hydrated-record-file"
-    hydrated = json.loads(subprocess.check_output(
-        [cli, "get", schema, "--key-hash", target["hash"], "--hydrate", destination, "--json"],
-        env=environment, timeout=60))["results"]
+    hydrated = record_cli(
+        node, "get", schema, "--key-hash", target["hash"], "--hydrate", destination, "--json")["results"]
     require(len(hydrated) == 1 and hydrated[0]["fields"] == fields
             and hydrated[0]["hydrated_file"] == str(destination)
             and hydrated[0]["metadata"]["file"]["sha256"] == stored["file"]["sha256"]
@@ -244,5 +246,7 @@ def replacement(node, number, fields, retain_file):
 def delete_file(node, number):
     request = replacement(node, number,
         {"id": key(number), "note": NOTE + " updated", "detail": "updated"}, retain_file=False)
-    reply = node.call("/api/db/delete-blob", {"mutation": request})[0]
+    request_path = node.root / "record-replacement.json"
+    request_path.write_text(json.dumps({"mutation": request, "file": None}))
+    reply = record_cli(node, "mutate", "--request-file", request_path)
     require(reply["record_revision"], "file removal has no conditional replacement revision")
