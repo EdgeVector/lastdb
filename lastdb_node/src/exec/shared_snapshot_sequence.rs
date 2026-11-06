@@ -123,14 +123,13 @@ pub(crate) async fn run_shared_snapshot(
             b2_files: files.b2,
         })
     };
-    match tokio::time::timeout(budget, operation).await {
-        Ok(result) => result,
-        Err(_) => {
-            expire(&runtime, &state.checkpoint()?, state.snapshot_id()).await?;
-            Err(RestoreError::Limit(
-                "snapshot deadline reached. Retry with the same workspace",
-            ))
-        }
+    if let Ok(result) = tokio::time::timeout(budget, operation).await {
+        result
+    } else {
+        expire(&runtime, &state.checkpoint()?, state.snapshot_id()).await?;
+        Err(RestoreError::Limit(
+            "snapshot deadline reached. Retry with the same workspace",
+        ))
     }
 }
 
