@@ -2,10 +2,10 @@
 
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
-pub use crate::storage::format::metadata::OutgoingPortablePage;
 use crate::storage::format::metadata::{
     AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema, Metadata,
 };
+pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 use cloud_backup_protocol::shared::peer::PeerHeads;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
 use lastdb_model::portable_mutation::{SchemaIdentity, Stamp, StreamId, StreamProgress};
@@ -69,7 +69,7 @@ impl MetadataStore {
     pub(crate) async fn portable_peer_progress(
         &self,
         streams: &BTreeSet<StreamId>,
-    ) -> Result<BTreeMap<StreamId, StreamProgress>, SchemaError> {
+    ) -> Result<PortablePeerProgress, SchemaError> {
         Ok(self.format.portable_peer_progress(streams).await?)
     }
 

@@ -7,34 +7,34 @@ use cover::full_component_cover_response;
 use schema_service_core::state::SchemaAddReply;
 use schema_service_core::types::SchemaRegistrationComposition;
 
-fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
+fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), Box<HttpResponse>> {
     // The `schema_claim` envelope signs the `schema` sub-object, so keep
     // it verbatim before deserializing the typed request.
     let Some(schema_value) = body.get("schema").cloned() else {
-        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+        return Err(Box::new(HttpResponse::BadRequest().json(ErrorResponse {
             error: "Missing 'schema' field".to_string(),
-        }));
+        })));
     };
     match serde_json::from_value(body) {
         Ok(request) => Ok((request, schema_value)),
-        Err(e) => Err(HttpResponse::BadRequest().json(ErrorResponse {
+        Err(e) => Err(Box::new(HttpResponse::BadRequest().json(ErrorResponse {
             error: format!("Invalid add-schema request: {e}"),
-        })),
+        }))),
     }
 }
 
 /// Shared-surface migration observe: classify every legacy POST /v1/schemas
 /// caller. Does not reject yet — enforcement waits for caller migration.
-fn observe_shared_surface(request: &AddSchemaRequest) -> Result<(), HttpResponse> {
+fn observe_shared_surface(request: &AddSchemaRequest) -> Result<(), Box<HttpResponse>> {
     let has_shared_surface_envelope = request.shared_surface.is_some();
     if let Some(surface) = &request.shared_surface {
         // Transitional clients may attach the envelope on the legacy route;
         // require well-formed governance metadata. Dedicated publish/attach
         // lands later; private Mini declare never sets this field.
         if let Err(e) = validate_surface_metadata(surface) {
-            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            return Err(Box::new(HttpResponse::BadRequest().json(ErrorResponse {
                 error: format!("Invalid shared_surface metadata: {e}"),
-            }));
+            })));
         }
     }
     observe_legacy_schema_caller(
@@ -179,7 +179,7 @@ pub async fn add_schema(
 ) -> impl Responder {
     let (request, schema_value) = match parse_add_schema_request(payload.into_inner()) {
         Ok(parsed) => parsed,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Err((status, body)) = state
         .field_vocabulary_reply(&request.schema)
@@ -193,7 +193,7 @@ pub async fn add_schema(
     let telemetry_reason = request.fallback_reason.clone();
 
     if let Err(response) = observe_shared_surface(&request) {
-        return response;
+        return *response;
     }
 
     let observation = state.observe_schema_mutation_gate(

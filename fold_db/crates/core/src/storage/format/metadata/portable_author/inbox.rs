@@ -2,6 +2,7 @@
 
 use super::{invalid, EncodedMetadata, Metadata, PROGRESS_PREFIX, REPLAY_STATE_KEY};
 use crate::storage::error::StorageResult;
+use cloud_backup_protocol::shared::MAX_WRITERS;
 use lastdb_model::portable_mutation::{HomeReplayState, SchemaIdentity, StreamId, StreamProgress};
 use lastdb_model::portable_replay::{
     LogRangeId, VerifiedLogRange, MAX_LOG_ENTRIES, MAX_REPLAY_BYTES,
@@ -11,10 +12,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const INDEX_PREFIX: &str = "portable-inbox-index:";
 const RANGE_PREFIX: &str = "portable-inbox:";
+const LAST_APPLIED_PEER_KEY: &str = "portable-last-applied-peer";
 const MAX_QUEUED_RANGES: usize = 4;
 // A complete accepted range has its own aggregate sealed-file allowance.
 const MAX_APPLIED_RANGES: usize = 1;
-const MAX_SELECTED_STREAMS: usize = 4;
 const MAX_SEQUENCE_AHEAD: u64 = 8192;
 
 pub(crate) struct InboxWindow {
@@ -22,6 +23,12 @@ pub(crate) struct InboxWindow {
     pub(crate) cutoff: Option<u64>,
     pub(crate) ranges: Vec<VerifiedLogRange>,
     indexes: BTreeMap<StreamId, Vec<String>>,
+}
+
+/// Durable positions and the last peer served by the same home.
+pub struct PortablePeerProgress {
+    pub cursors: BTreeMap<StreamId, StreamProgress>,
+    pub last_applied_peer: Option<StreamId>,
 }
 
 impl Metadata {
@@ -39,7 +46,7 @@ impl Metadata {
         if state.participating_streams.contains(stream) {
             return Ok(());
         }
-        if state.participating_streams.len() >= cloud_backup_protocol::shared::MAX_WRITERS
+        if state.participating_streams.len() >= MAX_WRITERS
             || state
                 .delete_reclaimed_through_ms
                 .is_some_and(|cutoff| first_authored_at_ms <= cutoff)
@@ -122,11 +129,13 @@ impl Metadata {
     pub(crate) async fn portable_peer_progress(
         &self,
         streams: &BTreeSet<StreamId>,
-    ) -> StorageResult<BTreeMap<StreamId, StreamProgress>> {
-        if streams.len() > MAX_SELECTED_STREAMS {
-            return Err(invalid("select a bounded set of peer streams"));
+    ) -> StorageResult<PortablePeerProgress> {
+        if streams.len() >= MAX_WRITERS {
+            return Err(invalid("peer directory exceeds the writer limit"));
         }
-        let names = std::iter::once(REPLAY_STATE_KEY.as_bytes().to_vec())
+        let names = [REPLAY_STATE_KEY, LAST_APPLIED_PEER_KEY]
+            .into_iter()
+            .map(|key| key.as_bytes().to_vec())
             .chain(
                 streams
                     .iter()
@@ -134,27 +143,36 @@ impl Metadata {
             )
             .collect();
         let rows = self.metadata_store.get_many(names).await?;
-        if rows.len() != streams.len() + 1 {
+        if rows.len() != streams.len() + 2 {
             return Err(invalid("incomplete peer replay cursors"));
         }
         let state = decode_state(rows[0].as_deref())?;
         if streams.contains(&state.local_stream_id) {
             return Err(invalid("the local writer is not a peer"));
         }
-        streams
+        let last_applied_peer = rows[1]
+            .as_deref()
+            .map(serde_json::from_slice)
+            .transpose()
+            .map_err(invalid)?;
+        let cursors = streams
             .iter()
-            .zip(&rows[1..])
+            .zip(&rows[2..])
             .filter(|(stream, _)| state.participating_streams.contains(*stream))
             .map(|(stream, row)| Ok((stream.clone(), decode_cursor(row.as_deref())?)))
-            .collect()
+            .collect::<StorageResult<_>>()?;
+        Ok(PortablePeerProgress {
+            cursors,
+            last_applied_peer,
+        })
     }
 
     pub(crate) async fn portable_inbox(
         &self,
         streams: &BTreeSet<StreamId>,
     ) -> StorageResult<InboxWindow> {
-        if streams.is_empty() || streams.len() > MAX_SELECTED_STREAMS {
-            return Err(invalid("select a bounded set of peer streams"));
+        if streams.is_empty() || streams.len() >= MAX_WRITERS {
+            return Err(invalid("invalid peer inbox writer count"));
         }
         let names = std::iter::once(REPLAY_STATE_KEY.as_bytes().to_vec())
             .chain(streams.iter().flat_map(|stream| {
@@ -260,6 +278,11 @@ impl Metadata {
         for stream in changed_indexes {
             rows.push(encoded(index_key(stream), &window.indexes[stream])?);
         }
+        // One applied range advances one peer. Save the rotation point in its
+        // commit so a stopped and restarted pull resumes after that writer.
+        if let Some(stream) = progress.keys().next() {
+            rows.push(encoded(LAST_APPLIED_PEER_KEY.into(), stream)?);
+        }
         for (stream, cursor) in progress {
             rows.push(encoded(progress_key(&stream), &cursor)?);
         }
@@ -311,7 +334,7 @@ pub(super) fn decode_state(bytes: Option<&[u8]>) -> StorageResult<HomeReplayStat
         serde_json::from_slice(bytes.ok_or_else(|| invalid("shared replay state is missing"))?)
             .map_err(invalid)?;
     if !state.participating_streams.contains(&state.local_stream_id)
-        || state.participating_streams.len() > cloud_backup_protocol::shared::MAX_WRITERS
+        || state.participating_streams.len() > MAX_WRITERS
     {
         return Err(invalid("invalid shared replay participants"));
     }

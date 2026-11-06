@@ -19,6 +19,7 @@ mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;
 pub(crate) use inbox::InboxWindow;
+pub use inbox::PortablePeerProgress;
 pub use outgoing::OutgoingPortablePage;
 
 pub(crate) struct AuthoredStamp {
