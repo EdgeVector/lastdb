@@ -186,11 +186,16 @@ impl PackRuntime {
                     queue.requests.clear();
                     queue.sealed = false;
                 }
+                let count = requests.len();
+                let signal = self.completed.clone();
+                // A stopped-home caller can reopen as soon as its flush
+                // returns. Release the worker's native ownership first.
+                drop(requests);
+                drop(self);
                 super::timing::mark(&mut completion, "completion_cleanup_us");
-                self.completed
-                    .send_modify(|completed| *completed = (*completed).max(sequence));
+                signal.send_modify(|completed| *completed = (*completed).max(sequence));
                 super::timing::mark(&mut completion, "completion_notify_us");
-                super::timing::completion(completion, sequence, requests.len(), true);
+                super::timing::completion(completion, sequence, count, true);
             }
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
