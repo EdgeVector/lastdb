@@ -1,5 +1,5 @@
 //! Themed module split from the parent: reading the signed public index,
-//! and installing, upgrading and running apps.
+//! and installing and upgrading apps.
 
 // The handlers take the parsed CLI fields by value: the dispatcher destructures
 // an owned `AppCommand`, so borrowing would only add clones at the call sites.
@@ -7,7 +7,6 @@
 
 use super::*;
 
-use lastdb_node::app_publish;
 use lastdb_node::app_registry_index as registry_index;
 
 /// `--dir` names one checkout, so it cannot apply to several apps.
