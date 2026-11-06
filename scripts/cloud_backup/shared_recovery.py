@@ -125,7 +125,8 @@ class Operation:
                 and prior.get("scope") == self.scope and prior.get("primary_access") is False
                 and prior.get("provider_deletions") == 0 and prior.get("cleanup") == "owned runner data removed",
                 "shared_prior_identity")
-        positions = {"checkpoint_through": 4, "peer_applied_publisher_through": 4,
+        peer_through = 7 if prior.get("peer_restored_before_first_write") is True else 4
+        positions = {"checkpoint_through": 4, "peer_applied_publisher_through": peer_through,
                      "publisher_tail_through": 7, "peer_tail_through": 3}
         require(all(type(prior.get(name)) is int and prior[name] == value
                     for name, value in positions.items()), "shared_prior_accepted_positions")
@@ -170,24 +171,28 @@ class Operation:
         finally:
             path.unlink()
 
-    def initialize(self, name, writer):
-        home = self.root / name
-        home.mkdir(mode=0o700)
-        private_write(home / "identity.key", self.account_seed)
-        inventory = self.args.retention and name in ("first", "peer")
-        node = OwnedNode(home, self.programs, storage_inventory=inventory,
-                         isolated_copy=inventory or (self.args.multiwriter and name == "first"))
-        self.nodes.append(node)
-        if name == "first":
-            node.start(shared_schema=self.runtime_schema())
-        else:
-            node.start()
-        node.stop()
-        if not self.bindings.exists():
-            self.provision_schema(node, writer)
+    def initialize_publisher(self, writer):
+        node = shared_multiwriter.empty_home(self, "first")
+        self.provision_schema(node, writer)
         self.writer(node, writer, "install", "--schema-bindings", str(self.bindings))
-        self.writer(node, writer, "bind", "--database-id", self.scope["database_id"],
-                    "--source-stream", writer["source_stream"], "--schema-bindings", str(self.bindings))
+        self.bind_writer(node, writer, "--initialize-publisher")
+        return node
+
+    def bind_writer(self, node, writer, *options):
+        return self.writer(node, writer, "bind", "--database-id", self.scope["database_id"],
+                           "--source-stream", writer["source_stream"], "--schema-bindings",
+                           str(self.bindings), *options)
+
+    def join_writer(self, name, writer):
+        destination = self.root / name
+        device = writer["device_id"]
+        receipt = decode_json(self.restore(destination, device, device))
+        require(receipt == {"activated": True, "destination": str(destination)},
+                "shared_join_restore_activation")
+        node = OwnedNode(destination, self.programs,
+                         storage_inventory=self.args.retention and name == "peer")
+        self.nodes.append(node)
+        self.bind_writer(node, writer)
         return node
 
     def runtime_schema(self):
@@ -287,7 +292,7 @@ class Operation:
     def publish_cut(self):
         a, b = self.writers[:2]
         self.summary["stage"] = "prepare-writers"
-        first, peer = self.initialize("first", a), self.initialize("peer", b)
+        first = self.initialize_publisher(a)
         self.summary["stage"] = "author-publisher-prefix"
         first.start()
         local_file = shared_multiwriter.seed_local_only(self, first) if self.args.multiwriter else None
@@ -305,13 +310,6 @@ class Operation:
         if local_file is not None:
             first.verify_file(local_file)
         first.stop()
-        self.summary["stage"] = "apply-publisher-prefix-on-peer"
-        applied = self.writer(peer, b, "pull", "--schema-bindings", str(self.bindings), "--ranges", "1")
-        require(applied.splitlines() == [f"Applied shared peer {a['source_stream']} through 4".encode(),
-                                         b"Applied 1 shared peer ranges"],
-                "shared_exact_peer_apply")
-        self.summary["peer_applied_publisher_through"] = 4
-
         self.summary["stage"] = "publish-post-checkpoint-tails"
         first.start()
         previous, removed = native_records.read_records(first, self.schema, [
@@ -326,14 +324,17 @@ class Operation:
         first.stop()
         self.summary["publisher_tail_through"] = self.push(first, a, 7)
 
+        shared_multiwriter.refuse_empty_join(self, a, b)
+        self.summary["stage"] = "restore-peer-before-first-write"
+        peer = self.join_writer("peer", b)
         peer.start()
-        prior, copied = native_records.read_records(peer, self.schema, [
-            native_records.key("winner"), native_records.key("checkpoint")])
-        require(prior["fields"] == original and copied["fields"] == checkpoint,
-                "shared_peer_exact_imported_records")
-        peer.verify_file({"schema": self.schema, "records": [{"id": "checkpoint"}],
-                          "file_bytes": FILE_BYTES, "file_sha256": checkpoint_file})
-        self.summary["peer_read_publisher_records_and_file"] = True
+        self.verify(peer, {"checkpoint": checkpoint, "winner": losing},
+                    {"checkpoint": checkpoint_file, "winner": hashlib.sha256(
+                        self.payload("losing-tail")).hexdigest()})
+        prior, = native_records.read_records(peer, self.schema, [native_records.key("winner")])
+        self.summary.update(peer_applied_publisher_through=7,
+                            peer_read_publisher_records_and_file=True,
+                            peer_restored_before_first_write=True)
         winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
         durable_batch(peer, [native_records.replace(self.schema, prior, winner),
                              native_records.create(self.schema, native_records.key("peer-only"), peer_only)])
@@ -346,7 +347,7 @@ class Operation:
         if self.args.multiwriter:
             shared_multiwriter.snapshot_command(self, first, a)
             shared_multiwriter.publish_peer_tail(self, peer, b)
-        expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
+        expected_stops = (6, 2) if self.args.multiwriter else (3, 1)
         require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
         if self.args.retention:

@@ -84,6 +84,26 @@ pub struct PackRuntime {
     last_root: Arc<view::LastRoot>,
 }
 
+impl PackRuntime {
+    pub(in crate::storage) fn require_ordinary_backup_home(&self) -> StorageResult<()> {
+        if self.physical.shared.is_some() {
+            return Err(shared_layout::invalid(
+                "dedicated shared homes use the shared snapshot command",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn require_direct_shared_home(&self) -> StorageResult<()> {
+        if self.physical.shared.is_none() {
+            return Err(shared_layout::invalid(
+                "direct snapshot requires a dedicated shared disk home",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// All namespaces on one native disk home.
 #[derive(Clone)]
 pub struct PackNamespacedStore {

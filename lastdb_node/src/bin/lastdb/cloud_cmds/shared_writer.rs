@@ -6,8 +6,8 @@ use cloud_backup_client::shared_peer::SharedPeerClient;
 use cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, AuthClient,
 };
-use cloud_backup_protocol::shared::WriterStream;
-use cloud_backup_protocol::{AccountId, Id};
+use cloud_backup_protocol::shared::{peer::PeerHeadsRequest, WriterStream};
+use cloud_backup_protocol::{AccountId, DecimalU64, Id};
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::factory::{create_fold_db_with_options, FoldDbOptions};
 use fold_db::security::Ed25519KeyPair;
@@ -16,6 +16,7 @@ use fold_db::FoldDB;
 use folddb_profile::endpoints::{schema_service_url_for, Environment};
 use lastdb_node::shared_peer::{PeerIdentity, PeerOutcome, PeerWorker};
 use lastdb_node::shared_restore::recovery::SnapshotSchema;
+use lastdb_node::shared_snapshot::SignedSnapshotTransport;
 use lastdb_node::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use schema_service_client::SchemaServiceClient;
 use std::collections::BTreeMap;
@@ -122,6 +123,7 @@ impl Owner {
                 println!("Shared schemas installed");
             }
             SharedWriterAction::Bind {
+                initialize_publisher,
                 database_id,
                 source_stream,
                 schema_bindings,
@@ -130,9 +132,11 @@ impl Owner {
                     database_id: id(database_id)?,
                     source_stream: id(source_stream)?,
                 };
+                self.check_writer_enrollment(&stream, initialize_publisher)
+                    .await?;
                 let definitions = schema::definitions(&schema_bindings).await?;
                 db.mutation_manager()
-                    .bind_portable_journal(stream, &definitions)
+                    .bind_portable_journal(stream, &definitions, &self.device, initialize_publisher)
                     .await
                     .map_err(|error| error.to_string())?;
                 println!("Shared writer bound");
@@ -153,6 +157,46 @@ impl Owner {
                 unreachable!("this action has no source writer")
             }
         }
+        Ok(())
+    }
+
+    async fn check_writer_enrollment(
+        &self,
+        stream: &WriterStream,
+        initialize_publisher: bool,
+    ) -> Result<(), String> {
+        if initialize_publisher {
+            let snapshots = SignedSnapshotTransport::from_auth(
+                self.auth.clone(),
+                self.account.clone(),
+                self.device.clone(),
+                self.device_signer.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+            let current = snapshots
+                .current_snapshot(&stream.database_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            if current.is_some() {
+                return Err("the database already has a snapshot; restore before binding".into());
+            }
+        }
+        let peers = SharedPeerClient::from_auth(
+            self.auth.clone(),
+            self.account.clone(),
+            self.device.clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        peers
+            .heads(
+                &PeerHeadsRequest {
+                    reader: stream.clone(),
+                },
+                DecimalU64::new(deadline(30)?),
+                |message| Ok(self.device_signer.sign(message).to_bytes()),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 

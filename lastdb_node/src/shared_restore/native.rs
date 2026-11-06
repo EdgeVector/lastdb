@@ -31,17 +31,19 @@ const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
 pub async fn restore_from_source<S: SharedRecoverySource>(
     source: &S,
     database_id: &Id,
+    device: &Id,
     destination: &Path,
     keys: &RecoveryKeys,
     service: &SchemaServiceClient,
 ) -> Result<PathBuf> {
     let prepared =
         super::recovery::prepare(source, database_id, keys.content_key(), destination).await?;
-    replay_and_activate(prepared, keys, service).await
+    replay_and_activate(prepared, device, keys, service).await
 }
 
 async fn replay_and_activate<S: SharedRecoverySource>(
     prepared: PreparedSharedRestore<'_, S>,
+    device: &Id,
     keys: &RecoveryKeys,
     service: &SchemaServiceClient,
 ) -> Result<PathBuf> {
@@ -53,6 +55,7 @@ async fn replay_and_activate<S: SharedRecoverySource>(
     } = prepared;
     let writer = match NativeWriter::open(
         session.stage(),
+        device,
         &checkpoint,
         schemas,
         &files,
@@ -79,6 +82,7 @@ async fn replay_and_activate<S: SharedRecoverySource>(
 
 struct NativeWriter<'a, 'source, S> {
     stage: PathBuf,
+    device: Id,
     db: Arc<FoldDB>,
     schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
     files: &'a HeldFileVersions<'source, S>,
@@ -89,6 +93,7 @@ struct NativeWriter<'a, 'source, S> {
 impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
     async fn open(
         stage: &Path,
+        device: &Id,
         checkpoint: &RestoreCut,
         schemas: Vec<SnapshotSchema>,
         files: &'a HeldFileVersions<'source, S>,
@@ -140,6 +145,7 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
 
         Ok(Self {
             stage: stage.to_path_buf(),
+            device: device.clone(),
             db,
             schemas: admitted,
             files,
@@ -241,7 +247,13 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
         progress.retain(|_, cursor| cursor.applied_through != 0);
         self.db
             .mutation_manager()
-            .finish_portable_restore(&progress, cut.delete_reclaimed_through_ms, local_stream)
+            .finish_portable_restore(
+                &progress,
+                cut.delete_reclaimed_through_ms,
+                local_stream,
+                self.files.database_id(),
+                &self.device,
+            )
             .await
             .map_err(|_| RestoreError::Invalid("seal portable restore progress"))?;
         self.db
