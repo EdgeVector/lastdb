@@ -386,7 +386,9 @@ class Operation:
         self.summary["stage"] = "restore-authorized-device"
         destination = self.root / "restored"
         publisher, peer = self.writers
-        reader = publisher if self.args.prior_summary is None else peer
+        reader = publisher
+        if self.args.prior_summary is not None and self.args.readback_reader == "peer":
+            reader = peer
         device = reader["device_id"]
         self.summary["recovery_device"] = device
         receipt = decode_json(self.restore(destination, device, device))
@@ -439,6 +441,7 @@ def main():
     parser.add_argument("--prior-summary", type=Path)
     parser.add_argument("--prior-run")
     parser.add_argument("--prior-source")
+    parser.add_argument("--readback-reader", choices=("publisher", "peer"), default="peer")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
