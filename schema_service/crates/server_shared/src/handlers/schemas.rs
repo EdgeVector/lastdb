@@ -40,7 +40,7 @@ pub async fn registry_index(
 pub async fn list_schemas(state: web::Data<SchemaServiceState>) -> impl Responder {
     let schemas = match read_schemas(&state) {
         Ok(s) => s,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
 
     HttpResponse::Ok().json(SchemasListResponse {
@@ -69,7 +69,7 @@ pub async fn get_available_schemas(
     let source = AvailableSource::parse(query.source.as_deref());
     let schemas = match read_schemas(&state) {
         Ok(s) => s,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
 
     let envelopes: Vec<SchemaEnvelope> = schemas
@@ -152,10 +152,10 @@ pub struct SimilarQuery {
 /// Resolve and range-check the optional `threshold` query parameter shared
 /// by [`find_similar`] and [`find_similar_transforms`]. Defaults to `0.5`
 /// when absent; returns a `400` response when it falls outside `[0.0, 1.0]`.
-pub(super) fn resolve_threshold(query: &SimilarQuery) -> Result<f64, HttpResponse> {
+pub(super) fn resolve_threshold(query: &SimilarQuery) -> Result<f64, Box<HttpResponse>> {
     similarity_threshold_reply(query.threshold)
         .into_http()
-        .map_err(|(status, body)| json_status(status, body))
+        .map_err(|(status, body)| Box::new(json_status(status, body)))
 }
 
 #[allow(
@@ -170,7 +170,7 @@ pub async fn find_similar(
     let schema_name = path.into_inner();
     let threshold = match resolve_threshold(&query) {
         Ok(t) => t,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     tracing::info!(
@@ -199,7 +199,7 @@ pub async fn reload_schemas(state: web::Data<SchemaServiceState>) -> impl Respon
         Ok(_) => {
             let schemas = match read_schemas(&state) {
                 Ok(s) => s,
-                Err(r) => return r,
+                Err(r) => return *r,
             };
 
             HttpResponse::Ok().json(ReloadResponse {

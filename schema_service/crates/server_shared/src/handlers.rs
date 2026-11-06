@@ -41,16 +41,16 @@ fn internal_error(context: &str, error: impl std::fmt::Display) -> HttpResponse 
 
 fn read_schemas(
     state: &SchemaServiceState,
-) -> Result<RwLockReadGuard<'_, std::collections::HashMap<String, Schema>>, HttpResponse> {
+) -> Result<RwLockReadGuard<'_, std::collections::HashMap<String, Schema>>, Box<HttpResponse>> {
     state.schemas.read().map_err(|e| {
         tracing::error!(
             target: "schema_service::schema",
             "Failed to acquire schemas read lock: {}",
             e
         );
-        HttpResponse::InternalServerError().json(ErrorResponse {
+        Box::new(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "Failed to acquire schemas read lock".to_string(),
-        })
+        }))
     })
 }
 

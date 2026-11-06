@@ -28,13 +28,13 @@ pub async fn issue_schema_mutation_challenge(
 /// pair, returning a `401 cert_invalid` response when either is missing.
 /// Shared by `register_app`, `update_app`, and `promote_app`. The body comes
 /// from [`missing_dev_cert_body`], which the Lambda router also writes.
-fn require_dev_cert_headers(req: &HttpRequest) -> Result<(String, String), HttpResponse> {
+fn require_dev_cert_headers(req: &HttpRequest) -> Result<(String, String), Box<HttpResponse>> {
     match (
         header_value(req, "X-Exemem-Dev-Cert"),
         header_value(req, "X-Signature"),
     ) {
         (Some(cert), Some(sig)) => Ok((cert, sig)),
-        _ => Err(json_status(401, missing_dev_cert_body())),
+        _ => Err(Box::new(json_status(401, missing_dev_cert_body()))),
     }
 }
 
@@ -50,7 +50,7 @@ pub async fn register_app(
     let body = payload.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     let (status, body) = state
@@ -82,7 +82,7 @@ pub async fn publish_release(
     let body = payload.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     match state
         .publish_release_reply(&app_id, &cert, &sig, &body)
@@ -105,7 +105,7 @@ pub async fn set_channel(
     let body = payload.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let (status, body) = state
         .set_channel_reply(&app_id, &channel, &cert, &sig, &body)
@@ -125,7 +125,7 @@ pub async fn revoke_release(
     let body = payload.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     match state
         .revoke_release_reply(&app_id, &cert, &sig, &body)
@@ -202,7 +202,7 @@ pub async fn update_app(
     let body = payload.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     let (status, body) = state
@@ -225,7 +225,7 @@ pub async fn promote_app(
     let app_id = path.into_inner();
     let (cert, sig) = match require_dev_cert_headers(&req) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     match state.promote_app_reply(&app_id, &cert, &sig).await {
