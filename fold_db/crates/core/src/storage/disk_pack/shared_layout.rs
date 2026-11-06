@@ -273,22 +273,15 @@ impl Scope {
 }
 
 impl PackRuntime {
-    pub(in crate::storage) fn require_ordinary_backup_home(&self) -> StorageResult<()> {
-        if self.physical.shared.is_some() {
-            return Err(invalid(
-                "dedicated shared homes use the shared snapshot command",
-            ));
-        }
-        Ok(())
-    }
-
-    pub fn require_direct_shared_home(&self) -> StorageResult<()> {
-        if self.physical.shared.is_none() {
-            return Err(invalid(
-                "direct snapshot requires a dedicated shared disk home",
-            ));
-        }
-        Ok(())
+    pub(crate) fn is_shared_schema(&self, name: &str) -> bool {
+        self.physical.shared.as_ref().is_some_and(|shared| {
+            shared
+                .scope
+                .read()
+                .expect("shared disk scope")
+                .aliases
+                .contains(name)
+        })
     }
 
     pub fn require_shared_schema_set<'a>(

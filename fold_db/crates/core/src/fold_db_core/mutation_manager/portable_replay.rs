@@ -5,6 +5,7 @@ use crate::db_operations::record_store::RecordChange;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::records::{PortableEffect, RecordAddress};
+use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{MutationEntry, Position, Stamp, StreamId, StreamProgress};
 use lastdb_model::record_value::StoredRecord;
 use schema_types::PortableSchemaDefinition;
@@ -162,12 +163,18 @@ impl MutationManager {
         progress: &BTreeMap<StreamId, StreamProgress>,
         cutoff: Option<u64>,
         fresh_stream: &StreamId,
+        database: &Id,
+        device: &Id,
     ) -> Result<(), SchemaError> {
         transaction::request_scope(
             self.db_ops.native_runtime(),
-            self.db_ops
-                .metadata()
-                .stage_portable_restore(progress, cutoff, fresh_stream),
+            self.db_ops.metadata().stage_portable_restore(
+                progress,
+                cutoff,
+                fresh_stream,
+                database,
+                device,
+            ),
         )
         .await
     }

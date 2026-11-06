@@ -6,6 +6,7 @@ use super::{
 };
 use crate::storage::error::StorageResult;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream, MAX_WRITERS};
+use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{
     HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
     StreamProgress,
@@ -92,6 +93,8 @@ impl Metadata {
         &self,
         stream: WriterStream,
         schemas: BTreeMap<String, JournalSchema>,
+        device: &Id,
+        initialize_publisher: bool,
     ) -> StorageResult<()> {
         self.require_scope()?;
         let mut state = self.local_author().await?;
@@ -105,7 +108,10 @@ impl Metadata {
             return Err(invalid("a shared journal requires a fresh local author"));
         }
         let prior_stream = state.stream.clone();
+        self.runtime.require_direct_shared_home()?;
         let existing = self.metadata_store.get(REPLAY_STATE_KEY.as_bytes()).await?;
+        self.require_writer_origin(&stream, device, initialize_publisher, existing.is_some())
+            .await?;
         if prior_stream.as_str() == stream.source_stream.as_str() {
             if existing.is_none() {
                 return Err(invalid("the shared writer needs a distinct source stream"));

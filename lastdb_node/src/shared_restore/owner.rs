@@ -43,12 +43,21 @@ pub async fn restore_owner(
         .map_err(|_| RestoreError::Invalid("shared recovery account phrase"))?;
     let keys = RecoveryKeys::from_scope_phrase(recovery_phrase, &account)?;
     let source = OwnerSource {
-        client: SharedRecoveryClient::from_auth(auth, account, device).map_err(transport_error)?,
+        client: SharedRecoveryClient::from_auth(auth, account, device.clone())
+            .map_err(transport_error)?,
         signer,
         snapshot: selection.snapshot.cloned(),
     };
     let schemas = SchemaServiceClient::new(schema_service_url_for(environment));
-    super::restore_from_source(&source, selection.database, destination, &keys, &schemas).await
+    super::restore_from_source(
+        &source,
+        selection.database,
+        &device,
+        destination,
+        &keys,
+        &schemas,
+    )
+    .await
 }
 
 #[async_trait::async_trait]

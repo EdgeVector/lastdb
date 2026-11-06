@@ -3,6 +3,7 @@
 use super::{EncodedMetadata, Metadata};
 use crate::storage::error::{StorageError, StorageResult};
 use cloud_backup_protocol::shared::{LogHead, WriterStream};
+use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{HomeReplayState, Position, Stamp, StreamId, StreamProgress};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -10,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 const REPLAY_STATE_KEY: &str = "portable-replay-state";
+const RESTORE_OWNER_KEY: &str = "portable-restore-owner";
 const PROGRESS_PREFIX: &str = "portable-progress:";
 pub(in crate::storage) fn shared_replay_coordinate(key: &str) -> bool {
     key == REPLAY_STATE_KEY || key.starts_with(PROGRESS_PREFIX)
@@ -59,6 +61,13 @@ struct LocalAuthor {
     clock_floor_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shared: Option<SharedAuthor>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct RestoreOwner {
+    database: Id,
+    device: Id,
 }
 
 pub(in crate::storage) fn initial_local_author(home: uuid::Uuid) -> StorageResult<Vec<u8>> {
@@ -149,6 +158,11 @@ impl Metadata {
         let stamps: Vec<_> = schemas
             .iter()
             .map(|(schema, imported)| {
+                if state.shared.is_none() && self.runtime.is_shared_schema(schema) {
+                    return Err(invalid(
+                        "shared schema writes require an active writer binding",
+                    ));
+                }
                 if let Some(stamp) = imported {
                     if state
                         .shared
@@ -183,6 +197,38 @@ impl Metadata {
         Ok(stamps)
     }
 
+    async fn require_writer_origin(
+        &self,
+        stream: &WriterStream,
+        device: &Id,
+        initialize_publisher: bool,
+        has_replay_state: bool,
+    ) -> StorageResult<()> {
+        if initialize_publisher {
+            return if has_replay_state {
+                Err(invalid("initial publisher requires a fresh home"))
+            } else {
+                Ok(())
+            };
+        }
+        let saved = self
+            .metadata_store
+            .get(RESTORE_OWNER_KEY.as_bytes())
+            .await?;
+        let Some(saved) = saved.filter(|_| has_replay_state) else {
+            return Err(invalid(
+                "restore the complete shared snapshot and mutation logs before binding",
+            ));
+        };
+        let restored: RestoreOwner = serde_json::from_slice(&saved).map_err(invalid)?;
+        if restored.database != stream.database_id || &restored.device != device {
+            return Err(invalid(
+                "shared restore belongs to another database or device",
+            ));
+        }
+        Ok(())
+    }
+
     async fn local_author(&self) -> StorageResult<LocalAuthor> {
         let bytes = self.metadata_store.get(LOCAL_AUTHOR_KEY.as_bytes()).await?;
         LocalAuthor::decode(bytes.as_deref())
@@ -197,6 +243,8 @@ impl Metadata {
         progress: &BTreeMap<StreamId, StreamProgress>,
         cutoff: Option<u64>,
         fresh_stream: &StreamId,
+        database: &Id,
+        device: &Id,
     ) -> StorageResult<()> {
         self.require_scope()?;
         if progress.len() > cloud_backup_protocol::shared::MAX_WRITERS
@@ -229,7 +277,7 @@ impl Metadata {
                 .collect(),
             delete_reclaimed_through_ms: cutoff,
         };
-        let mut rows = Vec::with_capacity(progress.len() + 2);
+        let mut rows = Vec::with_capacity(progress.len() + 3);
         for (stream, cursor) in progress {
             cursor.validate().map_err(invalid)?;
             if cursor.uploaded_through.is_some() {
@@ -247,6 +295,14 @@ impl Metadata {
         rows.push(EncodedMetadata {
             key: LOCAL_AUTHOR_KEY.into(),
             bytes: serde_json::to_vec(&author).map_err(invalid)?,
+        });
+        rows.push(EncodedMetadata {
+            key: RESTORE_OWNER_KEY.into(),
+            bytes: serde_json::to_vec(&RestoreOwner {
+                database: database.clone(),
+                device: device.clone(),
+            })
+            .map_err(invalid)?,
         });
         self.stage_batch(rows).await
     }

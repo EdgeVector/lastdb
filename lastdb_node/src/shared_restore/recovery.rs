@@ -74,6 +74,10 @@ struct HeldObject {
 }
 
 impl<S: SharedRecoverySource> HeldFileVersions<'_, S> {
+    pub(super) fn database_id(&self) -> &Id {
+        &self.view.snapshot.database_id
+    }
+
     /// Return exact sealed bytes within the staged writer's admission budget.
     /// The writer verifies them against the winning record's file marker.
     pub async fn fetch(&self, position: &Position, maximum: u64) -> Result<Vec<u8>> {

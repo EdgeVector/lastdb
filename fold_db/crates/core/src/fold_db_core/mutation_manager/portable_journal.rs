@@ -6,6 +6,7 @@ use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::JournalSchema;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
+use cloud_backup_protocol::Id;
 use lastdb_model::canonical::CanonicalValue;
 use lastdb_model::portable_mutation::{MutationEntry, MutationOperation, StreamProgress};
 use lastdb_model::record_value::FileMarker;
@@ -16,11 +17,13 @@ use std::collections::BTreeMap;
 mod retention;
 
 impl MutationManager {
-    /// Bind a new, explicitly registered writer to exact local schemas.
+    /// Bind an enrolled restored writer, or the authenticated first publisher.
     pub async fn bind_portable_journal(
         &self,
         stream: WriterStream,
         definitions: &BTreeMap<String, PortableSchemaDefinition>,
+        device: &Id,
+        initialize_publisher: bool,
     ) -> Result<(), SchemaError> {
         if definitions.is_empty() || definitions.len() > 64 {
             return Err(invalid("invalid shared journal schema count"));
@@ -59,7 +62,7 @@ impl MutationManager {
             }
             self.db_ops
                 .metadata()
-                .bind_portable_journal(stream, bound)
+                .bind_portable_journal(stream, bound, device, initialize_publisher)
                 .await
         })
         .await

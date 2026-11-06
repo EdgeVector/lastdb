@@ -90,8 +90,11 @@ pub(crate) enum SharedWriterAction {
         #[arg(long)]
         schema_bindings: PathBuf,
     },
-    /// Bind a fresh writer to immutable schema IDs in a private JSON file.
+    /// Bind a restored writer to immutable schema IDs in a private JSON file.
     Bind {
+        /// Start an empty home as the designated publisher before the first snapshot.
+        #[arg(long)]
+        initialize_publisher: bool,
         #[arg(long)]
         database_id: String,
         #[arg(long)]

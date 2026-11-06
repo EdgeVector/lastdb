@@ -10,7 +10,9 @@ import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
 from programs import execute
-from support import CREDENTIALS_FILE, decode_json, hash_file, private_directory, require, save_json
+from node import OwnedNode
+from support import (CREDENTIALS_FILE, OperationError, decode_json, hash_file,
+                     private_directory, require, save_json)
 
 
 WRITER_COUNT = 7
@@ -18,6 +20,38 @@ LOCAL_SCHEMA = "CloudProofLocalOnly"
 LOCAL_RECORD = {"id": "local-only"}
 SNAPSHOT_WRITE = "during-snapshot"
 PEER_TAIL = "after-snapshot-peer"
+
+
+def empty_home(operation, name):
+    home = operation.root / name
+    home.mkdir(mode=0o700)
+    private_write(home / "identity.key", operation.account_seed)
+    publisher = name == "first"
+    node = OwnedNode(home, operation.programs,
+                     storage_inventory=operation.args.retention and publisher,
+                     isolated_copy=operation.args.multiwriter and publisher)
+    operation.nodes.append(node)
+    node.start(shared_schema=operation.runtime_schema())
+    node.stop()
+    return node
+
+
+def refuse_empty_join(operation, publisher, writer):
+    operation.summary["stage"] = "refuse-empty-writer"
+    node = empty_home(operation, "empty-join")
+    operation.writer(node, writer, "install", "--schema-bindings", str(operation.bindings))
+    for identity, flags, reason in (
+        (writer, (), "shared_restore_required"),
+        (publisher, ("--initialize-publisher",), "shared_publisher_restore_required"),
+    ):
+        try:
+            operation.bind_writer(node, identity, *flags)
+        except OperationError as error:
+            require(str(error) == "product_cli_refused" and error.cli_refusal is not None
+                    and error.cli_refusal["reason"] == reason, "shared_exact_empty_writer_refusal")
+        else:
+            raise OperationError("shared_empty_writer_accepted")
+    operation.summary["empty_writer_refused"] = True
 
 
 def seed_local_only(operation, node):
@@ -140,11 +174,11 @@ def exchange_tails(operation, publisher, publisher_writer, peer_writer):
     records = extra_records(operation)
     positions = {peer_writer["source_stream"]: 3}
     for writer, (kind, record) in zip(operation.writers[2:-1], records.items(), strict=True):
-        node = operation.initialize(kind, writer)
+        node = operation.join_writer(kind, writer)
         node.start()
         durable_batch(node, [native_records.create(operation.schema, native_records.key(kind), record)])
         node.stop()
-        require(node.clean_stops == 2, "shared_independent_writer_clean_stops")
+        require(node.clean_stops == 1, "shared_independent_writer_clean_stops")
         positions[writer["source_stream"]] = operation.push(node, writer, 1)
 
     operation.summary["stage"] = "pull-five-remote-writer-tails"
@@ -169,9 +203,7 @@ def exchange_tails(operation, publisher, publisher_writer, peer_writer):
 
 def join_restored_writer(operation, node, reader):
     operation.summary["stage"] = "bind-restored-idle-writer"
-    reply = operation.writer(node, reader, "bind", "--database-id", operation.scope["database_id"],
-                             "--source-stream", reader["source_stream"], "--schema-bindings",
-                             str(operation.bindings))
+    reply = operation.bind_writer(node, reader)
     require(reply.splitlines() == [b"Shared writer bound"], "shared_restored_idle_writer_bound")
     operation.summary["stage"] = "push-restored-writer-and-cleanup"
     record = operation.record("restored-writer", "first-write")

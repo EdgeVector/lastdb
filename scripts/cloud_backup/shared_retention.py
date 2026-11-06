@@ -119,7 +119,7 @@ def run(operation, first, peer, publisher, receiver):
     operation.summary["stage"] = "shared-retention-baseline"
     through = establish_baseline(operation, first, peer, publisher, receiver)
     version = 0
-    points = [{"writer": settled(operation, first, version, dedicated=True), "peer": settled(operation, peer, version)}]
+    points = [{"writer": settled(operation, first, version, dedicated=True), "peer": settled(operation, peer, version, dedicated=True)}]
     operation.summary["retention_measurements"] = points
     require(all(row["file_keys"] == 3 for row in points[0].values())
             and points[0]["writer"]["private_file_keys"] == 1
@@ -140,7 +140,7 @@ def run(operation, first, peer, publisher, receiver):
             drain(operation, peer, receiver)
         operation.summary["stage"] = "shared-retention-measure-overwrites"
         points.append({"writer": settled(operation, first, version, dedicated=True),
-                       "peer": settled(operation, peer, version)})
+                       "peer": settled(operation, peer, version, dedicated=True)})
         require(all(within_bound(points[0][role], points[-1][role]) for role in ("writer", "peer")),
                 "shared_retention_settled_storage_grew")
     operation.summary.update(shared_retention_overwrites=version, shared_retention_uploaded_through=through)

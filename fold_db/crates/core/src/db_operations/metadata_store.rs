@@ -8,6 +8,7 @@ use crate::storage::format::metadata::{
 pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 use cloud_backup_protocol::shared::peer::PeerHeads;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
+use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{
     MutationEntry, SchemaIdentity, Stamp, StreamId, StreamProgress,
 };
@@ -138,8 +139,13 @@ impl MetadataStore {
         &self,
         stream: WriterStream,
         schemas: BTreeMap<String, JournalSchema>,
+        device: &Id,
+        initialize_publisher: bool,
     ) -> Result<(), SchemaError> {
-        Ok(self.format.bind_portable_journal(stream, schemas).await?)
+        Ok(self
+            .format
+            .bind_portable_journal(stream, schemas, device, initialize_publisher)
+            .await?)
     }
 
     pub(crate) async fn portable_outgoing(&self) -> Result<OutgoingPortablePage, SchemaError> {
@@ -179,10 +185,12 @@ impl MetadataStore {
         progress: &BTreeMap<StreamId, StreamProgress>,
         cutoff: Option<u64>,
         fresh_stream: &StreamId,
+        database: &Id,
+        device: &Id,
     ) -> Result<(), SchemaError> {
         Ok(self
             .format
-            .stage_portable_restore(progress, cutoff, fresh_stream)
+            .stage_portable_restore(progress, cutoff, fresh_stream, database, device)
             .await?)
     }
 
