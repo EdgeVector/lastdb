@@ -1,6 +1,6 @@
 //! `lastdb app …` — developer-facing app registration + publish flow.
 //!
-//! Implements the canonical three-step registration process against the
+//! Implements the canonical two-step registration process against the
 //! LastDB app registry (design: brain `design-lastdb-app-registry`):
 //!
 //! 1. **check** — by default a read-only plan: post each manifest schema to
@@ -9,9 +9,7 @@
 //!    register / expand, or the error a sync would hit) and writes nothing.
 //!    `--sync` uses intent `catalog_sync` instead and reports the catalog
 //!    identity only when the audited result is bind-eligible.
-//! 2. **register-schemas** — compatibility alias for the same Mini-owned sync;
-//!    it never calls Schema Service directly.
-//! 3. **promote** — HARD GATE: refuse unless every manifest schema resolves to
+//! 2. **promote** — HARD GATE: refuse unless every manifest schema resolves to
 //!    catalog identities, then mint a short-TTL DevCert and promote the row
 //!    (`POST /v1/apps/{app_id}/promote`, purpose `app_promote`).
 //!

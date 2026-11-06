@@ -85,9 +85,6 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             confirm_expire_existing,
             schema_url,
         ),
-        AppCommand::Lifecycle(AppLifecycleCommand::RegisterSchemas { manifest, .. }) => {
-            app_register_schemas(&home, &manifest)
-        }
         AppCommand::Lifecycle(AppLifecycleCommand::Publish {
             manifest,
             env,
