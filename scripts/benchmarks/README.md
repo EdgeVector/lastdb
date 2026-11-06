@@ -268,44 +268,6 @@ The checkpoint then waits until the disk size stays constant for three seconds, 
 After the wait, keyed reads verify all known records and their latest values before the idle period.
 The normal daemon memory limits and automatic maintenance stay enabled.
 
-### Active TTL latency comparison
-
-The optional `ttl_active` input of `bench-compare.yml` adds a separate generated-data measurement.
-The lifecycle maintenance PR also enables it on its PR branch.
-It reuses the exact verified programs from the ordinary comparison; it adds no build.
-The result uses its own homes and stays separate from the standard benchmark metrics.
-
-- Two alternating baseline/candidate pairs; the second pair reverses the state order.
-- One client and four clients each send 512 durable calls, with eight records in every call.
-- Each case uses a fresh home with the same 8,192 old HashRange seed records: 16 hashes with 512 records each.
-  This layout lets the baseline sweep use its complete per-hash read within the normal read-work limit.
-  The candidate uses 256-key discovery pages. Neither source receives a larger read-work limit.
-- Live and expired schemas declare distinct canonical fields. The driver verifies disjoint field identities before the seed writes.
-  Each schema owns its values. The artifact retains the actual schema identities and each backfill page.
-- `no-policy`: no retention policy, sweep disabled.
-- `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
-- `active-sweep`: the same policies, default TTL batch size and duty share.
-- `active-sweep-compact`: the active sweep with the automatic run merges during the write window.
-  A v2 home has no explicit compaction.
-
-CAUTION: The CI sampler interval is one second. The normal sampler interval remains unchanged.
-The Hash policy lasts one hour, so the accepted fresh keys must survive the measurement.
-The old HashRange keys expire from their original range times.
-Every active case requires committed TTL purge batches planned during the measured write window.
-These checks establish overlap with the case; they do not claim that every request meets a TTL batch.
-The retained ledger timestamps describe that exposure.
-Exact keyed reads verify every accepted fresh value after the measured window.
-Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
-Cleanup uses persisted field key identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
-Every home restarts before the final fresh-value reads.
-These calls use ordinary generated records. They inject no damaged age entries or active generations.
-Payload construction and validation stay outside request latency. Throughput includes client overhead.
-Request phase coverage stays explicit; omitted phases do not mean zero wait.
-The result is in `ttl-active/` inside the ordinary CI artifact, with a separate CI summary.
-The ordinary upload, checksum, source and expiry checks cover that result.
-The complete 32-case TTL stage has a 90-minute CI deadline; seed, owner maintenance and reads count toward it.
-No local measurement or primary data is used.
-
 The artifact retains disk bytes before and after compaction, bytes per live record, and every compaction receipt.
 It also retains daemon memory samples at 200 ms and memory samples through each idle period.
 Idle memory uses the median after compaction. The peak includes the case, compaction, and idle period.
@@ -419,22 +381,6 @@ Incomplete measurements fail completion; size findings stay advisory.
 
 The resource-growth disk fields now describe database storage. Separate queue and whole-home columns retain total disk visibility.
 Before/after comparisons use the same driver and category rules. Do not compare an older whole-home ratio with the database ratio.
-
-### Optional v2 disk excess investigation
-
-The manual comparison accepts `disk_excess`. It adds a separate generated-data pass with the verified programs.
-The investigation PR branch `perf/investigate-disk-excess-20261026` also enables that pass.
-Ordinary PRs, main pushes, and nightly runs keep their existing recipes and advisory policy.
-The diagnostic uses two alternating pairs at 512 and 16,384 seed records, with three complete update rounds.
-It records size after updates, after 30 idle seconds, and after a stop and reopen of the same owned home.
-Every state verifies all generated keys and their current values. The artifact retains file lengths and allocated blocks by relative path.
-
-The final `GET /api/db/inventory` supplies live key-class sizes and the live record bytes of each schema.
-CAUTION: This owner report writes attribution-ledger records. It runs after all original size observations.
-The diagnostic records its extra disk cost separately and checks that the record byte total stays unchanged.
-Its class sizes describe decrypted live records; they are not physical file sizes or a complete report of every namespace.
-The pass has a 40-minute deadline. Its source revisions, executable hashes, driver hashes, data recipe, and raw results stay in the verified artifact.
-It does not force compaction, change retention, relax the 1.5× ceiling, or use primary data.
 
 Each measured call carries a unique request ID.
 After each write case, the driver requests the current request records from the explicit diagnostic status route.
