@@ -3,12 +3,9 @@
 
 use super::*;
 
-/// Where `install` / `upgrade` resolve an app from: the live registry service
-/// (`env`, `schema_url`) or the signed public index.
+/// Where `install` / `upgrade` resolve an app from on the signed public index.
 #[derive(Clone)]
 pub(crate) struct RegistrySource {
-    pub(crate) env: Option<String>,
-    pub(crate) schema_url: Option<String>,
     pub(crate) channel: Option<String>,
     pub(crate) index: Option<String>,
     pub(crate) trust_key: Option<String>,
@@ -32,7 +29,6 @@ pub(crate) struct AppInstall {
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
     pub(crate) dir: Option<PathBuf>,
-    pub(crate) allow_sandbox: bool,
     pub(crate) force: bool,
     pub(crate) json: bool,
     pub(crate) from: Option<String>,
@@ -47,6 +43,5 @@ pub(crate) struct AppUpgrade {
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
     pub(crate) dir: Option<PathBuf>,
-    pub(crate) allow_sandbox: bool,
     pub(crate) json: bool,
 }

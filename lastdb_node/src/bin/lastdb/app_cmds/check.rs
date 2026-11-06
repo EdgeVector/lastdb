@@ -183,14 +183,6 @@ pub(crate) fn print_check_outcomes(
     }
 }
 
-/// The one app id a legacy service-path command accepts.
-pub(crate) fn single_app(app_ids: &[String]) -> Result<String, String> {
-    match app_ids {
-        [one] => Ok(one.clone()),
-        _ => Err("the --env / --schema-url service path takes exactly one app id".to_string()),
-    }
-}
-
 /// Say so when the trusted index key is not the pinned release key. A test
 /// index is fine; a silent override is not.
 pub(crate) fn warn_trust_override(source: &lastdb_node::app_registry_index::TrustSource) {

@@ -4,15 +4,8 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppCatalogCommand {
-    /// List apps on the signed public index (default), or in the live
-    /// registry service when `--env` / `--schema-url` is given.
+    /// List apps on the signed public index.
     List {
-        /// Legacy: read the live registry service for this environment.
-        #[arg(long)]
-        env: Option<String>,
-        /// Legacy: explicit schema service base URL (implies the service path).
-        #[arg(long)]
-        schema_url: Option<String>,
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,
@@ -26,16 +19,9 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Show one app's row on the signed public index (default), or its live
-    /// registry record when `--env` / `--schema-url` is given.
+    /// Show one app's row on the signed public index.
     Info {
         app_id: String,
-        /// Legacy: read the live registry service for this environment.
-        #[arg(long)]
-        env: Option<String>,
-        /// Legacy: explicit schema service base URL (implies the service path).
-        #[arg(long)]
-        schema_url: Option<String>,
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,
@@ -68,18 +54,10 @@ pub(crate) enum AppCatalogCommand {
     #[command(subcommand)]
     Index(AppIndexCommand),
     /// Install apps from the signed list for this node's exact API version.
-    /// Legacy service path with
-    /// `--env` / `--schema-url` (one app).
     Install {
         /// App ids (`brain kanban situations`).
         #[arg(required = true)]
         app_ids: Vec<String>,
-        /// Legacy: install from the live registry service for this environment.
-        #[arg(long)]
-        env: Option<String>,
-        /// Legacy: explicit schema service base URL (implies the service path).
-        #[arg(long)]
-        schema_url: Option<String>,
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,
@@ -95,9 +73,6 @@ pub(crate) enum AppCatalogCommand {
         /// Install directory (default: <home>/apps/<app_id>). One app only.
         #[arg(long)]
         dir: Option<PathBuf>,
-        /// Legacy: allow installing sandbox records.
-        #[arg(long)]
-        allow_sandbox: bool,
         /// Approve the pinned source install steps and command links.
         #[arg(long)]
         accept_install: bool,
@@ -121,7 +96,6 @@ pub(crate) enum AppCatalogCommand {
         dev: bool,
     },
     /// Upgrade installed apps from the list for the running node API.
-    /// Legacy service path with `--env` / `--schema-url` (one app).
     Upgrade {
         /// App ids (`brain kanban situations`).
         #[arg(required_unless_present = "all")]
@@ -132,12 +106,6 @@ pub(crate) enum AppCatalogCommand {
         /// Approve changed install instructions.
         #[arg(long)]
         accept_install: bool,
-        /// Legacy: upgrade from the live registry service for this environment.
-        #[arg(long)]
-        env: Option<String>,
-        /// Legacy: explicit schema service base URL (implies the service path).
-        #[arg(long)]
-        schema_url: Option<String>,
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,
@@ -153,9 +121,6 @@ pub(crate) enum AppCatalogCommand {
         /// Install directory (default: <home>/apps/<app_id>). One app only.
         #[arg(long)]
         dir: Option<PathBuf>,
-        /// Legacy: allow installing/upgrading sandbox records.
-        #[arg(long)]
-        allow_sandbox: bool,
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
