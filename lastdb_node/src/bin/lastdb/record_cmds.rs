@@ -17,12 +17,14 @@ pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Res
             key_hash,
             key_range,
             json,
+            hydrate,
         } => get_record(
             data_dir,
             &schema,
             key_hash.as_deref(),
             key_range.as_deref(),
             json,
+            hydrate.as_deref(),
         ),
         _ => unreachable!("run() routes only record commands here"),
     }

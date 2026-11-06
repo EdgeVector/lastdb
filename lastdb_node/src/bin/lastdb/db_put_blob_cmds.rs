@@ -126,14 +126,22 @@ fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, Strin
 
 pub(crate) fn db_put_blob(socket: &Path, args: &PutBlobArgs) -> Result<(), String> {
     let metadata = put_blob_metadata(args)?;
-    let bytes = read_put_blob_input(args.file.as_deref())?;
-    let request = put_blob_request(&bytes, &metadata)?;
-    drop(bytes);
-    let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
-    let report = parse_json_response(&response, PUT_BLOB_PATH)?;
+    let report = put_record_file(socket, &metadata, args.file.as_deref())?;
     println!(
         "{}",
         serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?
     );
     Ok(())
+}
+
+pub(crate) fn put_record_file(
+    socket: &Path,
+    metadata: &serde_json::Value,
+    source: Option<&Path>,
+) -> Result<serde_json::Value, String> {
+    let bytes = read_put_blob_input(source)?;
+    let request = put_blob_request(&bytes, metadata)?;
+    drop(bytes);
+    let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
+    parse_json_response(&response, PUT_BLOB_PATH)
 }

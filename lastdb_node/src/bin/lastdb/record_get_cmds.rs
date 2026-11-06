@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "hydrate_cmds.rs"]
+mod hydrate_cmds;
+
 pub(super) fn legal_query_shapes(
     schema_type: &str,
     hash_field: Option<&str>,
@@ -72,6 +75,7 @@ pub(super) fn get_record(
     key_hash: Option<&str>,
     key_range: Option<&str>,
     json_only: bool,
+    hydrate: Option<&Path>,
 ) -> Result<(), String> {
     let Some(hash) = key_hash.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
@@ -89,7 +93,10 @@ pub(super) fn get_record(
         &body,
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
-    let value = parse_json_response(&response, "query")?;
+    let mut value = parse_json_response(&response, "query")?;
+    if let Some(out) = hydrate {
+        hydrate_cmds::hydrate(&socket, schema_name, &mut value, out)?;
+    }
     if json_only {
         println!(
             "{}",
@@ -147,6 +154,11 @@ pub(super) fn print_get_human(value: &serde_json::Value) {
                 };
                 println!("{name} {rendered}");
             }
+        }
+        if let Some(path) = row.get("hydrated_file").and_then(serde_json::Value::as_str) {
+            println!("file {path}");
+        } else if let Some(file) = row.pointer("/metadata/file") {
+            println!("file {file}");
         }
     }
 }

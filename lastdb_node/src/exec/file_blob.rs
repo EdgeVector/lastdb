@@ -24,6 +24,7 @@ pub(super) fn is_media_type(header: Option<&str>, expected: &str) -> bool {
 pub(super) struct FileTarget {
     pub(super) schema: String,
     pub(super) key: KeyValue,
+    expected_revision: Option<String>,
 }
 
 impl FileTarget {
@@ -62,9 +63,14 @@ pub(super) async fn execute_db_fetch_blob_route(
     let read = async {
         let target = FileTarget::parse(&req.body, "/api/db/fetch-blob")?;
         let schema = target.canonical(host)?;
-        host.db
-            .read_record_file(&schema, &target.key)
-            .await
+        let result = if let Some(revision) = target.expected_revision.as_deref() {
+            host.db
+                .read_record_file_at_revision(&schema, &target.key, revision)
+                .await
+        } else {
+            host.db.read_record_file(&schema, &target.key).await
+        };
+        result
             .map_err(HostError::from)?
             .ok_or_else(|| HostError::new(404, "the record has no file"))
     };
