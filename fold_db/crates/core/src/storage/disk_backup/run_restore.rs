@@ -114,6 +114,11 @@ fn map(error: laststore::Error) -> StorageError {
     let cause = match error {
         laststore::Error::Corrupt(_) => NativeProofCause::NativeFormat,
         laststore::Error::AeadAuthFail => NativeProofCause::Authentication,
+        laststore::Error::Config(message)
+            if message == "disk run snapshot: another owner holds the home" =>
+        {
+            NativeProofCause::Static("run restore owner lock busy")
+        }
         laststore::Error::Config(_) => NativeProofCause::Configuration,
         laststore::Error::NativeProof(code) => NativeProofCause::Static(code),
         other => return crate::storage::disk_pack::map(other),

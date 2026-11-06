@@ -29,7 +29,6 @@ pub(super) struct AuthorClockPersistQueue {
 
 impl AuthorClockPersistQueue {
     pub(super) fn new(
-        db_ops: Arc<DbOperations>,
         writer: String,
         initial_state: MutationAuthorClockState,
         pending_tasks: Arc<PendingTaskTracker>,
@@ -40,7 +39,6 @@ impl AuthorClockPersistQueue {
         // PendingTask, so graceful shutdown waits for every submitted state.
         tokio::spawn(run_author_clock_persist_queue(
             receiver,
-            db_ops,
             writer,
             initial_state,
         ));
@@ -51,7 +49,11 @@ impl AuthorClockPersistQueue {
         }
     }
 
-    fn try_reserve(&self, schema: &str) -> Result<AuthorClockPersistReservation, SchemaError> {
+    fn try_reserve(
+        &self,
+        schema: &str,
+        db_ops: &Arc<DbOperations>,
+    ) -> Result<AuthorClockPersistReservation, SchemaError> {
         let permit = self.sender.clone().try_reserve_owned().map_err(|error| {
             SchemaError::PersistQueueFull {
                 schema: schema.to_string(),
@@ -64,6 +66,7 @@ impl AuthorClockPersistQueue {
         })?;
         Ok(AuthorClockPersistReservation {
             permit,
+            db_ops: Arc::clone(db_ops),
             pending_tasks: Arc::clone(&self.pending_tasks),
             coverage: Arc::clone(&self.coverage),
         })
@@ -72,6 +75,7 @@ impl AuthorClockPersistQueue {
 
 pub(super) struct AuthorClockPersistReservation {
     permit: tokio::sync::mpsc::OwnedPermit<AuthorClockPersistJob>,
+    db_ops: Arc<DbOperations>,
     pending_tasks: Arc<PendingTaskTracker>,
     coverage: Arc<coverage::ClockCoverage>,
 }
@@ -146,12 +150,14 @@ impl AuthorClockPersistReservation {
     ) {
         let Self {
             permit,
+            db_ops,
             pending_tasks,
             coverage: _,
         } = self;
         let pending_task = pending_tasks.begin();
         let _sender = permit.send(AuthorClockPersistJob {
             state,
+            db_ops,
             _pending_task: pending_task,
             completion,
         });
@@ -160,6 +166,7 @@ impl AuthorClockPersistReservation {
 
 struct AuthorClockPersistJob {
     state: MutationAuthorClockState,
+    db_ops: Arc<DbOperations>,
     _pending_task: PendingTask,
     completion: Option<tokio::sync::watch::Sender<ClockOutcome>>,
 }
@@ -187,7 +194,6 @@ async fn persist_author_clock(
 
 async fn run_author_clock_persist_queue(
     mut receiver: tokio::sync::mpsc::Receiver<AuthorClockPersistJob>,
-    db_ops: Arc<DbOperations>,
     writer: String,
     mut high_water: MutationAuthorClockState,
 ) {
@@ -213,8 +219,9 @@ async fn run_author_clock_persist_queue(
         let mut delay = AUTHOR_CLOCK_RETRY_INITIAL_DELAY;
         let mut attempt = 1_u64;
         let capacity_window_start = std::time::Instant::now();
+        let db_ops = &jobs[0].db_ops;
         let outcome = loop {
-            match persist_author_clock(&db_ops, &writer, &high_water).await {
+            match persist_author_clock(db_ops, &writer, &high_water).await {
                 Ok(()) => break ClockOutcome::Durable,
                 Err(SchemaError::WriteResourceLimit { detail })
                     if capacity_window_start.elapsed() >= AUTHOR_CLOCK_CAPACITY_WINDOW =>
@@ -243,6 +250,9 @@ async fn run_author_clock_persist_queue(
         // failure cannot report a false drain. A refused state stays in the
         // high-water mark, so the next durable write covers it too.
         for job in jobs {
+            // Only admitted work owns the native home. Release that ownership
+            // before a waiter can proceed with stopped-home verification.
+            drop(job.db_ops);
             if let Some(completion) = job.completion {
                 let _ = completion.send(outcome.clone());
             }
@@ -283,7 +293,7 @@ impl MutationManager {
                     "mutation author-clock persistence is unavailable".to_string(),
                 )
             })?
-            .try_reserve(schema)?;
+            .try_reserve(schema, &self.db_ops)?;
         let local_writer_id = self.signer.public_key_base64();
         let mut resident_state = self
             .author_clock_state

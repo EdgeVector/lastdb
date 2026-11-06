@@ -49,6 +49,11 @@ on:
         description: "Earlier accepted-main shared recovery run ID, for shared-readback only."
         type: string
         required: false
+      readback_reader:
+        description: "Enrolled device with no active hold, for shared-readback only."
+        type: choice
+        options: [peer, publisher]
+        default: peer
 
 permissions:
   contents: read
@@ -378,6 +383,7 @@ jobs:
           RUN_MODE: ${{ inputs.mode }}
           PRIOR_RUN: ${{ inputs.proof_run }}
           PRIOR_SOURCE: ${{ steps.prior.outputs.source }}
+          READBACK_READER: ${{ inputs.readback_reader }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_SHARED_SCOPE }}
@@ -389,7 +395,8 @@ jobs:
             test -n "$PRIOR_SOURCE"
             prior="$RUNNER_TEMP/cloud-shared-prior/summary.json"
             chmod 600 "$prior"
-            args+=(--prior-summary "$prior" --prior-run "$PRIOR_RUN" --prior-source "$PRIOR_SOURCE")
+            args+=(--prior-summary "$prior" --prior-run "$PRIOR_RUN" --prior-source "$PRIOR_SOURCE"
+              --readback-reader "$READBACK_READER")
           else
             test -z "$PRIOR_RUN"
           fi

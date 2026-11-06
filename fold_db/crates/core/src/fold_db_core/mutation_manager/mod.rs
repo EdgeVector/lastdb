@@ -79,7 +79,6 @@ impl MutationManager {
             policy.max_deferred_persists,
         ));
         let author_clock_persist = author_clock::AuthorClockPersistQueue::new(
-            Arc::clone(&db_ops),
             signer.public_key_base64(),
             author_clock_state,
             pending_tasks,
