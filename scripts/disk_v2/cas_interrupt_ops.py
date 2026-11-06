@@ -4,6 +4,8 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -96,21 +98,32 @@ def prove_required_file(node):
     fields = {"note": "file content is part of this record"}
     request = mutation(schema, target, fields, "create", expected={"type": "absent"})
     require_file_refusal(node, "/api/mutation", request)
-    stored = node.call("/api/db/put-blob", {
-        "mutation": request, "bytes_b64": base64.b64encode(payload(0)).decode(),
-    })[0]
+    source = node.root / "record-file"
+    source.write_bytes(payload(0))
+    request_path = node.root / "record-input.json"
+    request_path.write_text(json.dumps({"mutation": request, "file": {"source": source.name}}))
+    cli = node.binary.with_name("lastdb")
+    environment = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
+    stored = json.loads(subprocess.check_output(
+        [cli, "mutate", "--request-file", request_path], env=environment, timeout=60))
     update = conditioned(node, [mutation(schema, target, fields)])[0]
     update.pop("file", None)
     node.call("/api/mutation", update)
     clear = conditioned(node, [mutation(schema, target, fields)])[0]
     clear.pop("file", None)
     require_file_refusal(node, "/api/db/delete-blob", {"mutation": clear})
-    after = node.call("/api/db/fetch-blob", {"schema": schema, "key": target})[0]
-    require(after["file"]["sha256"] == stored["file"]["sha256"],
+    destination = node.root / "hydrated-record-file"
+    hydrated = json.loads(subprocess.check_output(
+        [cli, "get", schema, "--key-hash", target["hash"], "--hydrate", destination, "--json"],
+        env=environment, timeout=60))["results"]
+    require(len(hydrated) == 1 and hydrated[0]["fields"] == fields
+            and hydrated[0]["hydrated_file"] == str(destination)
+            and hydrated[0]["metadata"]["file"]["sha256"] == stored["file"]["sha256"]
+            and destination.read_bytes() == source.read_bytes(),
             "the required file changed or disappeared during a record replacement")
     delete = conditioned(node, [mutation(schema, target, {}, "delete")])[0]
     node.call("/api/mutation", delete)
-    print("Required file admission and automatic preservation passed", flush=True)
+    print("Required file admission, automatic preservation and CLI hydration passed", flush=True)
 
 
 def require_file_refusal(node, route, request):
