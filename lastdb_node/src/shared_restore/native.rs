@@ -223,9 +223,9 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
 
     async fn finish(self, cut: &RestoreCut, local_stream: &StreamId) -> Result<()> {
         let mut progress = cut.progress.clone();
-        for stream in cut.captured_heads.keys() {
-            progress.entry(stream.clone()).or_default();
-        }
+        // Only streams with applied mutations belong to the sealed progress.
+        // An enrolled idle writer can still bind this home as its first home.
+        progress.retain(|_, cursor| cursor.applied_through != 0);
         self.db
             .mutation_manager()
             .finish_portable_restore(&progress, cut.delete_reclaimed_through_ms, local_stream)

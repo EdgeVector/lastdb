@@ -77,7 +77,7 @@ impl<'a> PeerWorker<'a> {
 
     /// Verify and stage one retained range, then atomically apply its winning
     /// records, file versions and fully accounted progress.
-    pub async fn step(&mut self) -> Result<PeerOutcome> {
+    pub async fn step(&mut self) -> Result<(PeerOutcome, u64)> {
         let _admission = NativeCloudWorkGuard::acquire()
             .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
         let db = self.db;
@@ -90,10 +90,12 @@ impl<'a> PeerWorker<'a> {
             })
             .await?;
         let outcome = self.apply_one(native, &heads).await?;
-        if !matches!(outcome, PeerOutcome::NeedsCheckpoint { .. }) {
-            native.reclaim_portable_deletes(&heads).await?;
-        }
-        Ok(outcome)
+        let reclaimed = if matches!(outcome, PeerOutcome::NeedsCheckpoint { .. }) {
+            0
+        } else {
+            native.reclaim_portable_deletes(&heads).await?
+        };
+        Ok((outcome, reclaimed))
     }
 
     async fn apply_one(
