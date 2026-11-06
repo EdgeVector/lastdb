@@ -47,6 +47,26 @@ RESTORE_REFUSALS = {
 }
 SHARED_STAGES = {name.encode(): name for name in ("selection", "manifest-read", "manifest-verify",
     "checkpoint-install", "tail-read", "writer-open", "replay-activate")}
+SNAPSHOT_REFUSALS = {
+    b"invalid restore shared writer state": "snapshot_writer_state",
+    b"invalid restore owned session directory": "snapshot_owned_directory",
+    b"invalid restore owned session file": "snapshot_owned_file",
+    b"invalid restore saved DEV credentials": "snapshot_saved_credentials",
+    b"invalid restore shared snapshot requires saved DEV credentials": "snapshot_dev_endpoint",
+    b"invalid restore shared device key": "snapshot_device_key",
+    b"invalid restore shared schema identity": "snapshot_schema_identity",
+    b"invalid restore shared writer pending prefix is missing": "snapshot_pending_prefix",
+    b"invalid restore shared writer tail is missing": "snapshot_writer_tail",
+    b"restore source unavailable: bound shared schema definition": "snapshot_schema_definition",
+    b"restore source unavailable: authenticated shared snapshot transport": "snapshot_transport",
+    b"restore source unavailable: shared writer upload; retry with the same workspace": "snapshot_log_upload",
+    b"restore limit: snapshot deadline; retry with the same workspace": "snapshot_deadline",
+    b"invalid restore read native checkpoint page": "snapshot_checkpoint_page",
+    b"invalid restore read filtered checkpoint file": "snapshot_checkpoint_file",
+    b"invalid restore persist filtered checkpoint cut": "snapshot_checkpoint_cut",
+    b"missing published snapshot ID": "snapshot_receipt_identity",
+    b"missing uploaded writer position": "snapshot_receipt_position",
+}
 PROOF_STAGES = {name.encode(): name for name in (
     "native_reader", "admission", "validation", "restore", "profile", "physical_root",
     "account", "schemas", "directories", "native_cas", "records", "final_binding")}
@@ -77,6 +97,17 @@ def cli_refusal(stderr, exit_code):
     if len(errors) != 1:
         return result
     message = errors[0]
+    snapshot_http = re.fullmatch(rb"shared snapshot returned HTTP/1.1 ([0-9]{3}) [^:]+: (.{1,4096})", message)
+    if snapshot_http:
+        result["snapshot_http_status"] = int(snapshot_http[1])
+        try:
+            body = decode_json(snapshot_http[2])
+        except OperationError:
+            body = None
+        message = (body["error"].encode()
+                   if isinstance(body, dict) and isinstance(body.get("error"), str) else snapshot_http[2])
+    if message in SNAPSHOT_REFUSALS:
+        return {**result, "reason": SNAPSHOT_REFUSALS[message]}
     if message.startswith((b"V2 restore retains session ", b"shared restore retained workspace ")):
         # The CLI inserts its private workspace path before this separator.
         _path, separator, message = message.partition(b": ")

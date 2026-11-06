@@ -23,18 +23,21 @@ pub(super) fn run(home: Option<&Path>, args: SnapshotArgs) -> Result<(), String>
         &body,
     )?;
     let response = parse_json_response(&response, "shared snapshot")?;
-    let value = response
-        .get("data")
-        .ok_or("missing shared snapshot result")?;
+    let snapshot = response["snapshot_id"]
+        .as_str()
+        .ok_or("missing published snapshot ID")?;
+    let position = response["writer_uploaded_through"]
+        .as_u64()
+        .ok_or("missing uploaded writer position")?;
     if args.json {
-        println!("{value}");
+        println!(
+            "{}",
+            serde_json::json!({
+                "snapshot_id": snapshot,
+                "writer_uploaded_through": position,
+            })
+        );
     } else {
-        let snapshot = value["snapshot_id"]
-            .as_str()
-            .ok_or("missing published snapshot ID")?;
-        let position = value["writer_uploaded_through"]
-            .as_u64()
-            .ok_or("missing uploaded writer position")?;
         println!("Published shared snapshot {snapshot}");
         println!("Uploaded shared writer through {position}");
     }
