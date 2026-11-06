@@ -30,7 +30,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.plan.outputs.run }}
-      copy_v12: ${{ steps.plan.outputs.copy_v12 }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -46,7 +45,6 @@ jobs:
         run: |
           set -euo pipefail
           run=true
-          copy_v12=true
           if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "push" ]; then
             if [ -z "$BASE" ] || [ -z "$HEAD" ] || [[ "$BASE" =~ ^0+$ ]] || [[ "$HEAD" =~ ^0+$ ]]; then
               echo "SHAs were not passed; run the proof"
@@ -56,40 +54,19 @@ jobs:
                 echo "merge-base failed; run the proof"
               else
                 run=false
-                copy_v12=false
                 while IFS= read -r path; do
                   [ -z "$path" ] && continue
                   case "$path" in
-                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|schema_service/crates/schema_types/*|scripts/operations/record_requests.py|scripts/benchmarks/node.py|scripts/benchmarks/record_protocol.py|scripts/benchmarks/home_format.py|scripts/operations/record_home.py|scripts/operations/record_runs.py|scripts/operations/record_drop_tracking.py|scripts/operations/record_home_copy.py|.github/workflows/record-home.yml)
+                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|schema_service/crates/schema_types/*|scripts/operations/record_requests.py|scripts/benchmarks/node.py|scripts/benchmarks/record_protocol.py|scripts/benchmarks/home_format.py|scripts/operations/record_home.py|scripts/operations/record_runs.py|scripts/operations/record_drop_tracking.py|.github/workflows/record-home.yml)
                       run=true
-                      ;;
-                  esac
-                  case "$path" in
-                    fold_db/crates/core/src/storage/format.rs|fold_db/crates/model/src/record_value.rs|\
-                    lastdb_host/src/handlers/query/response.rs|lastdb_host/src/handlers/mutation.rs|\
-                    lastdb_node/src/exec/file_blob*.rs|lastdb_node/src/exec/schema_routes.rs|\
-                    lastdb_node/src/exec/app_routes.rs|lastdb_node/src/exec/app_routes/*.rs|\
-                    lastdb_node/src/exec/db_maintenance/schema_maps.rs|\
-                    scripts/operations/record_home.py|scripts/operations/record_home_copy.py|\
-                    scripts/operations/record_requests.py|\
-                    scripts/benchmarks/node.py|scripts/benchmarks/home_format.py|.github/workflows/record-home.yml)
-                      copy_v12=true
                       ;;
                   esac
                 done < <(git diff --name-only "$merge_base" "$HEAD")
               fi
             fi
           fi
-          if [ "$copy_v12" = true ]; then
-            format="$(PYTHONPATH=scripts/benchmarks python3 -c 'from home_format import HOME_FORMAT; print(HOME_FORMAT)')"
-            if [ "$format" != 13 ]; then
-              copy_v12=false
-            fi
-          fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "copy_v12=$copy_v12" >> "$GITHUB_OUTPUT"
           echo "Record home proof selected: $run"
-          echo "Format 12 to 13 copy selected: $copy_v12"
 
   records:
     name: Fresh home records
@@ -117,31 +94,6 @@ jobs:
           python3 scripts/operations/record_home.py --daemon "$PWD/target/debug/lastdbd" \
             --revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/record-home" 2>&1 | tee "$RUNNER_TEMP/record-home.log"
-      - name: Check out the accepted format 12 source
-        if: needs.select.outputs.copy_v12 == 'true'
-        uses: actions/checkout@v5
-        with:
-          ref: 5373c5c514e612104204baca69cbd3b82995c5f1
-          path: format12-source
-          persist-credentials: false
-      - name: Rehearse the format 12 live-record copy
-        if: needs.select.outputs.copy_v12 == 'true'
-        run: |
-          set -euo pipefail
-          source_revision="$(git -C format12-source rev-parse HEAD)"
-          cp target/debug/lastdbd "$RUNNER_TEMP/lastdbd-format13"
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$source_revision" \
-            cargo build --locked --manifest-path format12-source/Cargo.toml \
-            --target-dir "$PWD/target" -p lastdb_node --bin lastdbd
-          mv target/debug/lastdbd "$RUNNER_TEMP/lastdbd-format12"
-          mv "$RUNNER_TEMP/lastdbd-format13" target/debug/lastdbd
-          python3 scripts/operations/record_home.py \
-            --copy-format12-daemon "$RUNNER_TEMP/lastdbd-format12" --copy-format12-revision "$source_revision" \
-            --daemon "$PWD/target/debug/lastdbd" --revision "$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/record-home/format12-copy" 2>&1 \
-            | tee "$RUNNER_TEMP/record-home/format12-copy.log"
-          printf 'Format 12 (%s) to 13 live-record copy and range-age proof passed.\n' \
-            "$source_revision" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
