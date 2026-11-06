@@ -178,6 +178,10 @@ pub(super) enum Command {
         action: CloudCommand,
     },
     /// Submit a complete conditional mutation from JSON, or '-' for stdin.
+    ///
+    /// To supply the record's file, use an object with `mutation` and
+    /// `file: { source, name?, media_type? }`. The source path is relative
+    /// to the request file, or to the working directory when reading stdin.
     Mutate {
         #[arg(long)]
         request_file: PathBuf,
@@ -213,6 +217,9 @@ pub(super) enum Command {
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
+        /// Hydrate the same record version and write its verified file to a new path.
+        #[arg(long, value_name = "FILE")]
+        hydrate: Option<PathBuf>,
     },
     /// Inspect one installed schema's key layout and legal query shapes.
     Schema {

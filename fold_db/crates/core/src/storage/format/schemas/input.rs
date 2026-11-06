@@ -26,5 +26,16 @@ pub(crate) fn schema_input<'a>(
         .require_record_keys()?
         .validate()
         .map_err(SchemaError::InvalidData)?;
+    if schema.file_required {
+        let mut canonical = schema.to_wire();
+        canonical.compute_identity_hash();
+        if schema.identity_hash != canonical.identity_hash
+            || schema.identity_hash_algo_version != canonical.identity_hash_algo_version
+        {
+            return Err(SchemaError::InvalidData(
+                "required-file schema needs its exact catalog identity".into(),
+            ));
+        }
+    }
     Ok(SchemaInput { schema })
 }

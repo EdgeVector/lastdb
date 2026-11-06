@@ -32,6 +32,11 @@ impl SchemaStore {
     ) -> Result<(), SchemaError> {
         let input = schema_input(schema_name, schema)?;
         if let Some(existing) = self.get_schema(schema_name).await? {
+            if existing.file_required != schema.file_required {
+                return Err(SchemaError::InvalidData(
+                    "changing the file requirement needs a new schema identity".into(),
+                ));
+            }
             if durable_schema_eq(&existing, schema) {
                 self.stage_native_snapshot(schema_name).await?;
                 return Ok(());

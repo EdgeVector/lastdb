@@ -10,6 +10,7 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.key == other.key
             && self.alternate_keys == other.alternate_keys
             && self.record_keys == other.record_keys
+            && self.file_required == other.file_required
             && self.fields == other.fields
             && self.transform_fields == other.transform_fields
             && self.hash == other.hash

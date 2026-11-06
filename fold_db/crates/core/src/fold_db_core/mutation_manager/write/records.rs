@@ -6,7 +6,7 @@ use super::record_effects::ChangedRecord;
 use super::*;
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{MutationType, Schema};
+use crate::schema::types::{FileWrite, MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::records::{PortableEffect, RecordAddress};
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
@@ -184,6 +184,13 @@ fn replace_record(
     for (field, value) in &mutation.record_fields {
         validate_field_value(&schema.name, schema, field, value)?;
     }
+    let file = mutation.file.clone().or_else(|| {
+        if matches!(&mutation.file_write, Some(FileWrite::Clear)) {
+            None
+        } else {
+            before.and_then(|record| record.file.clone())
+        }
+    });
     let replacement = RecordReplacement {
         target: mutation.target(),
         expected: mutation.expected.clone(),
@@ -201,7 +208,7 @@ fn replace_record(
         } else {
             None
         },
-        file: mutation.file.clone(),
+        file,
     };
     replacement
         .validate(schema.require_record_keys()?)

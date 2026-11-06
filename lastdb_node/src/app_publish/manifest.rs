@@ -63,8 +63,6 @@ pub struct AppManifest {
     #[serde(default)]
     pub artifact: Option<AppArtifact>,
     #[serde(default)]
-    pub run: Option<AppRunConfig>,
-    #[serde(default)]
     pub uses: Vec<String>,
     #[serde(default)]
     pub schemas: Vec<Value>,
@@ -96,28 +94,11 @@ pub struct AppManifest {
     pub contract_range: Option<String>,
 }
 
-/// Local app runner convention for source-installed apps.
-///
-/// The entrypoint is always relative to the installed source checkout. Runtime
-/// support is deliberately small until artifact verification lands.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct AppRunConfig {
-    pub runtime: String,
-    pub entrypoint: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<String>,
-}
-
 pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
-    load_manifest_inner(path, true)
+    load_manifest_inner(path)
 }
 
-/// Source runners need no schema registration or declaration.
-pub(super) fn load_runtime_manifest(path: &Path) -> Result<AppManifest, String> {
-    load_manifest_inner(path, false)
-}
-
-fn load_manifest_inner(path: &Path, require_schemas: bool) -> Result<AppManifest, String> {
+fn load_manifest_inner(path: &Path) -> Result<AppManifest, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read manifest {}: {e}", path.display()))?;
     let manifest: AppManifest = serde_json::from_str(&raw)
@@ -136,7 +117,7 @@ fn load_manifest_inner(path: &Path, require_schemas: bool) -> Result<AppManifest
         }
     }
 
-    if require_schemas && manifest.schemas.is_empty() {
+    if manifest.schemas.is_empty() {
         return Err(
             "manifest declares no schemas — a LastDB app manifest must list the schemas it uses"
                 .into(),

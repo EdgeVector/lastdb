@@ -3,6 +3,9 @@ use super::DeclarativeSchemaDefinition;
 impl DeclarativeSchemaDefinition {
     /// Shared admission checks for wire and programmatic definitions.
     pub fn validate_definition(&self) -> Result<(), String> {
+        if self.file_required && self.record_keys.is_none() {
+            return Err("file_required needs explicit record keys".into());
+        }
         self.validate_field_names()?;
         self.validate_key_field_types()?;
         self.validate_alternate_keys()
