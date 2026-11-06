@@ -15,7 +15,9 @@ pub(crate) struct CheckpointDirectory {
 }
 
 impl Metadata {
-    pub(crate) async fn portable_checkpoint_directory(&self) -> StorageResult<CheckpointDirectory> {
+    pub(crate) async fn portable_checkpoint_directory(
+        &self,
+    ) -> StorageResult<Option<CheckpointDirectory>> {
         let shared = self
             .local_author()
             .await?
@@ -44,18 +46,18 @@ impl Metadata {
             .collect::<StorageResult<_>>()?;
         let mut local = shared.progress;
         if local.uploaded_through.unwrap_or_default() != local.applied_through {
-            return Err(invalid("checkpoint has an unaccepted local prefix"));
+            return Ok(None);
         }
         local.uploaded_through = None;
         if progress.get(&replay.local_stream_id) != Some(&local) {
             return Err(invalid("checkpoint author differs from its applied cursor"));
         }
-        Ok(CheckpointDirectory {
+        Ok(Some(CheckpointDirectory {
             writer: shared.scope,
             schemas: shared.schemas,
             local_head: shared.uploaded_head,
             progress,
             delete_reclaimed_through_ms: replay.delete_reclaimed_through_ms,
-        })
+        }))
     }
 }

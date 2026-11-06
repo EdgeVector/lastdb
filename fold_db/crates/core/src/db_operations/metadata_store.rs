@@ -21,7 +21,7 @@ pub struct MetadataStore {
 impl MetadataStore {
     pub(crate) async fn portable_checkpoint_directory(
         &self,
-    ) -> Result<CheckpointDirectory, SchemaError> {
+    ) -> Result<Option<CheckpointDirectory>, SchemaError> {
         Ok(self.format.portable_checkpoint_directory().await?)
     }
 
@@ -142,6 +142,12 @@ impl MetadataStore {
 
     pub(crate) async fn portable_outgoing(&self) -> Result<OutgoingPortablePage, SchemaError> {
         Ok(self.format.portable_outgoing().await?)
+    }
+
+    pub(crate) async fn portable_writer_progress(
+        &self,
+    ) -> Result<(WriterStream, StreamProgress), SchemaError> {
+        Ok(self.format.portable_writer_progress().await?)
     }
 
     pub(crate) async fn outgoing_schema_name(

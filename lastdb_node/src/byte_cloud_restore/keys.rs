@@ -28,6 +28,10 @@ impl RecoveryKeys {
             crate::cloud::seed_from_phrase(phrase)
                 .map_err(|_| RestoreError::Invalid("recovery phrase"))?,
         );
+        Self::from_seed(seed)
+    }
+
+    pub(crate) fn from_seed(seed: Zeroizing<[u8; 32]>) -> Result<Self> {
         let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
             .map_err(|_| RestoreError::Invalid("recovery key"))?;
         let keys = E2eKeys::from_ed25519_seed(&seed)
@@ -58,5 +62,9 @@ impl RecoveryKeys {
 
     pub(crate) fn content_key(&self) -> &[u8; 32] {
         &self.content
+    }
+
+    pub(crate) fn account_id(&self) -> &cloud_backup_protocol::AccountId {
+        &self.account_id
     }
 }

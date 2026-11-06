@@ -185,6 +185,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
         | DataRoute::SyncByteBackupV2Connect
+        | DataRoute::SyncSharedSnapshot
         | DataRoute::DeclareSchema
         // The drop releases every record, history entry and alternate entry
         // of the schema in bounded batches before it removes the schema.
