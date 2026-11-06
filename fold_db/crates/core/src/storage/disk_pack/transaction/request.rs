@@ -102,17 +102,14 @@ where
 }
 
 /// The kinds of operation in one accepted batch, for a run that reads the log.
-/// The record, its alternate key entries, its field history copies and its
-/// file of one request share one batch, so a delete shows its record, its
-/// entries and the delete of its file under one sequence number.
+/// The record, its alternate entries and its file share one batch and
+/// one sequence number.
 #[derive(Default)]
 struct BatchShape {
     record_puts: u32,
     record_deletes: u32,
     alternate_puts: u32,
     alternate_deletes: u32,
-    history_puts: u32,
-    history_deletes: u32,
     file_puts: u32,
     file_deletes: u32,
 }
@@ -132,8 +129,6 @@ impl BatchShape {
                     (&mut shape.record_puts, &mut shape.record_deletes)
                 } else if key.starts_with(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX) {
                     (&mut shape.alternate_puts, &mut shape.alternate_deletes)
-                } else if crate::records::field_history::record_history_suffix(key).is_some() {
-                    (&mut shape.history_puts, &mut shape.history_deletes)
                 } else {
                     continue;
                 };
@@ -168,8 +163,6 @@ fn note_gate_hold(
         record_deletes = shape.record_deletes,
         alternate_puts = shape.alternate_puts,
         alternate_deletes = shape.alternate_deletes,
-        history_puts = shape.history_puts,
-        history_deletes = shape.history_deletes,
         file_puts = shape.file_puts,
         file_deletes = shape.file_deletes,
         "native write gate released"

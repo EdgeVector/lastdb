@@ -31,14 +31,4 @@ pub struct FoldDB {
     pub(crate) mutation_manager: Arc<MutationManager>,
     /// Tracker for pending background tasks
     pub(crate) pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
-    pub(crate) background_field_history: super::field_history::BackgroundFieldHistory,
-}
-
-impl Drop for FoldDB {
-    fn drop(&mut self) {
-        // Request cancellation before the storage fields drop. Graceful
-        // shutdown awaits this task; Drop cannot await from a synchronous
-        // destructor and uses the best-effort fallback.
-        self.background_field_history.abort();
-    }
 }

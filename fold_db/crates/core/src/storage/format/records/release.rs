@@ -3,19 +3,16 @@
 use super::{
     applied_deletes::APPLIED_DELETE_FAMILY, file_crypto::dropped_file_paths, RecordFormat,
 };
-use crate::records::field_history::RecordHistoryEntry;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::format::metadata::FileReferenceChange;
-use crate::storage::format::{history, HISTORY_RECORD_FAMILY, MAIN_NAMESPACE};
+use crate::storage::format::MAIN_NAMESPACE;
 use crate::storage::KvMutation;
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
-use std::collections::BTreeSet;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ReleaseKind {
     Records,
-    History,
     Alternates,
     AppliedDeletes,
 }
@@ -28,10 +25,6 @@ pub(crate) struct ReleaseFamily {
 pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, SchemaError> {
     let space = record_space_uuid(&schema.name);
     let mut families = vec![
-        ReleaseFamily {
-            prefix: format!("{HISTORY_RECORD_FAMILY}:{space}:"),
-            kind: ReleaseKind::History,
-        },
         ReleaseFamily {
             prefix: format!("{RECORD_PREFIX}{space}:"),
             kind: ReleaseKind::Records,
@@ -106,56 +99,35 @@ impl RecordFormat {
             return Ok(0);
         }
         let count = rows.len() as u64;
-        if matches!(family.kind, ReleaseKind::History) {
-            self.stage_history(release_history(&rows)?).await?;
+        let files = if matches!(family.kind, ReleaseKind::Records) {
+            dropped_file_paths(rows.iter().map(|(k, v)| (k.as_slice(), v.as_slice())))?
         } else {
-            let files = if matches!(family.kind, ReleaseKind::Records) {
-                dropped_file_paths(rows.iter().map(|(k, v)| (k.as_slice(), v.as_slice())))?
-            } else {
-                Vec::new()
-            };
-            let deletes = rows
-                .into_iter()
-                .map(|(key, _)| KvMutation::delete(key))
-                .collect();
-            self.main_store.inner().batch_mutate(deletes).await?;
-            let references = files
-                .into_iter()
-                .map(|key| {
-                    let path = String::from_utf8(key).map_err(|error| {
-                        SchemaError::InvalidData(format!("released file key: {error}"))
-                    })?;
-                    Ok((
-                        path,
-                        FileReferenceChange {
-                            live: Some(false),
-                            local_detach: true,
-                            ..FileReferenceChange::default()
-                        },
-                    ))
-                })
-                .collect::<Result<_, SchemaError>>()?;
-            let files = self.metadata.stage_file_references(references).await?;
-            self.stage_files(files.into_iter().map(KvMutation::delete).collect())
-                .await?;
-        }
+            Vec::new()
+        };
+        let deletes = rows
+            .into_iter()
+            .map(|(key, _)| KvMutation::delete(key))
+            .collect();
+        self.main_store.inner().batch_mutate(deletes).await?;
+        let references = files
+            .into_iter()
+            .map(|key| {
+                let path = String::from_utf8(key).map_err(|error| {
+                    SchemaError::InvalidData(format!("released file key: {error}"))
+                })?;
+                Ok((
+                    path,
+                    FileReferenceChange {
+                        live: Some(false),
+                        local_detach: true,
+                        ..FileReferenceChange::default()
+                    },
+                ))
+            })
+            .collect::<Result<_, SchemaError>>()?;
+        let files = self.metadata.stage_file_references(references).await?;
+        self.stage_files(files.into_iter().map(KvMutation::delete).collect())
+            .await?;
         Ok(count)
     }
-}
-
-fn release_history(rows: &[(Vec<u8>, Vec<u8>)]) -> Result<history::EncodedHistory, SchemaError> {
-    let mut changes = Vec::new();
-    let mut records = BTreeSet::new();
-    for (key, bytes) in rows {
-        let key = std::str::from_utf8(key).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let entry: RecordHistoryEntry = serde_json::from_slice(bytes).map_err(|error| {
-            SchemaError::InvalidData(format!(
-                "field history row {key} of a dropped schema is unreadable: {error}"
-            ))
-        })?;
-        changes.push(history::release(key, &entry)?);
-        records.insert(entry.record);
-    }
-    changes.extend(records.into_iter().map(history::HistoryChange::DeleteCount));
-    history::encode(changes)
 }

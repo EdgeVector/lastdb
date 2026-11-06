@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # No c-cpp. The only C file left with the field-history diagnostics.
+        # The repository has no C/C++ sources for CodeQL to analyze.
         language: [actions, javascript-typescript, python, ruby, rust]
     env:
       CARGO_INCREMENTAL: '0'

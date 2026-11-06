@@ -30,7 +30,6 @@ impl RecordDeleteLedgerEntry {
             caller: caller.to_string(),
             schema: schema.to_string(),
             key_fingerprint: key_fingerprint(schema, described_key),
-            history_rows_deleted: 0,
             records_erased: 0,
             file_records_erased: 0,
         }

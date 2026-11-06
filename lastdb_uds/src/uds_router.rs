@@ -107,11 +107,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `19` (2026-11-01) removes reply keys that the home always left
 /// empty: the empty value id on query field metadata, `integrity` on
 /// `/api/status`, the warm count on native disk status, the value byte count
-/// and the tracked count on warm byte stats, and the empty value id on a
-/// field history entry. No request changed; `MIN_SUPPORTED_API_VERSION`
-/// stays `1`.
-/// `20` (2026-11-01) renames the field history route to
-/// `POST /api/field-history`. Status, inventory, restore, and share replies
+/// and the tracked count on warm byte stats. No request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+/// In `20` (2026-11-01), status, inventory, restore, and share replies
 /// use the field-value, verify-ref, and record-count names.
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.
 /// `21` (2026-11-01) gives a query record one `metadata` block,
@@ -177,9 +175,8 @@ const API_VERSION_PATH: &str = "/api/version";
 /// stays `1`.
 /// `26` (2026-11-03) removes the org database catalog: the owner-only routes
 /// `GET|POST|PUT|DELETE /api/db/catalog` and `POST /api/db/catalog/share`, the
-/// `catalog_membership_denied` error, and the `database` key of
-/// `POST /api/field-history`. The node no longer reads the `X-LastDB-Db`
-/// header. It also removes the
+/// `catalog_membership_denied` error. The node no longer reads the
+/// `X-LastDB-Db` header. It also removes the
 /// owner-only routes `GET /api/storage/home` and
 /// `POST /api/storage/home/reconcile`. No other request changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `1`.

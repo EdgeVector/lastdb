@@ -40,25 +40,16 @@ impl FoldDB {
         &self,
         task_drain_timeout: std::time::Duration,
     ) -> Result<(), StorageError> {
-        let mut pre_flush_errors = Vec::new();
         tracing::info!(
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
-        if let Err(error) = self.background_field_history.stop().await {
-            pre_flush_errors.push(error);
-        }
         let pending_task_timeout = self
             .drain_pending_tasks_at_shutdown(task_drain_timeout)
             .await;
         // Keep the final barrier after accepted work has drained.
         let flush_result = self.flush().await;
-        let timeout = pending_task_timeout
-            .into_iter()
-            .chain(pre_flush_errors)
-            .collect::<Vec<_>>()
-            .join("; ");
-        if !timeout.is_empty() {
+        if let Some(timeout) = pending_task_timeout {
             return match flush_result {
                 Ok(()) => Err(StorageError::BackendError(timeout)),
                 Err(error) => Err(StorageError::BackendError(format!(

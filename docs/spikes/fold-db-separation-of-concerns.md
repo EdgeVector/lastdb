@@ -362,8 +362,8 @@ A call to `Uuid::new_v4` or `Utc::now` in the model then fails to compile.
 
 ### Step 6 (optional, D4): the host owns the task schedule
 
-The engine owns tasks for field key drain, conflict janitor, field history,
-the author clock queue, the flush lanes, the cleanup worker, the change feed, the schema key load,
+The engine owns tasks for field key drain, the conflict janitor, the author
+clock queue, the flush lanes, the cleanup worker, the change feed, the schema key load,
 the disk queue, and three `spawn_blocking` calls.
 Step 6 changes each periodic task to `run_once(budget, now)`, and the host calls it on its schedule.
 `offline_maintenance` then means "the host schedules no task".

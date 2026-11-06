@@ -54,9 +54,6 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
                 observability::truncate::truncate_on_char_boundary(fp, 12)
             ));
         }
-        if n("history_rows_deleted") > 0 {
-            line.push_str(&format!(" history={}", n("history_rows_deleted")));
-        }
         println!("{line}");
     }
     Ok(())

@@ -1,11 +1,15 @@
 //! Imported data must use the same exact keys as a fresh native home.
 //!
-//! The `main` namespace holds only the key families in [`CURRENT_FAMILIES`].
+//! The `main` namespace holds the two layout control keys and the key
+//! families in [`CURRENT_FAMILIES`].
 //! Every native read by key, every write and every restored row passes
 //! [`validate`], which refuses every other family.
 
 use super::error::{StorageError, StorageResult};
-use super::format::{records::applied_deletes, CURRENT_FAMILIES, MAIN_NAMESPACE};
+use super::format::{
+    records::applied_deletes, CURRENT_FAMILIES, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+    MAIN_NAMESPACE,
+};
 
 pub(crate) mod families;
 
@@ -13,19 +17,18 @@ pub(crate) mod families;
 ///
 /// - `rk`: one record for each key. `ak`: the alternate key entries.
 /// - `ad`: one applied-delete stamp at the erased record's address.
-/// - `rh`: legacy field history copies. `ahp`, `ahk`, `ahq`,
-///   `ahb`: the history policy of a field, the history count of a key, and the
-///   expiry queue of the history entries and its bucket directory.
 /// - `dellog`: the hard-delete audit rows.
-/// - `layout`: the key format marker, the delete replay floor and the field
-///   history setting.
+/// - `layout`: the key format marker and the delete replay floor.
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if namespace != MAIN_NAMESPACE {
         return Ok(());
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
+    if matches!(key, CURRENT_KEY_FORMAT_KEY | DELETE_REPLAY_CUTOFF_KEY) {
+        return Ok(());
+    }
     let family = key.split([':', '\0']).next().unwrap_or_default();
-    if !CURRENT_FAMILIES.iter().any(|group| group.contains(&family)) {
+    if !CURRENT_FAMILIES.contains(&family) {
         return Err(unsupported("unknown key family"));
     }
     if family == applied_deletes::DELETE_AGE_FAMILY {
@@ -40,8 +43,6 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         .or_else(|| key.strip_prefix(lastdb_model::record_space::RECORD_PREFIX))
     {
         validate_record(rest)?;
-    } else if let Some(rest) = crate::records::field_history::record_history_suffix(key) {
-        validate_digest_key(rest, 3, "invalid record history key")?;
     }
     Ok(())
 }
@@ -54,28 +55,10 @@ fn validate_record(rest: &str) -> StorageResult<()> {
     validate_suffix(suffix)
 }
 
-/// `rh:{S}:{sha(record key)}:{field identity}:{id}`: a field history entry.
-/// `S` is the record space of the schema.
-/// `{S}:{digest}...`: a record space, then `count` SHA-256 digests in hex.
-fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<()> {
-    let mut parts = rest.split(':');
-    let space = parts.next().unwrap_or_default();
-    validate_field_key(space)?;
-    let digests: Vec<&str> = parts.collect();
-    if digests.len() != count || !digests.iter().all(|part| hex_identity(part, 64)) {
-        return Err(unsupported(reason));
-    }
-    Ok(())
-}
-
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
     lastdb_model::field_key_codec::decode_hash_range_suffix(suffix)
         .ok_or_else(|| unsupported("invalid field key layout"))?;
     Ok(())
-}
-
-fn hex_identity(value: &str, width: usize) -> bool {
-    value.len() == width && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn validate_field_key(field_key: &str) -> StorageResult<()> {

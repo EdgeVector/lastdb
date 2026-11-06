@@ -4,7 +4,7 @@
 //! it. One bounded step reads keys outside the gate, then the format re-reads
 //! and releases that selected batch in one native scope. Errors leave the
 //! schema installed; the next drop continues over the remaining rows.
-//! The format composes record-file, history/queue/count and alternate deletes.
+//! The format releases records, their files, alternate entries and applied deletes.
 //! Installed alternate revisions cannot change; the current declaration names
 //! every revision this schema wrote. A future alternate-revision migration
 //! must retain its revision history for this release.
@@ -17,7 +17,6 @@ use lastdb_model::kind_partition::exact_prefix_bounds;
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct SchemaRelease {
     pub(crate) records: u64,
-    pub(crate) history: u64,
     pub(crate) alternates: u64,
 }
 
@@ -32,7 +31,6 @@ impl RecordStore {
             let count = self.release_family(&family).await?;
             match family.kind() {
                 ReleaseKind::Records => out.records += count,
-                ReleaseKind::History => out.history += count,
                 ReleaseKind::Alternates => out.alternates += count,
                 ReleaseKind::AppliedDeletes => {}
             }

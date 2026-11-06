@@ -1,27 +1,16 @@
-# Recognized raw writers and the field-history writer boundary.
-# Format: path|function|families|reason
-# families: H field history (rh:, ahq:, ahk:, ahb:) rows · - none of these
-# One line for each function that the lint finds. The lint fails on a function that is missing,
-# on a function that names a family the line does not list, and on a line that no function matches.
+# Recognized direct writers. Format: path|function|reason
+# Every recognized writer needs an entry. Every entry must match a writer.
 
-
-
-
-
-
-
-fold_db/crates/core/src/storage/format/records/mod.rs|stage|-|consumes the format-minted opaque record and pointer batches in one staging call inside the existing write scope; never starts or commits an independent request
-fold_db/crates/core/src/storage/format/records/applied_deletes.rs|stage_delete_reclamation|-|bounded delete-age lookup revalidates each exact marker under the native gate and stages only eligible erasures
-fold_db/crates/core/src/storage/format/history/mod.rs|stage|-|consumes only opaque batches minted by legacy history release/count encoders, inside the existing native request; providers supply data, not raw mutations
-fold_db/crates/core/src/storage/format/history/retire.rs|retire_bucket|-|inside a native write scope, reads one format-owned queue bucket and mints its opaque delete only while the bytes still match the reader's token; no generic guarded raw-key writer
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|-|private metadata writer accepts only author clocks minted by the format inside the existing native request; the domain store holds no raw namespace handle
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_batch|-|private metadata writer stages format-encoded replay positions and local author state inside the existing native request
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_deletes|-|private metadata writer removes only admitted inbox ranges after their complete cursor advance has been staged in the same native request
-fold_db/crates/core/src/storage/format/change_feed/mod.rs|stage|-|private feed writer consumes only format-minted event/sequence/expiry batches in the existing native request; the nested encoder and domain coordinator have no raw namespace handle
-fold_db/crates/core/src/storage/format/schemas/mod.rs|stage|-|private schema/state writer consumes only format-minted definition/state/claim/retention batches and validated deletions in its native scope; providers hold read-only views
-fold_db/crates/core/src/storage/format/field_keys/mod.rs|stage|-|private field-key writer stages only format-generated node wrap/metadata batches in the existing mint scope; key/cache providers hold read-only views and no raw namespace handle
-fold_db/crates/core/src/storage/format/records/store.rs|stage_files|-|private record-file sink consumes only file rows encoded by record changes, schema release, or reference reclamation; requires the existing native scope, with no provider raw append operation
-fold_db/crates/core/src/storage/format/records/retention.rs|retire_file_page|-|format-owned bounded file-family inventory releases an exact unreferenced version after live and pending references have been indexed
-fold_db/crates/core/src/storage/format/records/release.rs|release_schema_batch|-|format-minted schema family validates selected keys and re-reads at most 256 under the same native scope, composing exact record/alternate/history/file cleanup
-fold_db/crates/core/src/storage/format/records/maintenance.rs|raise_replay_cutoff|-|stopped-home control writer rechecks the floor and current marker under its native gate, enforces monotonicity and configured version, then flushes
-fold_db/crates/core/src/storage/format/records/maintenance.rs|record_delete_audit|-|format selects the audit family/key and serializes typed erase facts inside the existing erase scope
+fold_db/crates/core/src/storage/format/records/mod.rs|stage|consumes the format-minted opaque record and pointer batches in one staging call inside the existing write scope; never starts or commits an independent request
+fold_db/crates/core/src/storage/format/records/applied_deletes.rs|stage_delete_reclamation|bounded delete-age lookup revalidates each exact marker under the native gate and stages only eligible erasures
+fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|private metadata writer accepts only author clocks minted by the format inside the existing native request; the domain store holds no raw namespace handle
+fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_batch|private metadata writer stages format-encoded replay positions and local author state inside the existing native request
+fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_deletes|private metadata writer removes only admitted inbox ranges after their complete cursor advance has been staged in the same native request
+fold_db/crates/core/src/storage/format/change_feed/mod.rs|stage|private feed writer consumes only format-minted event/sequence/expiry batches in the existing native request; the nested encoder and domain coordinator have no raw namespace handle
+fold_db/crates/core/src/storage/format/schemas/mod.rs|stage|private schema/state writer consumes only format-minted definition/state/claim/retention batches and validated deletions in its native scope; providers hold read-only views
+fold_db/crates/core/src/storage/format/field_keys/mod.rs|stage|private field-key writer stages only format-generated node wrap/metadata batches in the existing mint scope; key/cache providers hold read-only views and no raw namespace handle
+fold_db/crates/core/src/storage/format/records/store.rs|stage_files|private record-file sink consumes only file rows encoded by record changes, schema release, or reference reclamation; requires the existing native scope, with no provider raw append operation
+fold_db/crates/core/src/storage/format/records/retention.rs|retire_file_page|format-owned bounded file-family inventory releases an exact unreferenced version after live and pending references have been indexed
+fold_db/crates/core/src/storage/format/records/release.rs|release_schema_batch|format-minted schema family validates selected keys and re-reads at most 256 under the same native scope, composing exact record/alternate/file cleanup
+fold_db/crates/core/src/storage/format/records/maintenance.rs|raise_replay_cutoff|stopped-home control writer rechecks the floor and current marker under its native gate, enforces monotonicity and configured version, then flushes
+fold_db/crates/core/src/storage/format/records/maintenance.rs|record_delete_audit|format selects the audit family/key and serializes typed erase facts inside the existing erase scope

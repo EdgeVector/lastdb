@@ -5,7 +5,6 @@ use crate::schema::types::{FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::format::history::{self, EncodedHistory};
 use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
@@ -128,20 +127,6 @@ impl RecordFormat {
         let retired = self.metadata.stage_file_references(references).await?;
         rows.extend(retired.into_iter().map(KvMutation::delete));
         Ok(rows)
-    }
-
-    pub(crate) async fn stage_history(&self, encoded: EncodedHistory) -> Result<(), SchemaError> {
-        encoded
-            .stage(self.main_store.inner().as_ref(), &self.runtime)
-            .await
-    }
-
-    pub(crate) async fn retire_history_bucket(
-        &self,
-        key: String,
-        token: Vec<u8>,
-    ) -> Result<bool, SchemaError> {
-        history::retire_bucket(self.main_store.inner().as_ref(), &self.runtime, key, token).await
     }
 
     pub(super) fn require_scope(&self) -> Result<(), SchemaError> {

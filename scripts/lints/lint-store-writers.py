@@ -5,25 +5,10 @@ Logical providers cannot hold raw store types, native row constructors or namesp
 factories. Trusted format/physical modules and the enumerated bootstrap entry
 functions retain those rights; private child constructors bind one home context.
 
-Only the record writers may write field history rows (`rh:` with its
-`ahq:`/`ahk:`/`ahb:` rows) inside a write scope. This lint finds every Rust
-function that writes through a store and either (a) names one of those key
-families or (b) holds a raw store handle, and it compares the set with
-scripts/lints/store-writers.allow.
-
-The check is per function, not per file. A function is a writer when its body
-has a write verb (put, delete, batch_mutate, ...) and one of:
-
-- a key family token (family H, a field history row);
-- a raw handle token: `.raw()`, a named main/metadata/feed/schema/field-key/file store,
-  `open_namespace(`, or a scan
-  (`scan_prefix(`, `scan_range(`, ...) next to a delete, which is a range delete of rows of every family.
-
-Each writer needs an allow-list line `path|function|families|reason`. The
-families on the line must cover the families the function names. `*` as the
-function covers every function of the file and still checks the families, so a
-file that is listed with `-` (no family) fails when someone adds a history row put to it.
-A line that no writer matches fails, so the list stays honest.
+This lint finds every Rust function with a direct write verb (put, delete,
+batch_mutate, ...) and a raw handle or range scan token. Each function needs a
+`path|function|reason` entry in scripts/lints/store-writers.allow. A function of
+`*` covers the writers of one file. An entry with no writer fails.
 
 This is a source check. It does not prove the live result. It finds a direct
 write in the source; it cannot see a key that a caller builds elsewhere and
@@ -47,9 +32,6 @@ RAW = re.compile(
     r"\.raw\(\)|\b(?:main_store|metadata_store|feed_store|schemas_store|schema_states_store|field_store|file_store)\b|\bopen_namespace\s*\(|"
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
-FAMILIES = {
-    "H": re.compile(r'\bRECORD_HISTORY_(?:PREFIX|FAMILY)\b|"rh:|"ahq\b|"ahk:|"ahb\b'),
-}
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 # Physical engines/format writers are trusted. All other logical sources,
@@ -100,11 +82,9 @@ def raw_capabilities(path, source, spans):
 
 
 def blank(text):
-    """Return (nostr, withstr): comments blanked in both, string and char
-    literals also blanked in `nostr`. Line structure and offsets are kept."""
+    """Blank comments and literals while preserving line structure and offsets."""
     n = len(text)
     nostr = list(text)
-    withstr = list(text)
     i = 0
 
     def wipe(arr, a, b):
@@ -119,7 +99,6 @@ def blank(text):
             j = text.find("\n", i)
             j = n if j < 0 else j
             wipe(nostr, i, j)
-            wipe(withstr, i, j)
             i = j
         elif two == "/*":
             depth, j = 1, i + 2
@@ -133,7 +112,6 @@ def blank(text):
                 else:
                     j += 1
             wipe(nostr, i, j)
-            wipe(withstr, i, j)
             i = j
         elif c == "r" and re.match(r'r#*"', text[i : i + 12]) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
             m = re.match(r'r(#*)"', text[i:])
@@ -158,7 +136,7 @@ def blank(text):
                 i += 1  # a lifetime
         else:
             i += 1
-    return "".join(nostr), "".join(withstr)
+    return "".join(nostr)
 
 
 def functions(nostr):
@@ -213,8 +191,8 @@ def own_text(src, a, b, holes):
 
 
 def scan(root, capability_failures=None):
-    """Return {(path, fn): set(families)} for every writer function."""
-    found = {}
+    """Return the (path, function) pairs for recognized direct writers."""
+    found = set()
     for d in SOURCE_DIRS:
         base = os.path.join(root, d)
         # walk-ok: fixed source directories of this repository, not a workspace root
@@ -227,22 +205,14 @@ def scan(root, capability_failures=None):
                 rel = os.path.relpath(path, root)
                 with open(path, encoding="utf-8", errors="replace") as handle:
                     text = handle.read()
-                nostr, withstr = blank(text)
+                nostr = blank(text)
                 spans = functions(nostr)
                 if capability_failures is not None:
                     capability_failures.extend(raw_capabilities(rel, nostr, spans))
                 for name, a, b, holes in innermost_bodies(spans):
                     body_nostr = own_text(nostr, a, b, holes)
-                    body_str = own_text(withstr, a, b, holes)
-                    if not WRITE.search(body_nostr):
-                        continue
-                    fams = {f for f, rx in FAMILIES.items() if rx.search(body_str)}
-                    raw = RAW.search(body_nostr) is not None
-                    if fams or raw:
-                        key = (rel, name)
-                        found.setdefault(key, set()).update(fams)
-                        if raw:
-                            found[key].add("raw")
+                    if WRITE.search(body_nostr) and RAW.search(body_nostr):
+                        found.add((rel, name))
     return found
 
 
@@ -253,17 +223,12 @@ def load_allow(root):
             line = line.rstrip("\n")
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            parts = line.split("|", 3)
-            if len(parts) != 4 or not all(p.strip() for p in parts):
-                print(f"{ALLOW}:{number}: need path|function|families|reason", file=sys.stderr)
+            parts = line.split("|", 2)
+            if len(parts) != 3 or not all(p.strip() for p in parts):
+                print(f"{ALLOW}:{number}: need path|function|reason", file=sys.stderr)
                 sys.exit(1)
-            path, fn, fams, reason = (p.strip() for p in parts)
-            allowed = set() if fams == "-" else set(fams.split())
-            bad = allowed - set(FAMILIES)
-            if bad:
-                print(f"{ALLOW}:{number}: unknown family {sorted(bad)}", file=sys.stderr)
-                sys.exit(1)
-            entries.append({"path": path, "fn": fn, "fams": allowed, "reason": reason, "line": number})
+            path, fn, reason = (p.strip() for p in parts)
+            entries.append({"path": path, "fn": fn, "reason": reason, "line": number})
     return entries
 
 
@@ -279,32 +244,17 @@ def main():
     for failure in capability_failures:
         print(f"lint-store-writers: {failure}", file=sys.stderr)
     used = set()
-    for (path, fn), fams in sorted(found.items()):
-        key_fams = fams - {"raw"}
+    for path, fn in sorted(found):
         match = [e for e in entries if e["path"] == path and e["fn"] in (fn, "*")]
         if not match:
             failed = True
-            kinds = " ".join(sorted(key_fams)) or "raw handle"
             print(
-                f"lint-store-writers: {path}::{fn} writes through a store and names "
-                f"[{kinds}] but is not in the allow list.\n"
-                f"  Add `{path}|{fn}|<families>|<reason>` to {ALLOW}.",
+                f"lint-store-writers: {path}::{fn} writes through a raw handle "
+                f"but is not in the allow list.\n"
+                f"  Add `{path}|{fn}|<reason>` to {ALLOW}.",
                 file=sys.stderr,
             )
-            continue
-        covered = set()
-        for e in match:
-            used.add(e["line"])
-            covered |= e["fams"]
-        missing = key_fams - covered
-        if missing:
-            failed = True
-            print(
-                f"lint-store-writers: {path}::{fn} names famil{'ies' if len(missing) > 1 else 'y'} "
-                f"{' '.join(sorted(missing))} but the allow list covers [{' '.join(sorted(covered)) or '-'}].\n"
-                "  List the family on the allow line, with the reason.",
-                file=sys.stderr,
-            )
+        used.update(e["line"] for e in match)
     for e in entries:
         if e["line"] not in used:
             failed = True

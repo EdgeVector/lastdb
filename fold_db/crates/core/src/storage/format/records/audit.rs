@@ -18,8 +18,6 @@ pub struct RecordDeleteLedgerEntry {
     /// SHA-256 hex over `{schema}\0{described key}`. See the module docs for
     /// why the key itself is not stored.
     pub key_fingerprint: String,
-    /// `rh:` field history rows removed (purge only).
-    pub history_rows_deleted: u64,
     /// Records the batch erased.
     pub records_erased: u64,
     /// Erased records that had a file. The same batch deleted each file. A
