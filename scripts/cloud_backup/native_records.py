@@ -25,7 +25,7 @@ def read_records(node, schema, targets):
                     for target in targets), "native_record_targets")
     require(len({(target["hash"], target["range"]) for target in targets}) == len(targets),
             "native_record_distinct_targets")
-    queries = [{"schema_name": schema, "fields": [], "limit": 2, "offset": 0,
+    queries = [{"schema_name": schema, "limit": 2, "offset": 0,
                 "filter": ({"HashKey": target["hash"]} if target["range"] is None
                            else {"HashRangeKey": target})} for target in targets]
     replies = node.call("/api/queries/batch", {"queries": queries}).get("results")
