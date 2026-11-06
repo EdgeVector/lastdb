@@ -18,7 +18,7 @@
 mod bounded_range;
 mod construct;
 mod delete_replay;
-pub mod field_history;
+pub(crate) mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod key_comparison;
@@ -35,7 +35,6 @@ mod writer_watch;
 
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use field_history::RecordHistoryRows;
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};
 pub use record_walk::RECORD_WALK_ROWS;
@@ -62,8 +61,6 @@ pub struct RecordStore {
     field_keys: Option<crate::db_operations::FieldKeyStore>,
     /// The clock of the field history expiry queue. Shared by clones.
     queue_clock: Arc<time_queue::QueueClock>,
-    /// Wake expiry after a history policy activation attempt. Shared by clones.
-    history_activation: Arc<tokio::sync::Notify>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
 }

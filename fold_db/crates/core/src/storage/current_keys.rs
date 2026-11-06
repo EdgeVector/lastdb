@@ -13,7 +13,7 @@ pub(crate) mod families;
 ///
 /// - `rk`: one record for each key. `ak`: the alternate key entries.
 /// - `ad`: one applied-delete stamp at the erased record's address.
-/// - `rh`: field history copies of old record values. `ahp`, `ahk`, `ahq`,
+/// - `rh`: legacy field history copies. `ahp`, `ahk`, `ahq`,
 ///   `ahb`: the history policy of a field, the history count of a key, and the
 ///   expiry queue of the history entries and its bucket directory.
 /// - `dellog`: the hard-delete audit rows.

@@ -1,4 +1,4 @@
-//! Bounded history expiry. The handle follows the database shutdown lifecycle.
+//! Bounded expiry of legacy history. The handle follows database shutdown.
 use crate::db_operations::{record_store::time_queue::QueueReader, DbOperations};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,18 +19,20 @@ impl BackgroundFieldHistory {
         // An unreadable marker preserves the existing expiry retry behavior.
         let enabled = db
             .records()
-            .field_history_enabled()
+            .has_legacy_field_history()
             .await
             .unwrap_or_else(|error| {
                 tracing::error!(%error, "history activation check failed; expiry retries");
                 true
             });
+        if !enabled {
+            return Self {
+                task: Mutex::new(None),
+            };
+        }
         // lint:spawn-bare-ok process-lifetime expiry task, stopped with the database.
         let task = tokio::spawn(async move {
             let records = db.records();
-            if !enabled {
-                records.history_activation().notified().await;
-            }
             let mut reader = QueueReader::new(
                 crate::db_operations::record_store::field_history::queue(),
                 32,

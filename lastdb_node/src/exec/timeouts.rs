@@ -218,7 +218,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppSearch
         | DataRoute::NativeIndexAppVectorPut
         | DataRoute::NativeIndexKnn
-        | DataRoute::FieldHistory
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim

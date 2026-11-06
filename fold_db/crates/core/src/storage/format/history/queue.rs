@@ -12,7 +12,6 @@
 //! of the slice length cannot make an old bucket name a different slice.
 
 use lastdb_model::kind_partition::exact_prefix_bounds;
-use serde_json::{json, Value};
 
 /// Digits of a nanosecond number in a key. `u64::MAX` has 20.
 const WIDTH: usize = 20;
@@ -62,24 +61,6 @@ impl TimeQueue {
     /// The key of the directory row of `bucket`.
     pub(crate) fn directory_key(&self, bucket: u64) -> String {
         format!("{}\0{bucket:020}", self.directory)
-    }
-
-    /// The directory row of `bucket` with the token `token`.
-    fn directory_row(&self, bucket: u64, token: &str) -> (String, Value) {
-        (self.directory_key(bucket), json!({ "v": 1, "t": token }))
-    }
-
-    /// The two rows that one new entry writes in its batch: the entry, and the
-    /// directory row of its bucket with a new token. The token names the entry,
-    /// so two entries never leave the same row. A reader that retires a bucket
-    /// deletes the row only if the token is the one it read before it walked
-    /// the bucket (see `RecordStore::retire_bucket`).
-    pub(super) fn rows(&self, expires: u64, id: &str, value: &Value) -> Vec<(String, Value)> {
-        let bucket = self.bucket_of(expires);
-        vec![
-            (self.entry_key(expires, id), value.clone()),
-            self.directory_row(bucket, &format!("{expires:020}:{id}")),
-        ]
     }
 
     /// The expiry and the bucket in the key of an entry.

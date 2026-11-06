@@ -1,9 +1,7 @@
 //! The side rows of one record group: field history, the delete
 //! audit and the retention ages. Each joins the batch of the records.
 //!
-//! - Field history (D5): a copy of each overwritten or deleted field value
-//!   whose field has a history policy (`field_history/records.rs`). A purge
-//!   captures nothing and releases the history of its record.
+//! - A purge releases any legacy history rows of its record.
 //! - Delete audit: one `dellog` row for each verb and caller of the group, as
 //!   the erase lane writes for a field key home. A TTL sweep delete keeps its
 //!   caller tag.
@@ -12,7 +10,7 @@
 //!   record. A record holds its own stamp, so the rows go in this batch.
 
 use super::*;
-use crate::db_operations::record_store::{RecordChange, RecordHistoryRows};
+use crate::db_operations::record_store::RecordChange;
 use crate::db_operations::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::operations::MutationType;
@@ -66,7 +64,17 @@ impl MutationManager {
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
     ) -> Result<(), SchemaError> {
-        let history = self.record_history_rows(schema, changed, &changes).await?;
+        let purged: Vec<&str> = changed
+            .iter()
+            .zip(&changes)
+            .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
+            .map(|(_, change)| change.key.as_str())
+            .collect();
+        let history = self
+            .db_ops
+            .records()
+            .record_history_releases(&purged)
+            .await?;
         let outcomes = record_outcomes(&changes);
         self.db_ops
             .records()
@@ -81,23 +89,6 @@ impl MutationManager {
             .schemas()
             .note_live_writes(schema, live.map(|(record, _)| record.key))?;
         self.stage_record_side_rows(schema, changed, &outcomes, history.released)
-            .await
-    }
-
-    /// The field history rows of the changed records of one group.
-    async fn record_history_rows(
-        &self,
-        schema: &Schema,
-        changed: &[ChangedRecord<'_>],
-        changes: &[RecordChange],
-    ) -> Result<RecordHistoryRows, SchemaError> {
-        let purges: Vec<bool> = changed
-            .iter()
-            .map(|record| record.mutation.mutation_type == MutationType::Purge)
-            .collect();
-        self.db_ops
-            .records()
-            .record_history_rows(schema, changes, &purges)
             .await
     }
 

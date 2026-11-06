@@ -11,7 +11,6 @@ impl RecordStore {
             serving_replay_cutoff: Arc::default(),
             field_keys: None,
             queue_clock: Arc::default(),
-            history_activation: Arc::default(),
             range_walks: Arc::default(),
         }
     }

@@ -12,7 +12,7 @@
 
 fold_db/crates/core/src/storage/format/records/mod.rs|stage|-|consumes the format-minted opaque record, pointer and history batches in one staging call inside the existing write scope; never starts or commits an independent request
 fold_db/crates/core/src/storage/format/records/applied_deletes.rs|stage_delete_reclamation|-|bounded delete-age lookup revalidates each exact marker under the native gate and stages only eligible erasures
-fold_db/crates/core/src/storage/format/history/mod.rs|stage|-|consumes only opaque batches minted by history capture/release/count/policy encoders or guarded queue retirement, inside the existing native request; providers supply data, not raw mutations
+fold_db/crates/core/src/storage/format/history/mod.rs|stage|-|consumes only opaque batches minted by legacy history release/count encoders, inside the existing native request; providers supply data, not raw mutations
 fold_db/crates/core/src/storage/format/history/retire.rs|retire_bucket|-|inside a native write scope, reads one format-owned queue bucket and mints its opaque delete only while the bytes still match the reader's token; no generic guarded raw-key writer
 fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|-|private metadata writer accepts only author clocks minted by the format inside the existing native request; the domain store holds no raw namespace handle
 fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_batch|-|private metadata writer stages format-encoded replay positions and local author state inside the existing native request

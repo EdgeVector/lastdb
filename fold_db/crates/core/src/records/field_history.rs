@@ -1,47 +1,6 @@
-//! Field history entries of records and their policy shapes.
+//! On-disk shape of a legacy field-history entry.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
-pub enum FieldHistoryPolicy {
-    #[default]
-    Off,
-    Keep,
-    Ttl {
-        seconds: u64,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HistoryLocation {
-    pub schema: String,
-    pub field: String,
-    #[serde(default = "empty_key")]
-    pub key: crate::schema::types::key_value::KeyValue,
-}
-
-fn empty_key() -> crate::schema::types::key_value::KeyValue {
-    crate::schema::types::key_value::KeyValue::new(None, None)
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FieldHistoryEntry {
-    pub id: String,
-    pub written_at: u64,
-    pub mutation: String,
-    pub archived_at: u64,
-    pub expires_at: Option<u64>,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FieldHistoryPage {
-    pub current: Option<serde_json::Value>,
-    pub entries: Vec<FieldHistoryEntry>,
-    pub cursor: Option<String>,
-}
+use serde::Deserialize;
 
 /// The family of a field history entry of a home.
 pub(crate) const RECORD_HISTORY_FAMILY: &str = "rh";
@@ -53,39 +12,33 @@ pub(crate) fn record_history_suffix(key: &str) -> Option<&str> {
 /// One field history entry of a home (decision D5): its own copy of
 /// one old field value and the stamp of that value. The key is
 /// `rh:{S}:{sha(record key)}:{field identity}:{id}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RecordHistoryEntry {
     pub v: u8,
-    pub schema: String,
-    pub field: String,
+    #[serde(rename = "schema")]
+    _schema: String,
+    #[serde(rename = "field")]
+    _field: String,
     pub field_identity: String,
     /// The full storage key of the record.
     pub record: String,
     /// The copy of the old value.
-    pub value: serde_json::Value,
+    #[serde(rename = "value")]
+    _value: serde_json::Value,
     /// The stamp of the old value.
     pub stamp: lastdb_model::record_value::RecordStamp,
-    pub archived_at: u64,
+    #[serde(rename = "archived_at")]
+    _archived_at: u64,
     pub expires_at: Option<u64>,
     /// `replace` or `delete`.
-    pub reason: String,
+    #[serde(rename = "reason")]
+    _reason: String,
     pub queue_key: Option<String>,
 }
 
 impl RecordHistoryEntry {
     pub(crate) const VERSION: u8 = 1;
-
-    pub(crate) fn entry(&self, key: &str) -> FieldHistoryEntry {
-        FieldHistoryEntry {
-            id: key.rsplit(':').next().unwrap_or_default().to_string(),
-            written_at: self.stamp.written_at_nanos(),
-            mutation: self.stamp.mutation_identity(),
-            archived_at: self.archived_at,
-            expires_at: self.expires_at,
-            reason: self.reason.clone(),
-        }
-    }
 
     pub(crate) fn expired(&self, now: u64) -> bool {
         self.expires_at.is_some_and(|at| at <= now)
