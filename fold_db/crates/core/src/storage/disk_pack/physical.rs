@@ -8,7 +8,7 @@
 //! store than the rest of the data.
 
 pub(in crate::storage) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLLECTION};
-use super::shared_layout::{range::MergedRange, Lane};
+use super::shared_layout::range::MergedRange;
 use super::*;
 use laststore::disk_run::home::RangeBounds;
 use laststore::disk_run::home::RunHashRange;
@@ -17,6 +17,12 @@ use laststore::disk_run::home::RunHashRange;
 pub(in crate::storage) const V2_BATCH_OPERATIONS: usize = 16_384;
 
 impl V2Home {
+    pub(in crate::storage) fn private_home(
+        &self,
+    ) -> Option<&Arc<laststore::disk_run::home::RunHome>> {
+        self.shared.as_ref().map(|shared| &shared.private)
+    }
+
     pub(in crate::storage) fn identity(&self) -> uuid::Uuid {
         self.home.identity()
     }

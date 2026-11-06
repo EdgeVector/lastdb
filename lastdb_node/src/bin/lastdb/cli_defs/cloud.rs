@@ -8,6 +8,9 @@ pub(crate) use byte_backup::ByteBackupCommand;
 #[derive(clap::Args, Debug)]
 pub(crate) struct SnapshotArgs {
     /// Registered shared writer device ID for the running DEV home.
+    ///
+    /// Create the home with LASTDB_NATIVE_SHARED_SCHEMAS set to a JSON array
+    /// of its shared schema aliases on first start.
     #[arg(long)]
     pub device_id: String,
     /// Absolute owner-only path to the enrolled device's signing key.

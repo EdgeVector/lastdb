@@ -10,7 +10,6 @@ use fold_db::portable_mutation::StreamId;
 use fold_db::storage::disk_pack::byte_backup::SharedRunCapture;
 use sha2::{Digest as _, Sha256};
 use std::io::Read;
-use std::path::Path;
 
 pub(super) async fn prepare(
     source: PortableCheckpoint,
@@ -160,7 +159,7 @@ pub(super) fn require_same_inventory(
             .ok_or(RestoreError::Invalid("saved snapshot disk file missing"))?;
         if bytes != held.bytes.get()
             || capture
-                .destination(Path::new(held.path.as_str()))
+                .destination(path)
                 .map_err(RestoreError::native_proof)?
                 != held.destination
         {

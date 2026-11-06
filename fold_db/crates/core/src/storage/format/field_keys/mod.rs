@@ -20,6 +20,17 @@ use codec::open_wrap;
 pub(crate) use codec::{metadata_key, validate_identity, wrap_key_for, BundleMetadata, BundleWrap};
 pub(crate) use frozen::{node_bundle_storage_keys, verify_frozen_typed_profile};
 
+/// The field identity associated with one native bundle row.
+pub(in crate::storage) fn storage_key_identity(key: &str) -> Option<&str> {
+    if let Some(identity) = key.strip_prefix(super::FIELD_KEY_METADATA_PREFIX) {
+        Some(identity)
+    } else {
+        key.strip_prefix(super::FIELD_KEY_WRAP_PREFIX)?
+            .split_once(':')
+            .map(|(identity, _)| identity)
+    }
+}
+
 pub(crate) struct CreatedContract {
     pub(crate) field_key: String,
     pub(crate) profile: FieldRangeProfile,

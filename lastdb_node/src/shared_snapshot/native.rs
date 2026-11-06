@@ -50,8 +50,8 @@ impl NativeCheckpoint {
         })
     }
 
-    /// A saved cut always reopens the exact disk hold, including after a
-    /// daemon restart. A terminal receipt needs only to release the hold.
+    /// Reopen the exact disk hold if any file still needs uploading.
+    /// A submitted or terminal snapshot only needs receipt reconciliation.
     pub(crate) async fn reopen(
         runtime: &Arc<PackRuntime>,
         workspace: &Path,
@@ -101,7 +101,7 @@ impl NativeCheckpoint {
                 })
             }
             SnapshotOutcome::Abandoned => Err(RestoreError::Invalid(
-                "snapshot was abandoned; use a new workspace",
+                "snapshot was abandoned. Use a new workspace",
             )),
         }
     }

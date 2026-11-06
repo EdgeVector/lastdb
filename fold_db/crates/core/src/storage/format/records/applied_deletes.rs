@@ -21,7 +21,7 @@ pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMuta
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct DeleteAge {
+struct DeleteAge {
     pub(crate) marker: String,
     pub(crate) stamp: Stamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,42 +189,6 @@ impl RecordFormat {
             self.main_store.inner().batch_mutate(mutations).await?;
         }
         Ok(reclaimed)
-    }
-
-    pub(crate) async fn current_delete_ages(
-        &self,
-        rows: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> StorageResult<Vec<DeleteAge>> {
-        let mut ages = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            ages.push(decode_age_row(
-                std::str::from_utf8(&key).map_err(invalid)?,
-                &value,
-            )?);
-        }
-        if ages.is_empty() {
-            return Ok(ages);
-        }
-        let current = self
-            .main_store
-            .inner()
-            .get_many(
-                ages.iter()
-                    .map(|age| age.marker.as_bytes().to_vec())
-                    .collect(),
-            )
-            .await?;
-        if current.len() != ages.len() {
-            return Err(invalid("incomplete checkpoint delete preimages"));
-        }
-        let mut active = Vec::new();
-        for (age, value) in ages.into_iter().zip(current) {
-            let stamp = value.as_deref().map(decode).transpose()?;
-            if stamp.as_ref() == Some(&age.stamp) {
-                active.push(age);
-            }
-        }
-        Ok(active)
     }
 
     pub(crate) async fn applied_deletes(

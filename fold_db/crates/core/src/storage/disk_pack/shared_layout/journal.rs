@@ -12,7 +12,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 
 const STAGE: &str = ".shared-write-stage";
-const PENDING: &str = ".shared-write.ldrun";
+const PENDING: &str = ".shared-write";
 const META: &[u8] = &[0];
 
 #[derive(Serialize, Deserialize)]
@@ -68,7 +68,7 @@ pub(in crate::storage::disk_pack) fn recover(
 ) -> StorageResult<()> {
     let pending = private.path().join(PENDING);
     if pending.try_exists()? {
-        let reader = RunReader::open(&pending, key).map_err(map)?;
+        let reader = RunReader::open(&pending_run(&pending)?, key).map_err(map)?;
         let metadata = match reader.get(META).map_err(map)? {
             Some(Found::Value(bytes)) => bytes,
             _ => return Err(invalid("shared disk journal header is missing")),
@@ -80,12 +80,22 @@ pub(in crate::storage::disk_pack) fn recover(
         drop(reader);
         release(private)?;
     }
-    match fs::remove_dir_all(private.path().join(STAGE)) {
-        Ok(()) => File::open(private.path())?.sync_all()?,
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    clear_stage(private)
+}
+
+fn pending_run(pending: &Path) -> StorageResult<std::path::PathBuf> {
+    if !fs::symlink_metadata(pending)?.is_dir() {
+        return Err(invalid("shared disk journal is not a directory"));
     }
-    Ok(())
+    let mut entries = fs::read_dir(pending)?;
+    let entry = entries
+        .next()
+        .transpose()?
+        .ok_or_else(|| invalid("shared disk journal run is missing"))?;
+    if entries.next().is_some() || !entry.file_type()?.is_file() {
+        return Err(invalid("shared disk journal contains unexpected files"));
+    }
+    Ok(entry.path())
 }
 
 fn stage(
@@ -119,10 +129,9 @@ fn stage(
             }
         }
     }
-    let summary = writer.finish().map_err(map)?;
-    fs::rename(path.join(format!("{}.ldrun", summary.run_id)), &pending)?;
+    writer.finish().map_err(map)?;
+    fs::rename(&path, &pending)?;
     File::open(private.path())?.sync_all()?;
-    fs::remove_dir(&path)?;
     Ok(())
 }
 
@@ -245,7 +254,18 @@ fn expected_after(intent: &Intent, lane: usize) -> StorageResult<u64> {
 
 fn release(private: &RunHome) -> StorageResult<()> {
     let path: &Path = private.path();
-    fs::remove_file(path.join(PENDING))?;
+    // A crash leaves either the replayable run or an already complete
+    // staging directory. The staging directory is never a replay source.
+    fs::rename(path.join(PENDING), path.join(STAGE))?;
     File::open(path)?.sync_all()?;
+    clear_stage(private)
+}
+
+fn clear_stage(private: &RunHome) -> StorageResult<()> {
+    match fs::remove_dir_all(private.path().join(STAGE)) {
+        Ok(()) => File::open(private.path())?.sync_all()?,
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     Ok(())
 }

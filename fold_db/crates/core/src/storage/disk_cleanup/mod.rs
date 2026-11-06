@@ -116,6 +116,10 @@ impl PackRuntime {
         if self.requires_recovery()
             || self.physical.home.is_poisoned()
             || self.physical.cas.is_poisoned()
+            || self
+                .physical
+                .private_home()
+                .is_some_and(|home| home.is_poisoned())
         {
             return Err(invalid("native cleanup requires a successful home reopen"));
         }

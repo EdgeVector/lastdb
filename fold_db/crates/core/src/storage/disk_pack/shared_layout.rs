@@ -3,9 +3,8 @@
 use super::*;
 use crate::storage::format::{
     records::applied_deletes, CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY,
-    DELETE_REPLAY_CUTOFF_KEY, FIELD_KEYS_NAMESPACE, FIELD_KEY_METADATA_PREFIX,
-    FIELD_KEY_WRAP_PREFIX, METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_FILE_PREFIX,
-    RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    DELETE_REPLAY_CUTOFF_KEY, FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION,
+    RECORD_FILE_PREFIX, RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
 };
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
@@ -60,6 +59,7 @@ impl Scope {
             .map_err(|_| invalid("shared schema scope requires a JSON array of aliases"))?;
         let aliases: BTreeSet<_> = names.iter().cloned().collect();
         if aliases.is_empty()
+            || aliases.len() > 64
             || aliases.len() != names.len()
             || aliases
                 .iter()
@@ -115,7 +115,10 @@ impl Scope {
             .into_iter()
             .filter(|op| op.collection == SCHEMAS_NAMESPACE)
         {
-            if !current.aliases.contains(&op.key) {
+            let key = native_routing::decode(&op.key)?;
+            let name =
+                std::str::from_utf8(&key).map_err(|_| invalid("schema alias is not UTF-8"))?;
+            if !current.aliases.contains(name) {
                 continue;
             }
             let bytes = op
@@ -123,13 +126,13 @@ impl Scope {
                 .as_deref()
                 .ok_or_else(|| invalid("a shared schema cannot be removed"))?;
             let active = scope.as_ref().unwrap_or(current.as_ref());
-            match active.schemas.get(&op.key) {
+            match active.schemas.get(name) {
                 Some(previous) if previous == bytes => continue,
                 Some(_) => return Err(invalid("a shared schema definition cannot be replaced")),
                 None => {
                     scope
                         .get_or_insert_with(|| current.as_ref().clone())
-                        .add_schema(op.key.clone(), bytes)?;
+                        .add_schema(name.to_owned(), bytes)?;
                 }
             }
         }
@@ -177,8 +180,7 @@ impl Scope {
                 Lane::Records
             }
             FIELD_KEYS_NAMESPACE
-                if part(key, FIELD_KEY_METADATA_PREFIX)
-                    .or_else(|| part(key, FIELD_KEY_WRAP_PREFIX))
+                if crate::storage::format::field_keys::storage_key_identity(key)
                     .is_some_and(|id| self.alternates.contains(id) || self.spaces.contains(id)) =>
             {
                 Lane::Records

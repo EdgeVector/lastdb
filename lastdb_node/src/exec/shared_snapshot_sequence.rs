@@ -128,7 +128,7 @@ pub(crate) async fn run_shared_snapshot(
         Err(_) => {
             expire(&runtime, &state.checkpoint()?, state.snapshot_id()).await?;
             Err(RestoreError::Limit(
-                "snapshot deadline; retry with the same workspace",
+                "snapshot deadline reached. Retry with the same workspace",
             ))
         }
     }

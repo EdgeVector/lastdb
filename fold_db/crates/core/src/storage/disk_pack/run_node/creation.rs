@@ -55,7 +55,7 @@ pub(super) fn initialize_private(home: &RunHome) -> StorageResult<()> {
     Ok(())
 }
 
-fn local_rows(stream: uuid::Uuid) -> StorageResult<[HomeMutation; 2]> {
+fn local_rows(stream: uuid::Uuid) -> StorageResult<Vec<HomeMutation>> {
     let (collection, key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
     let author = HomeMutation {
         collection,
@@ -68,5 +68,5 @@ fn local_rows(stream: uuid::Uuid) -> StorageResult<[HomeMutation; 2]> {
         key,
         body: Some(FILE_RETENTION_COMPLETE.to_vec()),
     };
-    Ok([author, file_retention])
+    Ok(vec![author, file_retention])
 }

@@ -51,6 +51,7 @@ SHARED_STAGES = {name.encode(): name for name in ("selection", "manifest-read", 
     "checkpoint-install", "tail-read", "writer-open", "replay-activate")}
 SNAPSHOT_REFUSALS = {
     b"invalid restore shared writer state": "snapshot_writer_state",
+    b"invalid restore snapshot requires a dedicated shared disk home": "snapshot_dedicated_home",
     b"invalid restore owned session directory": "snapshot_owned_directory",
     b"invalid restore owned session file": "snapshot_owned_file",
     b"invalid restore saved DEV credentials": "snapshot_saved_credentials",
@@ -62,7 +63,7 @@ SNAPSHOT_REFUSALS = {
     b"restore source unavailable: bound shared schema definition": "snapshot_schema_definition",
     b"restore source unavailable: authenticated shared snapshot transport": "snapshot_transport",
     b"restore source unavailable: shared writer upload; retry with the same workspace": "snapshot_log_upload",
-    b"restore limit: snapshot deadline; retry with the same workspace": "snapshot_deadline",
+    b"restore limit: snapshot deadline reached. Retry with the same workspace": "snapshot_deadline",
     b"invalid restore saved snapshot disk files changed": "snapshot_original_files_changed",
     b"invalid restore snapshot disk hold is closed": "snapshot_hold_closed",
     b"invalid restore snapshot accepted log positions": "snapshot_accepted_positions",

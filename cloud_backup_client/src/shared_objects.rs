@@ -10,7 +10,7 @@ use cloud_backup_protocol::shared::objects::{
 };
 use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
 use cloud_backup_protocol::v2::Destination;
-use cloud_backup_protocol::{limits, AccountId, DecimalU64, ErrorCode, Id};
+use cloud_backup_protocol::{limits, AccountId, DecimalU64, ErrorCode, Id, ProtocolError};
 use serde::de::DeserializeOwned;
 use std::io::Read;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub use crate::backup_transport::BackupTransportError;
 
 type Result<T> = std::result::Result<T, BackupTransportError>;
+const RETRY_DELAYS_MS: [u64; 6] = [25, 50, 100, 200, 400, 800];
 
 /// Result of submitting one immutable snapshot manifest.
 pub enum SnapshotPublication {
@@ -100,7 +101,8 @@ impl SharedObjectClient {
         deadline_ms: u64,
         sign: &(impl Fn(&[u8]) -> Result<[u8; 64]> + Sync),
     ) -> Result<SealedObject> {
-        let mut previous = None;
+        let mut previous = DecimalU64::new(0);
+        let mut delays_ms = RETRY_DELAYS_MS.into_iter();
         loop {
             let status = self
                 .post_transfer(ObjectAuthorityRequest::Complete(request), deadline_ms, sign)
@@ -108,14 +110,24 @@ impl SharedObjectClient {
             match status {
                 SharedObjectStatus::Verified { object } => return exact(request, object),
                 SharedObjectStatus::Pending { verified_through } => {
-                    if verified_through >= request.object.bytes
-                        || previous.is_some_and(|old| verified_through <= old)
-                    {
+                    if verified_through >= request.object.bytes || verified_through < previous {
                         return Err(BackupTransportError::Integrity(
                             "shared object verification",
                         ));
                     }
-                    previous = Some(verified_through);
+                    if verified_through == previous {
+                        let delay_ms = delays_ms.next().ok_or_else(|| ProtocolError {
+                            code: ErrorCode::ProviderPending,
+                            field: "shared.object.provider".into(),
+                        })?;
+                        if now_ms()?.saturating_add(delay_ms) >= deadline_ms {
+                            return Err(BackupTransportError::Timeout);
+                        }
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    } else {
+                        previous = verified_through;
+                        delays_ms = RETRY_DELAYS_MS.into_iter();
+                    }
                 }
             }
         }
@@ -209,7 +221,7 @@ impl SharedObjectClient {
         deadline_ms: u64,
         sign: &(impl Fn(&[u8]) -> Result<[u8; 64]> + Sync),
     ) -> Result<R> {
-        let mut delays_ms = [25, 50, 100, 200, 400, 800].into_iter();
+        let mut delays_ms = RETRY_DELAYS_MS.into_iter();
         loop {
             match self.post(request, Some(deadline_ms), sign).await {
                 Err(BackupTransportError::Protocol(error))
