@@ -19,6 +19,7 @@ from node import OwnedNode
 from automatic import Automatic
 from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
+from fresh_source import seed
 from ownership import run_identity
 from programs import Programs
 from restore_receipts import restored
@@ -120,6 +121,9 @@ class Operation:
         destination = self.root / "restored"
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")
+        if self.args.fresh:
+            self.fresh_recovery(credentials, phrase)
+            return
         started = time.monotonic()
         self.summary["stage"] = "pinned-restore"
         report = self.programs.restore(credentials, destination, self.baseline, phrase)
@@ -155,6 +159,19 @@ class Operation:
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
                             keyed_reads=boots, file_bytes=self.baseline["file_bytes"],
                             file_sha256=self.baseline["file_sha256"])
+
+    def fresh_recovery(self, credentials, phrase):
+        self.summary.update(stage="fresh-source", mode="fresh-v2",
+                            coverage="generated current-format Backup V2 snapshot/log, restart, and source-free recovery")
+        try:
+            source = seed(self, phrase)
+            self.summary["automatic"] = Automatic(self, credentials, phrase).run(source)
+        except BaseException:
+            self.preserve = self.node is not None
+            raise
+        finally:
+            self.api_key = None
+        self.summary["result"] = "passed"
 
     def cleanup(self):
         try:
@@ -236,6 +253,7 @@ def main():
     parser.add_argument("--startup-proof", required=True, type=Path)
     parser.add_argument("--startup-artifact", required=True, type=Path)
     parser.add_argument("--preflight", required=True, type=Path)
+    parser.add_argument("--fresh", action="store_true", help="Seed a new home and skip the pinned restore")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
