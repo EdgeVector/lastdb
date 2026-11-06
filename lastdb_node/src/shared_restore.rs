@@ -1,7 +1,8 @@
 //! Replay a shared snapshot's exact captured tails into a private fresh home.
 
 use crate::byte_cloud_restore::{local, publish, RestoreError, Result};
-use fold_db::portable_mutation::{MutationEntry, SchemaIdentity, StreamId, StreamProgress};
+use cloud_backup_protocol::Id;
+use fold_db::portable_mutation::{SchemaIdentity, StreamId, StreamProgress};
 use fold_db::portable_replay::{plan_replay, VerifiedLogRange};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -13,10 +14,10 @@ mod native;
 mod owner;
 pub mod recovery;
 pub use native::restore_from_source;
+use native::NativeWriter;
 pub(crate) use native::{resolve_schemas, schema_id, SchemaTarget};
 pub use owner::{restore_owner, OwnerRestoreSelection};
-mod spool;
-use spool::CandidateSpool;
+use recovery::{HeldFileVersions, SharedRecoverySource};
 
 const READY_FILE: &str = "shared-restore-ready.json";
 
@@ -28,27 +29,12 @@ pub struct RestoreCut {
     pub delete_reclaimed_through_ms: Option<u64>,
 }
 
-/// The writer owns native admission, validation and durability for the staged home.
-#[async_trait::async_trait]
-pub trait StagedReplayWriter: Send {
-    fn home(&self) -> &Path;
-
-    /// Read current live/delete stamps and commit only newer candidates.
-    /// Fetch exact schema/file dependencies for the effective winners.
-    async fn apply_candidates(&mut self, newest_first: &[&MutationEntry]) -> Result<()>;
-
-    /// Persist the captured progress and fresh authoring stream, verify the
-    /// resulting home, and close its native writer before returning.
-    async fn finish(self, cut: &RestoreCut, local_stream: &StreamId) -> Result<()>;
-}
-
 /// Private restore workspace next to a destination that has never been opened.
 pub struct SharedRestore {
     root: PathBuf,
     stage: PathBuf,
     ready: Ready,
     cut: RestoreCut,
-    spool: CandidateSpool,
     _owner: File,
 }
 
@@ -72,14 +58,12 @@ impl SharedRestore {
         let owner = lock_workspace(&root, true)?;
         let stage = root.join("home");
         fs::DirBuilder::new().mode(0o700).create(&stage)?;
-        let spool = CandidateSpool::new(&root)?;
         publish::sync_publish_parents(&root, &destination)?;
         Ok(Self {
             root,
             stage,
             ready: Ready { id, destination },
             cut,
-            spool,
             _owner: owner,
         })
     }
@@ -102,46 +86,47 @@ impl SharedRestore {
         &self.root
     }
 
-    /// Admit another complete window from the captured selection. An earlier
-    /// missing range must be supplied before any later window from that stream.
-    pub fn ingest(&mut self, ranges: &[VerifiedLogRange]) -> Result<()> {
-        for range in ranges {
-            if self
-                .cut
-                .captured_heads
-                .get(range.id().source_stream())
-                .is_none_or(|head| range.id().last_sequence() > *head)
-            {
-                return Err(RestoreError::Invalid("range outside captured heads"));
-            }
-            if range
-                .entries()
-                .iter()
-                .any(|entry| matches!(&entry.schema, SchemaIdentity::Local(_)))
-            {
-                return Err(RestoreError::Invalid("local schema in shared tail"));
-            }
+    /// Apply one verified range before advancing its staged replay position.
+    async fn apply_range(
+        &mut self,
+        range: &VerifiedLogRange,
+        writer: &mut NativeWriter<'_>,
+        files: &HeldFileVersions<'_, impl SharedRecoverySource>,
+    ) -> Result<()> {
+        let source = range.id().source_stream();
+        let through = range.id().last_sequence();
+        if self
+            .cut
+            .captured_heads
+            .get(source)
+            .is_none_or(|head| through > *head)
+        {
+            return Err(RestoreError::Invalid("range outside captured heads"));
+        }
+        if range
+            .entries()
+            .iter()
+            .any(|entry| matches!(&entry.schema, SchemaIdentity::Local(_)))
+        {
+            return Err(RestoreError::Invalid("local schema in shared tail"));
         }
 
         let plan = plan_replay(
-            ranges,
+            std::slice::from_ref(range),
             &self.cut.progress,
             self.cut.delete_reclaimed_through_ms,
         )
         .map_err(|_| RestoreError::Invalid("verified replay window"))?;
-        for range in ranges {
-            let source = range.id().source_stream();
-            let covered = plan
-                .progress()
-                .get(source)
-                .or_else(|| self.cut.progress.get(source))
-                .map_or(0, |cursor| cursor.applied_through);
-            if range.id().last_sequence() > covered {
-                return Err(RestoreError::Invalid("gap in captured mutation tail"));
-            }
+        let covered = plan
+            .progress()
+            .get(source)
+            .or_else(|| self.cut.progress.get(source))
+            .map_or(0, |cursor| cursor.applied_through);
+        if through > covered {
+            return Err(RestoreError::Invalid("gap in captured mutation tail"));
         }
 
-        self.spool.push_window(plan.candidates())?;
+        writer.apply_candidates(plan.candidates(), files).await?;
         self.cut.progress.extend(
             plan.progress()
                 .iter()
@@ -150,11 +135,11 @@ impl SharedRestore {
         Ok(())
     }
 
-    /// Replay globally newest first and publish the sealed home atomically.
-    pub async fn finish(self, mut writer: impl StagedReplayWriter) -> Result<PathBuf> {
+    /// Verify completion and publish the sealed home atomically.
+    async fn finish(self, writer: NativeWriter<'_>, database_id: &Id) -> Result<PathBuf> {
         require_complete(&self.cut)?;
         local::directory(&self.stage)?;
-        if writer.home() != self.stage
+        if writer.stage != self.stage
             || self
                 .stage
                 .join(lastdb_identity::IDENTITY_KEY_FILE)
@@ -172,8 +157,7 @@ impl SharedRestore {
             return Err(RestoreError::Invalid("fresh authoring stream collides"));
         }
 
-        self.spool.replay(&mut writer).await?;
-        writer.finish(&self.cut, &fresh_stream).await?;
+        writer.finish(&self.cut, &fresh_stream, database_id).await?;
         local::atomic_json(&self.stage.join(READY_FILE), &self.ready)?;
         local::atomic_json(&self.root.join(READY_FILE), &self.ready)?;
         activate_ready(&self.root, &self.ready)?;

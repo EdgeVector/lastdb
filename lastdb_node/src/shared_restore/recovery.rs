@@ -1,6 +1,6 @@
 //! Verify and load one authenticated shared recovery selection into staging.
 
-use super::{RestoreCut, SharedRestore};
+use super::{NativeWriter, SharedRestore};
 use crate::byte_cloud_restore::{check_capacity, local, RestoreError, Result};
 use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryObjectParent, RecoveryView, SealedObject, SnapshotManifest,
@@ -52,51 +52,49 @@ pub trait SharedRecoverySource: Sync {
     ) -> Result<RecoveryObject>;
 }
 
-/// A native checkpoint and all verified log tails, still private to restoration.
-pub struct PreparedSharedRestore<'a, S> {
+/// A native checkpoint and the held recovery selection for its log tails.
+pub(super) struct PreparedSharedRestore<'a, S> {
     pub session: SharedRestore,
-    pub checkpoint: RestoreCut,
     pub schemas: Vec<SnapshotSchema>,
-    pub files: HeldFileVersions<'a, S>,
+    pub tail: RecoveryTail<'a, S>,
 }
 
-/// Exact retained file versions declared by verified log batches in this hold.
-pub struct HeldFileVersions<'a, S> {
+pub(super) struct RecoveryTail<'a, S> {
     source: &'a S,
     view: RecoveryView,
-    objects: BTreeMap<Position, HeldObject>,
+    manifest: SnapshotManifest,
     _admission: NativeCloudWorkGuard,
 }
 
-struct HeldObject {
-    object: SealedObject,
+/// Exact retained file versions declared by the range currently being applied.
+/// The service pins each version to the same verified object across ranges.
+pub(super) struct HeldFileVersions<'a, S> {
+    source: &'a S,
+    view: &'a RecoveryView,
     parent: RecoveryObjectParent,
+    objects: BTreeMap<Position, SealedObject>,
 }
 
 impl<S: SharedRecoverySource> HeldFileVersions<'_, S> {
-    pub(super) fn database_id(&self) -> &Id {
-        &self.view.snapshot.database_id
-    }
-
     /// Return exact sealed bytes within the staged writer's admission budget.
     /// The writer verifies them against the winning record's file marker.
     pub async fn fetch(&self, position: &Position, maximum: u64) -> Result<Vec<u8>> {
-        let held = self.object(position)?;
-        read_object(self.source, &self.view, &held.object, &held.parent, maximum).await
+        let object = self.object(position)?;
+        read_object(self.source, self.view, object, &self.parent, maximum).await
     }
 
     pub(super) fn bytes(&self, position: &Position) -> Result<u64> {
-        Ok(self.object(position)?.object.bytes.get())
+        Ok(self.object(position)?.bytes.get())
     }
 
-    fn object(&self, position: &Position) -> Result<&HeldObject> {
+    fn object(&self, position: &Position) -> Result<&SealedObject> {
         self.objects
             .get(position)
             .ok_or(RestoreError::Invalid("missing held file version"))
     }
 }
 
-pub async fn prepare<'a, S: SharedRecoverySource>(
+pub(super) async fn prepare<'a, S: SharedRecoverySource>(
     source: &'a S,
     database_id: &Id,
     content_key: &[u8; 32],
@@ -131,33 +129,20 @@ pub async fn prepare<'a, S: SharedRecoverySource>(
     let checkpoint = contents
         .cut(&view)
         .map_err(|error| error.shared_stage("manifest-verify"))?;
-    let mut session = SharedRestore::begin(&destination, checkpoint.clone())?;
-    let prepared = async {
-        install_checkpoint(source, &view, &contents, content_key, session.stage())
-            .await
-            .map_err(|error| error.shared_stage("checkpoint-install"))?;
-        let objects = load_tails(source, &view, &manifest, content_key, &mut session)
-            .await
-            .map_err(|error| error.shared_stage("tail-read"))?;
-        require_live(&view)?;
-        Ok(objects)
+    let session = SharedRestore::begin(&destination, checkpoint)?;
+    if let Err(error) =
+        install_checkpoint(source, &view, &contents, content_key, session.stage()).await
+    {
+        session.discard_unsealed()?;
+        return Err(error.shared_stage("checkpoint-install"));
     }
-    .await;
-    let objects = match prepared {
-        Ok(objects) => objects,
-        Err(error) => {
-            session.discard_unsealed()?;
-            return Err(error);
-        }
-    };
     Ok(PreparedSharedRestore {
         session,
-        checkpoint,
         schemas: contents.schemas,
-        files: HeldFileVersions {
+        tail: RecoveryTail {
             source,
             view,
-            objects,
+            manifest,
             _admission: admission,
         },
     })
@@ -228,69 +213,61 @@ async fn install_checkpoint(
         .map_err(RestoreError::native_proof)
 }
 
-async fn load_tails(
-    source: &impl SharedRecoverySource,
-    view: &RecoveryView,
-    manifest: &SnapshotManifest,
-    key: &[u8; 32],
-    session: &mut SharedRestore,
-) -> Result<BTreeMap<Position, HeldObject>> {
-    let mut objects = BTreeMap::new();
-    for cut in &view.streams {
-        let mut previous = manifest.cover(&cut.source_stream).cloned();
-        while previous.as_ref() != cut.head.as_ref() {
-            require_live(view)?;
-            let batch = source
-                .next_batch(view, &cut.source_stream, previous.as_ref())
-                .await?;
-            let next = cut.validate_next(&manifest.database_id, previous.as_ref(), &batch)?;
-            let first = previous
-                .as_ref()
-                .map_or(0, |head| head.sequence.get())
-                .checked_add(1)
-                .ok_or(RestoreError::Invalid("shared log sequence"))?;
-            let id = LogRangeId::new(stream_id(&cut.source_stream)?, first, next.sequence.get())
-                .map_err(|_| RestoreError::Invalid("shared log range"))?;
-            let parent = RecoveryObjectParent::LogBatch {
-                source_stream: cut.source_stream.clone(),
-                head: next.clone(),
-            };
-            let sealed =
-                read_object(source, view, &batch.segment, &parent, MAX_SEALED_LOG_BYTES).await?;
-            let range = manifest::open_log(key, &manifest.database_id, id, &sealed)?;
-            bind_file_versions(&range, batch, &parent, &mut objects)?;
-            session.ingest(std::slice::from_ref(&range))?;
-            previous = Some(next);
-        }
+impl<S: SharedRecoverySource> RecoveryTail<'_, S> {
+    pub(super) fn database_id(&self) -> &Id {
+        &self.manifest.database_id
     }
-    Ok(objects)
-}
 
-fn bind_file_versions(
-    range: &VerifiedLogRange,
-    batch: LogBatch,
-    parent: &RecoveryObjectParent,
-    objects: &mut BTreeMap<Position, HeldObject>,
-) -> Result<()> {
-    for (position, object) in exact_file_versions(range, batch)? {
-        if let Some(saved) = objects.get(&position) {
-            if saved.object != object {
-                return Err(RestoreError::Invalid("conflicting shared log file version"));
+    /// Verify, apply and release each range before requesting the next one.
+    pub(super) async fn replay(
+        &self,
+        key: &[u8; 32],
+        session: &mut SharedRestore,
+        writer: &mut NativeWriter<'_>,
+    ) -> Result<()> {
+        let database_id = self.database_id();
+        for cut in &self.view.streams {
+            let mut previous = self.manifest.cover(&cut.source_stream).cloned();
+            while previous.as_ref() != cut.head.as_ref() {
+                require_live(&self.view)?;
+                let batch = self
+                    .source
+                    .next_batch(&self.view, &cut.source_stream, previous.as_ref())
+                    .await?;
+                let next = cut.validate_next(database_id, previous.as_ref(), &batch)?;
+                let first = previous
+                    .as_ref()
+                    .map_or(0, |head| head.sequence.get())
+                    .checked_add(1)
+                    .ok_or(RestoreError::Invalid("shared log sequence"))?;
+                let id =
+                    LogRangeId::new(stream_id(&cut.source_stream)?, first, next.sequence.get())
+                        .map_err(|_| RestoreError::Invalid("shared log range"))?;
+                let parent = RecoveryObjectParent::LogBatch {
+                    source_stream: cut.source_stream.clone(),
+                    head: next.clone(),
+                };
+                let sealed = read_object(
+                    self.source,
+                    &self.view,
+                    &batch.segment,
+                    &parent,
+                    MAX_SEALED_LOG_BYTES,
+                )
+                .await?;
+                let range = manifest::open_log(key, database_id, id, &sealed)?;
+                let files = HeldFileVersions {
+                    source: self.source,
+                    view: &self.view,
+                    parent,
+                    objects: exact_file_versions(&range, batch)?.into_iter().collect(),
+                };
+                session.apply_range(&range, writer, &files).await?;
+                previous = Some(next);
             }
-        } else {
-            if objects.len() == cloud_backup_protocol::limits::NATIVE_FILES_MAX {
-                return Err(RestoreError::Limit("held file versions"));
-            }
-            objects.insert(
-                position,
-                HeldObject {
-                    object,
-                    parent: parent.clone(),
-                },
-            );
         }
+        require_live(&self.view)
     }
-    Ok(())
 }
 
 pub(crate) fn exact_file_versions(
