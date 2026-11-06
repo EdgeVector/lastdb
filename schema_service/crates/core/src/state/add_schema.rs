@@ -62,8 +62,7 @@ impl SchemaServiceState {
             let persisted = match &outcome {
                 SchemaAddOutcome::Added(s, _)
                 | SchemaAddOutcome::AlreadyExists(s, _)
-                | SchemaAddOutcome::Expanded(_, s, _)
-                | SchemaAddOutcome::Composed(s, _, _) => Some(s),
+                | SchemaAddOutcome::Expanded(_, s, _) => Some(s),
                 // A conflict outcome is itself a hard failure with no
                 // persisted body, so the invariant doesn't apply.
                 SchemaAddOutcome::DescriptiveNameConflict(_) => None,
@@ -104,13 +103,13 @@ impl SchemaServiceState {
     }
 
     /// Validate and canonicalize a proposal in place, up to (not including)
-    /// the identity hash. `Ok(Err(outcome))` is an early idempotent-repost
-    /// result; `Ok(Ok(advice))` carries the compositional reuse advice.
+    /// the identity hash. `Ok(Some(outcome))` is an early idempotent-repost
+    /// result.
     fn normalize_proposal(
         &self,
         schema: &mut Schema,
         mutation_mappers: &mut HashMap<String, String>,
-    ) -> FoldDbResult<Result<Vec<crate::ComponentReuseAdvice>, SchemaAddOutcome>> {
+    ) -> FoldDbResult<Option<SchemaAddOutcome>> {
         Self::validate_proposal_shape(schema)?;
         self.validate_proposal_field_names(schema)?;
 
@@ -128,7 +127,7 @@ impl SchemaServiceState {
         // A repeat post of a name that already carries a de-collision suffix
         // resolves to that canonical.
         if let Some(existing) = self.find_decollided_idempotent_repost(schema, mutation_mappers) {
-            return Ok(Err(SchemaAddOutcome::AlreadyExists(
+            return Ok(Some(SchemaAddOutcome::AlreadyExists(
                 existing,
                 mutation_mappers.clone(),
             )));
@@ -136,30 +135,7 @@ impl SchemaServiceState {
 
         self.prepare_proposal_fields(schema, mutation_mappers)?;
 
-        // Compositional canonicalization (advisory / shadow). When the
-        // `SCHEMA_COMPOSITIONAL_DECOMPOSITION` flag is on, decompose the
-        // canonicalized proposal into its nested (`ref_fields`) components and
-        // log, per component, whether an existing same-purpose canonical could
-        // be reused via a typed `SchemaRef`. This MIRRORS the dual-signal
-        // Phase C shadow pass: it computes and records the would-be reuse but
-        // does NOT alter the live add-schema decision. With the flag off
-        // (default) this is a cheap no-op, so the persisted result is
-        // byte-for-byte today's whole-schema behavior.
-        let _compositional_advice = self.log_compositional_advice(schema);
-
-        // Compositional APPLY step (only when `SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`).
-        // Rewrite the proposal's `ref_fields` so each component that clears the
-        // per-component reuse gate points at the matched existing canonical, so
-        // a parent that registers as new *references* the reused sub-schemas
-        // instead of re-inlining them. `ref_fields` is not part of
-        // `compute_identity_hash`, so the dedup/expansion seams below are
-        // unaffected; this only changes the reference topology of a brand-new
-        // canonical. Empty unless apply mode rewrote ≥1 component — in which
-        // case the terminal new-registration return emits `Composed`.
-        let composition_advice = self.apply_compositional_reuse(schema);
-
-        // Compute (or recompute after canonicalization) the identity hash.
-        Ok(Ok(composition_advice))
+        Ok(None)
     }
 
     pub(super) async fn add_schema_inner(
@@ -167,11 +143,9 @@ impl SchemaServiceState {
         mut schema: Schema,
         mut mutation_mappers: HashMap<String, String>,
     ) -> FoldDbResult<SchemaAddOutcome> {
-        let composition_advice =
-            match self.normalize_proposal(&mut schema, &mut mutation_mappers)? {
-                Ok(advice) => advice,
-                Err(outcome) => return Ok(outcome),
-            };
+        if let Some(outcome) = self.normalize_proposal(&mut schema, &mut mutation_mappers)? {
+            return Ok(outcome);
+        }
 
         // Compute (or recompute after canonicalization) the identity hash.
         schema.compute_identity_hash();
@@ -236,20 +210,6 @@ impl SchemaServiceState {
             schema_name
         );
 
-        // A newly-registered parent whose `ref_fields` were rewritten to reuse
-        // existing canonicals (compositional apply step) is `Composed`, not a
-        // plain `Added` — it carries the per-component reuse advice that drove
-        // the composition. `composition_advice` is empty unless apply mode is
-        // on AND at least one component reused, so with the flag off this is
-        // exactly `Added` as before.
-        if composition_advice.is_empty() {
-            Ok(SchemaAddOutcome::Added(schema, mutation_mappers))
-        } else {
-            Ok(SchemaAddOutcome::Composed(
-                schema,
-                mutation_mappers,
-                composition_advice,
-            ))
-        }
+        Ok(SchemaAddOutcome::Added(schema, mutation_mappers))
     }
 }

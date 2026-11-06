@@ -72,7 +72,6 @@ pub mod snapshot;
 pub mod state;
 mod state_anti_fields;
 mod state_canonicalization;
-mod state_compositional;
 mod state_expansion;
 mod state_expansion_persist;
 mod state_fields;
@@ -142,5 +141,4 @@ pub use snapshot::{
     AppTier, SnapshotEmbeddings, SnapshotEnvelope, SnapshotImportReport, SNAPSHOT_FORMAT_VERSION,
 };
 pub use state::{SchemaServiceState, SchemaStorage};
-pub use state_compositional::ComponentReuseAdvice;
 pub use state_matching::{REUSE_PURPOSE_THRESHOLD, REUSE_STRUCT_FLOOR};

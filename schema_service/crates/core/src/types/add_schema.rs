@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::shared_surface::SharedSurfaceMetadata;
-use crate::state_compositional::ComponentReuseAdvice;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchemaAddOutcome {
@@ -16,22 +15,6 @@ pub enum SchemaAddOutcome {
     /// different `schema_type`). The caller must rename the new schema or
     /// adopt the existing canonical instead of registering a duplicate.
     DescriptiveNameConflict(DescriptiveNameConflict),
-    /// The proposal was decomposed into nested components and at least one
-    /// component reused an EXISTING canonical via a typed `SchemaRef`
-    /// (`ref_fields`) instead of re-inlining or spawning a near-duplicate. The
-    /// composed canonical references the reused sub-schemas; the residual
-    /// (un-reused) part registered normally. Carries the composed schema, the
-    /// mutation mappers, and the per-component reuse advice that drove the
-    /// composition (`field → reused canonical descriptive_name`).
-    ///
-    /// **Additive + gated.** This variant is only ever produced once the
-    /// compositional *apply* step is enabled (a follow-on to the advisory
-    /// shadow pass — off by default). With compositional decomposition off,
-    /// or in advisory-only mode, the add-schema path never returns `Composed`;
-    /// components below the reuse threshold stay inline, so the default
-    /// behavior is a pure superset of today's whole-schema canonicalization.
-    /// See `state_compositional` for the shadow-first rollout.
-    Composed(Schema, HashMap<String, String>, Vec<ComponentReuseAdvice>),
 }
 
 /// Body of `SchemaAddOutcome::DescriptiveNameConflict`. Also serialized

@@ -55,10 +55,6 @@ pub struct SchemaConfig {
     pub reuse_field_fidelity_floor: f32,
     /// `SCHEMA_SHADOW_MODE`. Default off.
     pub shadow_mode: bool,
-    /// `SCHEMA_COMPOSITIONAL_DECOMPOSITION` truthy values, including `apply`.
-    pub compositional_decomposition: bool,
-    /// `SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`.
-    pub compositional_apply: bool,
     /// `SCHEMA_NATIVE_COMPONENT_COVER_RESOLVE`. Default on.
     pub native_component_cover_resolve: bool,
     /// `SCHEMA_NATIVE_RESOLVE_BUDGET_MS`.
@@ -77,8 +73,6 @@ impl Default for SchemaConfig {
             reuse_struct_floor: REUSE_STRUCT_FLOOR,
             reuse_field_fidelity_floor: REUSE_FIELD_FIDELITY_FLOOR,
             shadow_mode: false,
-            compositional_decomposition: false,
-            compositional_apply: false,
             native_component_cover_resolve: true,
             native_resolve_budget: Duration::from_millis(DEFAULT_NATIVE_RESOLVE_BUDGET_MS),
             registry_index_signing_key: RegistryIndexSigningKey::Absent,
@@ -109,14 +103,6 @@ impl SchemaServiceState {
 
     pub(crate) fn shadow_mode_enabled(&self) -> bool {
         self.schema_config.shadow_mode
-    }
-
-    pub(crate) fn compositional_decomposition_enabled(&self) -> bool {
-        self.schema_config.compositional_decomposition
-    }
-
-    pub(crate) fn compositional_apply_enabled(&self) -> bool {
-        self.schema_config.compositional_apply
     }
 
     pub(crate) fn native_component_cover_resolve_enabled(&self) -> bool {

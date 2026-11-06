@@ -30,7 +30,6 @@ impl SchemaConfigEnv for SchemaConfig {
 
 fn schema_config_from_env() -> SchemaConfig {
     let defaults = SchemaConfig::default();
-    let (compositional_decomposition, compositional_apply) = compositional_from_env();
     SchemaConfig {
         app_identity: app_identity_from_env(),
         mutation_gate: mutation_gate_from_env(),
@@ -48,8 +47,6 @@ fn schema_config_from_env() -> SchemaConfig {
             defaults.reuse_field_fidelity_floor,
         ),
         shadow_mode: var_truthy("SCHEMA_SHADOW_MODE"),
-        compositional_decomposition,
-        compositional_apply,
         native_component_cover_resolve: native_cover_from_env(),
         native_resolve_budget: native_budget_from_env(defaults.native_resolve_budget),
         registry_index_signing_key: registry_signing_key_from_env(),
@@ -196,18 +193,6 @@ fn default_on_unless_exact_falsy(name: &str) -> bool {
         return true;
     };
     !matches!(value.as_str(), "0" | "false" | "FALSE" | "no")
-}
-
-/// Default off. Exact byte match, no trim.
-fn compositional_from_env() -> (bool, bool) {
-    let Ok(value) = std::env::var("SCHEMA_COMPOSITIONAL_DECOMPOSITION") else {
-        return (false, false);
-    };
-    let enabled = matches!(
-        value.as_str(),
-        "1" | "true" | "TRUE" | "yes" | "advisory" | "apply"
-    );
-    (enabled, value == "apply")
 }
 
 /// Default on. Trim and ASCII lowercase. Falsy: `0`, `false`, `off`, `no`.

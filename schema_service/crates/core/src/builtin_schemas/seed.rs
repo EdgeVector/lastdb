@@ -38,11 +38,7 @@ async fn seed_inner(state: &SchemaServiceState) -> FoldDbResult<()> {
             .clone()
             .unwrap_or_else(|| schema.name.clone());
         match state.add_schema(schema, HashMap::new()).await {
-            Ok(
-                SchemaAddOutcome::Added(added, _)
-                | SchemaAddOutcome::AlreadyExists(added, _)
-                | SchemaAddOutcome::Composed(added, _, _),
-            ) => {
+            Ok(SchemaAddOutcome::Added(added, _) | SchemaAddOutcome::AlreadyExists(added, _)) => {
                 // Both outcomes are fine. AlreadyExists fires when the
                 // service was previously seeded (or a client
                 // previously proposed this schema via the legacy

@@ -331,26 +331,6 @@ fn add_schema_outcome_response(
                     response_composition,
                 )
             }
-            // A composed canonical is newly registered: the compositional apply
-            // step rewrote one or more nested `ref_fields` to reuse an existing
-            // canonical via SchemaRef instead of re-inlining its fields. Serialized
-            // like `Added` (HTTP 201, no replaced schema) PLUS `composed: true` —
-            // the authoritative wire marker so a client can tell genuine
-            // composition apart from a plain registration that merely carried
-            // ref_fields (the per-component advice rides on the outcome
-            // internally). Only produced when the apply step is enabled
-            // (`SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`, off by default).
-            SchemaAddOutcome::Composed(schema, mutation_mappers, _advice) => {
-                record("composed_existing");
-                add_schema_success_response(
-                    state,
-                    true,
-                    (schema, mutation_mappers),
-                    None,
-                    true,
-                    response_composition,
-                )
-            }
             SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
                 record("rejected");
                 tracing::warn!(

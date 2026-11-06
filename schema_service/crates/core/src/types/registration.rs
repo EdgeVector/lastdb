@@ -20,18 +20,15 @@ pub struct AddSchemaResponse {
     /// don't need a second round-trip to classify.
     #[serde(default)]
     pub system: bool,
-    /// True iff this registration was a COMPOSED outcome: the
-    /// compositional decompose/apply step rewrote one or more of the
-    /// proposal's nested `ref_fields` to reuse an existing canonical
-    /// (`SchemaAddOutcome::Composed`) instead of re-inlining its fields.
-    /// `false` for a plain `Added`/`Expanded`/`AlreadyExists` outcome.
+    /// True when native component cover marks the returned schema as a
+    /// composition of existing components: a full cover that returns the
+    /// proposal itself, or a residual registration that still carries a
+    /// component-cover composition. `false` for a plain
+    /// `Added`/`Expanded`/`AlreadyExists` outcome and for a full cover
+    /// that returns the matched shared schema.
     ///
-    /// This is the authoritative, wire-visible marker of composition —
-    /// the response `schema` carries the rewritten `ref_fields` either
-    /// way, so the flag (not the presence of `ref_fields`) is what tells
-    /// a client the apply path actually reused something. Only emitted
-    /// when true (`#[serde(default, skip_serializing_if)]`) so the wire
-    /// stays backward-compatible: older clients that ignore it are
+    /// Only emitted when true (`#[serde(default, skip_serializing_if)]`) so
+    /// the wire stays backward-compatible: older clients that ignore it are
     /// unaffected, and a non-composed response is byte-for-byte as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub composed: bool,
