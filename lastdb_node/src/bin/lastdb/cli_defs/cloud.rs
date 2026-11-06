@@ -7,6 +7,8 @@ pub(crate) use byte_backup::ByteBackupCommand;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Operate the shared journal and snapshots of an explicit stopped DEV home.
+    SharedWriter(SharedWriterCommand),
     /// Read or manage Stripe payments for this home's existing native account.
     /// Requires an explicit absolute --data-dir; never starts a daemon or store.
     Payments {
@@ -78,6 +80,77 @@ pub(crate) enum CloudCommand {
         /// Emit a value-free receipt.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct SharedWriterCommand {
+    /// Registered device ID of the explicit DEV credential home.
+    #[arg(long)]
+    pub device_id: String,
+    /// Absolute owner-only file holding this registered device's 32-byte key.
+    #[arg(long)]
+    pub device_key_file: PathBuf,
+    /// Read the recovery phrase only from bounded stdin.
+    #[arg(long, required = true)]
+    pub recovery_phrase_stdin: bool,
+    #[command(subcommand)]
+    pub action: SharedWriterAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SharedWriterAction {
+    /// Publish one new typed DEV catalog declaration and pin its immutable identity.
+    PublishSchema {
+        #[arg(long)]
+        namespace: String,
+        #[arg(long)]
+        declaration: PathBuf,
+    },
+    /// Install the exact immutable service definitions at their local aliases.
+    Install {
+        #[arg(long)]
+        schema_bindings: PathBuf,
+    },
+    /// Bind a fresh writer to immutable schema IDs in a private JSON file.
+    Bind {
+        #[arg(long)]
+        database_id: String,
+        #[arg(long)]
+        source_stream: String,
+        #[arg(long)]
+        schema_bindings: PathBuf,
+    },
+    /// Upload a bounded number of journal batches, stopping when caught up.
+    Push {
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
+        batches: u16,
+    },
+    /// Fetch and apply a bounded number of verified peer ranges.
+    Pull {
+        #[arg(long)]
+        schema_bindings: PathBuf,
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
+        ranges: u16,
+    },
+    /// Capture and publish one shared checkpoint under a fresh private path.
+    Publish {
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        snapshot_id: String,
+        #[arg(long)]
+        schema_bindings: PathBuf,
+        #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u32).range(1..=3600))]
+        deadline_seconds: u32,
+        /// Save the cut and release the source before a separate resume publishes it.
+        #[arg(long)]
+        prepare_only: bool,
+    },
+    /// Resume the exact prior publication from its private workspace.
+    Resume {
+        #[arg(long)]
+        workspace: PathBuf,
     },
 }
 

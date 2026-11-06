@@ -82,7 +82,7 @@ pub(super) fn resume(
     Ok(())
 }
 
-fn protected_auth(home: &Path, environment: Environment) -> Result<AuthClient, String> {
+pub(super) fn protected_auth(home: &Path, environment: Environment) -> Result<AuthClient, String> {
     let directory = files::open_directory(home)?;
     files::require_owned_directory(&directory)?;
     let bytes = Zeroizing::new(files::read_private_file(
