@@ -289,7 +289,7 @@ pub fn route(req: &UdsRequest, socket: SocketKind) -> ControlRoute {
     if let Some(route) = route_exact(path, method, owner) {
         return route;
     }
-    route_prefixed(path, method, owner).unwrap_or(ControlRoute::NotFound)
+    route_prefixed(path, method).unwrap_or(ControlRoute::NotFound)
 }
 
 /// Pick the response for a path that supports exactly one method.
@@ -352,32 +352,12 @@ fn one_segment<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
 }
 
 /// Routes whose path carries an id segment.
-fn route_prefixed(path: &str, method: &str, owner: bool) -> Option<ControlRoute> {
-    if owner {
-        if let Some(route) = route_owner_prefixed(path, method) {
-            return Some(route);
-        }
-    }
+fn route_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
     if one_segment(path, "/api/schema/").is_some() {
         return Some(single_method(
             method,
             "GET",
             ControlRoute::Data(DataRoute::GetSchema),
-        ));
-    }
-    None
-}
-
-/// Owner-socket-only history route.
-///
-/// Field history spans every record of the owning (schema, field), so it may
-/// not exist for a jailed app.
-fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
-    if path == "/api/field-history" {
-        return Some(single_method(
-            method,
-            "POST",
-            ControlRoute::Data(DataRoute::FieldHistory),
         ));
     }
     None

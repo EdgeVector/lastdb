@@ -75,15 +75,14 @@ pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
 pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
-/// History family/configuration facts. Encoders and native admission compose
-/// these definitions; readers reuse the same key builders.
+/// Legacy history families. Cleanup and restore share the same key layout.
 pub(in crate::storage::format) use crate::records::field_history::RECORD_HISTORY_FAMILY as HISTORY_RECORD_FAMILY;
 pub(in crate::storage::format) const HISTORY_COUNT_FAMILY: &str = "ahk";
 pub(in crate::storage::format) const HISTORY_QUEUE_FAMILY: &str = "ahq";
 pub(in crate::storage::format) const HISTORY_BUCKET_FAMILY: &str = "ahb";
 pub(in crate::storage::format) const HISTORY_POLICY_FAMILY: &str = "ahp";
 pub(in crate::storage::format) const HISTORY_SLICE_NANOS: u64 = 3_600_000_000_000;
-/// Same bound for a written history entry and its existing restore proof.
+/// Preserve the original on-disk size bound for restore validation.
 pub(in crate::storage) const MAX_HISTORY_ENTRY_BYTES: usize =
     lastdb_model::record_value::MAX_RECORD_BYTES + 4 * 1024;
 pub(in crate::storage) const HISTORY_DATA_FAMILIES: &[&str] = &[

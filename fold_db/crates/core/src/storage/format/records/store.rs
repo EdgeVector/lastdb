@@ -5,7 +5,7 @@ use crate::schema::types::{FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::format::history::{self, EncodedHistory, HistoryChange};
+use crate::storage::format::history::{self, EncodedHistory};
 use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
@@ -57,7 +57,6 @@ impl RecordFormat {
         &self,
         schema: &Schema,
         changes: Vec<RecordChange>,
-        history: Vec<HistoryChange>,
         resolve_codec: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
@@ -85,11 +84,7 @@ impl RecordFormat {
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
         let written = encoded
-            .stage(
-                self.main_store.inner().as_ref(),
-                &self.runtime,
-                history::encode(history)?,
-            )
+            .stage(self.main_store.inner().as_ref(), &self.runtime)
             .await?;
         self.stage_files(files).await?;
         self.metadata.stage_outgoing(entries).await?;

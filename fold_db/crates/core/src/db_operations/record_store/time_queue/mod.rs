@@ -7,9 +7,6 @@
 //!   slice of time, and the range is the expiry and the id. A small directory
 //!   lists every bucket that holds, or held, an entry. The history format
 //!   owns this layout.
-//! - **Writers.** A writer adds an entry and the directory row of its bucket in
-//!   one batch, through the format encoder. The directory row gets
-//!   a new token with each entry. No writer writes a queue key on its own.
 //! - **Release.** An entry ends with a delete in the batch of the work that it
 //!   names. A deleted entry leaves a deleted key in its bucket.
 //! - **Readers.** A reader lists the directory, then walks the buckets that
@@ -23,9 +20,7 @@
 //!   read before the walk (`retire.rs`). The deleted keys of the bucket die with
 //!   it: nothing reads that hash again.
 //!
-//! The field history expiry queue (`field_history`) is the user. Another
-//! queue with the same needs takes the same layout, the same reader and the
-//! same retirement, and adds its own entry value and release.
+//! Used to expire rows already present in the legacy field history queue.
 
 mod clock;
 mod reader;

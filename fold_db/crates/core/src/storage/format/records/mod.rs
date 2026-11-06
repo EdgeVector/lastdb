@@ -5,7 +5,7 @@
 //! The encoded batch has no public fields or raw append/unwrap operation.
 //! It stages into an already-open request; it never opens or commits a home.
 //!
-//! History uses the sibling encoder and appends only its opaque encoded batch.
+//! Legacy history cleanup stages its own opaque pages in the same request.
 //! The provider holds read-only views; this format owns retained file/control
 //! and schema-release writes too. Broad bootstrap factories remain separate.
 
@@ -34,7 +34,6 @@ use crate::schema::types::FileWrite;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::format::history::EncodedHistory;
 use crate::storage::{KvMutation, KvStore, StorageError};
 use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::collections::HashSet;
@@ -119,17 +118,15 @@ impl EncodedRecords {
     /// Stage only into the coordinator's current request. No child writer
     /// gets a namespace factory or starts an independent transaction.
     async fn stage(
-        mut self,
+        self,
         main_store: &dyn KvStore,
         runtime: &PackRuntime,
-        history: EncodedHistory,
     ) -> Result<Vec<WrittenRecord>, SchemaError> {
         if !transaction::publication::active(runtime) {
             return Err(SchemaError::InvalidData(
                 "row commits require a complete native write scope".into(),
             ));
         }
-        history.append_to(&mut self.main);
         // Keep the original single staging call and its native admission
         // bound, including no-op deletes. The complete request owns commit.
         main_store.batch_mutate(self.main).await?;

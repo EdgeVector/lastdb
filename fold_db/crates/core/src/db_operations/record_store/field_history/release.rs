@@ -9,7 +9,7 @@ impl RecordStore {
         &self,
         reader: &mut QueueReader,
     ) -> Result<u64, SchemaError> {
-        if !self.field_history_enabled().await? {
+        if !self.has_legacy_field_history().await? {
             return Ok(0);
         }
         let now = self.queue_clock().now_nanos();

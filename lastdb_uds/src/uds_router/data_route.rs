@@ -163,8 +163,6 @@ pub enum DataRoute {
     /// entries are structurally unreachable), which is precisely what
     /// distinguishes it from retired owner-wide cross-namespace search.
     NativeIndexKnn,
-    /// `POST /api/field-history` — owner-only field policies, lookup, purge and restore.
-    FieldHistory,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.

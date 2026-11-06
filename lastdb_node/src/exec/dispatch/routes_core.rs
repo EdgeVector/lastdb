@@ -59,7 +59,6 @@ pub(super) async fn dispatch_search_app(
         DataRoute::NativeIndexKnn => {
             heap_route!(execute_native_index_knn_route, req, ctx, host).await
         }
-        DataRoute::FieldHistory => heap_route!(execute_field_history_route, req, ctx, host).await,
         DataRoute::LocalWatch => execute_local_watch_route(req, ctx, host),
         DataRoute::AppChanges => heap_route!(execute_app_changes_route, req, ctx, host).await,
         _ => return None,

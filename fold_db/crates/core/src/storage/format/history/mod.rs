@@ -1,19 +1,15 @@
-//! History values and their nested queue/count writes, driven by the format.
+//! Format-owned release of legacy history and its queue and count rows.
 //!
 //! Providers supply data and release intents, never raw keys/value mutations.
 //! This component encodes them into a private batch. Both record writes and
 //! maintenance use it inside the existing request and commit owner.
 
-mod capture;
 mod keys;
-mod policy;
 mod queue;
 mod release;
 mod retire;
 
-pub(crate) use capture::HistoryCapture;
-pub(crate) use keys::{count_key, policy_key, record_prefix};
-pub(crate) use policy::policy_batch;
+pub(crate) use keys::{count_key, record_prefix};
 pub(crate) use queue::TimeQueue;
 pub(crate) use release::HistoryRelease;
 pub(in crate::storage::format) use retire::retire_bucket;
@@ -35,10 +31,8 @@ pub(crate) struct KeyCount {
     pub records: u64,
 }
 
-/// Data-only changes. Capture version, row keys, queue linkage and JSON bytes
-/// are chosen by the encoder; releases are minted from a validated entry.
+/// Data-only cleanup changes. Releases are minted from a validated entry.
 pub(crate) enum HistoryChange {
-    Capture(HistoryCapture),
     Release(HistoryRelease),
     Count { record: String, records: u64 },
     DeleteCount(String),
@@ -61,7 +55,6 @@ pub(crate) fn encode(changes: Vec<HistoryChange>) -> Result<EncodedHistory, Sche
     let mut rows = Vec::with_capacity(changes.len());
     for change in changes {
         match change {
-            HistoryChange::Capture(value) => capture::encode(value, &mut rows)?,
             HistoryChange::Release(value) => release::encode(value, &mut rows),
             HistoryChange::Count { record, records } => {
                 let key = keys::write_count_key(&record)?;
@@ -88,10 +81,6 @@ pub(crate) fn encode(changes: Vec<HistoryChange>) -> Result<EncodedHistory, Sche
 }
 
 impl EncodedHistory {
-    pub(in crate::storage::format) fn append_to(self, batch: &mut Vec<KvMutation>) {
-        batch.extend(self.rows);
-    }
-
     pub(in crate::storage::format) async fn stage(
         self,
         main_store: &dyn KvStore,

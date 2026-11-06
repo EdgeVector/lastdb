@@ -11,7 +11,6 @@
 use super::RecordStore;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use crate::storage::format::history::HistoryChange;
 use crate::storage::format::records::{self as format, RecordAddress};
 use futures::FutureExt;
 use lastdb_model::portable_mutation::{Position, Stamp};
@@ -142,18 +141,15 @@ impl RecordStore {
         Ok(out)
     }
 
-    /// Stage record, pointer, file and history changes in the native request.
+    /// Stage record, pointer and file changes in the native request.
     /// The caller read each preimage under the same write gate.
     pub(crate) async fn stage_records(
         &self,
         schema: &Schema,
         changes: Vec<RecordChange>,
-        history: Vec<HistoryChange>,
     ) -> Result<(), SchemaError> {
         self.format
-            .stage_records(schema, changes, history, |id| {
-                self.key_codec_for_field_key(id)
-            })
+            .stage_records(schema, changes, |id| self.key_codec_for_field_key(id))
             .await
     }
 }

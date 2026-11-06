@@ -50,10 +50,6 @@ pub(super) fn write_count_key(record: &str) -> Result<String, SchemaError> {
     Ok(count_key(record))
 }
 
-pub(crate) fn policy_key(field: &str) -> String {
-    format!("{}:{field}", super::super::HISTORY_POLICY_FAMILY)
-}
-
 fn require_record_key(record: &str) -> Result<(), SchemaError> {
     if !record.starts_with(RECORD_PREFIX) {
         return Err(invalid("the location is not a record key"));

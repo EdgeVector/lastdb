@@ -1,45 +1,18 @@
-//! Field history of a home (decision D5).
-//!
-//! An entry keeps its own copy of one old field value and its stamp, at
-//! `rh:{S}:{sha(record key)}:{field identity}:{id}`. `S` is the record
-//! space of the schema, and `id` is the SHA-256 of the record key, the field
-//! identity and the old stamp. The entry reuses the field policy (`ahp:`), the
-//! entry count of each record (`ahk:`) and the expiry queue (`ahq:`/`ahb\0`) of
-//! the field key history.
+//! Release field history that was written by an earlier LastDB version.
 
-use super::*;
-use crate::db_operations::record_store::{RecordChange, RecordStore};
+use crate::db_operations::record_store::{RangeWalk, RecordStore};
 use crate::records::field_history::{record_history_suffix, RecordHistoryEntry};
-
-use crate::schema::{Schema, SchemaError};
-use crate::storage::format::history::{self as format, HistoryCapture, HistoryChange};
-pub(super) use crate::storage::format::history::{record_prefix, QueueEntry};
-use lastdb_model::record_value::StoredRecord;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
-/// A purge releases at most this many history entries of one record in its
-/// own batch. A record with more refuses the purge until its field history is
-/// purged (`POST /api/field-history`, `op: purge`).
-const PURGE_RELEASE_CAP: u64 = 1_024;
+use crate::schema::SchemaError;
+pub(super) use crate::storage::format::history::QueueEntry;
+use crate::storage::format::history::{self as format, record_prefix, HistoryChange};
+use std::collections::BTreeMap;
 
 /// The field history rows of one record group.
 #[derive(Default)]
-pub(crate) struct RecordHistoryRows {
-    pub(crate) changes: Vec<HistoryChange>,
-    /// The entries that a purge released.
-    pub(crate) released: u64,
-    /// The change of the entry count of each record key.
-    pub(super) counts: BTreeMap<String, i64>,
-}
-
-/// One old field value that a write replaced or a delete removed.
-struct Capture<'a> {
-    change: &'a RecordChange,
-    field: &'a str,
-    identity: &'a str,
-    source: &'a Arc<StoredRecord>,
-    policy: FieldHistoryPolicy,
+struct RecordHistoryRows {
+    changes: Vec<HistoryChange>,
+    released: u64,
+    counts: BTreeMap<String, i64>,
 }
 
 fn invalid(error: impl std::fmt::Display) -> SchemaError {
@@ -53,7 +26,7 @@ pub(super) fn is_record_history(key: &str) -> bool {
 
 /// Delete one entry and its queue entry, and lower the
 /// entry count of its record.
-pub(super) fn release(
+fn release(
     key: &str,
     entry: &RecordHistoryEntry,
     out: &mut RecordHistoryRows,
@@ -65,132 +38,63 @@ pub(super) fn release(
 }
 
 impl RecordStore {
-    /// The history rows of the changed records of one group, in the request's
-    /// write scope: a capture of each overwritten or deleted field value with
-    /// a history policy, and the release of every entry of a purged record.
-    pub(crate) async fn record_history_rows(
-        &self,
-        schema: &Schema,
-        changes: &[RecordChange],
-        purges: &[bool],
-    ) -> Result<RecordHistoryRows, SchemaError> {
-        let mut out = RecordHistoryRows::default();
-        let purged: Vec<&str> = changes
-            .iter()
-            .zip(purges)
-            .filter(|(_, purge)| **purge)
-            .map(|(change, _)| change.key.as_str())
-            .collect();
-        if !purged.is_empty() {
-            self.release_purged_history(&purged, &mut out).await?;
-        }
-        let captures = self.history_captures(schema, changes, purges).await?;
-        let now = self.queue_clock().now_nanos();
-        for capture in &captures {
-            capture_value(&schema.name, capture, now, &mut out);
-        }
-        let counts = std::mem::take(&mut out.counts);
-        out.changes
-            .extend(self.record_history_count_changes(counts).await?);
-        Ok(out)
-    }
-
-    /// The old field values of the group whose field has a history policy. A
-    /// rewrite of the same value and a purge capture nothing.
-    async fn history_captures<'a>(
-        &self,
-        schema: &'a Schema,
-        changes: &'a [RecordChange],
-        purges: &[bool],
-    ) -> Result<Vec<Capture<'a>>, SchemaError> {
-        if !self.field_history_enabled().await? {
-            return Ok(Vec::new());
-        }
-        let mut found = Vec::new();
-        for (change, purge) in changes.iter().zip(purges) {
-            let Some(before) = change.before.as_ref().filter(|_| !purge) else {
-                continue;
-            };
-            for (field, old) in &before.fields {
-                if change.after.fields.get(field) == Some(old) {
-                    continue;
-                }
-                let Some(identity) = schema.field_hashes.get(field) else {
-                    continue;
-                };
-                found.push(Capture {
-                    change,
-                    field,
-                    identity,
-                    source: before,
-                    policy: FieldHistoryPolicy::Off,
-                });
-            }
-        }
-        if found.is_empty() {
-            return Ok(found);
-        }
-        let mut identities: Vec<&str> = found.iter().map(|capture| capture.identity).collect();
-        identities.sort_unstable();
-        identities.dedup();
-        let keys: Vec<String> = identities
-            .iter()
-            .map(|identity| format::policy_key(identity))
-            .collect();
-        let policies: Vec<Option<FieldHistoryPolicy>> = self.main_store.get_items(&keys).await?;
-        let policies: HashMap<&str, FieldHistoryPolicy> = identities
-            .into_iter()
-            .zip(policies)
-            .map(|(identity, policy)| (identity, policy.unwrap_or_default()))
-            .collect();
-        for capture in &mut found {
-            capture.policy = policies[capture.identity];
-        }
-        found.retain(|capture| capture.policy != FieldHistoryPolicy::Off);
-        Ok(found)
-    }
-
-    /// Release every history entry of each purged record in the purge batch.
-    async fn release_purged_history(
+    /// Stage legacy history deletes in pages in the same request as the record.
+    /// The native transaction bounds all staged operations and discards them
+    /// together if admission or any later part of the purge fails.
+    pub(crate) async fn stage_purged_record_history(
         &self,
         records: &[&str],
-        out: &mut RecordHistoryRows,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<u64, SchemaError> {
+        if records.is_empty() {
+            return Ok(0);
+        }
         let counts = self.record_history_counts(records).await?;
+        let mut released = 0;
         for (record, count) in records.iter().zip(counts) {
-            if count == 0 {
-                continue;
-            }
-            if count > PURGE_RELEASE_CAP {
-                return Err(invalid(format!(
-                    "the record has {count} field history entries; purge its field history \
-                     (field-history purge) before the record"
-                )));
-            }
-            for (key, entry) in self.history_entries(&record_prefix(record, None)?).await? {
-                release(&key, &entry, out)?;
+            if count > 0 {
+                self.stage_purged_history_pages(record, count).await?;
+                released += count;
             }
         }
-        Ok(())
+        Ok(released)
     }
 
-    /// Every entry under one prefix, read in bounded steps.
-    async fn history_entries(
+    async fn stage_purged_history_pages(
         &self,
-        prefix: &str,
-    ) -> Result<Vec<(String, RecordHistoryEntry)>, SchemaError> {
-        let mut walk = prefix_walk(prefix, None, 100)?;
-        let mut entries = Vec::new();
+        record: &str,
+        count: u64,
+    ) -> Result<(), SchemaError> {
+        let prefix = record_prefix(record, None)?;
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&prefix);
+        let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 100);
+        let mut seen = 0;
         while !walk.done() {
-            for (key, bytes) in self.walk_step(&mut walk).await?.rows {
-                entries.push(decode_row(key, &bytes)?);
+            let rows = self.walk_step(&mut walk).await?.rows;
+            if rows.is_empty() {
+                continue;
             }
+            let mut releases = Vec::with_capacity(rows.len());
+            for (key, bytes) in rows {
+                let (key, entry) = decode_row(key, &bytes)?;
+                releases.push(format::release(&key, &entry)?);
+            }
+            seen += releases.len() as u64;
+            self.format.stage_history(format::encode(releases)?).await?;
         }
-        Ok(entries)
+        if seen != count {
+            return Err(invalid(
+                "the history count does not match the record's entries",
+            ));
+        }
+        self.format
+            .stage_history(format::encode(vec![HistoryChange::DeleteCount(
+                record.to_owned(),
+            )])?)
+            .await
     }
 
     /// Release entries in one batch. The caller holds a write scope.
-    pub(super) async fn commit_history_release(
+    async fn commit_history_release(
         &self,
         entries: &[(String, RecordHistoryEntry)],
         orphan_queue_keys: Vec<QueueEntry>,
@@ -241,27 +145,7 @@ impl RecordStore {
     }
 }
 
-/// Add one entry, its queue entry when it expires, and one to the entry count
-/// of its record.
-fn capture_value(schema: &str, capture: &Capture<'_>, now: u64, out: &mut RecordHistoryRows) {
-    let record = capture.change.key.as_str();
-    out.changes.push(HistoryChange::Capture(HistoryCapture {
-        schema: schema.to_string(),
-        record: record.to_string(),
-        field: capture.field.to_string(),
-        identity: capture.identity.to_string(),
-        source: Arc::clone(capture.source),
-        policy: capture.policy,
-        now,
-        replaced: capture.change.after.fields.contains_key(capture.field),
-    }));
-    *out.counts.entry(record.to_string()).or_default() += 1;
-}
-
-pub(super) fn decode_row(
-    key: Vec<u8>,
-    bytes: &[u8],
-) -> Result<(String, RecordHistoryEntry), SchemaError> {
+fn decode_row(key: Vec<u8>, bytes: &[u8]) -> Result<(String, RecordHistoryEntry), SchemaError> {
     let key = String::from_utf8(key).map_err(invalid)?;
     let entry = serde_json::from_slice(bytes).map_err(invalid)?;
     Ok((key, entry))
