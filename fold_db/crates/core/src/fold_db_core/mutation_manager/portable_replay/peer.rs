@@ -1,6 +1,7 @@
 //! Durable inbox and atomic peer replay for explicitly admitted streams.
 
 use super::{invalid, MutationManager, ReplayCandidate};
+use crate::db_operations::metadata_store::PortablePeerProgress;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
 use cloud_backup_protocol::shared::peer::PeerHeads;
@@ -74,6 +75,14 @@ impl MutationManager {
         &self,
         streams: &BTreeSet<StreamId>,
     ) -> Result<BTreeMap<StreamId, StreamProgress>, SchemaError> {
+        Ok(self.portable_peer_selection(streams).await?.cursors)
+    }
+
+    /// Read all selected peer positions and the durable pull rotation point.
+    pub async fn portable_peer_selection(
+        &self,
+        streams: &BTreeSet<StreamId>,
+    ) -> Result<PortablePeerProgress, SchemaError> {
         self.db_ops
             .read_scope()
             .await?

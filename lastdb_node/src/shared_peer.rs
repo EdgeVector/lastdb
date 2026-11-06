@@ -25,7 +25,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod files;
 use files::read_exact;
 
-const SELECTED_PEERS: usize = 4;
 const PROOF_MS: u64 = 4 * 60 * 1_000;
 
 pub type Result<T> = std::result::Result<T, PeerError>;
@@ -57,7 +56,6 @@ pub struct PeerWorker<'a> {
     schema_service: &'a SchemaServiceClient,
     identity: PeerIdentity<'a>,
     schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
-    last_peer: Option<Id>,
 }
 
 impl<'a> PeerWorker<'a> {
@@ -74,7 +72,6 @@ impl<'a> PeerWorker<'a> {
             schema_service,
             identity,
             schemas,
-            last_peer: None,
         }
     }
 
@@ -105,22 +102,21 @@ impl<'a> PeerWorker<'a> {
         heads: &PeerHeads,
     ) -> Result<PeerOutcome> {
         let reader = &heads.reader;
-        let start = heads.streams.partition_point(|cut| {
-            self.last_peer
-                .as_ref()
-                .is_some_and(|last| &cut.source_stream <= last)
-        });
-        let selected = heads.streams[start..]
+        let peers = heads
+            .streams
             .iter()
-            .chain(&heads.streams[..start])
-            .take(SELECTED_PEERS)
             .map(|cut| Ok((cut, stream_id(&cut.source_stream)?)))
             .collect::<Result<Vec<_>>>()?;
-        let streams = selected.iter().map(|(_, stream)| stream.clone()).collect();
-        let progress = native.portable_peer_progress(&streams).await?;
-        for (cut, stream) in selected {
-            self.last_peer = Some(cut.source_stream.clone());
-            let cursor = progress.get(&stream);
+        let streams = peers.iter().map(|(_, stream)| stream.clone()).collect();
+        let progress = native.portable_peer_selection(&streams).await?;
+        let start = peers.partition_point(|(_, stream)| {
+            progress
+                .last_applied_peer
+                .as_ref()
+                .is_some_and(|last| stream <= last)
+        });
+        for (cut, stream) in peers[start..].iter().chain(&peers[..start]) {
+            let cursor = progress.cursors.get(stream);
             let after = cursor.map_or(0, |cursor| cursor.applied_through);
             let through = cut.head.as_ref().map_or(0, |head| head.sequence.get());
             if after > through {
@@ -130,7 +126,7 @@ impl<'a> PeerWorker<'a> {
                 continue;
             }
             if cursor.is_some() {
-                match self.apply(native, reader, &stream).await {
+                match self.apply(native, reader, stream).await {
                     Ok(Some(through)) => {
                         return Ok(PeerOutcome::Applied {
                             stream: cut.source_stream.clone(),
@@ -157,7 +153,7 @@ impl<'a> PeerWorker<'a> {
             self.stage(native, reader, cut, stream.clone(), after, cursor.is_none())
                 .await?;
             let through =
-                self.apply(native, reader, &stream)
+                self.apply(native, reader, stream)
                     .await?
                     .ok_or(RestoreError::Invalid(
                         "staged peer range did not reach replay",

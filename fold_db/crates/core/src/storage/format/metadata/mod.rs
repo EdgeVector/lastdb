@@ -13,11 +13,11 @@ use crate::storage::error::StorageResult;
 use crate::storage::{KvStore, StorageError};
 
 mod portable_author;
-pub use portable_author::OutgoingPortablePage;
 pub(in crate::storage) use portable_author::{
     initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };
 pub(crate) use portable_author::{AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema};
+pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
