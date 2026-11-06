@@ -4,6 +4,8 @@
 //! product should ship a daemon plus a small control client, not the full
 //! server/UI/ingestion CLI graph.
 
+#[path = "lastdb/admin_cmds.rs"]
+mod admin_cmds;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
 #[path = "lastdb/history_cmds.rs"]
@@ -152,12 +154,12 @@ fn schema_inspect_dispatch(
 ) -> Result<(), String> {
     match action {
         SchemaInspectCommand::Show { name, json } => schema_show_command(data_dir, &name, json),
-        SchemaInspectCommand::Drop {
+        SchemaInspectCommand::Drop(SchemaDropArgs {
             schema,
             owner_app,
             must_exist,
             json,
-        } => schema_drop_command(data_dir, schema, owner_app, must_exist, json),
+        }) => schema_drop_command(data_dir, schema, owner_app, must_exist, json),
     }
 }
 
@@ -176,6 +178,8 @@ fn run(cli: Cli) -> Result<(), String> {
             StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
         },
         Command::Ops(args) => ops(cli.data_dir, &args),
+        Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
+        Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
         Command::AlertCheck(args) => alert_check(cli.data_dir, args),
         Command::LogFilter { directive, json } => {
             log_filter_command(cli.data_dir, directive.as_deref(), json)

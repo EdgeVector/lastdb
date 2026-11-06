@@ -3,7 +3,7 @@ use super::*;
 
 #[path = "cloud/byte_backup.rs"]
 mod byte_backup;
-pub(crate) use byte_backup::ByteBackupCommand;
+pub(crate) use byte_backup::*;
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct SnapshotArgs {
@@ -44,28 +44,9 @@ pub(crate) enum CloudCommand {
     /// Restore a held shared snapshot and its captured tails into a fresh home.
     RestoreShared(SharedRestoreCommand),
     /// Complete a sealed shared restore after an interrupted directory publication.
-    ResumeSharedRestore {
-        #[arg(long)]
-        workspace: PathBuf,
-        #[arg(long)]
-        json: bool,
-    },
+    ResumeSharedRestore(ResumeSharedRestoreArgs),
     /// Register a credentials-only device from stdin; never open a source home.
-    RecoverCredentialsHome {
-        #[arg(long)]
-        into: PathBuf,
-        #[arg(long, value_parser = ["dev", "prod"])]
-        env: String,
-        #[arg(long)]
-        expected_user_hash: String,
-        #[arg(long, required = true)]
-        identity_seed_stdin: bool,
-        /// Optional invite in a private owner file; stdin is reserved for the seed.
-        #[arg(long)]
-        invite_code_file: Option<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
+    RecoverCredentialsHome(RecoverCredentialsArgs),
     /// Recover credentials for an existing DEV account from a protected seed on stdin.
     /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
     RecoverDevCredentialsHome {
@@ -86,20 +67,7 @@ pub(crate) enum CloudCommand {
     },
     /// Prepare a source-free recovery home from this home's existing credentials.
     /// Reads credentials only; no daemon, store, registration, or cloud calls.
-    PrepareRecoveryHome {
-        /// Absent, absolute destination home; its parent must already exist.
-        #[arg(long)]
-        into: PathBuf,
-        /// Require the saved URL to equal the compiled endpoint for this environment.
-        #[arg(long, value_parser = ["dev", "prod"])]
-        env: String,
-        /// Read the existing account API key from stdin; must match the saved key.
-        #[arg(long, required = true)]
-        api_key_stdin: bool,
-        /// Emit a value-free receipt.
-        #[arg(long)]
-        json: bool,
-    },
+    PrepareRecoveryHome(PrepareRecoveryArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -189,4 +157,45 @@ pub(crate) enum CloudPaymentCommand {
     Checkout,
     /// Print a Stripe-hosted customer portal URL for the same native account.
     Portal,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct RecoverCredentialsArgs {
+    #[arg(long)]
+    pub(crate) into: PathBuf,
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub(crate) env: String,
+    #[arg(long)]
+    pub(crate) expected_user_hash: String,
+    #[arg(long, required = true)]
+    pub(crate) identity_seed_stdin: bool,
+    /// Optional invite in a private owner file; stdin is reserved for the seed.
+    #[arg(long)]
+    pub(crate) invite_code_file: Option<PathBuf>,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct PrepareRecoveryArgs {
+    /// Absent, absolute destination home; its parent must already exist.
+    #[arg(long)]
+    pub(crate) into: PathBuf,
+    /// Require the saved URL to equal the compiled endpoint for this environment.
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub(crate) env: String,
+    /// Read the existing account API key from stdin; must match the saved key.
+    #[arg(long, required = true)]
+    pub(crate) api_key_stdin: bool,
+    /// Emit a value-free receipt.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ResumeSharedRestoreArgs {
+    #[arg(long)]
+    pub(crate) workspace: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
 }

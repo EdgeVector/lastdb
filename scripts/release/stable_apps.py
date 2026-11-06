@@ -23,7 +23,10 @@ def command(argv, environment, directory, output, name, body=None, timeout=300, 
 
 def source_for(node, plan, app, output, environment, cli):
     prefix = [str(cli), "--data-dir", str(node.home), "app"]
-    resolved = subprocess.run([*prefix, "resolve", app, "--channel", "stable", "--json"],
+    help_result = subprocess.run([*prefix, "list", "--help"], env=environment,
+                                 capture_output=True, text=True, timeout=10)
+    resolver = "list" if help_result.returncode == 0 and "[APP]" in help_result.stdout else "resolve"
+    resolved = subprocess.run([*prefix, resolver, app, "--channel", "stable", "--json"],
                               env=environment, capture_output=True, text=True, timeout=60)
     if resolved.returncode == 0 and json.loads(resolved.stdout).get("sha") == plan["apps"][app]:
         command([*prefix, "install", app, "--channel", "stable", "--accept-install"],
