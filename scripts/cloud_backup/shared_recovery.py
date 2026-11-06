@@ -266,8 +266,7 @@ class Operation:
                                     b"Shared writer caught up"], "shared_exact_accepted_end")
         return sequence
 
-    def restore(self, destination, key_device):
-        device = self.scope["publisher_device"]
+    def restore(self, destination, device, key_device):
         return self.command(self.root / "credentials", [
             "restore-shared", "--env", "dev", "--database-id", self.scope["database_id"],
             "--snapshot-id", self.snapshot, "--device-id", device,
@@ -371,7 +370,7 @@ class Operation:
         self.summary["stage"] = "reject-wrong-device-signature"
         rejected = self.root / "rejected"
         try:
-            self.restore(rejected, b["device_id"])
+            self.restore(rejected, a["device_id"], b["device_id"])
         except OperationError as error:
             require(str(error) == "product_cli_refused" and error.cli_refusal is not None
                     and error.cli_refusal["reason"] == "shared_device_signature_refused"
@@ -386,7 +385,11 @@ class Operation:
             self.publish_cut()
         self.summary["stage"] = "restore-authorized-device"
         destination = self.root / "restored"
-        receipt = decode_json(self.restore(destination, self.scope["publisher_device"]))
+        publisher, peer = self.writers
+        reader = publisher if self.args.prior_summary is None else peer
+        device = reader["device_id"]
+        self.summary["recovery_device"] = device
+        receipt = decode_json(self.restore(destination, device, device))
         require(receipt == {"activated": True, "destination": str(destination)},
                 "shared_restore_activation")
         node = OwnedNode(destination, self.programs)
