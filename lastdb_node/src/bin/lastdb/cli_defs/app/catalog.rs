@@ -44,9 +44,6 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Retired override. Refused: compatibility comes from the running node.
-        #[arg(long)]
-        lastdb_version: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -67,9 +64,6 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Retired override. Refused: compatibility comes from the running node.
-        #[arg(long)]
-        lastdb_version: Option<String>,
         /// Install directory (default: <home>/apps/<app_id>). One app only.
         #[arg(long)]
         dir: Option<PathBuf>,
@@ -115,9 +109,6 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Retired override. Refused: compatibility comes from the running node.
-        #[arg(long)]
-        lastdb_version: Option<String>,
         /// Install directory (default: <home>/apps/<app_id>). One app only.
         #[arg(long)]
         dir: Option<PathBuf>,

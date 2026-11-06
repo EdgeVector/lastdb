@@ -135,7 +135,6 @@ fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), Str
         channel,
         index,
         trust_key,
-        lastdb_version,
         json,
     } = command
     else {
@@ -148,7 +147,6 @@ fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), Str
             channel: channel.as_deref(),
             index: index.as_deref(),
             trust_key: trust_key.as_deref(),
-            lastdb_version: lastdb_version.as_deref(),
             json,
         },
     )
@@ -162,7 +160,6 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
         channel,
         index,
         trust_key,
-        lastdb_version,
         dir,
         force,
         json,
@@ -183,7 +180,6 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
                 channel,
                 index,
                 trust_key,
-                lastdb_version,
             },
             dir,
             force,
@@ -203,7 +199,6 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
         channel,
         index,
         trust_key,
-        lastdb_version,
         dir,
         json,
     } = command
@@ -220,7 +215,6 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
                 channel,
                 index,
                 trust_key,
-                lastdb_version,
             },
             dir,
             json,

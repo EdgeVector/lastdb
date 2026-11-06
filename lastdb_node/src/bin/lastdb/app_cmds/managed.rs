@@ -35,9 +35,6 @@ fn resolutions(
     if source.trust_key.is_some() || std::env::var_os(registry::TRUST_KEY_ENV).is_some() {
         return Err("managed installs require the pinned registry key".into());
     }
-    if source.lastdb_version.is_some() {
-        return Err("compatibility comes from the running node".into());
-    }
     let list = public_list(home, Some(channel), source.index.as_deref(), None)?;
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     let (build, _, _) = registry::running_node(&socket);

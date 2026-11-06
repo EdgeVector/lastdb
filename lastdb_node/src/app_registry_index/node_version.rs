@@ -10,18 +10,12 @@ use serde_json::Value;
 
 /// The build string of the node this machine runs.
 ///
-/// Order: `--lastdb-version` override, then `GET /api/version` on the owner
-/// socket (the running daemon is the truth), then `lastdbd --version` from
-/// the daemon next to this CLI (a node older than the handshake route), then
-/// this binary's own build string (the CLI and the daemon ship in one bottle).
+/// Order: `GET /api/version` on the owner socket (the running daemon is the
+/// truth), then `lastdbd --version` from the daemon next to this CLI (a node
+/// older than the handshake route), then this binary's own build string (the
+/// CLI and the daemon ship in one bottle).
 #[must_use]
-pub fn running_lastdb_version(
-    override_version: Option<&str>,
-    socket: &Path,
-) -> (String, &'static str) {
-    if let Some(v) = override_version.map(str::trim).filter(|v| !v.is_empty()) {
-        return (v.to_string(), "flag");
-    }
+pub fn running_lastdb_version(socket: &Path) -> (String, &'static str) {
     if let Some(build) = socket_api_version_build(socket) {
         return (build, "socket");
     }
