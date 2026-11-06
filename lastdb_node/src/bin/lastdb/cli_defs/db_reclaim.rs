@@ -1,4 +1,4 @@
-//! Clap subcommands for `lastdb db`: space reclaim and GC verbs.
+//! Clap subcommands for `lastdb admin storage` space reclamation.
 
 use super::*;
 

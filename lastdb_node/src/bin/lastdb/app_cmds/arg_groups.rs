@@ -11,7 +11,7 @@ pub(crate) struct RegistrySource {
     pub(crate) trust_key: Option<String>,
 }
 
-/// `lastdb app resolve`: the index query for one app on this node.
+/// `lastdb app list APP`: the index query for one app on this node.
 pub(crate) struct AppResolveQuery<'a> {
     pub(crate) app_id: &'a str,
     pub(crate) channel: Option<&'a str>,

@@ -13,7 +13,7 @@ pub(crate) fn db_inventory(
     let deadline = inventory_client_timeout(timeout_secs);
     if !json_only {
         eprintln!(
-            "lastdb db inventory: heavy full-store walk (client deadline {}s; \
+            "lastdb admin storage inventory: heavy full-store walk (client deadline {}s; \
              raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS)",
             deadline.as_secs().max(1)
         );
@@ -58,7 +58,7 @@ pub(crate) fn db_schemas(
     let deadline = inventory_client_timeout(timeout_secs);
     if !json_only {
         eprintln!(
-            "lastdb db schemas: heavy record walk (client deadline {}s; \
+            "lastdb admin storage inventory --by-schema: heavy record walk (client deadline {}s; \
              raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS). \
              This is not a cheap status gauge.",
             deadline.as_secs().max(1)

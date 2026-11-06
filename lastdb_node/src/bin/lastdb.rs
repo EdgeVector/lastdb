@@ -29,7 +29,6 @@ use cloud_cmds::*;
 mod status_ops_cmds;
 use status_ops_cmds::*;
 
-use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -118,7 +117,7 @@ fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf,
     Ok((home, socket))
 }
 
-/// Header line that states how old the sampler snapshot behind `lastdb ops` is.
+/// Header line that states how old the sampler snapshot behind `lastdb admin ops` is.
 ///
 /// The daemon republishes the snapshot about once per sample interval (60 s by
 /// default), so traffic from the last minute can be missing. Without an age
@@ -148,21 +147,6 @@ fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
     Ok(())
 }
 
-fn schema_inspect_dispatch(
-    data_dir: Option<PathBuf>,
-    action: SchemaInspectCommand,
-) -> Result<(), String> {
-    match action {
-        SchemaInspectCommand::Show { name, json } => schema_show_command(data_dir, &name, json),
-        SchemaInspectCommand::Drop(SchemaDropArgs {
-            schema,
-            owner_app,
-            must_exist,
-            json,
-        }) => schema_drop_command(data_dir, schema, owner_app, must_exist, json),
-    }
-}
-
 fn run(cli: Cli) -> Result<(), String> {
     match cli.command.unwrap_or(Command::Status {
         json: false,
@@ -177,28 +161,14 @@ fn run(cli: Cli) -> Result<(), String> {
             StatusRun::Serving => Ok(()),
             StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
         },
-        Command::Ops(args) => ops(cli.data_dir, &args),
         Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
         Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
-        Command::AlertCheck(args) => alert_check(cli.data_dir, args),
-        Command::LogFilter { directive, json } => {
-            log_filter_command(cli.data_dir, directive.as_deref(), json)
+        cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
+            record_command(cli.data_dir, cmd)
         }
-        Command::ServiceHome { action } => service_home_command(action),
-        Command::Cloud { action } => cloud_command(cli.data_dir, action),
-        Command::Snapshot(args) => snapshot_cmd::run(cli.data_dir.as_deref(), args),
-        cmd @ (Command::Mutate { .. }
-        | Command::List(_)
-        | Command::GetKeys(_)
-        | Command::Get { .. }) => record_command(cli.data_dir, cmd),
-        Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
-        Command::Db { action } => db_command(cli.data_dir, action),
-        Command::History(args) => history_cmds::run(cli.data_dir, args),
-        Command::SchemaRetention { action } => schema_retention_command(cli.data_dir, action),
-        Command::SchemaNameClaim { action } => schema_name_claim_command(cli.data_dir, action),
-        Command::SearchRebuild { page_size, json } => {
-            search_rebuild_command(cli.data_dir, page_size, json)
-        }
+        Command::Schema {
+            action: SchemaInspectCommand::Show { name, json },
+        } => schema_show_command(cli.data_dir, &name, json),
         Command::App { action } => app_command(cli.data_dir, action),
     }
 }

@@ -93,7 +93,7 @@ pub(super) fn status_contract(
 /// Machine-readable live status.
 ///
 /// This path must stay safe for health and recovery gates: it walks no
-/// directory. `lastdb db inventory` reports the disk totals.
+/// directory. `lastdb admin storage inventory` reports the disk totals.
 pub(super) fn status_json(
     home: &Path,
     socket: &Path,

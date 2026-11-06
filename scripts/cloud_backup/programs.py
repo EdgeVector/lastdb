@@ -202,6 +202,7 @@ class Programs:
                 and directory.is_dir(), "binary_directory")
         self.directory, self.version, self.environment = directory, version, environment
         self.identities = {}
+        self.minimal_cli = None
         for name in ("lastdb", "lastdbd"):
             path = directory / name
             self.identities[name] = executable(path)
@@ -217,18 +218,49 @@ class Programs:
         command = [str(self.directory / "lastdb"), *arguments, "--help"]
         return execute(command, self.environment, timeout=20).decode("utf-8")
 
+    def cli_arguments(self, arguments):
+        if self.minimal_cli is None:
+            commands = {line.split()[0] for line in self.help().splitlines() if line.startswith("  ")
+                        and line.split()}
+            self.minimal_cli = {"backup", "admin"} <= commands
+        if not arguments or not self.minimal_cli:
+            return arguments
+        if arguments[:2] == ["cloud", "backup-v2"]:
+            verb, *rest = arguments[2:]
+            if verb in ("enable-automatic", "disable-automatic"):
+                mode = "on" if verb == "enable-automatic" else "off"
+                return ["backup", "policy", mode, *rest]
+            if verb in ("init", "start-stopped", "resume", "close", "inspect-dependencies"):
+                return ["admin", "backup", verb, *rest]
+            return ["backup", "list" if verb == "discover" else verb, *rest]
+        if arguments[:2] == ["db", "cleanup"]:
+            return ["admin", "storage", *arguments[1:]]
+        if arguments[0] == "snapshot":
+            return ["admin", "shared", *arguments]
+        if arguments[0] == "cloud":
+            verb, *rest = arguments[1:]
+            if verb in ("recover-credentials-home", "prepare-recovery-home"):
+                return ["admin", "backup", verb, *rest]
+            if verb in ("shared-writer", "restore-shared", "resume-shared-restore"):
+                name = {"shared-writer": "writer", "restore-shared": "restore",
+                        "resume-shared-restore": "resume-restore"}[verb]
+                return ["admin", "shared", name, *rest]
+        return arguments
+
     def command(self, home, arguments, input_bytes=None, extra=None, timeout=120):
         self.verify()
         environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
         environment.update(extra or {})
-        command = [str(self.directory / "lastdb"), "--data-dir", str(home), *arguments]
+        command = [str(self.directory / "lastdb"), "--data-dir", str(home),
+                   *self.cli_arguments(arguments)]
         return decode_json(execute(command, environment, input_bytes, timeout))
 
     def restore(self, home, destination, baseline, phrase):
         self.verify()
         environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
-        command = [str(self.directory / "lastdb"), "--data-dir", str(home), "cloud",
-                   "backup-v2", "restore", "--recovery-phrase-stdin", "--stream",
+        command = [str(self.directory / "lastdb"), "--data-dir", str(home),
+                   *self.cli_arguments(["cloud", "backup-v2", "restore"]),
+                   "--recovery-phrase-stdin", "--stream",
                    baseline["stream_id"], "--generation", baseline["account_generation"],
                    "--commit", baseline["commit_id"], "--commit-sha256", baseline["commit_sha256"],
                    "--into", str(destination), "--json"]

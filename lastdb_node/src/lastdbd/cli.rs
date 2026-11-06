@@ -1,10 +1,9 @@
-//! Command line of `lastdbd` and the one-shot subcommands.
+//! Command line of `lastdbd`.
 
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
-use lastdb_node::service_home;
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -27,9 +26,6 @@ pub(crate) struct Cli {
     /// A new or interrupted Search corpus needs a full rebuild from LastDB.
     #[arg(long)]
     pub(crate) enable_search: bool,
-
-    #[command(subcommand)]
-    pub(crate) command: Option<Command>,
 }
 
 impl Cli {
@@ -49,36 +45,5 @@ impl Cli {
                 std::process::exit(2);
             }
         }
-    }
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum Command {
-    /// Persist or inspect the home directory used by brew/launchd service starts.
-    ServiceHome {
-        #[command(subcommand)]
-        action: ServiceHomeCommand,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum ServiceHomeCommand {
-    /// Persist the home directory service starts should use.
-    Set {
-        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.lastdb.
-        home: PathBuf,
-    },
-    /// Show the persisted service home, if one is configured.
-    Show,
-    /// Clear the persisted service home.
-    Clear,
-}
-
-/// Run `lastdbd service-home ...` and return the line to print.
-pub(crate) fn run_service_home(action: &ServiceHomeCommand) -> Result<String, String> {
-    match action {
-        ServiceHomeCommand::Set { home } => service_home::set_configured_home(home),
-        ServiceHomeCommand::Show => service_home::show_configured_home(),
-        ServiceHomeCommand::Clear => service_home::clear_configured_home(),
     }
 }

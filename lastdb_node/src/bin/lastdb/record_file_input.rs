@@ -1,25 +1,8 @@
-//! `lastdb db put-blob`: store the file of one record with the record.
+//! Send a record mutation and its file in one request.
 
 use super::*;
 
 const PUT_BLOB_PATH: &str = "/api/db/put-blob";
-
-/// Arguments of `lastdb db put-blob`.
-#[derive(clap::Args, Debug)]
-pub(crate) struct PutBlobArgs {
-    /// Complete conditional record request as JSON.
-    #[arg(long)]
-    pub(crate) request_file: PathBuf,
-    /// File with the bytes to store. Omit it to read stdin.
-    #[arg(long)]
-    pub(crate) file: Option<PathBuf>,
-    /// Optional name of the file, kept in the record's file marker.
-    #[arg(long)]
-    pub(crate) name: Option<String>,
-    /// Optional media type of the file, kept in the record's file marker.
-    #[arg(long)]
-    pub(crate) media_type: Option<String>,
-}
 
 /// The raw HTTP request: the bytes are the body, so there is no base64 tax.
 /// The record and the file description ride as compact JSON in a header.
@@ -50,44 +33,6 @@ fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8
     request.extend_from_slice(head.as_bytes());
     request.extend_from_slice(bytes);
     Ok(request)
-}
-
-/// The header metadata of one put: the record, the file description and the
-/// other fields.
-fn put_blob_metadata(args: &PutBlobArgs) -> Result<serde_json::Value, String> {
-    let raw =
-        std::fs::read(&args.request_file).map_err(|e| format!("read complete record: {e}"))?;
-    let mutation: serde_json::Value =
-        serde_json::from_slice(&raw).map_err(|e| format!("parse complete record: {e}"))?;
-    let mut metadata = serde_json::json!({"mutation": mutation});
-    if let Some(name) = &args.name {
-        metadata["name"] = name.as_str().into();
-    }
-    if let Some(media_type) = &args.media_type {
-        metadata["media_type"] = media_type.as_str().into();
-    }
-    Ok(metadata)
-}
-
-pub(crate) fn read_put_blob_input(file: Option<&Path>) -> Result<Vec<u8>, String> {
-    use std::io::IsTerminal;
-
-    if let Some(path) = file {
-        let input =
-            std::fs::File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-        admit_local_file_input(
-            input
-                .metadata()
-                .map_err(|e| format!("file metadata: {e}"))?
-                .len(),
-        )?;
-        return read_local_file_input(input);
-    }
-    let stdin = std::io::stdin();
-    if stdin.is_terminal() {
-        return Err("provide --file PATH, or pipe the bytes on stdin".to_string());
-    }
-    read_local_file_input(stdin.lock())
 }
 
 fn admit_local_file_input(bytes: u64) -> Result<(), String> {
@@ -124,22 +69,20 @@ fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, Strin
     }
 }
 
-pub(crate) fn db_put_blob(socket: &Path, args: &PutBlobArgs) -> Result<(), String> {
-    let metadata = put_blob_metadata(args)?;
-    let report = put_record_file(socket, &metadata, args.file.as_deref())?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?
-    );
-    Ok(())
-}
-
 pub(crate) fn put_record_file(
     socket: &Path,
     metadata: &serde_json::Value,
-    source: Option<&Path>,
+    source: &Path,
 ) -> Result<serde_json::Value, String> {
-    let bytes = read_put_blob_input(source)?;
+    let input = std::fs::File::open(source)
+        .map_err(|error| format!("open {}: {error}", source.display()))?;
+    admit_local_file_input(
+        input
+            .metadata()
+            .map_err(|error| format!("file metadata: {error}"))?
+            .len(),
+    )?;
+    let bytes = read_local_file_input(input)?;
     let request = put_blob_request(&bytes, metadata)?;
     drop(bytes);
     let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;

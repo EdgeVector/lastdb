@@ -1,4 +1,4 @@
-//! `lastdb app` subcommands for dev init, schema check, publish, and promote.
+//! `lastdb app` subcommands for dev init, schema check, and publish.
 
 use super::*;
 
@@ -71,12 +71,6 @@ pub(crate) enum AppLifecycleCommand {
         /// picks the Schema Service that gives advice.
         #[arg(long)]
         env: Option<String>,
-        /// Retired schema-service option; refused for registry publish.
-        #[arg(long)]
-        schema_url: Option<String>,
-        /// Retired Exemem URL option; refused for registry publish.
-        #[arg(long)]
-        api_url: Option<String>,
         #[arg(long)]
         key_file: Option<PathBuf>,
         /// Developer API key (default: $EXEMEM_DEV_API_KEY).
@@ -92,26 +86,5 @@ pub(crate) enum AppLifecycleCommand {
         /// declaration for signing elsewhere. No key lookup or publication.
         #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
         prepare: Option<PathBuf>,
-    },
-    /// Step 4: promote a sandbox app to live. REJECTS if any manifest schema
-    /// is still novel, or if the registry row has neither `source` nor
-    /// `artifact` (live shelf must be installable).
-    Promote {
-        #[arg(long)]
-        manifest: PathBuf,
-        /// Target environment (dev | prod). Default: dev.
-        #[arg(long)]
-        env: Option<String>,
-        /// Explicit schema service base URL (overrides --env).
-        #[arg(long)]
-        schema_url: Option<String>,
-        /// Explicit Exemem API URL (overrides --env).
-        #[arg(long)]
-        api_url: Option<String>,
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-        /// Developer API key (default: $EXEMEM_DEV_API_KEY).
-        #[arg(long)]
-        api_key: Option<String>,
     },
 }

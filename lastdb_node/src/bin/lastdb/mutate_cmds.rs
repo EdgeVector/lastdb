@@ -86,7 +86,7 @@ pub(super) fn mutate_command(
         let metadata = serde_json::json!({
             "mutation": body, "name": file.name, "media_type": file.media_type,
         });
-        let receipt = put_record_file(&socket, &metadata, Some(&source))?;
+        let receipt = put_record_file(&socket, &metadata, &source)?;
         println!("{receipt}");
         return Ok(());
     }

@@ -37,7 +37,7 @@ fn summary_line(retention: &Value) -> String {
     if status == "operator_override" {
         let in_force = policy_in_force(retention, "effective").unwrap_or_default();
         return format!(
-            "manifest ttl_seconds={ttl} is kept, but an operator policy ({in_force}) wins until `lastdb schema-retention clear`{anchor}"
+            "manifest ttl_seconds={ttl} is kept, but an operator policy ({in_force}) wins until `lastdb admin retention clear`{anchor}"
         );
     }
     if !status.is_empty() {
@@ -98,17 +98,6 @@ pub(crate) fn print_retention_text(retention: &Value) {
         for line in lines {
             let label = if key == "warnings" { "WARNING: " } else { "" };
             println!("    retention: {label}{line}");
-        }
-    }
-}
-
-/// Print the retention of every schema that reported one: what a promote
-/// changed, which it would otherwise do in silence.
-pub(crate) fn print_retention_changes(outcomes: &[lastdb_node::app_publish::CheckOutcome]) {
-    for outcome in outcomes {
-        if let Some(retention) = &outcome.retention {
-            println!("  {}", outcome.schema_name);
-            print_retention_text(retention);
         }
     }
 }

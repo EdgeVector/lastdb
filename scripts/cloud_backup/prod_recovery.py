@@ -45,8 +45,9 @@ class ProductionPrograms(Programs):
         self.verify()
         # A later release check uses false, proving normal restore needs no switch.
         environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED=os.environ["RESTORE_GATE"])
-        command = [str(self.directory / "lastdb"), "--data-dir", str(home), "cloud", "backup-v2",
-                   "restore", "--recovery-phrase-stdin", "--stream", baseline["stream_id"],
+        command = [str(self.directory / "lastdb"), "--data-dir", str(home),
+                   *self.cli_arguments(["cloud", "backup-v2", "restore"]),
+                   "--recovery-phrase-stdin", "--stream", baseline["stream_id"],
                    "--generation", baseline["account_generation"], "--commit", baseline["commit_id"],
                    "--commit-sha256", baseline["commit_sha256"], "--into", str(destination), "--json"]
         return decode_json(execute(command, environment, phrase, timeout=120))

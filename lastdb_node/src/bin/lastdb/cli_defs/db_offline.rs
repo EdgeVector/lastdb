@@ -1,20 +1,6 @@
-//! Clap subcommands for `lastdb db` that work on a STOPPED home.
+//! Arguments for moving the replay cutoff of a stopped home.
 
 use super::*;
-
-#[derive(Subcommand, Debug, Clone, Copy)]
-pub(crate) enum DbOfflineCommand {
-    /// Raise the replay cutoff of the home. OFFLINE: it refuses a home that a
-    /// daemon serves.
-    ///
-    /// Default is a dry run that reports the change. `--execute` writes it.
-    /// It is safe to run again: a second run with the same cutoff changes
-    /// nothing.
-    ///
-    /// Stop the daemon gracefully first (the last session must end cleanly and
-    /// leave a flush receipt).
-    Recount(ReplayCutoffArgs),
-}
 
 #[derive(Args, Debug, Clone, Copy)]
 pub(crate) struct ReplayCutoffArgs {

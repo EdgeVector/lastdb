@@ -232,7 +232,7 @@ def render(comparison):
                                        ("other_home_bytes", 2**20), ("whole_home_disk_bytes", 2**20))]
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines.extend(["", "The ceiling is 1.5× logical bytes. Equality is within the budget.",
-                  "Logical bytes use GET /api/db/schemas, the same measure as lastdb db schemas: "
+                  "Logical bytes use GET /api/db/schemas, the same measure as lastdb admin storage inventory --by-schema: "
                   "the stored record values of the home.",
                   "Database disk is the greater of file lengths and allocated blocks under data/.",
                   "The Search queue includes apps/search/inbox/; other home files and the whole home remain explicit.",

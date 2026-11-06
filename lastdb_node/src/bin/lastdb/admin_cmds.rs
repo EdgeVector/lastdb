@@ -50,9 +50,7 @@ fn storage_action(action: AdminStorageCommand) -> DbCommand {
             json, out, timeout, ..
         } => DbCommand::Inspect(DbInspectCommand::Inventory { json, out, timeout }),
         AdminStorageCommand::Reclaim(action) => DbCommand::Reclaim(action),
-        AdminStorageCommand::ReplayCutoff(args) => {
-            DbCommand::Offline(DbOfflineCommand::Recount(args))
-        }
+        AdminStorageCommand::ReplayCutoff(args) => DbCommand::Offline(args),
     }
 }
 

@@ -9,7 +9,7 @@
 //!
 //! `brew services start lastdb` runs this binary; SIGTERM stops it
 //! gracefully (the socket file is unlinked on drop). When brew/launchd cannot
-//! pass `--data-dir`, `lastdbd service-home set <path>` persists the home that
+//! pass `--data-dir`, `lastdb admin service-home set <path>` persists the home that
 //! service starts should use without baking a personal path into the formula.
 
 mod lastdbd;
@@ -25,7 +25,7 @@ use lastdb_uds::worker_pool::UdsWorkerPool;
 use lastdb_node::cloud;
 use lastdb_node::host::{self, Host};
 
-use lastdbd::cli::{Cli, Command};
+use lastdbd::cli::Cli;
 use lastdbd::node_run::{build_runtime, NodeRun};
 use lastdbd::serve::Server;
 use lastdbd::{background, footprint_proof, session, shutdown, tracing_init};
@@ -283,10 +283,6 @@ fn run() -> Result<(), String> {
     }
 
     let socket_path = cli.socket_path;
-    if let Some(Command::ServiceHome { action }) = &cli.command {
-        println!("{}", lastdbd::cli::run_service_home(action)?);
-        return Ok(());
-    }
 
     let home = host::resolve_home(cli.data_dir)?;
     let data_dir = home.join("data");

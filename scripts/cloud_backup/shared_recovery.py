@@ -155,7 +155,8 @@ class Operation:
     def command(self, home, args, timeout=120):
         self.programs.verify()
         return execute([str(self.programs.directory / "lastdb"), "--data-dir", str(home),
-                        "cloud", *args], self.programs.environment, self.phrase, timeout)
+                        *self.programs.cli_arguments(["cloud", *args])],
+                       self.programs.environment, self.phrase, timeout)
 
     def writer(self, node, writer, *args):
         require(node.process is None, "shared_writer_stopped")

@@ -20,33 +20,6 @@ pub(crate) fn app_check(
     lastdb_node::app_publish::check_schemas_with(&socket, manifest, mode, confirm_expire_existing)
 }
 
-pub(crate) fn ensure_app_schemas_catalog_ready(
-    home: &Path,
-    _schema_service: &str,
-    manifest: &lastdb_node::app_publish::AppManifest,
-    _locked: &HashMap<String, String>,
-) -> Result<(), String> {
-    // THE PROMOTE GATE: Mini must return an audited, bind-eligible catalog
-    // identity for every schema. No direct catalog fallback can supply the
-    // missing bind proof.
-    let outcomes = app_check(
-        home,
-        manifest,
-        lastdb_node::app_publish::CheckMode::Sync,
-        false,
-    )?;
-    // A promote applies a manifest retention. Say what it did.
-    print_retention_changes(&outcomes);
-    let novel = lastdb_node::app_publish::novel_schema_names(&outcomes);
-    if !novel.is_empty() {
-        return Err(format!(
-            "promote rejected: schemas lack Mini bind proof ({}) — run `lastdb app check --sync` after the reported dependency or quota recovers",
-            novel.join(", ")
-        ));
-    }
-    Ok(())
-}
-
 /// One JSON row per schema: how its coverage resolves and the detail to show.
 fn check_outcome_rows(
     outcomes: &[lastdb_node::app_publish::CheckOutcome],

@@ -43,14 +43,6 @@ pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
     );
 }
 
-pub(crate) fn crypto_env_for(env: Option<&str>) -> Result<app_identity_crypto::Env, String> {
-    match env {
-        Some("dev") | None => Ok(app_identity_crypto::Env::Dev),
-        Some("prod") => Ok(app_identity_crypto::Env::Prod),
-        Some(other) => Err(format!("unknown --env '{other}' (expected dev or prod)")),
-    }
-}
-
 pub(crate) fn block_on_app<T>(
     fut: impl std::future::Future<Output = Result<T, String>>,
 ) -> Result<T, String> {
@@ -88,65 +80,25 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
         AppCommand::Lifecycle(AppLifecycleCommand::Publish {
             manifest,
             env,
-            schema_url,
-            api_url,
             key_file,
             api_key,
             registry_url,
             channel,
             prepare,
-        }) => {
-            if schema_url.is_some() || api_url.is_some() {
-                return Err("publish uses the separate app registry; use --registry-url".into());
-            }
-            publish_interface(
-                &home,
-                InterfacePublish {
-                    manifest,
-                    environment: env,
-                    registry_url,
-                    channel,
-                    key_file,
-                    api_key,
-                    prepare,
-                },
-            )
-        }
-        AppCommand::Lifecycle(AppLifecycleCommand::Promote {
-            manifest,
-            env,
-            schema_url,
-            api_url,
-            key_file,
-            api_key,
-        }) => app_promote(
-            &home, &manifest, env, schema_url, api_url, key_file, api_key,
+        }) => publish_interface(
+            &home,
+            InterfacePublish {
+                manifest,
+                environment: env,
+                registry_url,
+                channel,
+                key_file,
+                api_key,
+                prepare,
+            },
         ),
         AppCommand::Catalog(action) => app_catalog_command(&home, action),
     }
-}
-
-fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
-    let AppCatalogCommand::Resolve {
-        app_id,
-        channel,
-        index,
-        trust_key,
-        json,
-    } = command
-    else {
-        unreachable!("catalog resolve only");
-    };
-    app_resolve(
-        home,
-        &AppResolveQuery {
-            app_id: &app_id,
-            channel: channel.as_deref(),
-            index: index.as_deref(),
-            trust_key: trust_key.as_deref(),
-            json,
-        },
-    )
 }
 
 fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
@@ -219,8 +171,7 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
     )
 }
 
-/// Catalog subcommands of `lastdb app`: list, resolve, index, info, install
-/// and upgrade.
+/// Signed catalog and install operations.
 fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), String> {
     match action {
         AppCatalogCommand::List {
@@ -244,14 +195,7 @@ fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), Str
             ),
             None => app_list(home, channel, index, trust_key, json),
         },
-        command @ AppCatalogCommand::Resolve { .. } => handle_app_resolve(home, command),
         AppCatalogCommand::Index(cmd) => app_index_command(home, cmd),
-        AppCatalogCommand::Info {
-            app_id,
-            channel,
-            index,
-            trust_key,
-        } => app_info(home, &app_id, channel, index, trust_key),
         command @ AppCatalogCommand::Install { .. } => handle_app_install(home, command),
         command @ AppCatalogCommand::Upgrade { .. } => handle_app_upgrade(home, command),
     }

@@ -4,18 +4,15 @@ use super::*;
 mod db_cleanup_cmds;
 pub(crate) use db_cleanup_cmds::*;
 
-#[path = "db_blob_cmds.rs"]
-mod db_blob_cmds;
-pub(crate) use db_blob_cmds::*;
 #[path = "db_inventory_print_cmds.rs"]
 mod db_inventory_print_cmds;
 pub(crate) use db_inventory_print_cmds::*;
 #[path = "db_ledger_cmds.rs"]
 mod db_ledger_cmds;
 pub(crate) use db_ledger_cmds::*;
-#[path = "db_put_blob_cmds.rs"]
-mod db_put_blob_cmds;
-pub(crate) use db_put_blob_cmds::*;
+#[path = "record_file_input.rs"]
+mod record_file_input;
+pub(crate) use record_file_input::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -32,7 +29,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, &action),
-        DbCommand::Blob(action) => db_blob_command(&socket, action),
         DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
 }
@@ -40,9 +36,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
 #[path = "db_dispatch_core.rs"]
 mod db_dispatch_core;
 use db_dispatch_core::*;
-#[path = "db_dispatch_ops.rs"]
-mod db_dispatch_ops;
-use db_dispatch_ops::*;
 
 #[path = "db_client_util.rs"]
 mod db_client_util;
@@ -57,22 +50,12 @@ pub(crate) use db_response_cmds::*;
 mod db_schema_policy_cmds;
 pub(crate) use db_schema_policy_cmds::*;
 
-/// Dispatch the verbs that work on a stopped home.
-fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
-    match action {
-        DbOfflineCommand::Recount(ReplayCutoffArgs {
-            execute,
-            delete_cutoff_unix_secs,
-            i_know_this_is_primary,
-            json,
-        }) => lastdb_node::offline_recount::recount_offline(
-            &lastdb_node::offline_recount::RecountArgs {
-                home,
-                execute,
-                delete_cutoff_unix_secs,
-                i_know_this_is_primary,
-                json,
-            },
-        ),
-    }
+fn db_offline_command(home: &Path, args: ReplayCutoffArgs) -> Result<(), String> {
+    lastdb_node::offline_recount::recount_offline(&lastdb_node::offline_recount::RecountArgs {
+        home,
+        execute: args.execute,
+        delete_cutoff_unix_secs: args.delete_cutoff_unix_secs,
+        i_know_this_is_primary: args.i_know_this_is_primary,
+        json: args.json,
+    })
 }
