@@ -22,7 +22,8 @@ def label(version):
 
 
 def record(operation, version):
-    payload = hashlib.shake_256(label(version).encode()).hexdigest(8192)
+    # The complete record rides in the file command's bounded HTTP header.
+    payload = hashlib.shake_256(label(version).encode()).hexdigest(3072)
     return operation.record(KEY, payload)
 
 

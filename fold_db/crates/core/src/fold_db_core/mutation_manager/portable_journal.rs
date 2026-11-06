@@ -153,13 +153,14 @@ impl MutationManager {
         }
         // Each step releases the native write gate and saves its continuation.
         // A large old home can finish on subsequent shared sync invocations.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         for _ in 0..64 {
             let more = transaction::background_scope(
                 self.db_ops.native_runtime(),
                 records.stage_file_retention_step(),
             )
             .await?;
-            if !more {
+            if !more || std::time::Instant::now() >= deadline {
                 break;
             }
         }
