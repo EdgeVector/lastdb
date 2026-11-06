@@ -24,9 +24,7 @@ pub use identity::{
 /// type in the monorepo — including `fold_db`'s, which is a distinct struct —
 /// calls these, so the algorithm cannot be forked back apart.
 pub use metadata::{derive_transform_metadata, hash_expression, TransformMetadata};
-pub use owned::{
-    manifest_schema_definition, owned_catalog_definition, schema_from_value, OwnedDeclaration,
-};
+pub use owned::{schema_from_value, OwnedDeclaration};
 pub use portable::{PortableSchemaDefinition, PortableSchemaId};
 
 /// Origin of a schema in the service.
