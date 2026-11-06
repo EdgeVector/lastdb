@@ -333,8 +333,10 @@ pub(super) fn decode_state(bytes: Option<&[u8]>) -> StorageResult<HomeReplayStat
     let state: HomeReplayState =
         serde_json::from_slice(bytes.ok_or_else(|| invalid("shared replay state is missing"))?)
             .map_err(invalid)?;
+    // An unbound restore may have a fresh local author in addition to every
+    // captured cloud writer. Binding enforces the cloud limit.
     if !state.participating_streams.contains(&state.local_stream_id)
-        || state.participating_streams.len() > MAX_WRITERS
+        || state.participating_streams.len() > MAX_WRITERS + 1
     {
         return Err(invalid("invalid shared replay participants"));
     }

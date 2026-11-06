@@ -285,7 +285,8 @@ impl Owner {
         );
         let mut applied = 0;
         for _ in 0..ranges {
-            match worker.step().await.map_err(|error| error.to_string())? {
+            let (outcome, reclaimed) = worker.step().await.map_err(|error| error.to_string())?;
+            match outcome {
                 PeerOutcome::Idle => {}
                 PeerOutcome::Applied { stream, through } => {
                     applied += 1;
@@ -301,6 +302,9 @@ impl Owner {
                         stream.as_str()
                     ));
                 }
+            }
+            if reclaimed != 0 {
+                println!("Reclaimed {reclaimed} shared delete notes");
             }
         }
         println!("Applied {applied} shared peer ranges");

@@ -9,6 +9,7 @@ name: Cloud backup recovery
 # The manual fresh-v2 mode seeds a new source and proves its own Backup V2 chain.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
+# Shared-multiwriter uses its own preadmitted seven-device DEV scope.
 # Shared-readback reuses only a completed operation's exact published cut.
 # Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
 # this operation never waits for it and fails fast while a cleanup is active.
@@ -41,9 +42,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new shared cut; shared-readback = verify a retained cut."
+        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-readback = verify a retained two-writer cut."
         type: choice
-        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-readback]
+        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-readback]
         default: recovery
       proof_run:
         description: "Earlier accepted-main shared recovery run ID, for shared-readback only."
@@ -83,7 +84,7 @@ jobs:
   ownership-readback:
     name: Read real CI ownership records
     needs: recipe-syntax
-    if: github.event_name != 'workflow_dispatch' || (inputs.mode != 'shared-recovery' && inputs.mode != 'shared-readback')
+    if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.mode, 'shared-')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -323,7 +324,7 @@ jobs:
   recover-shared-dev:
     name: Shared DEV snapshot and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'shared-recovery' || inputs.mode == 'shared-readback')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'shared-')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -386,8 +387,9 @@ jobs:
           READBACK_READER: ${{ inputs.readback_reader }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_SHARED_SCOPE }}
-          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS }}
+          LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars[inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_SCOPE' || 'LASTDB_CLOUD_DEV_SHARED_SCOPE'] }}
+          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ inputs.mode != 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS: ${{ inputs.mode == 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS || '' }}
         run: |
           set -euo pipefail
           args=()
@@ -399,7 +401,12 @@ jobs:
               --readback-reader "$READBACK_READER")
           else
             test -z "$PRIOR_RUN"
+            if [[ "$RUN_MODE" == shared-multiwriter ]]; then
+              args+=(--multiwriter)
+              export LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS="$LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS"
+            fi
           fi
+          unset LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS
           python3 scripts/cloud_backup/shared_recovery.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \

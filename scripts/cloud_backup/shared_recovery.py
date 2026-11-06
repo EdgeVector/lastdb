@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish and restore a generated two-device database in protected DEV CI."""
+"""Publish and restore a generated shared database in protected DEV CI."""
 
 import argparse
 import base64
@@ -12,19 +12,22 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import uuid
 
 sys.dont_write_bytecode = True
 
 import baseline_data
 import native_records
+import shared_multiwriter
 from automatic_source import durable_batch
 from baseline import private_write
 from node import OwnedNode
 from ownership import run_identity
 from programs import Programs, execute
 from recover import step_summary
-from support import (ACCOUNT, CREDENTIALS_FILE, OperationError, canonical_uuid,
+from shared_scope import is_digest, is_schema_alias, protected_json, scope
+from support import (CREDENTIALS_FILE, OperationError, canonical_uuid,
                      child_environment, decode_json, dev_endpoint, failure,
                      private_directory, read_json, require, save_json)
 
@@ -34,48 +37,6 @@ FILE_BYTES = 65536
 KEYS = ("checkpoint", "winner", "deleted", "peer-only")
 IDENTIFIER = "shared_proof_record_identifier"
 NOTE = "shared_proof_record_note"
-
-
-def protected_json(name):
-    raw = os.environ.pop(name, "")
-    require(0 < len(raw.encode()) <= 4096, "shared_protected_input_size")
-    return decode_json(raw)
-
-
-def scope():
-    value = protected_json("LASTDB_CLOUD_DEV_SHARED_SCOPE")
-    required = {"account_id", "database_id", "publisher_device", "writers"}
-    require(isinstance(value, dict) and set(value) in (
-        required, required | {"schema_name", "schema_id"}) and value["account_id"] == ACCOUNT,
-        "shared_admitted_scope")
-    if "schema_name" in value:
-        require(is_schema_alias(value["schema_name"])
-                and is_digest(value["schema_id"]), "shared_immutable_schema")
-    writers = value["writers"]
-    require(isinstance(writers, list) and len(writers) == 2
-            and all(isinstance(writer, dict) and set(writer) == {
-                "device_id", "source_stream", "public_key"} for writer in writers),
-            "shared_admitted_writers")
-    ids = [value["database_id"]]
-    keys = set()
-    for writer in writers:
-        ids.extend([writer["device_id"], writer["source_stream"]])
-        key = writer["public_key"]
-        require(is_digest(key), "shared_admitted_public_key")
-        keys.add(key)
-    require(len(set(map(canonical_uuid, ids))) == len(ids) and len(keys) == 2
-            and value["publisher_device"] in {writer["device_id"] for writer in writers},
-            "shared_distinct_writers")
-    return value
-
-
-def is_digest(value):
-    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
-
-
-def is_schema_alias(value):
-    return isinstance(value, str) and re.fullmatch(
-        r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value) is not None
 
 
 class Operation:
@@ -103,7 +64,8 @@ class Operation:
         self.output_owned = True
         self.summary.update(owner=self.owner, source=source, version=self.args.version)
 
-        self.scope = scope()
+        writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
+        self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
         self.writers = sorted(self.scope["writers"],
                               key=lambda writer: writer["device_id"] != self.scope["publisher_device"])
@@ -131,7 +93,8 @@ class Operation:
         require(all(isinstance(seed, str) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", seed)
                     for seed in seeds.values()), "shared_device_seed_encoding")
         seeds = {device: base64.b64decode(seed, validate=True) for device, seed in seeds.items()}
-        require(len(set(seeds.values()) | {self.account_seed}) == 3, "shared_independent_device_seeds")
+        require(len(set(seeds.values()) | {self.account_seed}) == writer_count + 1,
+                "shared_independent_device_seeds")
 
         self.root = Path(tempfile.mkdtemp(prefix="ldb-sr-", dir="/tmp")).resolve()
         info = private_directory(self.root)
@@ -202,7 +165,7 @@ class Operation:
         home = self.root / name
         home.mkdir(mode=0o700)
         private_write(home / "identity.key", self.account_seed)
-        node = OwnedNode(home, self.programs)
+        node = OwnedNode(home, self.programs, isolated_copy=self.args.multiwriter and name == "first")
         self.nodes.append(node)
         node.start()
         node.stop()
@@ -274,11 +237,12 @@ class Operation:
             "--into", str(destination), "--recovery-phrase-stdin", "--json"])
 
     def verify(self, node, records, files):
+        keys = (*KEYS, *(kind for kind in records if kind not in KEYS))
         queries = [{"schema_name": self.schema, "filter": {"HashKey": kind}, "limit": 2, "offset": 0}
-                   for kind in KEYS]
+                   for kind in keys]
         replies = node.call("/api/queries/batch", {"queries": queries})["results"]
-        require(len(replies) == len(KEYS), "shared_restored_keyed_read_count")
-        for kind, reply in zip(KEYS, replies):
+        require(len(replies) == len(keys), "shared_restored_keyed_read_count")
+        for kind, reply in zip(keys, replies):
             response = reply["response"]
             rows = response["results"]
             count = int(kind in records)
@@ -304,11 +268,13 @@ class Operation:
         node.health()
 
     def publish_cut(self):
-        a, b = self.writers
+        a, b = self.writers[:2]
         self.summary["stage"] = "prepare-writers"
         first, peer = self.initialize("first", a), self.initialize("peer", b)
         self.summary["stage"] = "author-publisher-prefix"
         first.start()
+        if self.args.multiwriter:
+            shared_multiwriter.seed_local_only(first)
         checkpoint, original, deleted = [self.record(kind, "snapshot") for kind in KEYS[:3]]
         durable_batch(first, [native_records.create(self.schema, native_records.key(record[IDENTIFIER]), record)
                               for record in (checkpoint, original, deleted)])
@@ -336,6 +302,9 @@ class Operation:
         losing = self.record("winner", "first-tail")
         durable_batch(first, [native_records.replace(self.schema, previous, losing),
                               native_records.delete(self.schema, removed)])
+        if self.args.multiwriter:
+            # The publisher's next accepted timestamp must be strictly later than the delete.
+            time.sleep(0.01)
         self.attach(first, losing, "losing-tail")
         first.stop()
         self.summary["publisher_tail_through"] = self.push(first, a, 7)
@@ -354,14 +323,17 @@ class Operation:
         self.attach(peer, winner, "winning-tail")
         peer.stop()
         self.summary["peer_tail_through"] = self.push(peer, b, 3)
+        if self.args.multiwriter:
+            shared_multiwriter.exchange_tails(self, first, a, b)
 
         self.summary["stage"] = "publish-prepared-checkpoint"
         reply = self.writer(first, a, "resume", "--workspace", str(publication))
         require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
                 "shared_exact_snapshot_receipt")
         self.summary["snapshot_published_after_both_tails"] = True
-        require(first.clean_stops == 3 and peer.clean_stops == 2, "shared_source_strict_clean_stops")
-        self.remove_sources((first, peer))
+        require(first.clean_stops == (4 if self.args.multiwriter else 3) and peer.clean_stops == 2,
+                "shared_source_strict_clean_stops")
+        self.remove_sources(self.nodes)
         if os.path.lexists(publication):
             private_directory(publication)
             shutil.rmtree(publication)
@@ -385,9 +357,11 @@ class Operation:
             self.publish_cut()
         self.summary["stage"] = "restore-authorized-device"
         destination = self.root / "restored"
-        publisher, peer = self.writers
+        publisher, peer = self.writers[:2]
         reader = publisher
-        if self.args.prior_summary is not None and self.args.readback_reader == "peer":
+        if self.args.multiwriter:
+            reader = self.writers[-1]
+        elif self.args.prior_summary is not None and self.args.readback_reader == "peer":
             reader = peer
         device = reader["device_id"]
         self.summary["recovery_device"] = device
@@ -399,16 +373,23 @@ class Operation:
         records = {"checkpoint": self.record("checkpoint", "snapshot"),
                    "winner": self.record("winner", "peer-tail"),
                    "peer-only": self.record("peer-only", "peer-tail")}
+        if self.args.multiwriter:
+            records.update(shared_multiwriter.extra_records(self))
         files = {"checkpoint": hashlib.sha256(self.payload("checkpoint")).hexdigest(),
                  "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
         self.summary["stage"] = "verify-restored-native-home"
         for _ in range(2):
             node.start()
             self.verify(node, records, files)
+            if self.args.multiwriter:
+                require(not shared_multiwriter.has_local_only_schema(node),
+                        "shared_local_only_schema_excluded")
             node.stop()
         require(node.clean_stops == 2, "shared_restored_strict_clean_stops")
+        if self.args.multiwriter:
+            shared_multiwriter.join_restored_writer(self, node, reader)
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
-                            exact_live_records=3, exact_absent_records=1, file_sha256=files)
+                            exact_live_records=len(records), exact_absent_records=1, file_sha256=files)
 
     def assert_owned_root(self):
         info = private_directory(self.root)
@@ -442,6 +423,7 @@ def main():
     parser.add_argument("--prior-run")
     parser.add_argument("--prior-source")
     parser.add_argument("--readback-reader", choices=("publisher", "peer"), default="peer")
+    parser.add_argument("--multiwriter", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)

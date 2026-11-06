@@ -5,7 +5,7 @@ use super::{
     SharedAuthor, REPLAY_STATE_KEY,
 };
 use crate::storage::error::StorageResult;
-use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream};
+use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream, MAX_WRITERS};
 use lastdb_model::portable_mutation::{
     HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
     StreamProgress,
@@ -122,16 +122,28 @@ impl Metadata {
                 participating_streams: BTreeSet::new(),
                 delete_reclaimed_through_ms: None,
             });
-        if replay.local_stream_id != prior_stream
-            || (local_stream != prior_stream
-                && replay.participating_streams.contains(&local_stream))
-        {
-            return Err(invalid(
-                "registered writer collides with a checkpoint stream",
-            ));
+        if replay.local_stream_id != prior_stream {
+            return Err(invalid("restored local author differs from replay state"));
+        }
+        if local_stream != prior_stream && replay.participating_streams.contains(&local_stream) {
+            // Earlier restores recorded idle writers with zero progress.
+            let row = self
+                .metadata_store
+                .get(inbox::progress_key(&local_stream).as_bytes())
+                .await?;
+            if inbox::decode_cursor(row.as_deref())? != StreamProgress::default() {
+                return Err(invalid(
+                    "registered writer collides with a checkpoint stream",
+                ));
+            }
         }
         replay.participating_streams.remove(&prior_stream);
         replay.participating_streams.insert(local_stream.clone());
+        if replay.participating_streams.len() > MAX_WRITERS {
+            return Err(invalid(
+                "restored writer directory is at its cloud capacity",
+            ));
+        }
         replay.local_stream_id = local_stream;
         state.shared = Some(shared);
         self.stage_batch(vec![
