@@ -1,8 +1,4 @@
-use super::key_config::KeyConfig;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::borrow::Cow;
-use std::collections::HashMap;
 
 /// Represents resolved key values for hash and range components.
 ///
@@ -18,22 +14,6 @@ pub struct KeyValue {
 impl KeyValue {
     pub fn new(hash: Option<String>, range: Option<String>) -> Self {
         Self { hash, range }
-    }
-
-    /// Creates a KeyValue from a mutation by extracting hash and range values
-    /// based on the key configuration. Supports dotted nested paths (e.g., "departure.date").
-    pub fn from_mutation(mutation_fields: &HashMap<String, Value>, key_config: &KeyConfig) -> Self {
-        let mut key_value = Self::new(None, None);
-
-        if let Some(hash_field) = &key_config.hash_field {
-            key_value.hash = resolve_field_as_string(mutation_fields, hash_field);
-        }
-
-        if let Some(range_field) = &key_config.range_field {
-            key_value.range = resolve_field_as_string(mutation_fields, range_field);
-        }
-
-        key_value
     }
 
     /// Lossless round-trippable string encoding for storage keys.
@@ -96,36 +76,6 @@ impl KeyValue {
     #[must_use]
     pub fn cmp_storage_order(&self, other: &Self) -> std::cmp::Ordering {
         self.cmp_page_order_with(other, str::cmp)
-    }
-}
-
-/// Resolve a field value as a string, supporting dotted nested paths (e.g., "departure.date").
-fn resolve_field_as_string(fields: &HashMap<String, Value>, field_name: &str) -> Option<String> {
-    // 1. Try direct field access
-    if let Some(value) = fields.get(field_name) {
-        return scalar_key_coordinate(value).map(Cow::into_owned);
-    }
-    // 2. Try dotted path (e.g., "parent.child")
-    if let Some(dot) = field_name.find('.') {
-        let (parent, child) = (&field_name[..dot], &field_name[dot + 1..]);
-        if let Some(parent_val) = fields.get(parent) {
-            if let Some(obj) = parent_val.as_object() {
-                if let Some(child_val) = obj.get(child) {
-                    return scalar_key_coordinate(child_val).map(Cow::into_owned);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// The same scalar representation supplies lookup coordinates and comparisons.
-pub fn scalar_key_coordinate(value: &Value) -> Option<Cow<'_, str>> {
-    match value {
-        Value::String(s) => Some(Cow::Borrowed(s)),
-        Value::Number(n) => Some(Cow::Owned(n.to_string())),
-        Value::Bool(b) => Some(Cow::Owned(b.to_string())),
-        _ => None,
     }
 }
 
