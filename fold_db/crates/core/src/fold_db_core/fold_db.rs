@@ -19,7 +19,6 @@ mod record_files;
 mod schema_drop;
 
 pub use init::FoldDbInit;
-pub use record_files::RecordFileState;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
 pub struct FoldDB {
