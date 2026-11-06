@@ -249,8 +249,11 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
             .await
             .map_err(RestoreError::native_proof)?;
         drop(self.db);
-        run_restore::validate_restored_node(&self.stage.join("data"), self.keys.content_key())
-            .map_err(RestoreError::native_proof)?;
+        run_restore::validate_replayed_shared_node(
+            &self.stage.join("data"),
+            self.keys.content_key(),
+        )
+        .map_err(RestoreError::native_proof)?;
         lastdb_identity::write_seed(&self.stage, self.keys.account_seed())
             .map_err(|_| RestoreError::Invalid("restored account identity"))?;
         Ok(())

@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) mod journal;
 pub(super) mod range;
 
-pub(super) const PRIVATE_DIR: &str = "disk-private";
 use crate::storage::format::metadata::NATIVE_SHARED_SCOPE_KEY as SCOPE_KEY;
 const CREATE_ENV: &str = "LASTDB_NATIVE_SHARED_SCHEMAS";
 const CONFIG_BYTES: usize = 16 * 1024;

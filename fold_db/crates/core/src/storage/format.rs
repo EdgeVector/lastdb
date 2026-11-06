@@ -37,6 +37,8 @@ pub const NODE_MARKER: &str = "laststore-pack-node-v1";
 pub const RUN_DIR: &str = "disk-run";
 /// Record-file run home inside the data directory.
 pub const CAS_DIR: &str = "disk-cas";
+/// Device-private run home beside the shared record and file homes.
+pub(in crate::storage) const PRIVATE_DIR: &str = "disk-private";
 pub(in crate::storage) const CREATION_INTENT: &str = "laststore-run-initializing";
 pub(in crate::storage) const STAGED_NODE_MARKER: &str = ".laststore-pack-node-v1.tmp";
 pub(in crate::storage) const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";

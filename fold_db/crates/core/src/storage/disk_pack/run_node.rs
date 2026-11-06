@@ -26,13 +26,14 @@
 //! Each run home key derives from the node encryption key with its own label
 //! and is never written to a file.
 
-use super::shared_layout::{Scope, SharedHome, PRIVATE_DIR};
+use super::shared_layout::{Scope, SharedHome};
 use super::*;
 use laststore::disk_run::home::RunHome;
 use std::io::Write;
 
 mod creation;
 
+pub(in crate::storage) use crate::storage::format::PRIVATE_DIR;
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 use crate::storage::format::{
     CAS_KEY_LABEL, CREATION_INTENT as INTENT, HOME_KEY_LABEL, PRIVATE_KEY_LABEL,
@@ -112,6 +113,10 @@ pub(in crate::storage) fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u
 /// The CAS run home key, with its own label.
 pub(in crate::storage) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     derive_key(node_key, CAS_KEY_LABEL)
+}
+
+pub(in crate::storage) fn private_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
+    derive_key(node_key, PRIVATE_KEY_LABEL)
 }
 
 fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
@@ -232,19 +237,27 @@ pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult
 }
 
 fn create_private(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    let private = RunHome::create(&path.join(PRIVATE_DIR), &derive_key(key, PRIVATE_KEY_LABEL))
-        .map_err(map)?;
+    let private = RunHome::create(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?;
     creation::initialize_private(&private)
 }
 
 fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> StorageResult<()> {
-    let private = Arc::new(
-        RunHome::open(&path.join(PRIVATE_DIR), &derive_key(key, PRIVATE_KEY_LABEL)).map_err(map)?,
-    );
-    shared_layout::journal::recover(v2, &private, &derive_key(key, PRIVATE_KEY_LABEL))?;
+    let private = Arc::new(RunHome::open(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?);
+    shared_layout::journal::recover(v2, &private, &private_key(key))?;
     let mut main = v2.home.read_root(&v2.home.current_root(), budget());
     let scope = Scope::load(&mut main)?;
-    let mut local = private.read_root(&private.current_root(), budget());
+    verify_private_author(&mut private.read_root(&private.current_root(), budget()))?;
+    v2.shared = Some(SharedHome {
+        private,
+        scope: Arc::new(RwLock::new(Arc::new(scope))),
+        journal_key: private_key(key),
+    });
+    Ok(())
+}
+
+pub(in crate::storage) fn verify_private_author(
+    local: &mut laststore::disk_run::home::RunRead,
+) -> StorageResult<()> {
     let (collection, author_key) = kv::coordinate(
         crate::storage::format::METADATA_NAMESPACE,
         crate::storage::format::metadata::LOCAL_AUTHOR_KEY.as_bytes(),
@@ -252,13 +265,7 @@ fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> Storag
     let author = local
         .get_bounded(&collection, &author_key, 8192)
         .map_err(map)?;
-    crate::storage::format::metadata::validate_local_author(author.as_deref())?;
-    v2.shared = Some(SharedHome {
-        private,
-        scope: Arc::new(RwLock::new(Arc::new(scope))),
-        journal_key: derive_key(key, PRIVATE_KEY_LABEL),
-    });
-    Ok(())
+    crate::storage::format::metadata::validate_local_author(author.as_deref())
 }
 
 /// Remove the creation intent of the v2 node home that holds `run_home`.
