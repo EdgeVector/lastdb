@@ -29,6 +29,7 @@ mod rows_yielding;
 pub(in crate::storage) mod run_admission;
 mod run_commit;
 pub(in crate::storage) mod run_node;
+mod shared_layout;
 pub(in crate::storage) mod space;
 mod timing;
 pub(crate) mod transaction;
@@ -52,7 +53,7 @@ pub(crate) use read::memory::{
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get};
 pub use read::PackReadScope;
 pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
-pub use run_node::{CAS_DIR, RUN_DIR};
+pub use run_node::{prepare_shared_restored_run, CAS_DIR, RUN_DIR};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 

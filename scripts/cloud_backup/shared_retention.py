@@ -41,7 +41,7 @@ def replace(operation, node, version):
     return value
 
 
-def settled(operation, node, version):
+def settled(operation, node, version, *, dedicated=False):
     node.start()
     value, = native_records.read_records(node, operation.schema, [native_records.key(KEY)])
     require(value["fields"] == record(operation, version), "shared_retention_live_record")
@@ -52,14 +52,19 @@ def settled(operation, node, version):
     require(cleanup["complete"] is True, "shared_retention_native_cleanup")
     status = node.call("/api/db/native-status", {"inventory": True})
     homes = status.get("data", status)["storage_diagnostics"]
-    main, cas = homes["main"], homes["cas"]
-    require(main["inventory"]["complete"] and cas["inventory"]["complete"],
+    expected = {"main", "cas", "private"} if dedicated else {"main", "cas"}
+    require(homes.keys() == expected and all(home["inventory"]["complete"] for home in homes.values()),
             "shared_retention_complete_inventory")
-    metadata = main["inventory"]["collections"]["metadata"]
-    files = cas["inventory"]["collections"]["cas_blobs"]
-    result = {"metadata_keys": metadata["live_keys"],
-              "metadata_bytes": metadata["live_stored_value_bytes"],
+    metadata = [home["inventory"]["collections"]["metadata"] for home in homes.values()
+                if "metadata" in home["inventory"]["collections"]]
+    files = homes["cas"]["inventory"]["collections"]["cas_blobs"]
+    private_files = (homes["private"]["inventory"]["collections"]["cas_blobs"] if dedicated
+                     else {"live_keys": 0, "live_stored_value_bytes": 0})
+    result = {"metadata_keys": sum(item["live_keys"] for item in metadata),
+              "metadata_bytes": sum(item["live_stored_value_bytes"] for item in metadata),
               "file_keys": files["live_keys"], "file_bytes": files["live_stored_value_bytes"],
+              "private_file_keys": private_files["live_keys"],
+              "private_file_bytes": private_files["live_stored_value_bytes"],
               "native_bytes": sum(home["files"]["total_allocated_bytes"] for home in homes.values())}
     node.stop()
     return result
@@ -70,6 +75,8 @@ def within_bound(before, after):
             and after["metadata_bytes"] <= before["metadata_bytes"] + 2048
             and after["file_keys"] == before["file_keys"]
             and after["file_bytes"] == before["file_bytes"]
+            and after["private_file_keys"] == before["private_file_keys"]
+            and after["private_file_bytes"] == before["private_file_bytes"]
             and after["native_bytes"] <= before["native_bytes"] + MAX_SETTLED_GROWTH)
 
 
@@ -112,9 +119,11 @@ def run(operation, first, peer, publisher, receiver):
     operation.summary["stage"] = "shared-retention-baseline"
     through = establish_baseline(operation, first, peer, publisher, receiver)
     version = 0
-    points = [{"writer": settled(operation, first, version), "peer": settled(operation, peer, version)}]
+    points = [{"writer": settled(operation, first, version, dedicated=True), "peer": settled(operation, peer, version)}]
     operation.summary["retention_measurements"] = points
-    require(all(row["file_keys"] == 3 for row in points[0].values()), "shared_retention_exact_live_files")
+    require(all(row["file_keys"] == 3 for row in points[0].values())
+            and points[0]["writer"]["private_file_keys"] == 1
+            and points[0]["peer"]["private_file_keys"] == 0, "shared_retention_exact_live_files")
     for _ in range(WAVES):
         for _ in range(BATCHES):
             operation.summary["stage"] = "shared-retention-overwrite-files"
@@ -130,7 +139,7 @@ def run(operation, first, peer, publisher, receiver):
             operation.summary["stage"] = "shared-retention-replay-overwrites"
             drain(operation, peer, receiver)
         operation.summary["stage"] = "shared-retention-measure-overwrites"
-        points.append({"writer": settled(operation, first, version),
+        points.append({"writer": settled(operation, first, version, dedicated=True),
                        "peer": settled(operation, peer, version)})
         require(all(within_bound(points[0][role], points[-1][role]) for role in ("writer", "peer")),
                 "shared_retention_settled_storage_grew")

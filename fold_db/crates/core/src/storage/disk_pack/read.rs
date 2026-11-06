@@ -200,35 +200,6 @@ impl PackReadScope {
         })
     }
 
-    /// Give an administrative checkpoint page its own bounded allowance
-    /// while keeping the original committed root and its physical holds.
-    pub(crate) fn checkpoint_page(&self, runtime: &PackRuntime) -> StorageResult<Self> {
-        let held = &self.context;
-        held.validate_owner(None)?;
-        if held.identity != runtime.home_identity() {
-            return Err(StorageError::InvalidOperation(
-                "a checkpoint page cannot change home identity".into(),
-            ));
-        }
-        Ok(Self {
-            context: Arc::new(ReadContext {
-                call: Arc::new(Mutex::new(runtime.physical_read(
-                    &held.current,
-                    super::physical::ReadMode::Ordinary(budget()),
-                ))),
-                identity: held.identity,
-                failure: Arc::new(Mutex::new(None)),
-                accepted: Arc::clone(&held.accepted),
-                hidden_prefix: held.hidden_prefix,
-                snapshots: Arc::new(snapshots::ReadSnapshots::default()),
-                revision: held.revision,
-                current: held.current.clone(),
-                write_owner: None,
-                write_reads: None,
-            }),
-        })
-    }
-
     /// Attach this same root and budget to an asynchronous child task.
     pub async fn run<T>(&self, future: impl std::future::Future<Output = T>) -> T {
         let future = Box::pin(future);

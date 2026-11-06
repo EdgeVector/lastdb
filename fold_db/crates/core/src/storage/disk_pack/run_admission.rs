@@ -14,17 +14,22 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-pub(in crate::storage) use crate::storage::format::RECORD_PROFILE;
+use crate::storage::format::SHARED_NODE_BYTES;
 pub use crate::storage::format::{HOME_FORMAT, RECORD_NODE_BYTES};
+pub(in crate::storage) use crate::storage::format::{RECORD_PROFILE, SHARED_RECORD_PROFILE};
 
 /// The backup profile version of a node marker. Only the current marker has
 /// one; every other marker is unsupported.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
-    (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
+    match bytes {
+        RECORD_NODE_BYTES => Some(RECORD_PROFILE),
+        SHARED_NODE_BYTES => Some(SHARED_RECORD_PROFILE),
+        _ => None,
+    }
 }
 
 /// Admit a home of the current format with complete creation proofs.
-pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
+pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     let marker = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -34,13 +39,14 @@ pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
-    profile(&bytes).ok_or_else(|| invalid("the node range format is unsupported"))?;
+    let version = profile(&bytes).ok_or_else(|| invalid("the node range format is unsupported"))?;
     // Creation commits both proofs before its node marker appears. Even with
     // a creation intent, no missing or partial proof is admitted.
-    verify(root, key)
+    verify(root, key, version)?;
+    Ok(version)
 }
 
-fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
+fn verify(root: &Path, key: &[u8; 32], version: u16) -> StorageResult<()> {
     let mut main = RunRead::open_existing(
         &root.join(run_node::RUN_DIR),
         &run_node::home_key(key),
@@ -53,10 +59,10 @@ fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
         budget(),
     )
     .map_err(map)?;
-    verify_proofs(&mut main, key)
+    verify_proofs(&mut main, key, version)
 }
 
-pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
+fn verify_proofs(main: &mut RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
     let marker = CURRENT_KEY_FORMAT_KEY;
     let cutoff = DELETE_REPLAY_CUTOFF_KEY;
     let coordinates = vec![
@@ -93,7 +99,11 @@ pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult
         return Err(invalid("the logical format differs from the node marker"));
     }
     validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
-    validate_local_author(values[3].as_deref())?;
+    match version {
+        SHARED_RECORD_PROFILE if values[3].is_none() => {}
+        SHARED_RECORD_PROFILE => return Err(invalid("shared root contains a private author")),
+        _ => validate_local_author(values[3].as_deref())?,
+    }
     let proof = values[2]
         .as_deref()
         .ok_or_else(|| invalid("the account proof is absent"))?;

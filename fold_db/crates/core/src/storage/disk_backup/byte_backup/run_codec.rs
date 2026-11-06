@@ -26,10 +26,13 @@ impl RunBackupProfile {
     /// The node marker of the profile. Only the current home format backs up
     /// and restores.
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
-        if self.version == crate::storage::disk_pack::run_admission::RECORD_PROFILE {
-            Ok(crate::storage::disk_pack::run_admission::RECORD_NODE_BYTES)
-        } else {
-            Err(invalid("run backup logical profile version"))
+        use crate::storage::format::{
+            RECORD_NODE_BYTES, RECORD_PROFILE, SHARED_NODE_BYTES, SHARED_RECORD_PROFILE,
+        };
+        match self.version {
+            RECORD_PROFILE => Ok(RECORD_NODE_BYTES),
+            SHARED_RECORD_PROFILE => Ok(SHARED_NODE_BYTES),
+            _ => Err(invalid("run backup logical profile version")),
         }
     }
 

@@ -27,6 +27,10 @@ pub const HOME_FORMAT: u32 = 13;
 pub const RECORD_NODE_BYTES: &[u8] = b"format=13\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 10;
+pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 11;
+pub(in crate::storage) const SHARED_NODE_BYTES: &[u8] =
+    b"format=13\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+pub(in crate::storage) const PRIVATE_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/private";
 
 /// Clear node marker file inside the data directory.
 pub const NODE_MARKER: &str = "laststore-pack-node-v1";

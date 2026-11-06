@@ -11,6 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 const REPLAY_STATE_KEY: &str = "portable-replay-state";
 const PROGRESS_PREFIX: &str = "portable-progress:";
+pub(in crate::storage) fn shared_replay_coordinate(key: &str) -> bool {
+    key == REPLAY_STATE_KEY || key.starts_with(PROGRESS_PREFIX)
+}
+
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
 mod checkpoint;

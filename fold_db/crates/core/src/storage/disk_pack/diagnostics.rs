@@ -6,6 +6,8 @@ use laststore::disk_run::home::RunHomeDiagnostics;
 pub struct NativeStorageDiagnostics {
     pub main: RunHomeDiagnostics,
     pub cas: RunHomeDiagnostics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private: Option<RunHomeDiagnostics>,
 }
 
 impl PackRuntime {
@@ -33,13 +35,27 @@ impl PackRuntime {
         }
         let main = Arc::clone(&self.physical.home);
         let cas = Arc::clone(&self.physical.cas);
+        let private = self
+            .physical
+            .shared
+            .as_ref()
+            .map(|shared| Arc::clone(&shared.private));
         tokio::task::spawn_blocking(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
             let main_cut = main.diagnostic_checkpoint(deadline).map_err(map)?;
             let cas_cut = cas.diagnostic_checkpoint(deadline).map_err(map)?;
+            let private = private
+                .as_ref()
+                .map(|home| {
+                    home.diagnostic_checkpoint(deadline)
+                        .map(|cut| cut.finish(home, include_inventory, deadline))
+                        .map_err(map)
+                })
+                .transpose()?;
             Ok(Some(NativeStorageDiagnostics {
                 main: main_cut.finish(&main, include_inventory, deadline),
                 cas: cas_cut.finish(&cas, include_inventory, deadline),
+                private,
             }))
         })
         .await?

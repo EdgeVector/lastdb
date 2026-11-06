@@ -36,6 +36,7 @@ pub(super) async fn prepare(
     recovery: RecoveryDescriptor,
     renew_unmaterialized: bool,
 ) -> StorageResult<ByteBackupCapture> {
+    runtime.require_ordinary_backup_home()?;
     begin.validate().map_err(protocol)?;
     recovery
         .validate_for(&begin.job.stream.scope)
@@ -242,6 +243,7 @@ pub(super) async fn resume(
     runtime: &Arc<PackRuntime>,
     key: &[u8; 32],
 ) -> StorageResult<ByteBackupCapture> {
+    runtime.require_ordinary_backup_home()?;
     let admission = super::super::NativeCloudWorkGuard::acquire()?;
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);
@@ -258,6 +260,7 @@ pub(super) async fn cancel(
     key: &[u8; 32],
 ) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;
+    runtime.require_ordinary_backup_home()?;
     let admission = super::super::NativeCloudWorkGuard::acquire()?;
     let runtime = Arc::clone(runtime);
     let begin = begin.clone();

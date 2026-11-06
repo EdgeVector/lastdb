@@ -62,7 +62,7 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Command {
-    /// Publish a filtered shared DEV snapshot and upload the writer's queued changes.
+    /// Upload a frozen DEV database snapshot, then upload the writer's queued changes.
     Snapshot(SnapshotArgs),
     /// Field history policy, retained values, and recovery.
     History(super::history_cmds::HistoryArgs),

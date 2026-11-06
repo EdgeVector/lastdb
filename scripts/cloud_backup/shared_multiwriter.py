@@ -1,13 +1,16 @@
 """Exercise five remote writer tails and a fresh device joining from restore."""
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import shutil
 import time
 
 import native_records
+import shared_snapshot
 from automatic_source import durable_batch
+from baseline import private_write
 from programs import execute
-from support import CREDENTIALS_FILE, canonical_uuid, decode_json, private_directory, read_json, require, save_json
+from support import CREDENTIALS_FILE, decode_json, hash_file, private_directory, require, save_json
 
 
 WRITER_COUNT = 7
@@ -17,17 +20,36 @@ SNAPSHOT_WRITE = "during-snapshot"
 PEER_TAIL = "after-snapshot-peer"
 
 
-def seed_local_only(node):
+def seed_local_only(operation, node):
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": LOCAL_SCHEMA, "descriptive_name": LOCAL_SCHEMA,
         "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
         "fields": ["id"], "field_types": {"id": "String"},
-        "field_descriptions": {"id": "Private generated checkpoint exclusion record."}}})
+        "field_descriptions": {"id": "Device-local record outside the shared disk files."}}})
     key = native_records.key(LOCAL_RECORD["id"])
     durable_batch(node, [native_records.create(LOCAL_SCHEMA, key, LOCAL_RECORD)])
     row, = native_records.read_records(node, LOCAL_SCHEMA, [key])
     require(row["fields"] == LOCAL_RECORD and has_local_only_schema(node),
             "shared_local_only_source_record")
+    payload = operation.payload("private-local-file")
+    digest = hashlib.sha256(payload).hexdigest()
+    path = operation.root / "private-file.bin"
+    data = node.home / "data"
+    public_cas = data / "disk-cas/CURRENT"
+    private = data / "disk-private/CURRENT"
+    public_before, private_before = hash_file(public_cas), hash_file(private)
+    private_write(path, payload)
+    try:
+        reply = native_records.put_file(node, LOCAL_SCHEMA, LOCAL_RECORD, path, target=key)
+        require(reply["file"]["sha256"] == digest and hash_file(public_cas) == public_before
+                and hash_file(private) != private_before, "shared_local_only_file_routed_privately")
+    finally:
+        path.unlink()
+    proof = {"schema": LOCAL_SCHEMA, "records": [LOCAL_RECORD],
+             "file_bytes": len(payload), "file_sha256": digest}
+    node.verify_file(proof)
+    operation.summary["local_only_file_stored_privately"] = True
+    return proof
 
 
 def has_local_only_schema(node):
@@ -48,11 +70,8 @@ def snapshot_record(operation):
 def snapshot_command(operation, node, publisher):
     operation.summary["stage"] = "snapshot-command-live-upload"
     workspace = operation.root / "snapshot-command"
-    args = [str(operation.programs.directory / "lastdb"), "--data-dir", str(node.home),
-            "snapshot", "--device-id", publisher["device_id"], "--device-key-file",
-            str(operation.device_file(publisher["device_id"])), "--workspace", str(workspace), "--json"]
+    args = shared_snapshot.arguments(operation, node, publisher, workspace)
     path = node.home / CREDENTIALS_FILE
-    intent = workspace / "checkpoint" / "shared-snapshot-intent.json"
     target = native_records.key(SNAPSHOT_WRITE)
     expected = snapshot_record(operation)
     node.start()
@@ -60,23 +79,28 @@ def snapshot_command(operation, node, publisher):
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             operation.programs.verify()
+            before_upload = shared_snapshot.source_file_identities(node)
             pending = pool.submit(execute, args, operation.programs.environment, b"", 120)
-            wait_for_upload(intent, pending)
+            shared_snapshot.wait_for_upload(workspace, pending)
+            originals, counts = shared_snapshot.observe_originals(node, workspace, before_upload)
+            operation.summary["snapshot_original_file_inodes"] = sum(counts.values())
             durable_batch(node, [native_records.create(operation.schema, target, expected)])
             row, = native_records.read_records(node, operation.schema, [target])
-            require(row["fields"] == expected and upload_pending(intent), "shared_write_visible_during_upload")
-            operation.summary["live_write_during_upload"] = True
+            shared_snapshot.check_frozen(originals)
+            require(row["fields"] == expected and shared_snapshot.upload_pending(workspace),
+                    "shared_write_visible_during_upload")
+            operation.summary.update(live_write_during_upload=True, snapshot_frozen_files_unchanged=True)
             receipt = decode_json(pending.result())
         through = operation.summary["publisher_tail_through"] + 1
-        require(set(receipt) == {"snapshot_id", "writer_uploaded_through"}
-                and receipt["writer_uploaded_through"] == through
-                and canonical_uuid(receipt["snapshot_id"]) != operation.snapshot,
-                "shared_snapshot_command_completed_tail")
+        shared_snapshot.check_receipt(node, receipt, through)
+        require(shared_snapshot.provider_counts(receipt) == counts
+                and receipt["snapshot_id"] != operation.snapshot, "shared_snapshot_exact_provider_counts")
         require(decode_json(execute(args, operation.programs.environment, b"", 120)) == receipt,
                 "shared_snapshot_command_exact_retry")
     finally:
         operation.summary["snapshot_command_workspace_created"] = workspace.is_dir()
-        operation.summary["snapshot_command_upload_started"] = intent.is_file()
+        operation.summary["snapshot_command_upload_started"] = (
+            workspace / shared_snapshot.CHECKPOINT / shared_snapshot.INTENT).is_file()
         path.unlink()
     node.stop()
     node.start()
@@ -88,25 +112,8 @@ def snapshot_command(operation, node, publisher):
     shutil.rmtree(workspace)
     operation.summary.update(replacement_snapshot_id=receipt["snapshot_id"],
                              snapshot_command_uploaded_through=through,
+                             snapshot_provider_files=counts, snapshot_original_hold_released=True,
                              live_write_after_restart=True, snapshot_command_exact_retry=True)
-
-
-def wait_for_upload(intent, future):
-    deadline = time.monotonic() + 30
-    while not future.done() and time.monotonic() < deadline:
-        if upload_pending(intent):
-            return
-        time.sleep(0.01)
-    if future.done():
-        future.result()
-    require(False, "shared_snapshot_command_upload_window")
-
-
-def upload_pending(intent):
-    try:
-        return read_json(intent, 256 * 1024)["phase"]["phase"] == "prepared"
-    except FileNotFoundError:
-        return False
 
 
 def peer_tail_record(operation):

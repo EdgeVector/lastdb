@@ -108,8 +108,15 @@ impl Workspace {
         &self.state.stream.database_id
     }
 
-    pub(super) fn checkpoint(&self) -> PathBuf {
-        self.root.join("checkpoint")
+    pub(super) fn checkpoint(&self) -> Result<PathBuf> {
+        let root = self.root.join("checkpoint");
+        match fs::DirBuilder::new().mode(0o700).create(&root) {
+            Ok(()) => File::open(&self.root)?.sync_all()?,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        local::directory(&root)?;
+        Ok(root)
     }
 
     pub(super) fn tail_through(&mut self, observed: u64) -> Result<u64> {

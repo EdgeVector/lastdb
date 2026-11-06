@@ -79,7 +79,7 @@ class OwnedNode:
                 "restored_no_active_backup")
         require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
-    def start(self):
+    def start(self, *, shared_schema=None):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         self.offline()
         self.programs.verify()
@@ -90,6 +90,8 @@ class OwnedNode:
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
             environment.pop(name, None)
         environment.update(self.ci_uploads())
+        if shared_schema is not None:
+            environment["LASTDB_NATIVE_SHARED_SCHEMAS"] = json.dumps([shared_schema])
         if self.storage_inventory:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         self.process = subprocess.Popen(

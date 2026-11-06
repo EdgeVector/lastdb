@@ -17,7 +17,7 @@ mod portable_author;
 pub(crate) use file_references::{FileReferenceChange, FileRetention};
 pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
 pub(in crate::storage) use portable_author::{
-    initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
+    initial_local_author, shared_replay_coordinate, validate_local_author, LOCAL_AUTHOR_KEY,
 };
 pub(crate) use portable_author::{AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema};
 pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};

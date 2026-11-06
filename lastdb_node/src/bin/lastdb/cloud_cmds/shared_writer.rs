@@ -14,13 +14,8 @@ use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
 use folddb_profile::endpoints::{schema_service_url_for, Environment};
-use lastdb_node::byte_cloud_restore::RecoveryKeys;
 use lastdb_node::shared_peer::{PeerIdentity, PeerOutcome, PeerWorker};
 use lastdb_node::shared_restore::recovery::SnapshotSchema;
-use lastdb_node::shared_snapshot::{
-    filtered::{prepare_native, publish_native, resume_native, NativePublishRequest},
-    SignedSnapshotTransport, SnapshotOutcome,
-};
 use lastdb_node::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use schema_service_client::SchemaServiceClient;
 use std::collections::BTreeMap;
@@ -47,8 +42,6 @@ pub(super) fn run(home: Option<&Path>, selection: SharedWriterCommand) -> Result
     let device = id(selection.device_id)?;
     let phrase = super::read_recovery_phrase()?;
     let account = lastdb_node::backup_access::account_from_phrase(&phrase)?;
-    let keys =
-        RecoveryKeys::from_scope_phrase(&phrase, &account).map_err(|error| error.to_string())?;
     let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(&phrase)?);
     let e2e = E2eKeys::from_ed25519_seed(&seed).map_err(|_| "shared writer account key")?;
     let account_signer = Arc::new(
@@ -62,7 +55,6 @@ pub(super) fn run(home: Option<&Path>, selection: SharedWriterCommand) -> Result
         device,
         account_signer,
         device_signer,
-        keys,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -77,7 +69,6 @@ struct Owner {
     device: Id,
     account_signer: Arc<Ed25519KeyPair>,
     device_signer: Arc<Ed25519KeyPair>,
-    keys: RecoveryKeys,
 }
 
 impl Owner {
@@ -93,13 +84,6 @@ impl Owner {
                 declaration,
             } => {
                 return schema::publish(&namespace, &declaration, &self.account_signer).await;
-            }
-            SharedWriterAction::Resume { workspace } => {
-                let transport = self.publisher()?;
-                let result = resume_native(&workspace, &transport, &self.keys)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                return print_snapshot(result);
             }
             action => action,
         };
@@ -165,35 +149,7 @@ impl Owner {
                 self.pull(db, &schema_bindings, &content_key, ranges)
                     .await?;
             }
-            SharedWriterAction::Publish {
-                workspace,
-                snapshot_id,
-                schema_bindings,
-                deadline_seconds,
-                prepare_only,
-            } => {
-                let transport = self.publisher()?;
-                let definitions = schema::definitions(&schema_bindings).await?;
-                let request = NativePublishRequest {
-                    workspace: &workspace,
-                    snapshot_id: id(snapshot_id)?,
-                    expires_at_ms: deadline(deadline_seconds)?,
-                    definitions: &definitions,
-                };
-                if prepare_only {
-                    prepare_native(db.mutation_manager(), request, &transport, &self.keys)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                    println!("Prepared shared snapshot cut");
-                } else {
-                    let result =
-                        publish_native(db.mutation_manager(), request, &transport, &self.keys)
-                            .await
-                            .map_err(|error| error.to_string())?;
-                    print_snapshot(result)?;
-                }
-            }
-            SharedWriterAction::Resume { .. } | SharedWriterAction::PublishSchema { .. } => {
+            SharedWriterAction::PublishSchema { .. } => {
                 unreachable!("this action has no source writer")
             }
         }
@@ -310,16 +266,6 @@ impl Owner {
         println!("Applied {applied} shared peer ranges");
         Ok(())
     }
-
-    fn publisher(&self) -> Result<SignedSnapshotTransport, String> {
-        SignedSnapshotTransport::from_auth(
-            self.auth.clone(),
-            self.account.clone(),
-            self.device.clone(),
-            Arc::clone(&self.device_signer),
-        )
-        .map_err(|error| error.to_string())
-    }
 }
 
 fn deadline(seconds: u32) -> Result<u64, String> {
@@ -332,14 +278,4 @@ fn deadline(seconds: u32) -> Result<u64, String> {
 
 fn id(value: String) -> Result<Id, String> {
     Id::try_from(value).map_err(|_| "shared writer identifiers require canonical UUIDs".into())
-}
-
-fn print_snapshot(result: SnapshotOutcome) -> Result<(), String> {
-    match result {
-        SnapshotOutcome::Published(receipt) => {
-            println!("Published shared snapshot {}", receipt.snapshot_id.as_str());
-            Ok(())
-        }
-        SnapshotOutcome::Abandoned => Err("shared snapshot publication was abandoned".into()),
-    }
 }

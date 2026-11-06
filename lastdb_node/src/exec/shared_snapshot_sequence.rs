@@ -5,8 +5,10 @@ mod workspace;
 use crate::byte_cloud_restore::{local, RecoveryKeys, RestoreError, Result};
 use crate::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use crate::host::Host;
-use crate::shared_snapshot::filtered::{prepare_from_source, resume_native, saved_cut};
-use crate::shared_snapshot::{publish, SignedSnapshotTransport, SnapshotOutcome};
+use crate::shared_snapshot::native::{
+    expire, release, saved_cut, snapshot_uuid, NativeCheckpoint, PublishedFiles,
+};
+use crate::shared_snapshot::SignedSnapshotTransport;
 use crate::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, AuthClient,
@@ -14,6 +16,7 @@ use cloud_backup_client::{
 use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::MutationManager;
 use fold_db::security::Ed25519KeyPair;
+use fold_db::storage::disk_pack::PackRuntime;
 use folddb_profile::endpoints::{exemem_api_url_for, schema_service_url_for, Environment};
 use futures::{StreamExt, TryStreamExt};
 use schema_service_client::SchemaServiceClient;
@@ -42,6 +45,8 @@ pub struct SharedSnapshotRequest {
 pub(crate) struct SharedSnapshotResult {
     snapshot_id: Id,
     writer_uploaded_through: u64,
+    r2_files: usize,
+    b2_files: usize,
 }
 
 pub(crate) async fn run_shared_snapshot(
@@ -54,12 +59,16 @@ pub(crate) async fn run_shared_snapshot(
     let _active = ACTIVE
         .try_lock()
         .map_err(|_| RestoreError::Invalid("shared snapshot already running"))?;
+    let runtime = host.db.db_ops().native_runtime();
+    runtime
+        .require_direct_shared_home()
+        .map_err(|_| RestoreError::Invalid("snapshot requires a dedicated shared disk home"))?;
     let native = host.db.mutation_manager();
     let (stream, _) = native
         .portable_writer_progress()
         .await
         .map_err(native_error)?;
-    let home = host.db.db_ops().native_runtime().native_home_id();
+    let home = runtime.native_home_id();
     let keys = RecoveryKeys::from_seed(Zeroizing::new(host.keypair.secret_key_bytes()))?;
     let auth = dev_auth(&host.home)?;
     let device_signer = Arc::new(device_signer(&request.device_key_file)?);
@@ -94,7 +103,7 @@ pub(crate) async fn run_shared_snapshot(
     };
 
     let operation = async {
-        publish_cut(&state, &upload, &transport, &keys, deadline).await?;
+        let files = publish_cut(&runtime, &state, &upload, &transport, &keys, deadline).await?;
         let (_, progress) = native
             .portable_writer_progress()
             .await
@@ -110,39 +119,51 @@ pub(crate) async fn run_shared_snapshot(
         Ok(SharedSnapshotResult {
             snapshot_id: state.snapshot_id().clone(),
             writer_uploaded_through: tail,
+            r2_files: files.r2,
+            b2_files: files.b2,
         })
     };
-    tokio::time::timeout(budget, operation)
-        .await
-        .map_err(|_| RestoreError::Limit("snapshot deadline; retry with the same workspace"))?
+    match tokio::time::timeout(budget, operation).await {
+        Ok(result) => result,
+        Err(_) => {
+            expire(&runtime, &state.checkpoint()?, state.snapshot_id()).await?;
+            Err(RestoreError::Limit(
+                "snapshot deadline; retry with the same workspace",
+            ))
+        }
+    }
 }
 
 async fn publish_cut(
+    runtime: &Arc<PackRuntime>,
     state: &Workspace,
     upload: &Upload<'_>,
     transport: &SignedSnapshotTransport,
     keys: &RecoveryKeys,
     deadline: u64,
-) -> Result<()> {
-    let root = state.checkpoint();
-    let outcome = if let Some(id) = saved_cut(&root)? {
-        if &id != state.snapshot_id() {
+) -> Result<PublishedFiles> {
+    let root = state.checkpoint()?;
+    let id = state.snapshot_id();
+    expire(runtime, &root, id).await?;
+    let mut checkpoint = if let Some(cut) = saved_cut(&root)? {
+        if &cut.snapshot_id != id || &cut.database_id != state.database_id() {
             return Err(RestoreError::Invalid(
                 "saved snapshot differs from its workspace",
             ));
         }
-        resume_native(&root, transport, keys).await?
+        NativeCheckpoint::reopen(runtime, &root, cut, keys).await?
     } else {
         transport.current_snapshot(state.database_id()).await?;
         let definitions = definitions(upload.native).await?;
-        let source = loop {
-            if let Some(source) = upload
+        let uuid = snapshot_uuid(id)?;
+        let (source, capture) = loop {
+            if let Some(frozen) = upload
                 .native
-                .try_capture_portable_checkpoint(&definitions)
+                .try_freeze_portable_checkpoint(&definitions, uuid, keys.content_key())
                 .await
                 .map_err(native_error)?
             {
-                break source;
+                break frozen;
             }
             if upload.next().await?.is_none() {
                 return Err(RestoreError::Invalid(
@@ -150,23 +171,29 @@ async fn publish_cut(
                 ));
             }
         };
-        let mut source = prepare_from_source(
+        match NativeCheckpoint::prepare(
+            runtime,
             source,
+            capture,
             &root,
-            state.snapshot_id().clone(),
+            id.clone(),
             deadline,
             transport,
-            keys,
         )
-        .await?;
-        publish(&mut source, transport, keys.content_key()).await?
+        .await
+        {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                // An atomic rename followed by a directory sync error can
+                // leave a visible cut. Keep the corresponding hold for retry.
+                if saved_cut(&root)?.is_none() {
+                    release(runtime, id).await?;
+                }
+                return Err(error);
+            }
+        }
     };
-    match outcome {
-        SnapshotOutcome::Published(_) => Ok(()),
-        SnapshotOutcome::Abandoned => Err(RestoreError::Invalid(
-            "snapshot was abandoned; use a new workspace",
-        )),
-    }
+    checkpoint.upload(transport, keys).await
 }
 
 struct Upload<'a> {

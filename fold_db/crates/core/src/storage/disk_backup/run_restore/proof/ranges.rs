@@ -13,7 +13,8 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if version != crate::storage::disk_pack::run_admission::RECORD_PROFILE {
+    use crate::storage::format::{RECORD_PROFILE, SHARED_RECORD_PROFILE};
+    if !matches!(version, RECORD_PROFILE | SHARED_RECORD_PROFILE) {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
