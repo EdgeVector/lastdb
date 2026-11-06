@@ -6,6 +6,7 @@ name: Cloud backup recovery
 # (scripts/cloud_backup/baseline.py), because a client restores only a
 # snapshot of its own home format.
 # A baseline run also points the two protected inputs at the new baseline.
+# The manual fresh-v2 mode seeds a new source and proves its own Backup V2 chain.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
 # Shared-readback reuses only a completed operation's exact published cut.
@@ -40,9 +41,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new shared cut; shared-readback = verify a retained cut."
+        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new shared cut; shared-readback = verify a retained cut."
         type: choice
-        options: [recovery, baseline, writer-check, shared-recovery, shared-readback]
+        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-readback]
         default: recovery
       proof_run:
         description: "Earlier accepted-main shared recovery run ID, for shared-readback only."
@@ -124,7 +125,7 @@ jobs:
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'recovery' || inputs.mode == 'baseline')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'recovery' || inputs.mode == 'fresh-v2' || inputs.mode == 'baseline')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -135,7 +136,7 @@ jobs:
       SOURCE_COMMIT: ${{ github.sha }}
       CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
       # The daily driver dispatches recovery; a manual main run can move the baseline.
-      RUN_MODE: ${{ inputs.mode == 'baseline' && 'baseline' || 'recovery' }}
+      RUN_MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -205,8 +206,8 @@ jobs:
             --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase startup \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json"
-      - name: Run automatic snapshots, mutation logs, restart and both recoveries
-        if: env.RUN_MODE == 'recovery'
+      - name: ${{ env.RUN_MODE == 'fresh-v2' && 'Run Backup V2 recovery from a fresh generated source' || 'Run automatic snapshots, mutation logs, restart and both recoveries' }}
+        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
@@ -214,16 +215,20 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           set -euo pipefail
+          args=()
+          if [ "$RUN_MODE" = fresh-v2 ]; then
+            args+=(--fresh)
+          fi
           python3 scripts/cloud_backup/recover.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
             --startup-artifact "$RUNNER_TEMP/cloud-ci-start/ci-start.json" \
-            --output "$RUNNER_TEMP/cloud-backup-recovery"
+            --output "$RUNNER_TEMP/cloud-backup-recovery" "${args[@]}"
       - name: Retain successful CI stream ownership
         id: ci-stream-artifact
-        if: env.RUN_MODE == 'recovery'
+        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         uses: actions/upload-artifact@v7
         with:
           name: cloud-ci-stream-${{ github.run_id }}-${{ github.run_attempt }}
@@ -231,7 +236,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Record CI ownership provenance
-        if: env.RUN_MODE == 'recovery'
+        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
@@ -247,7 +252,7 @@ jobs:
             printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Save durable CI ownership before this run ends
-        if: env.RUN_MODE == 'recovery'
+        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         env:
           GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}

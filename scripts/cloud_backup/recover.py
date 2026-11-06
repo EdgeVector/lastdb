@@ -207,6 +207,9 @@ class Operation:
         value = {"result": self.summary["result"],
                  "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
                  "source": self.args.source, "primary_access": False}
+        if self.summary.get("mode") == "fresh-v2":
+            value.update(mode="fresh-v2", generated_home_format=self.summary.get("generated_home_format"),
+                         native_backup_profile=self.summary.get("native_backup_profile"))
         if "service_field" in self.summary:
             value["service_field"] = self.summary["service_field"]
         if "cli_refusal" in self.summary:
