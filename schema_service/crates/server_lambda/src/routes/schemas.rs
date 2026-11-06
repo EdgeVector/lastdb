@@ -250,13 +250,7 @@ async fn add_schema_response(
     {
         Err((status, body, _)) => json_response(status, &body),
         Ok(outcome) => match *outcome {
-            // `Composed` (newly-registered canonical referencing existing
-            // sub-schemas via SchemaRef) serializes like `Added`: 201, no
-            // replaced schema. Only produced once the compositional
-            // `apply` step is enabled (follow-on to the advisory shadow
-            // pass; off by default), so the wire shape is unchanged today.
-            SchemaAddOutcome::Added(schema, mutation_mappers)
-            | SchemaAddOutcome::Composed(schema, mutation_mappers, _) => {
+            SchemaAddOutcome::Added(schema, mutation_mappers) => {
                 let system = state.is_system_schema(&schema.name);
                 json_response(
                     201,
