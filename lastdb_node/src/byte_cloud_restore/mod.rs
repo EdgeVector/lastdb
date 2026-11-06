@@ -36,7 +36,7 @@ pub enum RestoreError {
     Source(&'static str),
     SharedStage {
         stage: &'static str,
-        cause: Box<RestoreError>,
+        cause: Box<Self>,
     },
     SharedWorkspace {
         path: std::path::PathBuf,
