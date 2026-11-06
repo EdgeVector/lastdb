@@ -124,12 +124,11 @@ impl Inner {
         });
         by_duration.truncate(self.top_n);
 
-        // Only the TIME-based rankings exclude idle wait. `top_by_count` below
-        // ranks call count, which is honest for a watcher — a chatty poller is
-        // genuinely chatty — so it keeps every kind.
-        let mut aggregates: Vec<OpAggregate> = self.aggregates.values().cloned().collect();
-        let (mut idle_wait, work): (Vec<OpAggregate>, Vec<OpAggregate>) = aggregates
-            .iter()
+        // Time rankings exclude idle wait. This clone splits that wait from
+        // work; idle wait is ranked on its own and stays out of the work tables.
+        let (mut idle_wait, work): (Vec<OpAggregate>, Vec<OpAggregate>) = self
+            .aggregates
+            .values()
             .cloned()
             .partition(|a| a.kind.is_idle_wait());
         idle_wait.sort_by(|a, b| b.sum_ms.cmp(&a.sum_ms).then_with(|| b.count.cmp(&a.count)));
@@ -138,21 +137,12 @@ impl Inner {
         let top_by_total_ms = rank_by_total_ms(&work, self.top_n);
         let top_by_body_bytes = rank_by_body_bytes(&work, self.top_n);
 
-        aggregates.sort_by(|a, b| {
-            b.count
-                .cmp(&a.count)
-                .then_with(|| b.sum_ms.cmp(&a.sum_ms))
-                .then_with(|| b.max_ms.cmp(&a.max_ms))
-        });
-        aggregates.truncate(self.top_n);
-
         let app_verb = self.app_verb_rollups();
 
         RequestTelemetrySnapshot {
             recent,
             top_by_duration: by_duration,
             top_by_total_ms,
-            top_by_count: aggregates,
             top_by_body_bytes,
             app_verb,
             idle_wait,

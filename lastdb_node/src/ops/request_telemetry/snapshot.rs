@@ -18,9 +18,6 @@ pub struct RequestTelemetrySnapshot {
     /// Aggregates ranked by total time spent (`sum_ms`). Forensic; opt-in.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top_by_total_ms: Vec<OpAggregate>,
-    /// Aggregates ranked by call count. Forensic; opt-in.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub top_by_count: Vec<OpAggregate>,
     /// Aggregates ranked by total request body bytes — who is stuffing the
     /// node (mutation / batch / file-blob write volume), not who is slow.
     ///
@@ -59,7 +56,6 @@ impl RequestTelemetrySnapshot {
             recent: Vec::new(),
             top_by_duration: Vec::new(),
             top_by_total_ms: Vec::new(),
-            top_by_count: Vec::new(),
             top_by_body_bytes: Vec::new(),
             app_verb: Vec::new(),
             idle_wait: Vec::new(),
