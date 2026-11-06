@@ -56,27 +56,6 @@ pub(crate) enum AppLifecycleCommand {
         #[arg(long)]
         schema_url: Option<String>,
     },
-    /// Compatibility alias for the Mini-owned app schema synchronization path.
-    /// This command never calls Schema Service directly.
-    RegisterSchemas {
-        #[arg(long)]
-        manifest: PathBuf,
-        /// Legacy compatibility option. Mini owns schema synchronization.
-        #[arg(long)]
-        env: Option<String>,
-        /// Legacy compatibility option. Mini owns schema synchronization.
-        #[arg(long)]
-        schema_url: Option<String>,
-        /// Legacy compatibility option. Mini owns schema synchronization.
-        #[arg(long)]
-        api_url: Option<String>,
-        /// Legacy compatibility option. Mini owns schema synchronization.
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-        /// Legacy compatibility option. Mini owns schema synchronization.
-        #[arg(long)]
-        api_key: Option<String>,
-    },
     /// Publish this clean git commit for the running node's exact API version.
     ///
     /// Before it signs, publish prints Schema Service advice for each

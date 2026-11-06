@@ -291,23 +291,3 @@ pub(crate) fn app_check_command(
         ))
     }
 }
-
-/// `lastdb app register-schemas`: a compatibility alias for `check --sync`.
-pub(crate) fn app_register_schemas(home: &Path, manifest_path: &Path) -> Result<(), String> {
-    use lastdb_node::app_publish;
-    let manifest = app_publish::load_manifest(manifest_path)?;
-    let outcomes = app_check(home, &manifest, app_publish::CheckMode::Sync, false)?;
-    print_retention_changes(&outcomes);
-    let novel = app_publish::novel_schema_names(&outcomes);
-    if novel.is_empty() {
-        println!(
-            "all {} manifest schemas synchronized through Mini — nothing to register",
-            outcomes.len()
-        );
-        return Ok(());
-    }
-    Err(format!(
-        "Mini did not return bind-eligible catalog identities for: {}. Retry this command after the reported dependency or quota recovers; do not call Schema Service directly.",
-        novel.join(", ")
-    ))
-}

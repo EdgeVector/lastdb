@@ -102,8 +102,8 @@ pub(crate) fn print_retention_text(retention: &Value) {
     }
 }
 
-/// Print the retention of every schema that reported one: what a promote or a
-/// register-schemas run changed, which it would otherwise do in silence.
+/// Print the retention of every schema that reported one: what a promote
+/// changed, which it would otherwise do in silence.
 pub(crate) fn print_retention_changes(outcomes: &[lastdb_node::app_publish::CheckOutcome]) {
     for outcome in outcomes {
         if let Some(retention) = &outcome.retention {
