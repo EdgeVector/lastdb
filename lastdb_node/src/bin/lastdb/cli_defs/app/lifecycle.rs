@@ -1,4 +1,4 @@
-//! `lastdb app` subcommands for dev init, schema check, publish, promote and run.
+//! `lastdb app` subcommands for dev init, schema check, publish, and promote.
 
 use super::*;
 
@@ -113,15 +113,5 @@ pub(crate) enum AppLifecycleCommand {
         /// Developer API key (default: $EXEMEM_DEV_API_KEY).
         #[arg(long)]
         api_key: Option<String>,
-    },
-    /// Run an installed source-backed app using its manifest `run` block.
-    Run {
-        app_id: String,
-        /// Install directory (default: <home>/apps/<app_id>).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-        /// Extra arguments passed after the manifest-declared args.
-        #[arg(last = true)]
-        args: Vec<String>,
     },
 }

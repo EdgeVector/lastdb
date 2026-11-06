@@ -223,25 +223,3 @@ pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String
     }
     Ok(())
 }
-
-pub(crate) fn app_run(
-    home: &Path,
-    app_id: String,
-    dir: Option<PathBuf>,
-    args: Vec<String>,
-) -> Result<(), String> {
-    let install_dir = dir.unwrap_or_else(|| {
-        let managed = registry_index::managed::app_root(&app_id)
-            .ok()
-            .map(|p| p.join("current"));
-        managed
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| home.join("apps").join(&app_id))
-    });
-    let outcome = app_publish::run_installed_app(home, &app_id, &install_dir, &args)?;
-    eprintln!(
-        "app run completed: {} (runtime={}, entrypoint={}, exit={})",
-        outcome.app_id, outcome.runtime, outcome.entrypoint, outcome.exit_code
-    );
-    Ok(())
-}
