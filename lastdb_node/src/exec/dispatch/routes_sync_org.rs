@@ -32,9 +32,8 @@ async fn shared_snapshot(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> 
     if req.body.len() > 8192 {
         return error_response(413, "shared snapshot request exceeds its byte limit", ctx);
     }
-    let request = match serde_json::from_slice(&req.body) {
-        Ok(value) => value,
-        Err(_) => return error_response(400, "invalid shared snapshot request", ctx),
+    let Ok(request) = serde_json::from_slice(&req.body) else {
+        return error_response(400, "invalid shared snapshot request", ctx);
     };
     let budget =
         super::super::admin_handler_timeout().saturating_sub(std::time::Duration::from_secs(1));
