@@ -104,6 +104,10 @@ impl Workspace {
         &self.state.snapshot_id
     }
 
+    pub(super) fn database_id(&self) -> &Id {
+        &self.state.stream.database_id
+    }
+
     pub(super) fn checkpoint(&self) -> PathBuf {
         self.root.join("checkpoint")
     }

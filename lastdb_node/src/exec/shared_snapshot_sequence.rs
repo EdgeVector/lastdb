@@ -69,7 +69,6 @@ pub(crate) async fn run_shared_snapshot(
         request.device_id.clone(),
         Arc::clone(&device_signer),
     )?;
-    transport.current_snapshot(&stream.database_id).await?;
     let mut state = Workspace::open(&request.workspace, home, &request.device_id, &stream)?;
     let logs = SharedLogClient::from_auth(auth.clone()).map_err(|_| transport_error())?;
     let objects =
@@ -110,7 +109,7 @@ pub(crate) async fn run_shared_snapshot(
         }
         Ok(SharedSnapshotResult {
             snapshot_id: state.snapshot_id().clone(),
-            writer_uploaded_through: uploaded,
+            writer_uploaded_through: tail,
         })
     };
     tokio::time::timeout(budget, operation)
@@ -134,6 +133,7 @@ async fn publish_cut(
         }
         resume_native(&root, transport, keys).await?
     } else {
+        transport.current_snapshot(state.database_id()).await?;
         let definitions = definitions(upload.native).await?;
         let source = loop {
             if let Some(source) = upload

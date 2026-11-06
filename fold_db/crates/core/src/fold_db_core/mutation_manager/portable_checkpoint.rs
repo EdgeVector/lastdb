@@ -80,8 +80,9 @@ impl MutationManager {
                 if definitions.len() != directory.schemas.len() {
                     return Err(invalid("checkpoint schema set differs from its journal"));
                 }
-                let schemas = futures::future::try_join_all(directory.schemas.iter().map(
-                    |(name, binding)| async move {
+                let mut lookups = Vec::with_capacity(directory.schemas.len());
+                for (name, binding) in &directory.schemas {
+                    lookups.push(async move {
                         let definition = definitions
                             .get(name)
                             .ok_or_else(|| invalid("checkpoint schema definition is missing"))?;
@@ -102,11 +103,12 @@ impl MutationManager {
                             return Err(invalid("shared checkpoint retention policy is deferred"));
                         }
                         Ok((name.clone(), schema))
-                    },
-                ))
-                .await?
-                .into_iter()
-                .collect::<BTreeMap<_, _>>();
+                    });
+                }
+                let schemas = futures::future::try_join_all(lookups)
+                    .await?
+                    .into_iter()
+                    .collect::<BTreeMap<_, _>>();
                 Ok(Some((directory, schemas)))
             })
             .await?;

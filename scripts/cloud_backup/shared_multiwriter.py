@@ -14,6 +14,7 @@ WRITER_COUNT = 7
 LOCAL_SCHEMA = "CloudProofLocalOnly"
 LOCAL_RECORD = {"id": "local-only"}
 SNAPSHOT_WRITE = "during-snapshot"
+PEER_TAIL = "after-snapshot-peer"
 
 
 def seed_local_only(node):
@@ -93,6 +94,8 @@ def wait_for_upload(intent, future):
         if upload_pending(intent):
             return
         time.sleep(0.01)
+    if future.done():
+        future.result()
     require(False, "shared_snapshot_command_upload_window")
 
 
@@ -101,6 +104,20 @@ def upload_pending(intent):
         return read_json(intent, 256 * 1024)["phase"]["phase"] == "prepared"
     except FileNotFoundError:
         return False
+
+
+def peer_tail_record(operation):
+    return operation.record(PEER_TAIL, "peer-after-replacement")
+
+
+def publish_peer_tail(operation, node, writer):
+    operation.summary["stage"] = "publish-peer-tail-after-replacement"
+    node.start()
+    durable_batch(node, [native_records.create(operation.schema, native_records.key(PEER_TAIL),
+                                               peer_tail_record(operation))])
+    node.stop()
+    through = operation.summary["peer_tail_through"] + 1
+    operation.summary["peer_after_replacement_through"] = operation.push(node, writer, through)
 
 
 def pull(operation, node, writer):

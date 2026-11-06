@@ -333,7 +333,9 @@ class Operation:
         self.summary["snapshot_published_after_both_tails"] = True
         if self.args.multiwriter:
             shared_multiwriter.snapshot_command(self, first, a)
-        require(first.clean_stops == (6 if self.args.multiwriter else 3) and peer.clean_stops == 2,
+            shared_multiwriter.publish_peer_tail(self, peer, b)
+        expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
+        require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
         self.remove_sources(self.nodes)
         if os.path.lexists(publication):
@@ -378,6 +380,7 @@ class Operation:
         if self.args.multiwriter:
             records.update(shared_multiwriter.extra_records(self))
             records[shared_multiwriter.SNAPSHOT_WRITE] = shared_multiwriter.snapshot_record(self)
+            records[shared_multiwriter.PEER_TAIL] = shared_multiwriter.peer_tail_record(self)
         files = {"checkpoint": hashlib.sha256(self.payload("checkpoint")).hexdigest(),
                  "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
         self.summary["stage"] = "verify-restored-native-home"
