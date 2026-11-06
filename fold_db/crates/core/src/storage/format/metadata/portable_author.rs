@@ -14,6 +14,7 @@ const PROGRESS_PREFIX: &str = "portable-progress:";
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
 mod checkpoint;
+mod cleanup;
 mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;

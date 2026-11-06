@@ -277,37 +277,6 @@ impl Metadata {
         decode_state(row.as_deref())
     }
 
-    pub(crate) async fn portable_delete_cutoff(
-        &self,
-        participants: &BTreeSet<StreamId>,
-    ) -> StorageResult<Option<u64>> {
-        self.require_scope()?;
-        let state = self.replay_state().await?;
-        if &state.participating_streams != participants {
-            return Err(invalid(
-                "delete cleanup requires the complete admitted writer directory",
-            ));
-        }
-        let keys = state
-            .participating_streams
-            .iter()
-            .map(|stream| progress_key(stream).into_bytes())
-            .collect();
-        let rows = self.metadata_store.get_many(keys).await?;
-        if rows.len() != state.participating_streams.len() {
-            return Err(invalid("incomplete delete cleanup stream directory"));
-        }
-        let mut cutoff = u64::MAX;
-        for bytes in rows {
-            let cursor = decode_cursor(bytes.as_deref())?;
-            let Some(time) = cursor.applied_through_ms else {
-                return Ok(None);
-            };
-            cutoff = cutoff.min(time);
-        }
-        Ok(Some(cutoff))
-    }
-
     pub(crate) async fn stage_delete_reclaimed(
         &self,
         through_ms: u64,
@@ -387,7 +356,7 @@ fn require_peer(state: &HomeReplayState, stream: &StreamId) -> StorageResult<()>
     Ok(())
 }
 
-fn progress_key(stream: &StreamId) -> String {
+pub(super) fn progress_key(stream: &StreamId) -> String {
     format!("{PROGRESS_PREFIX}{stream}")
 }
 fn index_key(stream: &StreamId) -> String {
