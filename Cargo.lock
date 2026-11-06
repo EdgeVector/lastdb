@@ -4480,16 +4480,10 @@ dependencies = [
 name = "schema_service_server_lambda"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-s3",
  "aws-sdk-sqs",
- "aws-smithy-async",
- "aws-smithy-http-client",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "folddb_profile",
  "http 1.4.0",
  "lambda_http",
  "observability",
