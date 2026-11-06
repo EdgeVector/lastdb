@@ -4,8 +4,14 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppCatalogCommand {
-    /// List apps on the signed public index.
+    /// List apps on the signed public index or resolve one for this node.
     List {
+        /// Resolve the signed release for this app and this node's interface.
+        #[arg(value_name = "APP")]
+        app_id: Option<String>,
+        /// Show the app's catalog entry for diagnostics without resolving its install.
+        #[arg(long, requires = "app_id")]
+        catalog_entry: bool,
         /// Index channel (`stable` | `next`). Default: stable.
         #[arg(long)]
         channel: Option<String>,

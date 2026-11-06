@@ -224,11 +224,26 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
 fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), String> {
     match action {
         AppCatalogCommand::List {
+            app_id,
+            catalog_entry,
             channel,
             index,
             trust_key,
             json,
-        } => app_list(home, channel, index, trust_key, json),
+        } => match app_id {
+            Some(app_id) if catalog_entry => app_info(home, &app_id, channel, index, trust_key),
+            Some(app_id) => app_resolve(
+                home,
+                &AppResolveQuery {
+                    app_id: &app_id,
+                    channel: channel.as_deref(),
+                    index: index.as_deref(),
+                    trust_key: trust_key.as_deref(),
+                    json,
+                },
+            ),
+            None => app_list(home, channel, index, trust_key, json),
+        },
         command @ AppCatalogCommand::Resolve { .. } => handle_app_resolve(home, command),
         AppCatalogCommand::Index(cmd) => app_index_command(home, cmd),
         AppCatalogCommand::Info {
