@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone, Copy)]
 pub(crate) enum DbOfflineCommand {
     /// Raise the replay cutoff of the home. OFFLINE: it refuses a home that a
     /// daemon serves.
@@ -16,7 +16,7 @@ pub(crate) enum DbOfflineCommand {
     Recount(ReplayCutoffArgs),
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone, Copy)]
 pub(crate) struct ReplayCutoffArgs {
     /// Write the change. Without it the command only reports it.
     #[arg(long)]
