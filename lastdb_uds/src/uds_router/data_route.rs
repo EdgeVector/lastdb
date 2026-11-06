@@ -197,9 +197,9 @@ pub enum DataRoute {
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
     /// `POST /api/db/put-blob` — store the file of one record with the record's
-    /// marker and optional fields, in one native write. Raw
-    /// `application/octet-stream` with an `X-LastDB-File-Blob-Metadata` header,
-    /// or JSON `{ schema, key, bytes_b64, name?, media_type?, fields? }`.
+    /// marker and complete fields, in one native write. Raw bytes follow a
+    /// length-prefixed metadata segment. Older clients can use the metadata
+    /// header or the JSON request.
     /// OWNER only.
     DbPutBlob,
     /// `POST /api/db/fetch-blob` — read the file of one record by schema and

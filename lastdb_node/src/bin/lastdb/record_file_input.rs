@@ -5,25 +5,30 @@ use super::*;
 const PUT_BLOB_PATH: &str = "/api/db/put-blob";
 
 /// The raw HTTP request: the bytes are the body, so there is no base64 tax.
-/// The record and the file description ride as compact JSON in a header.
+/// The complete record and file description are a length-prefixed JSON
+/// segment before the raw bytes, so a record can exceed the header limit.
 fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8>, String> {
     admit_local_file_input(bytes.len() as u64)?;
-    let json =
-        serde_json::to_string(metadata).map_err(|e| format!("serialize blob metadata: {e}"))?;
+    let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
+    let body_length = json
+        .len()
+        .checked_add(bytes.len())
+        .ok_or("local file request length overflow")?;
     let head = format!(
         "POST {PUT_BLOB_PATH} HTTP/1.1\r\n\
          Host: localhost\r\n\
          {}Content-Type: application/octet-stream\r\n\
-         X-LastDB-File-Blob-Metadata: {json}\r\n\
+         X-LastDB-File-Blob-Metadata-Length: {}\r\n\
          Content-Length: {}\r\n\
          Connection: close\r\n\
          \r\n",
         client_headers(),
-        bytes.len()
+        json.len(),
+        body_length
     );
     let capacity = head
         .len()
-        .checked_add(bytes.len())
+        .checked_add(body_length)
         .ok_or_else(|| "local file request length overflow".to_string())?;
     admit_local_file_input(capacity as u64)?;
     let mut request = Vec::new();
@@ -31,6 +36,7 @@ fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8
         .try_reserve_exact(capacity)
         .map_err(|_| "local file request allocation refused".to_string())?;
     request.extend_from_slice(head.as_bytes());
+    request.extend_from_slice(&json);
     request.extend_from_slice(bytes);
     Ok(request)
 }

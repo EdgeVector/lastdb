@@ -101,7 +101,7 @@ def prove_required_file(node):
         "fields": ["note"], "field_types": {"note": "String"},
         "field_descriptions": {"note": "The note that requires its original file"},
     }})
-    fields = {"note": "file content is part of this record"}
+    fields = {"note": "file content is part of this record " + "x" * (12 * 1024)}
     request = mutation(schema, target, fields, "create", expected={"type": "absent"})
     require_file_refusal(node, "/api/mutation", request)
     source = node.root / "record-file"
@@ -109,6 +109,7 @@ def prove_required_file(node):
     request_path = node.root / "record-input.json"
     request_path.write_text(json.dumps({"mutation": request, "file": {"source": source.name}}))
     stored = record_cli(node, "mutate", "--request-file", request_path)
+    require(stored.get("record_revision"), "file-bearing create has no revision")
     update = conditioned(node, [mutation(schema, target, fields)])[0]
     update.pop("file", None)
     node.call("/api/mutation", update)

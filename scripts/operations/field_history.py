@@ -55,7 +55,7 @@ def write(node, value=None, operation="replace"):
 
 def cli(node, binary, *args, success=True):
     env = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
-    run = subprocess.run([str(binary), "history", "HistoryById", "value",
+    run = subprocess.run([str(binary), "admin", "history", "HistoryById", "value",
                           "--key-hash", "one", *args], env=env, text=True,
                          capture_output=True, timeout=90)
     require((run.returncode == 0) == success, run.stderr[-1200:])
