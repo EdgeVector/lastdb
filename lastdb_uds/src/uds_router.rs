@@ -329,8 +329,8 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
 
 /// Exact-path, single-method routes from [`route_table::EXACT_ROUTES`].
 ///
-/// The owner-only verbs include node identity (a jailed app must never learn
-/// it) and every history/disclosure read; on the app socket they are absent.
+/// Owner-only entries include node identity and other reads limited to the
+/// owner socket.
 fn route_exact(path: &str, method: &str, owner: bool) -> Option<ControlRoute> {
     let row = route_table::EXACT_ROUTES
         .iter()

@@ -38,7 +38,7 @@ pub(super) async fn dispatch_core(
     })
 }
 
-/// Identity, search, history and app routes.
+/// Identity, search, change feed and app routes.
 /// Returns `None` when the route belongs to another group.
 pub(super) async fn dispatch_search_app(
     route: DataRoute,

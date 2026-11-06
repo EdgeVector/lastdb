@@ -173,7 +173,6 @@ impl QueryExecutor {
 
 fn validate_controls(query: &Query) -> Result<(), SchemaError> {
     if query.requires_post_key_work()
-        || query.as_of.is_some()
         || query.rehydrate_depth.is_some()
         || query.include_tombstones
         || query

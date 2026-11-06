@@ -108,8 +108,7 @@ where
     handle.block_on(with_handler_timeout(ctx, fut))
 }
 
-/// Like [`block_on_route`] but with the longer admin-scan budget (inventory /
-/// history clear over large stores).
+/// Like [`block_on_route`] but with the longer budget for storage inventory.
 pub fn block_on_admin_route<Fut>(
     handle: &tokio::runtime::Handle,
     ctx: &AccessContext,

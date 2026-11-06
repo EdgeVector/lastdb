@@ -1,5 +1,4 @@
 use crate::schema::types::field::HashRangeFilter;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -129,9 +128,6 @@ pub struct Query {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_name: Option<String>,
     pub filter: Option<HashRangeFilter>,
-    /// Accepted only so logical reads and counts can explicitly refuse history.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub as_of: Option<DateTime<Utc>>,
     /// Accepted only for an explicit refusal. No read supports recursive depth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rehydrate_depth: Option<u32>,
@@ -189,7 +185,6 @@ impl Query {
             schema_name,
             key_name: None,
             filter,
-            as_of: None,
             rehydrate_depth: None,
             sort_order: None,
             value_filters: None,
