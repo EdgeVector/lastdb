@@ -232,7 +232,7 @@ class Operation:
     def restore(self, destination, device, key_device):
         return self.command(self.root / "credentials", [
             "restore-shared", "--env", "dev", "--database-id", self.scope["database_id"],
-            "--snapshot-id", self.snapshot, "--device-id", device,
+            "--snapshot-id", self.summary.get("replacement_snapshot_id", self.snapshot), "--device-id", device,
             "--device-key-file", str(self.device_file(key_device)),
             "--into", str(destination), "--recovery-phrase-stdin", "--json"])
 
@@ -331,7 +331,11 @@ class Operation:
         require(reply.splitlines() == [f"Published shared snapshot {self.snapshot}".encode()],
                 "shared_exact_snapshot_receipt")
         self.summary["snapshot_published_after_both_tails"] = True
-        require(first.clean_stops == (4 if self.args.multiwriter else 3) and peer.clean_stops == 2,
+        if self.args.multiwriter:
+            shared_multiwriter.snapshot_command(self, first, a)
+            shared_multiwriter.publish_peer_tail(self, peer, b)
+        expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
+        require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
         self.remove_sources(self.nodes)
         if os.path.lexists(publication):
@@ -375,6 +379,8 @@ class Operation:
                    "peer-only": self.record("peer-only", "peer-tail")}
         if self.args.multiwriter:
             records.update(shared_multiwriter.extra_records(self))
+            records[shared_multiwriter.SNAPSHOT_WRITE] = shared_multiwriter.snapshot_record(self)
+            records[shared_multiwriter.PEER_TAIL] = shared_multiwriter.peer_tail_record(self)
         files = {"checkpoint": hashlib.sha256(self.payload("checkpoint")).hexdigest(),
                  "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
         self.summary["stage"] = "verify-restored-native-home"

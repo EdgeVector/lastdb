@@ -56,19 +56,33 @@ impl MutationManager {
         &self,
         definitions: &BTreeMap<String, PortableSchemaDefinition>,
     ) -> Result<PortableCheckpoint, SchemaError> {
+        self.try_capture_portable_checkpoint(definitions)
+            .await?
+            .ok_or_else(|| invalid("checkpoint has an unaccepted local prefix"))
+    }
+
+    /// Wait for ordinary sync before selecting a cut with unaccepted writes.
+    pub async fn try_capture_portable_checkpoint(
+        &self,
+        definitions: &BTreeMap<String, PortableSchemaDefinition>,
+    ) -> Result<Option<PortableCheckpoint>, SchemaError> {
         let root = self.db_ops.read_scope().await?;
-        let (directory, schemas) = root
+        let captured = root
             .run_result(async {
-                let directory = self
+                let Some(directory) = self
                     .db_ops
                     .metadata()
                     .portable_checkpoint_directory()
-                    .await?;
+                    .await?
+                else {
+                    return Ok(None);
+                };
                 if definitions.len() != directory.schemas.len() {
                     return Err(invalid("checkpoint schema set differs from its journal"));
                 }
-                let schemas = futures::future::try_join_all(directory.schemas.iter().map(
-                    |(name, binding)| async move {
+                let mut lookups = Vec::with_capacity(directory.schemas.len());
+                for (name, binding) in &directory.schemas {
+                    lookups.push(async move {
                         let definition = definitions
                             .get(name)
                             .ok_or_else(|| invalid("checkpoint schema definition is missing"))?;
@@ -89,14 +103,18 @@ impl MutationManager {
                             return Err(invalid("shared checkpoint retention policy is deferred"));
                         }
                         Ok((name.clone(), schema))
-                    },
-                ))
-                .await?
-                .into_iter()
-                .collect::<BTreeMap<_, _>>();
-                Ok((directory, schemas))
+                    });
+                }
+                let schemas = futures::future::try_join_all(lookups)
+                    .await?
+                    .into_iter()
+                    .collect::<BTreeMap<_, _>>();
+                Ok(Some((directory, schemas)))
             })
             .await?;
+        let Some((directory, schemas)) = captured else {
+            return Ok(None);
+        };
         let spaces: BTreeMap<_, _> = schemas
             .keys()
             .map(|name| (record_space_uuid(name), name.clone()))
@@ -106,7 +124,7 @@ impl MutationManager {
             .rev()
             .map(|(space, name)| (name.clone(), walk(&format!("{RECORD_PREFIX}{space}:"))))
             .collect();
-        Ok(PortableCheckpoint {
+        Ok(Some(PortableCheckpoint {
             db_ops: Arc::clone(&self.db_ops),
             root,
             directory,
@@ -115,7 +133,7 @@ impl MutationManager {
             spaces,
             deletes: walk(&format!("{DELETE_AGE_FAMILY}:")),
             records,
-        })
+        }))
     }
 }
 

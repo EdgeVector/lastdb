@@ -20,6 +20,8 @@ mod db_cmds;
 use db_cmds::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
+#[path = "lastdb/snapshot_cmd.rs"]
+mod snapshot_cmd;
 use cloud_cmds::*;
 #[path = "lastdb/status_ops_cmds.rs"]
 mod status_ops_cmds;
@@ -180,6 +182,7 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Command::ServiceHome { action } => service_home_command(action),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
+        Command::Snapshot(args) => snapshot_cmd::run(cli.data_dir.as_deref(), args),
         cmd @ (Command::Mutate { .. }
         | Command::List(_)
         | Command::GetKeys(_)

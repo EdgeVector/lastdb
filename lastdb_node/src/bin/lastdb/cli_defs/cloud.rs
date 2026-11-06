@@ -5,6 +5,22 @@ use super::*;
 mod byte_backup;
 pub(crate) use byte_backup::ByteBackupCommand;
 
+#[derive(clap::Args, Debug)]
+pub(crate) struct SnapshotArgs {
+    /// Registered shared writer device ID for the running DEV home.
+    #[arg(long)]
+    pub device_id: String,
+    /// Absolute owner-only path to the enrolled device's signing key.
+    #[arg(long)]
+    pub device_key_file: PathBuf,
+    /// Absolute private workspace. Reuse it to resume the same snapshot.
+    #[arg(long)]
+    pub workspace: PathBuf,
+    /// Print the snapshot and uploaded writer position as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
     /// Operate the shared journal and snapshots of an explicit stopped DEV home.

@@ -17,12 +17,43 @@ use std::path::{Path, PathBuf};
 
 mod build;
 mod publish;
+pub(crate) use publish::prepare_from_source;
 pub use publish::{prepare_native, publish_native, resume_native, NativePublishRequest};
 
 const DATA: &str = "filtered-native";
 const CUT: &str = "shared-checkpoint-cut.json";
 const CUT_BYTES: u64 = crate::shared_restore::recovery::MAX_MANIFEST_BYTES
     + cloud_backup_protocol::limits::REQUEST_JSON_MAX_BYTES;
+
+/// Remove an owned partial export that never reached a saved cut or upload.
+pub(crate) fn saved_cut(root: &Path) -> Result<Option<Id>> {
+    if !root.try_exists()? {
+        return Ok(None);
+    }
+    check_root(root)?;
+    let _owner = match owner(root, false) {
+        Err(RestoreError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            owner(root, true)?
+        }
+        result => result?,
+    };
+    match local::read_json::<FrozenSnapshot>(&root.join(CUT), CUT_BYTES) {
+        Ok(cut) => Ok(Some(cut.snapshot_id)),
+        Err(RestoreError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            if IntentStore::open(root)?.load()?.is_some() {
+                return Err(RestoreError::Invalid("snapshot intent is missing its cut"));
+            }
+            fs::remove_dir_all(root)?;
+            File::open(
+                root.parent()
+                    .ok_or(RestoreError::Invalid("checkpoint parent"))?,
+            )?
+            .sync_all()?;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
 
 pub struct FilteredCheckpointRequest {
     pub snapshot_id: Id,

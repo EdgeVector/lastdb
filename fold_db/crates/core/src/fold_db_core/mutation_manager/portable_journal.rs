@@ -7,7 +7,7 @@ use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::JournalSchema;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
 use lastdb_model::canonical::CanonicalValue;
-use lastdb_model::portable_mutation::{MutationEntry, MutationOperation};
+use lastdb_model::portable_mutation::{MutationEntry, MutationOperation, StreamProgress};
 use lastdb_model::record_value::FileMarker;
 use schema_types::PortableSchemaDefinition;
 use sha2::{Digest, Sha256};
@@ -66,6 +66,26 @@ impl MutationManager {
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_outgoing())
+            .await
+    }
+
+    /// The bound writer's durable local and cloud positions.
+    pub async fn portable_writer_progress(
+        &self,
+    ) -> Result<(WriterStream, StreamProgress), SchemaError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(self.db_ops.metadata().portable_writer_progress())
+            .await
+    }
+
+    /// Exact service identities already bound to this home's shared journal.
+    pub async fn portable_writer_schemas(&self) -> Result<BTreeMap<String, String>, SchemaError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(self.db_ops.metadata().portable_bound_schemas())
             .await
     }
 

@@ -5,6 +5,7 @@ use crate::byte_cloud_restore::{RecoveryKeys, RestoreError, Result};
 use crate::shared_snapshot::{publish, SignedSnapshotTransport, SnapshotOutcome};
 use cloud_backup_protocol::shared::objects::{SnapshotLogEndsRequest, SnapshotLogPosition};
 use cloud_backup_protocol::{DecimalU64, Id};
+use fold_db::fold_db_core::mutation_manager::portable_checkpoint::PortableCheckpoint;
 use fold_db::fold_db_core::MutationManager;
 use schema_types::PortableSchemaDefinition;
 use std::collections::BTreeMap;
@@ -42,6 +43,25 @@ pub async fn prepare_native(
         .capture_portable_checkpoint(request.definitions)
         .await
         .map_err(|_| RestoreError::Invalid("capture shared database root"))?;
+    prepare_from_source(
+        source,
+        request.workspace,
+        request.snapshot_id,
+        request.expires_at_ms,
+        transport,
+        keys,
+    )
+    .await
+}
+
+pub(crate) async fn prepare_from_source(
+    source: PortableCheckpoint,
+    workspace: &Path,
+    snapshot_id: Id,
+    expires_at_ms: u64,
+    transport: &SignedSnapshotTransport,
+    keys: &RecoveryKeys,
+) -> Result<FilteredCheckpoint> {
     let database_id = source.writer().database_id.clone();
     let positions = source
         .progress()
@@ -74,12 +94,12 @@ pub async fn prepare_native(
         })
         .collect::<Result<_>>()?;
     FilteredCheckpoint::prepare(
-        request.workspace,
+        workspace,
         source,
         FilteredCheckpointRequest {
-            snapshot_id: request.snapshot_id,
+            snapshot_id,
             replaces: prior.map(|receipt| receipt.snapshot_id),
-            expires_at_ms: request.expires_at_ms,
+            expires_at_ms,
             accepted,
         },
         keys,

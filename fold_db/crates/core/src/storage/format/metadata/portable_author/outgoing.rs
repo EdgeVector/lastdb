@@ -67,6 +67,17 @@ impl SharedAuthor {
 }
 
 impl Metadata {
+    pub(crate) async fn portable_writer_progress(
+        &self,
+    ) -> StorageResult<(WriterStream, StreamProgress)> {
+        let author = self
+            .local_author()
+            .await?
+            .shared
+            .ok_or_else(|| invalid("shared writer is not bound"))?;
+        Ok((author.scope, author.progress))
+    }
+
     pub(crate) async fn shared_schema_bound(&self, name: &str) -> StorageResult<bool> {
         let state = self.local_author().await?;
         Ok(state
