@@ -13,13 +13,13 @@ pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let (request, json) = match action {
-        ByteBackupCommand::StartStopped {
+        ByteBackupCommand::StartStopped(BackupStartStoppedArgs {
             request_id,
             expected_user_hash,
             stopped_pid,
             stopped_start_ts,
             json,
-        } => {
+        }) => {
             let request = lastdb_node::byte_cloud_backup::StoppedBackupRequest {
                 request_id: Id::try_from(request_id)
                     .map_err(|_| "invalid stopped V2 request ID")?,
@@ -42,28 +42,30 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
                 json,
             );
         }
-        ByteBackupCommand::Start { request_id, json } => {
+        ByteBackupCommand::Start(BackupStartArgs { request_id, json }) => {
             let request_id =
                 Id::try_from(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))
                     .map_err(|_| "V2 request ID must be a canonical UUID")?;
             eprintln!("V2 backup request ID: {}", request_id.as_str());
             (ByteBackupRequest::Start { request_id }, json)
         }
-        ByteBackupCommand::Resume { json } => (ByteBackupRequest::Resume, json),
-        ByteBackupCommand::Status { json } => (ByteBackupRequest::Status, json),
-        ByteBackupCommand::Close { json } => (ByteBackupRequest::Close, json),
-        ByteBackupCommand::EnableAutomatic {
+        ByteBackupCommand::Resume(BackupJsonArgs { json }) => (ByteBackupRequest::Resume, json),
+        ByteBackupCommand::Status(BackupJsonArgs { json }) => (ByteBackupRequest::Status, json),
+        ByteBackupCommand::Close(BackupJsonArgs { json }) => (ByteBackupRequest::Close, json),
+        ByteBackupCommand::EnableAutomatic(BackupEnableArgs {
             log_interval_seconds,
             snapshot_interval_seconds,
             json,
-        } => (
+        }) => (
             ByteBackupRequest::EnableAutomatic {
                 log_interval_seconds,
                 snapshot_interval_seconds,
             },
             json,
         ),
-        ByteBackupCommand::DisableAutomatic { json } => (ByteBackupRequest::DisableAutomatic, json),
+        ByteBackupCommand::DisableAutomatic(BackupJsonArgs { json }) => {
+            (ByteBackupRequest::DisableAutomatic, json)
+        }
         action => return offline::run(home, action),
     };
     let body = serde_json::to_value(request).map_err(|_| "cannot encode V2 owner request")?;

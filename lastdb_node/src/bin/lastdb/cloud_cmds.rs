@@ -21,7 +21,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         CloudCommand::RestoreShared(selection) => {
             return shared_restore::run(data_dir.as_deref(), selection);
         }
-        CloudCommand::ResumeSharedRestore { workspace, json } => {
+        CloudCommand::ResumeSharedRestore(ResumeSharedRestoreArgs { workspace, json }) => {
             return shared_restore::resume(data_dir.as_deref(), &workspace, json);
         }
         CloudCommand::Payments { action, json } => {
@@ -43,12 +43,12 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
         CloudCommand::BackupV2 { action } => byte_backup::run(&home, action),
-        CloudCommand::PrepareRecoveryHome { .. }
-        | CloudCommand::RecoverCredentialsHome { .. }
+        CloudCommand::PrepareRecoveryHome(_)
+        | CloudCommand::RecoverCredentialsHome(_)
         | CloudCommand::RecoverDevCredentialsHome { .. }
         | CloudCommand::SharedWriter(_)
         | CloudCommand::RestoreShared(_)
-        | CloudCommand::ResumeSharedRestore { .. }
+        | CloudCommand::ResumeSharedRestore(_)
         | CloudCommand::Payments { .. } => {
             unreachable!("handled before home resolution")
         }

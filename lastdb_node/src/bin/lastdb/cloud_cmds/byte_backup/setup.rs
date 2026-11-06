@@ -16,13 +16,13 @@ const PHRASE_FILE: &str = "recovery-phrase.txt";
 pub(crate) fn is_setup(action: &ByteBackupCommand) -> bool {
     matches!(
         action,
-        ByteBackupCommand::Init { .. } | ByteBackupCommand::Connect { .. }
+        ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)
     )
 }
 
 pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
     match action {
-        ByteBackupCommand::Connect {
+        ByteBackupCommand::Connect(BackupConnectArgs {
             existing: true,
             env,
             api_key_stdin,
@@ -31,7 +31,7 @@ pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<
             invite_code_stdin,
             restored,
             json,
-        } => {
+        }) => {
             if !api_key_stdin || dev || invite_code_stdin || restored {
                 return Err(
                     "existing connection requires only an environment and API key stdin".into(),
@@ -51,17 +51,17 @@ pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<
 fn setup_enabled(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
     lastdb_node::byte_cloud_backup::require_enabled().map_err(|error| error.to_string())?;
     match action {
-        ByteBackupCommand::Init {
+        ByteBackupCommand::Init(BackupInitArgs {
             into,
             recovery_phrase_out,
             json,
-        } => {
+        }) => {
             if source.is_some() {
                 return Err("native backup init uses --into without --data-dir".into());
             }
             initialize(&into, &recovery_phrase_out, json)
         }
-        ByteBackupCommand::Connect {
+        ByteBackupCommand::Connect(BackupConnectArgs {
             dev,
             invite_code_stdin,
             restored,
@@ -70,7 +70,7 @@ fn setup_enabled(source: Option<&Path>, action: ByteBackupCommand) -> Result<(),
             env,
             api_key_stdin,
             expected_user_hash,
-        } => {
+        }) => {
             if !dev || existing || env.is_some() || api_key_stdin || expected_user_hash.is_some() {
                 return Err("native backup connect requires --dev".into());
             }
