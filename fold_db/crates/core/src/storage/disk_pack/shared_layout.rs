@@ -10,7 +10,6 @@ use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use laststore::disk_run::home::{RunHome, RunRead};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 pub(super) mod journal;
 pub(super) mod range;
@@ -312,6 +311,24 @@ impl PackRuntime {
         Ok(())
     }
 
+    /// Active dedicated writers replay only the shared schemas fixed at creation.
+    pub fn require_shared_replay_alias(&self, name: &str) -> StorageResult<()> {
+        if let Some(shared) = &self.physical.shared {
+            if !shared
+                .scope
+                .read()
+                .expect("shared disk scope")
+                .aliases
+                .contains(name)
+            {
+                return Err(invalid(
+                    "peer schema is outside this dedicated shared disk scope",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(in crate::storage) fn staged_shared_restore_aliases<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
@@ -380,8 +397,4 @@ pub(super) fn invalid(reason: &str) -> StorageError {
 fn part<'a>(key: &'a str, prefix: &str) -> Option<&'a str> {
     let rest = key.strip_prefix(prefix)?;
     Some(rest.split_once(':').map_or(rest, |(first, _)| first))
-}
-
-pub(super) fn private_path(main: &RunHome) -> PathBuf {
-    main.path().with_file_name(PRIVATE_DIR)
 }

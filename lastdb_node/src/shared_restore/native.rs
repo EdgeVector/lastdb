@@ -305,6 +305,14 @@ pub(crate) async fn resolve_schemas(
         .collect();
     let mut install = Vec::new();
     for (binding, schema) in &resolved {
+        if matches!(target, SchemaTarget::ActivePeer) {
+            db.db_ops()
+                .native_runtime()
+                .require_shared_replay_alias(&binding.local_schema)
+                .map_err(|_| {
+                    RestoreError::Invalid("peer schema is outside the dedicated disk scope")
+                })?;
+        }
         if !aliases.insert(&binding.local_schema) {
             return Err(RestoreError::Invalid("portable schema alias collision"));
         }

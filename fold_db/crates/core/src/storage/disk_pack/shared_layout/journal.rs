@@ -69,9 +69,8 @@ pub(in crate::storage::disk_pack) fn recover(
     let pending = private.path().join(PENDING);
     if pending.try_exists()? {
         let reader = RunReader::open(&pending_run(&pending)?, key).map_err(map)?;
-        let metadata = match reader.get(META).map_err(map)? {
-            Some(Found::Value(bytes)) => bytes,
-            _ => return Err(invalid("shared disk journal header is missing")),
+        let Some(Found::Value(metadata)) = reader.get(META).map_err(map)? else {
+            return Err(invalid("shared disk journal header is missing"));
         };
         let intent: Intent = decode(&metadata)?;
         let homes = [v2.home.as_ref(), v2.cas.as_ref(), private];

@@ -11,7 +11,7 @@ pub(in crate::storage) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLL
 use super::shared_layout::range::MergedRange;
 use super::*;
 use laststore::disk_run::home::RangeBounds;
-use laststore::disk_run::home::RunHashRange;
+use laststore::disk_run::home::{RunHashRange, RunRead};
 
 /// Most operations in one v2 commit.
 pub(in crate::storage) const V2_BATCH_OPERATIONS: usize = 16_384;
@@ -60,7 +60,7 @@ impl V2Read {
         let private = self
             .private
             .as_ref()
-            .map(|read| read.costs())
+            .map(RunRead::costs)
             .unwrap_or_default();
         PhysicalCosts {
             examined_keys: main.examined_keys + cas.examined_keys + private.examined_keys,
