@@ -35,6 +35,39 @@ impl SchemaCoverage {
     }
 }
 
+/// Names of manifest schemas that are still novel — the publish gate input.
+pub fn novel_schema_names(outcomes: &[CheckOutcome]) -> Vec<String> {
+    outcomes
+        .iter()
+        .filter(|o| !o.coverage.is_covered())
+        .map(|o| o.schema_name.clone())
+        .collect()
+}
+
+/// Fields of a raw manifest schema that lack a non-empty
+/// `field_descriptions` entry. Novel registration requires one per field
+/// (the catalog matches shapes semantically); surfacing the exact list
+/// client-side beats the server's generic 400.
+pub fn missing_field_descriptions(raw: &Value) -> Vec<String> {
+    let descs = raw.get("field_descriptions").and_then(Value::as_object);
+    raw.get("fields")
+        .and_then(Value::as_array)
+        .map(|fields| {
+            fields
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|f| {
+                    descs
+                        .and_then(|d| d.get(*f))
+                        .and_then(Value::as_str)
+                        .is_none_or(|s| s.trim().is_empty())
+                })
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Which declare-schema intent `check_schemas_with` sends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckMode {

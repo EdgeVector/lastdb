@@ -95,10 +95,6 @@ pub struct AppManifest {
 }
 
 pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
-    load_manifest_inner(path)
-}
-
-fn load_manifest_inner(path: &Path) -> Result<AppManifest, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read manifest {}: {e}", path.display()))?;
     let manifest: AppManifest = serde_json::from_str(&raw)
