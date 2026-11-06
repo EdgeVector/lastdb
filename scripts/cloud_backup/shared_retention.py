@@ -114,9 +114,10 @@ def run(operation, first, peer, publisher, receiver):
     version = 0
     points = [{"writer": settled(operation, first, version), "peer": settled(operation, peer, version)}]
     operation.summary["retention_measurements"] = points
-    operation.summary["stage"] = "shared-retention-overwrites"
+    require(all(row["file_keys"] == 3 for row in points[0].values()), "shared_retention_exact_live_files")
     for _ in range(WAVES):
         for _ in range(BATCHES):
+            operation.summary["stage"] = "shared-retention-overwrite-files"
             first.start()
             for _ in range(OVERWRITES_PER_BATCH):
                 version += 1
@@ -124,8 +125,11 @@ def run(operation, first, peer, publisher, receiver):
                 operation.attach(first, value, label(version))
             first.stop()
             through += 2 * OVERWRITES_PER_BATCH
+            operation.summary["stage"] = "shared-retention-upload-overwrites"
             operation.push(first, publisher, through)
+            operation.summary["stage"] = "shared-retention-replay-overwrites"
             drain(operation, peer, receiver)
+        operation.summary["stage"] = "shared-retention-measure-overwrites"
         points.append({"writer": settled(operation, first, version),
                        "peer": settled(operation, peer, version)})
         require(all(within_bound(points[0][role], points[-1][role]) for role in ("writer", "peer")),
