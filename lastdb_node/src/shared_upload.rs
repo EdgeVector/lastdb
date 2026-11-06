@@ -11,7 +11,7 @@ use cloud_backup_client::shared_log::{
 use cloud_backup_protocol::shared::{
     FileDependency, LogBatch, LogHead, SealedObject, WriterStream,
 };
-use cloud_backup_protocol::{bytes_sha256, AccountId, DecimalU64, Id, ProtocolError};
+use cloud_backup_protocol::{bytes_sha256, AccountId, DecimalU64, ErrorCode, Id, ProtocolError};
 use fold_db::fold_db_core::MutationManager;
 use fold_db::portable_mutation::{MutationEntry, MAX_MUTATION_ENTRY_BYTES};
 use fold_db::portable_replay::{LogRangeId, MAX_LOG_BYTES, MAX_LOG_ENTRIES};
@@ -79,6 +79,14 @@ pub async fn upload_next(
             if frozen.batch.after != page.uploaded_head {
                 return Err(UploadError::Invalid("frozen writer predecessor"));
             }
+            // A lost response may have left this batch accepted. Its objects
+            // may already be eligible for cleanup, so confirm before reupload.
+            match append_exact(client, identity, &frozen.batch).await {
+                Ok(outcome) => return settle(native, &spool, &frozen.batch, outcome).await,
+                Err(UploadError::Transport(BackupTransportError::Protocol(error)))
+                    if error.code == ErrorCode::MissingDependency => {}
+                Err(error) => return Err(error),
+            }
             frozen
         }
         None if page.entries.is_empty() => {
@@ -105,18 +113,34 @@ pub async fn upload_next(
         .ok_or(UploadError::Invalid("frozen mutation prefix"))?;
     files::upload(native, uploader, &frozen.batch, entries).await?;
     uploader.put_segment(&frozen.batch, frozen.sealed).await?;
+    let outcome = append_exact(client, identity, &frozen.batch).await?;
+    settle(native, &spool, &frozen.batch, outcome).await
+}
+
+async fn append_exact(
+    client: &SharedLogClient,
+    identity: &UploadIdentity<'_>,
+    batch: &LogBatch,
+) -> Result<AppendOutcome> {
     let proof = AppendAuthorization::sign(
         identity.account,
         identity.device,
         proof_expiry()?,
-        &frozen.batch,
+        batch,
         |message| Ok(identity.device_signer.sign(message).to_bytes()),
     )?;
-    match client.append(&frozen.batch, proof).await? {
+    Ok(client.append(batch, proof).await?)
+}
+
+async fn settle(
+    native: &MutationManager,
+    spool: &spool::Spool,
+    batch: &LogBatch,
+    outcome: AppendOutcome,
+) -> Result<UploadOutcome> {
+    match outcome {
         AppendOutcome::Accepted(receipt) => {
-            native
-                .confirm_portable_upload(&frozen.batch, &receipt)
-                .await?;
+            native.confirm_portable_upload(batch, &receipt).await?;
             spool.release()?;
             Ok(UploadOutcome::Accepted(receipt.head))
         }
