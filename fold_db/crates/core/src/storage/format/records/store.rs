@@ -61,6 +61,15 @@ impl RecordFormat {
         resolve_codec: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
+        if schema.file_required
+            && changes
+                .iter()
+                .any(|change| change.after.is_live() && change.after.file.is_none())
+        {
+            return Err(SchemaError::InvalidData(
+                "this record requires a file".into(),
+            ));
+        }
         let entries = super::outgoing::entries(schema, &changes)?;
         let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;

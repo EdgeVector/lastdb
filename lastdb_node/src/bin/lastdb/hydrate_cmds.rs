@@ -7,6 +7,7 @@ pub(super) fn hydrate(
     schema: &str,
     value: &mut serde_json::Value,
     out: &Path,
+    file_required: bool,
 ) -> Result<(), String> {
     let records = value["results"]
         .as_array_mut()
@@ -18,7 +19,11 @@ pub(super) fn hydrate(
         .pointer("/metadata/file")
         .filter(|value| !value.is_null())
     else {
-        return Ok(());
+        return if file_required {
+            Err("record is missing its required file".into())
+        } else {
+            Ok(())
+        };
     };
     let size = marker["size_bytes"]
         .as_u64()

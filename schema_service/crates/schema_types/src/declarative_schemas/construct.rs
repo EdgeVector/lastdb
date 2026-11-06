@@ -23,6 +23,7 @@ impl DeclarativeSchemaDefinition {
             key,
             alternate_keys: std::collections::BTreeMap::new(),
             record_keys: None,
+            file_required: false,
             fields,
             transform_fields,
             hash: None,

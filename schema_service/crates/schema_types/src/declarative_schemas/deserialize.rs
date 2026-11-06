@@ -20,6 +20,8 @@ struct DeclarativeSchemaDefinitionHelper {
     alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
     #[serde(default)]
     record_keys: Option<crate::record_keys::RecordKeys>,
+    #[serde(default)]
+    file_required: bool,
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
@@ -148,11 +150,13 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.source = self.source;
         schema.alternate_keys = self.alternate_keys;
         schema.record_keys = self.record_keys;
+        schema.file_required = self.file_required;
 
         // Recompute identity_hash if owner_app_id is present and the helper
         // didn't carry an explicit one. owner_app_id participates in
         // identity_hash; a deserialized schema must reflect that.
-        if schema.identity_hash.is_none() && schema.owner_app_id.is_some() {
+        if schema.identity_hash.is_none() && (schema.owner_app_id.is_some() || schema.file_required)
+        {
             schema.compute_identity_hash();
         }
 

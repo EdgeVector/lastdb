@@ -64,6 +64,7 @@ def replace_bytes(node, number):
 
 def seed(node):
     """Put COUNT + 2 records, each with one file. Return the expected state."""
+    prove_required_file(node)
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
         "record_keys": {"primary": {"kind": "hash"}, "alternates": {}}, "fields": list(FIELDS), "field_types": {"id": "String"},
@@ -81,6 +82,45 @@ def seed(node):
     files(node, expected)
     print("Complete record replacements retained the selected file without new payload bytes", flush=True)
     return expected
+
+
+def prove_required_file(node):
+    schema, target = "RequiredRecordFile", {"hash": "required-file"}
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": schema, "descriptive_name": schema,
+        "schema_type": "Hash", "file_required": True,
+        "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+        "fields": ["note"], "field_types": {"note": "String"},
+        "field_descriptions": {"note": "The note that requires its original file"},
+    }})
+    fields = {"note": "file content is part of this record"}
+    request = mutation(schema, target, fields, "create", expected={"type": "absent"})
+    require_file_refusal(node, "/api/mutation", request)
+    stored = node.call("/api/db/put-blob", {
+        "mutation": request, "bytes_b64": base64.b64encode(payload(0)).decode(),
+    })[0]
+    update = conditioned(node, [mutation(schema, target, fields)])[0]
+    update.pop("file", None)
+    node.call("/api/mutation", update)
+    clear = conditioned(node, [mutation(schema, target, fields)])[0]
+    clear.pop("file", None)
+    require_file_refusal(node, "/api/db/delete-blob", {"mutation": clear})
+    after = node.call("/api/db/fetch-blob", {"schema": schema, "key": target})[0]
+    require(after["file"]["sha256"] == stored["file"]["sha256"],
+            "the required file changed or disappeared during a record replacement")
+    delete = conditioned(node, [mutation(schema, target, {}, "delete")])[0]
+    node.call("/api/mutation", delete)
+    print("Required file admission and automatic preservation passed", flush=True)
+
+
+def require_file_refusal(node, route, request):
+    try:
+        node.call(route, request)
+    except RuntimeError as error:
+        require(getattr(error, "status", None) == 400 and "this record requires a file" in str(error),
+                "the required-file operation failed for an unrelated reason")
+        return
+    raise RuntimeError("a live required-file record was accepted without its file")
 
 
 def purge(node, numbers):

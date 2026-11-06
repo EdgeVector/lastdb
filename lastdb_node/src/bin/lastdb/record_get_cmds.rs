@@ -95,7 +95,8 @@ pub(super) fn get_record(
     )?;
     let mut value = parse_json_response(&response, "query")?;
     if let Some(out) = hydrate {
-        hydrate_cmds::hydrate(&socket, schema_name, &mut value, out)?;
+        let file_required = schema["file_required"].as_bool().unwrap_or(false);
+        hydrate_cmds::hydrate(&socket, schema_name, &mut value, out, file_required)?;
     }
     if json_only {
         println!(

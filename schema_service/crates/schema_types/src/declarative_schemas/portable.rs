@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fmt, str::FromStr};
 
-use super::{DeclarativeSchemaDefinition, IDENTITY_HASH_ALGO_VERSION};
+use super::DeclarativeSchemaDefinition;
 
 /// Immutable service identity of a complete portable definition.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -62,9 +62,7 @@ impl PortableSchemaDefinition {
         mut definition: DeclarativeSchemaDefinition,
     ) -> Result<Self, String> {
         Self::validate_catalog_id(catalog_id)?;
-        if definition.identity_hash.as_deref() != Some(catalog_id)
-            || definition.identity_hash_algo_version != Some(IDENTITY_HASH_ALGO_VERSION)
-        {
+        if definition.identity_hash.as_deref() != Some(catalog_id) {
             return Err("definition lacks the exact supported catalog identity".into());
         }
         if definition.record_keys.is_none() {
@@ -72,8 +70,11 @@ impl PortableSchemaDefinition {
         }
         definition.validate_definition()?;
         definition.require_typed_fields()?;
+        let identity_version = definition.identity_hash_algo_version;
         definition.compute_identity_hash();
-        if definition.identity_hash.as_deref() != Some(catalog_id) {
+        if definition.identity_hash.as_deref() != Some(catalog_id)
+            || definition.identity_hash_algo_version != identity_version
+        {
             return Err("schema catalog identity does not match its declaration".into());
         }
         definition.normalize_wire();
