@@ -8,8 +8,6 @@
 mod admin_cmds;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
-#[path = "lastdb/history_cmds.rs"]
-mod history_cmds;
 use app_cmds::*;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;

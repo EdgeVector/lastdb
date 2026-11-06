@@ -21,8 +21,6 @@ pub(crate) enum AdminCommand {
     /// Manage schema record expiration.
     #[command(subcommand)]
     Retention(SchemaRetentionCommand),
-    /// Inspect and recover retained field values.
-    History(super::history_cmds::HistoryArgs),
     /// Inspect storage, reclaim deleted space or raise a stopped home's replay floor.
     #[command(subcommand)]
     Storage(AdminStorageCommand),
