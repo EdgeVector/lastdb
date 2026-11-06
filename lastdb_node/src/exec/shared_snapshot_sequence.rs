@@ -201,13 +201,13 @@ impl Upload<'_> {
 async fn definitions(
     native: &MutationManager,
 ) -> Result<BTreeMap<String, PortableSchemaDefinition>> {
-    let aliases = native
+    let bindings = native
         .portable_writer_schemas()
         .await
         .map_err(native_error)?;
     let service = SchemaServiceClient::new(schema_service_url_for(DEV));
-    futures::stream::iter(aliases)
-        .map(|(name, id)| {
+    futures::stream::iter(bindings)
+        .map(|(id, alias)| {
             let service = &service;
             async move {
                 let id = PortableSchemaId::try_from(id)
@@ -216,7 +216,7 @@ async fn definitions(
                     .get_portable_schema(&id)
                     .await
                     .map_err(|_| RestoreError::Source("bound shared schema definition"))?;
-                Ok((name, definition))
+                Ok((alias, definition))
             }
         })
         .buffered(4)

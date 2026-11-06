@@ -65,6 +65,7 @@ def snapshot_command(operation, node, publisher):
             durable_batch(node, [native_records.create(operation.schema, target, expected)])
             row, = native_records.read_records(node, operation.schema, [target])
             require(row["fields"] == expected and upload_pending(intent), "shared_write_visible_during_upload")
+            operation.summary["live_write_during_upload"] = True
             receipt = decode_json(pending.result())
         through = operation.summary["publisher_tail_through"] + 1
         require(set(receipt) == {"snapshot_id", "writer_uploaded_through"}
@@ -74,6 +75,8 @@ def snapshot_command(operation, node, publisher):
         require(decode_json(execute(args, operation.programs.environment, b"", 120)) == receipt,
                 "shared_snapshot_command_exact_retry")
     finally:
+        operation.summary["snapshot_command_workspace_created"] = workspace.is_dir()
+        operation.summary["snapshot_command_upload_started"] = intent.is_file()
         path.unlink()
     node.stop()
     node.start()
@@ -84,7 +87,7 @@ def snapshot_command(operation, node, publisher):
     private_directory(workspace)
     shutil.rmtree(workspace)
     operation.summary.update(replacement_snapshot_id=receipt["snapshot_id"],
-                             snapshot_command_uploaded_through=through, live_write_during_upload=True,
+                             snapshot_command_uploaded_through=through,
                              live_write_after_restart=True, snapshot_command_exact_retry=True)
 
 
