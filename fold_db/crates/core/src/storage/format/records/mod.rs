@@ -19,6 +19,7 @@ mod maintenance;
 mod open;
 mod outgoing;
 mod release;
+mod retention;
 mod store;
 
 pub use alternates::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
@@ -94,7 +95,8 @@ fn encode(
             key: change.key.clone(),
             after: Arc::clone(&after),
             write: change.file_write,
-            retain_previous: !matches!(change.portable, PortableEffect::Local),
+            shared: !matches!(change.portable, PortableEffect::Local),
+            needs_upload: matches!(change.portable, PortableEffect::SharedAuthor(_)),
         });
         if after.is_live() {
             let value = after.encode_uncapped().map_err(record_value_error)?;

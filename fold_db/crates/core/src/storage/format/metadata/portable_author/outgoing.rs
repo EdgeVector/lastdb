@@ -1,4 +1,4 @@
-//! The local shared outbox is written under the native record transaction.
+//! The local shared mutation log is written under the native record transaction.
 
 use super::{
     author_row, inbox, invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata,
@@ -43,6 +43,9 @@ impl SharedAuthor {
                 .progress
                 .uploaded_through
                 .is_some_and(|n| n > self.progress.applied_through)
+            || self.uploaded_through_ms.is_some_and(|time| {
+                self.uploaded_head.is_none() || Some(time) > self.progress.applied_through_ms
+            })
         {
             return Err(invalid("invalid shared author state"));
         }
@@ -116,6 +119,7 @@ impl Metadata {
             schemas,
             progress: StreamProgress::default(),
             uploaded_head: None,
+            uploaded_through_ms: None,
         };
         shared.validate()?;
         let local_stream: StreamId = shared
@@ -215,7 +219,7 @@ impl Metadata {
         identity: &SchemaIdentity,
     ) -> StorageResult<String> {
         let SchemaIdentity::Shared(id) = identity else {
-            return Err(invalid("portable outbox requires a shared schema"));
+            return Err(invalid("portable mutation log requires a shared schema"));
         };
         let state = self.local_author().await?;
         shared(&state)?
@@ -229,7 +233,7 @@ impl Metadata {
         &self,
         batch: &LogBatch,
         receipt: &BatchReceipt,
-    ) -> StorageResult<()> {
+    ) -> StorageResult<Vec<MutationEntry>> {
         self.require_scope()?;
         receipt.validate_for(batch).map_err(invalid)?;
         let mut state = self.local_author().await?;
@@ -241,7 +245,7 @@ impl Metadata {
             return Err(invalid("cloud receipt belongs to a different writer"));
         }
         if shared.uploaded_head.as_ref() == Some(&receipt.head) {
-            return Ok(());
+            return Ok(Vec::new());
         }
         if shared.uploaded_head != batch.after {
             return Err(invalid("cloud receipt has a different predecessor"));
@@ -254,9 +258,27 @@ impl Metadata {
                 "cloud receipt does not cover the exact local range and file versions",
             ));
         }
+        let last = entries
+            .last()
+            .ok_or_else(|| invalid("empty accepted mutation range"))?;
         shared.progress.uploaded_through = Some(through);
         shared.uploaded_head = Some(receipt.head.clone());
-        self.stage_local_author(&state).await
+        shared.uploaded_through_ms = Some(last.stamp.authored_at_ms);
+        let retire_through = through.min(shared.progress.applied_through);
+        let retired: Vec<_> = entries
+            .into_iter()
+            .take_while(|entry| entry.stamp.position.sequence <= retire_through)
+            .collect();
+        let keys = retired
+            .iter()
+            .map(|entry| {
+                let position = &entry.stamp.position;
+                entry_key(&position.source_stream, position.sequence).into_bytes()
+            })
+            .collect();
+        self.stage_local_author(&state).await?;
+        self.stage_deletes(keys).await?;
+        Ok(retired)
     }
 
     /// The authored time at the latest locally verified cloud receipt.
@@ -267,6 +289,9 @@ impl Metadata {
         let Some(head) = &shared.uploaded_head else {
             return Ok(None);
         };
+        if let Some(time) = shared.uploaded_through_ms {
+            return Ok(Some(time));
+        }
         let through = head.sequence.get();
         if through == shared.progress.applied_through {
             return Ok(shared.progress.applied_through_ms);
@@ -321,7 +346,7 @@ impl Metadata {
     }
 }
 
-fn entry_key(stream: &StreamId, sequence: u64) -> String {
+pub(super) fn entry_key(stream: &StreamId, sequence: u64) -> String {
     format!("{ENTRY_PREFIX}{stream}:{sequence:020}")
 }
 

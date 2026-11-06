@@ -3,7 +3,9 @@
 use super::{map, RunHome, StorageResult};
 use crate::storage::content_key_proof;
 use crate::storage::disk_pack::{kv, run_admission::RECORD_NODE_BYTES};
-use crate::storage::format::metadata::{initial_local_author, LOCAL_AUTHOR_KEY};
+use crate::storage::format::metadata::{
+    initial_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY, LOCAL_AUTHOR_KEY,
+};
 use crate::storage::format::{
     CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE, MAIN_NAMESPACE, METADATA_NAMESPACE,
 };
@@ -29,8 +31,15 @@ pub(super) fn initialize(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&
         key,
         body: Some(initial_local_author(home.identity())?),
     };
+    let (collection, key) = kv::coordinate(METADATA_NAMESPACE, FILE_RETENTION_KEY.as_bytes());
+    let file_retention = HomeMutation {
+        collection,
+        key,
+        body: Some(FILE_RETENTION_COMPLETE.to_vec()),
+    };
     // RunHome publishes the proofs and author in one authenticated durable CURRENT.
     // A crash before the node marker leaves only recreatable creation state.
-    home.commit(vec![format, proof, author]).map_err(map)?;
+    home.commit(vec![format, proof, author, file_retention])
+        .map_err(map)?;
     Ok(RECORD_NODE_BYTES)
 }

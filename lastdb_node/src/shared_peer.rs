@@ -90,6 +90,9 @@ impl<'a> PeerWorker<'a> {
             })
             .await?;
         let outcome = self.apply_one(native, &heads).await?;
+        if matches!(outcome, PeerOutcome::Idle) {
+            native.reclaim_legacy_shared_retention().await?;
+        }
         let reclaimed = if matches!(outcome, PeerOutcome::NeedsCheckpoint { .. }) {
             0
         } else {

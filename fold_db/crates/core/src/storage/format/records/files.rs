@@ -4,15 +4,46 @@ use super::RecordAddress;
 use crate::schema::types::{FileWrite, FileWriteIssuer};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::record_file_path;
+use crate::storage::format::metadata::FileReferenceChange;
 use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(super) struct FileChange {
     pub(super) key: RecordAddress,
     pub(super) after: Arc<StoredRecord>,
     pub(super) write: Option<FileWrite>,
-    pub(super) retain_previous: bool,
+    pub(super) shared: bool,
+    pub(super) needs_upload: bool,
+}
+
+impl FileChange {
+    pub(super) fn references(
+        &self,
+        before: Option<&StoredRecord>,
+        references: &mut BTreeMap<String, FileReferenceChange>,
+    ) -> Result<(), SchemaError> {
+        let previous = before.and_then(|record| record.file_version.as_ref());
+        let next = self.after.file_version.as_ref();
+        if previous != next {
+            if let Some(version) = previous {
+                let path = record_file_path(self.key.as_str(), version)?;
+                let change = references.entry(path).or_default();
+                change.live = Some(false);
+                change.local_detach = !self.shared;
+            }
+        }
+        if let Some(version) = next.filter(|_| previous != next || self.needs_upload) {
+            let path = record_file_path(self.key.as_str(), version)?;
+            let change = references.entry(path).or_default();
+            change.live = Some(true);
+            if self.needs_upload {
+                change.pending_through = self.after.stamp.position.sequence;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Compare against the writer's current record, including every marker field.
@@ -24,10 +55,7 @@ pub(super) fn encode(
     content_key: Option<&[u8; 32]>,
 ) -> Result<Vec<KvMutation>, SchemaError> {
     let FileChange {
-        key,
-        after,
-        write,
-        retain_previous,
+        key, after, write, ..
     } = change;
     let previous = before.and_then(|record| record.file_version.as_ref());
     let next = after.file_version.as_ref();
@@ -65,11 +93,6 @@ pub(super) fn encode(
         rows.push(KvMutation::put(
             record_file_path(key.as_str(), version)?.into_bytes(),
             row,
-        ));
-    }
-    if let Some(version) = previous.filter(|_| !retain_previous) {
-        rows.push(KvMutation::delete(
-            record_file_path(key.as_str(), version)?.into_bytes(),
         ));
     }
     Ok(rows)

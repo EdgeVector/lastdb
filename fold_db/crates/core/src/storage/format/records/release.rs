@@ -5,6 +5,7 @@ use super::{
 };
 use crate::records::field_history::RecordHistoryEntry;
 use crate::schema::{Schema, SchemaError};
+use crate::storage::format::metadata::FileReferenceChange;
 use crate::storage::format::{history, HISTORY_RECORD_FAMILY, MAIN_NAMESPACE};
 use crate::storage::KvMutation;
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
@@ -118,6 +119,23 @@ impl RecordFormat {
                 .map(|(key, _)| KvMutation::delete(key))
                 .collect();
             self.main_store.inner().batch_mutate(deletes).await?;
+            let references = files
+                .into_iter()
+                .map(|key| {
+                    let path = String::from_utf8(key).map_err(|error| {
+                        SchemaError::InvalidData(format!("released file key: {error}"))
+                    })?;
+                    Ok((
+                        path,
+                        FileReferenceChange {
+                            live: Some(false),
+                            local_detach: true,
+                            ..FileReferenceChange::default()
+                        },
+                    ))
+                })
+                .collect::<Result<_, SchemaError>>()?;
+            let files = self.metadata.stage_file_references(references).await?;
             self.stage_files(files.into_iter().map(KvMutation::delete).collect())
                 .await?;
         }

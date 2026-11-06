@@ -12,7 +12,10 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvStore, StorageError};
 
+mod file_references;
 mod portable_author;
+pub(crate) use file_references::{FileReferenceChange, FileRetention};
+pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
 pub(in crate::storage) use portable_author::{
     initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };

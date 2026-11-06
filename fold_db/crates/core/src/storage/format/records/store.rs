@@ -11,6 +11,7 @@ use crate::storage::format::read::ReadStore;
 use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::record_value::StoredRecord;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(crate) struct RecordFormat {
@@ -19,7 +20,7 @@ pub(crate) struct RecordFormat {
     pub(super) runtime: Arc<PackRuntime>,
     pub(super) content_key: Option<[u8; 32]>,
     pub(super) file_issuer: FileWriteIssuer,
-    metadata: Metadata,
+    pub(super) metadata: Metadata,
 }
 
 impl RecordFormat {
@@ -100,11 +101,13 @@ impl RecordFormat {
             ));
         }
         let mut rows = Vec::with_capacity(changes.len());
+        let mut references = BTreeMap::new();
         for (change, bytes) in changes.into_iter().zip(stored) {
             let before = bytes
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
                 .map_err(super::record_value_error)?;
+            change.references(before.as_ref(), &mut references)?;
             rows.extend(super::files::encode(
                 change,
                 before.as_ref(),
@@ -112,6 +115,8 @@ impl RecordFormat {
                 self.content_key.as_ref(),
             )?);
         }
+        let retired = self.metadata.stage_file_references(references).await?;
+        rows.extend(retired.into_iter().map(KvMutation::delete));
         Ok(rows)
     }
 
@@ -150,7 +155,21 @@ impl RecordFormat {
             return Ok(());
         }
         self.require_scope()?;
-        self.file_store().await?.batch_mutate(rows).await?;
+        let store = self.file_store().await?;
+        let mut puts = Vec::new();
+        let mut deletes = Vec::new();
+        for row in rows {
+            match row {
+                KvMutation::Put { .. } => puts.push(row),
+                KvMutation::Delete { key } => deletes.push(key),
+            }
+        }
+        if !puts.is_empty() {
+            store.batch_mutate(puts).await?;
+        }
+        if !deletes.is_empty() {
+            self.runtime.stage_record_file_deletes(deletes)?;
+        }
         Ok(())
     }
 }

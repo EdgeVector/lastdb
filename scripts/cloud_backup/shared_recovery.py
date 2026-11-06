@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 import baseline_data
 import native_records
 import shared_multiwriter
+import shared_retention
 from automatic_source import durable_batch
 from baseline import private_write
 from node import OwnedNode
@@ -64,6 +65,8 @@ class Operation:
         self.output_owned = True
         self.summary.update(owner=self.owner, source=source, version=self.args.version)
 
+        require(not self.args.retention or (self.args.multiwriter and self.args.prior_summary is None),
+                "shared_retention_new_multiwriter_scope")
         writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
         self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
@@ -165,7 +168,9 @@ class Operation:
         home = self.root / name
         home.mkdir(mode=0o700)
         private_write(home / "identity.key", self.account_seed)
-        node = OwnedNode(home, self.programs, isolated_copy=self.args.multiwriter and name == "first")
+        inventory = self.args.retention and name in ("first", "peer")
+        node = OwnedNode(home, self.programs, storage_inventory=inventory,
+                         isolated_copy=inventory or (self.args.multiwriter and name == "first"))
         self.nodes.append(node)
         node.start()
         node.stop()
@@ -337,6 +342,8 @@ class Operation:
         expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
         require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
+        if self.args.retention:
+            shared_retention.run(self, first, peer, a, b)
         self.remove_sources(self.nodes)
         if os.path.lexists(publication):
             private_directory(publication)
@@ -383,6 +390,8 @@ class Operation:
             records[shared_multiwriter.PEER_TAIL] = shared_multiwriter.peer_tail_record(self)
         files = {"checkpoint": hashlib.sha256(self.payload("checkpoint")).hexdigest(),
                  "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
+        if self.args.retention:
+            shared_retention.expect_restore(self, records, files)
         self.summary["stage"] = "verify-restored-native-home"
         for _ in range(2):
             node.start()
@@ -430,6 +439,7 @@ def main():
     parser.add_argument("--prior-source")
     parser.add_argument("--readback-reader", choices=("publisher", "peer"), default="peer")
     parser.add_argument("--multiwriter", action="store_true")
+    parser.add_argument("--retention", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
