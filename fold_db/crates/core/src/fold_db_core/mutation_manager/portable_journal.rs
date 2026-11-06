@@ -80,7 +80,7 @@ impl MutationManager {
             .await
     }
 
-    /// Exact service identities already bound to this home's shared journal.
+    /// Map each bound immutable service identity to its local schema alias.
     pub async fn portable_writer_schemas(&self) -> Result<BTreeMap<String, String>, SchemaError> {
         self.db_ops
             .read_scope()
