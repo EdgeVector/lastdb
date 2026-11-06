@@ -6,7 +6,7 @@ use crate::shared_restore::recovery::{
 };
 use crate::shared_restore::{resolve_schemas, schema_id};
 use cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
-use cloud_backup_protocol::shared::peer::{PeerHeadsRequest, PeerNextRequest};
+use cloud_backup_protocol::shared::peer::{PeerHeads, PeerHeadsRequest, PeerNextRequest};
 use cloud_backup_protocol::shared::{StreamCut, WriterStream};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id};
 use fold_db::fold_db_core::mutation_manager::portable_replay::{ReplayBinding, ReplayCandidate};
@@ -88,14 +88,23 @@ impl<'a> PeerWorker<'a> {
         let reader = native.portable_outgoing().await?.stream;
         let heads = self
             .client
-            .heads(
-                &PeerHeadsRequest {
-                    reader: reader.clone(),
-                },
-                proof_expires()?,
-                |bytes| Ok(self.identity.device_signer.sign(bytes).to_bytes()),
-            )
+            .heads(&PeerHeadsRequest { reader }, proof_expires()?, |bytes| {
+                Ok(self.identity.device_signer.sign(bytes).to_bytes())
+            })
             .await?;
+        let outcome = self.apply_one(native, &heads).await?;
+        if !matches!(outcome, PeerOutcome::NeedsCheckpoint { .. }) {
+            native.reclaim_portable_deletes(&heads).await?;
+        }
+        Ok(outcome)
+    }
+
+    async fn apply_one(
+        &mut self,
+        native: &MutationManager,
+        heads: &PeerHeads,
+    ) -> Result<PeerOutcome> {
+        let reader = &heads.reader;
         let start = heads.streams.partition_point(|cut| {
             self.last_peer
                 .as_ref()
@@ -121,7 +130,7 @@ impl<'a> PeerWorker<'a> {
                 continue;
             }
             if cursor.is_some() {
-                match self.apply(native, &reader, &stream).await {
+                match self.apply(native, reader, &stream).await {
                     Ok(Some(through)) => {
                         return Ok(PeerOutcome::Applied {
                             stream: cut.source_stream.clone(),
@@ -145,17 +154,10 @@ impl<'a> PeerWorker<'a> {
                     stream: cut.source_stream.clone(),
                 });
             }
-            self.stage(
-                native,
-                &reader,
-                cut,
-                stream.clone(),
-                after,
-                cursor.is_none(),
-            )
-            .await?;
+            self.stage(native, reader, cut, stream.clone(), after, cursor.is_none())
+                .await?;
             let through =
-                self.apply(native, &reader, &stream)
+                self.apply(native, reader, &stream)
                     .await?
                     .ok_or(RestoreError::Invalid(
                         "staged peer range did not reach replay",

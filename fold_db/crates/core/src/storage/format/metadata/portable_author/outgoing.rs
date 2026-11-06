@@ -236,6 +236,25 @@ impl Metadata {
         self.stage_local_author(&state).await
     }
 
+    /// The authored time at the latest locally verified cloud receipt.
+    pub(super) async fn portable_uploaded_time(
+        &self,
+        shared: &SharedAuthor,
+    ) -> StorageResult<Option<u64>> {
+        let Some(head) = &shared.uploaded_head else {
+            return Ok(None);
+        };
+        let through = head.sequence.get();
+        if through == shared.progress.applied_through {
+            return Ok(shared.progress.applied_through_ms);
+        }
+        let (entries, _) = self.read_outgoing(shared, through - 1, through).await?;
+        let entry = entries
+            .first()
+            .ok_or_else(|| invalid("accepted outgoing entry is missing"))?;
+        Ok(Some(entry.stamp.authored_at_ms))
+    }
+
     async fn read_outgoing(
         &self,
         shared: &SharedAuthor,

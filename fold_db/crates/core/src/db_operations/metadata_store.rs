@@ -6,6 +6,7 @@ pub use crate::storage::format::metadata::OutgoingPortablePage;
 use crate::storage::format::metadata::{
     AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema, Metadata,
 };
+use cloud_backup_protocol::shared::peer::PeerHeads;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
 use lastdb_model::portable_mutation::{SchemaIdentity, Stamp, StreamId, StreamProgress};
 use lastdb_model::portable_replay::LogRangeId;
@@ -26,9 +27,9 @@ impl MetadataStore {
 
     pub(crate) async fn portable_delete_cutoff(
         &self,
-        participants: &BTreeSet<StreamId>,
+        directory: &PeerHeads,
     ) -> Result<Option<u64>, SchemaError> {
-        Ok(self.format.portable_delete_cutoff(participants).await?)
+        Ok(self.format.portable_delete_cutoff(directory).await?)
     }
 
     pub(crate) async fn stage_delete_reclaimed(

@@ -3,6 +3,7 @@
 use super::{invalid, MutationManager, ReplayCandidate};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
+use cloud_backup_protocol::shared::peer::PeerHeads;
 use lastdb_model::portable_mutation::{
     MutationEntry, Position, SchemaIdentity, StreamId, StreamProgress,
 };
@@ -16,16 +17,14 @@ pub struct ReplayBinding<'a> {
 }
 
 impl MutationManager {
-    /// Reclaim one bounded batch after shared publish and recovery are qualified.
-    /// The authorized owner supplies the complete writer directory. Each
-    /// participant must already have passed the erased timestamp.
+    /// Reclaim one bounded batch behind every writer in the cloud directory.
     pub async fn reclaim_portable_deletes(
         &self,
-        participants: &BTreeSet<StreamId>,
+        directory: &PeerHeads,
     ) -> Result<u64, SchemaError> {
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let metadata = self.db_ops.metadata();
-            let Some(cutoff) = metadata.portable_delete_cutoff(participants).await? else {
+            let Some(cutoff) = metadata.portable_delete_cutoff(directory).await? else {
                 return Ok(0);
             };
             let reclaimed = self
