@@ -5,7 +5,6 @@
 //! The encoded batch has no public fields or raw append/unwrap operation.
 //! It stages into an already-open request; it never opens or commits a home.
 //!
-//! Legacy history cleanup stages its own opaque pages in the same request.
 //! The provider holds read-only views; this format owns retained file/control
 //! and schema-release writes too. Broad bootstrap factories remain separate.
 
