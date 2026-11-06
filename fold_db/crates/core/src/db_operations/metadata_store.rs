@@ -167,6 +167,13 @@ impl MetadataStore {
         Ok(self.format.stage_outgoing_receipt(batch, receipt).await?)
     }
 
+    pub(crate) async fn stage_shared_restore_aliases<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.stage_shared_restore_aliases(names).await?)
+    }
+
     pub(crate) async fn stage_portable_restore(
         &self,
         progress: &BTreeMap<StreamId, StreamProgress>,

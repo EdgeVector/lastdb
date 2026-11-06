@@ -57,16 +57,12 @@ impl Scope {
         }
         let names: Vec<String> = serde_json::from_slice(bytes)
             .map_err(|_| invalid("shared schema scope requires a JSON array of aliases"))?;
-        let aliases: BTreeSet<_> = names.iter().cloned().collect();
-        if aliases.is_empty()
-            || aliases.len() > 64
-            || aliases.len() != names.len()
-            || aliases
-                .iter()
-                .any(|name| name.trim() != name || name.is_empty() || name.contains('\0'))
-        {
-            return Err(invalid("invalid or duplicate shared schema alias"));
+        let count = names.len();
+        let aliases: BTreeSet<_> = names.into_iter().collect();
+        if aliases.len() != count {
+            return Err(invalid("duplicate shared schema alias"));
         }
+        validate_aliases(&aliases)?;
         let spaces = aliases.iter().map(|name| record_space_uuid(name)).collect();
         Ok(Self {
             aliases,
