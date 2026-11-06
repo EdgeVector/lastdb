@@ -6,19 +6,19 @@
 //! contradicts the unit, and a missing JSON field deserializes to
 //! [`Availability::Unavailable`] instead of a measured zero.
 //!
-//! ## Wire compatibility (PR-1 contract)
+//! ## Wire compatibility
 //!
-//! No existing `/api/status` field is retyped in this PR. Later conversion PRs
-//! keep the bare-numeric wire shape via [`as_wire_u64`] / [`from_wire_u64`]
-//! and the [`serde_u64`] module (`#[serde(with = "gauge::serde_u64")]` or
-//! `from`/`into` on a thin wrapper). A missing or `null` field becomes
+//! No existing `/api/status` field is retyped. Callers that still speak a bare
+//! number use [`Gauge::as_wire_u64`] on the way out and
+//! [`serde_u64::deserialize_as`] on the way in, with the unit and window the
+//! field already declared. A missing or `null` field becomes
 //! [`UnavailableReason::FieldNotServed`], never `Measured(0)`.
 //!
 //! Ground truth: brain `design-lastdb-status-gauge-contract` (PR-1).
 
 use std::fmt;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Why a gauge value is not a trustworthy measurement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -75,17 +75,13 @@ impl Default for Availability {
 
 /// What the integer counts.
 ///
-/// The noun in [`Display`] is derived from this enum — `Unit::Edges` can never
-/// print as `row(s)`.
+/// The noun in [`Display`] is derived from this enum — `Unit::Keys` can never
+/// print as `byte(s)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Unit {
-    Rows,
-    Edges,
     Keys,
     Bytes,
-    Chunks,
     Events,
-    Micros,
     /// Escape hatch for operator nouns that are not yet in the closed set.
     Named(&'static str),
 }
@@ -94,13 +90,9 @@ impl Unit {
     /// Singular/plural-friendly noun fragment used by [`Display`].
     pub const fn noun(self) -> &'static str {
         match self {
-            Self::Rows => "row(s)",
-            Self::Edges => "edge(s)",
             Self::Keys => "key(s)",
             Self::Bytes => "byte(s)",
-            Self::Chunks => "chunk(s)",
             Self::Events => "event(s)",
-            Self::Micros => "µs",
             Self::Named(s) => s,
         }
     }
@@ -111,13 +103,9 @@ impl Unit {
     /// string as-is so operator-specific units remain identifiable.
     pub const fn contract_id(self) -> &'static str {
         match self {
-            Self::Rows => "rows",
-            Self::Edges => "edges",
             Self::Keys => "keys",
             Self::Bytes => "bytes",
-            Self::Chunks => "chunks",
             Self::Events => "events",
-            Self::Micros => "micros",
             Self::Named(s) => s,
         }
     }
@@ -131,13 +119,9 @@ impl Unit {
 pub enum Window {
     /// Point-in-time sample (queue depth "now", current RSS, …).
     Instant,
-    /// Rolling or fixed interval starting at `since_unix` (seconds since epoch).
-    Interval { since_unix: u64 },
     /// Totals accumulated since this process booted (`since_boot_unix` is the
     /// process start time as unix seconds when known).
     ProcessLifetime { since_boot_unix: u64 },
-    /// Lifetime/cumulative counter with no process-bound window claim.
-    Cumulative,
 }
 
 impl Window {
@@ -145,19 +129,15 @@ impl Window {
     pub const fn qualifier(self) -> &'static str {
         match self {
             Self::Instant => "now",
-            Self::Interval { .. } => "over interval",
             Self::ProcessLifetime { .. } => "this process",
-            Self::Cumulative => "cumulative",
         }
     }
 
-    /// Machine window kind for the contract block (`instant` / `interval` / …).
+    /// Machine window kind for the contract block (`instant` / `process_lifetime`).
     pub const fn contract_kind(self) -> &'static str {
         match self {
             Self::Instant => "instant",
-            Self::Interval { .. } => "interval",
             Self::ProcessLifetime { .. } => "process_lifetime",
-            Self::Cumulative => "cumulative",
         }
     }
 
@@ -167,11 +147,10 @@ impl Window {
     /// not attached" and is treated as absent so consumers do not invent epoch.
     pub const fn since_unix(self) -> Option<u64> {
         match self {
-            Self::Interval { since_unix } => Some(since_unix),
             Self::ProcessLifetime { since_boot_unix } if since_boot_unix > 0 => {
                 Some(since_boot_unix)
             }
-            Self::Instant | Self::Cumulative | Self::ProcessLifetime { .. } => None,
+            Self::Instant | Self::ProcessLifetime { .. } => None,
         }
     }
 }
@@ -232,48 +211,14 @@ impl fmt::Display for Gauge {
     }
 }
 
-/// Transparent bare-`u64` wire helpers for later `*Health` field conversion.
+/// Bare-`u64` deserialize helper for status fields that already know their unit
+/// and window.
 ///
-/// # Shape
-///
-/// - Serialize `Measured(n)` as the JSON number `n`.
-/// - Serialize `Unavailable` as JSON `null`.
-/// - Deserialize a JSON number as `Measured(n)`.
-/// - Deserialize JSON `null` as `Unavailable(FieldNotServed)`.
-/// - Pair with `#[serde(default = "...")]` on the field so a **missing** key
-///   also becomes `Unavailable(FieldNotServed)` (see tests).
-///
-/// Unit and window are **not** on this wire path — they stay in the Rust type
-/// via constructors / field defaults in the converting PR.
+/// A JSON number becomes [`Availability::Measured`]. JSON `null` becomes
+/// [`UnavailableReason::FieldNotServed`]. Unit and window are arguments, not
+/// wire fields.
 pub mod serde_u64 {
     use super::*;
-
-    pub fn serialize<S>(gauge: &Gauge, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match gauge.value {
-            Availability::Measured(n) => serializer.serialize_u64(n),
-            Availability::Unavailable(_) => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Gauge, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Transparent path only carries the number (or null). Callers that
-        // need real unit/window attach them after deserialize via
-        // `with_unit_window` or by constructing the field with known metadata.
-        // Here we use placeholder Instant/Rows only when this free function is
-        // used without a wrapper; production conversion uses typed helpers
-        // below (`deserialize_as`).
-        let opt = Option::<u64>::deserialize(deserializer)?;
-        Ok(match opt {
-            Some(n) => Gauge::measured(n, Unit::Rows, Window::Instant),
-            None => Gauge::field_not_served(Unit::Rows, Window::Instant),
-        })
-    }
 
     /// Deserialize a bare number / null into a gauge with known unit + window.
     pub fn deserialize_as<'de, D>(
@@ -292,8 +237,6 @@ pub mod serde_u64 {
     }
 }
 
-/// Attach unit/window after a transparent wire round-trip that only carried the
-/// number. Prefer constructing with the correct unit/window up front.
 impl Gauge {
     /// Availability token for the contract block (`measured` / `unavailable`).
     pub const fn availability_token(self) -> &'static str {
@@ -311,58 +254,5 @@ impl Gauge {
                 Some("field_not_served")
             }
         }
-    }
-}
-
-/// Thin newtype used only in tests / conversion examples: serde as bare u64
-/// while preserving a fixed unit/window pair for Display.
-///
-/// Production `*Health` fields can follow the same pattern with
-/// `#[serde(from = "WireU64", into = "WireU64")]` once conversion PRs land.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TransparentGauge {
-    pub gauge: Gauge,
-}
-
-/// Wire form: optional bare integer (`None` / missing ⇒ unavailable).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct WireU64(pub Option<u64>);
-
-impl TransparentGauge {
-    pub const fn measured(n: u64, unit: Unit, window: Window) -> Self {
-        Self {
-            gauge: Gauge::measured(n, unit, window),
-        }
-    }
-
-    pub const fn field_not_served(unit: Unit, window: Window) -> Self {
-        Self {
-            gauge: Gauge::field_not_served(unit, window),
-        }
-    }
-}
-
-impl From<WireU64> for TransparentGauge {
-    fn from(w: WireU64) -> Self {
-        // Unit/window are not on the wire; conversion sites override with
-        // `with_unit_window` after `from`. Default Instant/Rows is intentional
-        // only for the round-trip helper path tested below.
-        match w.0 {
-            Some(n) => Self::measured(n, Unit::Rows, Window::Instant),
-            None => Self::field_not_served(Unit::Rows, Window::Instant),
-        }
-    }
-}
-
-impl From<TransparentGauge> for WireU64 {
-    fn from(t: TransparentGauge) -> Self {
-        Self(t.gauge.as_wire_u64())
-    }
-}
-
-impl fmt::Display for TransparentGauge {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.gauge.fmt(f)
     }
 }
