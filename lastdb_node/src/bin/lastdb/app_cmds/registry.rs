@@ -1,5 +1,5 @@
-//! Themed module split from the parent: reading the signed public index or
-//! the live registry service, and installing, upgrading and running apps.
+//! Themed module split from the parent: reading the signed public index,
+//! and installing, upgrading and running apps.
 
 // The handlers take the parsed CLI fields by value: the dispatcher destructures
 // an owned `AppCommand`, so borrowing would only add clones at the call sites.
@@ -9,19 +9,6 @@ use super::*;
 
 use lastdb_node::app_publish;
 use lastdb_node::app_registry_index as registry_index;
-
-/// Which registry a command reads. `--env` / `--schema-url` select the live
-/// registry service; without either, the signed public index is the source.
-fn registry_service_url(
-    env: Option<&str>,
-    schema_url: Option<String>,
-) -> Result<Option<String>, String> {
-    if env.is_some() || schema_url.is_some() {
-        resolve_schema_service_url(schema_url, env).map(Some)
-    } else {
-        Ok(None)
-    }
-}
 
 /// `--dir` names one checkout, so it cannot apply to several apps.
 pub(super) fn check_dir_matches_app_count(
@@ -40,33 +27,11 @@ pub(super) fn short_sha(sha: &str) -> &str {
 
 pub(crate) fn app_list(
     home: &Path,
-    env: Option<String>,
-    schema_url: Option<String>,
     channel: Option<String>,
     index: Option<String>,
     trust_key: Option<String>,
     json: bool,
 ) -> Result<(), String> {
-    if let Some(url) = registry_service_url(env.as_deref(), schema_url)? {
-        let apps = block_on_app(app_publish::list_apps(&url))?;
-        if json {
-            print_pretty_json(&apps);
-        } else if apps.is_empty() {
-            println!("registry has no published apps");
-        } else {
-            for app in &apps {
-                println!(
-                    "{}\t{}\t{:?}\t{}\t{}",
-                    app.app_id,
-                    app.version,
-                    app.tier,
-                    app.metadata.display_name,
-                    app.metadata.description
-                );
-            }
-        }
-        return Ok(());
-    }
     let list = public_list(
         home,
         channel.as_deref(),
@@ -116,17 +81,10 @@ pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<()
 pub(crate) fn app_info(
     home: &Path,
     app_id: &str,
-    env: Option<String>,
-    schema_url: Option<String>,
     channel: Option<String>,
     index: Option<String>,
     trust_key: Option<String>,
 ) -> Result<(), String> {
-    if let Some(url) = registry_service_url(env.as_deref(), schema_url)? {
-        let record = block_on_app(app_publish::app_info(&url, app_id))?;
-        print_pretty_json(&record);
-        return Ok(());
-    }
     let list = public_list(
         home,
         channel.as_deref(),
@@ -152,8 +110,7 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
         return app_install_local(home, &install);
     }
 
-    if install.dir.is_none() && install.source.env.is_none() && install.source.schema_url.is_none()
-    {
+    if install.dir.is_none() {
         return super::managed::install(home, &install);
     }
     let AppInstall {
@@ -162,90 +119,57 @@ pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String
         app_ids,
         source:
             RegistrySource {
-                env,
-                schema_url,
                 channel,
                 index,
                 trust_key,
                 lastdb_version,
             },
         dir,
-        allow_sandbox,
         force,
         json,
         ..
     } = install;
     check_dir_matches_app_count(&dir, &app_ids)?;
-    if env.is_none() && schema_url.is_none() {
-        if !json {
-            eprintln!(
-                "Apps run with your user permissions. Registry signatures do not sandbox them."
-            );
-        }
-        let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-        let mut outcomes = Vec::new();
-        for app_id in &app_ids {
-            let resolution = resolve_by_proof(
-                &socket,
-                app_id,
-                channel.as_deref(),
-                index.as_deref(),
-                trust_key.as_deref(),
-                lastdb_version.as_deref(),
-            )?;
-            let install_dir = dir
-                .clone()
-                .unwrap_or_else(|| home.join("apps").join(app_id));
-            let outcome = registry_index::install_pinned(&resolution, &install_dir, force)?;
-            if !json {
-                println!(
-                    "installed: {} {} @ {} (proved with lastdb {} by {})",
-                    outcome.app_id,
-                    outcome.app_version,
-                    short_sha(&outcome.sha),
-                    outcome.lastdb_version,
-                    outcome.proof_run
-                );
-                println!("  source: {}", outcome.source);
-                println!("  checkout: {}", outcome.checkout_path);
-            }
-            outcomes.push(outcome);
-        }
-        if json {
-            print_pretty_json(&outcomes);
-        }
-        return Ok(());
+    if !json {
+        eprintln!("Apps run with your user permissions. Registry signatures do not sandbox them.");
     }
-    let app_id = single_app(&app_ids)?;
-    let url = resolve_schema_service_url(schema_url, env.as_deref())?;
-    let install_dir = dir.unwrap_or_else(|| home.join("apps").join(&app_id));
-    let outcome = block_on_app(app_publish::install_app(
-        &url,
-        &app_id,
-        &install_dir,
-        allow_sandbox,
-        force,
-    ))?;
-    if json {
-        print_pretty_json(&outcome);
-    } else {
-        println!("installed: {}", outcome.app_id);
-        println!("  version: {}", outcome.version);
-        println!("  source: {}", outcome.source);
-        println!("  checkout: {}", outcome.checkout_path);
-        println!("  install: {}", outcome.install_dir);
-        println!("  tier: {}", outcome.tier);
-        println!("  publisher: {}", outcome.owner_dev_pubkey);
-        if outcome.code_signature_declared {
-            println!("  code_signature: declared");
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let mut outcomes = Vec::new();
+    for app_id in &app_ids {
+        let resolution = resolve_by_proof(
+            &socket,
+            app_id,
+            channel.as_deref(),
+            index.as_deref(),
+            trust_key.as_deref(),
+            lastdb_version.as_deref(),
+        )?;
+        let install_dir = dir
+            .clone()
+            .unwrap_or_else(|| home.join("apps").join(app_id));
+        let outcome = registry_index::install_pinned(&resolution, &install_dir, force)?;
+        if !json {
+            println!(
+                "installed: {} {} @ {} (proved with lastdb {} by {})",
+                outcome.app_id,
+                outcome.app_version,
+                short_sha(&outcome.sha),
+                outcome.lastdb_version,
+                outcome.proof_run
+            );
+            println!("  source: {}", outcome.source);
+            println!("  checkout: {}", outcome.checkout_path);
         }
+        outcomes.push(outcome);
+    }
+    if json {
+        print_pretty_json(&outcomes);
     }
     Ok(())
 }
 
 pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String> {
-    if upgrade.dir.is_none() && upgrade.source.env.is_none() && upgrade.source.schema_url.is_none()
-    {
+    if upgrade.dir.is_none() {
         return super::managed::upgrade(home, &upgrade);
     }
     let AppUpgrade {
@@ -254,81 +178,53 @@ pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String
         app_ids,
         source:
             RegistrySource {
-                env,
-                schema_url,
                 channel,
                 index,
                 trust_key,
                 lastdb_version,
             },
         dir,
-        allow_sandbox,
         json,
     } = upgrade;
     check_dir_matches_app_count(&dir, &app_ids)?;
-    if env.is_none() && schema_url.is_none() {
-        let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-        let mut outcomes = Vec::new();
-        for app_id in &app_ids {
-            let resolution = resolve_by_proof(
-                &socket,
-                app_id,
-                channel.as_deref(),
-                index.as_deref(),
-                trust_key.as_deref(),
-                lastdb_version.as_deref(),
-            )?;
-            let install_dir = dir
-                .clone()
-                .unwrap_or_else(|| home.join("apps").join(app_id));
-            let outcome = registry_index::upgrade_pinned(&resolution, &install_dir)?;
-            if !json {
-                if outcome.upgraded {
-                    println!(
-                        "upgraded: {} {} @ {} -> {} @ {}",
-                        outcome.app_id,
-                        outcome.installed_version,
-                        short_sha(&outcome.installed_sha),
-                        outcome.resolved_version,
-                        short_sha(&outcome.resolved_sha)
-                    );
-                } else {
-                    println!(
-                        "already current: {} {} @ {}",
-                        outcome.app_id,
-                        outcome.installed_version,
-                        short_sha(&outcome.installed_sha)
-                    );
-                }
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let mut outcomes = Vec::new();
+    for app_id in &app_ids {
+        let resolution = resolve_by_proof(
+            &socket,
+            app_id,
+            channel.as_deref(),
+            index.as_deref(),
+            trust_key.as_deref(),
+            lastdb_version.as_deref(),
+        )?;
+        let install_dir = dir
+            .clone()
+            .unwrap_or_else(|| home.join("apps").join(app_id));
+        let outcome = registry_index::upgrade_pinned(&resolution, &install_dir)?;
+        if !json {
+            if outcome.upgraded {
+                println!(
+                    "upgraded: {} {} @ {} -> {} @ {}",
+                    outcome.app_id,
+                    outcome.installed_version,
+                    short_sha(&outcome.installed_sha),
+                    outcome.resolved_version,
+                    short_sha(&outcome.resolved_sha)
+                );
+            } else {
+                println!(
+                    "already current: {} {} @ {}",
+                    outcome.app_id,
+                    outcome.installed_version,
+                    short_sha(&outcome.installed_sha)
+                );
             }
-            outcomes.push(outcome);
         }
-        if json {
-            print_pretty_json(&outcomes);
-        }
-        return Ok(());
+        outcomes.push(outcome);
     }
-    let app_id = single_app(&app_ids)?;
-    let url = resolve_schema_service_url(schema_url, env.as_deref())?;
-    let install_dir = dir.unwrap_or_else(|| home.join("apps").join(&app_id));
-    let outcome = block_on_app(app_publish::upgrade_app(
-        &url,
-        &app_id,
-        &install_dir,
-        allow_sandbox,
-    ))?;
     if json {
-        print_pretty_json(&outcome);
-    } else if outcome.upgraded {
-        println!(
-            "upgraded: {} {} -> {}",
-            outcome.app_id, outcome.installed_version, outcome.registry_version
-        );
-    } else {
-        println!(
-            "already current: {} {}",
-            outcome.app_id, outcome.installed_version
-        );
+        print_pretty_json(&outcomes);
     }
     Ok(())
 }

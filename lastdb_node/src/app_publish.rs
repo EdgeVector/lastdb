@@ -16,7 +16,7 @@
 //!    (`POST /v1/apps/{app_id}/promote`, purpose `app_promote`).
 //!
 //! The signing identity is a developer-local Ed25519 keypair (`dev-init`).
-//! Read surfaces: `list` (`GET /v1/apps`) and `info` (`GET /v1/apps/{app_id}`).
+//! `list` and `info` read the signed public index, not this module.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -32,16 +32,15 @@ use app_identity_crypto::{
 };
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use schema_service_client::{SchemaServiceClient, SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT};
-use schema_service_core::app_identity::{app_version_is_greater, validate_app_version};
-use schema_service_core::snapshot::{AppArtifact, AppMetadata, AppRecord, AppTier};
+use schema_service_client::SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT;
+use schema_service_core::app_identity::validate_app_version;
+use schema_service_core::snapshot::{AppArtifact, AppMetadata};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 mod devkey;
 mod http;
 mod install;
-mod install_steps;
 mod manifest;
 mod publish;
 mod release;
