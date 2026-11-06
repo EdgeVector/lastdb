@@ -1,4 +1,4 @@
-//! Socket and HTTP helpers.
+//! HTTP requests to the local Mini Unix socket.
 
 use super::*;
 
@@ -115,14 +115,4 @@ pub(super) fn parse_http_response(raw: &str) -> Result<(u16, Value), String> {
 
 pub(super) fn head(raw: &str) -> &str {
     observability::truncate::truncate_on_char_boundary(raw, 80)
-}
-
-pub(super) fn http_client() -> Result<reqwest::Client, String> {
-    // trace-egress: propagate (dev publish path; short-lived CLI client)
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .connect_timeout(SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT)
-        .no_proxy()
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))
 }

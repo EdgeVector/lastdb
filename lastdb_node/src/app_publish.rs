@@ -1,34 +1,16 @@
 //! `lastdb app …` — developer-facing app registration + publish flow.
 //!
-//! Implements the canonical two-step registration process against the
-//! LastDB app registry (design: brain `design-lastdb-app-registry`):
-//!
-//! 1. **check** — by default a read-only plan: post each manifest schema to
-//!    the local Mini's app-facing route (`POST /api/apps/declare-schema`) with
-//!    intent `check`, which reports what a sync would do (reuse / compose /
-//!    register / expand, or the error a sync would hit) and writes nothing.
-//!    `--sync` uses intent `catalog_sync` instead and reports the catalog
-//!    identity only when the audited result is bind-eligible.
-//! 2. **promote** — HARD GATE: refuse unless every manifest schema resolves to
-//!    catalog identities, then mint a short-TTL DevCert and promote the row
-//!    (`POST /v1/apps/{app_id}/promote`, purpose `app_promote`).
-//!
-//! The signing identity is a developer-local Ed25519 keypair (`dev-init`).
-//! `list` and `info` read the signed public index, not this module.
+//! Load app manifests, manage developer keys, and check schema coverage on
+//! the local Mini daemon. Signed registry publication uses these helpers.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use app_identity_crypto::{
-    compute_payload_hash, key_id, sign_envelope, DevCert, Env, Purpose as AppIdentityPurpose,
-    SignatureEnvelope, SigningKey, ALG_ED25519, ENVELOPE_VERSION,
-};
+use app_identity_crypto::SigningKey;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use schema_service_client::SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT;
 use schema_service_core::app_identity::validate_app_version;
 use schema_service_core::snapshot::{AppArtifact, AppMetadata};
 use serde::Deserialize;
@@ -37,12 +19,9 @@ use serde_json::{json, Value};
 mod devkey;
 mod http;
 mod manifest;
-mod publish;
-mod release;
 mod schema_check;
 
 pub use devkey::*;
 use http::*;
 pub use manifest::*;
-pub use publish::*;
 pub use schema_check::*;
