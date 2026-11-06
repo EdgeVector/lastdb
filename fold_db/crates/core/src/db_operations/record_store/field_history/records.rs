@@ -7,17 +7,12 @@ pub(super) use crate::storage::format::history::QueueEntry;
 use crate::storage::format::history::{self as format, record_prefix, HistoryChange};
 use std::collections::BTreeMap;
 
-/// Bound the old-value rows that can join a single record purge.
-const PURGE_RELEASE_CAP: u64 = 1_024;
-
 /// The field history rows of one record group.
 #[derive(Default)]
-pub(crate) struct RecordHistoryRows {
-    pub(crate) changes: Vec<HistoryChange>,
-    /// The entries that a purge released.
-    pub(crate) released: u64,
-    /// The change of the entry count of each record key.
-    pub(super) counts: BTreeMap<String, i64>,
+struct RecordHistoryRows {
+    changes: Vec<HistoryChange>,
+    released: u64,
+    counts: BTreeMap<String, i64>,
 }
 
 fn invalid(error: impl std::fmt::Display) -> SchemaError {
@@ -31,7 +26,7 @@ pub(super) fn is_record_history(key: &str) -> bool {
 
 /// Delete one entry and its queue entry, and lower the
 /// entry count of its record.
-pub(super) fn release(
+fn release(
     key: &str,
     entry: &RecordHistoryEntry,
     out: &mut RecordHistoryRows,
@@ -43,62 +38,63 @@ pub(super) fn release(
 }
 
 impl RecordStore {
-    /// Join legacy history cleanup to the same commit as each record purge.
-    pub(crate) async fn record_history_releases(
+    /// Stage legacy history deletes in pages in the same request as the record.
+    /// The native transaction bounds all staged operations and discards them
+    /// together if admission or any later part of the purge fails.
+    pub(crate) async fn stage_purged_record_history(
         &self,
         records: &[&str],
-    ) -> Result<RecordHistoryRows, SchemaError> {
-        let mut out = RecordHistoryRows::default();
-        if !records.is_empty() {
-            self.release_purged_history(records, &mut out).await?;
-            let counts = std::mem::take(&mut out.counts);
-            out.changes
-                .extend(self.record_history_count_changes(counts).await?);
+    ) -> Result<u64, SchemaError> {
+        if records.is_empty() {
+            return Ok(0);
         }
-        Ok(out)
+        let counts = self.record_history_counts(records).await?;
+        let mut released = 0;
+        for (record, count) in records.iter().zip(counts) {
+            if count > 0 {
+                self.stage_purged_history_pages(record, count).await?;
+                released += count;
+            }
+        }
+        Ok(released)
     }
 
-    /// Release every history entry of each purged record in the purge batch.
-    async fn release_purged_history(
+    async fn stage_purged_history_pages(
         &self,
-        records: &[&str],
-        out: &mut RecordHistoryRows,
+        record: &str,
+        count: u64,
     ) -> Result<(), SchemaError> {
-        let counts = self.record_history_counts(records).await?;
-        for (record, count) in records.iter().zip(counts) {
-            if count == 0 {
+        let prefix = record_prefix(record, None)?;
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&prefix);
+        let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 100);
+        let mut seen = 0;
+        while !walk.done() {
+            let rows = self.walk_step(&mut walk).await?.rows;
+            if rows.is_empty() {
                 continue;
             }
-            if count > PURGE_RELEASE_CAP {
-                return Err(invalid(format!(
-                    "the record has {count} legacy history entries, above the bounded purge limit"
-                )));
+            let mut releases = Vec::with_capacity(rows.len());
+            for (key, bytes) in rows {
+                let (key, entry) = decode_row(key, &bytes)?;
+                releases.push(format::release(&key, &entry)?);
             }
-            for (key, entry) in self.history_entries(&record_prefix(record, None)?).await? {
-                release(&key, &entry, out)?;
-            }
+            seen += releases.len() as u64;
+            self.format.stage_history(format::encode(releases)?).await?;
         }
-        Ok(())
-    }
-
-    /// Every entry under one prefix, read in bounded steps.
-    async fn history_entries(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<(String, RecordHistoryEntry)>, SchemaError> {
-        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(prefix);
-        let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 100);
-        let mut entries = Vec::new();
-        while !walk.done() {
-            for (key, bytes) in self.walk_step(&mut walk).await?.rows {
-                entries.push(decode_row(key, &bytes)?);
-            }
+        if seen != count {
+            return Err(invalid(
+                "the history count does not match the record's entries",
+            ));
         }
-        Ok(entries)
+        self.format
+            .stage_history(format::encode(vec![HistoryChange::DeleteCount(
+                record.to_owned(),
+            )])?)
+            .await
     }
 
     /// Release entries in one batch. The caller holds a write scope.
-    pub(super) async fn commit_history_release(
+    async fn commit_history_release(
         &self,
         entries: &[(String, RecordHistoryEntry)],
         orphan_queue_keys: Vec<QueueEntry>,

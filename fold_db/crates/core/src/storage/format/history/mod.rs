@@ -81,10 +81,6 @@ pub(crate) fn encode(changes: Vec<HistoryChange>) -> Result<EncodedHistory, Sche
 }
 
 impl EncodedHistory {
-    pub(in crate::storage::format) fn append_to(self, batch: &mut Vec<KvMutation>) {
-        batch.extend(self.rows);
-    }
-
     pub(in crate::storage::format) async fn stage(
         self,
         main_store: &dyn KvStore,

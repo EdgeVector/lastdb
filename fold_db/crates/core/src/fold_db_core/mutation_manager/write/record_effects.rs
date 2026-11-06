@@ -70,16 +70,13 @@ impl MutationManager {
             .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
             .map(|(_, change)| change.key.as_str())
             .collect();
-        let history = self
+        let history_released = self
             .db_ops
             .records()
-            .record_history_releases(&purged)
+            .stage_purged_record_history(&purged)
             .await?;
         let outcomes = record_outcomes(&changes);
-        self.db_ops
-            .records()
-            .stage_records(schema, changes, history.changes)
-            .await?;
+        self.db_ops.records().stage_records(schema, changes).await?;
         // A live record below a floor of the TTL sweep removes the floor.
         let live = changed
             .iter()
@@ -88,7 +85,7 @@ impl MutationManager {
         self.db_ops
             .schemas()
             .note_live_writes(schema, live.map(|(record, _)| record.key))?;
-        self.stage_record_side_rows(schema, changed, &outcomes, history.released)
+        self.stage_record_side_rows(schema, changed, &outcomes, history_released)
             .await
     }
 
@@ -117,10 +114,7 @@ impl MutationManager {
             .iter()
             .map(|change| change.key.api_key().clone())
             .collect();
-        self.db_ops
-            .records()
-            .stage_records(schema, changes, Vec::new())
-            .await?;
+        self.db_ops.records().stage_records(schema, changes).await?;
         let schemas = self.db_ops.schemas();
         schemas.note_live_writes(
             schema,
