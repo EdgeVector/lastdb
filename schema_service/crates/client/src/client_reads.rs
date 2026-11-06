@@ -1,4 +1,4 @@
-//! Read calls: schema lookups, resolve, and app fetches.
+//! Read calls: schema lookups and resolve.
 
 use super::*;
 
@@ -66,49 +66,6 @@ impl SchemaServiceClient {
         self.get_json(&url, &format!("schema '{name}'")).await
     }
 
-    /// Look up a schema by its exact catalog identity.
-    ///
-    /// This preserves the distinction required by idempotent schema sync:
-    /// `Ok(None)` means the catalog explicitly returned 404, while transport,
-    /// server, and decoding failures remain errors. Callers must not turn an
-    /// ambiguous lookup failure into a registration attempt.
-    pub async fn find_schema(&self, name: &str) -> FoldDbResult<Option<SchemaEnvelope>> {
-        let url = format!("{}/v1/schema/{}", self.base_url, name);
-        with_retries(|| async {
-            let response = observability::propagation::inject_w3c(self.client.get(&url))
-                .send()
-                .await
-                .map_err(|e| {
-                    let retryable = reqwest_error_is_retryable(&e);
-                    let wrapped = FoldDbError::Config(format!(
-                        "Failed to look up schema '{name}' from {url}: {e}"
-                    ));
-                    RetryError::classify(retryable, wrapped)
-                })?;
-            let status = response.status();
-            if status == StatusCode::NOT_FOUND {
-                return Ok(None);
-            }
-            if !status.is_success() {
-                let body = response_body_text(response).await;
-                let wrapped = FoldDbError::Config(format!(
-                    "Schema lookup from {url} returned {status}: {body}"
-                ));
-                return Err(RetryError::classify(status_is_retryable(status), wrapped));
-            }
-            response
-                .json::<SchemaEnvelope>()
-                .await
-                .map(Some)
-                .map_err(|e| {
-                    RetryError::Permanent(FoldDbError::Config(format!(
-                        "Failed to parse schema '{name}' lookup response: {e}"
-                    )))
-                })
-        })
-        .await
-    }
-
     /// Resolve proposed schemas against the service registry without mutating it.
     ///
     /// This is the read-only cache-miss companion to `add_schema`: the service
@@ -149,67 +106,6 @@ impl SchemaServiceClient {
             response.json::<SchemaResolveResponse>().await.map_err(|e| {
                 RetryError::Permanent(FoldDbError::Config(format!(
                     "Failed to parse schema resolve response: {e}"
-                )))
-            })
-        })
-        .await
-    }
-
-    pub async fn fetch_app(&self, app_id: &str) -> FoldDbResult<Option<AppLookup>> {
-        let url = format!("{}/v1/apps/{}", self.base_url, app_id);
-        with_retries(|| async {
-            // trace-egress: propagate (schema_service /v1/apps/{app_id})
-            let response = observability::propagation::inject_w3c(self.client.get(&url))
-                .send()
-                .await
-                .map_err(|e| {
-                    let retryable = reqwest_error_is_retryable(&e);
-                    let wrapped =
-                        FoldDbError::Config(format!("Failed to fetch app from {url}: {e}"));
-                    RetryError::classify(retryable, wrapped)
-                })?;
-            let status = response.status();
-            if status == StatusCode::NOT_FOUND {
-                return Ok(None);
-            }
-            if !status.is_success() {
-                let body = response_body_text(response).await;
-                let wrapped =
-                    FoldDbError::Config(format!("App fetch from {url} returned {status}: {body}"));
-                return Err(RetryError::classify(status_is_retryable(status), wrapped));
-            }
-            response.json::<AppLookup>().await.map(Some).map_err(|e| {
-                RetryError::Permanent(FoldDbError::Config(format!(
-                    "Failed to parse app lookup response: {e}"
-                )))
-            })
-        })
-        .await
-    }
-
-    pub async fn fetch_apps(&self) -> FoldDbResult<Vec<AppRecord>> {
-        let url = format!("{}/v1/apps", self.base_url);
-        with_retries(|| async {
-            // trace-egress: propagate (schema_service /v1/apps)
-            let response = observability::propagation::inject_w3c(self.client.get(&url))
-                .send()
-                .await
-                .map_err(|e| {
-                    let retryable = reqwest_error_is_retryable(&e);
-                    let wrapped =
-                        FoldDbError::Config(format!("Failed to fetch apps from {url}: {e}"));
-                    RetryError::classify(retryable, wrapped)
-                })?;
-            let status = response.status();
-            if !status.is_success() {
-                let body = response_body_text(response).await;
-                let wrapped =
-                    FoldDbError::Config(format!("App list from {url} returned {status}: {body}"));
-                return Err(RetryError::classify(status_is_retryable(status), wrapped));
-            }
-            response.json::<Vec<AppRecord>>().await.map_err(|e| {
-                RetryError::Permanent(FoldDbError::Config(format!(
-                    "Failed to parse app list response: {e}"
                 )))
             })
         })
