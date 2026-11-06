@@ -4,11 +4,12 @@ use crate::backup_transport::{BackupTransport, StoredObject, TemporaryGrant};
 use crate::shared_authority::device_headers;
 use crate::AuthClient;
 use cloud_backup_protocol::shared::objects::{
-    ObjectAuthorityRequest, SharedObjectPrepare, SharedObjectRequest, SharedObjectStatus,
-    SnapshotHeadRequest, SnapshotInventoryPage, SnapshotLogEndsReply, SnapshotLogEndsRequest,
-    INVENTORY_PAGE_ENTRIES,
+    ObjectAuthorityRequest, SharedObjectPrepare, SharedObjectRequest, SharedObjectRole,
+    SharedObjectStatus, SnapshotHeadRequest, SnapshotInventoryPage, SnapshotLogEndsReply,
+    SnapshotLogEndsRequest, INVENTORY_PAGE_ENTRIES,
 };
 use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
+use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{limits, AccountId, DecimalU64, ErrorCode, Id};
 use serde::de::DeserializeOwned;
 use std::io::Read;
@@ -56,21 +57,40 @@ impl SharedObjectClient {
         let grant = match prepare {
             SharedObjectPrepare::Verified { object } => return exact(request, object),
             SharedObjectPrepare::Upload { grant } => grant,
+            SharedObjectPrepare::Complete { object } => {
+                exact(request, object)?;
+                if destination(request) != Some(Destination::B2) {
+                    return Err(BackupTransportError::InvalidResponse(
+                        "shared upload settlement",
+                    ));
+                }
+                return self.complete(request, deadline_ms, sign).await;
+            }
         };
         grant.validate_for(request, DecimalU64::new(now_ms()?))?;
-        self.transport
-            .upload(
-                StoredObject {
-                    sha256: &request.object.sha256,
-                    bytes: request.object.bytes.get(),
-                },
-                TemporaryGrant {
-                    url: grant.url.as_str(),
-                    expires_ms: grant.expires_at_ms.get().min(deadline_ms),
-                },
-                source,
-            )
-            .await?;
+        let object = StoredObject {
+            sha256: &request.object.sha256,
+            bytes: request.object.bytes.get(),
+        };
+        let grant = TemporaryGrant {
+            url: grant.url.as_str(),
+            expires_ms: grant.expires_at_ms.get().min(deadline_ms),
+        };
+        match destination(request) {
+            Some(Destination::B2) => {
+                require_provider(grant.url, Destination::B2)?;
+                match self.transport.upload_part(object, grant, source).await {
+                    Ok(_) | Err(BackupTransportError::Http(404)) => (),
+                    Err(error) => return Err(error),
+                }
+            }
+            destination => {
+                if let Some(destination) = destination {
+                    require_provider(grant.url, destination)?;
+                }
+                self.transport.upload(object, grant, source).await?;
+            }
+        }
         self.complete(request, deadline_ms, sign).await
     }
 
@@ -241,6 +261,44 @@ impl SharedObjectClient {
             action.await
         }
     }
+}
+
+fn destination(request: &SharedObjectRequest) -> Option<Destination> {
+    match &request.role {
+        SharedObjectRole::NativeSnapshot { destination, .. } => Some(*destination),
+        _ => None,
+    }
+}
+
+fn require_provider(value: &str, destination: Destination) -> Result<()> {
+    let invalid = BackupTransportError::InvalidResponse("shared upload provider");
+    let url = reqwest::Url::parse(value).map_err(|_| invalid)?;
+    let host = url.host_str().unwrap_or("");
+    let valid = match destination {
+        Destination::R2 => host
+            .strip_suffix(".r2.cloudflarestorage.com")
+            .is_some_and(|account| {
+                account.len() == 32
+                    && account
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            }),
+        Destination::B2 => host
+            .strip_prefix("s3.")
+            .and_then(|host| host.strip_suffix(".backblazeb2.com"))
+            .is_some_and(|region| {
+                (1..=32).contains(&region.len())
+                    && region.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+            }),
+    };
+    if !valid || url.scheme() != "https" || url.port_or_known_default() != Some(443) {
+        return Err(BackupTransportError::InvalidResponse(
+            "shared upload provider",
+        ));
+    }
+    Ok(())
 }
 
 fn exact(request: &SharedObjectRequest, object: SealedObject) -> Result<SealedObject> {

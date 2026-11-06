@@ -2,6 +2,7 @@
 use super::{
     error, validate_object_list, LogHead, SealedObject, SnapshotManifest, StreamCover, MAX_WRITERS,
 };
+use crate::v2::Destination;
 use crate::{
     input_digest, limits, AccountId, DecimalU64, Digest, ErrorCode, Id, ProtocolError, Text,
 };
@@ -43,10 +44,17 @@ pub enum SharedObjectRole {
         /// Sequence of the file version.
         sequence: DecimalU64,
     },
-    /// An encrypted snapshot manifest or native snapshot file.
+    /// An encrypted manifest or file from the earlier snapshot transport.
     Snapshot {
         /// Publication whose inventory declares the object.
         snapshot_id: Id,
+    },
+    /// A frozen native file or encrypted manifest at its declared provider.
+    NativeSnapshot {
+        /// Snapshot whose inventory declares the object.
+        snapshot_id: Id,
+        /// Provider chosen by the disk layout.
+        destination: Destination,
     },
 }
 
@@ -122,6 +130,11 @@ pub enum SharedObjectPrepare {
     Upload {
         /// Exact create-once provider request.
         grant: SharedUploadGrant,
+    },
+    /// The provider already has the B2 object. Continue exact-byte settlement.
+    Complete {
+        /// The object to settle.
+        object: SealedObject,
     },
     /// The service already verified the exact object.
     Verified {
