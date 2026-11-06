@@ -407,7 +407,7 @@ def unfiltered_pages(node):
                                 "limit": PAGE_SIZE, "offset": 9 * PAGE_SIZE}), "next_cursor")
     # Deleted records sit among the live ones; a page skips them.
     small, _ = drain(node, "RecordById", 1)
-    require(sorted(key for page in small for key in ids(page["results"])) == ["four", "hist", "one", "three"],
+    require(sorted(key for page in small for key in ids(page["results"])) == ["four", "one", "three"],
             "the drain of RecordById returned a deleted record or lost a live one")
     ranged, _ = drain(node, "RecordByBucket", 2)
     keys = sorted((row["key"]["hash"], row["key"]["range"]) for page in ranged for row in page["results"])
