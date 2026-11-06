@@ -245,11 +245,10 @@ fn migrate_field_metadata(schema: &mut Schema, old_name: &str, canonical: &str) 
 }
 
 /// schema.key (Range/Hash/HashRange `KeyConfig`) names data fields by
-/// string. `KeyValue::from_mutation` looks each mutation up by these
-/// names, so a stale entry pointing at a no-longer-declared field
-/// resolves to `None` on every mutation — range writes silently land in
-/// an empty-key slot, range queries see nothing. Rewriting in place
-/// keeps the KeyConfig consistent with the renamed `fields`.
+/// string. A stale entry pointing at a no-longer-declared field no longer
+/// names the record key, so range writes and range queries miss it.
+/// Rewriting in place keeps the KeyConfig consistent with the renamed
+/// `fields`.
 fn rename_key_fields(schema: &mut Schema, rename_map: &HashMap<String, String>) {
     if let Some(ref mut key) = schema.key {
         if let Some(ref mut hash_field) = key.hash_field {
