@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 import shutil
 import time
 
@@ -10,7 +11,7 @@ import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
 from programs import execute
-from node import OwnedNode
+from node import Connection, OwnedNode
 from support import (CREDENTIALS_FILE, OperationError, decode_json, hash_file,
                      private_directory, require, save_json)
 
@@ -52,6 +53,23 @@ def refuse_empty_join(operation, publisher, writer):
         else:
             raise OperationError("shared_empty_writer_accepted")
     operation.summary["empty_writer_refused"] = True
+
+
+def refuse_unbound_write(operation, node):
+    record = operation.record("premature-write", "before-writer-binding")
+    mutation = native_records.create(operation.schema, native_records.key("premature-write"), record)
+    body = json.dumps({"mutations": [mutation]}, separators=(",", ":")).encode()
+    connection = Connection(node.socket)
+    try:
+        connection.request("POST", "/api/mutations/batch", body,
+                           {"X-LastDB-Client": "cloud-backup-ci", "Content-Type": "application/json"})
+        response = connection.getresponse()
+        require(response.status == 400 and
+                b"shared schema writes require an active writer binding" in response.read(4096),
+                "shared_exact_unbound_write_refusal")
+    finally:
+        connection.close()
+    operation.summary["unbound_write_refused"] = True
 
 
 def seed_local_only(operation, node):
@@ -178,7 +196,7 @@ def exchange_tails(operation, publisher, publisher_writer, peer_writer):
         node.start()
         durable_batch(node, [native_records.create(operation.schema, native_records.key(kind), record)])
         node.stop()
-        require(node.clean_stops == 1, "shared_independent_writer_clean_stops")
+        require(node.clean_stops == 2, "shared_independent_writer_clean_stops")
         positions[writer["source_stream"]] = operation.push(node, writer, 1)
 
     operation.summary["stage"] = "pull-five-remote-writer-tails"

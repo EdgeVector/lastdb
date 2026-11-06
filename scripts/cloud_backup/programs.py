@@ -16,6 +16,7 @@ from support import CHUNK, OperationError, decode_json, require, stable
 
 RESTORE_REFUSALS = {
     b"Invalid data: Invalid operation: portable author state: restore the complete shared snapshot and mutation logs before binding": "shared_restore_required",
+    b"refusing: the last session did not end cleanly. Start the daemon and stop it gracefully, then retry.": "shared_writer_clean_shutdown_required",
     b"the database already has a snapshot; restore before binding": "shared_publisher_restore_required",
     b"native backup service error: RetryLater": "shared_service_retry_later",
     b"native backup service error: OutcomeUnknown": "shared_service_outcome_unknown",

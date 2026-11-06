@@ -192,6 +192,12 @@ class Operation:
         node = OwnedNode(destination, self.programs,
                          storage_inventory=self.args.retention and name == "peer")
         self.nodes.append(node)
+        self.summary["stage"] = "boot-restored-writer-before-binding"
+        node.start()
+        if name == "peer":
+            shared_multiwriter.refuse_unbound_write(self, node)
+        node.stop()
+        self.summary["stage"] = "bind-restored-writer"
         self.bind_writer(node, writer)
         return node
 
@@ -347,7 +353,7 @@ class Operation:
         if self.args.multiwriter:
             shared_multiwriter.snapshot_command(self, first, a)
             shared_multiwriter.publish_peer_tail(self, peer, b)
-        expected_stops = (6, 2) if self.args.multiwriter else (3, 1)
+        expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
         require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
         if self.args.retention:
