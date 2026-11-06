@@ -192,7 +192,7 @@ impl Metadata {
         fresh_stream: &StreamId,
     ) -> StorageResult<()> {
         self.require_scope()?;
-        if progress.len() >= cloud_backup_protocol::shared::MAX_WRITERS
+        if progress.len() > cloud_backup_protocol::shared::MAX_WRITERS
             || progress.contains_key(fresh_stream)
         {
             return Err(invalid("invalid restored stream directory"));
@@ -249,7 +249,7 @@ impl Metadata {
         progress: &BTreeMap<StreamId, StreamProgress>,
         cutoff: Option<u64>,
     ) -> StorageResult<()> {
-        if progress.len() > 4094 {
+        if progress.len() > cloud_backup_protocol::shared::MAX_WRITERS {
             return Err(invalid("invalid restored stream directory"));
         }
         let keys = std::iter::once(REPLAY_STATE_KEY.as_bytes().to_vec())

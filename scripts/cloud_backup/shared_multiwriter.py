@@ -24,7 +24,7 @@ def seed_local_only(node):
 
 
 def has_local_only_schema(node):
-    reply = node.call("/api/schemas")
+    reply = node.call("/api/schemas?include_system=true")
     schemas = reply.get("data", reply)["schemas"]
     return any(schema["name"] == LOCAL_SCHEMA for schema in schemas)
 

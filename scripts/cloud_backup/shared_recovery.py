@@ -165,7 +165,7 @@ class Operation:
         home = self.root / name
         home.mkdir(mode=0o700)
         private_write(home / "identity.key", self.account_seed)
-        node = OwnedNode(home, self.programs)
+        node = OwnedNode(home, self.programs, isolated_copy=self.args.multiwriter and name == "first")
         self.nodes.append(node)
         node.start()
         node.stop()

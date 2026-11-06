@@ -388,7 +388,8 @@ jobs:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars[inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_SCOPE' || 'LASTDB_CLOUD_DEV_SHARED_SCOPE'] }}
-          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ secrets[inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS' || 'LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS'] }}
+          LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS: ${{ inputs.mode != 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS: ${{ inputs.mode == 'shared-multiwriter' && secrets.LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS || '' }}
         run: |
           set -euo pipefail
           args=()
@@ -402,8 +403,10 @@ jobs:
             test -z "$PRIOR_RUN"
             if [[ "$RUN_MODE" == shared-multiwriter ]]; then
               args+=(--multiwriter)
+              export LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS="$LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS"
             fi
           fi
+          unset LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS
           python3 scripts/cloud_backup/shared_recovery.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
