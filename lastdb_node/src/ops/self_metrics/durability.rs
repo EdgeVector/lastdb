@@ -161,7 +161,7 @@ impl DurabilityHealth {
                 if let Some(s) = self.upload_overdue_secs().filter(|s| *s > 0) {
                     parts.push(format!("upload overdue {}", format_age_secs(s)));
                 }
-                parts.push("use cloud backup-v2 status".to_string());
+                parts.push("use lastdb backup status".to_string());
             }
         }
         parts.join("; ")
@@ -169,13 +169,13 @@ impl DurabilityHealth {
 
     pub(super) fn status_line(&self) -> String {
         let state = if !self.observed {
-            "status unavailable; use cloud backup-v2 status".to_string()
+            "status unavailable; use lastdb backup status".to_string()
         } else if self.degraded == Some(true) {
-            "job blocked; use cloud backup-v2 status".to_string()
+            "job blocked; use lastdb backup status".to_string()
         } else if let Some(coverage) = self.coverage() {
             self.coverage_text(coverage)
         } else if self.running {
-            "job active; use cloud backup-v2 status".to_string()
+            "job active; use lastdb backup status".to_string()
         } else if self.accepted_backup_recorded {
             "accepted backup recorded; local log position not reported".to_string()
         } else {

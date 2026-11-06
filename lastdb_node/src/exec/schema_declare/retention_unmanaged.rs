@@ -45,7 +45,7 @@ pub(super) fn bind_refusal(binding: &str, anchor: &str, hits: &[RetentionPolicyI
         "{binding} cannot be bound to the catalog schema {anchor}: the TTL sweep reaches it \
          through {}. Binding {binding} would put its records under that TTL, and the sweep \
          would delete them for good. Give {binding} its own shape, or clear the TTL \
-         (`lastdb schema-retention clear --schema {clear}`)",
+         (`lastdb admin retention clear --schema {clear}`)",
         holders.join("; ")
     )
 }
@@ -118,7 +118,7 @@ pub(super) async fn unmanaged_report(
         warnings.push(format!(
             "this manifest no longer declares a retention for {binding}, but a manifest TTL of \
              {manifest_ttl}s is still running. Removing the key does not clear the policy. \
-             Run `lastdb schema-retention clear --schema {binding}` to remove it"
+             Run `lastdb admin retention clear --schema {binding}` to remove it"
         ));
     } else if let (true, Some(anchor)) = (own_anchor == binding, anchor) {
         let reach = policies_in_reach(host, binding, anchor, predecessors).await?;

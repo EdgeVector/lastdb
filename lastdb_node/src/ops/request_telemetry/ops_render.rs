@@ -3,7 +3,7 @@ use super::*;
 mod phase_lines;
 pub(crate) use phase_lines::*;
 
-/// Human-readable lines for `lastdb ops` / status extensions.
+/// Human-readable lines for `lastdb admin ops` / status extensions.
 pub fn snapshot_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
     snapshot_lines_with_schema_labels(snap, &SchemaLabels::new())
 }
@@ -11,7 +11,7 @@ pub fn snapshot_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
 /// Human-readable request telemetry with optional schema catalog labels.
 ///
 /// The status JSON keeps the runtime schema `name` as its stable key. The
-/// `lastdb ops` CLI supplies a best-effort `name -> descriptive_name` map so
+/// `lastdb admin ops` CLI supplies a best-effort `name -> descriptive_name` map so
 /// terminal rows show the product name plus an eight-character stable ID.
 pub fn snapshot_lines_with_schema_labels(
     snap: &RequestTelemetrySnapshot,
@@ -27,10 +27,10 @@ pub fn snapshot_lines_with_schema_labels(
     if snap.top_by_total_ms.is_empty() && snap.idle_wait.is_empty() {
         // Cheap `/api/status` keeps sample_count but strips the forensic
         // tables — do not claim "no traffic" when the ring was deliberately
-        // omitted (use `lastdb ops` / `?recent=1` for rankings).
+        // omitted (use `lastdb admin ops` / `?recent=1` for rankings).
         if snap.sample_count > 0 && snap.recent.is_empty() {
             lines.push(
-                "  (forensic ring omitted — use `lastdb ops` or GET /api/status?recent=1)"
+                "  (forensic ring omitted — use `lastdb admin ops` or GET /api/status?recent=1)"
                     .to_string(),
             );
         } else {

@@ -49,7 +49,7 @@ fn clear_may_expire(
         "clearing the operator policy of {}s puts the manifest TTL of {}s in force. \
          existing_records_may_expire: every record older than {}s is deleted for good, a Range \
          schema's at the next sweep. Review it, then run \
-         `lastdb schema-retention clear --schema {} --confirm-expire-existing`",
+         `lastdb admin retention clear --schema {} --confirm-expire-existing`",
         operator.ttl_seconds, restored.ttl_seconds, restored.ttl_seconds, body.schema
     ))
 }
