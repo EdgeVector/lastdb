@@ -197,36 +197,41 @@ impl Metadata {
         Ok(stamps)
     }
 
-    async fn require_writer_origin(
+    async fn writer_replay_state(
         &self,
         stream: &WriterStream,
         device: &Id,
         initialize_publisher: bool,
-        has_replay_state: bool,
-    ) -> StorageResult<()> {
+    ) -> StorageResult<Option<Vec<u8>>> {
+        let rows = self
+            .metadata_store
+            .get_many(vec![
+                REPLAY_STATE_KEY.as_bytes().to_vec(),
+                RESTORE_OWNER_KEY.as_bytes().to_vec(),
+            ])
+            .await?;
+        let [replay, owner]: [_; 2] = rows
+            .try_into()
+            .map_err(|_| invalid("incomplete writer origin read"))?;
         if initialize_publisher {
-            return if has_replay_state {
-                Err(invalid("initial publisher requires a fresh home"))
+            return if replay.is_none() && owner.is_none() {
+                Ok(None)
             } else {
-                Ok(())
+                Err(invalid("initial publisher requires a fresh home"))
             };
         }
-        let saved = self
-            .metadata_store
-            .get(RESTORE_OWNER_KEY.as_bytes())
-            .await?;
-        let Some(saved) = saved.filter(|_| has_replay_state) else {
+        let Some(owner) = owner.filter(|_| replay.is_some()) else {
             return Err(invalid(
                 "restore the complete shared snapshot and mutation logs before binding",
             ));
         };
-        let restored: RestoreOwner = serde_json::from_slice(&saved).map_err(invalid)?;
+        let restored: RestoreOwner = serde_json::from_slice(&owner).map_err(invalid)?;
         if restored.database != stream.database_id || &restored.device != device {
             return Err(invalid(
                 "shared restore belongs to another database or device",
             ));
         }
-        Ok(())
+        Ok(replay)
     }
 
     async fn local_author(&self) -> StorageResult<LocalAuthor> {

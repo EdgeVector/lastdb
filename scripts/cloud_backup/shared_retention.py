@@ -58,13 +58,13 @@ def settled(operation, node, version, *, dedicated=False):
     metadata = [home["inventory"]["collections"]["metadata"] for home in homes.values()
                 if "metadata" in home["inventory"]["collections"]]
     files = homes["cas"]["inventory"]["collections"]["cas_blobs"]
-    private_files = (homes["private"]["inventory"]["collections"]["cas_blobs"] if dedicated
-                     else {"live_keys": 0, "live_stored_value_bytes": 0})
+    private_files = (homes["private"]["inventory"]["collections"].get("cas_blobs", {})
+                     if dedicated else {})
     result = {"metadata_keys": sum(item["live_keys"] for item in metadata),
               "metadata_bytes": sum(item["live_stored_value_bytes"] for item in metadata),
               "file_keys": files["live_keys"], "file_bytes": files["live_stored_value_bytes"],
-              "private_file_keys": private_files["live_keys"],
-              "private_file_bytes": private_files["live_stored_value_bytes"],
+              "private_file_keys": private_files.get("live_keys", 0),
+              "private_file_bytes": private_files.get("live_stored_value_bytes", 0),
               "native_bytes": sum(home["files"]["total_allocated_bytes"] for home in homes.values())}
     node.stop()
     return result

@@ -109,8 +109,8 @@ impl Metadata {
         }
         let prior_stream = state.stream.clone();
         self.runtime.require_direct_shared_home()?;
-        let existing = self.metadata_store.get(REPLAY_STATE_KEY.as_bytes()).await?;
-        self.require_writer_origin(&stream, device, initialize_publisher, existing.is_some())
+        let existing = self
+            .writer_replay_state(&stream, device, initialize_publisher)
             .await?;
         if prior_stream.as_str() == stream.source_stream.as_str() {
             if existing.is_none() {
