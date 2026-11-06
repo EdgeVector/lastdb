@@ -14,6 +14,7 @@ use crate::storage::{KvStore, StorageError};
 
 mod file_references;
 mod portable_author;
+pub(in crate::storage) const NATIVE_SHARED_SCOPE_KEY: &str = "native-shared-schema-scope";
 pub(crate) use file_references::{FileReferenceChange, FileRetention};
 pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
 pub(in crate::storage) use portable_author::{
@@ -91,6 +92,20 @@ impl Metadata {
             }
             other => SchemaError::InvalidData(format!("metadata put {key}: {other}")),
         })
+    }
+
+    pub(crate) async fn stage_shared_restore_aliases<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> StorageResult<()> {
+        if let Some(bytes) = self.runtime.staged_shared_restore_aliases(names)? {
+            self.stage(EncodedMetadata {
+                key: NATIVE_SHARED_SCOPE_KEY.into(),
+                bytes,
+            })
+            .await?;
+        }
+        Ok(())
     }
 
     fn require_scope(&self) -> StorageResult<()> {

@@ -16,7 +16,7 @@ pub(super) mod journal;
 pub(super) mod range;
 
 pub(super) const PRIVATE_DIR: &str = "disk-private";
-pub(super) const SCOPE_KEY: &str = "native-shared-schema-scope";
+use crate::storage::format::metadata::NATIVE_SHARED_SCOPE_KEY as SCOPE_KEY;
 const CREATE_ENV: &str = "LASTDB_NATIVE_SHARED_SCHEMAS";
 const CONFIG_BYTES: usize = 16 * 1024;
 
@@ -111,21 +111,44 @@ impl Scope {
         operations: impl IntoIterator<Item = &'a HomeMutation>,
     ) -> StorageResult<Arc<Self>> {
         let mut scope = None;
-        for op in operations
-            .into_iter()
-            .filter(|op| op.collection == SCHEMAS_NAMESPACE)
-        {
+        let mut schemas = Vec::new();
+        for op in operations {
+            match op.collection.as_str() {
+                METADATA_NAMESPACE if op.key == SCOPE_KEY => {
+                    let bytes = op
+                        .body
+                        .as_deref()
+                        .ok_or_else(|| invalid("shared disk scope cannot be removed"))?;
+                    let requested = Self::decode(bytes)?;
+                    let active = scope.get_or_insert_with(|| current.as_ref().clone());
+                    if !active.aliases.is_subset(&requested.aliases) {
+                        return Err(invalid("shared disk scope cannot lose an alias"));
+                    }
+                    active.aliases = requested.aliases;
+                    active.spaces = requested.spaces;
+                }
+                SCHEMAS_NAMESPACE | SCHEMA_STATES_NAMESPACE => schemas.push(op),
+                _ => {}
+            }
+        }
+        for op in schemas {
             let key = native_routing::decode(&op.key)?;
             let name =
                 std::str::from_utf8(&key).map_err(|_| invalid("schema alias is not UTF-8"))?;
-            if !current.aliases.contains(name) {
+            let active = scope.as_ref().unwrap_or(current.as_ref());
+            if !active.aliases.contains(name) {
+                continue;
+            }
+            if op.collection == SCHEMA_STATES_NAMESPACE {
+                if op.body.as_deref() != Some(b"\"Available\"") {
+                    return Err(invalid("a shared schema must stay available"));
+                }
                 continue;
             }
             let bytes = op
                 .body
                 .as_deref()
                 .ok_or_else(|| invalid("a shared schema cannot be removed"))?;
-            let active = scope.as_ref().unwrap_or(current.as_ref());
             match active.schemas.get(name) {
                 Some(previous) if previous == bytes => continue,
                 Some(_) => return Err(invalid("a shared schema definition cannot be replaced")),
@@ -249,6 +272,8 @@ impl Scope {
     }
 
     fn aliases_match<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> bool {
+        let mut names: Vec<_> = names.into_iter().collect();
+        names.sort_unstable();
         self.aliases.iter().map(String::as_str).eq(names)
     }
 }
@@ -272,7 +297,7 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(crate) fn require_shared_schema_set<'a>(
+    pub fn require_shared_schema_set<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<()> {
@@ -289,6 +314,33 @@ impl PackRuntime {
             }
         }
         Ok(())
+    }
+
+    pub(in crate::storage) fn staged_shared_restore_aliases<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> StorageResult<Option<Vec<u8>>> {
+        let Some(shared) = &self.physical.shared else {
+            return Ok(None);
+        };
+        if self.serving.load(Ordering::Acquire) {
+            return Err(invalid(
+                "shared schema scope can grow only in a staged restore",
+            ));
+        }
+        let active = shared.scope.read().expect("shared disk scope");
+        let mut names: BTreeSet<_> = names.into_iter().map(str::to_owned).collect();
+        if names.is_subset(&active.aliases) {
+            return Ok(None);
+        }
+        names.extend(active.aliases.iter().cloned());
+        validate_aliases(&names)?;
+        let encoded =
+            serde_json::to_vec(&names).map_err(|_| invalid("shared schema scope encoding"))?;
+        if encoded.len() > CONFIG_BYTES {
+            return Err(invalid("shared schema scope exceeds its size bound"));
+        }
+        Ok(Some(encoded))
     }
 
     pub(crate) fn require_shared_record_route(
@@ -311,6 +363,18 @@ impl PackRuntime {
         }
         Ok(())
     }
+}
+
+fn validate_aliases(aliases: &BTreeSet<String>) -> StorageResult<()> {
+    if aliases.is_empty()
+        || aliases.len() > 64
+        || aliases
+            .iter()
+            .any(|name| name.trim() != name || name.is_empty() || name.contains('\0'))
+    {
+        return Err(invalid("invalid shared schema alias"));
+    }
+    Ok(())
 }
 
 pub(super) fn invalid(reason: &str) -> StorageError {

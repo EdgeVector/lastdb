@@ -2,13 +2,10 @@
 
 use super::{map, RunHome, StorageResult};
 use crate::storage::content_key_proof;
-use crate::storage::disk_pack::{
-    kv,
-    run_admission::RECORD_NODE_BYTES,
-    shared_layout::{Scope, SCOPE_KEY},
-};
+use crate::storage::disk_pack::{kv, run_admission::RECORD_NODE_BYTES, shared_layout::Scope};
 use crate::storage::format::metadata::{
     initial_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY, LOCAL_AUTHOR_KEY,
+    NATIVE_SHARED_SCOPE_KEY,
 };
 use crate::storage::format::{
     CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE, MAIN_NAMESPACE, METADATA_NAMESPACE,
@@ -38,7 +35,7 @@ pub(super) fn initialize(
     let marker = if let Some(scope) = scope {
         rows.push(HomeMutation {
             collection: METADATA_NAMESPACE.into(),
-            key: SCOPE_KEY.into(),
+            key: NATIVE_SHARED_SCOPE_KEY.into(),
             body: Some(scope.encode()?),
         });
         SHARED_NODE_BYTES

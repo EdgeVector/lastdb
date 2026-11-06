@@ -110,6 +110,12 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
         )
         .await
         .map_err(|_| RestoreError::Invalid("staged native writer open"))?;
+        db.db_ops()
+            .native_runtime()
+            .require_shared_schema_set(schemas.iter().map(|schema| schema.local_schema.as_str()))
+            .map_err(|_| {
+                RestoreError::Invalid("snapshot disk scope differs from its schema bindings")
+            })?;
         db.mutation_manager()
             .validate_portable_restore_checkpoint(
                 &checkpoint.progress,
@@ -197,7 +203,14 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
     }
 
     async fn apply_candidates(&mut self, entries: &[&MutationEntry]) -> Result<()> {
-        resolve_schemas(&self.db, self.service, &mut self.schemas, entries).await?;
+        resolve_schemas(
+            &self.db,
+            self.service,
+            &mut self.schemas,
+            entries,
+            SchemaTarget::StagedRestore,
+        )
+        .await?;
         let candidates = entries
             .iter()
             .map(|entry| {
@@ -244,11 +257,17 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
     }
 }
 
+pub(crate) enum SchemaTarget {
+    ActivePeer,
+    StagedRestore,
+}
+
 pub(crate) async fn resolve_schemas(
     db: &FoldDB,
     service: &SchemaServiceClient,
     schemas: &mut BTreeMap<PortableSchemaId, SnapshotSchema>,
     entries: &[&MutationEntry],
+    target: SchemaTarget,
 ) -> Result<()> {
     let mut missing = BTreeSet::new();
     for entry in entries {
@@ -302,10 +321,15 @@ pub(crate) async fn resolve_schemas(
         }
     }
     if !install.is_empty() {
-        manager
-            .load_schema_batch(install)
-            .await
-            .map_err(|_| RestoreError::Invalid("install resolved schema definitions"))?;
+        let loaded = match target {
+            SchemaTarget::ActivePeer => manager.load_schema_batch(install).await,
+            SchemaTarget::StagedRestore => {
+                db.mutation_manager()
+                    .install_staged_shared_restore_schemas(install)
+                    .await
+            }
+        };
+        loaded.map_err(|_| RestoreError::Invalid("install resolved schema definitions"))?;
     }
     schemas.extend(
         resolved
