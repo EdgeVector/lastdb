@@ -3,7 +3,7 @@
 use super::recovery::{
     HeldFileVersions, PreparedSharedRestore, SharedRecoverySource, SnapshotSchema,
 };
-use super::{RestoreCut, StagedReplayWriter};
+use super::RestoreCut;
 use crate::byte_cloud_restore::{RecoveryKeys, RestoreError, Result};
 use cloud_backup_protocol::Id;
 use fold_db::crypto::E2eKeys;
@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 const FILE_INPUT_LIMIT: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
+const BATCH_RECORDS: usize = 128;
 
 pub async fn restore_from_source<S: SharedRecoverySource>(
     source: &S,
@@ -48,17 +49,15 @@ async fn replay_and_activate<S: SharedRecoverySource>(
     service: &SchemaServiceClient,
 ) -> Result<PathBuf> {
     let PreparedSharedRestore {
-        session,
-        checkpoint,
+        mut session,
         schemas,
-        files,
+        tail,
     } = prepared;
-    let writer = match NativeWriter::open(
+    let mut writer = match NativeWriter::open(
         session.stage(),
         device,
-        &checkpoint,
+        &session.cut,
         schemas,
-        &files,
         keys,
         service,
     )
@@ -70,9 +69,18 @@ async fn replay_and_activate<S: SharedRecoverySource>(
             return Err(error.shared_stage("writer-open"));
         }
     };
+    if let Err(error) = tail
+        .replay(keys.content_key(), &mut session, &mut writer)
+        .await
+    {
+        let _ = writer.db.shutdown().await;
+        drop(writer);
+        session.discard_unsealed()?;
+        return Err(error.shared_stage("tail-read"));
+    }
     let path = session.workspace().to_path_buf();
     session
-        .finish(writer)
+        .finish(writer, tail.database_id())
         .await
         .map_err(|cause| RestoreError::SharedWorkspace {
             path,
@@ -80,23 +88,21 @@ async fn replay_and_activate<S: SharedRecoverySource>(
         })
 }
 
-struct NativeWriter<'a, 'source, S> {
-    stage: PathBuf,
+pub(super) struct NativeWriter<'a> {
+    pub(super) stage: PathBuf,
     device: Id,
     db: Arc<FoldDB>,
     schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
-    files: &'a HeldFileVersions<'source, S>,
     keys: &'a RecoveryKeys,
     service: &'a SchemaServiceClient,
 }
 
-impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
+impl<'a> NativeWriter<'a> {
     async fn open(
         stage: &Path,
         device: &Id,
         checkpoint: &RestoreCut,
         schemas: Vec<SnapshotSchema>,
-        files: &'a HeldFileVersions<'source, S>,
         keys: &'a RecoveryKeys,
         service: &'a SchemaServiceClient,
     ) -> Result<Self> {
@@ -148,13 +154,17 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
             device: device.clone(),
             db,
             schemas: admitted,
-            files,
             keys,
             service,
         })
     }
 
-    async fn apply(&self, candidates: &[ReplayCandidate<'_>], needed: Vec<usize>) -> Result<()> {
+    async fn apply(
+        &self,
+        candidates: &[ReplayCandidate<'_>],
+        needed: Vec<usize>,
+        dependencies: &HeldFileVersions<'_, impl SharedRecoverySource>,
+    ) -> Result<()> {
         let mut group = Vec::new();
         let mut files = BTreeMap::new();
         let mut bytes = 0;
@@ -162,18 +172,24 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
             let candidate = candidates
                 .get(index)
                 .ok_or(RestoreError::Invalid("native replay candidate index"))?;
-            if let Some(version) = file_version(candidate.entry) {
-                let length = self.files.bytes(version)?;
-                if length > FILE_INPUT_LIMIT {
-                    return Err(RestoreError::Limit("native replay file bytes"));
-                }
-                if !group.is_empty() && bytes + length > BATCH_FILE_BYTES {
-                    self.commit_group(&group, std::mem::take(&mut files))
-                        .await?;
-                    group.clear();
-                    bytes = 0;
-                }
-                let sealed = self.files.fetch(version, FILE_INPUT_LIMIT).await?;
+            let version = file_version(candidate.entry);
+            let length = version
+                .map(|version| dependencies.bytes(version))
+                .transpose()?
+                .unwrap_or(0);
+            if length > FILE_INPUT_LIMIT {
+                return Err(RestoreError::Limit("native replay file bytes"));
+            }
+            if !group.is_empty()
+                && (group.len() == BATCH_RECORDS || bytes + length > BATCH_FILE_BYTES)
+            {
+                self.commit_group(&group, std::mem::take(&mut files))
+                    .await?;
+                group.clear();
+                bytes = 0;
+            }
+            if let Some(version) = version {
+                let sealed = dependencies.fetch(version, FILE_INPUT_LIMIT).await?;
                 bytes += length;
                 files.insert(version.clone(), sealed);
             }
@@ -200,15 +216,11 @@ impl<'a, 'source, S: SharedRecoverySource> NativeWriter<'a, 'source, S> {
             .await
             .map_err(|_| RestoreError::Invalid("commit native replay candidates"))
     }
-}
-
-#[async_trait::async_trait]
-impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
-    fn home(&self) -> &Path {
-        &self.stage
-    }
-
-    async fn apply_candidates(&mut self, entries: &[&MutationEntry]) -> Result<()> {
+    pub(super) async fn apply_candidates(
+        &mut self,
+        entries: &[&MutationEntry],
+        files: &HeldFileVersions<'_, impl SharedRecoverySource>,
+    ) -> Result<()> {
         resolve_schemas(
             &self.db,
             self.service,
@@ -237,10 +249,15 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
             .portable_replay_needed(&candidates)
             .await
             .map_err(|_| RestoreError::Invalid("select native replay candidates"))?;
-        self.apply(&candidates, needed).await
+        self.apply(&candidates, needed, files).await
     }
 
-    async fn finish(self, cut: &RestoreCut, local_stream: &StreamId) -> Result<()> {
+    pub(super) async fn finish(
+        self,
+        cut: &RestoreCut,
+        local_stream: &StreamId,
+        database_id: &Id,
+    ) -> Result<()> {
         let mut progress = cut.progress.clone();
         // Only streams with applied mutations belong to the sealed progress.
         // An enrolled idle writer can still bind this home as its first home.
@@ -251,7 +268,7 @@ impl<S: SharedRecoverySource> StagedReplayWriter for NativeWriter<'_, '_, S> {
                 &progress,
                 cut.delete_reclaimed_through_ms,
                 local_stream,
-                self.files.database_id(),
+                database_id,
                 &self.device,
             )
             .await
