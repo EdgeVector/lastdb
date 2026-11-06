@@ -19,7 +19,6 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(),
             AdminSchemaCommand::NameClaim(action) => schema_name_claim_command(data_dir, action),
         },
         AdminCommand::Retention(action) => schema_retention_command(data_dir, action),
-        AdminCommand::History(args) => history_cmds::run(data_dir, args),
         AdminCommand::Storage(action) => db_command(data_dir, storage_action(action)),
         AdminCommand::SearchRebuild { page_size, json } => {
             search_rebuild_command(data_dir, page_size, json)
@@ -50,9 +49,7 @@ fn storage_action(action: AdminStorageCommand) -> DbCommand {
             json, out, timeout, ..
         } => DbCommand::Inspect(DbInspectCommand::Inventory { json, out, timeout }),
         AdminStorageCommand::Reclaim(action) => DbCommand::Reclaim(action),
-        AdminStorageCommand::ReplayCutoff(args) => {
-            DbCommand::Offline(DbOfflineCommand::Recount(args))
-        }
+        AdminStorageCommand::ReplayCutoff(args) => DbCommand::Offline(args),
     }
 }
 

@@ -6,7 +6,7 @@ use super::*;
 #[serde(deny_unknown_fields)]
 struct RecordInput {
     mutation: serde_json::Value,
-    file: InputFile,
+    file: Option<InputFile>,
 }
 
 #[derive(serde::Deserialize)]
@@ -61,6 +61,9 @@ pub(super) fn mutate_command(
     let mut body: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))?;
     let file = if body.get("mutation").is_some() {
+        if body.get("file").is_none() {
+            return Err("record input requires an explicit file object or null".into());
+        }
         let input: RecordInput = serde_json::from_value(body)
             .map_err(|error| format!("invalid record input: {error}"))?;
         body = input.mutation;
@@ -78,7 +81,7 @@ pub(super) fn mutate_command(
     )
     .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    if let Some(file) = file {
+    if let Some(Some(file)) = file {
         let source = request_file
             .parent()
             .unwrap_or_else(|| Path::new(""))
@@ -86,16 +89,19 @@ pub(super) fn mutate_command(
         let metadata = serde_json::json!({
             "mutation": body, "name": file.name, "media_type": file.media_type,
         });
-        let receipt = put_record_file(&socket, &metadata, Some(&source))?;
+        let receipt = put_record_file(&socket, &metadata, &source)?;
         println!("{receipt}");
         return Ok(());
     }
-    let raw = post_json_with_timeout(
-        &socket,
-        "/api/mutation",
-        &body,
-        mutate_client_timeout(durable),
-    )?;
+    let (route, body) = if file.is_some() {
+        (
+            "/api/db/delete-blob",
+            serde_json::json!({ "mutation": body }),
+        )
+    } else {
+        ("/api/mutation", body)
+    };
+    let raw = post_json_with_timeout(&socket, route, &body, mutate_client_timeout(durable))?;
     let mut stdout = std::io::stdout().lock();
     write_mutate_receipt(&mut stdout, &raw)
 }

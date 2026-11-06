@@ -23,7 +23,7 @@ pub struct NodeVersion<'a> {
     pub source: &'a str,
 }
 
-/// What `lastdb app resolve` answers: the one proved row for this node.
+/// What `lastdb app list APP` answers: the one proved row for this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Resolution {
     #[serde(skip)]

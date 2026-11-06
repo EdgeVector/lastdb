@@ -78,11 +78,6 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AdminCommand,
     },
-    /// Upload a frozen DEV database snapshot, then upload the writer's queued changes.
-    Snapshot(SnapshotArgs),
-    /// Field history policy, retained values, and recovery.
-    #[command(hide = true)]
-    History(super::history_cmds::HistoryArgs),
     /// Show whether the local daemon socket is reachable.
     ///
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does
@@ -113,70 +108,6 @@ pub(super) enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Show worst request/mutation offenders (client, schema, latency).
-    ///
-    /// Clients self-identify with the `X-LastDB-Client` header (e.g. `kanban`).
-    /// By default this shows the live in-process forensic ring (full
-    /// `request_ops.recent` + rankings via `GET /api/status?recent=1`). Plain
-    /// `lastdb status` stays on the cheap health path without that ring.
-    /// Pass `--by-app` for a compact app/verb view.
-    ///
-    /// The default tables label process-lifetime and recent-ring populations.
-    /// `--by-app` keeps the compact key-value contract for external parsers.
-    #[command(hide = true)]
-    Ops(OpsArgs),
-    /// Run one proactive Mini health alert check.
-    ///
-    /// Two read-only probes, neither of which reads a DB record. `/health`
-    /// drives the down path, its consecutive-failure threshold and its alert
-    /// cooldown. `/api/status` — the node's own cheap health path — drives a
-    /// DEGRADED verdict from signals the node already computes:
-    /// `runtime_degraded`, `footprint_over_limit`, `durability.degraded`
-    /// (with the node's own reasons), a slowest request at or above
-    /// `--slowest-request-warn-ms`, and a `governor_state` of `purge-failed`
-    /// held for at least `GOVERNOR_PURGE_FAILED_WARN_SECS` (not caller
-    /// configurable; see `health_alert::probe_degradation`).
-    ///
-    /// V2 job failures remain explicit. Unmeasured V2 freshness reports unknown.
-    ///
-    /// A degradation probe that cannot be completed reports
-    /// `reachable; degradation unknown — <why>`, never `ok`. Pass
-    /// `--no-degradation-probe` to go back to liveness only.
-    #[command(hide = true)]
-    AlertCheck(AlertCheckArgs),
-    /// Show or change the running daemon's tracing filter, without a restart.
-    ///
-    /// With no argument, prints the directive in force. With a directive, swaps
-    /// it in place — the change takes effect on the next log event and is lost
-    /// on restart, which is what makes it safe to raise verbosity on a live
-    /// node and walk away.
-    ///
-    /// The directive is `EnvFilter` syntax, so it can target one module:
-    ///
-    ///   lastdb admin log-filter 'fold_db::fold_db_core::query::hash_range_query=debug,info'
-    ///
-    /// Pass `info` to restore the startup default. A malformed directive is
-    /// refused and the active filter is left alone.
-    #[command(hide = true)]
-    LogFilter {
-        /// The `EnvFilter` directive to install. Omit to read the current one.
-        directive: Option<String>,
-        /// Emit the raw `log_filter` object instead of a human line.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Persist or inspect the home directory used by brew/launchd service starts.
-    #[command(hide = true)]
-    ServiceHome {
-        #[command(subcommand)]
-        action: ServiceHomeCommand,
-    },
-    /// Explicit V2 backup, restore, and paused credentials.
-    #[command(hide = true)]
-    Cloud {
-        #[command(subcommand)]
-        action: CloudCommand,
-    },
     /// Submit a complete conditional mutation from JSON, or '-' for stdin.
     ///
     /// To supply the record's file, use an object with `mutation` and
@@ -187,18 +118,7 @@ pub(super) enum Command {
         request_file: PathBuf,
         #[arg(long)]
         durable: bool,
-        #[arg(long)]
-        json: bool,
     },
-    /// List live record keys for one schema (hash + range). No field values.
-    ///
-    /// Walks the schema's records in primary key order and skips deleted
-    /// records, so a page can hold fewer keys than the limit. With
-    /// `--key-name`, reads the named alternate key entries under `--key-hash`.
-    /// Default page is 100 keys; pass `--cursor` from the previous page to
-    /// continue. Does not require `X-LastDB-Allow-Full-Scan`. Alias of `get-keys`.
-    #[command(hide = true)]
-    List(RecordListArgs),
     /// List one page of primary keys, or named alternate keys under --key-hash.
     GetKeys(RecordListArgs),
     /// Point-get one record by exact hash (and range when the schema is HashRange).
@@ -226,54 +146,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: SchemaInspectCommand,
     },
-    /// Database admin.
-    ///
-    /// Most verbs talk to the running daemon over the owner socket.
-    #[command(hide = true)]
-    Db {
-        #[command(subcommand)]
-        action: DbCommand,
-    },
-    /// Read, set, or clear one installed schema's node-local retention policy.
-    #[command(hide = true)]
-    SchemaRetention {
-        #[command(subcommand)]
-        action: SchemaRetentionCommand,
-    },
-    /// Retire or restore one installed schema's claim on its `descriptive_name`.
-    ///
-    /// A rekey mints a new identity for the same product and leaves the
-    /// predecessor Available under the SAME readable name, so that name
-    /// resolves to two schemas and every lookup by it is a 409. Retiring the
-    /// predecessor's claim drops it from descriptive-name resolution only. Its
-    /// identity hash, its state and its data are untouched, so a reader that
-    /// pins the predecessor by hash keeps reading it.
-    ///
-    /// Name the claimant by its canonical name or identity hash — naming it by
-    /// the descriptive name it shares is exactly what is ambiguous.
-    #[command(hide = true)]
-    SchemaNameClaim {
-        #[command(subcommand)]
-        action: SchemaNameClaimCommand,
-    },
-    /// Rebuild Search app inbox by paging product records (off hot path).
-    ///
-    /// Exclusive offline open of `--data-dir` / LASTDB_HOME (stop `lastdbd` first
-    /// for the primary home). Emits IndexChangeBatch JSON under
-    /// `apps/search/inbox` for LastSeek or the Search app to read.
-    /// After restore/cold home: run this, then `search rebuild` / drain.
-    #[command(hide = true)]
-    SearchRebuild {
-        /// Records per page when walking schemas (default 32).
-        #[arg(long, default_value_t = 32)]
-        page_size: usize,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// App registry: check schema coverage, register novel schemas, and
-    /// publish an app into the LastDB registry (design:
-    /// brain `design-lastdb-app-registry`).
+    /// Discover, install, and publish apps through the signed registry.
     App {
         #[command(subcommand)]
         action: AppCommand,

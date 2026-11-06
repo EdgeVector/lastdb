@@ -25,9 +25,9 @@ pub fn config_path() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os(CONFIG_ENV) {
         return Ok(PathBuf::from(path));
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| "Cannot locate lastdbd service-home config: HOME is not set".to_string())?;
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
+        "Cannot locate lastdb admin service-home config: HOME is not set".to_string()
+    })?;
     let rel = if cfg!(target_os = "macos") {
         MACOS_CONFIG_REL
     } else {
@@ -50,7 +50,7 @@ pub fn configured_home() -> Result<Option<PathBuf>, String> {
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!(
-            "Failed to read lastdbd service-home config {}: {e}",
+            "Failed to read lastdb admin service-home config {}: {e}",
             path.display()
         )),
     }
@@ -64,14 +64,14 @@ pub fn set_configured_home(raw_home: &Path) -> Result<String, String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
             format!(
-                "Failed to create lastdbd service-home config directory {}: {e}",
+                "Failed to create lastdb admin service-home config directory {}: {e}",
                 parent.display()
             )
         })?;
     }
     fs::write(&path, format!("{}\n", home.display())).map_err(|e| {
         format!(
-            "Failed to write lastdbd service-home config {}: {e}",
+            "Failed to write lastdb admin service-home config {}: {e}",
             path.display()
         )
     })?;
@@ -101,15 +101,15 @@ pub fn clear_configured_home() -> Result<String, String> {
     let path = config_path()?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(format!(
-            "Removed lastdbd service-home config {}\nService start will use LASTDB_HOME or ~/.lastdb.",
+            "Removed lastdb admin service-home config {}\nService start will use LASTDB_HOME or ~/.lastdb.",
             path.display()
         )),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!(
-            "No lastdbd service-home config existed at {}",
+            "No lastdb admin service-home config existed at {}",
             path.display()
         )),
         Err(e) => Err(format!(
-            "Failed to remove lastdbd service-home config {}: {e}",
+            "Failed to remove lastdb admin service-home config {}: {e}",
             path.display()
         )),
     }

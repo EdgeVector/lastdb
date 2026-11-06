@@ -55,18 +55,6 @@ Use format, syntax, type, lint, and product build checks.
 This rule replaces all earlier test and test coverage requirements.
 Situation: `no-tests-all-repos-20261009`.
 
-### Scoped extension: field history product proof (Tom, 2026-10-29)
-
-Tom approved the fresh-home field history proof as a required check on 2026-10-29.
-The proof runs the public CLI and daemon on a fresh generated home.
-This authorizes only:
-
-- `scripts/operations/field_history.py`
-- `.github/workflows/field-history.yml`
-- the `field_history` job in `.github/workflows/ci-required.yml`
-
-Use CI for the build and the proof. No primary copy. Keep every other test target retired.
-
 ### Scoped extension: record home product proofs (Tom, 2026-10-30/31)
 
 Tom approved the record model plan (#911, item 9): a proof in CI on a fresh home with a

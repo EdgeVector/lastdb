@@ -116,6 +116,28 @@ brew services start lastdb   # runs lastdbd
 lastdb status
 ```
 
+Use `lastdb --help` to see the commands in the installed release. The grouped
+CLI has eight entry points:
+
+| Command | Use |
+|---|---|
+| `status` | Check whether the daemon is reachable and inspect its health. |
+| `schema` | Inspect an installed schema and its keys. |
+| `get` | Read an exact record. Add `--hydrate FILE` to save its verified file. |
+| `get-keys` | Page through keys or list named alternate keys under a hash. |
+| `mutate` | Submit a conditional write and supply the record’s file when needed. |
+| `app` | Browse the signed registry and manage apps. |
+| `backup` | Configure backup and restore an accepted recovery point. |
+| `admin` | Diagnose or maintain a home. |
+
+Supply file bytes in the same `mutate --request-file` operation as the record.
+Use a JSON object with `mutation` set to the complete conditional request and
+`file` set to an object with `source` and optional `name` and `media_type`. The
+source path is relative to the request file, or to the working directory for
+stdin. A record with a required file cannot be written without its file. A
+bare record replacement keeps the existing file. A replacement with
+`file: null` in the same envelope removes an optional file.
+
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus
 service-owned Search/schema resolver surfaces.

@@ -4,6 +4,8 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -84,6 +86,12 @@ def seed(node):
     return expected
 
 
+def record_cli(node, *arguments):
+    cli = node.binary.with_name("lastdb")
+    environment = dict(os.environ, LASTDB_HOME=str(node.home), LASTDB_SOCKET_PATH=str(node.socket))
+    return json.loads(subprocess.check_output([cli, *arguments], env=environment, timeout=60))
+
+
 def prove_required_file(node):
     schema, target = "RequiredRecordFile", {"hash": "required-file"}
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
@@ -93,24 +101,32 @@ def prove_required_file(node):
         "fields": ["note"], "field_types": {"note": "String"},
         "field_descriptions": {"note": "The note that requires its original file"},
     }})
-    fields = {"note": "file content is part of this record"}
+    fields = {"note": "file content is part of this record " + "x" * (12 * 1024)}
     request = mutation(schema, target, fields, "create", expected={"type": "absent"})
     require_file_refusal(node, "/api/mutation", request)
-    stored = node.call("/api/db/put-blob", {
-        "mutation": request, "bytes_b64": base64.b64encode(payload(0)).decode(),
-    })[0]
+    source = node.root / "record-file"
+    source.write_bytes(payload(0))
+    request_path = node.root / "record-input.json"
+    request_path.write_text(json.dumps({"mutation": request, "file": {"source": source.name}}))
+    stored = record_cli(node, "mutate", "--request-file", request_path)
+    require(stored.get("record_revision"), "file-bearing create has no revision")
     update = conditioned(node, [mutation(schema, target, fields)])[0]
     update.pop("file", None)
     node.call("/api/mutation", update)
     clear = conditioned(node, [mutation(schema, target, fields)])[0]
     clear.pop("file", None)
     require_file_refusal(node, "/api/db/delete-blob", {"mutation": clear})
-    after = node.call("/api/db/fetch-blob", {"schema": schema, "key": target})[0]
-    require(after["file"]["sha256"] == stored["file"]["sha256"],
+    destination = node.root / "hydrated-record-file"
+    hydrated = record_cli(
+        node, "get", schema, "--key-hash", target["hash"], "--hydrate", destination, "--json")["results"]
+    require(len(hydrated) == 1 and hydrated[0]["fields"] == fields
+            and hydrated[0]["hydrated_file"] == str(destination)
+            and hydrated[0]["metadata"]["file"]["sha256"] == stored["file"]["sha256"]
+            and destination.read_bytes() == source.read_bytes(),
             "the required file changed or disappeared during a record replacement")
     delete = conditioned(node, [mutation(schema, target, {}, "delete")])[0]
     node.call("/api/mutation", delete)
-    print("Required file admission and automatic preservation passed", flush=True)
+    print("Required file admission, automatic preservation and CLI hydration passed", flush=True)
 
 
 def require_file_refusal(node, route, request):
@@ -231,5 +247,7 @@ def replacement(node, number, fields, retain_file):
 def delete_file(node, number):
     request = replacement(node, number,
         {"id": key(number), "note": NOTE + " updated", "detail": "updated"}, retain_file=False)
-    reply = node.call("/api/db/delete-blob", {"mutation": request})[0]
+    request_path = node.root / "record-replacement.json"
+    request_path.write_text(json.dumps({"mutation": request, "file": None}))
+    reply = record_cli(node, "mutate", "--request-file", request_path)
     require(reply["record_revision"], "file removal has no conditional replacement revision")

@@ -173,9 +173,9 @@ where
 /// is the remediation that always applies: [`admin_scan_client_timeout`] reads
 /// it for the CLI's own deadline, and the daemon reads it for the server side,
 /// so setting it in the environment raises both. `--timeout` exists only on
-/// `db inventory`, `db schemas` and `ops`; naming it unconditionally sent
-/// operators of `db compact-order-log` — a verb that often hits this deadline —
-/// to `unexpected argument '--timeout' found`.
+/// `admin storage inventory`, its `--by-schema` view, and `admin ops`; naming it unconditionally sent
+/// operators to `unexpected argument '--timeout' found` when a command
+/// does not accept the flag.
 pub(super) fn format_socket_io_error(op: &str, err: &std::io::Error, timeout: Duration) -> String {
     if is_client_deadline_error(err) {
         let secs = timeout.as_secs().max(1);
@@ -198,23 +198,4 @@ pub(super) fn is_client_deadline_error(err: &std::io::Error) -> bool {
         err.kind(),
         ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
     )
-}
-
-pub(super) fn resolve_exemem_url(
-    api_url: Option<String>,
-    env: Option<&str>,
-) -> Result<String, String> {
-    match (api_url, env) {
-        (Some(url), _) => Ok(url),
-        (None, Some("dev")) => Ok(folddb_profile::endpoints::exemem_api_url_for(
-            folddb_profile::endpoints::Environment::Dev,
-        )
-        .to_string()),
-        (None, Some("prod")) => Ok(folddb_profile::endpoints::exemem_api_url_for(
-            folddb_profile::endpoints::Environment::Prod,
-        )
-        .to_string()),
-        (None, Some(other)) => Err(format!("unknown --env '{other}' (expected dev or prod)")),
-        (None, None) => Ok(folddb_profile::endpoints::exemem_api_url()),
-    }
 }

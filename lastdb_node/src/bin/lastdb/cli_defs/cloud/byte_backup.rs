@@ -1,6 +1,5 @@
 use super::*;
 
-#[derive(Subcommand, Debug)]
 pub(crate) enum ByteBackupCommand {
     /// Create one fresh DEV identity without a daemon, store, or cloud request.
     Init(BackupInitArgs),

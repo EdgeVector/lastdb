@@ -14,7 +14,7 @@ The TTL sweep lists the expired keys of a hash with the same range read: it
 reads past a run of deleted records to the expired records after the run. It
 keeps a floor for each hash after the run; a write below the floor removes the
 floor, so the next passes erase the key, not a full pass 64 passes later. A
-schema drop releases the records, field history entries and alternate key
+schema drop releases the records and alternate key
 entries of the schema, so the same schema installed again holds none of them,
 and the records of other schemas stay. An installed schema refuses a change of
 its alternate keys, so its current alternate revision is its only one. A drop
@@ -292,13 +292,6 @@ def ledger(node):
     return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
 
 
-def drop_history(node, key, action):
-    return node.call("/api/field-history", {
-        "location": {"schema": "RecordDrop", "field": "value", "key": {"hash": key}},
-        "action": action,
-    })[0]
-
-
 def dropped_rows(node, scan):
     """Every live record of RecordDrop, by walk and by its alternate key."""
     body = {"schema_name": "RecordDrop", "filter": None}
@@ -312,8 +305,6 @@ def dropped_rows(node, scan):
 
 def drop_release(node, scan):
     """A schema drop releases the rows of the schema and leaves the other schemas."""
-    reply = drop_history(node, "d0000", {"op": "policy", "policy": {"mode": "keep"}})
-    require(reply["policy"] == {"mode": "keep"}, "the field history policy was not set")
     names = [f"d{number:04d}" for number in range(DROP_RECORDS)]
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name},
                           "create") for name in names])
@@ -327,8 +318,6 @@ def drop_release(node, scan):
     walked, alternate = dropped_rows(node, scan)
     require(len(walked) == len(alternate) == DROP_RECORDS - 10,
             f"RecordDrop holds {len(walked)} walked and {len(alternate)} alternate records before the drop")
-    require(len(drop_history(node, "d0000", {"op": "list"})["entries"]) == 1,
-            "the overwrite before the drop kept no history entry")
     reply = node.call("/api/schemas/drop", {"schema": "RecordDrop", "must_exist": True})[0]
     require(reply["existed"], "the schema drop did not find RecordDrop: " + repr(reply))
     seed(node, DROPPED)
@@ -341,8 +330,6 @@ def drop_release(node, scan):
     changed = definition("RecordDrop", "Hash", FIELDS,
                          {"by_value": RANGED})
     refused(lambda: seed(node, changed), ["alternate"])
-    require(drop_history(node, "d0000", {"op": "list"})["entries"] == [],
-            "the schema installed again after its drop holds a field history entry")
     write(node, [mutation("RecordDrop", {"hash": "d0001"},
                           {"id": "d0001", "bucket": "fresh", "value": "new"}, "create")])
     walked, alternate = dropped_rows(node, scan)
@@ -440,7 +427,7 @@ def check(node, scan):
     print(f"TTL floor: {FLOOR_ROUNDS} writes below the floor of a hash were each erased within "
           f"{FLOOR_SECONDS} s", flush=True)
     drop_release(node, scan)
-    print(f"Schema drop: the drop of a schema with {DROP_RECORDS} records, field history and an "
+    print(f"Schema drop: the drop of a schema with {DROP_RECORDS} records and an "
           "alternate key released them; the schema installed again held none of them and "
           "refused a change of its alternate keys; another schema kept its records", flush=True)
     outcome = drop_race(node, scan)

@@ -12,22 +12,6 @@ pub(crate) enum SchemaInspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Removes one installed schema identity from the catalog.
-    ///
-    /// The drop first releases the records, field history entries and
-    /// alternate key entries of the schema in bounded batches. After ACK,
-    /// `schema show` and product reads for that identity miss. A drop that
-    /// stops leaves the schema installed and blocked; run it again to finish.
-    /// Drop of a missing identity succeeds unless `--must-exist`.
-    /// `--owner-app` drops each identity that the catalog lists for that app,
-    /// one at a time.
-    #[command(group(
-        clap::ArgGroup::new("drop_target")
-            .required(true)
-            .args(["schema", "owner_app"])
-    ))]
-    #[command(hide = true)]
-    Drop(SchemaDropArgs),
 }
 
 #[derive(Subcommand, Debug)]

@@ -10,7 +10,7 @@ records have the envelope forms of the primary (compressed and raw). Then:
 3. the home opens again, and every key reads back the same.
 
 After each step the key list of each seed schema (GET /api/list, the
-`lastdb list` pages) must hold each live key of the model and no key that
+`lastdb get-keys` pages) must hold each live key of the model and no key that
 the model does not know. The open must keep the reads, the key lists, and
 the record bytes and record count of each seed schema equal to the
 step before it. Only the proof writes the seed schemas, so a change there
@@ -20,7 +20,7 @@ Every new home uses the record model: one stored record value per
 key. A sampler reads the size of the node folder during the writes, the
 merges, and the open. The proof fails when the v2 data is above 2.0x of the
 record bytes that the node reports (GET /api/db/schemas, the
-`lastdb db schemas` walk), when the node reports under 16 MiB of logical
+`lastdb admin storage inventory --by-schema` walk), when the node reports under 16 MiB of logical
 records, because a smaller home does not test the limit, or when the sampler
 cannot read the node folder.
 """

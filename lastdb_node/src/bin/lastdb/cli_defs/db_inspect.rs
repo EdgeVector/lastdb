@@ -1,13 +1,13 @@
-//! Clap subcommands for `lastdb db`: read-only inspection and audit verbs.
+//! Internal storage inventory modes.
 
 use super::*;
 
-#[derive(Subcommand, Debug)]
+#[derive(Debug)]
 pub(crate) enum DbInspectCommand {
     /// Decrypt/read live store: main key-class sizes + per-schema live record sizes.
     ///
     /// **Heavy op:** full-prefix walks over multi-GiB stores can take minutes
-    /// (see `lastdb ops`). Prefer `--out PATH` over
+    /// (see `lastdb admin ops`). Prefer `--out PATH` over
     /// shell redirect (`> file`) so a client deadline cannot leave a 0-byte
     /// product file that looks like an empty store. It writes nothing.
     ///
@@ -16,41 +16,34 @@ pub(crate) enum DbInspectCommand {
     /// command **and** the matching server env when walks exceed the default.
     Inventory {
         /// Emit raw JSON only (no human table).
-        #[arg(long)]
         json: bool,
         /// Write inventory JSON to this path (temp file + rename; never a
         /// half-empty product file on failure). Prefer this over shell
         /// redirect so a timed-out run does not leave a 0-byte inventory.
-        #[arg(long)]
         out: Option<PathBuf>,
         /// Client socket deadline for this inventory walk, in seconds.
         /// Defaults to the admin-scan budget (`LASTDB_UDS_ADMIN_TIMEOUT_SECS`
         /// or 600). The server deadline must be at least this high for the
         /// walk to finish — raise that env on the daemon too when you raise
         /// the client flag past the default.
-        #[arg(long, value_name = "SECS")]
         timeout: Option<u64>,
     },
     /// Per-schema live record sizes (catalog names joined).
     ///
     /// **Heavy op:** walks every stored record (`rk:` rows) once — cheaper
-    /// than `db inventory` (no main key-class walk), but still an admin scan.
+    /// than the full inventory (no main key-class walk), but still an admin scan.
     /// Prefer `--out PATH` over shell redirect.
     ///
     /// Do not run this as a routine against a daily-driver primary.
     Schemas {
         /// Emit raw JSON only (no human table).
-        #[arg(long)]
         json: bool,
         /// Write the report JSON to this path (temp file + rename).
-        #[arg(long)]
         out: Option<PathBuf>,
         /// Client socket deadline in seconds. Defaults to the admin-scan
         /// budget (`LASTDB_UDS_ADMIN_TIMEOUT_SECS` or 600).
-        #[arg(long, value_name = "SECS")]
         timeout: Option<u64>,
         /// Cap the human table (JSON stays complete). Default 50.
-        #[arg(long, default_value_t = 50)]
         limit: usize,
     },
 }

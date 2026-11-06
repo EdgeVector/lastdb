@@ -32,13 +32,31 @@ struct JsonBody<'a> {
 
 /// Read the plaintext and the metadata from either request form.
 ///
-/// - `Content-Type: application/octet-stream`: the body IS the plaintext,
-///   borrowed without a copy. The metadata rides in
-///   `X-LastDB-File-Blob-Metadata`.
+/// - `Content-Type: application/octet-stream`: the body starts with compact
+///   JSON of the length in `X-LastDB-File-Blob-Metadata-Length`, then raw bytes.
+///   Earlier clients send all metadata in `X-LastDB-File-Blob-Metadata`
+///   and use the entire body for bytes.
 /// - Otherwise a JSON body `{ schema, key, bytes_b64, name?, media_type?,
 ///   fields? }`.
 fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), HostError> {
     if is_media_type(req.header("content-type"), "application/octet-stream") {
+        if let Some(length) = req.header("x-lastdb-file-blob-metadata-length") {
+            let length = length
+                .parse::<usize>()
+                .ok()
+                .filter(|length| *length <= lastdb_uds::uds_http::MAX_BODY_LEN)
+                .ok_or_else(|| HostError::new(400, "invalid file metadata length"))?;
+            if req.header(FILE_BLOB_METADATA_HEADER).is_some() {
+                return Err(HostError::new(400, "ambiguous file metadata framing"));
+            }
+            let (json, bytes) = req
+                .body
+                .split_at_checked(length)
+                .ok_or_else(|| HostError::new(400, "file metadata exceeds the request body"))?;
+            let metadata = serde_json::from_slice(json)
+                .map_err(|error| HostError::new(400, format!("invalid file metadata: {error}")))?;
+            return Ok((Cow::Borrowed(bytes), metadata));
+        }
         let raw = req
             .header(FILE_BLOB_METADATA_HEADER)
             .ok_or_else(|| HostError::new(400, "a raw put-blob requires the metadata header"))?;
@@ -125,7 +143,8 @@ pub(super) async fn execute_db_put_blob_route(
         let value = commit_mutation_components(host, components).await?;
         Ok(serde_json::json!({
             "file": marker,
-            "mutation_id": value.get("mutation_id").cloned().unwrap_or(Value::Null),
+            "mutation_id": value.get("mutation_id"),
+            "record_revision": value.get("record_revision"),
         }))
     };
     render(put.await, ctx)

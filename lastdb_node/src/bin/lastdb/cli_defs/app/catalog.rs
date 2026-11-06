@@ -25,34 +25,6 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Show one app's row on the signed public index.
-    Info {
-        app_id: String,
-        /// Index channel (`stable` | `next`). Default: stable.
-        #[arg(long)]
-        channel: Option<String>,
-        /// Index location: URL base or directory.
-        #[arg(long)]
-        index: Option<String>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
-        #[arg(long)]
-        trust_key: Option<String>,
-    },
-    /// Resolve a publisher-signed app for this node's exact API version. Anonymous.
-    Resolve {
-        app_id: String,
-        /// Index channel (`stable` | `next`). Default: stable.
-        #[arg(long)]
-        channel: Option<String>,
-        /// Index location: URL base or directory.
-        #[arg(long)]
-        index: Option<String>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
-        #[arg(long)]
-        trust_key: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
     /// Sign, verify, or show a static index file.
     #[command(subcommand)]
     Index(AppIndexCommand),

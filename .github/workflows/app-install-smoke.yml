@@ -151,9 +151,9 @@ jobs:
           # Old tap compat[].lastdb_version rows are no longer registry input.
           APP="${{ matrix.app }}"
           CHANNEL=stable
-          if ! lastdb app info "$APP" --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
+          if ! lastdb app list "$APP" --catalog-entry --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
             CHANNEL=next
-            if ! lastdb app info "$APP" --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
+            if ! lastdb app list "$APP" --catalog-entry --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
               case "$APP" in
                 brain|lastsecrets|search)
                   echo "Missing signed compatibility for required app $APP on this exact API"
@@ -171,7 +171,7 @@ jobs:
           fi
           echo "REGISTRY_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           lastdb app list --channel "$CHANNEL" | tee "$PROOF_DIR/registry-apps.txt"
-          lastdb app resolve "$APP" --json --channel "$CHANNEL" | tee "$PROOF_DIR/${APP}-resolve.json"
+          lastdb app list "$APP" --json --channel "$CHANNEL" | tee "$PROOF_DIR/${APP}-resolve.json"
 
       - name: Install ${{ matrix.app }} from the signed registry
         if: env.SKIP_REGISTRY != 'true'

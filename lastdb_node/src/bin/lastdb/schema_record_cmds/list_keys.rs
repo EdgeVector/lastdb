@@ -16,7 +16,6 @@ pub(crate) fn percent_encode_query(value: &str) -> String {
 pub(crate) fn list_record_keys(
     data_dir: Option<PathBuf>,
     args: &crate::cli_defs::RecordListArgs,
-    verb: &str,
 ) -> Result<(), String> {
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     if lastdb_node::health_alert::probe_health(&socket).is_err() {
@@ -69,11 +68,11 @@ pub(crate) fn list_record_keys(
         );
         return Ok(());
     }
-    print_list_record_keys_human(&report, verb);
+    print_list_record_keys_human(&report);
     Ok(())
 }
 
-pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &str) {
+fn print_list_record_keys_human(report: &serde_json::Value) {
     let keys = report
         .get("keys")
         .and_then(serde_json::Value::as_array)
@@ -104,7 +103,7 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
         .map(|name| format!(" --key-name {name}"))
         .unwrap_or_default();
     eprintln!(
-        "lastdb {verb} {schema}{key_flag}{partition} — {} key{}{layout}{}",
+        "lastdb get-keys {schema}{key_flag}{partition} — {} key{}{layout}{}",
         keys.len(),
         if keys.len() == 1 { "" } else { "s" },
         if has_more { " (more)" } else { "" }
@@ -136,7 +135,7 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
             let hash_flag = hash_filter
                 .map(|h| format!(" --key-hash '{h}'"))
                 .unwrap_or_default();
-            eprintln!("next: lastdb {verb} {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
+            eprintln!("next: lastdb get-keys {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
         }
     }
 }
