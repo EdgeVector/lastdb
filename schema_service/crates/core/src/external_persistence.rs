@@ -289,35 +289,6 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(Vec::new())
     }
 
-    // ============== Catalog feed (advisory Schema Service, section 8) ======
-    //
-    // One image holds the feed state (list ETags, manifests read) and the
-    // catalog records. The feed reads it once per run and writes it at most
-    // once, conditional on the revision it read.
-
-    /// Load the catalog feed image and its version tag. `None` before the
-    /// first run.
-    async fn load_catalog_feed(
-        &self,
-    ) -> FoldDbResult<Option<(crate::catalog_feed::CatalogFeedImage, String)>> {
-        Err(schema_types::FoldDbError::Config(
-            "the catalog feed is not supported by this backend".to_string(),
-        ))
-    }
-
-    /// Replace the image in one conditional write while the stored version
-    /// tag is still `expected_version` (`None`: no image yet). A lost race
-    /// returns [`crate::catalog_feed::catalog_feed_conflict`].
-    async fn save_catalog_feed(
-        &self,
-        _image: &crate::catalog_feed::CatalogFeedImage,
-        _expected_version: Option<&str>,
-    ) -> FoldDbResult<()> {
-        Err(schema_types::FoldDbError::Config(
-            "the catalog feed is not supported by this backend".to_string(),
-        ))
-    }
-
     /// Clear all schemas from durable storage (dev reset). Default:
     /// unsupported (cloud backends own their own reset semantics).
     async fn clear_all_schemas(&self) -> FoldDbResult<()> {

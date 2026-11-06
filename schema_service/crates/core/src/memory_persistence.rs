@@ -12,7 +12,6 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use async_trait::async_trait;
 
 use crate::app_release::{channel_key, ChannelRecord, ReleaseRecord};
-use crate::catalog_feed::{catalog_feed_conflict, CatalogFeedImage};
 use crate::declared_fields::DeclaredFieldRecord;
 use crate::external_persistence::ExternalSchemaPersistence;
 use crate::lock_helpers::{read_lock, write_lock};
@@ -34,7 +33,6 @@ struct Registry {
     releases: HashMap<String, ReleaseRecord>,
     channels: HashMap<String, ChannelRecord>,
     declared_fields: HashMap<String, DeclaredFieldRecord>,
-    catalog_feed: Option<CatalogFeedImage>,
 }
 
 /// In-memory implementation of [`ExternalSchemaPersistence`].
@@ -270,31 +268,6 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
 
     async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
         Ok(self.read()?.declared_fields.values().cloned().collect())
-    }
-
-    /// The version tag is the image revision.
-    async fn load_catalog_feed(&self) -> FoldDbResult<Option<(CatalogFeedImage, String)>> {
-        Ok(self.read()?.catalog_feed.clone().map(|image| {
-            let version = image.revision.to_string();
-            (image, version)
-        }))
-    }
-
-    async fn save_catalog_feed(
-        &self,
-        image: &CatalogFeedImage,
-        expected_version: Option<&str>,
-    ) -> FoldDbResult<()> {
-        let mut registry = self.write()?;
-        let stored = registry
-            .catalog_feed
-            .as_ref()
-            .map(|stored| stored.revision.to_string());
-        if stored.as_deref() != expected_version {
-            return Err(catalog_feed_conflict());
-        }
-        registry.catalog_feed = Some(image.clone());
-        Ok(())
     }
 
     /// `POST /v1/system/reset`: clear schemas only.

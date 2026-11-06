@@ -47,8 +47,6 @@ pub mod app_release;
 pub mod blocking_runtime;
 pub mod builtin_canonical_fields;
 pub mod builtin_schemas;
-/// Registry lists to catalog records (advisory Schema Service, section 8).
-pub mod catalog_feed;
 pub mod clock;
 pub mod declared_fields;
 pub mod embedder;
