@@ -17,6 +17,15 @@ use std::path::{Path, PathBuf};
 struct OwnerSource {
     client: SharedRecoveryClient,
     signer: Ed25519KeyPair,
+    snapshot: Option<Id>,
+}
+
+/// Database and optional exact snapshot required by the caller.
+pub struct OwnerRestoreSelection<'a> {
+    /// Database named by the protected recovery request.
+    pub database: &'a Id,
+    /// Require this snapshot ID in the service-selected recovery view.
+    pub snapshot: Option<&'a Id>,
 }
 
 /// Restore with a registered device proof and credentials from the owner's
@@ -25,7 +34,7 @@ pub async fn restore_owner(
     auth: AuthClient,
     device: Id,
     signer: Ed25519KeyPair,
-    database: &Id,
+    selection: OwnerRestoreSelection<'_>,
     destination: &Path,
     recovery_phrase: &str,
     environment: Environment,
@@ -36,9 +45,10 @@ pub async fn restore_owner(
     let source = OwnerSource {
         client: SharedRecoveryClient::from_auth(auth, account, device).map_err(transport_error)?,
         signer,
+        snapshot: selection.snapshot.cloned(),
     };
     let schemas = SchemaServiceClient::new(schema_service_url_for(environment));
-    super::restore_from_source(&source, database, destination, &keys, &schemas).await
+    super::restore_from_source(&source, selection.database, destination, &keys, &schemas).await
 }
 
 #[async_trait::async_trait]
@@ -56,6 +66,13 @@ impl SharedRecoverySource for OwnerSource {
             })
             .await
             .map_err(transport_error)?;
+        if self
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot != &view.snapshot.snapshot_id)
+        {
+            return Err(RestoreError::Invalid("selected shared snapshot ID"));
+        }
         let manifest = self
             .client
             .manifest(&request, proof_expiry(now()), |message| {

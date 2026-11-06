@@ -26,7 +26,7 @@ from programs import Programs, execute
 from recover import step_summary
 from support import (ACCOUNT, CREDENTIALS_FILE, OperationError, canonical_uuid,
                      child_environment, decode_json, dev_endpoint, failure,
-                     private_directory, require, save_json)
+                     private_directory, read_json, require, save_json)
 
 
 SCHEMA = "lastdb.cloud-dev-shared-recovery.v1"
@@ -49,8 +49,7 @@ def scope():
         required, required | {"schema_name", "schema_id"}) and value["account_id"] == ACCOUNT,
         "shared_admitted_scope")
     if "schema_name" in value:
-        require(isinstance(value["schema_name"], str)
-                and re.fullmatch(r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value["schema_name"])
+        require(is_schema_alias(value["schema_name"])
                 and is_digest(value["schema_id"]), "shared_immutable_schema")
     writers = value["writers"]
     require(isinstance(writers, list) and len(writers) == 2
@@ -74,6 +73,11 @@ def is_digest(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def is_schema_alias(value):
+    return isinstance(value, str) and re.fullmatch(
+        r"[A-Za-z0-9_-]{1,64}(?:/[A-Za-z0-9_-]{1,64})?", value) is not None
+
+
 class Operation:
     def __init__(self, args):
         self.args = args
@@ -89,6 +93,7 @@ class Operation:
         require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
                 and re.fullmatch(r"[0-9a-f]{40}", source), "shared_manual_accepted_source")
         self.owner = run_identity(source)
+        self.proof_owner = self.owner
         require(re.fullmatch(r"[A-Za-z0-9.+_-]{1,128}", self.args.version)
                 and self.args.version.endswith(".g" + source[:9]), "shared_source_version")
         runner = Path(os.environ.get("RUNNER_TEMP", ""))
@@ -102,7 +107,11 @@ class Operation:
         self.summary["scope"] = self.scope
         self.writers = sorted(self.scope["writers"],
                               key=lambda writer: writer["device_id"] != self.scope["publisher_device"])
-        self.snapshot = str(uuid.uuid4())
+        if self.args.prior_summary is None:
+            require(self.args.prior_run is None and self.args.prior_source is None, "shared_no_prior_run")
+            self.snapshot = str(uuid.uuid4())
+        else:
+            self.admit_prior(runner)
         self.summary["snapshot_id"] = self.snapshot
 
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "")
@@ -135,6 +144,39 @@ class Operation:
         self.bindings = self.root / "schemas.json"
         self.programs = Programs(self.args.bin_dir, self.args.version, child_environment(self.root))
         self.summary["binaries"] = self.programs.identities
+
+    def admit_prior(self, runner):
+        require(self.args.prior_summary == runner / "cloud-shared-prior/summary.json"
+                and re.fullmatch(r"[1-9][0-9]{0,19}", self.args.prior_run or "")
+                and re.fullmatch(r"[0-9a-f]{40}", self.args.prior_source or "")
+                and self.args.prior_run != self.owner["run_id"], "shared_prior_input")
+        prior = read_json(self.args.prior_summary, 65536)
+        self.proof_owner = {**self.owner, "source": self.args.prior_source,
+                            "run_id": self.args.prior_run, "run_attempt": "1"}
+        require(isinstance(prior, dict) and prior.get("schema") == SCHEMA
+                and prior.get("owner") == self.proof_owner and prior.get("source") == self.args.prior_source
+                and prior.get("scope") == self.scope and prior.get("primary_access") is False
+                and prior.get("provider_deletions") == 0 and prior.get("cleanup") == "owned runner data removed",
+                "shared_prior_identity")
+        positions = {"checkpoint_through": 4, "peer_applied_publisher_through": 4,
+                     "publisher_tail_through": 7, "peer_tail_through": 3}
+        require(all(type(prior.get(name)) is int and prior[name] == value
+                    for name, value in positions.items()), "shared_prior_accepted_positions")
+        checks = ("snapshot_published_after_both_tails", "peer_read_publisher_records_and_file",
+                  "source_homes_removed", "publication_workspace_removed", "wrong_device_refused")
+        require(all(prior.get(name) is True for name in checks), "shared_prior_completed_publication")
+        binding = prior.get("schema_binding")
+        require(isinstance(binding, dict) and set(binding) in (
+            {"runtime_name", "portable_id"}, {"runtime_name", "portable_id", "catalog_id"})
+            and is_schema_alias(binding["runtime_name"]) and is_digest(binding["portable_id"])
+            and ("catalog_id" not in binding or is_digest(binding["catalog_id"])), "shared_prior_schema")
+        if "schema_id" in self.scope:
+            require(binding["portable_id"] == self.scope["schema_id"]
+                    and binding["runtime_name"] == self.scope["schema_name"], "shared_prior_pinned_schema")
+        self.schema = binding["runtime_name"]
+        self.snapshot = canonical_uuid(prior.get("snapshot_id"))
+        self.summary.update(prior_operation=self.proof_owner, schema_binding=binding, **positions,
+                            **{name: True for name in checks})
 
     def device_file(self, device):
         return self.root / "device-keys" / device
@@ -199,11 +241,14 @@ class Operation:
         self.summary["schema_binding"] = {"runtime_name": self.schema, **identity}
 
     def record(self, kind, version):
-        owner = self.owner
+        owner = self.proof_owner
         return {IDENTIFIER: kind, NOTE: f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
 
+    def payload(self, label):
+        return hashlib.shake_256((self.snapshot + label).encode()).digest(FILE_BYTES)
+
     def attach(self, node, record, label):
-        payload = hashlib.shake_256((self.snapshot + label).encode()).digest(FILE_BYTES)
+        payload = self.payload(label)
         digest = hashlib.sha256(payload).hexdigest()
         path = self.root / "payload.bin"
         private_write(path, payload)
@@ -225,7 +270,8 @@ class Operation:
         device = self.scope["publisher_device"]
         return self.command(self.root / "credentials", [
             "restore-shared", "--env", "dev", "--database-id", self.scope["database_id"],
-            "--device-id", device, "--device-key-file", str(self.device_file(key_device)),
+            "--snapshot-id", self.snapshot, "--device-id", device,
+            "--device-key-file", str(self.device_file(key_device)),
             "--into", str(destination), "--recovery-phrase-stdin", "--json"])
 
     def verify(self, node, records, files):
@@ -258,7 +304,7 @@ class Operation:
             list(pool.map(node.verify_file, targets))
         node.health()
 
-    def execute(self):
+    def publish_cut(self):
         a, b = self.writers
         self.summary["stage"] = "prepare-writers"
         first, peer = self.initialize("first", a), self.initialize("peer", b)
@@ -306,7 +352,7 @@ class Operation:
         winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
         durable_batch(peer, [native_records.replace(self.schema, prior, winner),
                              native_records.create(self.schema, native_records.key("peer-only"), peer_only)])
-        winner_file = self.attach(peer, winner, "winning-tail")
+        self.attach(peer, winner, "winning-tail")
         peer.stop()
         self.summary["peer_tail_through"] = self.push(peer, b, 3)
 
@@ -322,7 +368,7 @@ class Operation:
             shutil.rmtree(publication)
         self.summary.update(source_homes_removed=True, publication_workspace_removed=True)
 
-        self.summary["stage"] = "restore-owner-and-reject-impersonation"
+        self.summary["stage"] = "reject-wrong-device-signature"
         rejected = self.root / "rejected"
         try:
             self.restore(rejected, b["device_id"])
@@ -334,14 +380,22 @@ class Operation:
         else:
             raise OperationError("shared_wrong_device_accepted")
         self.summary["wrong_device_refused"] = True
+
+    def execute(self):
+        if self.args.prior_summary is None:
+            self.publish_cut()
+        self.summary["stage"] = "restore-authorized-device"
         destination = self.root / "restored"
-        receipt = decode_json(self.restore(destination, a["device_id"]))
+        receipt = decode_json(self.restore(destination, self.scope["publisher_device"]))
         require(receipt == {"activated": True, "destination": str(destination)},
                 "shared_restore_activation")
         node = OwnedNode(destination, self.programs)
         self.nodes.append(node)
-        records = {record[IDENTIFIER]: record for record in (checkpoint, winner, peer_only)}
-        files = {"checkpoint": checkpoint_file, "winner": winner_file}
+        records = {"checkpoint": self.record("checkpoint", "snapshot"),
+                   "winner": self.record("winner", "peer-tail"),
+                   "peer-only": self.record("peer-only", "peer-tail")}
+        files = {"checkpoint": hashlib.sha256(self.payload("checkpoint")).hexdigest(),
+                 "winner": hashlib.sha256(self.payload("winning-tail")).hexdigest()}
         self.summary["stage"] = "verify-restored-native-home"
         for _ in range(2):
             node.start()
@@ -379,6 +433,9 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--prior-summary", type=Path)
+    parser.add_argument("--prior-run")
+    parser.add_argument("--prior-source")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)

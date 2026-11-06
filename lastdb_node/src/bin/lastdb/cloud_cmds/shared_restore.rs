@@ -7,7 +7,7 @@ use cloud_backup_protocol::Id;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
-use lastdb_node::shared_restore::{restore_owner, SharedRestore};
+use lastdb_node::shared_restore::{restore_owner, OwnerRestoreSelection, SharedRestore};
 use std::path::Path;
 use zeroize::Zeroizing;
 
@@ -23,6 +23,11 @@ pub(super) fn run(
     }
     let database = Id::try_from(selection.database_id)
         .map_err(|_| "shared database ID must be a canonical UUID")?;
+    let snapshot = selection
+        .snapshot_id
+        .map(Id::try_from)
+        .transpose()
+        .map_err(|_| "shared snapshot ID must be a canonical UUID")?;
     let device = Id::try_from(selection.device_id)
         .map_err(|_| "registered device ID must be a canonical UUID")?;
     let signer = device_signer(&selection.device_key_file)?;
@@ -42,7 +47,10 @@ pub(super) fn run(
             auth,
             device,
             signer,
-            &database,
+            OwnerRestoreSelection {
+                database: &database,
+                snapshot: snapshot.as_ref(),
+            },
             &selection.into,
             &phrase,
             environment,

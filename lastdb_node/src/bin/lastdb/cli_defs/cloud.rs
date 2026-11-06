@@ -159,6 +159,9 @@ pub(crate) struct SharedRestoreCommand {
     /// Shared database to recover.
     #[arg(long)]
     pub database_id: String,
+    /// Refuse unless the recovery hold selects this exact snapshot.
+    #[arg(long)]
+    pub snapshot_id: Option<String>,
     /// Registered device ID for the explicit credential home.
     #[arg(long)]
     pub device_id: String,
