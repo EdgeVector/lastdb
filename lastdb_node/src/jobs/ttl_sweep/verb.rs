@@ -17,10 +17,8 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 /// Both verbs erase the complete record under a revision condition and retain
 /// a tombstone. Neither needs a whole-schema proof or schema barrier.
 ///
-/// `purge` (default) is the hard-erasure verb. It also releases the field
-/// history of the record. `delete` is the ordinary delete that a client uses.
-/// The erase budget charges a delete one more operation for each field than a
-/// purge, so a batch of a wide schema is smaller.
+/// `purge` is the default. The `delete` option also waits for background
+/// work to converge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SweepVerb {
     Delete,

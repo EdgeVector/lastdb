@@ -1,4 +1,4 @@
-//! Product-owned definitions of the format 13 whole-record home.
+//! Product-owned definitions of the format 14 whole-record home.
 //!
 //! Creation,
 //! admission, namespace opening and native routing share these definitions.
@@ -15,20 +15,19 @@ pub(crate) mod bind;
 pub(crate) mod change_feed;
 pub(crate) mod control;
 pub(crate) mod field_keys;
-pub(crate) mod history;
 pub(crate) mod metadata;
 pub(crate) mod read;
 pub(crate) mod records;
 pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
-pub const HOME_FORMAT: u32 = 13;
+pub const HOME_FORMAT: u32 = 14;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=13\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 10;
-pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 11;
-pub const SHARED_NODE_BYTES: &[u8] = b"format=13\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+pub(in crate::storage) const RECORD_PROFILE: u16 = 12;
+pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 13;
+pub const SHARED_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
 pub(in crate::storage) const PRIVATE_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/private";
 
 /// Clear node marker file inside the data directory.
@@ -75,36 +74,13 @@ pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
 pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
-/// Legacy history families. Cleanup and restore share the same key layout.
-pub(in crate::storage::format) use crate::records::field_history::RECORD_HISTORY_FAMILY as HISTORY_RECORD_FAMILY;
-pub(in crate::storage::format) const HISTORY_COUNT_FAMILY: &str = "ahk";
-pub(in crate::storage::format) const HISTORY_QUEUE_FAMILY: &str = "ahq";
-pub(in crate::storage::format) const HISTORY_BUCKET_FAMILY: &str = "ahb";
-pub(in crate::storage::format) const HISTORY_POLICY_FAMILY: &str = "ahp";
-pub(in crate::storage::format) const HISTORY_SLICE_NANOS: u64 = 3_600_000_000_000;
-/// Preserve the original on-disk size bound for restore validation.
-pub(in crate::storage) const MAX_HISTORY_ENTRY_BYTES: usize =
-    lastdb_model::record_value::MAX_RECORD_BYTES + 4 * 1024;
-pub(in crate::storage) const HISTORY_DATA_FAMILIES: &[&str] = &[
-    HISTORY_RECORD_FAMILY,
-    HISTORY_COUNT_FAMILY,
-    HISTORY_QUEUE_FAMILY,
-    HISTORY_BUCKET_FAMILY,
-];
-
-/// Main families admitted by the existing current-key check. Grouping the
-/// history child avoids a second definition of its family names.
-pub(in crate::storage) const CURRENT_FAMILIES: &[&[&str]] = &[
-    &[
-        "rk",
-        "ak",
-        records::applied_deletes::APPLIED_DELETE_FAMILY,
-        records::applied_deletes::DELETE_AGE_FAMILY,
-        HISTORY_POLICY_FAMILY,
-        DELETE_AUDIT_FAMILY,
-        "layout",
-    ],
-    HISTORY_DATA_FAMILIES,
+/// Main families admitted by the current-key check.
+pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
+    "rk",
+    "ak",
+    records::applied_deletes::APPLIED_DELETE_FAMILY,
+    records::applied_deletes::DELETE_AGE_FAMILY,
+    DELETE_AUDIT_FAMILY,
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
@@ -117,8 +93,6 @@ pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
 
 pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:keys";
 pub(crate) const DELETE_REPLAY_CUTOFF_KEY: &str = "layout:delete-replay-cutoff";
-pub(crate) const FIELD_HISTORY_KEY: &str = "layout:field-history";
-pub(crate) const FIELD_HISTORY_ON: &[u8] = b"on";
 pub(in crate::storage::format) const REPLAY_CUTOFF_VERSION: u8 = 1;
 pub(crate) const DELETE_AUDIT_FAMILY: &str = "dellog";
 pub(in crate::storage::format) const FILE_KEY_SALT: &[u8] = b"lastdb-file-blob-account-v2";

@@ -30,7 +30,7 @@ pub struct DbOperations {
     schema_store: SchemaStore,
     /// per-field-key key bundles and node wraps.
     field_keys: FieldKeyStore,
-    /// Main namespace: records, alternate keys, field history.
+    /// Main namespace: records, alternate keys, and delete metadata.
     record_store: RecordStore,
     /// Metadata namespace for mutation author clocks
     metadata_store: MetadataStore,

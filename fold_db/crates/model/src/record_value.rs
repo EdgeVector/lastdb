@@ -29,7 +29,7 @@ impl Stamp {
         format!("{:x}", hash.finalize())
     }
 
-    /// Existing TTL and history callers express write times in nanoseconds.
+    /// Return the write time in nanoseconds for retention callers.
     #[must_use]
     pub fn written_at_nanos(&self) -> u64 {
         self.authored_at_ms.saturating_mul(1_000_000)

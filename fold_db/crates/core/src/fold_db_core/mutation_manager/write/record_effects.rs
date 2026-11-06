@@ -1,7 +1,5 @@
-//! The side rows of one record group: field history, the delete
-//! audit and the retention ages. Each joins the batch of the records.
+//! Delete audit and retention age rows join the batch of their record group.
 //!
-//! - A purge releases any legacy history rows of its record.
 //! - Delete audit: one `dellog` row for each verb and caller of the group, as
 //!   the erase lane writes for a field key home. A TTL sweep delete keeps its
 //!   caller tag.
@@ -54,27 +52,14 @@ fn is_erasure(mutation: &Mutation) -> bool {
 }
 
 impl MutationManager {
-    /// Stage the records of one group with their field history rows, then
-    /// their delete audit and retention age rows. The history and the facts
-    /// of the audit and the ages come from the records before the batch takes
-    /// them.
+    /// Stage the records of one group, then their delete audit and retention
+    /// age rows, using the outcomes captured before staging.
     pub(super) async fn stage_records_with_effects(
         &self,
         schema: &Schema,
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
     ) -> Result<(), SchemaError> {
-        let purged: Vec<&str> = changed
-            .iter()
-            .zip(&changes)
-            .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
-            .map(|(_, change)| change.key.as_str())
-            .collect();
-        let history_released = self
-            .db_ops
-            .records()
-            .stage_purged_record_history(&purged)
-            .await?;
         let outcomes = record_outcomes(&changes);
         self.db_ops.records().stage_records(schema, changes).await?;
         // A live record below a floor of the TTL sweep removes the floor.
@@ -85,7 +70,7 @@ impl MutationManager {
         self.db_ops
             .schemas()
             .note_live_writes(schema, live.map(|(record, _)| record.key))?;
-        self.stage_record_side_rows(schema, changed, &outcomes, history_released)
+        self.stage_record_side_rows(schema, changed, &outcomes)
             .await
     }
 
@@ -96,9 +81,8 @@ impl MutationManager {
         schema: &Schema,
         changed: &[ChangedRecord<'_>],
         outcomes: &[RecordOutcome],
-        history_released: u64,
     ) -> Result<(), SchemaError> {
-        self.stage_record_delete_audit(&schema.name, changed, outcomes, history_released)
+        self.stage_record_delete_audit(&schema.name, changed, outcomes)
             .await?;
         self.stage_record_retention(schema, changed.iter().map(|record| record.key), outcomes)
             .await
@@ -176,7 +160,6 @@ impl MutationManager {
         schema_name: &str,
         changed: &[ChangedRecord<'_>],
         outcomes: &[RecordOutcome],
-        history_released: u64,
     ) -> Result<(), SchemaError> {
         let mut groups: BTreeMap<(&str, &str), Vec<(&KeyValue, &RecordOutcome)>> = BTreeMap::new();
         for (record, outcome) in changed.iter().zip(outcomes) {
@@ -207,9 +190,6 @@ impl MutationManager {
                 .iter()
                 .filter(|(_, outcome)| outcome.had_file)
                 .count() as u64;
-            if verb == LEDGER_VERB_PURGE {
-                entry.history_rows_deleted = history_released;
-            }
             record_store.record_record_delete_audit(entry).await?;
         }
         Ok(())

@@ -6,7 +6,6 @@
 //!
 //! Layout:
 //! - [`construct`] — `RecordStore` constructors and builder hooks
-//! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
 //! - [`schema_release`] — the release of the rows of a dropped schema
 //! - [`record_files`] — the one file of a record, at a path made from its key
@@ -18,7 +17,6 @@
 mod bounded_range;
 mod construct;
 mod delete_replay;
-pub(crate) mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod key_comparison;
@@ -30,7 +28,6 @@ mod record_spans;
 mod record_walk;
 mod records;
 mod schema_release;
-pub(crate) mod time_queue;
 mod writer_watch;
 
 pub use bounded_range::WalkStats;
@@ -59,18 +56,11 @@ pub struct RecordStore {
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
     field_keys: Option<crate::db_operations::FieldKeyStore>,
-    /// The clock of the field history expiry queue. Shared by clones.
-    queue_clock: Arc<time_queue::QueueClock>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
 }
 
 impl RecordStore {
-    /// The clock of the field history expiry queue.
-    pub(crate) fn queue_clock(&self) -> &time_queue::QueueClock {
-        &self.queue_clock
-    }
-
     /// Totals of the bounded range reads of the admin walks.
     pub(crate) fn range_walks(&self) -> &WalkTotals {
         &self.range_walks

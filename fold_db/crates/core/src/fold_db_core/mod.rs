@@ -9,7 +9,6 @@
 //! - [`pending_task_tracker`] — background task bookkeeping
 
 pub mod factory;
-mod field_history;
 pub mod fold_db;
 pub mod pending_task_tracker;
 

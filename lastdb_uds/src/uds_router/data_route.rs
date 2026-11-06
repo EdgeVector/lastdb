@@ -171,12 +171,11 @@ pub enum DataRoute {
     SyncSharedSnapshot,
     /// `POST /api/sync/logical-v1` — owner trust and bounded signed device events.
     SyncLogicalV1,
-    /// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
-    /// byte breakdown. OWNER socket only. It writes nothing.
+    /// `GET /api/db/inventory` — live key-class and per-schema record byte
+    /// breakdown. OWNER socket only.
     DbInventory,
     /// `GET /api/db/schemas` — record-only per-schema logical storage.
-    /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history or
-    /// order-log walks) but still a heavy admin scan.
+    /// OWNER socket only. Reads fewer key families than [`Self::DbInventory`].
     DbSchemas,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.

@@ -139,7 +139,6 @@ fn record_family(key: &str) -> &'static str {
     match family {
         Some("rk") => "record",
         Some("ak") => "alternate_key",
-        Some("rh") => "record_history",
         _ => "other",
     }
 }

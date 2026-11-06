@@ -61,11 +61,6 @@ impl FoldDB {
 
         info!("Created MutationManager for mutation operations");
 
-        let background_field_history = super::super::field_history::BackgroundFieldHistory::start(
-            Arc::clone(&db_ops),
-            offline_maintenance,
-        )
-        .await;
         if !offline_maintenance {
             info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
         }
@@ -78,7 +73,6 @@ impl FoldDB {
             query_executor,
             mutation_manager,
             pending_tasks,
-            background_field_history,
         })
     }
 }

@@ -24,7 +24,7 @@ mod profile;
 mod range_decode;
 
 /// The logical key format of a home: typed range keys. Physical run blocks
-/// keep their own format. The field history setting has its own row.
+/// keep their own format.
 pub const KEY_FORMAT: &[u8] = b"typed-ranges";
 pub fn current_key_format(marker: &[u8]) -> bool {
     marker == KEY_FORMAT

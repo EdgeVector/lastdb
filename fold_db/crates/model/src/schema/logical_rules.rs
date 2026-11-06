@@ -46,11 +46,6 @@ pub fn require_logical_filter(filter: Option<&HashRangeFilter>) -> Result<(), Sc
 
 /// Refuse unsupported controls at the logical read and count boundaries.
 pub fn require_logical_query_controls(query: &Query) -> Result<(), SchemaError> {
-    if query.as_of.is_some() {
-        return Err(SchemaError::InvalidData(
-            "LastDB does not support as_of queries; this engine stores current values only".into(),
-        ));
-    }
     if query.rehydrate_depth.is_some() {
         return Err(SchemaError::InvalidData(
             "LastDB does not support rehydrate_depth queries; a read returns the stored record"

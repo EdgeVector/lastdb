@@ -138,7 +138,7 @@ impl SchemaCore {
     /// Remove one installed schema identity from the catalog and the RAM cache.
     ///
     /// ACK is catalog absence: later `get_schema_metadata` misses. The
-    /// records, field history entries and alternate key entries of the schema
+    /// records, their files, alternate entries and applied deletes of the schema
     /// are released first (`DbOperations::drop_schema`). Returns whether the
     /// catalog had the identity. A miss still evicts RAM so a retry is
     /// idempotent.

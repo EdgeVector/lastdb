@@ -2,7 +2,6 @@
 //!
 //! This file reads whole records by key and supplies each record transition
 //! to the format writer in the native request.
-//! Its field history entries hold copies of old values (`field_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A
 //! record that the read finds on disk, or that a flushed write puts, enters

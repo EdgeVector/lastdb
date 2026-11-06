@@ -1,8 +1,8 @@
-//! Inventory, tombstone and history-clear report types, plus the adaptive inventory page sizing.
+//! Storage inventory report types and adaptive page sizing.
 
 use super::*;
 
-/// One key-class in the `main` tree (records, alternate keys, history, …).
+/// One key-class in the `main` tree (records, alternate keys, and other stored data).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MainKeyClass {
     pub class: String,
@@ -13,9 +13,7 @@ pub struct MainKeyClass {
 
 /// Per-schema record storage — the dedicated `lastdb db schemas` report.
 ///
-/// This is the record walk (`storage_breakdown`). It does **not** scan
-/// history the way [`DbInventory`] does. Its rows count the live records of
-/// each schema and their stored value bytes.
+/// The report counts the live records of each schema and their stored value bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaStorageReport {
     /// RFC 3339 timestamp when this walk finished.

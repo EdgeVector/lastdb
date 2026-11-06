@@ -21,12 +21,9 @@ pub struct OpAggregate {
     pub error_count: u64,
     /// Total request body bytes observed across this key's requests.
     ///
-    /// For mutations / mutation batches / file-blob writes this is the best
-    /// cheap proxy for "how many bytes did this caller ask the node to
-    /// absorb" — not net disk growth (alternate entries and history amplify), but the
-    /// ranking that answers "who is stuffing the node" when time and count
-    /// alone cannot. Zero-hide on the ranking table when every key is 0, so
-    /// a quiet window stays byte-identical to pre-field output.
+    /// For mutations, batches and file writes, request bytes show which
+    /// callers send the most data. The ranking hides this column when every
+    /// key has a zero total.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub sum_body_bytes: u64,
     /// Largest single request body on this key. Like `max_ms`, this is a

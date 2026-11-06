@@ -28,6 +28,7 @@ pub enum OpKind {
     Status,
     Schema,
     Search,
+    /// App change-feed reads.
     History,
     Record,
     Deliver,

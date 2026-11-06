@@ -1,5 +1,4 @@
-//! The key format marker, the delete replay floor and the field history
-//! setting of a node home.
+//! The key format marker and the delete replay floor of a node home.
 //!
 //! Home creation writes the marker. Startup, offline maintenance and the
 //! restore proof read the marker and the floor with the same strict check.
@@ -8,9 +7,7 @@ use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use super::{
-    CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY, FIELD_HISTORY_KEY, FIELD_HISTORY_ON,
-};
+pub(crate) use super::{CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY};
 
 /// The stored value of [`DELETE_REPLAY_CUTOFF_KEY`].
 #[derive(Serialize, Deserialize)]

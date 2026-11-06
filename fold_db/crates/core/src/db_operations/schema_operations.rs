@@ -121,8 +121,9 @@ impl DbOperations {
     ///
     /// The release goes next, in bounded batches with one write scope each
     /// (`RecordStore::release_schema_rows`): the records and their files, the
-    /// field history and the alternate entries of the schema. A schema installed again under the same name gets the same
-    /// record space, so a record that the drop left would come back in it. A
+    /// alternate entries and applied deletes. A schema installed again under
+    /// the same name gets the same record space, so a leftover record would
+    /// come back in it. A
     /// release that stops leaves the schema record and the state `Blocked`: no
     /// write lands while the drop is unfinished, and the next drop goes on.
     /// Then one write scope removes the schema record and its state.
@@ -137,7 +138,6 @@ impl DbOperations {
                     target: "fold_node::database",
                     schema = schema_name,
                     records = released.records,
-                    history = released.history,
                     alternates = released.alternates,
                     "schema drop released the stored rows of the schema"
                 );
