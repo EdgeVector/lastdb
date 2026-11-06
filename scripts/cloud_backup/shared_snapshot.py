@@ -22,9 +22,10 @@ HELD_PATH = re.compile(r"(?:current|descriptor|[0-9a-f-]{36}\.ldrun)")
 
 
 def arguments(operation, node, writer, workspace):
-    return [str(operation.programs.directory / "lastdb"), "--data-dir", str(node.home),
-            "snapshot", "--device-id", writer["device_id"], "--device-key-file",
+    args = ["snapshot", "--device-id", writer["device_id"], "--device-key-file",
             str(operation.device_file(writer["device_id"])), "--workspace", str(workspace), "--json"]
+    return [str(operation.programs.directory / "lastdb"), "--data-dir", str(node.home),
+            *operation.programs.cli_arguments(args)]
 
 
 def provider_counts(receipt):

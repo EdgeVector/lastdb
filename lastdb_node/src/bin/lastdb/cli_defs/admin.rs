@@ -111,12 +111,12 @@ pub(crate) enum AdminBackupCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminSharedCommand {
-    /// Publish a DEV snapshot and upload queued changes through the saved position.
+    /// Upload a frozen DEV database snapshot, then upload the writer’s queued changes.
     Snapshot(SnapshotArgs),
     /// Restore a held shared snapshot and its captured tails into a fresh home.
     Restore(SharedRestoreCommand),
     /// Resume publication of a sealed shared restore workspace.
     ResumeRestore(ResumeSharedRestoreArgs),
-    /// Operate the journal and snapshots of a stopped enrolled DEV writer.
+    /// Operate the journal of a stopped enrolled DEV writer.
     Writer(SharedWriterCommand),
 }
