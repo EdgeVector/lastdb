@@ -16,27 +16,21 @@ mod managed_process;
 mod managed_publisher;
 mod node_version;
 mod resolve;
-mod resolve_local;
 mod signing;
-mod version_constraint;
 
 pub use app_identity_crypto::{
     sign_index_bytes, valid_app_id, valid_source, validate_channel, verify_index_bytes,
     IndexSignature, InterfaceList, ListEntry, REGISTRY_LIST_PUBKEY_B64,
 };
-pub use install::{
-    install_pinned, upgrade_pinned, PinnedInstallOutcome, PinnedUpgradeOutcome, RECEIPT_FILE,
-};
+pub use install::{install_pinned, PinnedInstallOutcome, RECEIPT_FILE};
 pub use list_cache::fetch_list;
 pub use location::IndexLocation;
-pub use node_version::{running_lastdb_version, running_node};
+pub use node_version::running_node;
 pub use resolve::{resolve, ContractVersions, NodeVersion, Resolution};
-pub use resolve_local::resolve_local;
 pub use signing::{
     load_verified_index, parse_index, resolve_list_trust_key, resolve_trust_key, CompatRow,
     IndexApp, RegistryIndex, TrustSource,
 };
-pub use version_constraint::{check_constraint, check_manifest_constraint, Constraint, Version};
 
 /// The index grammar this binary reads and writes.
 pub const INDEX_VERSION: u32 = 1;

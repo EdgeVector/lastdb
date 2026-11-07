@@ -31,9 +31,6 @@ use public_catalog::{print_public_list, public_list};
 #[path = "app_cmds/registry.rs"]
 mod registry;
 pub(crate) use self::registry::*;
-#[path = "app_cmds/local_install.rs"]
-mod local_install;
-pub(crate) use self::local_install::*;
 /// Print `value` as pretty JSON on stdout (an empty string if it cannot be
 /// serialized, as every `--json` path here always did).
 pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
@@ -109,19 +106,14 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
         channel,
         index,
         trust_key,
-        dir,
-        force,
-        json,
-        from,
-        rev,
-        dev,
+        json: _,
     } = command
     else {
         unreachable!("catalog install only");
     };
-    app_install(
+    managed::install(
         home,
-        AppInstall {
+        &AppInstall {
             accept_install,
             inactive,
             app_ids,
@@ -130,12 +122,6 @@ fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), Str
                 index,
                 trust_key,
             },
-            dir,
-            force,
-            json,
-            from,
-            rev,
-            dev,
         },
     )
 }
@@ -148,15 +134,14 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
         channel,
         index,
         trust_key,
-        dir,
-        json,
+        json: _,
     } = command
     else {
         unreachable!("catalog upgrade only");
     };
-    app_upgrade(
+    managed::upgrade(
         home,
-        AppUpgrade {
+        &AppUpgrade {
             all,
             accept_install,
             app_ids,
@@ -165,8 +150,6 @@ fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), Str
                 index,
                 trust_key,
             },
-            dir,
-            json,
         },
     )
 }

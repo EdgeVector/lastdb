@@ -26,12 +26,6 @@ pub(crate) struct AppInstall {
     pub(crate) inactive: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
-    pub(crate) dir: Option<PathBuf>,
-    pub(crate) force: bool,
-    pub(crate) json: bool,
-    pub(crate) from: Option<String>,
-    pub(crate) rev: Option<String>,
-    pub(crate) dev: bool,
 }
 
 /// `lastdb app upgrade` after the CLI parse.
@@ -40,6 +34,4 @@ pub(crate) struct AppUpgrade {
     pub(crate) accept_install: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
-    pub(crate) dir: Option<PathBuf>,
-    pub(crate) json: bool,
 }
