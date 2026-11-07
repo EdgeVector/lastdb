@@ -191,7 +191,11 @@ async fn download(
         BTreeMap::new(),
     );
     for _ in 0..RANGES_PER_PASS {
-        match worker.step().await.map_err(download_reason)? {
+        match worker
+            .step()
+            .await
+            .map_err(|error| download_reason(&error))?
+        {
             (PeerOutcome::Idle, _) => {
                 host.shared_sync.update(|state| state.needs_restore = None);
                 return Ok(());
@@ -209,7 +213,7 @@ async fn download(
     Ok(())
 }
 
-fn download_reason(error: PeerError) -> &'static str {
+fn download_reason(error: &PeerError) -> &'static str {
     match error {
         PeerError::Restore(RestoreError::Invalid(reason) | RestoreError::Source(reason)) => reason,
         PeerError::Restore(_) => "shared_download_validation",
