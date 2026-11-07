@@ -1,0 +1,125 @@
+name: Fresh account DEV cloud backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Fresh DEV account operation
+        type: choice
+        options: [roundtrip, interrupt-after-upload]
+        default: roundtrip
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: cloud-backup-fresh-account
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    name: Require exact accepted-source CI
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require successful ci-required at the dispatched SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: scripts/cloud_backup
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import os
+          from shared_daily_io import github
+          from support import require
+
+          try:
+              source = os.environ["GITHUB_SHA"]
+              result = github(f"commits/{source}/check-runs?per_page=100")
+              checks = result["check_runs"]
+              require(type(result["total_count"]) is int and result["total_count"] == len(checks),
+                      "exact_source_checks_incomplete")
+              latest = max((check for check in checks if check["name"] == "ci-required"
+                            and check["head_sha"] == source
+                            and check["app"]["id"] == 15368 and check["app"]["slug"] == "github-actions"),
+                           key=lambda check: check["id"], default=None)
+              require(latest is not None and latest["status"] == "completed"
+                      and latest["conclusion"] == "success", "exact_source_ci_required")
+          except Exception:
+              raise SystemExit("The exact accepted-source ci-required gate did not pass.") from None
+          print("The exact accepted-source ci-required gate passed.")
+          PY
+
+  build-client:
+    needs: admission
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
+  fresh-account:
+    name: Fresh DEV account / ${{ inputs.operation }}
+    needs: build-client
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build-client.outputs.artifact }}
+          path: ${{ runner.temp }}/fresh-backup-package
+      - name: Verify and unpack the exact client
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -m 700 "$RUNNER_TEMP/fresh-backup-bin"
+          env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL \
+            PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts/release python3 -c '
+          import os
+          from pathlib import Path
+          from nightly_assets import document
+          from nightly_probe import unpack
+
+          runner = Path(os.environ["RUNNER_TEMP"])
+          package = runner / "fresh-backup-package"
+          stem = "lastdb-x86_64-unknown-linux-gnu"
+          manifest = document(package / (stem + ".manifest.json"))
+          if manifest.get("target") != "x86_64-unknown-linux-gnu":
+              raise ValueError("The client package target differs from the runner")
+          unpack(package / (stem + ".tar.gz"), manifest, runner / "fresh-backup-bin",
+                 os.environ["CLIENT_VERSION"], os.environ["GITHUB_SHA"])
+          print("Verified package SHA256:", manifest["artifact"]["sha256"])
+          '
+      - name: Run the selected fresh DEV account operation
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          SELECTED_OPERATION: ${{ inputs.operation }}
+          LASTDB_FRESH_DEV_BROKER_URL: ${{ vars.LASTDB_FRESH_DEV_BROKER_URL }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cloud_backup/fresh_account.py \
+            --source "$GITHUB_SHA" --version "$CLIENT_VERSION" \
+            --bin-dir "$RUNNER_TEMP/fresh-backup-bin" --operation "$SELECTED_OPERATION" \
+            --output "$RUNNER_TEMP/owned-fresh-account-result"
