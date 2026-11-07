@@ -85,5 +85,16 @@ There is no conversion code. The run profile and log formats changed:
   `main-v2` directory;
 - restore log cursor and route proof version 2.
 
-A job saved by an older program does not resume; finish or close it before
-the upgrade.
+The automatic policy is version 3. A version 2 policy is retired once by the
+new program: its setting (enabled, cadence, connection) stays exactly, and
+its backup baseline is dropped: the backed-up frontiers, the pending job, the
+local recovery point, the active job marker and that job's snapshot capture.
+The next run takes a full snapshot at once. A snapshot capture of an older
+capture format is released before a new capture starts. The new policy is
+written last, so a failed step leaves the old file and the next tick retries;
+the upgrade never turns automatic backup off.
+
+An older cloud backup carries the CAS home and is restored only by the
+program that wrote it. The first snapshot of the new program is the first
+restorable point for it. A job that the previous program left open on the
+service makes the new job wait (busy, retried) until the service closes it.
