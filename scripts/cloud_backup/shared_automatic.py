@@ -59,8 +59,11 @@ def holds(node, schema, key, record):
             {"schema_name": schema, "filter": {"HashKey": key}, "limit": 2, "offset": 0}]})["results"]
     except (OperationError, ValueError):
         return False
-    rows = (result.get("response") or {}).get("results") or []
-    return result.get("status") == 200 and len(rows) == 1 and rows[0].get("fields") == record
+    # Before a node installs the schema, the item's response is a plain-text refusal.
+    response = result.get("response")
+    rows = response.get("results") if isinstance(response, dict) else None
+    return (result.get("status") == 200 and isinstance(rows, list) and len(rows) == 1
+            and rows[0].get("fields") == record)
 
 
 def wait_later(operation, nodes, later):
