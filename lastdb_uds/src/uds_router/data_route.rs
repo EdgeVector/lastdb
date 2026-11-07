@@ -169,8 +169,6 @@ pub enum DataRoute {
     SyncByteBackupV2Connect,
     /// `POST /api/sync/shared-snapshot` — publish and finish shared writer upload.
     SyncSharedSnapshot,
-    /// `POST /api/sync/logical-v1` — owner trust and bounded signed device events.
-    SyncLogicalV1,
     /// `GET /api/db/inventory` — live key-class and per-schema record byte
     /// breakdown. OWNER socket only.
     DbInventory,

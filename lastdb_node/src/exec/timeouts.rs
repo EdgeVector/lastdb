@@ -226,7 +226,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbFetchBlob
         | DataRoute::DbDeleteBlob
         | DataRoute::DeliverSnapshot
-        | DataRoute::SyncLogicalV1
         | DataRoute::LocalWatch
         | DataRoute::AppChanges => handler_timeout(),
     }
