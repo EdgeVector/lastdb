@@ -251,22 +251,6 @@ jobs:
           path: ${{ runner.temp }}/cloud-backup-recovery/ci-stream.json
           if-no-files-found: error
           retention-days: 90
-      - name: Record CI ownership provenance
-        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
-          ARTIFACT_URL: ${{ steps.ci-stream-artifact.outputs.artifact-url }}
-          ARTIFACT_DIGEST: ${{ steps.ci-stream-artifact.outputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          {
-            printf '\n[Successful CI stream ownership](%s)\n\n' "$ARTIFACT_URL"
-            printf 'Source: %s; artifact ID: %s; ZIP SHA256: %s\n\n' "$SOURCE_COMMIT" "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
-            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
-              --jq '"Ownership artifact expires: " + .expires_at'
-            printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
-          } >> "$GITHUB_STEP_SUMMARY"
       - name: Save durable CI ownership before this run ends
         if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         env:
