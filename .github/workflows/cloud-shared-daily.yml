@@ -8,7 +8,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [suite, cleanup, reclamation]
+        options: [suite, cleanup, reclamation, abandoned]
         default: suite
 
 permissions:
@@ -102,7 +102,7 @@ jobs:
         case: ${{ fromJSON(needs.admission.outputs.cases) }}
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.case == 'reclamation' && 95 || 10 }}
+    timeout-minutes: ${{ matrix.case == 'abandoned' && 125 || matrix.case == 'reclamation' && 95 || 10 }}
     permissions:
       contents: read
       actions: read

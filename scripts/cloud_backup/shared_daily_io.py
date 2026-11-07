@@ -22,6 +22,8 @@ GRACE_MS = 60 * 60 * 1000
 MAX_AGE_MS = 26 * 60 * 60 * 1000
 CASES = ("lifecycle", "conflicts", "retention", "automatic")
 RECLAMATION = "reclamation"
+ABANDONED = "abandoned"
+MANUAL_CASES = (RECLAMATION, ABANDONED)
 
 
 def now_ms():

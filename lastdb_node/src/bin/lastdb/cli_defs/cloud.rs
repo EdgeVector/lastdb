@@ -78,6 +78,12 @@ pub(crate) struct SharedWriterCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SharedWriterAction {
+    /// Run one bounded staging operation on the generated DEV qualification scope.
+    #[command(hide = true)]
+    QualifyStaging {
+        #[arg(long)]
+        plan: PathBuf,
+    },
     /// Print the definition of one typed declaration under its portable ID.
     /// No service registers it. The writer log carries it to other writers.
     DefineSchema {

@@ -29,7 +29,7 @@ def directory():
 
 
 def create(identity, case, targets):
-    require(case in (*io.CASES, io.RECLAMATION) and len(directory()) < io.MAX_SCOPES,
+    require(case in (*io.CASES, *io.MANUAL_CASES) and len(directory()) < io.MAX_SCOPES,
             "shared_daily_scope_budget")
     database = io.PREFIX + str(uuid.uuid4()).split("-", 1)[1]
     seeds, writers = {}, []
@@ -56,8 +56,10 @@ def create(identity, case, targets):
         "publisher_device": scope["publisher_device"], "writers": sorted(w["source_stream"] for w in writers),
         "snapshot": None, "writes_open": True, "object_limit_bytes": str(128 * 1024 * 1024),
         "reserved_object_bytes": "0"}
-    if case == io.RECLAMATION:
+    if case in io.MANUAL_CASES:
         database_state["reclamation_enabled"] = True
+    if case == io.ABANDONED:
+        database_state["abandoned_reclamation_enabled"] = True
     rows = [io.item(partition, "database", database_state)]
     for writer in writers:
         rows += [io.item(partition, "device#" + writer["device_id"], {
