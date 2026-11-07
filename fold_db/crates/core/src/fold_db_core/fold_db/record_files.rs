@@ -78,18 +78,7 @@ impl FoldDB {
             .await?
             .run_result(async {
                 let (record_key, record) = self.read_file_record(schema_name, key).await?;
-                if let Some(expected) = revision {
-                    let actual = record.as_ref().map(|record| record.stamp.revision());
-                    if actual.as_deref() != Some(expected) {
-                        return Err(SchemaError::CasConflict {
-                            schema: schema_name.to_owned(),
-                            key: key.to_storage_key(),
-                            expected: expected.to_owned(),
-                            actual,
-                        }
-                        .into());
-                    }
-                }
+                require_revision(schema_name, key, record.as_deref(), revision)?;
                 let Some((marker, version)) = record
                     .as_ref()
                     .and_then(|record| record.file.as_ref().zip(record.file_version.as_ref()))
@@ -110,4 +99,54 @@ impl FoldDB {
             })
             .await
     }
+
+    /// The inline file of the record at `key`: its marker and its plaintext,
+    /// checked against the marker. `None` when the record has no inline file.
+    /// With `revision`, the record must still be at that revision.
+    pub async fn read_record_inline_file(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+        revision: Option<&str>,
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
+        self.db_ops()
+            .read_scope()
+            .await?
+            .run_result(async {
+                let (_, record) = self.read_file_record(schema_name, key).await?;
+                require_revision(schema_name, key, record.as_deref(), revision)?;
+                let Some(file) = record
+                    .as_ref()
+                    .and_then(|record| record.inline_file.as_ref())
+                else {
+                    return Ok(None);
+                };
+                let bytes = file.bytes().map_err(FoldDbError::Database)?;
+                Ok(Some((file.marker.clone(), bytes)))
+            })
+            .await
+    }
+}
+
+/// A file read at a revision requires the record to be at that revision.
+fn require_revision(
+    schema_name: &str,
+    key: &KeyValue,
+    record: Option<&StoredRecord>,
+    revision: Option<&str>,
+) -> Result<(), FoldDbError> {
+    let Some(expected) = revision else {
+        return Ok(());
+    };
+    let actual = record.map(|record| record.stamp.revision());
+    if actual.as_deref() != Some(expected) {
+        return Err(SchemaError::CasConflict {
+            schema: schema_name.to_owned(),
+            key: key.to_storage_key(),
+            expected: expected.to_owned(),
+            actual,
+        }
+        .into());
+    }
+    Ok(())
 }

@@ -7,7 +7,7 @@ use super::{budget, invalid, map, read_budget, rows::Rows, Proof, StorageResult}
 use crate::storage::disk_pack::native_routing;
 use crate::storage::format::records::applied_deletes;
 use lastdb_model::record_space::RECORD_PREFIX;
-use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
+use lastdb_model::record_value::{StoredRecord, MAX_STORED_RECORD_BYTES};
 
 /// Validate the keys and records of the `records` collection and return the
 /// number of record files found.
@@ -37,7 +37,7 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     if !raw.starts_with(RECORD_PREFIX) {
         return Ok(false);
     }
-    if body.len() > MAX_RECORD_BYTES {
+    if body.len() > MAX_STORED_RECORD_BYTES {
         return Err(invalid("run backup record exceeds its bound"));
     }
     // The charged decoder bounds the tree before the strict record decoder.

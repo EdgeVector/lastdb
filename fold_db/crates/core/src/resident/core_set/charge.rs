@@ -51,6 +51,14 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + file.media_type.as_ref().map_or(0, String::capacity)
             + file.sha256.capacity()
     });
+    // The inline file bytes stay in the decoded record, so they count.
+    let inline_file = record.inline_file.as_ref().map_or(0, |inline| {
+        let file = &inline.marker;
+        file.name.as_ref().map_or(0, String::capacity)
+            + file.media_type.as_ref().map_or(0, String::capacity)
+            + file.sha256.capacity()
+            + inline.data.capacity()
+    });
     finish(
         RECORD_BASE
             + ARC_HEADER
@@ -61,6 +69,7 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + addresses
             + meta
             + file
+            + inline_file
             + record.stamp.position.source_stream.as_str().len()
             + record
                 .file_version

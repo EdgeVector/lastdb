@@ -71,6 +71,8 @@ pub struct MutationComponents {
     pub durability: MutationDurability,
     /// Only a file-blob executor can issue this opaque operation.
     pub file_write: Option<FileWrite>,
+    /// Only a file executor sets the inline file; `None` keeps the current one.
+    pub inline_write: Option<fold_db::record_value::InlineWrite>,
 }
 
 impl MutationComponents {
@@ -92,6 +94,7 @@ impl MutationComponents {
         mutation.metadata = self.metadata;
         mutation.file = self.file;
         mutation.file_write = self.file_write;
+        mutation.inline_write = self.inline_write;
         mutation.synchronous = Some(self.durability.waits_for_persist());
         mutation
     }
@@ -128,6 +131,7 @@ impl MutationComponents {
             convergence: convergence.or(default_convergence).unwrap_or_default(),
             durability: durability.unwrap_or_default(),
             file_write: None,
+            inline_write: None,
         }
     }
 }

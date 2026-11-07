@@ -34,7 +34,9 @@ use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, KvStore, StorageError};
-use lastdb_model::record_value::{RecordValueError, StoredRecord, MAX_RECORD_BYTES};
+use lastdb_model::record_value::{
+    RecordValueError, StoredRecord, MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES,
+};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -95,6 +97,14 @@ fn encode(
         });
         if after.is_live() {
             let value = after.encode_uncapped().map_err(record_value_error)?;
+            // The cap of one record depends on its inline file, so the
+            // writer checks it here; final admission checks the ceiling.
+            if value.len() > after.size_limit() {
+                return Err(SchemaError::RecordTooLarge {
+                    size: value.len(),
+                    limit: after.size_limit(),
+                });
+            }
             written.push(WrittenRecord::new(change.key.as_str(), after, &value));
             main.push(KvMutation::put(change.key.into_string(), value));
         } else {
@@ -142,17 +152,17 @@ pub(in crate::storage) fn require_final_record_sizes<'a>(
     // The native accounting loop derives this upper bound from every staged
     // body. If all bodies fit, every final record necessarily fits too, so
     // the lazy iterator need not visit any keys in the ordinary case.
-    if max_body_bytes <= MAX_RECORD_BYTES {
+    if max_body_bytes <= MAX_STORED_RECORD_BYTES {
         return Ok(());
     }
     for (collection, key, bytes) in records {
         if collection == super::RECORDS_COLLECTION
             && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
-            && bytes > MAX_RECORD_BYTES
+            && bytes > MAX_STORED_RECORD_BYTES
         {
             return Err(StorageError::RecordTooLarge {
                 size: bytes,
-                limit: MAX_RECORD_BYTES,
+                limit: MAX_STORED_RECORD_BYTES,
             });
         }
     }

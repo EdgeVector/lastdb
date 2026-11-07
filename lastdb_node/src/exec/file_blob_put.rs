@@ -5,12 +5,47 @@
 //! exists without its record. A new file on a record replaces the old bytes
 //! at the same path in the same write.
 //!
+//! With `placement: "inline"` the bytes become the record's inline file
+//! instead (`design-lastdb-inline-files-20261107`): at most 64 KiB, kept in
+//! the record value, backed up with the records. An optional `thumbnail` puts
+//! an inline file next to a new blob file in the same write.
+//!
 //! Native format, pending memory and disk-space checks admit the stored row.
 //! JSON requests retain the socket's general request-body allowance.
 
+use super::file_blob::Placement;
 use super::*;
+use fold_db::record_value::{InlineFile, InlineWrite};
 use fold_db::schema::types::FileWrite;
 use std::borrow::Cow;
+
+/// A small image or preview stored as the inline file next to a blob file.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Thumbnail {
+    bytes_b64: String,
+    name: Option<String>,
+    media_type: Option<String>,
+}
+
+impl Thumbnail {
+    fn into_inline(self) -> Result<InlineFile, HostError> {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(self.bytes_b64.as_bytes())
+            .map_err(|e| {
+                HostError::new(400, format!("thumbnail.bytes_b64 is invalid base64: {e}"))
+            })?;
+        inline_file(&bytes, self.name, self.media_type)
+    }
+}
+
+fn inline_file(
+    bytes: &[u8],
+    name: Option<String>,
+    media_type: Option<String>,
+) -> Result<InlineFile, HostError> {
+    InlineFile::new(bytes, name, media_type).map_err(|message| HostError::new(413, message))
+}
 
 /// The complete mutation accompanies the new bytes. No existing fields are merged.
 #[derive(Deserialize)]
@@ -19,6 +54,9 @@ struct PutBlobMetadata {
     mutation: fold_db::schema::types::operations::Operation,
     name: Option<String>,
     media_type: Option<String>,
+    #[serde(default)]
+    placement: Placement,
+    thumbnail: Option<Thumbnail>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,6 +66,9 @@ struct JsonBody<'a> {
     bytes_b64: Cow<'a, str>,
     name: Option<String>,
     media_type: Option<String>,
+    #[serde(default)]
+    placement: Placement,
+    thumbnail: Option<Thumbnail>,
 }
 
 /// Read the plaintext and the metadata from either request form.
@@ -36,8 +77,8 @@ struct JsonBody<'a> {
 ///   JSON of the length in `X-LastDB-File-Blob-Metadata-Length`, then raw bytes.
 ///   Earlier clients send all metadata in `X-LastDB-File-Blob-Metadata`
 ///   and use the entire body for bytes.
-/// - Otherwise a JSON body `{ schema, key, bytes_b64, name?, media_type?,
-///   fields? }`.
+/// - Otherwise a JSON body `{ mutation, bytes_b64, name?, media_type?,
+///   placement?, thumbnail? }`.
 fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), HostError> {
     if is_media_type(req.header("content-type"), "application/octet-stream") {
         if let Some(length) = req.header("x-lastdb-file-blob-metadata-length") {
@@ -88,6 +129,8 @@ fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), 
             mutation: body.mutation,
             name: body.name,
             media_type: body.media_type,
+            placement: body.placement,
+            thumbnail: body.thumbnail,
         },
     ))
 }
@@ -95,7 +138,9 @@ fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), 
 /// `POST /api/db/put-blob` — store the file of one record. OWNER socket only.
 ///
 /// The reply carries the marker that the record now holds:
-/// `{ file: { name?, media_type?, size_bytes, sha256 }, mutation_id }`.
+/// `{ file: { name?, media_type?, size_bytes, sha256 }, placement,
+/// thumbnail?, mutation_id }`. `thumbnail` is the inline file marker that a
+/// blob put stored with its `thumbnail`.
 pub(super) async fn execute_db_put_blob_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -108,7 +153,14 @@ pub(super) async fn execute_db_put_blob_route(
     }
     let put = async {
         let (plaintext, metadata) = parse_put_blob(req)?;
-        let mut components = handlers::MutationComponents::from_operation(metadata.mutation, None);
+        let PutBlobMetadata {
+            mutation,
+            name,
+            media_type,
+            placement,
+            thumbnail,
+        } = metadata;
+        let mut components = handlers::MutationComponents::from_operation(mutation, None);
         if !matches!(
             components.mutation_type,
             fold_db::schema::types::MutationType::Create
@@ -119,9 +171,30 @@ pub(super) async fn execute_db_put_blob_route(
                 "put-blob requires create or complete replacement",
             ));
         }
+        if placement == Placement::Inline {
+            if thumbnail.is_some() {
+                return Err(HostError::new(
+                    400,
+                    "an inline put takes no thumbnail; the bytes are the inline file",
+                ));
+            }
+            // The blob file and its marker stay as they are.
+            let file = inline_file(&plaintext, name, media_type)?;
+            drop(plaintext);
+            let marker = file.marker.clone();
+            components.inline_write = Some(InlineWrite::Put(file));
+            let value = commit_mutation_components(host, components).await?;
+            return Ok(serde_json::json!({
+                "file": marker,
+                "placement": placement,
+                "mutation_id": value.get("mutation_id"),
+                "record_revision": value.get("record_revision"),
+            }));
+        }
+        let thumbnail = thumbnail.map(Thumbnail::into_inline).transpose()?;
         let file_write = host
             .db
-            .seal_record_file(&plaintext, metadata.name, metadata.media_type)
+            .seal_record_file(&plaintext, name, media_type)
             .map_err(HostError::from)?;
         drop(plaintext);
         let FileWrite::Put(file) = &file_write else {
@@ -140,9 +213,15 @@ pub(super) async fn execute_db_put_blob_route(
         }
         components.file = Some(marker.clone());
         components.file_write = Some(file_write);
+        let thumbnail_marker = thumbnail.as_ref().map(|file| file.marker.clone());
+        if let Some(file) = thumbnail {
+            components.inline_write = Some(InlineWrite::Put(file));
+        }
         let value = commit_mutation_components(host, components).await?;
         Ok(serde_json::json!({
             "file": marker,
+            "placement": placement,
+            "thumbnail": thumbnail_marker,
             "mutation_id": value.get("mutation_id"),
             "record_revision": value.get("record_revision"),
         }))

@@ -10,10 +10,15 @@ use std::collections::BTreeMap;
 
 mod file;
 pub use crate::record_replacement::RecordMetadata as RecordMeta;
-pub use file::FileMarker;
+pub use file::{
+    FileMarker, InlineFile, InlineWrite, MAX_INLINE_FILE_BYTES, MAX_INLINE_LABEL_BYTES,
+    MAX_INLINE_STORED_BYTES,
+};
 
 pub const RECORD_VALUE_VERSION: u8 = 3;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
+/// The largest stored record body: the record cap plus one inline file.
+pub const MAX_STORED_RECORD_BYTES: usize = MAX_RECORD_BYTES + MAX_INLINE_STORED_BYTES;
 
 pub use crate::portable_mutation::Stamp as RecordStamp;
 
@@ -77,6 +82,9 @@ pub struct StoredRecord {
     pub file: Option<FileMarker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_version: Option<Position>,
+    /// The small file kept inside this record value (a thumbnail, an icon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_file: Option<InlineFile>,
     #[serde(skip)]
     pub deleted: bool,
 }
@@ -103,6 +111,7 @@ impl StoredRecord {
             meta: value.metadata,
             file: value.file,
             file_version,
+            inline_file: value.inline_file,
             deleted: false,
         }
     }
@@ -129,16 +138,29 @@ impl StoredRecord {
             meta: None,
             file: None,
             file_version: None,
+            inline_file: None,
             deleted: true,
         }
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
         let bytes = self.encode_uncapped()?;
-        if bytes.len() > MAX_RECORD_BYTES {
+        if bytes.len() > self.size_limit() {
             return Err(RecordValueError::TooLarge { bytes: bytes.len() });
         }
         Ok(bytes)
+    }
+
+    /// The size cap of this record body: the record cap, plus the room of
+    /// its inline file when it has one. An inline file never takes room from
+    /// the fields.
+    #[must_use]
+    pub fn size_limit(&self) -> usize {
+        MAX_RECORD_BYTES
+            + self
+                .inline_file
+                .as_ref()
+                .map_or(0, InlineFile::stored_allowance)
     }
 
     /// Final admission still enforces the configured complete-record size cap.
@@ -177,6 +199,15 @@ impl StoredRecord {
         {
             return Err(RecordValueError::Format(
                 "the file marker has an invalid digest or version".into(),
+            ));
+        }
+        if self
+            .inline_file
+            .as_ref()
+            .is_some_and(|file| !file.is_well_formed())
+        {
+            return Err(RecordValueError::Format(
+                "the inline file has an invalid marker, size or encoding".into(),
             ));
         }
         Ok(())
