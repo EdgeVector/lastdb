@@ -89,8 +89,16 @@ pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
 /// downloaded it on request (design `design-lastdb-blob-files-on-demand-20261107`).
 /// The key is this prefix and the same suffix as the row's `fb:` key, in
 /// `cas_blobs`, written in the same batch as the row and removed with it. A row
-/// without this marker was created locally by a record write.
+/// without this marker was created locally by a record write. A personal
+/// backup also writes it after the service accepts the job that uploaded
+/// the version.
 pub(crate) const RECORD_FILE_UPLOADED_PREFIX: &str = "fu:";
+/// A record file version this device created and has not uploaded yet: `fp:`
+/// plus the suffix of its `fb:` key. The next personal backup job uploads it.
+pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
+/// A dropped record file version whose cloud object the next personal backup
+/// job releases: `fr:` plus the suffix of its `fb:` key.
+pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
 pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";

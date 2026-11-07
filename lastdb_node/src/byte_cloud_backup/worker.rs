@@ -52,7 +52,10 @@ pub(super) async fn run(
     let result = drive(source, &capture, store, saved, client, pause).await;
     source.validate(saved)?;
     match result {
-        Ok(result) => finish(&capture, store, saved, &result),
+        Ok(result) => {
+            finish(&capture, store, saved, &result)?;
+            super::blobs::accepted(source, store, saved).await
+        }
         Err(BackupError::Closing) => {
             drop(capture);
             close(source, store, saved, client, pause).await
@@ -206,6 +209,8 @@ async fn upload_and_publish(
 ) -> Result<AcceptedBackup> {
     saved.phase = Phase::Uploading;
     store.save(saved)?;
+    // Record blobs go to their own paths before the job's inventory objects.
+    super::blobs::upload(source, store, saved, client, pause).await?;
     let parallelism = capture
         .recommended_parallelism()?
         .min(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS);
@@ -326,7 +331,8 @@ async fn close(
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
-    close_capture(&capture, store, saved, client, pause).await
+    close_capture(&capture, store, saved, client, pause).await?;
+    super::blobs::accepted(source, store, saved).await
 }
 
 async fn close_capture(

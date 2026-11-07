@@ -92,6 +92,27 @@ impl Source {
         }
         Ok(())
     }
+    /// Snapshot jobs queue every local record file version without an
+    /// upload marker, so versions from before the markers upload once.
+    pub async fn queue_unuploaded_blobs(&self) -> Result<u64> {
+        Ok(self.runtime.queue_unuploaded_blobs().await?)
+    }
+    pub async fn pending_blob_uploads(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
+        Ok(self
+            .runtime
+            .pending_blob_uploads(&self.source_home, after, limit)
+            .await?)
+    }
+    pub async fn blob_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.runtime.record_blob_bytes(key, &self.key).await?)
+    }
+    pub async fn blobs_accepted(&self, uploaded: &[String], released: &[String]) -> Result<()> {
+        Ok(self.runtime.blobs_accepted(uploaded, released).await?)
+    }
     pub async fn flush(&self) -> Result<()> {
         self.runtime.flush_native().await?;
         Ok(())

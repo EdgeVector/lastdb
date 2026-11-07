@@ -197,6 +197,7 @@ fn commit_split(
     for op in cas {
         last.insert(op.key.clone(), op);
     }
+    blob_backup::queue_new_uploads(&mut last);
     let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
     cas_delete::save(v2, !puts.is_empty(), !main.is_empty(), &deletes)?;
     // CAS runs are not logged: record blobs upload by path, not as log files.
@@ -213,7 +214,9 @@ fn commit_split(
     // never a logical refusal. Fail the runtime and retain the authenticated
     // intent; reopen finishes it before any reader or writer can reuse a key.
     if !deletes.is_empty() {
-        v2.cas.commit(deletes).map_err(map)?;
+        v2.cas
+            .commit(blob_backup::with_releases(deletes))
+            .map_err(map)?;
         v2.home.clear_cas_delete_checkpoint().map_err(map)?;
     }
     Ok(())

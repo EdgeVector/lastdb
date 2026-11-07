@@ -159,7 +159,9 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
                 body: None,
             })
             .collect();
-        v2.cas.commit(operations).map_err(map)?;
+        v2.cas
+            .commit(super::blob_backup::with_releases(operations))
+            .map_err(map)?;
         outcome = CasDeleteRecoveryOutcome::Completed;
     }
     v2.home.clear_cas_delete_checkpoint().map_err(map)?;
