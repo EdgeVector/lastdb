@@ -27,10 +27,17 @@ from nightly_probe import unpack  # noqa: E402
 WORKFLOW = ".github/workflows/cloud-shared-existing-recovery.yml"
 REPOSITORY_ID = 1412311495
 TARGET = "x86_64-unknown-linux-gnu"
+LEGACY_AWS_CLIENT = {
+    "disk_format": 13,
+    "client_source": "423ccd2f80ccfde65885d5e09ab36392f1b0da29",
+    "client_run": 42268290995, "artifact": 13528766291,
+    "artifact_sha256": "fe30443aaab67940e53b74a555bdb70d453fffa56eb9f2d2dbcffa868707651b",
+}
 PINS = {
     "3fd7146a-a626-44fc-b58d-25c319566816": {
         "snapshot_id": "0c2d2182-dde0-4217-ba38-bcd59653b3c5",
         "manifest_sha256": "c3eecb093eb5019542078d5a7baef02087844b8481f1c68b6e4dfbe8ce21ab5b",
+        "disk_format": 13,
         "client_source": "a86d7b414ea690fc399e761c00d55481e082a46a",
         "client_run": 42293197007, "artifact": 13540254064,
         "artifact_sha256": "1eaf85e0c803ca349becbb524d102ea30091a1895a409da2e53c279d8276e73d",
@@ -39,10 +46,32 @@ PINS = {
     "7c7344e8-795c-441c-8d07-0a05668cc987": {
         "snapshot_id": "2c457cf0-6403-4629-8011-65e0c43a46eb",
         "manifest_sha256": "76b83a6ac5322ab82c06234ed88f2268350700581fd1fb3afec814250f5b2e97",
-        "client_source": "423ccd2f80ccfde65885d5e09ab36392f1b0da29",
-        "client_run": 42268290995, "artifact": 13528766291,
-        "artifact_sha256": "fe30443aaab67940e53b74a555bdb70d453fffa56eb9f2d2dbcffa868707651b",
+        **LEGACY_AWS_CLIENT,
         "seed_input": "LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS",
+    },
+    "0aabe3b5-e5a4-471a-93a5-6cafba0c8e8e": {
+        "snapshot_id": "d1ce158f-16ce-4993-87a5-07dcefa45bef",
+        "manifest_sha256": "73dd8c78785e5f568517a66b1c7edd6ca903d47057999c508d8196b75a3e2c5d",
+        **LEGACY_AWS_CLIENT,
+        "seed_input": "LASTDB_CLOUD_DEV_EXISTING_0AABE3B5_SEEDS",
+    },
+    "71ee2a37-6e5a-42d2-b3fc-89d894610428": {
+        "snapshot_id": "c260baa4-8eaa-4885-bc45-c686077a99a3",
+        "manifest_sha256": "adf653b74b21737ec519569b002981d05ad4e76f85dc9efa0a3e8d47d61bce55",
+        "disk_format": 14,
+        "client_source": "3c69cad6a94c7e9d2c376798afe23e63ad0a1c4f",
+        "client_run": 42344225562, "artifact": 13563265772,
+        "artifact_sha256": "9db2a971eaffd318afc28e3f18149dfd91e0ca175b0b9f8250b854efe2201bd4",
+        "seed_input": "LASTDB_CLOUD_DEV_EXISTING_71EE2A37_SEEDS",
+    },
+    "a9eba370-818a-4a94-8e0d-85b29f3a7c47": {
+        "snapshot_id": "e612dd3f-0c41-43e3-add3-7d149756a03a",
+        "manifest_sha256": "d4b92680c713581ce244824872aff911cd189363383e21180d8aa8d54a0f037f",
+        "disk_format": 14,
+        "client_source": "ab81ae53815d47a7158cbd41974771179e04b56f",
+        "client_run": 42309969576, "artifact": 13548247270,
+        "artifact_sha256": "914b337b424c321dbeca221618257a7958e0c82e49c121a4cc8b93f1c8ff8c80",
+        "seed_input": "LASTDB_CLOUD_DEV_EXISTING_A9EBA370_SEEDS",
     },
 }
 
@@ -82,7 +111,7 @@ def admit(pin, identity):
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"client_run={pin['client_run']}\nartifact_id={pin['artifact']}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-        summary.write(f"Historical format-13 client `{pin['client_source']}` from successful run "
+        summary.write(f"Historical format-{pin['disk_format']} client `{pin['client_source']}` from successful run "
                       f"`{pin['client_run']}`. Artifact `{pin['artifact']}`, ZIP SHA-256 "
                       f"`{pin['artifact_sha256']}`. Expires `{artifact['expires_at']}`.\n")
 
@@ -126,7 +155,7 @@ def cut(database, pin, devices=()):
     accepted = rows[snapshot_key]
     manifest = accepted["manifest"]
     require(accepted["receipt"] == snapshot and manifest["database_id"] == database
-            and manifest["snapshot_id"] == snapshot["snapshot_id"] and manifest["disk_format"] == 13
+            and manifest["snapshot_id"] == snapshot["snapshot_id"] and manifest["disk_format"] == pin["disk_format"]
             and io.get(partition, "database") == saved, "shared_existing_recovery_stable_cut")
     writer_heads = {}
     for stream in writers:
