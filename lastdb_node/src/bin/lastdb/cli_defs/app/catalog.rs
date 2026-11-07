@@ -42,30 +42,15 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Install directory (default: <home>/apps/<app_id>). One app only.
-        #[arg(long)]
-        dir: Option<PathBuf>,
         /// Approve the pinned source install steps and command links.
         #[arg(long)]
         accept_install: bool,
         /// Install code without running probes or service hooks.
         #[arg(long)]
         inactive: bool,
-        /// Replace an existing install directory.
-        #[arg(long)]
-        force: bool,
-        /// Emit raw JSON only.
+        /// Emit raw JSON only. Managed install always prints JSON.
         #[arg(long)]
         json: bool,
-        /// Local source: path to a git repository (requires --dev).
-        #[arg(long)]
-        from: Option<String>,
-        /// Git revision to install (required with --from).
-        #[arg(long)]
-        rev: Option<String>,
-        /// Allow local/dev installs (required with --from).
-        #[arg(long)]
-        dev: bool,
     },
     /// Upgrade installed apps from the list for the running node API.
     Upgrade {
@@ -87,10 +72,7 @@ pub(crate) enum AppCatalogCommand {
         /// Trusted verifying key (base64 or file). Default: the pinned release key.
         #[arg(long)]
         trust_key: Option<String>,
-        /// Install directory (default: <home>/apps/<app_id>). One app only.
-        #[arg(long)]
-        dir: Option<PathBuf>,
-        /// Emit raw JSON only.
+        /// Emit raw JSON only. Managed upgrade always prints JSON.
         #[arg(long)]
         json: bool,
     },

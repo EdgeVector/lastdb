@@ -1,8 +1,6 @@
 //! Groups of parsed `lastdb app` CLI fields that travel together, so the
 //! handlers take one value instead of a long positional list.
 
-use super::*;
-
 /// Where `install` / `upgrade` resolve an app from on the signed public index.
 #[derive(Clone)]
 pub(crate) struct RegistrySource {
@@ -26,12 +24,6 @@ pub(crate) struct AppInstall {
     pub(crate) inactive: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
-    pub(crate) dir: Option<PathBuf>,
-    pub(crate) force: bool,
-    pub(crate) json: bool,
-    pub(crate) from: Option<String>,
-    pub(crate) rev: Option<String>,
-    pub(crate) dev: bool,
 }
 
 /// `lastdb app upgrade` after the CLI parse.
@@ -40,6 +32,4 @@ pub(crate) struct AppUpgrade {
     pub(crate) accept_install: bool,
     pub(crate) app_ids: Vec<String>,
     pub(crate) source: RegistrySource,
-    pub(crate) dir: Option<PathBuf>,
-    pub(crate) json: bool,
 }

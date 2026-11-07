@@ -3,11 +3,10 @@
 use std::path::Path;
 use std::process::Command as ProcessCommand;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 
 use super::resolve::Resolution;
-use super::version_constraint;
 
 /// The receipt `lastdb app install` leaves in the install directory.
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
@@ -26,27 +25,6 @@ pub struct PinnedInstallOutcome {
     pub proof_run: String,
 }
 
-/// Outcome of `lastdb app upgrade` on the proved path.
-#[derive(Debug, Clone, Serialize)]
-pub struct PinnedUpgradeOutcome {
-    pub app_id: String,
-    pub installed_sha: String,
-    pub resolved_sha: String,
-    pub installed_version: String,
-    pub resolved_version: String,
-    pub upgraded: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub install: Option<PinnedInstallOutcome>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PinnedReceipt {
-    #[serde(default)]
-    sha: String,
-    #[serde(default)]
-    version: String,
-}
-
 /// Clone `resolution.source` and check out `resolution.sha` under
 /// `install_dir/source`, then write the receipt.
 ///
@@ -58,7 +36,6 @@ struct PinnedReceipt {
 pub fn install_pinned(
     resolution: &Resolution,
     install_dir: &Path,
-    force: bool,
 ) -> Result<PinnedInstallOutcome, String> {
     if !resolution.sha.chars().all(|c| c.is_ascii_hexdigit()) || resolution.sha.len() != 40 {
         return Err(format!(
@@ -67,7 +44,7 @@ pub fn install_pinned(
         ));
     }
     let checkout_path = install_dir.join("source");
-    prepare_install_dir(install_dir, force)?;
+    prepare_install_dir(install_dir)?;
 
     let cleanup = |why: String| -> String {
         let _ = std::fs::remove_dir_all(install_dir);
@@ -81,16 +58,6 @@ pub fn install_pinned(
         &resolution.app_id,
         &cleanup,
     )?;
-
-    // Check version constraints in manifest (if present)
-    if resolution.list_entry.is_none() {
-        check_version_constraint_or_cleanup(
-            &checkout_path,
-            &resolution.app_id,
-            &resolution.lastdb_version,
-            cleanup,
-        )?;
-    }
 
     let receipt = json!({
         "app_id": resolution.app_id,
@@ -179,35 +146,13 @@ where
     Ok(head)
 }
 
-/// Check version constraint and call cleanup on error. Helper for install_pinned.
-fn check_version_constraint_or_cleanup<F>(
-    checkout_path: &Path,
-    app_id: &str,
-    lastdb_version: &str,
-    cleanup: F,
-) -> Result<(), String>
-where
-    F: FnOnce(String) -> String,
-{
-    version_constraint::check_manifest_constraint(checkout_path, app_id, lastdb_version)
-        .map_err(cleanup)
-}
-
-/// Remove (with `force`) or reject an existing install directory, then create it.
-fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
+/// Reject an existing install directory, then create it.
+fn prepare_install_dir(install_dir: &Path) -> Result<(), String> {
     if install_dir.exists() {
-        if !force {
-            return Err(format!(
-                "install directory already exists: {} (pass --force to replace it)",
-                install_dir.display()
-            ));
-        }
-        std::fs::remove_dir_all(install_dir).map_err(|e| {
-            format!(
-                "failed to remove existing install directory {}: {e}",
-                install_dir.display()
-            )
-        })?;
+        return Err(format!(
+            "install directory already exists: {}",
+            install_dir.display()
+        ));
     }
     std::fs::create_dir_all(install_dir).map_err(|e| {
         format!(
@@ -217,125 +162,4 @@ fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
     })?;
 
     Ok(())
-}
-
-/// Swap staged install into place atomically: backup old → move staged → delete backup.
-/// On failure, rolls back and leaves the old install intact.
-fn swap_install_atomic(
-    install_dir: &Path,
-    staged_dir: &Path,
-    cleanup_staged: impl FnOnce(),
-) -> Result<(), String> {
-    let backup_dir = install_dir.with_file_name(format!(
-        "{}.upgrade-backup",
-        install_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("app")
-    ));
-    std::fs::rename(install_dir, &backup_dir).map_err(|e| {
-        cleanup_staged();
-        format!(
-            "failed to backup old install {} to {}: {e}",
-            install_dir.display(),
-            backup_dir.display()
-        )
-    })?;
-
-    if let Err(e) = std::fs::rename(staged_dir, install_dir) {
-        let _ = std::fs::rename(&backup_dir, install_dir);
-        return Err(format!(
-            "failed to move staged install from {} to {}: {e}",
-            staged_dir.display(),
-            install_dir.display()
-        ));
-    }
-
-    let _ = std::fs::remove_dir_all(&backup_dir);
-    Ok(())
-}
-
-/// Reinstall only when the resolved commit differs from the installed one.
-///
-/// # Errors
-/// A corrupt receipt or any [`install_pinned`] failure.
-pub fn upgrade_pinned(
-    resolution: &Resolution,
-    install_dir: &Path,
-) -> Result<PinnedUpgradeOutcome, String> {
-    let receipt_path = install_dir.join(RECEIPT_FILE);
-    if !receipt_path.exists() {
-        let install = install_pinned(resolution, install_dir, false)?;
-        return Ok(PinnedUpgradeOutcome {
-            app_id: resolution.app_id.clone(),
-            installed_sha: String::new(),
-            resolved_sha: install.sha.clone(),
-            installed_version: String::new(),
-            resolved_version: resolution.app_version.clone(),
-            upgraded: true,
-            install: Some(install),
-        });
-    }
-    let raw = std::fs::read_to_string(&receipt_path)
-        .map_err(|e| format!("failed to read {}: {e}", receipt_path.display()))?;
-    let receipt: PinnedReceipt = serde_json::from_str(&raw)
-        .map_err(|e| format!("invalid install receipt {}: {e}", receipt_path.display()))?;
-    let same = !receipt.sha.is_empty()
-        && (receipt.sha.starts_with(&resolution.sha) || resolution.sha.starts_with(&receipt.sha));
-    if same {
-        return Ok(PinnedUpgradeOutcome {
-            app_id: resolution.app_id.clone(),
-            installed_sha: receipt.sha,
-            resolved_sha: resolution.sha.clone(),
-            installed_version: receipt.version,
-            resolved_version: resolution.app_version.clone(),
-            upgraded: false,
-            install: None,
-        });
-    }
-
-    // Stage and check the new commit in a temporary directory first, so a rejected
-    // upgrade (version constraint failure) leaves the working install untouched.
-    let temp_dir = install_dir.with_file_name(format!(
-        "{}.upgrade-stage",
-        install_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("app")
-    ));
-
-    let cleanup_temp = || {
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    };
-
-    // Stage the new version in temp_dir
-    let staged = install_pinned(resolution, &temp_dir, true);
-    if let Err(e) = staged {
-        cleanup_temp();
-        return Err(e);
-    }
-
-    // Version constraint check passed; atomically swap the staged install into place
-    swap_install_atomic(install_dir, &temp_dir, cleanup_temp)?;
-
-    // Build outcome with final paths, not staging paths
-    Ok(PinnedUpgradeOutcome {
-        app_id: resolution.app_id.clone(),
-        installed_sha: receipt.sha,
-        resolved_sha: resolution.sha.clone(),
-        installed_version: receipt.version,
-        resolved_version: resolution.app_version.clone(),
-        upgraded: true,
-        install: Some(PinnedInstallOutcome {
-            app_id: resolution.app_id.clone(),
-            app_version: resolution.app_version.clone(),
-            sha: resolution.sha.clone(),
-            lastdb_version: resolution.lastdb_version.clone(),
-            channel: resolution.channel.clone(),
-            source: resolution.source.clone(),
-            install_dir: install_dir.display().to_string(),
-            checkout_path: install_dir.join("source").display().to_string(),
-            proof_run: resolution.proof_run.clone(),
-        }),
-    })
 }

@@ -13,8 +13,6 @@ pub enum IndexLocation {
     Url(String),
     /// `<dir>/<channel>.json` on the local filesystem.
     Dir(PathBuf),
-    /// Local git repository or path for dev installs.
-    Local { path: PathBuf, rev: String },
 }
 
 impl IndexLocation {
@@ -25,7 +23,6 @@ impl IndexLocation {
         match self {
             Self::Url(base) => format!("{base}/{path}"),
             Self::Dir(dir) => dir.join(path).display().to_string(),
-            Self::Local { path, rev } => format!("{}@{rev}", path.display()),
         }
     }
 
@@ -62,7 +59,6 @@ impl IndexLocation {
                 let sig = fetch_url(&client, &format!("{address}.sig")).await?;
                 Ok((bytes, sig))
             }
-            Self::Local { .. } => Err("local app sources do not fetch registry lists".into()),
         }
     }
     /// `--index` flag, then `$LASTDB_REGISTRY_INDEX`, then the public tap.
@@ -94,16 +90,6 @@ impl IndexLocation {
             return Ok(Self::Url(raw.to_string()));
         }
         Ok(Self::Dir(PathBuf::from(raw)))
-    }
-
-    /// The index file's address for `channel`, for receipts and messages.
-    #[must_use]
-    pub fn describe(&self, channel: &str) -> String {
-        match self {
-            Self::Url(base) => format!("{base}/{channel}.json"),
-            Self::Dir(dir) => dir.join(format!("{channel}.json")).display().to_string(),
-            Self::Local { path, rev } => format!("{}@{}", path.display(), rev),
-        }
     }
 }
 

@@ -146,7 +146,7 @@ fn stage_version(
     if !resolution.trust.starts_with("pinned:") {
         return Err("managed activation requires the pinned registry key".into());
     }
-    super::install_pinned(resolution, stage, false)?;
+    super::install_pinned(resolution, stage)?;
     let source = stage.join("source");
     let plan = InstallPlan::load(&source, &resolution.app_id)?;
     let hash = plan.consent_hash()?;

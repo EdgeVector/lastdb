@@ -8,26 +8,6 @@ use serde_json::Value;
 
 // ─── Node version ─────────────────────────────────────────────────────────
 
-/// The build string of the node this machine runs.
-///
-/// Order: `GET /api/version` on the owner socket (the running daemon is the
-/// truth), then `lastdbd --version` from the daemon next to this CLI (a node
-/// older than the handshake route), then this binary's own build string (the
-/// CLI and the daemon ship in one bottle).
-#[must_use]
-pub fn running_lastdb_version(socket: &Path) -> (String, &'static str) {
-    if let Some(build) = socket_api_version_build(socket) {
-        return (build, "socket");
-    }
-    if let Some(build) = sibling_lastdbd_version() {
-        return (build, "lastdbd");
-    }
-    (
-        crate::ops::crash_attribution::build_version().to_string(),
-        "cli",
-    )
-}
-
 /// `lastdbd --version` from the daemon that ships next to this CLI (same
 /// bottle), then from `PATH`. A node that predates `/api/version` still has
 /// a build string; this is how a pre-handshake node is named.
@@ -59,13 +39,6 @@ fn sibling_lastdbd_version() -> Option<String> {
         }
     }
     None
-}
-
-fn socket_api_version_build(socket: &Path) -> Option<String> {
-    socket_version(socket)?
-        .get("build")?
-        .as_str()
-        .map(str::to_string)
 }
 
 /// Read the node's build and exact contract versions from one socket request.
