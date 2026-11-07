@@ -18,6 +18,8 @@ const CUT: &str = "shared-checkpoint-cut.json";
 const CUT_BYTES: u64 = crate::shared_restore::recovery::MAX_MANIFEST_BYTES
     + cloud_backup_protocol::limits::REQUEST_JSON_MAX_BYTES;
 
+pub(crate) const ABANDONED: &str = "snapshot was abandoned. Use a new workspace";
+
 pub(crate) struct PublishedFiles {
     pub r2: usize,
     pub b2: usize,
@@ -100,9 +102,7 @@ impl NativeCheckpoint {
                     b2: self.cut.files.len() - r2,
                 })
             }
-            SnapshotOutcome::Abandoned => Err(RestoreError::Invalid(
-                "snapshot was abandoned. Use a new workspace",
-            )),
+            SnapshotOutcome::Abandoned => Err(RestoreError::Invalid(ABANDONED)),
         }
     }
 }
