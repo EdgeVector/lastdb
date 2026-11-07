@@ -21,6 +21,12 @@ on:
         required: false
       LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS:
         required: false
+      LASTDB_CLOUD_DEV_EXISTING_0AABE3B5_SEEDS:
+        required: false
+      LASTDB_CLOUD_DEV_EXISTING_71EE2A37_SEEDS:
+        required: false
+      LASTDB_CLOUD_DEV_EXISTING_A9EBA370_SEEDS:
+        required: false
 
 jobs:
   restore:
@@ -37,7 +43,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Download the admitted format-13 client
+      - name: Download the admitted format-compatible client
         uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
@@ -67,6 +73,9 @@ jobs:
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS: ${{ inputs.database_id == '3fd7146a-a626-44fc-b58d-25c319566816' && secrets.LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS || '' }}
           LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS: ${{ inputs.database_id == '7c7344e8-795c-441c-8d07-0a05668cc987' && secrets.LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_EXISTING_0AABE3B5_SEEDS: ${{ inputs.database_id == '0aabe3b5-e5a4-471a-93a5-6cafba0c8e8e' && secrets.LASTDB_CLOUD_DEV_EXISTING_0AABE3B5_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_EXISTING_71EE2A37_SEEDS: ${{ inputs.database_id == '71ee2a37-6e5a-42d2-b3fc-89d894610428' && secrets.LASTDB_CLOUD_DEV_EXISTING_71EE2A37_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_EXISTING_A9EBA370_SEEDS: ${{ inputs.database_id == 'a9eba370-818a-4a94-8e0d-85b29f3a7c47' && secrets.LASTDB_CLOUD_DEV_EXISTING_A9EBA370_SEEDS || '' }}
         run: >-
           python3 scripts/cloud_backup/shared_existing_recovery.py restore --database-id "$DATABASE_ID"
           --package "$RUNNER_TEMP/shared-existing-recovery-client"
