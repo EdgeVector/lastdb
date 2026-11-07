@@ -1,0 +1,85 @@
+name: Restore an exact retained DEV shared cut
+
+on:
+  workflow_call:
+    inputs:
+      database_id:
+        type: string
+        required: true
+      client_run:
+        type: string
+        required: true
+      artifact_id:
+        type: string
+        required: true
+
+jobs:
+  restore:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download the admitted format-13 client
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.client_run }}
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: ${{ runner.temp }}/shared-existing-recovery-client
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Verify the historical package and matched binary pair
+        env:
+          DATABASE_ID: ${{ inputs.database_id }}
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/shared-existing-recovery-client"
+          chmod 600 "$package/lastdb-x86_64-unknown-linux-gnu.manifest.json"
+          python3 scripts/cloud_backup/shared_existing_recovery.py unpack --database-id "$DATABASE_ID" \
+            --package "$package" --binaries "$RUNNER_TEMP/shared-existing-recovery-bin"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::152335099025:role/LastDBSharedExistingRecoveryDev
+          aws-region: us-west-2
+          role-session-name: shared-existing-${{ github.run_id }}
+      - name: Verify the exact cloud cut before and after a source-free restore
+        env:
+          DATABASE_ID: ${{ inputs.database_id }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS: ${{ inputs.database_id == '3fd7146a-a626-44fc-b58d-25c319566816' && secrets.LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS || '' }}
+          LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS: ${{ inputs.database_id == '7c7344e8-795c-441c-8d07-0a05668cc987' && secrets.LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS || '' }}
+        run: >-
+          python3 scripts/cloud_backup/shared_existing_recovery.py restore --database-id "$DATABASE_ID"
+          --package "$RUNNER_TEMP/shared-existing-recovery-client"
+          --binaries "$RUNNER_TEMP/shared-existing-recovery-bin"
+          --output "$RUNNER_TEMP/shared-existing-recovery/summary.json"
+      - id: receipt
+        uses: actions/upload-artifact@v7
+        with:
+          name: shared-existing-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shared-existing-recovery/summary.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Record the exact recovery receipt provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.receipt.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.receipt.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.receipt.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n[Source-free recovery receipt](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Source %s. Artifact %s. ZIP SHA-256 %s.\n' "$GITHUB_SHA" "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq '"Expires: " + .expires_at'
+          } >> "$GITHUB_STEP_SUMMARY"

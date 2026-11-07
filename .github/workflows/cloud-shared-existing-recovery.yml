@@ -1,0 +1,54 @@
+name: Existing shared DEV source-free recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_id:
+        description: Exact retained DEV shared scope to restore
+        type: choice
+        required: true
+        options:
+          - 3fd7146a-a626-44fc-b58d-25c319566816
+          - 7c7344e8-795c-441c-8d07-0a05668cc987
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-shared-existing-recovery-${{ inputs.database_id }}
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+    outputs:
+      client_run: ${{ steps.admit.outputs.client_run }}
+      artifact_id: ${{ steps.admit.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATABASE_ID: ${{ inputs.database_id }}
+        run: python3 scripts/cloud_backup/shared_existing_recovery.py admit --database-id "$DATABASE_ID"
+
+  restore:
+    needs: admission
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/cloud-shared-existing-recovery-run.yml
+    with:
+      database_id: ${{ inputs.database_id }}
+      client_run: ${{ needs.admission.outputs.client_run }}
+      artifact_id: ${{ needs.admission.outputs.artifact_id }}
