@@ -10,6 +10,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 
