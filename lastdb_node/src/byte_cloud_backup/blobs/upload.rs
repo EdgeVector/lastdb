@@ -132,7 +132,7 @@ async fn upload_one_page(
         for ((i, input, _), result) in batch.iter().zip(results) {
             match result {
                 Ok(receipt) if receipt.object == input.object => {
-                    entries[*i].receipt = Some(receipt)
+                    entries[*i].receipt = Some(receipt);
                 }
                 Ok(_) => wait::record_error(&mut failure, BackupError::Identity),
                 Err(error) => wait::record_error(&mut failure, error),
