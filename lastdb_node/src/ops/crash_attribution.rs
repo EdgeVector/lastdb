@@ -129,7 +129,10 @@ pub fn promote_previous_crash_evidence(reports: &[PathBuf], start: Option<&Start
 /// distinguishes a live session (report uptime + the restart before it) from a
 /// stopped/crashed daemon (report how the last session itself ended).
 pub fn status_lines(home: &Path, running: bool) -> Vec<String> {
-    let records = session_ledger::read_all_records(home);
+    // Last exit uses the newest session and, when the daemon is up, the one
+    // before it. The bounded tail is enough. Shutdown still reads the whole
+    // ledger when it rewrites a row.
+    let records = session_ledger::read_recent_records(home, 2);
     let live = session_ledger::read_live_session(home);
 
     let mut out = Vec::new();
