@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Rehearse the direct primary-format conversion on owned generated CI homes."""
 
+import base64
 from contextlib import ExitStack
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -83,6 +86,24 @@ def migrate(runner, evidence, source, target, mode):
     require(completed.returncode == 0, f"The format converter refused {mode}; inspect the redacted report")
 
 
+def seed_source_attachment(source, attachment):
+    # The installed format 9 Brain does not alias the legacy put-blob fields.
+    # Seed the file through the source's native API, then let the real CLI
+    # recognize that content hash and write the attachment index normally.
+    config = json.loads(source.brain_config.read_text())
+    schema = config["schemaHashes"]["__attachmentfile__"]
+    aliases = config["schemaFieldAliases"][schema]
+    data = attachment.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    fields = {"content_hash": sha, "size": str(len(data)), "media_type": "application/octet-stream",
+              "created_at": datetime.now(timezone.utc).isoformat()}
+    response = source.node.call("/api/db/put-blob", {"schema": schema, "key": {"hash": sha},
+        "bytes_b64": base64.b64encode(data).decode(), "name": attachment.name,
+        "media_type": "application/octet-stream", "fields": {aliases[key]: value for key, value in fields.items()}})[0]
+    require(response.get("file", {}).get("sha256") == sha, "The source did not confirm the attachment bytes")
+    source.brain("attach", "generated-format-move", str(attachment), "--type", "concept")
+
+
 def verify_apps(apps, attachment, destination, secret):
     content = apps.brain("get", "generated-format-move", "--type", "concept", "--field", "body")
     require(b"generated format migration body" in content, "Brain lost the seeded record")
@@ -130,8 +151,8 @@ def main():
         attachment.write_bytes(secrets.token_bytes(4096))
         secret = secrets.token_hex(48).encode()
         source.brain("put", "generated-format-move", "--type", "concept",
-                     payload=b"generated format migration body\n" * 1200)
-        source.brain("attach", "generated-format-move", str(attachment), "--type", "concept")
+                     payload=b"generated format migration body\n")
+        seed_source_attachment(source, attachment)
         source.put_secret(secret)
         verify_apps(source, attachment, scratch / "source-attachment", secret)
         migrate(runner, evidence, source, target, "apply")
@@ -139,9 +160,10 @@ def main():
         target.node.start()
         migrate(runner, evidence, source, target, "verify")
         verify_apps(target, attachment, scratch / "target-attachment", secret)
-        target.brain("put", "generated-after-move", "--type", "concept", payload=b"write after cutover\n")
-        require(b"write after cutover" in target.brain("get", "generated-after-move", "--type", "concept"),
-                "Brain cannot write on the target")
+        new_body = b"write after cutover\n" * 2400
+        target.brain("put", "generated-after-move", "--type", "concept", payload=new_body)
+        require(target.brain("get", "generated-after-move", "--type", "concept", "--field", "body").rstrip()
+                == new_body.rstrip(), "Brain cannot write and reopen a long body on the target")
         target.put_secret(secret + b"-updated")
         require(target.lastsecrets("get", "generated-format-move").rstrip(b"\n") == secret + b"-updated",
                 "LastSecrets cannot update on the target")
