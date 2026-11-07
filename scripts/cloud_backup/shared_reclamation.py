@@ -36,7 +36,7 @@ def await_report(directory, name, deadline, process=None):
 def run(operation):
     mailbox = operation.args.output.parent / "provider-observation"
     require(mailbox.is_dir(), "shared_reclamation_observer_required")
-    publisher, peer, reader = operation.writers[:3]
+    publisher, holder, peer, reader = operation.writers[:4]
     node = operation.initialize_publisher(publisher)
     node.start()
     keep = operation.record("checkpoint", "kept")
@@ -50,7 +50,7 @@ def run(operation):
     operation.snapshot = canonical_uuid(first["snapshot_id"])
     node.stop()
     # The peer opens a genuine recovery hold on the old snapshot.
-    second = operation.join_writer("peer", peer)
+    operation.join_writer("peer", holder)
     operation.summary["stage"] = "reclamation_observe_initial"
     publish(mailbox, "initial", {"snapshot": operation.snapshot, "publisher": publisher["source_stream"]})
     await_report(mailbox, "observed-initial", time.monotonic() + 90)
@@ -68,6 +68,9 @@ def run(operation):
     node.stop()
 
     operation.summary["stage"] = "reclamation_upload_uncovered_tail"
+    # The old hold stays open. A different writer starts at the replacement
+    # floor, so it can upload a tail without reading retired ranges.
+    second = operation.join_writer("tail-writer", peer)
     second.start()
     tail = operation.record("peer-only", "uncovered")
     durable_batch(second, [native_records.create(operation.schema, native_records.key("peer-only"), tail)])
