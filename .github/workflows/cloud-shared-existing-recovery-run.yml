@@ -12,6 +12,15 @@ on:
       artifact_id:
         type: string
         required: true
+    secrets:
+      LASTDB_CLOUD_DEV_API_KEY:
+        required: true
+      LASTDB_CLOUD_DEV_RECOVERY_PHRASE:
+        required: true
+      LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS:
+        required: false
+      LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS:
+        required: false
 
 jobs:
   restore:

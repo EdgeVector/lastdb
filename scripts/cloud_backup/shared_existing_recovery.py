@@ -141,11 +141,15 @@ def protected_inputs(pin):
     seed_inputs = {row["seed_input"] for row in PINS.values()}
     values = {name: os.environ.pop(name, "") for name in seed_inputs}
     seeds = values[pin["seed_input"]]
-    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
-    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "")
-    require(0 < len(seeds) <= 4096 and 0 < len(phrase.encode()) <= 4096
-            and 0 < len(api_key) <= 4096 and all(32 <= ord(char) < 127 for char in api_key)
-            and api_key == api_key.strip(), "shared_existing_recovery_protected_input")
+    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "").strip()
+    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip()
+    require(bool(api_key), "shared_existing_recovery_api_key_missing")
+    require(bool(phrase), "shared_existing_recovery_phrase_missing")
+    require(bool(seeds.strip()), "shared_existing_recovery_seed_input_missing")
+    require(len(api_key) <= 4096 and all(32 <= ord(char) < 127 for char in api_key),
+            "shared_existing_recovery_api_key_invalid")
+    require(len(phrase.encode()) <= 4096, "shared_existing_recovery_phrase_invalid")
+    require(len(seeds) <= 4096, "shared_existing_recovery_seed_input_invalid")
     values = decode_json(seeds.encode())
     require(isinstance(values, dict) and 0 < len(values) <= 16, "shared_existing_recovery_device_map")
     selected = {}
