@@ -58,7 +58,6 @@ struct State {
     panicked: bool,
 }
 pub struct BackupRuntime {
-    instance_id: uuid::Uuid,
     transition: Mutex<()>,
     state: Mutex<State>,
     changed: watch::Sender<RuntimeSnapshot>,
@@ -72,7 +71,6 @@ impl BackupRuntime {
     pub fn new() -> Self {
         let (changed, _) = watch::channel(RuntimeSnapshot::default());
         Self {
-            instance_id: uuid::Uuid::new_v4(),
             transition: Mutex::new(()),
             state: Mutex::new(State {
                 next_token: 0,
@@ -82,9 +80,6 @@ impl BackupRuntime {
             }),
             changed,
         }
-    }
-    pub fn instance_id(&self) -> uuid::Uuid {
-        self.instance_id
     }
     pub fn transition(&self) -> Result<MutexGuard<'_, ()>> {
         self.transition.lock().map_err(|_| BackupError::WorkerPanic)
