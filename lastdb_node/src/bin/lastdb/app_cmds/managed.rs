@@ -89,21 +89,34 @@ pub(super) fn install(home: &Path, input: &AppInstall) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
-    let names = if input.all {
-        app_ids()?
-    } else {
-        input.app_ids.clone()
-    };
-    let mut rows = std::collections::HashMap::new();
-    let mut results = Vec::new();
-    let mut failed = false;
-    let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").ok().as_deref() == Some("1");
-    for app in names {
-        let current = installed(&app)?;
-        let channel = input.source.channel.as_deref().unwrap_or(&current.channel);
-        let stamp = host::app_root(&app)?.join("last-checked");
-        if polling
+struct UpgradePass<'a> {
+    home: &'a Path,
+    input: &'a AppUpgrade,
+    polling: bool,
+    lists: std::collections::HashMap<(String, String), Result<Vec<registry::Resolution>, String>>,
+}
+
+impl UpgradePass<'_> {
+    fn upgrade_app(&mut self, app: &str) -> Result<Option<serde_json::Value>, String> {
+        let current = installed(app)?;
+        let mut source = self.input.source.clone();
+        // Old private receipts remain installed. A background pass can still
+        // service other apps without fetching credentials or substituting an index.
+        if source.index.is_none() && current.index.trim().starts_with("lastsecrets://") {
+            let error = "saved private registry index is no longer supported";
+            return if self.polling {
+                Ok(Some(json!({
+                    "app": app, "state": "blocked", "reason": "unsupported_saved_index",
+                    "error": error, "installed_release": current.sha
+                })))
+            } else {
+                Err(error.into())
+            };
+        }
+        let channel = source.channel.as_deref().unwrap_or(&current.channel);
+        let root = host::app_root(app)?;
+        let stamp = root.join("last-checked");
+        if self.polling
             && channel == "stable"
             && std::fs::metadata(&stamp)
                 .and_then(|m| m.modified())
@@ -111,52 +124,66 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
                 .and_then(|t| t.elapsed().ok())
                 .is_some_and(|d| d.as_secs() < 3600)
         {
-            let root = host::app_root(&app)?;
             let _lock = host::lock(&root)?;
-            let current = installed(&app)?;
-            if let Err(error) = host::verify_or_restore(&root, home, &current) {
-                failed = true;
-                results.push(json!({"app": app, "state": "red", "error": error}));
-            }
-            continue;
+            let current = installed(app)?;
+            host::verify_or_restore(&root, self.home, &current)?;
+            return Ok(None);
         }
-        let mut source = input.source.clone();
         source.index = source.index.or_else(|| Some(current.index.clone()));
-        let cache_key = format!("{}|{channel}", source.index.as_deref().unwrap_or_default());
-        if let std::collections::hash_map::Entry::Vacant(entry) = rows.entry(cache_key.clone()) {
-            entry.insert(resolutions(home, &source, channel)?);
-        }
+        let cache_key = (
+            source.index.as_deref().unwrap_or_default().to_owned(),
+            channel.to_owned(),
+        );
+        let rows = self
+            .lists
+            .entry(cache_key)
+            .or_insert_with(|| resolutions(self.home, &source, channel))
+            .as_ref()
+            .map_err(Clone::clone)?;
         std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
-        let Some(row) = rows
-            .get(&cache_key)
-            .and_then(|v| v.iter().find(|r| r.app_id == app))
-        else {
-            if !polling {
-                results
-                    .push(json!({"app": app, "state": "no_row", "installed_release": current.sha}));
-            }
-            continue;
+        let Some(row) = rows.iter().find(|r| r.app_id == app) else {
+            return Ok((!self.polling).then(
+                || json!({"app": app, "state": "no_row", "installed_release": current.sha}),
+            ));
         };
-        match host::install(
+        let receipt = host::install(
             row,
-            home,
+            self.home,
             host::ActivationOptions {
-                accept_install: input.accept_install,
+                accept_install: self.input.accept_install,
                 inactive: current.inactive,
             },
-        ) {
-            Ok(receipt) => {
-                if !polling || receipt.sha != current.sha {
-                    results.push(json!({"app": app, "state": "current", "receipt": receipt}));
-                }
-            }
+        )?;
+        Ok((!self.polling || receipt.sha != current.sha)
+            .then(|| json!({"app": app, "state": "current", "receipt": receipt})))
+    }
+}
+
+pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
+    let names = if input.all {
+        app_ids()?
+    } else {
+        input.app_ids.clone()
+    };
+    let mut pass = UpgradePass {
+        home,
+        input,
+        polling: std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1"),
+        lists: std::collections::HashMap::new(),
+    };
+    let mut results = Vec::new();
+    let mut failed = false;
+    for app in names {
+        match pass.upgrade_app(&app) {
+            Ok(Some(result)) => results.push(result),
+            Ok(None) => {}
             Err(error) => {
                 failed = true;
                 results.push(json!({"app": app, "state": "red", "error": error}));
             }
         }
     }
-    if !polling || !results.is_empty() {
+    if !pass.polling || !results.is_empty() {
         print_pretty_json(&results);
     }
     if failed {
