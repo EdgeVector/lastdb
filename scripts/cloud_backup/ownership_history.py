@@ -106,10 +106,25 @@ def baseline_ownership(raw, run, baseline):
     return value
 
 
+def current_baseline_ownership(raw, run, baseline):
+    """Identify the protected point in its producer's completed baseline receipt."""
+    value = decode_json(raw)
+    previous = value.get("previous") if isinstance(value, dict) else None
+    require(isinstance(previous, dict), "ci_baseline_producer_previous")
+    # The original receipt names the baseline it replaced. Validate that
+    # original relationship, then bind its new point to today's protected input.
+    original = {**baseline, **previous}
+    value = baseline_ownership(raw, run, original)
+    require(value["baseline"] == {name: baseline[name] for name in (
+        "stream_id", "commit_id", "commit_sha256")}, "ci_history_other_baseline")
+    return value
+
+
 KINDS = {
     "stream": ("cloud-ci-stream", "ci-stream.json", ownership),
     "startup": ("cloud-ci-start", "ci-start.json", startup_ownership),
     "baseline": ("cloud-ci-baseline", "ci-baseline.json", baseline_ownership),
+    "current-baseline": ("cloud-ci-baseline", "ci-baseline.json", current_baseline_ownership),
 }
 
 

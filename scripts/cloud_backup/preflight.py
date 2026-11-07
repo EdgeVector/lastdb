@@ -10,6 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from ci_control import Control
+from baseline_compatibility import inspect as inspect_baseline
 from ownership import run_identity
 from recover import Operation
 from retirement import Retirement
@@ -29,6 +30,14 @@ class Preflight(Operation):
 
     def execute(self):
         self.credentials()
+        token = os.environ.pop("GH_TOKEN", "")
+        if self.args.pinned:
+            self.summary["stage"] = "pinned-baseline-compatibility"
+            observed = inspect_baseline(self, token)
+            self.summary["baseline_compatibility"] = observed
+            require(not observed["observed"] or observed["compatible"],
+                    "ci_baseline_profile_mismatch")
+        del token
         control = Control(self.baseline, self.api_key, budget_seconds=60)
         try:
             self.summary["stage"] = "ci-cleanup-state"
@@ -60,6 +69,8 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--pinned", action="store_true",
+                        help="diagnose a positively authenticated pinned baseline format")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Preflight(args)
