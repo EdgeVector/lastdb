@@ -15,18 +15,14 @@ use crate::HostError;
 
 /// Collect every writable field name on `schema`. Mirror of the query side's
 /// queryable-field collection, but tighter: `transform_fields` are computed at
-/// read time and rejected as mutation targets; only plain `fields` and
-/// `ref_fields` keys (which a caller can legitimately mutate, even though the
-/// value shape is a reference object) are included. Value-shape validation for
-/// refs is intentionally out of scope here — this gate only refuses unknown
-/// field NAMES, not bad shapes.
+/// read time and rejected as mutation targets; only plain `fields` are
+/// included. This gate only refuses unknown field NAMES, not bad shapes.
 #[must_use]
 pub fn mutation_writable_field_names(schema: &Schema) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     if let Some(plain) = schema.fields.as_ref() {
         names.extend(plain.iter().cloned());
     }
-    names.extend(schema.ref_fields.keys().cloned());
     names.sort();
     names.dedup();
     names
@@ -37,7 +33,6 @@ pub(in super::super) fn mutation_field_is_writable(schema: &Schema, field: &str)
         .fields
         .as_ref()
         .is_some_and(|plain| plain.iter().any(|name| name == field))
-        || schema.ref_fields.contains_key(field)
 }
 
 /// Diff the keys of `record_fields` against the schema's writable surface.

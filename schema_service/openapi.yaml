@@ -1282,16 +1282,11 @@ components:
           type: boolean
           default: false
           description: |
-            True iff this registration was a COMPOSED outcome: the
-            compositional decompose/apply step rewrote one or more of the
-            proposal's nested ref_fields to reuse an existing canonical via
-            SchemaRef instead of re-inlining its fields. Only present when
-            true; absent (defaulting to false) for a plain
-            Added/Expanded/AlreadyExists outcome. The authoritative marker of
-            composition — the response schema carries the rewritten ref_fields
-            either way, so this flag (not the presence of ref_fields) is what
-            tells a client the apply path actually reused something. Produced
-            only when SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply (off by default).
+            True iff this registration was a COMPOSED outcome: approved
+            component schemas cover every proposed field, no shared schema
+            matched, and the response carries the normalized proposal.
+            Absent (defaulting to false) for a plain
+            Added/Expanded/AlreadyExists outcome.
 
     # ---------- Similar schemas ----------
     SimilarSchemaEntry:
@@ -1652,10 +1647,6 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/DataClassification'
         field_interest_categories:
-          type: object
-          additionalProperties:
-            type: string
-        ref_fields:
           type: object
           additionalProperties:
             type: string

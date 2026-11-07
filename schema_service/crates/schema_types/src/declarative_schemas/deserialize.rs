@@ -36,8 +36,6 @@ struct DeclarativeSchemaDefinitionHelper {
     #[serde(default)]
     field_interest_categories: HashMap<String, String>,
     #[serde(default)]
-    ref_fields: HashMap<String, String>,
-    #[serde(default)]
     field_types: HashMap<String, FieldValueType>,
     #[serde(default)]
     field_hashes: HashMap<String, String>,
@@ -133,11 +131,10 @@ impl DeclarativeSchemaDefinitionHelper {
                 .insert(field_name, classifications);
         }
 
-        // Preserve field_descriptions, field_data_classifications, field_interest_categories, ref_fields, field_types and identity_hash
+        // Preserve field_descriptions, field_data_classifications, field_interest_categories, field_types and identity_hash
         schema.field_descriptions = self.field_descriptions;
         schema.field_data_classifications = self.field_data_classifications;
         schema.field_interest_categories = self.field_interest_categories;
-        schema.ref_fields = self.ref_fields;
         schema.field_types = self.field_types;
         schema.field_hashes = self.field_hashes;
         schema.field_declarations = self.field_declarations;

@@ -111,10 +111,6 @@ pub struct DeclarativeSchemaDefinition {
     /// Maps field_name -> interest category string.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_interest_categories: HashMap<String, String>,
-    /// Reference fields that point to child schemas
-    /// Maps field_name -> child_schema_name
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub ref_fields: HashMap<String, String>,
     /// Strongly typed field value types from the canonical field registry.
     /// Maps field_name -> FieldValueType. Fields not in this map default to Any.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

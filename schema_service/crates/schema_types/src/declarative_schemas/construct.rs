@@ -31,7 +31,6 @@ impl DeclarativeSchemaDefinition {
             field_descriptions: HashMap::new(),
             field_data_classifications: HashMap::new(),
             field_interest_categories: HashMap::new(),
-            ref_fields: HashMap::new(),
             field_types: HashMap::new(),
             field_hashes: HashMap::new(),
             field_declarations: HashMap::new(),

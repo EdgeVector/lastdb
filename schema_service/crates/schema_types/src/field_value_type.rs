@@ -31,12 +31,6 @@ pub enum FieldValueType {
     /// `Object({"name": String, "age": Integer})`
     Object(BTreeMap<String, Self>),
 
-    // ── References ──────────────────────────────────────
-    /// Reference to another schema. The string is the schema name.
-    /// Enforced: the field value must be a reference object or array
-    /// of reference objects pointing to this specific schema.
-    SchemaRef(String),
-
     // ── Union ───────────────────────────────────────────
     /// Union type: matches if the value satisfies any variant.
     /// Common use: `OneOf([String, Null])` for nullable strings.
@@ -118,26 +112,6 @@ impl FieldValueType {
                 }
                 Ok(())
             }
-            Self::SchemaRef(schema_name) => {
-                // A schema reference must be either:
-                // - A single ref object: {"schema": "X", "key": {...}}
-                // - An array of ref objects
-                if let Some(arr) = value.as_array() {
-                    for (i, elem) in arr.iter().enumerate() {
-                        validate_ref_object(elem, schema_name)
-                            .map_err(|e| format!("SchemaRef[{i}]: {e}"))?;
-                    }
-                    Ok(())
-                } else if value.is_object() {
-                    validate_ref_object(value, schema_name)
-                } else {
-                    Err(format!(
-                        "expected SchemaRef({}), got {}",
-                        schema_name,
-                        json_type_name(value)
-                    ))
-                }
-            }
             Self::OneOf(variants) => {
                 for variant in variants {
                     if variant.validate(value).is_ok() {
@@ -152,25 +126,6 @@ impl FieldValueType {
             }
         }
     }
-}
-
-fn validate_ref_object(value: &serde_json::Value, expected_schema: &str) -> Result<(), String> {
-    let obj = value
-        .as_object()
-        .ok_or_else(|| "expected reference object".to_string())?;
-    let schema = obj
-        .get("schema")
-        .and_then(|s| s.as_str())
-        .ok_or_else(|| "reference object missing 'schema' field".to_string())?;
-    if schema != expected_schema {
-        return Err(format!(
-            "expected reference to schema '{expected_schema}', got '{schema}'"
-        ));
-    }
-    if !obj.contains_key("key") {
-        return Err("reference object missing 'key' field".to_string());
-    }
-    Ok(())
 }
 
 fn type_err(expected: &str, got: &serde_json::Value) -> String {
@@ -211,7 +166,6 @@ impl std::fmt::Display for FieldValueType {
                 }
                 write!(f, "}}")
             }
-            Self::SchemaRef(s) => write!(f, "Ref<{s}>"),
             Self::OneOf(variants) => {
                 for (i, v) in variants.iter().enumerate() {
                     if i > 0 {
