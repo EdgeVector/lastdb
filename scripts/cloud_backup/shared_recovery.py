@@ -194,8 +194,7 @@ class Operation:
         receipt = decode_json(self.restore(destination, device, device))
         require(receipt == {"activated": True, "destination": str(destination)},
                 "shared_join_restore_activation")
-        node = OwnedNode(destination, self.programs,
-                         storage_inventory=self.args.retention and name == "peer")
+        node = OwnedNode(destination, self.programs)
         self.nodes.append(node)
         self.summary["stage"] = "boot-restored-writer-before-binding"
         node.start()

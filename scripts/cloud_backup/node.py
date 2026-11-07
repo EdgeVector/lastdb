@@ -67,7 +67,7 @@ class Connection(http.client.HTTPConnection):
 
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
-                 account=ACCOUNT, *, isolated_copy=False, storage_inventory=False):
+                 account=ACCOUNT, *, isolated_copy=False):
         self.home, self.programs = home, programs
         require(isinstance(account, str) and len(account) == 32
                 and all(char in "0123456789abcdef" for char in account), "owned_account")
@@ -78,7 +78,6 @@ class OwnedNode:
         self.backup_source = backup_source
         self.shared_sync = False
         self.isolated_copy = backup_source or isolated_copy
-        self.storage_inventory = storage_inventory
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
         require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
         self.ci_stream_id = None if ci_stream_id is None else canonical_uuid(ci_stream_id)
@@ -119,7 +118,7 @@ class OwnedNode:
                 "restored_no_active_backup")
         require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
-    def start(self, *, shared_schema=None):
+    def start(self, *, shared_schema=None, storage_inventory=False):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         self.offline()
         self.programs.verify()
@@ -132,7 +131,7 @@ class OwnedNode:
         environment.update(self.ci_uploads())
         if shared_schema is not None:
             environment["LASTDB_NATIVE_SHARED_SCHEMAS"] = json.dumps([shared_schema])
-        if self.storage_inventory:
+        if storage_inventory:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)], env=environment,

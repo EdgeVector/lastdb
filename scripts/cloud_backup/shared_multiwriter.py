@@ -33,9 +33,7 @@ def empty_home(operation, name):
     home.mkdir(mode=0o700)
     private_write(home / "identity.key", operation.account_seed)
     publisher = name == "first"
-    node = OwnedNode(home, operation.programs,
-                     storage_inventory=operation.args.retention and publisher,
-                     isolated_copy=operation.args.multiwriter and publisher)
+    node = OwnedNode(home, operation.programs, isolated_copy=operation.args.multiwriter and publisher)
     operation.nodes.append(node)
     node.start(shared_schema=operation.runtime_schema())
     node.stop()
