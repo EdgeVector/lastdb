@@ -169,6 +169,8 @@ class Automatic:
                 "automatic_policy_survives_restart": True, "changed_snapshot_interval_observed": True,
                 "log_interval_seconds": 60, "final_snapshot_interval_seconds": 86400,
                 "new_file_bytes": source.expected["file_bytes"], "new_file_sha256": source.expected["file_sha256"],
+                "inline_file_bytes": source.expected["inline_bytes"],
+                "inline_file_sha256": source.expected["inline_sha256"],
                 "mutation_log_routes": log_restore["restore"]["mutation_log_routes"],
                 "updated_records": 15, "deleted_records": 1, "observed_checkpoints": len(source.completed),
                 "declared_checkpoint_bytes": source.declared_bytes,

@@ -307,6 +307,17 @@ class Source:
         records = self.expected["records"]
         reply = native_records.put_file(self.node, schema, records[0], path)
         require(reply["file"]["sha256"] == hashlib.sha256(payload).hexdigest(), "automatic_file_marker")
+        # The second record gets an inline file. It travels in the record value,
+        # and the replacement below keeps it.
+        inline = hashlib.shake_256(("Cloud automatic inline " + self.source).encode()).digest(60000)
+        inline_path = self.node.home.parent / "automatic-inline.bin"
+        descriptor = os.open(inline_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(inline)
+            stream.flush()
+            os.fsync(stream.fileno())
+        reply = native_records.put_inline(self.node, schema, records[1], inline_path)
+        require(reply["file"]["sha256"] == hashlib.sha256(inline).hexdigest(), "automatic_inline_marker")
         rows = native_records.read_records(self.node, schema,
                                           [native_records.key(record["id"]) for record in records])
         mutations = []
@@ -320,7 +331,9 @@ class Source:
                 record["note"] = "Automatic log update " + str(number)
                 mutations.append(native_records.replace(schema, row, record))
         durable_batch(self.node, mutations)
-        self.expected.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
+        self.expected.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest(),
+                             inline_record=records[1]["id"], inline_bytes=len(inline),
+                             inline_sha256=hashlib.sha256(inline).hexdigest())
         self.node.verify_records(self.expected)
 
     def disable(self):

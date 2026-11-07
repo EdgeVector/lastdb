@@ -55,6 +55,47 @@ pub(super) fn hydrate(
     Ok(())
 }
 
+/// Write the inline file that a `hydrate: inline` query returned with its
+/// one record, checked against the marker in the same reply. The output JSON
+/// keeps the marker and the path, not the base64 bytes.
+pub(super) fn hydrate_inline(value: &mut serde_json::Value, out: &Path) -> Result<(), String> {
+    use base64::Engine as _;
+    let records = value["results"]
+        .as_array_mut()
+        .ok_or("missing query records")?;
+    let [record] = records.as_mut_slice() else {
+        return Err("inline hydration requires exactly one record".into());
+    };
+    let marker = record
+        .pointer_mut("/metadata/inline_file")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("record has no inline file")?;
+    let encoded = marker
+        .remove("bytes_b64")
+        .ok_or("the reply carries no inline file bytes")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(
+            encoded
+                .as_str()
+                .ok_or("inline file bytes are not a string")?,
+        )
+        .map_err(|error| format!("inline file bytes are invalid base64: {error}"))?;
+    let size = marker
+        .get("size_bytes")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("inline file marker has no size")?;
+    let digest = marker
+        .get("sha256")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("inline file marker has no digest")?;
+    if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {
+        return Err("inline file bytes differ from their marker".into());
+    }
+    publish(out, &bytes)?;
+    record["hydrated_inline_file"] = serde_json::json!(out);
+    Ok(())
+}
+
 fn publish(out: &Path, bytes: &[u8]) -> Result<(), String> {
     let name = format!(".lastdb-hydrate-{}", uuid::Uuid::new_v4());
     let temp = out.with_file_name(name);

@@ -140,6 +140,10 @@ pub(super) enum Command {
         /// Hydrate the same record version and write its verified file to a new path.
         #[arg(long, value_name = "FILE")]
         hydrate: Option<PathBuf>,
+        /// Read the record with `hydrate: inline` and write its verified
+        /// inline file to a new path.
+        #[arg(long, value_name = "FILE")]
+        hydrate_inline: Option<PathBuf>,
     },
     /// Inspect one installed schema's key layout and legal query shapes.
     Schema {
