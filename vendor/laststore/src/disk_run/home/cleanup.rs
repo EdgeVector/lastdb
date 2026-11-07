@@ -27,9 +27,34 @@ impl RunHome {
 
     /// Explicit cleanup uses the same replacement admission as automatic merges.
     pub fn cleanup_step_with_space(&self, policy: &SpacePolicy) -> Result<Option<RunMerge>> {
+        self.cleanup_step_inner(policy, false)
+    }
+
+    /// Whether the current files contain no known or uncounted hidden versions.
+    /// A caller freezing several homes must exclude concurrent logical writes.
+    pub fn snapshot_has_clean_runs(&self) -> bool {
+        clean_runs(&self.held())
+    }
+
+    /// Remove hidden versions below the ordinary merge thresholds before a
+    /// new cloud snapshot. Append-only runs need no base merge.
+    pub fn snapshot_cleanup_step_with_space(
+        &self,
+        policy: &SpacePolicy,
+    ) -> Result<Option<RunMerge>> {
+        self.cleanup_step_inner(policy, true)
+    }
+
+    fn cleanup_step_inner(&self, policy: &SpacePolicy, snapshot: bool) -> Result<Option<RunMerge>> {
         self.refuse_if_poisoned()?;
         let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
         let held = self.held();
+        if snapshot {
+            self.count_hidden(&held)?;
+            if clean_runs(&held) {
+                return Ok(None);
+            }
+        }
         let start = if held.merging.is_empty() {
             let tiered: Vec<_> = held.tiered().cloned().collect();
             if tiered.is_empty() {
@@ -44,4 +69,8 @@ impl RunHome {
         };
         self.base_step(start, policy).map(Some)
     }
+}
+
+fn clean_runs(held: &super::manifest::Manifest) -> bool {
+    held.merging.is_empty() && held.tiered().all(|run| run.hidden() == Some(0))
 }

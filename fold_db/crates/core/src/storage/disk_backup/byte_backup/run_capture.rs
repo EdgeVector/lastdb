@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
-use std::sync::{atomic::AtomicUsize, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 mod ready;
 
 #[derive(Serialize, Deserialize)]
@@ -48,36 +51,35 @@ pub(super) async fn prepare(
     }
     runtime.flush_native().await?;
     let admission = super::super::NativeCloudWorkGuard::acquire()?;
-    let gate = runtime.enter_write().await;
+    let source = Arc::clone(runtime);
+    let requested = begin.clone();
+    let key_sha256 = bytes_sha256(key);
+    let (store, previous, saved_intent, held) =
+        crate::storage::disk_pack::run_blocking(move || {
+            saved_cut(&source, &requested, &key_sha256)
+        })
+        .await?;
+    let gate = if renew_unmaterialized && !held && runtime.serving.load(Ordering::Acquire) {
+        super::snapshot_cleanup::enter_clean_cut(runtime).await?
+    } else {
+        runtime.enter_write().await
+    };
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);
     crate::storage::disk_pack::run_blocking(move || {
         runtime.require_initialized()?;
         crate::storage::disk_pack::cas_delete::require_clear(&runtime.physical)?;
-        if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
+        if runtime.failed.load(Ordering::Acquire) {
             return Err(invalid("run capture writer recovery"));
         }
-        let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
-        if store.exists("job.json")? {
-            let old: State = store.read("job.json")?;
-            old.validate()?;
+        if let Some(old) = previous {
             if old.begin == begin {
                 drop(gate);
                 return reopen(runtime, store, old, &key, admission, true);
             }
-            if !old.released || old.begin.job == begin.job {
-                return Err(invalid("run saved source needs exact recovery"));
-            }
             super::capture::clear_previous(&store, &old)?;
         }
-        let mut intent = if store.exists(RUN_INTENT_FILE)? {
-            let saved: Intent = store.read(RUN_INTENT_FILE)?;
-            if saved.begin != begin
-                || saved.key_sha256 != bytes_sha256(key.as_ref())
-                || saved.reference_id.is_nil()
-            {
-                return Err(invalid("run capture intent differs"));
-            }
+        let mut intent = if let Some(saved) = saved_intent {
             saved
         } else {
             let intent = Intent {
@@ -111,6 +113,41 @@ pub(super) async fn prepare(
         )
     })
     .await
+}
+
+/// The cloud-work guard serializes sidecar access before the write gate.
+fn saved_cut(
+    runtime: &PackRuntime,
+    begin: &Begin,
+    key_sha256: &Digest,
+) -> StorageResult<(Store, Option<State>, Option<Intent>, bool)> {
+    runtime.require_initialized()?;
+    if runtime.failed.load(Ordering::Acquire) {
+        return Err(invalid("run capture writer recovery"));
+    }
+    let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
+    let previous = if store.exists("job.json")? {
+        let old: State = store.read("job.json")?;
+        old.validate()?;
+        if old.begin == *begin {
+            return Ok((store, Some(old), None, true));
+        }
+        if !old.released || old.begin.job == begin.job {
+            return Err(invalid("run saved source needs exact recovery"));
+        }
+        Some(old)
+    } else {
+        None
+    };
+    if !store.exists(RUN_INTENT_FILE)? {
+        return Ok((store, previous, None, false));
+    }
+    let saved: Intent = store.read(RUN_INTENT_FILE)?;
+    if saved.begin != *begin || saved.key_sha256 != *key_sha256 || saved.reference_id.is_nil() {
+        return Err(invalid("run capture intent differs"));
+    }
+    let held = ready::complete(&held_root(runtime, saved.reference_id))?;
+    Ok((store, previous, Some(saved), held))
 }
 
 fn renew_intent(

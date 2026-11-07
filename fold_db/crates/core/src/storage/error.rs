@@ -39,6 +39,9 @@ pub enum StorageError {
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
+    #[error("snapshot is waiting for native compaction")]
+    SnapshotCompactionPending,
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 

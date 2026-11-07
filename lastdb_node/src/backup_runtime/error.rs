@@ -50,6 +50,7 @@ pub enum BackupError {
     Source,
     Limit,
     Waiting,
+    Compacting,
     Closing,
     Shutdown,
     WorkerPanic,
@@ -68,6 +69,7 @@ impl BackupError {
             Self::Source => "native backup source needs attention",
             Self::Limit => "native backup resource limit reached",
             Self::Waiting => "native backup awaits cloud verification; resume this job",
+            Self::Compacting => "native backup awaits snapshot compaction; resume this job",
             Self::Closing => "native backup closure is requested",
             Self::Shutdown => "native backup paused for daemon shutdown",
             Self::WorkerPanic => "native backup worker needs attention",
@@ -154,6 +156,7 @@ impl From<fold_db::storage::StorageError> for BackupError {
             | StorageError::RecordTooLarge { .. }
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
+            StorageError::SnapshotCompactionPending => Self::Compacting,
             _ => Self::Source,
         }
     }
@@ -182,7 +185,7 @@ impl BackupError {
             Self::Disk => P::Disk,
             Self::Source => P::Source,
             Self::Limit => P::ResourceLimit,
-            Self::Waiting => P::Temporary,
+            Self::Waiting | Self::Compacting => P::Temporary,
             Self::Closing => P::Closing,
             Self::Shutdown => P::Shutdown,
             Self::WorkerPanic => P::WorkerPanic,

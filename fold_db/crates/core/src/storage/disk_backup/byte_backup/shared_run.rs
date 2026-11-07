@@ -66,7 +66,7 @@ impl PackRuntime {
             return Err(invalid("shared snapshot capture admission").into());
         }
         let admission = NativeCloudWorkGuard::acquire()?;
-        let gate = self.enter_write().await;
+        let gate = super::snapshot_cleanup::enter_clean_cut(self).await?;
         self.require_initialized()?;
         if self.failed.load(std::sync::atomic::Ordering::Acquire) {
             return Err(invalid("shared snapshot writer needs recovery").into());
