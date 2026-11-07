@@ -96,6 +96,8 @@ pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 /// Directory of the home owner's cloud backup: the capture source and the
 /// run holds. A hold hard-links run files, so it stays beside `runs/`.
 pub const BACKUP_DIR: &str = "cloud-byte-v2";
+/// Directory of the home owner's shared snapshot holds beside `runs/`.
+pub const SHARED_BACKUP_DIR: &str = "cloud-shared";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 /// `LDRHOME4`: every value is stored as given.
