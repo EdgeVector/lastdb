@@ -242,6 +242,18 @@ class OwnedNode:
                 process.wait(timeout=10)
         self.process = None
 
+    def exit_report(self):
+        """Fixed fields only: the exit status (null while running) and crash report positions."""
+        state = "stopped" if self.process is None else self.process.poll()
+        try:
+            reports = sorted((self.home / "crash-reports").glob("*.txt"))[:4]
+            locations = [line.partition(":")[2].strip() for report in reports
+                         for line in report.read_text(errors="replace").splitlines()[:16]
+                         if line.startswith("location:")]
+        except OSError:
+            locations = ["unreadable"]
+        return {"home": self.home.name, "exit": state, "crash_locations": locations}
+
     def verify_records(self, baseline):
         """Exact keyed reads. The first baseline record holds the one file;
         no other record has a file."""

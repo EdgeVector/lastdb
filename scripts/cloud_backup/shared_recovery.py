@@ -35,7 +35,7 @@ from recover import step_summary
 from shared_scope import is_digest, is_schema_alias, protected_json, scope
 from support import (CREDENTIALS_FILE, OperationError, canonical_uuid,
                      child_environment, decode_json, dev_endpoint, failure,
-                     private_directory, read_json, require, save_json)
+                     private_directory, read_json, require, save_json, unexpected)
 
 
 SCHEMA = "lastdb.cloud-dev-shared-recovery.v1"
@@ -500,8 +500,9 @@ def main():
         operation.execute()
     except OperationError as error:
         operation.summary.update(failure(error))
-    except BaseException:
+    except BaseException as error:
         operation.summary["failure"] = "unexpected_shared_operation_error"
+        operation.summary.update(unexpected(error, operation.nodes))
     finally:
         signal.alarm(0)
         try:
