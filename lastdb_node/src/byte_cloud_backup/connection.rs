@@ -12,7 +12,7 @@ use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
-mod files;
+pub(crate) mod files;
 mod model;
 use crate::cloud::{SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 pub use model::{ManualConnectionStatus, SensitiveConnectionRequest};

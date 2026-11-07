@@ -140,13 +140,28 @@ impl Owner {
                     database_id: id(database_id)?,
                     source_stream: id(source_stream)?,
                 };
-                self.check_writer_enrollment(&stream, initialize_publisher)
+                let publisher = self
+                    .check_writer_enrollment(&stream, initialize_publisher)
                     .await?;
                 let definitions = schema::definitions(&schema_bindings).await?;
                 db.mutation_manager()
-                    .bind_portable_journal(stream, &definitions, &self.device, initialize_publisher)
+                    .bind_portable_journal(
+                        stream.clone(),
+                        &definitions,
+                        &self.device,
+                        initialize_publisher,
+                    )
                     .await
                     .map_err(|error| error.to_string())?;
+                lastdb_node::shared_sync::save_bound(
+                    store.parent().ok_or("shared writer home is missing")?,
+                    &self.account,
+                    stream,
+                    &self.device,
+                    &self.device_signer,
+                    publisher,
+                )
+                .map_err(|_| "cannot save the shared automatic connection")?;
                 println!("Shared writer bound");
             }
             SharedWriterAction::Push { batches } => {
@@ -173,23 +188,32 @@ impl Owner {
         &self,
         stream: &WriterStream,
         initialize_publisher: bool,
-    ) -> Result<(), String> {
-        if initialize_publisher {
-            let snapshots = SignedSnapshotTransport::from_auth(
-                self.auth.clone(),
-                self.account.clone(),
-                self.device.clone(),
-                self.device_signer.clone(),
-            )
-            .map_err(|error| error.to_string())?;
-            let current = snapshots
-                .current_snapshot(&stream.database_id)
-                .await
-                .map_err(|error| error.to_string())?;
-            if current.is_some() {
-                return Err("the database already has a snapshot; restore before binding".into());
+    ) -> Result<bool, String> {
+        let snapshots = SignedSnapshotTransport::from_auth(
+            self.auth.clone(),
+            self.account.clone(),
+            self.device.clone(),
+            self.device_signer.clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        let publisher = match snapshots.current_snapshot(&stream.database_id).await {
+            Ok(head) => {
+                if initialize_publisher && head.is_some() {
+                    return Err(
+                        "the database already has a snapshot; restore before binding".into(),
+                    );
+                }
+                true
             }
-        }
+            Err(lastdb_node::byte_cloud_restore::RestoreError::Protocol(error))
+                if !initialize_publisher
+                    && error.code == cloud_backup_protocol::ErrorCode::Unauthorized
+                    && error.field == "shared.snapshot.publisher" =>
+            {
+                false
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         let peers = SharedPeerClient::from_auth(
             self.auth.clone(),
             self.account.clone(),
@@ -206,7 +230,7 @@ impl Owner {
             )
             .await
             .map_err(|error| error.to_string())?;
-        Ok(())
+        Ok(publisher)
     }
 
     async fn push(

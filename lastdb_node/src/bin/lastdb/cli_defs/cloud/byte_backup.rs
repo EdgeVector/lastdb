@@ -105,7 +105,7 @@ pub(crate) struct BackupJsonArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupEnableArgs {
-    /// Time between log checks, in seconds (60 through 604800).
+    /// Time between automatic upload and download checks, in seconds.
     #[arg(long, default_value_t = 60)]
     pub(crate) log_interval_seconds: u64,
     /// Time between full snapshots, in seconds (60 through 604800).

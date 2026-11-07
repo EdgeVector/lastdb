@@ -119,6 +119,7 @@ pub struct ByteBackupStatus {
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
     pub automatic_backup: Option<super::AutomaticBackupStatus>,
+    pub shared_sync: Option<crate::shared_sync::Status>,
     pub mutation_log: fold_db::storage::disk_pack::mutation_log::MutationLogStatus,
     pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
@@ -137,6 +138,9 @@ pub struct ByteBackupStatus {
 /// The status model's durability view of one byte backup status.
 impl From<ByteBackupStatus> for crate::self_metrics::DurabilityHealth {
     fn from(status: ByteBackupStatus) -> Self {
+        if let Some(shared) = status.shared_sync {
+            return shared.health();
+        }
         let blocked = status.blocked_reason.is_some()
             || status
                 .automatic_backup

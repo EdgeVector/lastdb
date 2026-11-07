@@ -47,6 +47,10 @@ on:
         type: choice
         options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-retention, shared-readback]
         default: recovery
+      automatic_sync:
+        description: "Verify automatic upload, peer download and snapshots with running shared devices; shared-multiwriter only."
+        type: boolean
+        default: false
       offline_conflicts:
         description: "Use independent same-key writes and opposite replay orders; shared-multiwriter mode only."
         type: boolean
@@ -84,9 +88,11 @@ jobs:
           SELECTED_REF: ${{ github.ref }}
           RUN_MODE: ${{ inputs.mode }}
           OFFLINE_CONFLICTS: ${{ inputs.offline_conflicts }}
+          AUTOMATIC_SYNC: ${{ inputs.automatic_sync }}
         run: |
           test "$SELECTED_REF" = refs/heads/main
           [[ "$OFFLINE_CONFLICTS" != true || "$RUN_MODE" == shared-multiwriter ]]
+          [[ "$AUTOMATIC_SYNC" != true || ( "$RUN_MODE" == shared-multiwriter && "$OFFLINE_CONFLICTS" != true ) ]]
       - name: Check the operational recipe syntax
         run: python3 -m py_compile scripts/cloud_backup/*.py
 
@@ -395,6 +401,7 @@ jobs:
           PRIOR_SOURCE: ${{ steps.prior.outputs.source }}
           READBACK_READER: ${{ inputs.readback_reader }}
           OFFLINE_CONFLICTS: ${{ inputs.offline_conflicts }}
+          AUTOMATIC_SYNC: ${{ inputs.automatic_sync }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_SHARED_SCOPE: ${{ vars[inputs.mode == 'shared-retention' && 'LASTDB_CLOUD_DEV_RETENTION_SCOPE' || inputs.mode == 'shared-multiwriter' && 'LASTDB_CLOUD_DEV_MULTIWRITER_SCOPE' || 'LASTDB_CLOUD_DEV_SHARED_SCOPE'] }}
@@ -404,6 +411,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$OFFLINE_CONFLICTS" != true || "$RUN_MODE" == shared-multiwriter ]]
+          [[ "$AUTOMATIC_SYNC" != true || ( "$RUN_MODE" == shared-multiwriter && "$OFFLINE_CONFLICTS" != true ) ]]
           args=()
           if [[ "$RUN_MODE" == shared-readback ]]; then
             test -n "$PRIOR_SOURCE"
@@ -416,6 +424,7 @@ jobs:
             if [[ "$RUN_MODE" == shared-multiwriter ]]; then
               args+=(--multiwriter)
               if [[ "$OFFLINE_CONFLICTS" == true ]]; then args+=(--conflicts); fi
+              if [[ "$AUTOMATIC_SYNC" == true ]]; then args+=(--automatic-sync); fi
               export LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS="$LASTDB_CLOUD_DEV_MULTIWRITER_DEVICE_SEEDS"
             elif [[ "$RUN_MODE" == shared-retention ]]; then
               args+=(--multiwriter --retention)

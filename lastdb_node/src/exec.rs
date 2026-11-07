@@ -100,7 +100,7 @@ mod file_blob_put;
 mod logical_sync_routes;
 mod query_batch;
 mod schema_declare;
-mod shared_snapshot_sequence;
+pub(crate) mod shared_snapshot_sequence;
 use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_put::*;

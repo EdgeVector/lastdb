@@ -18,6 +18,24 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
     if matches!(action, ByteBackupRequest::Status) {
         return status(host);
     }
+    if crate::shared_sync::status(host)?.is_some() {
+        match action {
+            ByteBackupRequest::EnableAutomatic {
+                log_interval_seconds,
+                snapshot_interval_seconds,
+            } => crate::shared_sync::configure(
+                host,
+                true,
+                *log_interval_seconds,
+                *snapshot_interval_seconds,
+            )?,
+            ByteBackupRequest::DisableAutomatic => {
+                crate::shared_sync::configure(host, false, 0, 0)?
+            }
+            _ => return Err(BackupError::Invalid),
+        }
+        return status(host);
+    }
     let runtime = &host.byte_backup;
     let _transition = runtime.transition()?;
     runtime.check_admission()?;
@@ -236,16 +254,26 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         .is_some_and(|active| Some(active.request_id) == id);
     let connection = super::connection::status(host)?;
     let automatic = super::automatic::status(host)?;
+    let shared_sync = crate::shared_sync::status(host)?;
+    let shared = shared_sync.as_ref();
     Ok(ByteBackupStatus {
-        backup_kind: saved
-            .as_ref()
-            .map_or("snapshot", |saved| saved.work.label()),
-        enabled: require_enabled().is_ok() || connection.is_some(),
-        automatic_backup_enabled: automatic.as_ref().is_some_and(|state| state.enabled),
+        backup_kind: shared.map_or_else(
+            || {
+                saved
+                    .as_ref()
+                    .map_or("snapshot", |saved| saved.work.label())
+            },
+            |_| "shared",
+        ),
+        enabled: shared.is_some() || require_enabled().is_ok() || connection.is_some(),
+        automatic_backup_enabled: shared.map_or_else(
+            || automatic.as_ref().is_some_and(|state| state.enabled),
+            |shared| shared.enabled,
+        ),
         automatic_backup: automatic,
         mutation_log: host.db.db_ops().native_runtime().mutation_log_status()?,
         manual_connection: connection,
-        running,
+        running: shared.map_or(running, |shared| shared.progress.running),
         request_id: id,
         phase: saved.as_ref().map(|s| s.phase),
         objects_verified: saved.as_ref().map_or(0, |s| s.objects_verified),
@@ -254,7 +282,10 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         native_files: saved.as_ref().map_or(0, |s| s.native_files),
         native_bytes: saved.as_ref().map_or(0, |s| s.native_bytes),
         retained_source_bytes: saved.as_ref().and_then(|s| s.retained_source_bytes),
-        blocked_reason: saved.and_then(|s| s.blocked_reason),
+        blocked_reason: shared
+            .and_then(|shared| shared.progress.blocked_reason.map(str::to_owned))
+            .or_else(|| saved.and_then(|s| s.blocked_reason)),
         last_accepted_backup: accepted,
+        shared_sync,
     })
 }

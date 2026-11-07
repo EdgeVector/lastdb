@@ -79,7 +79,14 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
 
 pub(super) fn print(value: &serde_json::Value, json: bool) -> Result<(), String> {
     if !json {
-        println!("V2 backup:");
+        println!(
+            "{}",
+            if value.get("backup_kind").and_then(serde_json::Value::as_str) == Some("shared") {
+                "Cloud sync"
+            } else {
+                "V2 backup"
+            }
+        );
     }
     println!(
         "{}",

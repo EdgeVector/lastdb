@@ -8,7 +8,7 @@ pub(crate) fn spawn(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     shutdown: &Arc<AtomicBool>,
-) -> (JoinHandle<()>, JoinHandle<()>) {
+) -> (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>) {
     let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
     let _runtime_guard = runtime.enter();
     (
@@ -18,5 +18,6 @@ pub(crate) fn spawn(
             Arc::clone(shutdown),
         ),
         lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown)),
+        lastdb_node::shared_sync::spawn_automatic(Arc::clone(host), Arc::clone(shutdown)),
     )
 }

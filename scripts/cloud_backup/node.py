@@ -38,6 +38,7 @@ class OwnedNode:
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
         self.backup_source = backup_source
+        self.shared_sync = False
         self.isolated_copy = backup_source or isolated_copy
         self.storage_inventory = storage_inventory
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
@@ -143,7 +144,9 @@ class OwnedNode:
         measured = status["status"]
         require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
-        if not self.backup_source:
+        if self.shared_sync:
+            require(durability["automatic_enabled"] is True, "daemon_shared_sync_enabled")
+        elif not self.backup_source:
             require(durability["automatic_enabled"] is False and durability["running"] is False,
                     "daemon_backup_off")
         self.offline()
