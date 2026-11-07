@@ -51,14 +51,6 @@ pub struct StatusGaugeContract {
 
 impl StatusGaugeContract {
     pub const VERSION: u32 = 1;
-
-    pub fn len(&self) -> usize {
-        self.gauges.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.gauges.is_empty()
-    }
 }
 
 fn push_gauge(out: &mut Vec<GaugeContractEntry>, path: impl Into<String>, g: &Gauge) {
