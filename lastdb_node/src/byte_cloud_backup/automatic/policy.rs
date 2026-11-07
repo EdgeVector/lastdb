@@ -200,13 +200,11 @@ fn stopped(
 /// A final stopped snapshot uses the same connection as the automatic policy.
 pub(in crate::byte_cloud_backup) fn check_stopped(
     home: &std::path::Path,
-    runtime: &fold_db::storage::disk_pack::PackRuntime,
-    account: &AccountId,
-    source_home: &Id,
+    source: &crate::byte_cloud_backup::source::Source,
     endpoint: &str,
 ) -> Result<()> {
-    retire_previous(home, runtime)?;
-    stopped(home, account, source_home, endpoint).map(|_| ())
+    retire_previous(home, source.runtime())?;
+    stopped(home, &source.account, &source.source_home, endpoint).map(|_| ())
 }
 /// Save a published stopped snapshot as the newest backed cut. The snapshot
 /// owns the active log anchor, so the next automatic log continues from it.

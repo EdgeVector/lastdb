@@ -58,7 +58,7 @@ pub(super) fn retire(home: &Path, runtime: &PackRuntime) -> Result<()> {
         .pending
         .map(|pending| pending.id.as_str().to_owned());
     if !runtime.is_dedicated_shared_home() {
-        runtime.retire_previous_backup_capture(dropped)?;
+        runtime.retire_previous_backup_capture(dropped.as_deref())?;
     }
     for name in ["recovery.json", "active.json"] {
         store::remove_owned(&base.join(name))?;

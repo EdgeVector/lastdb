@@ -122,6 +122,9 @@ impl Source {
     pub async fn blobs_accepted(&self, uploaded: &[String], released: &[String]) -> Result<()> {
         Ok(self.runtime.blobs_accepted(uploaded, released).await?)
     }
+    pub fn runtime(&self) -> &PackRuntime {
+        &self.runtime
+    }
     pub async fn flush(&self) -> Result<()> {
         self.runtime.flush_native().await?;
         Ok(())

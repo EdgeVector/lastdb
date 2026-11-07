@@ -99,10 +99,10 @@ impl PackRuntime {
     /// automatic policy still owned. Returns whether anything was retired.
     /// It runs on the caller's thread: the automatic backup tick calls it
     /// once, before it writes the new policy.
-    pub fn retire_previous_backup_capture(&self, dropped: Option<String>) -> StorageResult<bool> {
+    pub fn retire_previous_backup_capture(&self, dropped: Option<&str>) -> StorageResult<bool> {
         self.require_ordinary_backup_home()?;
         let _admission = super::super::NativeCloudWorkGuard::acquire()?;
         let store = Store::open(self.physical.path(), &self.space_policy)?;
-        retire(self, &store, dropped.as_deref())
+        retire(self, &store, dropped)
     }
 }
