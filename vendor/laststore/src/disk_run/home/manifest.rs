@@ -65,8 +65,8 @@ impl RunMeta {
         after: Option<&[u8]>,
         through: Option<&[u8]>,
     ) -> bool {
-        after.is_none_or(|after| self.last_key.as_slice() > after)
-            && through.is_none_or(|through| self.first_key.as_slice() <= through)
+        after.map_or(true, |after| self.last_key.as_slice() > after)
+            && through.map_or(true, |through| self.first_key.as_slice() <= through)
     }
 
     /// True when the run can hold a key in `[lower, upper)`.
