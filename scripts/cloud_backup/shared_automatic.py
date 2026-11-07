@@ -131,6 +131,17 @@ def snapshot_schedule(operation, publisher):
         time.sleep(1)
     raise OperationError("shared_automatic_snapshot_schedule_deadline")
 
+
+def author_uncovered_tail(operation, nodes, records, files):
+    operation.summary["stage"] = "automatic-post-snapshot-tail"
+    publisher, peer, reader = nodes[:3]
+    records["after-snapshot"] = create(operation, peer, "after-snapshot", "uncovered-peer-tail")
+    files["after-snapshot"] = operation.attach(peer, records["after-snapshot"], "after-snapshot")
+    wait_all(operation, [peer, reader], records, files)
+    require(absent(publisher, operation.schema, "after-snapshot"), "shared_automatic_tail_outside_cut")
+    operation.summary["automatic_uncovered_peer_tail"] = True
+
+
 def run(operation):
     operation.summary["stage"] = "automatic-bootstrap"
     publisher = operation.initialize_publisher(operation.writers[0])
@@ -189,6 +200,7 @@ def run(operation):
     restart(operation, nodes, records, files)
 
     snapshot_schedule(operation, publisher)
+    author_uncovered_tail(operation, nodes, records, files)
     # Preserve the current snapshot and every uncovered suffix while all sources leave.
     for node in nodes:
         node.stop()
