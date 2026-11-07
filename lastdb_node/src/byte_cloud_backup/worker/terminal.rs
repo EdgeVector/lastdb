@@ -4,6 +4,15 @@ use crate::backup_runtime::InvocationOutcome;
 use std::fs::File;
 use std::sync::Arc;
 
+pub(in crate::byte_cloud_backup) fn source_unavailable(result: &JobResult) -> bool {
+    matches!(
+        result.status,
+        JobStatus::Closed {
+            reason: CloseReason::SourceUnavailable,
+        }
+    )
+}
+
 pub(in crate::byte_cloud_backup) fn validate_terminal(
     saved: &Saved,
     result: &JobResult,
@@ -44,9 +53,6 @@ pub(in crate::byte_cloud_backup) async fn reconcile(
     let result: JobResult = store.read("terminal.json")?.ok_or(BackupError::Missing)?;
     validate_terminal(saved, &result)?;
     let capture = source.resume(saved, store).await?;
-    if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
-        return Err(BackupError::Identity);
-    }
     // finish checks the exact client root before any accepted ledger write.
     // A locally cancelled, never-submitted job cannot supply a cloud terminal.
     super::finish(&capture, store, saved, &result)

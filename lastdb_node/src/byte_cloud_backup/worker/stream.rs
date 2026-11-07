@@ -72,3 +72,15 @@ pub(super) fn select(source: &Source, store: &Store, scope: CloudScope) -> Resul
     )?;
     Ok(stream)
 }
+
+/// A closed admission can be temporary. Never treat a different cloud
+/// generation, source home, or required CI stream as that same scope.
+pub(super) fn same_scope(source: &Source, store: &Store, scope: &CloudScope) -> Result<bool> {
+    let Some(record) = store.read_base::<StreamRecord>("stream.json")? else {
+        return Ok(false);
+    };
+    record.stream.validate()?;
+    Ok(record.source_home == source.source_home
+        && record.stream.scope == *scope
+        && expected(source)?.is_none_or(|id| id == record.stream.stream_id))
+}

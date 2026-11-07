@@ -10,6 +10,7 @@ use super::{
     BackupError, Phase, Result,
 };
 use crate::backup_runtime::{Disposition, PauseReason, PauseState};
+use cloud_backup_protocol::v2::jobs::JobResult;
 use cloud_backup_protocol::Id;
 pub use policy::AutomaticBackupStatus;
 pub(super) use policy::{check_stopped, configure, record_stopped, status};
@@ -189,12 +190,13 @@ fn pending_job(
 }
 fn complete(host: &crate::host::Host, policy: &mut Policy, saved: &Saved, now: u64) -> Result<()> {
     if saved.phase != Phase::Published {
+        let replace = replace_closed(host, saved)?;
         policy.cleanup = Some(saved.request_id.clone());
         policy.pending = None;
         policy.state.pending_request_id = None;
         policy.state.attempts = 0;
         policy.state.retry_at = 0;
-        if saved.local_action.is_some() {
+        if replace {
             policy.state.next_snapshot_at = 0;
             policy.state.next_log_at = 0;
             policy.state.paused = None;
@@ -249,6 +251,23 @@ fn complete(host: &crate::host::Host, policy: &mut Policy, saved: &Saved, now: u
     };
     policy.save(host)
 }
+
+fn replace_closed(host: &crate::host::Host, saved: &Saved) -> Result<bool> {
+    if saved.local_action.is_some() {
+        return Ok(true);
+    }
+    let job = Store::base(&host.home)
+        .join("jobs")
+        .join(saved.request_id.as_str());
+    let Some(result) = store::read::<JobResult>(&job.join("terminal.json"))? else {
+        return Ok(false);
+    };
+    super::worker::validate_terminal(saved, &result)?;
+    // An owner close racing a lease expiry still means the owner asked to stop.
+    Ok(super::worker::source_unavailable(&result)
+        && store::read::<Id>(&job.join("close.json"))?.is_none())
+}
+
 fn invoke(
     host: &crate::host::Host,
     policy: &mut Policy,
