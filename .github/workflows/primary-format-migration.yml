@@ -13,10 +13,10 @@ env:
   SOURCE_DB: 5e4655e87c14cb5f603ec40b81e8969371abe888
   TARGET_DB: 983ccc0eb4939429a04cf02faf542dd52f781937
   SOURCE_BRAIN: 6a3e326669e5d876924feaed7df2043b83318d79
-  TARGET_BRAIN: 3fd809c8b317373c77bd6daa1f2284cfe84f0df1
+  TARGET_BRAIN: d017126a65ad53bfc55e70c247776cedfc35ed46
   SOURCE_SECRETS: 310460ad282152d4f810c403af503babec4ce33c
   TARGET_SECRETS: e74ac199880c526019f2b7f09524740b91a0c706
-  COPY_TOOL: 196303b68d65ce1cc01d396c60dbb8dd23b7dd05
+  COPY_TOOL: f95e4376c1c4f7cf594e1a9571d6dfa3516143fd
 jobs:
   move:
     name: Copy both apps from format 9 directly to format 14
@@ -45,7 +45,13 @@ jobs:
           github-token: ${{ github.token }}
           run-id: 42323311253
           path: ${{ runner.temp }}/format14-bundle
+      - uses: actions/cache@v4
+        id: source-program
+        with:
+          path: ${{ runner.temp }}/format9-build/release/lastdbd
+          key: primary-migration-format9-release-${{ env.SOURCE_DB }}-v1
       - name: Build the exact historical format 9 program on the runner
+        if: steps.source-program.outputs.cache-hit != 'true'
         working-directory: source-db
         shell: bash
         run: |

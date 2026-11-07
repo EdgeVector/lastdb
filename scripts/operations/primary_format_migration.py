@@ -54,6 +54,9 @@ class Apps:
         if completed.returncode != 0:
             if app == "brain" or args[0] == "init":
                 print(completed.stderr.decode(errors="replace")[-2000:], file=sys.stderr)
+            if app == "lastsecrets" and args[0] == "delete":
+                receipt = json.loads(completed.stdout)
+                print({key: receipt.get(key) for key in ("code", "delete_outcome", "metadata_cleanup", "post_read")}, file=sys.stderr)
             raise RuntimeError(f"Generated {app} {args[0]} failed with exit {completed.returncode}")
         return completed.stdout
 
