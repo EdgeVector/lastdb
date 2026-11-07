@@ -69,8 +69,6 @@ This authorizes only:
 
 The same limits apply: CI only, generated data, no primary copy. Keep every other test target retired.
 
-### Scoped extension: stable release qualification (Tom, 2026-11-03)
-
 ### Scoped extension: daily shared DEV operations (Tom, 2026-11-07)
 
 Tom requested daily multi-device CI and accepted the proposal to run the
@@ -90,7 +88,7 @@ Keep all other test targets retired. No local LastDB builds, benchmarks or
 runtime proofs. No primary lifecycle, format, installed-binary or backup change;
 no PROD or retained manual-scope cleanup.
 
-### Stable release qualification scope
+### Scoped extension: stable release qualification (Tom, 2026-11-03)
 
 Tom explicitly requested: "Move the release flow into CI, fix the missing app
 compatibility proofs, keep the one-hour qualification gate, and leave my

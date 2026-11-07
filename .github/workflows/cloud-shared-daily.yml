@@ -73,11 +73,18 @@ jobs:
           --source "$GITHUB_SHA" --output "$RUNNER_TEMP/shared-daily-cleanup.json"
       - uses: actions/upload-artifact@v7
         if: always()
+        id: evidence
         with:
           name: shared-daily-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/shared-daily-cleanup.json
           if-no-files-found: error
           retention-days: 90
+      - name: Record result provenance
+        if: always() && steps.evidence.outputs.artifact-id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ steps.evidence.outputs.artifact-id }}
+        run: python3 scripts/cloud_backup/shared_daily_artifact.py "$ARTIFACT"
 
   cases:
     name: Shared DEV / ${{ matrix.case }}
@@ -128,11 +135,18 @@ jobs:
           --output "$RUNNER_TEMP/shared-daily-$CASE.json"
       - uses: actions/upload-artifact@v7
         if: always()
+        id: evidence
         with:
           name: shared-daily-${{ matrix.case }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/shared-daily-${{ matrix.case }}.json
           if-no-files-found: error
           retention-days: 90
+      - name: Record result provenance
+        if: always() && steps.evidence.outputs.artifact-id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ steps.evidence.outputs.artifact-id }}
+        run: python3 scripts/cloud_backup/shared_daily_artifact.py "$ARTIFACT"
 
   complete:
     name: Shared daily complete

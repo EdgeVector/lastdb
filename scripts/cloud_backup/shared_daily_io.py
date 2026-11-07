@@ -112,7 +112,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def github(path):
-    require(re.fullmatch(r"(?:actions/runs/[1-9][0-9]{0,19}|commits/[0-9a-f]{40}/check-runs\?per_page=100)",
+    require(re.fullmatch(r"(?:actions/(?:runs|artifacts)/[1-9][0-9]{0,19}|commits/[0-9a-f]{40}/check-runs\?per_page=100)",
                          path), "shared_daily_github_path")
     request = Request("https://api.github.com/repos/EdgeVector/lastdb/" + path,
                       headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
