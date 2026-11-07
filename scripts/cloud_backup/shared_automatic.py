@@ -152,7 +152,8 @@ def run(operation):
             files[key] = digest
     wait_all(operation, nodes, records, files)
     operation.summary.update(automatic_running_writers=len(nodes), automatic_upload=True,
-                             automatic_download_apply=True, manual_push_pull_commands=0)
+                             automatic_download_apply=True, manual_push_pull_commands=0,
+                             automatic_bound_schema_alias=operation.schema.endswith("/CloudSharedProofAlias"))
 
     operation.summary["stage"] = "automatic-delete-and-file-update"
     removed, = native_records.read_records(publisher, operation.schema, [native_records.key("automatic-0")])
