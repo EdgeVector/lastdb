@@ -55,7 +55,6 @@ impl DeclarativeSchemaDefinition {
             .chain(self.field_descriptions.keys().map(String::as_str))
             .chain(self.field_data_classifications.keys().map(String::as_str))
             .chain(self.field_interest_categories.keys().map(String::as_str))
-            .chain(self.ref_fields.keys().map(String::as_str))
             .chain(self.field_types.keys().map(String::as_str))
             .chain(self.field_hashes.keys().map(String::as_str))
             .chain(self.field_declarations.keys().map(String::as_str))

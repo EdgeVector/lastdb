@@ -203,9 +203,6 @@ impl SchemaServiceState {
         residual
             .field_types
             .retain(|field, _| residue.contains(field.as_str()));
-        residual
-            .ref_fields
-            .retain(|field, _| residue.contains(field.as_str()));
         residual.identity_hash = None;
         let base_name = schema
             .descriptive_name

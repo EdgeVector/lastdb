@@ -176,7 +176,7 @@ impl SchemaServiceState {
     }
 
     /// Apply field renames to a schema: rename fields, update classifications,
-    /// mutation_mappers, ref_fields, field_types, and the Range/Hash
+    /// mutation_mappers, field_types, and the Range/Hash
     /// `KeyConfig` to use canonical names.
     pub(crate) fn apply_field_renames(
         schema: &mut Schema,
@@ -221,12 +221,6 @@ fn migrate_field_metadata(schema: &mut Schema, old_name: &str, canonical: &str) 
     // future matches and persists a stale entry for a field that no
     // longer exists in `fields`.
     migrate_entry(&mut schema.field_descriptions, old_name, canonical);
-    // ref_fields migrates with the rename. `state_fields::infer_field_type`
-    // reads `ref_fields` by field name, so a stale key under `old_name` makes
-    // the renamed field look like a plain value field (`FieldValueType::Any`)
-    // and the schema persists with a ref entry pointing at a field that no
-    // longer exists in `fields`.
-    migrate_entry(&mut schema.ref_fields, old_name, canonical);
     // field_types must migrate too. `state_fields::infer_field_type`
     // reads `schema.field_types` by field name to decide the type of
     // every new canonical-registry entry (and `Schema::get_field_type`

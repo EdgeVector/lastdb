@@ -18,7 +18,6 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.field_descriptions == other.field_descriptions
             && self.field_data_classifications == other.field_data_classifications
             && self.field_interest_categories == other.field_interest_categories
-            && self.ref_fields == other.ref_fields
             && self.field_types == other.field_types
             && self.field_hashes == other.field_hashes
             && self.field_declarations == other.field_declarations

@@ -116,9 +116,6 @@ pub fn validate_schema_vocabulary(
             .field_types
             .get(name)
             .is_none_or(|value| value != &field.field_type)
-            || schema.ref_fields.get(name).is_some_and(|target| {
-                field.field_type != schema_types::FieldValueType::SchemaRef(target.clone())
-            })
             || schema.field_versions.get(name).copied().unwrap_or(1) != field.version
         {
             return Err(FoldDbError::Config(format!(
@@ -232,7 +229,6 @@ pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
         .flatten()
         .chain(schema.transform_fields.iter().flat_map(|map| map.keys()))
         .chain(schema.field_types.keys())
-        .chain(schema.ref_fields.keys())
         .chain(schema.field_descriptions.keys())
         .chain(schema.field_classifications.keys())
         .chain(schema.field_data_classifications.keys())

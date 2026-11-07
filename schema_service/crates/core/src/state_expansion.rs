@@ -112,7 +112,7 @@ impl SchemaServiceState {
 
     /// Expand an incoming schema to be a superset of an existing schema.
     ///
-    /// Merges fields, merges classifications and ref_fields, recomputes
+    /// Merges fields, merges classifications, recomputes
     /// identity_hash, persists, and updates caches.
     ///
     /// Returns `SchemaAddOutcome::Expanded` on success, or `AlreadyExists` if

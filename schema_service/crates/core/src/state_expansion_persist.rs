@@ -41,7 +41,7 @@ impl SchemaServiceState {
     }
 }
 
-/// Merge classifications, ref_fields, descriptions and types from the
+/// Merge classifications, descriptions and types from the
 /// predecessor into the expanded schema (keep incoming entries, add
 /// existing-only ones).
 /// Inherited declared hashes retain their declaration provenance.
@@ -77,12 +77,6 @@ pub(super) fn merge_existing_metadata(schema: &mut Schema, existing: &Schema) {
             .field_interest_categories
             .entry(field.clone())
             .or_insert_with(|| category.clone());
-    }
-    for (field, target) in &existing.ref_fields {
-        schema
-            .ref_fields
-            .entry(field.clone())
-            .or_insert_with(|| target.clone());
     }
     for (field, description) in &existing.field_descriptions {
         schema
