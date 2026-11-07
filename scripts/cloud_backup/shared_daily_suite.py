@@ -23,6 +23,7 @@ def verify_case(case, proof, source, scope):
     require(proof["result"] == "passed" and proof["stage"] == "complete"
             and proof["source"] == source and proof["scope"] == scope
             and proof["primary_access"] is False and proof["provider_deletions"] == 0
+            and proof["manual_push_pull_commands"] == 0
             and proof["cleanup"] == "owned runner data removed" and proof["restored_boots"] == 2,
             "shared_daily_complete_case")
     flags = {
@@ -32,6 +33,12 @@ def verify_case(case, proof, source, scope):
                       "original_writers_converged", "exact_original_revisions_preserved",
                       "restart_convergence", "replay_retry_idle", "upload_retry_idle"),
         "retention": ("displaced_pending_file_uploaded", "live_write_during_upload", "local_only_excluded"),
+        "automatic": ("automatic_upload", "automatic_download_apply", "automatic_bound_schema_alias",
+                      "automatic_delete_applied", "automatic_replacement_file_applied",
+                      "automatic_policy_paused_both_directions", "automatic_policy_resume_caught_up",
+                      "automatic_policy_survived_restart", "automatic_download_after_restart",
+                      "automatic_upload_after_restart", "automatic_snapshot_shorter_than_sync",
+                      "automatic_uncovered_peer_tail", "source_homes_removed"),
     }
     require(all(proof.get(name) is True for name in flags[case]), "shared_daily_case_coverage")
     if case == "lifecycle":
@@ -40,6 +47,8 @@ def verify_case(case, proof, source, scope):
     if case == "retention":
         require(proof["shared_retention_overwrites"] == 24 and len(proof["retention_measurements"]) == 3,
                 "shared_daily_retention_coverage")
+    if case == "automatic":
+        require(proof["automatic_running_writers"] == 6, "shared_daily_automatic_writer_count")
 
 
 def case(args):
@@ -61,6 +70,8 @@ def case(args):
         arguments.append("--conflicts")
     if args.case == "retention":
         arguments.append("--retention")
+    if args.case == "automatic":
+        arguments.append("--automatic-sync")
     result = subprocess.run(arguments, env=environment, stdin=subprocess.DEVNULL,
                             capture_output=True, timeout=440, check=False)
     path = root / "cloud-shared-recovery/summary.json"

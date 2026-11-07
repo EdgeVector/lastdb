@@ -98,7 +98,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        case: [lifecycle, conflicts, retention]
+        case: [lifecycle, conflicts, retention, automatic]
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 10

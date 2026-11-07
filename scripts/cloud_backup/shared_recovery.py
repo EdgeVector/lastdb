@@ -21,6 +21,7 @@ import baseline_data
 import native_records
 import shared_conflicts
 import shared_automatic
+import shared_daemon
 import shared_multiwriter
 import shared_retention
 import shared_snapshot
@@ -258,12 +259,6 @@ class Operation:
             path.unlink()
         return digest
 
-    def push(self, node, writer, sequence):
-        raw = self.writer(node, writer, "push", "--batches", "2")
-        require(raw.splitlines() == [f"Accepted shared writer position {sequence}".encode(),
-                                    b"Shared writer caught up"], "shared_exact_accepted_end")
-        return sequence
-
     def restore(self, destination, device, key_device):
         return self.command(self.root / "credentials", [
             "restore-shared", "--env", "dev", "--database-id", self.scope["database_id"],
@@ -336,9 +331,9 @@ class Operation:
             time.sleep(0.01)
         self.summary["stage"] = "attach-publisher-tail-file"
         self.attach(first, losing, "losing-tail")
-        first.stop()
         self.summary["stage"] = "upload-publisher-tail"
-        self.summary["publisher_tail_through"] = self.push(first, a, 7)
+        self.summary["publisher_tail_through"] = shared_daemon.upload(self, first, 7)
+        first.stop()
 
         shared_multiwriter.refuse_empty_join(self, a, b)
         self.summary["stage"] = "restore-peer-before-first-write"
@@ -355,14 +350,14 @@ class Operation:
         durable_batch(peer, [native_records.replace(self.schema, prior, winner),
                              native_records.create(self.schema, native_records.key("peer-only"), peer_only)])
         self.attach(peer, winner, "winning-tail")
+        self.summary["peer_tail_through"] = shared_daemon.upload(self, peer, 3)
         peer.stop()
-        self.summary["peer_tail_through"] = self.push(peer, b, 3)
         if self.args.multiwriter:
-            shared_multiwriter.exchange_tails(self, first, a, b)
+            shared_multiwriter.exchange_tails(self, first, b)
 
         if self.args.multiwriter:
             shared_multiwriter.snapshot_command(self, first, a)
-            shared_multiwriter.publish_peer_tail(self, peer, b)
+            shared_multiwriter.publish_peer_tail(self, peer)
         expected_stops = (6, 3) if self.args.multiwriter else (3, 2)
         require((first.clean_stops, peer.clean_stops) == expected_stops,
                 "shared_source_strict_clean_stops")
@@ -440,6 +435,7 @@ class Operation:
         if self.args.multiwriter:
             shared_multiwriter.join_restored_writer(self, node, reader)
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
+                            manual_push_pull_commands=0,
                             exact_live_records=len(records), exact_absent_records=1, file_sha256=files)
 
     def assert_owned_root(self):

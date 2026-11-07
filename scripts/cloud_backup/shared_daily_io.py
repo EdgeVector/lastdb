@@ -20,7 +20,7 @@ PREFIX = "c1da11d0-"
 MAX_SCOPES = 12
 GRACE_MS = 60 * 60 * 1000
 MAX_AGE_MS = 26 * 60 * 60 * 1000
-CASES = ("lifecycle", "conflicts", "retention")
+CASES = ("lifecycle", "conflicts", "retention", "automatic")
 
 
 def now_ms():
