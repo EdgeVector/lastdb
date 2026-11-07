@@ -42,6 +42,7 @@ def producer(history):
                             f"?branch=main&event=workflow_dispatch&per_page={page_size}&page={page}")
         rows, total = value.get("workflow_runs"), value.get("total_count")
         require(isinstance(rows, list) and len(rows) <= page_size
+                and all(isinstance(run, dict) for run in rows)
                 and type(total) is int and total >= len(rows)
                 and expected_total in (None, total)
                 and len(rows) == min(page_size, max(0, total - len(seen))),
@@ -81,7 +82,7 @@ def definition(history, source):
             "ci_baseline_producer_format_directory")
     path = FORMAT_PATH if modern else LEGACY_FORMAT_PATH
     entry = history.api(f"contents/{path}?ref={source}")
-    require(entry.get("type") == "file" and entry.get("encoding") == "base64"
+    require(isinstance(entry, dict) and entry.get("type") == "file" and entry.get("encoding") == "base64"
             and type(entry.get("size")) is int and 0 < entry["size"] <= 65536,
             "ci_baseline_producer_format_definition")
     raw = base64.b64decode(entry["content"], validate=False)
@@ -113,7 +114,7 @@ def inspect(operation, token):
                 "client_home_format": HOME_FORMAT, "client_backup_profile": BACKUP_PROFILE,
                 "compatible": (home, profile, marker) == (HOME_FORMAT, BACKUP_PROFILE, NODE_MARKER),
                 "restore_authority": "native_client"}
-    except (OperationError, KeyError, ValueError, TypeError, UnicodeError):
+    except (OperationError, KeyError, ValueError, TypeError, UnicodeError, SyntaxError, RuntimeError):
         return {**observation, "reason": "producer_evidence_unavailable"}
     finally:
         if history is not None:
