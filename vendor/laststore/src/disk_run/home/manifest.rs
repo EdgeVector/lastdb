@@ -59,6 +59,16 @@ impl RunMeta {
         self.first_key <= other.last_key && other.first_key <= self.last_key
     }
 
+    /// True when a run may contain a key in the base merge's `(after, through]`.
+    pub(super) fn meets_merge_interval(
+        &self,
+        after: Option<&[u8]>,
+        through: Option<&[u8]>,
+    ) -> bool {
+        after.map_or(true, |after| self.last_key.as_slice() > after)
+            && through.map_or(true, |through| self.first_key.as_slice() <= through)
+    }
+
     /// True when the run can hold a key in `[lower, upper)`.
     pub(super) fn overlaps(&self, lower: &[u8], upper: Option<&[u8]>) -> bool {
         let below_upper = match upper {

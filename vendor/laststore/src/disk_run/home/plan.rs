@@ -47,16 +47,17 @@
 //! lookups of its keys in the older runs; a tiered merge's output carries
 //! the counts of its inputs.
 
-use super::commit::{meta, overflow, MergeKind, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+use super::commit::{overflow, MergeKind, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
 use super::manifest::{Manifest, RunFile};
 use super::{RunHome, RunRoot};
 use crate::disk_run::space::MergeSpace;
-use crate::disk_run::{Found, MergeIter, MergeSource, RunReader, RunSequence, RunWriter};
+use crate::disk_run::RunReader;
 use crate::{space::SpacePolicy, Result};
 use std::collections::HashSet;
-use std::ops::Bound;
 use std::sync::Arc;
 use uuid::Uuid;
+
+mod pieces;
 
 /// A base merge starts when the tiered runs hold more than 1/16 of the
 /// record bytes.
@@ -278,8 +279,8 @@ impl RunHome {
             target,
             &space,
         )?;
-        let records: u64 = pieces.iter().map(|run| run.meta.records).sum();
-        let run_bytes: u64 = pieces.iter().map(|run| run.meta.file_bytes).sum();
+        let records = pieces.iter().flatten().map(|run| run.meta.records).sum();
+        let run_bytes = pieces.iter().flatten().map(|run| run.meta.file_bytes).sum();
         let _publish = crate::commit_timing::during("v2_publish_lock_wait_us", || {
             self.publish.lock().unwrap_or_else(|e| e.into_inner())
         });
@@ -299,7 +300,7 @@ impl RunHome {
         // Only merges change the base, and merges run one at a time, so the
         // base is the one this step read.
         let mut base = next.base[..done].to_vec();
-        base.extend(pieces.iter().cloned());
+        base.extend(pieces.as_deref().unwrap_or(taken).iter().cloned());
         base.extend(next.base[done + take..].iter().cloned());
         next.base = base;
         if last {
@@ -309,10 +310,12 @@ impl RunHome {
             next.merge_cut = upper;
         }
         let installed = self.install_merge(next, &space)?;
-        for run in taken {
-            run.retire();
+        if pieces.is_some() {
+            for run in taken {
+                run.retire();
+            }
+            self.note_retired(taken);
         }
-        self.note_retired(taken);
         if last {
             for run in &merging {
                 run.retire();
@@ -328,73 +331,5 @@ impl RunHome {
             run_bytes,
             dropped_tombstones: true,
         })
-    }
-
-    /// Merge the records of `merging` in `(cut, upper]` with the `taken`
-    /// base runs into new base runs of about `target` bytes each, without
-    /// tombstones. An error deletes the runs this call wrote.
-    fn write_base_pieces(
-        &self,
-        merging: &[Arc<RunFile>],
-        taken: &[Arc<RunFile>],
-        cut: Option<&[u8]>,
-        upper: Option<&[u8]>,
-        target: u64,
-        space: &MergeSpace,
-    ) -> Result<Vec<Arc<RunFile>>> {
-        let lower = cut.map_or(Bound::Unbounded, Bound::Excluded);
-        let upper = upper.map_or(Bound::Unbounded, Bound::Included);
-        let mut sources = Vec::with_capacity(merging.len() + 1);
-        for run in merging {
-            let reader = Arc::new(RunReader::open(&run.path, &self.key)?);
-            sources.push(MergeSource::Run(reader.shared_range(lower, upper)));
-        }
-        let paths = taken.iter().map(|run| run.path.clone()).collect();
-        let sequence = RunSequence::new(paths, &self.key, Bound::Unbounded, Bound::Unbounded);
-        sources.push(MergeSource::Sequence(sequence));
-        let mut pieces = Vec::new();
-        if let Err(error) =
-            self.write_pieces(MergeIter::from_sources(sources), target, &mut pieces, space)
-        {
-            for piece in &pieces {
-                piece.retire();
-            }
-            return Err(error);
-        }
-        Ok(pieces)
-    }
-
-    fn write_pieces(
-        &self,
-        records: MergeIter<'_>,
-        target: u64,
-        pieces: &mut Vec<Arc<RunFile>>,
-        space: &MergeSpace,
-    ) -> Result<()> {
-        let mut writer: Option<RunWriter> = None;
-        for record in records {
-            let (key, found) = record?;
-            let Found::Value(value) = found else {
-                continue;
-            };
-            if writer.is_none() {
-                writer = Some(RunWriter::create_reserved(
-                    &self.runs,
-                    &self.key,
-                    self.options,
-                    space,
-                )?);
-            }
-            let open = writer.as_mut().expect("writer is open");
-            open.push(&key, Some(&value))?;
-            if open.bytes_written() >= target {
-                let finished = writer.take().expect("writer is open").finish()?;
-                pieces.push(RunFile::new(&self.runs, meta(finished)?));
-            }
-        }
-        if let Some(open) = writer {
-            pieces.push(RunFile::new(&self.runs, meta(open.finish()?)?));
-        }
-        Ok(())
     }
 }
