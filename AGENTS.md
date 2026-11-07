@@ -69,6 +69,25 @@ This authorizes only:
 
 The same limits apply: CI only, generated data, no primary copy. Keep every other test target retired.
 
+### Scoped extension: daily shared DEV operations (Tom, 2026-11-07)
+
+Tom requested daily multi-device CI and accepted the proposal to run the
+seven-writer lifecycle, offline-conflict and storage-retention scenarios:
+"All right, that's a good idea. Um, how about you get started with that?"
+
+This authorizes `.github/workflows/cloud-shared-daily.yml`,
+`scripts/cloud_backup/shared_daily_*.py`, `shared_origin.py`, and their reuse of
+the existing shared recovery, multiwriter, conflict, snapshot and retention
+recipes. These are real DEV operations through the exact CI-built CLI and
+daemon on fresh generated homes. Source admission, owned scope enrollment,
+the one-hour retirement drain, bounded exact-scope cleanup and the aggregate
+result are part of this authorization. Qualify the suite and physical cleanup
+before enabling its recurring schedules.
+
+Keep all other test targets retired. No local LastDB builds, benchmarks or
+runtime proofs. No primary lifecycle, format, installed-binary or backup change;
+no PROD or retained manual-scope cleanup.
+
 ### Scoped extension: stable release qualification (Tom, 2026-11-03)
 
 Tom explicitly requested: "Move the release flow into CI, fix the missing app
