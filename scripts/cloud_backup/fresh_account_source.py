@@ -166,7 +166,11 @@ def publish(node):
                     and positive(value["native_bytes"], MAX_INVENTORY_BYTES), "fresh_snapshot_receipt")
             accepted = value["last_accepted_backup"]
             return accepted_point(accepted, node.account, request), value
-        require(value["running"] is True and value["blocked_reason"] is None, "fresh_snapshot_stopped")
+        # The saved phase and runtime activity are read separately. A final
+        # commit can land between those reads, so a clean sample can lag.
+        require(value["phase"] in {"preparing", "capturing", "uploading", "inventory",
+                                   "committing", "published"}
+                and value["blocked_reason"] is None, "fresh_snapshot_stopped")
         time.sleep(1)
         value = node.programs.command(node.home, ["cloud", "backup-v2", "status", "--json"], timeout=20)
     raise OperationError("fresh_snapshot_deadline")
