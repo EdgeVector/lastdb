@@ -19,6 +19,7 @@ sys.dont_write_bytecode = True
 
 import baseline_data
 import native_records
+import shared_conflicts
 import shared_multiwriter
 import shared_retention
 import shared_snapshot
@@ -68,6 +69,8 @@ class Operation:
 
         require(not self.args.retention or (self.args.multiwriter and self.args.prior_summary is None),
                 "shared_retention_new_multiwriter_scope")
+        require(not self.args.conflicts or (self.args.multiwriter and not self.args.retention
+                and self.args.prior_summary is None), "shared_conflict_new_multiwriter_scope")
         writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
         self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
@@ -264,8 +267,8 @@ class Operation:
             "--device-key-file", str(self.device_file(key_device)),
             "--into", str(destination), "--recovery-phrase-stdin", "--json"])
 
-    def verify(self, node, records, files):
-        keys = (*KEYS, *(kind for kind in records if kind not in KEYS))
+    def verify(self, node, records, files, *, absent=()):
+        keys = tuple(dict.fromkeys((*KEYS, *records, *absent)))
         queries = [{"schema_name": self.schema, "filter": {"HashKey": kind}, "limit": 2, "offset": 0}
                    for kind in keys]
         replies = node.call("/api/queries/batch", {"queries": queries})["results"]
@@ -380,6 +383,9 @@ class Operation:
         self.summary["wrong_device_refused"] = True
 
     def execute(self):
+        if self.args.conflicts:
+            shared_conflicts.run(self)
+            return
         if self.args.prior_summary is None:
             self.publish_cut()
         self.summary["stage"] = "restore-authorized-device"
@@ -460,6 +466,7 @@ def main():
     parser.add_argument("--readback-reader", choices=("publisher", "peer"), default="peer")
     parser.add_argument("--multiwriter", action="store_true")
     parser.add_argument("--retention", action="store_true")
+    parser.add_argument("--conflicts", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
