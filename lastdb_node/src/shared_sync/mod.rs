@@ -3,31 +3,13 @@
 mod config;
 mod snapshot;
 mod worker;
+pub use crate::backup_runtime::{SharedSyncProgress as Progress, SharedSyncRuntime as Runtime};
 pub use config::save_bound;
 
 use crate::byte_cloud_backup::{BackupError, Result};
 use cloud_backup_protocol::{shared::WriterStream, Id};
 use serde::Serialize;
-use std::sync::Mutex;
 use tracing::Instrument;
-
-#[derive(Default)]
-pub struct Runtime {
-    pub(crate) gate: tokio::sync::Mutex<()>,
-    state: Mutex<Progress>,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Progress {
-    pub running: bool,
-    pub last_sync_at: Option<u64>,
-    pub last_upload_at: Option<u64>,
-    pub next_sync_at: u64,
-    pub uploaded_through: u64,
-    pub applied_ranges: u64,
-    pub needs_restore: Option<Id>,
-    pub blocked_reason: Option<&'static str>,
-}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Status {
@@ -40,12 +22,6 @@ pub struct Status {
     pub last_snapshot_id: Option<Id>,
     pub next_snapshot_at: u64,
     pub progress: Progress,
-}
-
-impl Runtime {
-    pub(crate) fn update(&self, change: impl FnOnce(&mut Progress)) {
-        change(&mut self.state.lock().expect("shared sync progress"));
-    }
 }
 
 pub(crate) fn status(host: &crate::Host) -> Result<Option<Status>> {
@@ -64,12 +40,7 @@ pub(crate) fn status(host: &crate::Host) -> Result<Option<Status>> {
         last_snapshot_at: config.last_snapshot_at,
         last_snapshot_id: config.last_snapshot_id.clone(),
         next_snapshot_at: config.next_snapshot_at,
-        progress: host
-            .shared_sync
-            .state
-            .lock()
-            .expect("shared sync progress")
-            .clone(),
+        progress: host.shared_sync.snapshot(),
     }))
 }
 
@@ -114,4 +85,12 @@ impl Status {
             next_snapshot_at: self.publisher.then_some(self.next_snapshot_at),
         }
     }
+}
+
+/// Resolve any saved publication before replacing the native data directories.
+pub fn require_rejoin_ready(home: &std::path::Path) -> Result<()> {
+    if config::load(home)?.is_some_and(|config| config.pending_snapshot.is_some()) {
+        return Err(BackupError::Busy);
+    }
+    Ok(())
 }

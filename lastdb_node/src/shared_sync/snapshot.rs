@@ -38,7 +38,7 @@ pub(super) async fn publish(host: &crate::Host, config: &mut Config) -> Result<(
         config.credentials.api_url.clone(),
         config.credentials.api_key.as_str().to_owned(),
     );
-    let result = crate::exec::shared_snapshot_sequence::run_shared_snapshot_locked(
+    let result = crate::shared_snapshot::sequence::run_shared_snapshot_locked(
         host,
         &root.join(pending.as_str()),
         Duration::from_secs(90),

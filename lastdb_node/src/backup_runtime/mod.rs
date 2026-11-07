@@ -1,6 +1,8 @@
 //! Shared backup admission, typed failures and resource-drained completion.
 mod error;
 mod runtime;
+mod shared_sync;
+pub use shared_sync::{SharedSyncProgress, SharedSyncRuntime};
 mod source_diagnostic;
 
 pub use error::{BackupError, Disposition, PauseReason, PauseState};

@@ -72,7 +72,7 @@ pub struct Host {
     /// Explicit byte backup admission, worker completion and shutdown pause.
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// Serializes shared upload, replay and snapshot work for this running home.
-    pub shared_sync: crate::shared_sync::Runtime,
+    pub shared_sync: crate::backup_runtime::SharedSyncRuntime,
     /// This process's own boot identity (pid/build/start_ts/restart_cause),
     /// set once right after the session ledger records this session's start.
     /// `/api/system/boot-identity` must read this, never the shared per-home
@@ -158,7 +158,7 @@ impl Host {
             change_feed_queue,
             watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
-            shared_sync: crate::shared_sync::Runtime::default(),
+            shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
             own_boot_identity: OnceLock::new(),
         })
     }

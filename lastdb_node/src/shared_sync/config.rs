@@ -141,6 +141,7 @@ pub(super) fn configure(host: &crate::Host, enabled: bool, log: u64, snapshot: u
     save(&host.home, &config)?;
     host.shared_sync.update(|state| {
         state.next_sync_at = 0;
+        state.retry_at = 0;
         state.blocked_reason = None;
         state.needs_restore = None;
     });

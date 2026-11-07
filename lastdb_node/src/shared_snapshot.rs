@@ -19,6 +19,7 @@ use std::time::Duration;
 
 pub(crate) mod native;
 mod owner;
+pub(crate) mod sequence;
 mod state;
 pub use owner::SignedSnapshotTransport;
 use state::{Intent, IntentStore, Phase};

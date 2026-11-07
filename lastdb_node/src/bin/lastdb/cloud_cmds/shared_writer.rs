@@ -92,6 +92,8 @@ impl Owner {
         };
         let store = home.join("data");
         if matches!(action, SharedWriterAction::Rejoin { .. }) {
+            lastdb_node::shared_sync::require_rejoin_ready(home)
+                .map_err(|_| "finish the pending shared snapshot before rejoining")?;
             rejoin::require_source_data(&store)?;
         }
         lastdb_node::offline_home::preflight_stopped_home(home, &store)?;

@@ -25,7 +25,7 @@ pub(super) async fn run(host: Arc<crate::Host>, shutdown: Arc<AtomicBool>) {
             host.shared_sync.update(|state| {
                 state.running = false;
                 state.blocked_reason = Some("shared_sync_retry_pending");
-                state.next_sync_at = fold_db::clock::unix_secs().saturating_add(5);
+                state.retry_at = fold_db::clock::unix_secs().saturating_add(5);
             });
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -41,18 +41,27 @@ async fn tick(host: &crate::Host) -> Result<()> {
     };
     let now = fold_db::clock::unix_secs();
     let status = super::status(host)?.ok_or(BackupError::Missing)?;
-    if !config.enabled || now < status.progress.next_sync_at {
+    let sync_due = now >= status.progress.next_sync_at;
+    let snapshot_due =
+        config.publisher && (config.pending_snapshot.is_some() || now >= config.next_snapshot_at);
+    if !config.enabled || now < status.progress.retry_at || (!sync_due && !snapshot_due) {
         return Ok(());
     }
     host.shared_sync.update(|state| state.running = true);
-    sync(host, &config).await?;
-    if config.publisher && (config.pending_snapshot.is_some() || now >= config.next_snapshot_at) {
+    if sync_due {
+        sync(host, &config).await?;
+        host.shared_sync.update(|state| {
+            state.next_sync_at =
+                fold_db::clock::unix_secs().saturating_add(config.interval_seconds);
+        });
+    }
+    if snapshot_due {
         snapshot::publish(host, &mut config).await?;
     }
     host.shared_sync.update(|state| {
         state.running = false;
         state.last_sync_at = Some(fold_db::clock::unix_secs());
-        state.next_sync_at = fold_db::clock::unix_secs().saturating_add(config.interval_seconds);
+        state.retry_at = 0;
         state.blocked_reason = None;
     });
     Ok(())
