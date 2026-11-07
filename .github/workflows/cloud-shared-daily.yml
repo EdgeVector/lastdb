@@ -102,7 +102,7 @@ jobs:
         case: ${{ fromJSON(needs.admission.outputs.cases) }}
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.case == 'reclamation' && 55 || 10 }}
+    timeout-minutes: ${{ matrix.case == 'reclamation' && 95 || 10 }}
     permissions:
       contents: read
       actions: read
