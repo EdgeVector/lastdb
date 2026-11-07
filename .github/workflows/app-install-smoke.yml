@@ -8,6 +8,8 @@ on:
   pull_request:
     paths:
       - .github/workflows/app-install-smoke.yml
+      - lastdb_node/src/bin/lastdb/app_cmds/managed.rs
+      - lastdb_node/src/app_registry_index/managed*.rs
   workflow_dispatch:
     inputs:
       apps:
@@ -519,6 +521,45 @@ jobs:
           
           echo "" >> smoke-summary.txt
           cat smoke-summary.txt
+
+      - name: Verify the registry poll continues past one unavailable index
+        if: matrix.app == 'brain' && env.INSTALLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$TEST_HOME/updater"
+          receipt="$PROOF_DIR/brain-install-receipt.json"
+          base="$(jq -er '.index | select(startswith("https://"))' "$receipt")"
+          api="$(jq -er '.listing.api_version' "$receipt")"
+          path="$REGISTRY_CHANNEL/api/$api.json"
+          mkdir -p "$root/index/$REGISTRY_CHANNEL/api" "$root/user"
+          curl -fsS --proto '=https' "$base/$path" -o "$root/index/$path"
+          curl -fsS --proto '=https' "$base/$path.sig" -o "$root/index/$path.sig"
+          export HOME="$root/user" LASTDB_APPS_ROOT="$root/apps" XDG_STATE_HOME="$root/install-state"
+          lastdb app install brain --channel "$REGISTRY_CHANNEL" --index "$root/index" --accept-install --inactive --json > "$root/brain-install.json"
+          channel=stable
+          if ! lastdb app list lastsecrets --channel "$channel" --json > "$root/lastsecrets.json"; then
+            channel=next
+            lastdb app list lastsecrets --channel "$channel" --json > "$root/lastsecrets.json"
+          fi
+          lastdb app install lastsecrets --channel "$channel" --accept-install --inactive --json > "$root/lastsecrets-install.json"
+          mv "$root/index" "$root/available-index"
+          # An index outage is recoverable with a verified cache. Give this
+          # isolated poll fresh state to exercise the uncached failure path.
+          export XDG_STATE_HOME="$root/poll-state"
+          if LASTDB_APP_REGISTRY_POLL=1 lastdb app upgrade --all --json > "$PROOF_DIR/updater-index-unavailable.json"; then
+            echo "The missing signed index was not reported as an error."
+            exit 1
+          fi
+          jq -e 'length == 1 and .[0].app == "brain" and .[0].state == "red"' "$PROOF_DIR/updater-index-unavailable.json"
+          test -s "$root/apps/lastsecrets/last-checked"
+          sha="$(jq -er .sha "$root/lastsecrets.json")"
+          lastdb app status lastsecrets --json > "$PROOF_DIR/updater-later-app.json"
+          jq -e --arg sha "$sha" '.[0] | .state == "inactive" and .installed_release == $sha' "$PROOF_DIR/updater-later-app.json"
+          mv "$root/available-index" "$root/index"
+          LASTDB_APP_REGISTRY_POLL=1 lastdb app upgrade --all --json > "$PROOF_DIR/updater-index-restored.json"
+          test -s "$root/apps/brain/last-checked"
+          echo "The registry poll reported the missing Brain index, processed LastSecrets, and resumed Brain when its signed index returned." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload proof artifacts
         if: always()
