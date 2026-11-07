@@ -89,12 +89,33 @@ impl RecordFormat {
         marker: &FileMarker,
     ) -> Result<Vec<u8>, SchemaError> {
         let path = record_file_path(key.as_str(), version)?;
-        let row = self
-            .file_store()
-            .await?
-            .get(path.as_bytes())
-            .await?
-            .ok_or_else(|| SchemaError::InvalidData("retained portable file is missing".into()))?;
+        if let Some(row) = self.file_store().await?.get(path.as_bytes()).await? {
+            require_row(self.content_key.as_ref(), marker, &row)?;
+            return Ok(row);
+        }
+        let Some(plaintext) =
+            crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker)
+                .await
+                .map_err(|error| match error {
+                    FoldDbError::Schema(error) => error,
+                    other => SchemaError::InvalidData(other.to_string()),
+                })?
+        else {
+            return Err(SchemaError::InvalidData(
+                "retained portable file is missing".into(),
+            ));
+        };
+        let account_key = self
+            .content_key
+            .as_ref()
+            .ok_or_else(|| SchemaError::InvalidData("portable file lacks a content key".into()))?;
+        let (row, sha256) = seal_file_row(account_key, &plaintext)
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        if sha256 != marker.sha256 {
+            return Err(SchemaError::InvalidData(
+                "local file reference differs from its marker".into(),
+            ));
+        }
         require_row(self.content_key.as_ref(), marker, &row)?;
         Ok(row)
     }
@@ -137,23 +158,7 @@ impl RecordFormat {
         name: Option<String>,
         media_type: Option<String>,
     ) -> Result<FileWrite, FoldDbError> {
-        if plaintext.len() as u64
-            > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
-        {
-            return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
-                detail: "local file input exceeds native pending memory allowance".into(),
-            }));
-        }
-        let sha256 = hex_lower(Sha256::digest(plaintext));
-        let (key, nonce) = file_key(self.account_key()?, &sha256)?;
-        let ciphertext = Aes256Gcm::new_from_slice(&key)
-            .map_err(file_crypto_error)?
-            .encrypt(Nonce::from_slice(&nonce), plaintext)
-            .map_err(file_crypto_error)?;
-        let mut row = Vec::with_capacity(1 + nonce.len() + ciphertext.len());
-        row.push(FILE_ENVELOPE_VERSION);
-        row.extend_from_slice(&nonce);
-        row.extend_from_slice(&ciphertext);
+        let (row, sha256) = seal_file_row(self.account_key()?, plaintext)?;
         let marker = FileMarker {
             name,
             media_type,
@@ -161,6 +166,33 @@ impl RecordFormat {
             sha256,
         };
         Ok(self.file_issuer.issue(marker, row))
+    }
+
+    /// Name an external file. The marker matches the file. No cas row is stored.
+    pub(crate) async fn reference_local_file(
+        &self,
+        path: &std::path::Path,
+        name: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<FileWrite, FoldDbError> {
+        let runtime = std::sync::Arc::clone(&self.runtime);
+        let path = path.to_path_buf();
+        let described = crate::storage::disk_pack::run_blocking(move || {
+            crate::storage::local_file_ref::describe(&runtime, &path)
+        })
+        .await?;
+        let marker = FileMarker {
+            name: name.or(described.file_name),
+            media_type,
+            size_bytes: described.size_bytes,
+            sha256: described.sha256,
+        };
+        if !marker.has_valid_hash() {
+            return Err(FoldDbError::Schema(SchemaError::InvalidData(
+                "local file hash is not 64 hex digits".into(),
+            )));
+        }
+        Ok(self.file_issuer.issue_local(marker, described.path))
     }
 
     /// The plaintext of the file of the record at `record_key`, checked
@@ -172,8 +204,25 @@ impl RecordFormat {
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
         let path = record_file_path(record_key, version)?;
-        let Some(row) = self.file_store().await?.get(path.as_bytes()).await? else {
-            return Ok(None);
+        let row = match self.file_store().await?.get(path.as_bytes()).await {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                return crate::storage::local_file_ref::read_referenced(
+                    &self.runtime,
+                    &path,
+                    marker,
+                )
+                .await;
+            }
+            Err(error) => {
+                if let Some(bytes) =
+                    crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker)
+                        .await?
+                {
+                    return Ok(Some(bytes));
+                }
+                return Err(error.into());
+            }
         };
         self.open_file_row(&row, marker).map(Some)
     }
@@ -207,10 +256,33 @@ pub(super) fn sealed_row_bytes(marker: &FileMarker) -> Option<u64> {
         .checked_add((1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64)
 }
 
+/// Seal `plaintext` into the cas envelope. The hash is the marker hash.
+pub(crate) fn seal_file_row(
+    account_key: &[u8; 32],
+    plaintext: &[u8],
+) -> Result<(Vec<u8>, String), FoldDbError> {
+    if plaintext.len() as u64 > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+        return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
+            detail: "local file input exceeds native pending memory allowance".into(),
+        }));
+    }
+    let sha256 = hex_lower(Sha256::digest(plaintext));
+    let (key, nonce) = file_key(account_key, &sha256)?;
+    let ciphertext = Aes256Gcm::new_from_slice(&key)
+        .map_err(file_crypto_error)?
+        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .map_err(file_crypto_error)?;
+    let mut row = Vec::with_capacity(1 + nonce.len() + ciphertext.len());
+    row.push(FILE_ENVELOPE_VERSION);
+    row.extend_from_slice(&nonce);
+    row.extend_from_slice(&ciphertext);
+    Ok((row, sha256))
+}
+
 /// Validate the stored envelope at the only file-row write boundary. This
 /// checks framing and the configured deterministic nonce, not the GCM tag;
 /// authenticated opening and plaintext-hash verification remain on reads.
-pub(super) fn require_row(
+pub(crate) fn require_row(
     content_key: Option<&[u8; 32]>,
     marker: &FileMarker,
     row: &[u8],

@@ -19,6 +19,9 @@ struct InputFile {
     source: PathBuf,
     name: Option<String>,
     media_type: Option<String>,
+    /// Keep the file at `source`. Backup seals it into the cloud file format.
+    #[serde(default)]
+    local: bool,
     /// A small file stored as the record's inline file next to a new blob.
     thumbnail: Option<InputThumbnail>,
 }
@@ -131,7 +134,31 @@ pub(super) fn mutate_command(
             if placement == "inline" && file.thumbnail.is_some() {
                 return Err("an inline file input takes no thumbnail".into());
             }
+            if file.local && placement == "inline" {
+                return Err("a local file reference cannot be an inline file".into());
+            }
             let source = base.join(&file.source);
+            if file.local {
+                let source = std::fs::canonicalize(&source)
+                    .map_err(|error| format!("open {}: {error}", source.display()))?;
+                let metadata = serde_json::json!({
+                    "mutation": body,
+                    "name": file.name,
+                    "media_type": file.media_type,
+                    "placement": placement,
+                    "local_path": source,
+                    "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
+                });
+                let raw = post_json_with_timeout(
+                    &socket,
+                    "/api/db/put-blob",
+                    &metadata,
+                    admin_scan_client_timeout(),
+                )?;
+                let receipt = parse_json_response(&raw, "/api/db/put-blob")?;
+                println!("{receipt}");
+                return Ok(());
+            }
             let metadata = serde_json::json!({
                 "mutation": body, "name": file.name, "media_type": file.media_type,
                 "placement": placement,

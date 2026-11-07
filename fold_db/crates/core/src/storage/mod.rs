@@ -34,6 +34,7 @@ pub mod error;
 /// per-field-key key bundles: the storage key material behind field key hashes.
 pub mod field_key_store;
 pub(crate) mod format;
+pub(crate) mod local_file_ref;
 pub mod traits;
 
 // Re-exports for convenience
