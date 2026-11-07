@@ -1,7 +1,9 @@
 name: Daily shared DEV operations
 
-# Qualify manually before enabling the recurring suite and retirement passes.
 on:
+  schedule:
+    - cron: '53 10 * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       operation:
@@ -12,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SELECTED_OPERATION: ${{ github.event.schedule == '17 * * * *' && 'cleanup' || inputs.operation || 'suite' }}
+
 concurrency:
   group: cloud-shared-daily
   cancel-in-progress: false
@@ -20,7 +25,7 @@ jobs:
   admission:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       checks: read
@@ -34,7 +39,6 @@ jobs:
       - id: admit
         env:
           GH_TOKEN: ${{ github.token }}
-          SELECTED_OPERATION: ${{ inputs.operation || 'suite' }}
         run: python3 scripts/cloud_backup/shared_daily_admit.py
 
   build:
@@ -166,11 +170,10 @@ jobs:
           merge-multiple: true
       - name: Require actual exact-source results and cleanup state
         env:
-          OPERATION: ${{ needs.admission.outputs.operation || inputs.operation || 'suite' }}
           ADMISSION_RESULT: ${{ needs.admission.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           CLEANUP_RESULT: ${{ needs.cleanup.result }}
           CASES_RESULT: ${{ needs.cases.result }}
         run: >-
-          python3 scripts/cloud_backup/shared_daily_results.py --operation "$OPERATION"
+          python3 scripts/cloud_backup/shared_daily_results.py --operation "$SELECTED_OPERATION"
           --directory "$RUNNER_TEMP/shared-daily-results"

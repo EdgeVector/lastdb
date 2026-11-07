@@ -40,7 +40,7 @@ def main():
         summary.write("| Operation | Result |\n| --- | --- |\n")
         for case in rows:
             summary.write(f"| {case} | passed |\n")
-        summary.write("\nNew scopes are fenced. Physical cleanup follows the one-hour drain; "
+        summary.write("\nPhysical cleanup follows the one-hour drain for fenced scopes; "
                       "the ownership ledger and scope cap remain enforced.\n")
     print(json.dumps({"result": "passed", "source": identity["source"], "operations": rows}))
 
