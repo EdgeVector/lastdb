@@ -30,19 +30,37 @@ def policy(node, enabled, log_interval=1, snapshot_interval=86400):
 
 def wait_all(operation, nodes, records, files, absent_keys=()):
     def verify(node):
-        operation.verify(node, records, files)
-        if absent_keys:
-            require(absent(node, operation.schema, *absent_keys), "shared_automatic_deleted_keys")
+        try:
+            operation.verify(node, records, files, absent=absent_keys)
+            return None
+        except OperationError as error:
+            return str(error)
 
     deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        try:
-            with ThreadPoolExecutor(max_workers=len(nodes)) as pool:
-                list(pool.map(verify, nodes))
-            return
-        except OperationError:
+    with ThreadPoolExecutor(max_workers=len(nodes)) as pool:
+        while True:
+            failures = list(pool.map(verify, nodes))
+            if not any(failures):
+                return
+            if time.monotonic() >= deadline:
+                break
             time.sleep(1)
+        operation.summary["automatic_replication_observations"] = [
+            dict(state, readback_failure=reason)
+            for state, reason in zip(pool.map(sync_observation, nodes), failures)]
     raise OperationError("shared_automatic_replication_deadline")
+
+
+def sync_observation(node):
+    try:
+        status = node.call("/api/sync/byte-backup-v2", {"action": "status"})["shared_sync"]
+    except OperationError as error:
+        return {"status_failure": str(error)}
+    progress = status["progress"]
+    return {**{key: progress[key] for key in ("running", "uploaded_through", "applied_ranges",
+                                              "blocked_reason", "last_sync_at")},
+            "snapshot_published": status["last_snapshot_id"] is not None,
+            "needs_restore": progress["needs_restore"] is not None}
 
 
 def absent(node, schema, *keys):
@@ -165,9 +183,7 @@ def run(operation):
     records["automatic-1"] = operation.record("automatic-1", "new-file-version")
     durable_batch(peer, [native_records.replace(operation.schema, prior, records["automatic-1"])])
     files["automatic-1"] = operation.attach(peer, records["automatic-1"], "replacement-file")
-    wait_all(operation, nodes, records, files)
-    require(all(absent(node, operation.schema, "automatic-0") for node in nodes),
-            "shared_automatic_deleted_key_absent")
+    wait_all(operation, nodes, records, files, absent_keys=("automatic-0",))
     operation.summary.update(automatic_delete_applied=True, automatic_replacement_file_applied=True)
     pause_and_resume(operation, nodes, records, files)
     restart(operation, nodes, records, files)
