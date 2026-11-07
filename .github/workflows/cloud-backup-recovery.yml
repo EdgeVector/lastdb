@@ -180,14 +180,19 @@ jobs:
           printf 'CLIENT_BIN_DIR=%s\n' "$CLIENT_BIN_DIR" >> "$GITHUB_ENV"
       - name: Admit this run without waiting for cleanup
         env:
+          GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
+          args=()
+          if [ "$RUN_MODE" = recovery ]; then
+            args+=(--pinned)
+          fi
           python3 scripts/cloud_backup/preflight.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
-            --output "$RUNNER_TEMP/cloud-ci-preflight"
+            --output "$RUNNER_TEMP/cloud-ci-preflight" "${args[@]}"
       - name: Check protected-input credential before a baseline starts
         if: env.RUN_MODE == 'baseline'
         env:
