@@ -5,7 +5,7 @@ import json
 import os
 import time
 
-from shared_daily_io import CASES, github
+from shared_daily_io import CASES, RECLAMATION, github
 from shared_origin import owner
 from support import OperationError, require
 
@@ -35,11 +35,15 @@ def wait_for_gates(source):
 def main():
     identity = owner(os.environ.get("GITHUB_SHA", ""))
     selected = os.environ["SELECTED_OPERATION"]
-    require(selected in ("suite", "cleanup"), "shared_daily_operation_selection")
+    require(selected in ("suite", "cleanup", RECLAMATION), "shared_daily_operation_selection")
+    if selected == RECLAMATION:
+        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
+                "shared_reclamation_manual_dispatch")
     wait_for_gates(identity["source"])
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("operation=" + selected + "\n")
-        output.write("cases=" + json.dumps(CASES) + "\n")
+        cases = (RECLAMATION,) if selected == RECLAMATION else CASES
+        output.write("cases=" + json.dumps(cases) + "\n")
     print("Accepted source gates passed")
 
 

@@ -21,6 +21,7 @@ MAX_SCOPES = 12
 GRACE_MS = 60 * 60 * 1000
 MAX_AGE_MS = 26 * 60 * 60 * 1000
 CASES = ("lifecycle", "conflicts", "retention", "automatic")
+RECLAMATION = "reclamation"
 
 
 def now_ms():

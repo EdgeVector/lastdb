@@ -24,6 +24,7 @@ import shared_automatic
 import shared_daemon
 import shared_multiwriter
 import shared_retention
+import shared_reclamation
 import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
@@ -74,6 +75,9 @@ class Operation:
         require(not self.args.automatic_sync or (self.args.multiwriter and not self.args.retention
                 and not self.args.conflicts and self.args.prior_summary is None),
                 "shared_automatic_new_multiwriter_scope")
+        require(not self.args.reclamation or (self.args.multiwriter and not self.args.retention
+                and not self.args.conflicts and not self.args.automatic_sync
+                and self.args.prior_summary is None), "shared_reclamation_new_multiwriter_scope")
         writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
         self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
@@ -245,11 +249,11 @@ class Operation:
         owner = self.proof_owner
         return {IDENTIFIER: kind, NOTE: f"Shared DEV {owner['run_id']}.{owner['run_attempt']} {version}"}
 
-    def payload(self, label):
-        return hashlib.shake_256((self.payload_id + label).encode()).digest(FILE_BYTES)
+    def payload(self, label, size=FILE_BYTES):
+        return hashlib.shake_256((self.payload_id + label).encode()).digest(size)
 
-    def attach(self, node, record, label):
-        payload = self.payload(label)
+    def attach(self, node, record, label, size=FILE_BYTES):
+        payload = self.payload(label, size)
         digest = hashlib.sha256(payload).hexdigest()
         path = self.root / f"payload-{uuid.uuid4().hex}.bin"
         private_write(path, payload)
@@ -268,7 +272,7 @@ class Operation:
             "--device-key-file", str(self.device_file(key_device)),
             "--into", str(destination), "--recovery-phrase-stdin", "--json"])
 
-    def verify(self, node, records, files, *, absent=()):
+    def verify(self, node, records, files, *, absent=(), file_bytes=FILE_BYTES):
         keys = tuple(dict.fromkeys((*KEYS, *records, *absent)))
         queries = [{"schema_name": self.schema, "filter": {"HashKey": kind}, "limit": 2, "offset": 0}
                    for kind in keys]
@@ -289,11 +293,11 @@ class Operation:
                     and row["alternates"] == {}, "shared_exact_record_value")
             marker = (row.get("metadata") or {}).get("file")
             if kind in files:
-                require(isinstance(marker, dict) and marker.get("size_bytes") == FILE_BYTES
+                require(isinstance(marker, dict) and marker.get("size_bytes") == file_bytes
                         and marker.get("sha256") == files[kind], "shared_exact_restored_file_marker")
             else:
                 require(marker is None, "shared_exact_record_without_file")
-        targets = [{"schema": self.schema, "records": [{"id": kind}], "file_bytes": FILE_BYTES,
+        targets = [{"schema": self.schema, "records": [{"id": kind}], "file_bytes": file_bytes,
                     "file_sha256": digest} for kind, digest in files.items()]
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(node.verify_file, targets))
@@ -388,6 +392,9 @@ class Operation:
         self.summary["wrong_device_refused"] = True
 
     def execute(self):
+        if self.args.reclamation:
+            shared_reclamation.run(self)
+            return
         if self.args.automatic_sync:
             shared_automatic.run(self)
             return
@@ -477,6 +484,7 @@ def main():
     parser.add_argument("--retention", action="store_true")
     parser.add_argument("--conflicts", action="store_true")
     parser.add_argument("--automatic-sync", action="store_true")
+    parser.add_argument("--reclamation", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
@@ -486,7 +494,7 @@ def main():
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(340)
+    signal.alarm(shared_reclamation.TIMEOUT + 240 if args.reclamation else 340)
     try:
         operation.prepare()
         operation.execute()
