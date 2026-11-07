@@ -49,9 +49,10 @@ def settled(operation, node, version, *, dedicated=False):
     node.verify_file({"schema": operation.schema, "records": [{"id": KEY}],
                       "file_bytes": len(payload), "file_sha256": hashlib.sha256(payload).hexdigest()})
     cleanup = node.programs.command(node.home, ["db", "cleanup", "--wait", "--timeout", "30", "--json"])
-    require(cleanup["complete"] is True, "shared_retention_native_cleanup")
+    require(cleanup.get("complete") is True, "shared_retention_native_cleanup")
     status = node.call("/api/db/native-status", {"inventory": True})
-    homes = status.get("data", status)["storage_diagnostics"]
+    homes = status.get("data", status).get("storage_diagnostics")
+    require(isinstance(homes, dict), "shared_retention_storage_diagnostics_missing")
     expected = {"main", "cas", "private"} if dedicated else {"main", "cas"}
     require(homes.keys() == expected and all(home["inventory"]["complete"] for home in homes.values()),
             "shared_retention_complete_inventory")
@@ -68,6 +69,14 @@ def settled(operation, node, version, *, dedicated=False):
               "native_bytes": sum(home["files"]["total_allocated_bytes"] for home in homes.values())}
     node.stop()
     return result
+
+
+def measure(operation, first, peer, version):
+    measurements = {}
+    for role, node in (("writer", first), ("peer", peer)):
+        operation.summary["stage"] = "shared-retention-measure-" + role
+        measurements[role] = settled(operation, node, version, dedicated=True)
+    return measurements
 
 
 def within_bound(before, after):
@@ -119,7 +128,7 @@ def run(operation, first, peer, publisher, receiver):
     operation.summary["stage"] = "shared-retention-baseline"
     through = establish_baseline(operation, first, peer, publisher, receiver)
     version = 0
-    points = [{"writer": settled(operation, first, version, dedicated=True), "peer": settled(operation, peer, version, dedicated=True)}]
+    points = [measure(operation, first, peer, version)]
     operation.summary["retention_measurements"] = points
     require(all(row["file_keys"] == 3 for row in points[0].values())
             and points[0]["writer"]["private_file_keys"] == 1
@@ -138,9 +147,7 @@ def run(operation, first, peer, publisher, receiver):
             operation.push(first, publisher, through)
             operation.summary["stage"] = "shared-retention-replay-overwrites"
             drain(operation, peer, receiver)
-        operation.summary["stage"] = "shared-retention-measure-overwrites"
-        points.append({"writer": settled(operation, first, version, dedicated=True),
-                       "peer": settled(operation, peer, version, dedicated=True)})
+        points.append(measure(operation, first, peer, version))
         require(all(within_bound(points[0][role], points[-1][role]) for role in ("writer", "peer")),
                 "shared_retention_settled_storage_grew")
     operation.summary.update(shared_retention_overwrites=version, shared_retention_uploaded_through=through)

@@ -122,9 +122,12 @@ class OwnedNode:
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         self.offline()
         self.programs.verify()
+        # Native timing requires isolated-copy admission. Only the retention
+        # measurement boots request inventory on these owned generated homes.
+        isolated = self.isolated_copy or storage_inventory
         environment = dict(self.programs.environment,
                      LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
-                     LASTDB_ISOLATED_COPY="1" if self.isolated_copy else "0",
+                     LASTDB_ISOLATED_COPY="1" if isolated else "0",
                      LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0")
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
             environment.pop(name, None)
