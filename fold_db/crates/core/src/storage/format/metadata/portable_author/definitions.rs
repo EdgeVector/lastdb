@@ -1,9 +1,12 @@
 //! Verified shared schema definitions by local alias. They live beside the
 //! shared records, so a snapshot carries the definition of every shared alias.
 
-use super::{invalid, EncodedMetadata, LocalAuthor, Metadata, DEFINITION_PREFIX};
+use super::outgoing::entry_key;
+use super::{invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata, DEFINITION_PREFIX};
 use crate::storage::error::StorageResult;
-use lastdb_model::portable_mutation::Stamp;
+use lastdb_model::portable_mutation::{
+    MutationEntry, MutationOperation, SchemaIdentity, Stamp, StreamId,
+};
 use schema_types::PortableSchemaDefinition;
 use std::collections::BTreeMap;
 
@@ -56,6 +59,34 @@ impl Metadata {
             return Ok(());
         }
         self.stage_batch(staged).await
+    }
+
+    /// Extend a bound writer. The stream defines each new schema before its first record.
+    pub(crate) async fn admit_portable_schemas(
+        &self,
+        schemas: BTreeMap<String, JournalSchema>,
+    ) -> StorageResult<()> {
+        self.require_scope()?;
+        let mut state = self.local_author().await?;
+        let shared = state
+            .shared
+            .as_mut()
+            .ok_or_else(|| invalid("shared journal is not bound"))?;
+        let mut added = false;
+        for (alias, schema) in schemas {
+            match shared.schemas.get(&alias) {
+                Some(bound) if *bound == schema => continue,
+                Some(_) => return Err(invalid("a bound shared alias cannot change")),
+                None => {}
+            }
+            shared.schemas.insert(alias, schema);
+            added = true;
+        }
+        if !added {
+            return Ok(());
+        }
+        shared.validate()?;
+        self.stage_local_author(&state).await
     }
 
     /// The recorded definition of each admitted schema that this batch uses
@@ -114,6 +145,26 @@ impl Metadata {
         }
         Ok(rows)
     }
+}
+
+/// The definition entry that precedes a schema's first record in a stream.
+pub(super) fn define_row(
+    stream: &StreamId,
+    stamp: Stamp,
+    definition: &PortableSchemaDefinition,
+) -> StorageResult<EncodedMetadata> {
+    let entry = MutationEntry {
+        stamp,
+        schema: SchemaIdentity::Shared(definition.id().as_str().to_owned()),
+        operation: MutationOperation::DefineSchema {
+            definition: Box::new(definition.clone()),
+        },
+    };
+    entry.validate().map_err(invalid)?;
+    Ok(EncodedMetadata {
+        key: entry_key(stream, entry.stamp.position.sequence),
+        bytes: entry.encode().map_err(invalid)?,
+    })
 }
 
 fn definition_key(alias: &str) -> String {

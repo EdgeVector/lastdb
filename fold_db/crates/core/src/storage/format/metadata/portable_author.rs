@@ -140,7 +140,7 @@ impl LocalAuthor {
             StreamId::try_from(shared.scope.source_stream.as_str().to_owned()).map_err(invalid)?;
         let stamp = next_stamp(&stream, &mut shared.progress, now_ms)?;
         shared.defined.insert(definition.id().as_str().to_owned());
-        outgoing::define_row(&stream, stamp, definition)
+        definitions::define_row(&stream, stamp, definition)
     }
 }
 

@@ -320,19 +320,11 @@ impl PackRuntime {
     }
 
     pub(crate) fn shared_schema_aliases(&self) -> Vec<String> {
-        self.physical
-            .shared
-            .as_ref()
-            .map_or_else(Vec::new, |shared| {
-                shared
-                    .scope
-                    .read()
-                    .expect("shared disk scope")
-                    .aliases
-                    .iter()
-                    .cloned()
-                    .collect()
-            })
+        let Some(shared) = &self.physical.shared else {
+            return Vec::new();
+        };
+        let scope = shared.scope.read().expect("shared disk scope");
+        scope.aliases.iter().cloned().collect()
     }
 
     /// The caller grows the scope only by aliases that no schema in this home
