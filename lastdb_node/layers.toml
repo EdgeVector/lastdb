@@ -72,6 +72,8 @@ modules = [
   "shared_peer",
   "shared_restore",
   "shared_snapshot",
+  "shared_sync",
+  "shared_upload",
 ]
 
 [[layer]]

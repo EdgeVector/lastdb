@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 
 const MAX_BYTES: u64 = 16 * 1024;
 
-pub(super) struct Directory {
+pub(crate) struct Directory {
     path: PathBuf,
     file: File,
 }

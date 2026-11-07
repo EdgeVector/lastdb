@@ -1,7 +1,7 @@
 //! Explicit V2 byte backup. The native format remains a client responsibility.
 mod automatic;
 mod capture;
-mod connection;
+pub(crate) mod connection;
 mod control;
 mod credentials;
 mod invocation;

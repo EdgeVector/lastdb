@@ -37,7 +37,7 @@ async fn shared_snapshot(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> 
     };
     let budget =
         super::super::admin_handler_timeout().saturating_sub(std::time::Duration::from_secs(1));
-    match crate::exec::shared_snapshot_sequence::run_shared_snapshot(host, &request, budget).await {
+    match crate::shared_snapshot::sequence::run_shared_snapshot(host, &request, budget).await {
         Ok(result) => json_ok(&envelope(&result, ctx.user_id.as_str())),
         Err(error) => error_response(409, &error.to_string(), ctx),
     }

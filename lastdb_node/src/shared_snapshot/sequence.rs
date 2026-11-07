@@ -43,7 +43,7 @@ pub struct SharedSnapshotRequest {
 
 #[derive(Serialize)]
 pub(crate) struct SharedSnapshotResult {
-    snapshot_id: Id,
+    pub(crate) snapshot_id: Id,
     writer_uploaded_through: u64,
     r2_files: usize,
     b2_files: usize,
@@ -53,6 +53,30 @@ pub(crate) async fn run_shared_snapshot(
     host: &Host,
     request: &SharedSnapshotRequest,
     budget: Duration,
+) -> Result<SharedSnapshotResult> {
+    let _activity = host
+        .shared_sync
+        .gate
+        .try_lock()
+        .map_err(|_| RestoreError::Invalid("shared cloud work already running"))?;
+    run_shared_snapshot_locked(
+        host,
+        &request.workspace,
+        budget,
+        dev_auth(&host.home)?,
+        request.device_id.clone(),
+        Arc::new(device_signer(&request.device_key_file)?),
+    )
+    .await
+}
+
+pub(crate) async fn run_shared_snapshot_locked(
+    host: &Host,
+    workspace: &Path,
+    budget: Duration,
+    auth: AuthClient,
+    device: Id,
+    device_signer: Arc<Ed25519KeyPair>,
 ) -> Result<SharedSnapshotResult> {
     crate::offline_home::refuse_primary(&host.home)
         .map_err(|_| RestoreError::Invalid("shared snapshot requires a dedicated DEV home"))?;
@@ -70,19 +94,16 @@ pub(crate) async fn run_shared_snapshot(
         .map_err(native_error)?;
     let home = runtime.native_home_id();
     let keys = RecoveryKeys::from_seed(Zeroizing::new(host.keypair.secret_key_bytes()))?;
-    let auth = dev_auth(&host.home)?;
-    let device_signer = Arc::new(device_signer(&request.device_key_file)?);
     let transport = SignedSnapshotTransport::from_auth(
         auth.clone(),
         keys.account_id().clone(),
-        request.device_id.clone(),
+        device.clone(),
         Arc::clone(&device_signer),
     )?;
-    let mut state = Workspace::open(&request.workspace, home, &request.device_id, &stream)?;
+    let mut state = Workspace::open(workspace, home, &device, &stream)?;
     let logs = SharedLogClient::from_auth(auth.clone()).map_err(|_| transport_error())?;
-    let objects =
-        SharedObjectClient::from_auth(auth, keys.account_id().clone(), request.device_id.clone())
-            .map_err(|_| transport_error())?;
+    let objects = SharedObjectClient::from_auth(auth, keys.account_id().clone(), device.clone())
+        .map_err(|_| transport_error())?;
     let millis = u64::try_from(budget.as_millis()).unwrap_or(u64::MAX);
     let deadline = fold_db::clock::unix_millis().saturating_add(millis);
     let upload = Upload {
@@ -90,7 +111,7 @@ pub(crate) async fn run_shared_snapshot(
         data: &host.data_dir,
         identity: UploadIdentity {
             account: keys.account_id(),
-            device: &request.device_id,
+            device: &device,
             device_signer: &device_signer,
             content_key: keys.content_key(),
         },

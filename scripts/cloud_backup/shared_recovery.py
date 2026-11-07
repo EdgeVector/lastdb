@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 import baseline_data
 import native_records
 import shared_conflicts
+import shared_automatic
 import shared_multiwriter
 import shared_retention
 import shared_snapshot
@@ -71,6 +72,9 @@ class Operation:
                 "shared_retention_new_multiwriter_scope")
         require(not self.args.conflicts or (self.args.multiwriter and not self.args.retention
                 and self.args.prior_summary is None), "shared_conflict_new_multiwriter_scope")
+        require(not self.args.automatic_sync or (self.args.multiwriter and not self.args.retention
+                and not self.args.conflicts and self.args.prior_summary is None),
+                "shared_automatic_new_multiwriter_scope")
         writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
         self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
@@ -244,7 +248,7 @@ class Operation:
     def attach(self, node, record, label):
         payload = self.payload(label)
         digest = hashlib.sha256(payload).hexdigest()
-        path = self.root / "payload.bin"
+        path = self.root / f"payload-{uuid.uuid4().hex}.bin"
         private_write(path, payload)
         try:
             reply = native_records.put_file(node, self.schema, record, path,
@@ -383,6 +387,9 @@ class Operation:
         self.summary["wrong_device_refused"] = True
 
     def execute(self):
+        if self.args.automatic_sync:
+            shared_automatic.run(self)
+            return
         if self.args.conflicts:
             shared_conflicts.run(self)
             return
@@ -467,6 +474,7 @@ def main():
     parser.add_argument("--multiwriter", action="store_true")
     parser.add_argument("--retention", action="store_true")
     parser.add_argument("--conflicts", action="store_true")
+    parser.add_argument("--automatic-sync", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)

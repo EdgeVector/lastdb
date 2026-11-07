@@ -90,6 +90,7 @@ struct ShutdownInputs<'a> {
     worker_pool: &'a UdsWorkerPool,
     sampler_task: tokio::task::JoinHandle<()>,
     automatic_backup_task: tokio::task::JoinHandle<()>,
+    shared_sync_task: tokio::task::JoinHandle<()>,
 }
 
 /// The accept loop returned (a graceful SIGTERM/SIGINT shutdown): stop the
@@ -109,6 +110,7 @@ fn drain_and_prove_shutdown(
         worker_pool,
         sampler_task,
         automatic_backup_task,
+        shared_sync_task,
     } = inputs;
     let mut shutdown_errors = Vec::new();
     if let Err(error) = accept_result {
@@ -121,9 +123,13 @@ fn drain_and_prove_shutdown(
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
         shutdown_errors.push(format!("request handlers did not drain: {error}"));
     }
-    if let Err(error) =
-        shutdown::drain_background(runtime, host, sampler_task, automatic_backup_task)
-    {
+    if let Err(error) = shutdown::drain_background(
+        runtime,
+        host,
+        sampler_task,
+        automatic_backup_task,
+        shared_sync_task,
+    ) {
         shutdown_errors.push(error);
     }
 
@@ -226,7 +232,8 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         worker_pool.clone(),
     );
 
-    let (sampler_task, automatic_backup_task) = background::spawn(&runtime, &host, &shutdown_flag);
+    let (sampler_task, automatic_backup_task, shared_sync_task) =
+        background::spawn(&runtime, &host, &shutdown_flag);
 
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
@@ -241,6 +248,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             worker_pool: &worker_pool,
             sampler_task,
             automatic_backup_task,
+            shared_sync_task,
         },
         accept_result,
     );
