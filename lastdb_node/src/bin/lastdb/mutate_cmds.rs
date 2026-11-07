@@ -7,6 +7,10 @@ use super::*;
 struct RecordInput {
     mutation: serde_json::Value,
     file: Option<InputFile>,
+    /// `blob` (the default) or `inline`: which file of the record `file`
+    /// writes, or which file `file: null` removes.
+    #[serde(default)]
+    placement: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -15,6 +19,46 @@ struct InputFile {
     source: PathBuf,
     name: Option<String>,
     media_type: Option<String>,
+    /// A small file stored as the record's inline file next to a new blob.
+    thumbnail: Option<InputThumbnail>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputThumbnail {
+    source: PathBuf,
+    name: Option<String>,
+    media_type: Option<String>,
+}
+
+/// The `thumbnail` part of a put-blob request: the inline file bytes ride in
+/// the JSON metadata, so they are read and encoded here.
+fn thumbnail_metadata(
+    base: &Path,
+    thumbnail: Option<&InputThumbnail>,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine as _;
+    let Some(thumbnail) = thumbnail else {
+        return Ok(serde_json::Value::Null);
+    };
+    let path = base.join(&thumbnail.source);
+    let bytes =
+        std::fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    Ok(serde_json::json!({
+        "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
+        "name": thumbnail.name,
+        "media_type": thumbnail.media_type,
+    }))
+}
+
+fn placement(value: Option<&str>) -> Result<&'static str, String> {
+    match value {
+        None | Some("blob") => Ok("blob"),
+        Some("inline") => Ok("inline"),
+        Some(other) => Err(format!(
+            "record input placement must be blob or inline, not {other}"
+        )),
+    }
 }
 
 pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
@@ -67,7 +111,7 @@ pub(super) fn mutate_command(
         let input: RecordInput = serde_json::from_value(body)
             .map_err(|error| format!("invalid record input: {error}"))?;
         body = input.mutation;
-        Some(input.file)
+        Some((input.file, placement(input.placement.as_deref())?))
     } else {
         None
     };
@@ -81,25 +125,27 @@ pub(super) fn mutate_command(
     )
     .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    if let Some(Some(file)) = file {
-        let source = request_file
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(file.source);
-        let metadata = serde_json::json!({
-            "mutation": body, "name": file.name, "media_type": file.media_type,
-        });
-        let receipt = put_record_file(&socket, &metadata, &source)?;
-        println!("{receipt}");
-        return Ok(());
-    }
-    let (route, body) = if file.is_some() {
-        (
+    let base = request_file.parent().unwrap_or_else(|| Path::new(""));
+    let (route, body) = match file {
+        Some((Some(file), placement)) => {
+            if placement == "inline" && file.thumbnail.is_some() {
+                return Err("an inline file input takes no thumbnail".into());
+            }
+            let source = base.join(&file.source);
+            let metadata = serde_json::json!({
+                "mutation": body, "name": file.name, "media_type": file.media_type,
+                "placement": placement,
+                "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
+            });
+            let receipt = put_record_file(&socket, &metadata, &source)?;
+            println!("{receipt}");
+            return Ok(());
+        }
+        Some((None, placement)) => (
             "/api/db/delete-blob",
-            serde_json::json!({ "mutation": body }),
-        )
-    } else {
-        ("/api/mutation", body)
+            serde_json::json!({ "mutation": body, "placement": placement }),
+        ),
+        None => ("/api/mutation", body),
     };
     let raw = post_json_with_timeout(&socket, route, &body, mutate_client_timeout(durable))?;
     let mut stdout = std::io::stdout().lock();

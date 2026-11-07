@@ -76,6 +76,7 @@ pub(super) fn get_record(
     key_range: Option<&str>,
     json_only: bool,
     hydrate: Option<&Path>,
+    hydrate_inline: Option<&Path>,
 ) -> Result<(), String> {
     let Some(hash) = key_hash.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
@@ -85,7 +86,10 @@ pub(super) fn get_record(
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
-    let body = get_query_body(schema_name, hash, key_range);
+    let mut body = get_query_body(schema_name, hash, key_range);
+    if hydrate_inline.is_some() {
+        body["hydrate"] = serde_json::json!("inline");
+    }
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let response = post_json_with_timeout(
         &socket,
@@ -97,6 +101,9 @@ pub(super) fn get_record(
     if let Some(out) = hydrate {
         let file_required = schema["file_required"].as_bool().unwrap_or(false);
         hydrate_cmds::hydrate(&socket, schema_name, &mut value, out, file_required)?;
+    }
+    if let Some(out) = hydrate_inline {
+        hydrate_cmds::hydrate_inline(&mut value, out)?;
     }
     if json_only {
         println!(
@@ -160,6 +167,14 @@ pub(super) fn print_get_human(value: &serde_json::Value) {
             println!("file {path}");
         } else if let Some(file) = row.pointer("/metadata/file") {
             println!("file {file}");
+        }
+        if let Some(path) = row
+            .get("hydrated_inline_file")
+            .and_then(serde_json::Value::as_str)
+        {
+            println!("inline_file {path}");
+        } else if let Some(file) = row.pointer("/metadata/inline_file") {
+            println!("inline_file {file}");
         }
     }
 }

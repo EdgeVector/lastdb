@@ -95,6 +95,24 @@ def put_file(node, schema, record, payload, *, target=None):
     return reply
 
 
+def put_inline(node, schema, record, payload, *, target=None):
+    """Store `payload` as the record's inline file. The file travels in the
+    record value, so the record backup carries it."""
+    target = target if target is not None else key(record["id"])
+    row = read_records(node, schema, [target])[0]
+    require(row["fields"] == record, "inline_write_complete_preimage")
+    request = replace(schema, row, record)
+    request.pop("file", None)
+    path = payload.with_name(payload.name + ".record.json")
+    save_json(path, {"mutation": request, "file": {"source": payload.name}, "placement": "inline"})
+    reply = node.programs.command(node.home, ["mutate", "--request-file", str(path)])
+    require(isinstance(reply.get("file"), dict), "native_inline_write_receipt")
+    canonical_uuid(reply.get("mutation_id"))
+    os.unlink(path)
+    sync_directory(path.parent)
+    return reply
+
+
 def verify_hydrated_file(node, schema, target, record, payload, expected_digest):
     with tempfile.TemporaryDirectory(dir=payload.parent, prefix="hydrated-") as folder:
         output = Path(folder) / "file"

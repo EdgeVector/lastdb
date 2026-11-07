@@ -271,29 +271,43 @@ class OwnedNode:
                         and marker.get("sha256") == baseline["file_sha256"], "record_file_marker")
             else:
                 require(marker is None, "record_without_file")
+            inline = (row.get("metadata") or {}).get("inline_file")
+            if expected["id"] == baseline.get("inline_record"):
+                require(isinstance(inline, dict) and inline.get("size_bytes") == baseline["inline_bytes"]
+                        and inline.get("sha256") == baseline["inline_sha256"]
+                        and "bytes_b64" not in inline, "record_inline_marker")
+            else:
+                require(inline is None, "record_without_inline_file")
         self.verify_file(baseline)
+        summary = {"records": sum(not record.get("deleted", False) for record in baseline["records"]),
+                   "deleted_records": sum(record.get("deleted", False) for record in baseline["records"]),
+                   "file_bytes": baseline["file_bytes"],
+                   "file_sha256": baseline["file_sha256"], "exact_values": True}
+        if baseline.get("inline_record") is not None:
+            self.verify_file(baseline, placement="inline")
+            summary.update(inline_bytes=baseline["inline_bytes"], inline_sha256=baseline["inline_sha256"])
         self.health()
-        return {"records": sum(not record.get("deleted", False) for record in baseline["records"]),
-                "deleted_records": sum(record.get("deleted", False) for record in baseline["records"]),
-                "file_bytes": baseline["file_bytes"],
-                "file_sha256": baseline["file_sha256"], "exact_values": True,
-                "health_checked": True}
+        summary["health_checked"] = True
+        return summary
 
-    def verify_file(self, baseline):
-        target = {"schema": baseline["schema"], "key": {"hash": baseline["records"][0]["id"]}}
+    def verify_file(self, baseline, placement="blob"):
+        if placement == "inline":
+            record, size, sha256 = baseline["inline_record"], baseline["inline_bytes"], baseline["inline_sha256"]
+        else:
+            record, size, sha256 = baseline["records"][0]["id"], baseline["file_bytes"], baseline["file_sha256"]
+        target = {"schema": baseline["schema"], "key": {"hash": record}, "placement": placement}
         response, connection = self.call("/api/db/fetch-blob", target, binary=True)
         try:
             length = response.getheader("Content-Length")
-            require(length is None or length == str(baseline["file_bytes"]), "file_response_size")
+            require(length is None or length == str(size), placement + "_response_size")
             total, digest = 0, hashlib.sha256()
             while True:
-                block = response.read(min(CHUNK, baseline["file_bytes"] + 1 - total))
+                block = response.read(min(CHUNK, size + 1 - total))
                 if not block:
                     break
                 total += len(block)
-                require(total <= baseline["file_bytes"], "file_response_overflow")
+                require(total <= size, placement + "_response_overflow")
                 digest.update(block)
-            require(total == baseline["file_bytes"]
-                    and digest.hexdigest() == baseline["file_sha256"], "restored_file_hash")
+            require(total == size and digest.hexdigest() == sha256, "restored_" + placement + "_hash")
         finally:
             connection.close()
