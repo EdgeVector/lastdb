@@ -18,6 +18,7 @@ from restore_receipts import BACKUP_PROFILE, HOME_FORMAT, NODE_MARKER
 from support import OperationError, require
 
 FORMAT_PATH = "fold_db/crates/core/src/storage/format.rs"
+LEGACY_FORMAT_PATH = "fold_db/crates/core/src/storage/disk_pack/run_admission.rs"
 
 
 def candidate(history, run):
@@ -70,6 +71,33 @@ def constant(source, name):
     return ast.literal_eval(matches[0])
 
 
+def definition(history, source):
+    directory = history.api("contents/fold_db/crates/core/src/storage?ref=" + source)
+    require(isinstance(directory, list) and len(directory) <= 128
+            and all(isinstance(item, dict) for item in directory),
+            "ci_baseline_producer_format_directory")
+    modern = [item for item in directory if item.get("path") == FORMAT_PATH]
+    require(len(modern) <= 1 and (not modern or modern[0].get("type") == "file"),
+            "ci_baseline_producer_format_directory")
+    path = FORMAT_PATH if modern else LEGACY_FORMAT_PATH
+    entry = history.api(f"contents/{path}?ref={source}")
+    require(entry.get("type") == "file" and entry.get("encoding") == "base64"
+            and type(entry.get("size")) is int and 0 < entry["size"] <= 65536,
+            "ci_baseline_producer_format_definition")
+    raw = base64.b64decode(entry["content"], validate=False)
+    require(len(raw) == entry["size"], "ci_baseline_producer_format_definition")
+    text = raw.decode("utf-8")
+    profile, marker = (constant(text, name) for name in ("RECORD_PROFILE", "RECORD_NODE_BYTES"))
+    require(type(profile) is int and profile > 0 and isinstance(marker, bytes),
+            "ci_baseline_producer_format_definition")
+    matched = re.fullmatch(rb"format=([1-9][0-9]{0,9})\nhome=disk-run\ncas=disk-cas\n", marker)
+    require(matched is not None, "ci_baseline_producer_format_definition")
+    home = int(matched[1])
+    require(not modern or constant(text, "HOME_FORMAT") == home,
+            "ci_baseline_producer_format_definition")
+    return home, profile, marker
+
+
 def inspect(operation, token):
     observation = {"observed": False, "restore_authority": "native_client"}
     history = None
@@ -79,19 +107,7 @@ def inspect(operation, token):
         source = producer(history)
         if source is None:
             return {**observation, "reason": "producer_receipt_unavailable"}
-        entry = history.api(f"contents/{FORMAT_PATH}?ref={source}")
-        require(entry.get("type") == "file" and entry.get("encoding") == "base64"
-                and type(entry.get("size")) is int and 0 < entry["size"] <= 65536,
-                "ci_baseline_producer_format_definition")
-        raw = base64.b64decode(entry["content"], validate=False)
-        require(len(raw) == entry["size"], "ci_baseline_producer_format_definition")
-        text = raw.decode("utf-8")
-        home, profile, marker = (constant(text, name) for name in (
-            "HOME_FORMAT", "RECORD_PROFILE", "RECORD_NODE_BYTES"))
-        require(type(home) is int and home > 0 and type(profile) is int and profile > 0
-                and isinstance(marker, bytes) and len(marker) <= 128
-                and marker.startswith(f"format={home}\n".encode()),
-                "ci_baseline_producer_format_definition")
+        home, profile, marker = definition(history, source)
         return {"observed": True, "producer_source": source,
                 "producer_home_format": home, "producer_backup_profile": profile,
                 "client_home_format": HOME_FORMAT, "client_backup_profile": BACKUP_PROFILE,
