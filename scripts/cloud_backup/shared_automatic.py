@@ -2,12 +2,13 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import time
+import shutil
 
 import native_records
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
-from support import OperationError, decode_json, require
+from support import OperationError, decode_json, private_directory, require
 
 
 def policy(node, enabled):
@@ -157,7 +158,9 @@ def run(operation):
     for node in nodes:
         node.stop()
     operation.remove_sources(nodes)
-    operation.summary["source_homes_removed"] = True
+    private_directory(workspace)
+    shutil.rmtree(workspace)
+    operation.summary.update(source_homes_removed=True, publication_workspace_removed=True)
 
     operation.summary["stage"] = "automatic-source-free-restore"
     destination = operation.root / "automatic-restored"
