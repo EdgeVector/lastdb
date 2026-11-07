@@ -136,6 +136,9 @@ pub(super) fn configure(host: &crate::Host, enabled: bool, log: u64, snapshot: u
     if enabled {
         config.interval_seconds = log;
         config.snapshot_interval_seconds = snapshot;
+        config.next_snapshot_at = config
+            .last_snapshot_at
+            .map_or(0, |last| last.saturating_add(snapshot));
     }
     config.enabled = enabled;
     save(&host.home, &config)?;

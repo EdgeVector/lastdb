@@ -11,9 +11,9 @@ from node import OwnedNode
 from support import OperationError, decode_json, private_directory, require
 
 
-def policy(node, enabled):
-    request = ({"action": "enable_automatic", "log_interval_seconds": 1,
-                "snapshot_interval_seconds": 86400} if enabled else {"action": "disable_automatic"})
+def policy(node, enabled, log_interval=1, snapshot_interval=86400):
+    request = ({"action": "enable_automatic", "log_interval_seconds": log_interval,
+                "snapshot_interval_seconds": snapshot_interval} if enabled else {"action": "disable_automatic"})
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         try:
@@ -90,6 +90,29 @@ def restart(operation, nodes, records, files):
                              automatic_upload_after_restart=True)
 
 
+
+def snapshot_schedule(operation, publisher):
+    operation.summary["stage"] = "automatic-independent-snapshot-schedule"
+    policy(publisher, True, log_interval=86400, snapshot_interval=60)
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        state = publisher.call("/api/sync/byte-backup-v2", {"action": "status"})["shared_sync"]
+        if state["progress"]["next_sync_at"] > time.time() + 3600:
+            previous = state["last_snapshot_id"]
+            break
+        time.sleep(1)
+    else:
+        raise OperationError("shared_automatic_sync_schedule_deadline")
+    while time.monotonic() < deadline:
+        state = publisher.call("/api/sync/byte-backup-v2", {"action": "status"})["shared_sync"]
+        if state["last_snapshot_id"] is not None and state["last_snapshot_id"] != previous:
+            operation.summary.update(automatic_snapshot_shorter_than_sync=True,
+                                     replacement_snapshot_id=state["last_snapshot_id"],
+                                     automatic_snapshot=True)
+            return
+        time.sleep(1)
+    raise OperationError("shared_automatic_snapshot_schedule_deadline")
+
 def run(operation):
     operation.summary["stage"] = "automatic-bootstrap"
     publisher = operation.initialize_publisher(operation.writers[0])
@@ -148,12 +171,7 @@ def run(operation):
     pause_and_resume(operation, nodes, records, files)
     restart(operation, nodes, records, files)
 
-    operation.summary["stage"] = "automatic-snapshot-check"
-    state = publisher.call("/api/sync/byte-backup-v2", {"action": "status"})["shared_sync"]
-    require(state["last_snapshot_id"] is not None and state["last_snapshot_id"] != operation.snapshot,
-            "shared_automatic_publisher_snapshot")
-    operation.summary.update(replacement_snapshot_id=state["last_snapshot_id"],
-                             automatic_snapshot=True)
+    snapshot_schedule(operation, publisher)
     # Preserve the current snapshot and every uncovered suffix while all sources leave.
     for node in nodes:
         node.stop()
