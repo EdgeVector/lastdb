@@ -19,7 +19,7 @@ pub(in crate::storage) const NATIVE_SHARED_SCOPE_KEY: &str = "native-shared-sche
 pub(crate) use file_references::{FileReferenceChange, FileRetention};
 pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
 pub(in crate::storage) use portable_author::{
-    initial_local_author, shared_replay_coordinate, validate_local_author, LOCAL_AUTHOR_KEY,
+    initial_local_author, shared_metadata_key, validate_local_author, LOCAL_AUTHOR_KEY,
 };
 pub(crate) use portable_author::{AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema};
 pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
@@ -95,11 +95,12 @@ impl Metadata {
         })
     }
 
-    pub(crate) async fn stage_shared_restore_aliases<'a>(
+    /// Grow the shared scope by aliases that no schema in this home uses yet.
+    pub(crate) async fn stage_shared_aliases<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<()> {
-        if let Some(bytes) = self.runtime.staged_shared_restore_aliases(names)? {
+        if let Some(bytes) = self.runtime.grown_shared_aliases(names)? {
             self.stage(EncodedMetadata {
                 key: NATIVE_SHARED_SCOPE_KEY.into(),
                 bytes,

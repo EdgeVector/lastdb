@@ -19,75 +19,71 @@ pub struct PortableCheckpoint {
 
 impl MutationManager {
     /// Freeze original native files and read the matching applied positions.
+    /// The checkpoint carries the recorded definition of every shared alias.
     pub async fn try_freeze_portable_checkpoint(
         &self,
-        definitions: &BTreeMap<String, PortableSchemaDefinition>,
         snapshot: uuid::Uuid,
         key: &[u8; 32],
     ) -> Result<Option<(PortableCheckpoint, SharedRunCapture)>, SchemaError> {
-        let runtime = self.db_ops.native_runtime();
-        runtime.require_shared_schema_set(definitions.keys().map(String::as_str))?;
-        runtime
-            .freeze_shared_checkpoint(
-                snapshot,
-                key,
-                self.try_capture_portable_checkpoint(definitions),
-            )
+        self.db_ops
+            .native_runtime()
+            .freeze_shared_checkpoint(snapshot, key, self.try_capture_portable_checkpoint())
             .await
     }
 
     /// Wait for ordinary sync before selecting a cut with unaccepted writes.
     async fn try_capture_portable_checkpoint(
         &self,
-        definitions: &BTreeMap<String, PortableSchemaDefinition>,
     ) -> Result<Option<PortableCheckpoint>, SchemaError> {
         let root = self.db_ops.read_scope().await?;
-        let captured = root
-            .run_result(async {
-                let Some(directory) = self
-                    .db_ops
-                    .metadata()
-                    .portable_checkpoint_directory()
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                if definitions.len() != directory.schemas.len() {
-                    return Err(invalid("checkpoint schema set differs from its journal"));
-                }
-                let mut lookups = Vec::with_capacity(directory.schemas.len());
-                for (name, binding) in &directory.schemas {
-                    lookups.push(async move {
-                        let definition = definitions
-                            .get(name)
-                            .ok_or_else(|| invalid("checkpoint schema definition is missing"))?;
-                        let schema = self.load_schema_for_delta(name).await?;
+        root.run_result(async {
+            let metadata = self.db_ops.metadata();
+            let Some(directory) = metadata.portable_checkpoint_directory().await? else {
+                return Ok(None);
+            };
+            let definitions = metadata.portable_definitions().await?;
+            self.db_ops
+                .native_runtime()
+                .require_shared_schema_set(definitions.keys().map(String::as_str))?;
+            let mut lookups = Vec::with_capacity(definitions.len());
+            for (name, definition) in &definitions {
+                let binding = directory.schemas.get(name);
+                lookups.push(async move {
+                    let schema = self.load_schema_for_delta(name).await?;
+                    if let Some(binding) = binding {
                         if definition.id().as_str() != binding.id
                             || schema_fingerprint(&schema)? != binding.local_sha256
                         {
                             return Err(invalid("checkpoint schema differs from its journal"));
                         }
-                        PortableReplaySchema::bind(definition, definition.id(), &schema)?;
-                        if self
-                            .db_ops
-                            .schemas()
-                            .get_schema_retention_policy(name)
-                            .await?
-                            .is_some()
-                        {
-                            return Err(invalid("shared checkpoint retention policy is deferred"));
-                        }
-                        Ok(())
-                    });
-                }
-                futures::future::try_join_all(lookups).await?;
-                Ok(Some(directory))
-            })
-            .await?;
-        Ok(captured.map(|directory| PortableCheckpoint {
-            directory,
-            definitions: definitions.clone(),
-        }))
+                    }
+                    PortableReplaySchema::bind(definition, definition.id(), &schema)?;
+                    if self
+                        .db_ops
+                        .schemas()
+                        .get_schema_retention_policy(name)
+                        .await?
+                        .is_some()
+                    {
+                        return Err(invalid("shared checkpoint retention policy is deferred"));
+                    }
+                    Ok(())
+                });
+            }
+            futures::future::try_join_all(lookups).await?;
+            if directory
+                .schemas
+                .keys()
+                .any(|name| !definitions.contains_key(name))
+            {
+                return Err(invalid("checkpoint schema definition is missing"));
+            }
+            Ok(Some(PortableCheckpoint {
+                directory,
+                definitions,
+            }))
+        })
+        .await
     }
 }
 

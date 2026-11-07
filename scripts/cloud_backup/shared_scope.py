@@ -15,12 +15,8 @@ def protected_json(name):
 def scope(writer_count):
     value = protected_json("LASTDB_CLOUD_DEV_SHARED_SCOPE")
     required = {"account_id", "database_id", "publisher_device", "writers"}
-    require(isinstance(value, dict) and set(value) in (
-        required, required | {"schema_name", "schema_id"}) and value["account_id"] == ACCOUNT,
-        "shared_admitted_scope")
-    if "schema_name" in value:
-        require(is_schema_alias(value["schema_name"])
-                and is_digest(value["schema_id"]), "shared_immutable_schema")
+    require(isinstance(value, dict) and set(value) == required and value["account_id"] == ACCOUNT,
+            "shared_admitted_scope")
     writers = value["writers"]
     require(isinstance(writers, list) and len(writers) == writer_count
             and all(isinstance(writer, dict) and set(writer) == {

@@ -43,11 +43,11 @@ pub(super) fn bounded_prefix(entries: &[MutationEntry]) -> Result<&[MutationEntr
 fn file_entries(entries: &[MutationEntry]) -> BTreeMap<&Position, &MutationEntry> {
     entries
         .iter()
-        .filter_map(|entry| match &entry.operation {
-            MutationOperation::ReplaceRecord { data, .. } => {
-                data.file.as_ref().map(|file| (&file.version, entry))
-            }
-            MutationOperation::DeleteRecord { .. } => None,
+        .filter_map(|entry| {
+            entry
+                .operation
+                .file_version()
+                .map(|version| (version, entry))
         })
         .collect()
 }

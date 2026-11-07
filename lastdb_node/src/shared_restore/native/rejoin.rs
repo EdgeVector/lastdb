@@ -1,5 +1,5 @@
 use super::super::{
-    recovery::{self, PreparedSharedRestore, SnapshotSchema},
+    recovery::{self, PreparedSharedRestore},
     rejoin_disk, require_complete, SharedRestore,
 };
 use super::{NativeWriter, RecoveryKeys, RestoreError, Result, SharedRecoverySource};
@@ -7,7 +7,7 @@ use cloud_backup_protocol::shared::{LogHead, WriterStream};
 use cloud_backup_protocol::Id;
 use fold_db::storage::disk_pack::run_restore;
 use fold_db::FoldDB;
-use schema_service_client::SchemaServiceClient;
+use schema_types::PortableSchemaId;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -56,7 +56,6 @@ impl PreparedRejoin {
 pub(in crate::shared_restore) async fn prepare_rejoin(
     remote: &impl SharedRecoverySource,
     keys: &RecoveryKeys,
-    schemas: &SchemaServiceClient,
     original: RejoinSource<'_>,
 ) -> Result<PreparedRejoin> {
     crate::offline_home::refuse_primary(original.source_data)
@@ -78,7 +77,6 @@ pub(in crate::shared_restore) async fn prepare_rejoin(
     let staged_data = session.stage().join("data");
     let runtime = original.source.db_ops().native_runtime();
     let result = async {
-        require_original_bindings(original.source, &checkpoint_schemas).await?;
         rejoin_disk::stage_private_run(&runtime, &staged_data).await?;
         let writer = NativeWriter::open(
             session.stage(),
@@ -86,7 +84,6 @@ pub(in crate::shared_restore) async fn prepare_rejoin(
             &session.cut,
             checkpoint_schemas,
             keys,
-            schemas,
         )
         .await?;
         writer
@@ -109,6 +106,7 @@ pub(in crate::shared_restore) async fn prepare_rejoin(
         tail.replay(keys.content_key(), &mut session, &mut writer)
             .await?;
         require_complete(&session.cut)?;
+        require_original_bindings(original.source, &writer).await?;
         writer
             .db
             .mutation_manager()
@@ -142,17 +140,20 @@ pub(in crate::shared_restore) async fn prepare_rejoin(
     })
 }
 
-async fn require_original_bindings(source: &FoldDB, schemas: &[SnapshotSchema]) -> Result<()> {
+/// The checkpoint or the replayed tails define every schema the writer bound,
+/// under the same alias.
+async fn require_original_bindings(source: &FoldDB, writer: &NativeWriter<'_>) -> Result<()> {
     let bindings = source
         .mutation_manager()
         .portable_writer_schemas()
         .await
         .map_err(|_| RestoreError::Invalid("read returning writer schema bindings"))?;
-    if schemas.len() != bindings.len()
-        || schemas.iter().any(|schema| {
-            bindings.get(schema.definition.id().as_str()) != Some(&schema.local_schema)
-        })
-    {
+    if bindings.iter().any(|(id, alias)| {
+        id.parse::<PortableSchemaId>()
+            .ok()
+            .and_then(|id| writer.schemas.get(&id))
+            .is_none_or(|schema| &schema.local_schema != alias)
+    }) {
         return Err(RestoreError::Invalid(
             "returning writer schema bindings differ",
         ));

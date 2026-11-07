@@ -17,12 +17,8 @@ use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::MutationManager;
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::disk_pack::PackRuntime;
-use folddb_profile::endpoints::{exemem_api_url_for, schema_service_url_for, Environment};
-use futures::{StreamExt, TryStreamExt};
-use schema_service_client::SchemaServiceClient;
-use schema_types::{PortableSchemaDefinition, PortableSchemaId};
+use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -174,12 +170,11 @@ async fn publish_cut(
         NativeCheckpoint::reopen(runtime, &root, cut, keys).await?
     } else {
         transport.current_snapshot(state.database_id()).await?;
-        let definitions = definitions(upload.native).await?;
         let uuid = snapshot_uuid(id)?;
         let (source, capture) = loop {
             if let Some(frozen) = upload
                 .native
-                .try_freeze_portable_checkpoint(&definitions, uuid, keys.content_key())
+                .try_freeze_portable_checkpoint(uuid, keys.content_key())
                 .await
                 .map_err(native_error)?
             {
@@ -243,32 +238,6 @@ impl Upload<'_> {
             )),
         }
     }
-}
-
-async fn definitions(
-    native: &MutationManager,
-) -> Result<BTreeMap<String, PortableSchemaDefinition>> {
-    let bindings = native
-        .portable_writer_schemas()
-        .await
-        .map_err(native_error)?;
-    let service = SchemaServiceClient::new(schema_service_url_for(DEV));
-    futures::stream::iter(bindings)
-        .map(|(id, alias)| {
-            let service = &service;
-            async move {
-                let id = PortableSchemaId::try_from(id)
-                    .map_err(|_| RestoreError::Invalid("shared schema identity"))?;
-                let definition = service
-                    .get_portable_schema(&id)
-                    .await
-                    .map_err(|_| RestoreError::Source("bound shared schema definition"))?;
-                Ok((alias, definition))
-            }
-        })
-        .buffered(4)
-        .try_collect()
-        .await
 }
 
 fn dev_auth(home: &Path) -> Result<AuthClient> {

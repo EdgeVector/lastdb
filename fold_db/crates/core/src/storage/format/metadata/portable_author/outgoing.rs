@@ -8,8 +8,7 @@ use crate::storage::error::StorageResult;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream, MAX_WRITERS};
 use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{
-    HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
-    StreamProgress,
+    HomeReplayState, MutationEntry, Position, SchemaIdentity, StreamId, StreamProgress,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,6 +37,10 @@ impl SharedAuthor {
                 .collect::<BTreeSet<_>>()
                 .len()
                 != self.schemas.len()
+            || !self
+                .defined
+                .iter()
+                .all(|id| self.schemas.values().any(|schema| &schema.id == id))
             || self.progress.uploaded_through
                 != self.uploaded_head.as_ref().map(|head| head.sequence.get())
             || self
@@ -82,13 +85,18 @@ impl Metadata {
         Ok((author.scope, author.progress))
     }
 
+    /// A shared schema stays while any writer or snapshot can name it.
     pub(crate) async fn shared_schema_bound(&self, name: &str) -> StorageResult<bool> {
+        if self.runtime.is_shared_schema(name) {
+            return Ok(true);
+        }
         let state = self.local_author().await?;
         Ok(state
             .shared
             .is_some_and(|shared| shared.schemas.contains_key(name)))
     }
 
+    /// Bind a fresh writer. Its stream defines each schema before that schema's first record.
     pub(crate) async fn bind_portable_journal(
         &self,
         stream: WriterStream,
@@ -123,6 +131,7 @@ impl Metadata {
         let shared = SharedAuthor {
             scope: stream,
             schemas,
+            defined: BTreeSet::new(),
             progress: StreamProgress::default(),
             uploaded_head: None,
             uploaded_through_ms: None,
@@ -366,12 +375,7 @@ fn shared(state: &LocalAuthor) -> StorageResult<&SharedAuthor> {
 fn same_file_versions(entries: &[MutationEntry], batch: &LogBatch) -> bool {
     let files: BTreeSet<&Position> = entries
         .iter()
-        .filter_map(|entry| match &entry.operation {
-            MutationOperation::ReplaceRecord { data, .. } => {
-                data.file.as_ref().map(|file| &file.version)
-            }
-            MutationOperation::DeleteRecord { .. } => None,
-        })
+        .filter_map(|entry| entry.operation.file_version())
         .collect();
     files
         .iter()

@@ -6,7 +6,7 @@ use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryObjectParent, RecoveryView, SealedObject, SnapshotManifest,
 };
 use cloud_backup_protocol::{DecimalU64, Id};
-use fold_db::portable_mutation::{MutationOperation, Position, StreamId};
+use fold_db::portable_mutation::{Position, StreamId};
 use fold_db::portable_replay::{LogRangeId, VerifiedLogRange, MAX_LOG_BYTES};
 use fold_db::storage::disk_pack::{
     run_restore, NativeCloudWorkGuard, CAS_DIR, HOME_FORMAT, RUN_DIR,
@@ -277,12 +277,7 @@ pub(crate) fn exact_file_versions(
     let needed: BTreeSet<_> = range
         .entries()
         .iter()
-        .filter_map(|entry| match &entry.operation {
-            MutationOperation::ReplaceRecord { data, .. } => {
-                data.file.as_ref().map(|marker| &marker.version)
-            }
-            MutationOperation::DeleteRecord { .. } => None,
-        })
+        .filter_map(|entry| entry.operation.file_version())
         .collect();
     if needed.len() != batch.file_versions.len() {
         return Err(RestoreError::Invalid("shared log file version coverage"));

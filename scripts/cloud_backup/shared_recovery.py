@@ -131,9 +131,10 @@ class Operation:
                 and prior.get("scope") == self.scope and prior.get("primary_access") is False
                 and prior.get("provider_deletions") == 0 and prior.get("cleanup") == "owned runner data removed",
                 "shared_prior_identity")
-        peer_through = 7 if prior.get("peer_restored_before_first_write") is True else 4
-        positions = {"checkpoint_through": 4, "peer_applied_publisher_through": peer_through,
-                     "publisher_tail_through": 7, "peer_tail_through": 3}
+        # Each writer stream defines the schema once, before its first record.
+        peer_through = 8 if prior.get("peer_restored_before_first_write") is True else 5
+        positions = {"checkpoint_through": 5, "peer_applied_publisher_through": peer_through,
+                     "publisher_tail_through": 8, "peer_tail_through": 4}
         require(all(type(prior.get(name)) is int and prior[name] == value
                     for name, value in positions.items()), "shared_prior_accepted_positions")
         publication = ("snapshot_published_before_both_tails" if "payload_id" in prior
@@ -146,9 +147,6 @@ class Operation:
             {"runtime_name", "portable_id"}, {"runtime_name", "portable_id", "catalog_id"})
             and is_schema_alias(binding["runtime_name"]) and is_digest(binding["portable_id"])
             and ("catalog_id" not in binding or is_digest(binding["catalog_id"])), "shared_prior_schema")
-        if "schema_id" in self.scope:
-            require(binding["portable_id"] == self.scope["schema_id"]
-                    and binding["runtime_name"] == self.scope["schema_name"], "shared_prior_pinned_schema")
         self.schema = binding["runtime_name"]
         self.snapshot = canonical_uuid(prior.get("snapshot_id"))
         self.payload_id = canonical_uuid(prior.get("payload_id", self.snapshot))
@@ -207,37 +205,41 @@ class Operation:
         return node
 
     def runtime_schema(self):
-        if "schema_name" in self.scope:
-            return self.scope["schema_name"]
         database = uuid.UUID(self.scope["database_id"])
         suffix = base64.b32encode(database.bytes).decode().lower().rstrip("=")
         name = "CloudSharedProofAlias" if self.args.automatic_sync else "CloudSharedProof"
         return f"cloud-proof-{suffix}/{name}"
 
+    def define_schema(self, node, writer, namespace, name, description):
+        """Compute a typed definition locally. No schema service registers or serves it."""
+        declaration = self.root / f"declaration-{name}.json"
+        save_json(declaration, {
+            "name": name, "descriptive_name": description,
+            "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+            "fields": [IDENTIFIER, NOTE], "field_types": {IDENTIFIER: "String", NOTE: "String"},
+            "field_descriptions": {
+                IDENTIFIER: "Stable identifier for the generated record in a DEV shared storage recovery operation.",
+                NOTE: "Synthetic text that distinguishes versions of the generated DEV shared recovery record.",
+            },
+        })
+        identity = decode_json(self.writer(node, writer, "define-schema", "--namespace",
+                                          namespace, "--declaration", str(declaration)))
+        require(isinstance(identity, dict) and set(identity) == {"catalog_id", "portable_id", "definition"}
+                and is_digest(identity["catalog_id"]) and is_digest(identity["portable_id"])
+                and isinstance(identity["definition"], dict)
+                and identity["definition"].get("id") == identity["portable_id"],
+                "shared_exact_schema_definition")
+        return identity
+
     def provision_schema(self, node, writer):
         self.schema = self.runtime_schema()
-        if "schema_id" in self.scope:
-            identity = {"portable_id": self.scope["schema_id"]}
-        else:
-            namespace, name = self.schema.split("/")
-            if self.args.automatic_sync:
-                name = "CloudSharedProof"
-            declaration = self.root / "declaration.json"
-            save_json(declaration, {
-                "name": name, "descriptive_name": "Shared Storage Recovery Proof Record",
-                "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-                "fields": [IDENTIFIER, NOTE], "field_types": {IDENTIFIER: "String", NOTE: "String"},
-                "field_descriptions": {
-                    IDENTIFIER: "Stable identifier for the generated record in a DEV shared storage recovery operation.",
-                    NOTE: "Synthetic text that distinguishes versions of the generated DEV shared recovery record.",
-                },
-            })
-            identity = decode_json(self.writer(node, writer, "publish-schema", "--namespace",
-                                              namespace, "--declaration", str(declaration)))
-            require(isinstance(identity, dict) and set(identity) == {"catalog_id", "portable_id"}
-                    and all(map(is_digest, identity.values())), "shared_exact_pinned_schema")
-        save_json(self.bindings, {self.schema: identity["portable_id"]})
-        self.summary["schema_binding"] = {"runtime_name": self.schema, **identity}
+        namespace, name = self.schema.split("/")
+        if self.args.automatic_sync:
+            name = "CloudSharedProof"
+        identity = self.define_schema(node, writer, namespace, name, "Shared Storage Recovery Proof Record")
+        save_json(self.bindings, {self.schema: identity["definition"]})
+        self.summary["schema_binding"] = {"runtime_name": self.schema, "portable_id": identity["portable_id"],
+                                          "catalog_id": identity["catalog_id"]}
 
     def record(self, kind, version):
         owner = self.proof_owner
@@ -310,9 +312,10 @@ class Operation:
         checkpoint_file = self.attach(first, checkpoint, "checkpoint")
         publication = self.root / "publication"
         self.summary["stage"] = "publish-initial-native-snapshot"
-        receipt = shared_snapshot.invoke(self, first, a, publication, 4)
+        # The stream's first entry defines the schema; three records and one file follow.
+        receipt = shared_snapshot.invoke(self, first, a, publication, 5)
         self.snapshot = receipt["snapshot_id"]
-        self.summary.update(snapshot_id=self.snapshot, checkpoint_through=4,
+        self.summary.update(snapshot_id=self.snapshot, checkpoint_through=5,
                             initial_snapshot_files=shared_snapshot.provider_counts(receipt),
                             snapshot_published_before_both_tails=True)
         if local_file is not None:
@@ -332,7 +335,7 @@ class Operation:
         self.summary["stage"] = "attach-publisher-tail-file"
         self.attach(first, losing, "losing-tail")
         self.summary["stage"] = "upload-publisher-tail"
-        self.summary["publisher_tail_through"] = shared_daemon.upload(self, first, 7)
+        self.summary["publisher_tail_through"] = shared_daemon.upload(self, first, 8)
         first.stop()
 
         shared_multiwriter.refuse_empty_join(self, a, b)
@@ -343,14 +346,14 @@ class Operation:
                     {"checkpoint": checkpoint_file, "winner": hashlib.sha256(
                         self.payload("losing-tail")).hexdigest()})
         prior, = native_records.read_records(peer, self.schema, [native_records.key("winner")])
-        self.summary.update(peer_applied_publisher_through=7,
+        self.summary.update(peer_applied_publisher_through=8,
                             peer_read_publisher_records_and_file=True,
                             peer_restored_before_first_write=True)
         winner, peer_only = self.record("winner", "peer-tail"), self.record("peer-only", "peer-tail")
         durable_batch(peer, [native_records.replace(self.schema, prior, winner),
                              native_records.create(self.schema, native_records.key("peer-only"), peer_only)])
         self.attach(peer, winner, "winning-tail")
-        self.summary["peer_tail_through"] = shared_daemon.upload(self, peer, 3)
+        self.summary["peer_tail_through"] = shared_daemon.upload(self, peer, 4)
         peer.stop()
         if self.args.multiwriter:
             shared_multiwriter.exchange_tails(self, first, b)

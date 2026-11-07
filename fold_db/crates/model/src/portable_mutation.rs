@@ -8,7 +8,8 @@ mod record;
 pub use record::{FileMarker, RecordData, RecordKey, StoredRecord};
 
 use schema_types::record_keys::RecordKeys;
-use serde::{Deserialize, Serialize};
+use schema_types::{PortableSchemaDefinition, PortableSchemaId};
+use serde::{Deserialize, Serialize, Serializer};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
 /// A safe path component with the same spelling and ordering as a cloud ID.
@@ -86,7 +87,7 @@ pub struct Stamp {
     pub position: Position,
 }
 
-/// Shared mutations use immutable schema service IDs. A local schema with
+/// Shared mutations use locally computed definition IDs. A local schema with
 /// identical ID text still has a distinct identity.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(
@@ -115,6 +116,13 @@ impl SchemaIdentity {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MutationOperation {
+    /// The typed definition of the entry's schema ID. A writer appends one
+    /// before its stream's first record operation with that ID, so each
+    /// stream carries every definition it uses. A reader verifies the ID.
+    DefineSchema {
+        #[serde(serialize_with = "ordered")]
+        definition: Box<PortableSchemaDefinition>,
+    },
     ReplaceRecord {
         primary_key: RecordKey,
         data: RecordData,
@@ -125,14 +133,33 @@ pub enum MutationOperation {
 }
 
 impl MutationOperation {
+    /// A record operation's primary key. A definition has none.
     #[must_use]
-    pub fn primary_key(&self) -> &RecordKey {
+    pub fn primary_key(&self) -> Option<&RecordKey> {
         match self {
             Self::ReplaceRecord { primary_key, .. } | Self::DeleteRecord { primary_key } => {
-                primary_key
+                Some(primary_key)
             }
+            Self::DefineSchema { .. } => None,
         }
     }
+
+    /// The exact file version a replacement names.
+    #[must_use]
+    pub fn file_version(&self) -> Option<&Position> {
+        match self {
+            Self::ReplaceRecord { data, .. } => data.file.as_ref().map(|file| &file.version),
+            Self::DeleteRecord { .. } | Self::DefineSchema { .. } => None,
+        }
+    }
+}
+
+/// Serialize through a JSON value, whose maps order their keys. A schema
+/// definition holds hash maps, and a log entry has one canonical encoding.
+fn ordered<T: Serialize, S: Serializer>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serde_json::to_value(value)
+        .map_err(serde::ser::Error::custom)?
+        .serialize(serializer)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -147,11 +174,39 @@ impl MutationEntry {
     pub fn validate(&self) -> Result<(), PortableMutationError> {
         self.stamp.position.validate()?;
         self.schema.validate()?;
-        self.operation.primary_key().validate()?;
-        if let MutationOperation::ReplaceRecord { data, .. } = &self.operation {
-            data.validate(&self.stamp.position)?;
+        match &self.operation {
+            MutationOperation::DefineSchema { definition } => {
+                let SchemaIdentity::Shared(id) = &self.schema else {
+                    return Err(PortableMutationError::Invalid(
+                        "a schema definition requires a shared schema ID",
+                    ));
+                };
+                let id: PortableSchemaId = id.parse().map_err(|_| {
+                    PortableMutationError::Invalid("schema definition ID must be a SHA-256")
+                })?;
+                // Recompute the hash: only a definition that matches its ID installs.
+                definition.verify(&id).map_err(|_| {
+                    PortableMutationError::Invalid("schema definition differs from its ID")
+                })?;
+            }
+            MutationOperation::ReplaceRecord { primary_key, data } => {
+                primary_key.validate()?;
+                data.validate(&self.stamp.position)?;
+            }
+            MutationOperation::DeleteRecord { primary_key } => primary_key.validate()?,
         }
         Ok(())
+    }
+
+    /// The definition of a `define_schema` entry.
+    #[must_use]
+    pub fn definition(&self) -> Option<&PortableSchemaDefinition> {
+        match &self.operation {
+            MutationOperation::DefineSchema { definition } => Some(&**definition),
+            MutationOperation::ReplaceRecord { .. } | MutationOperation::DeleteRecord { .. } => {
+                None
+            }
+        }
     }
 
     /// The caller supplies the exact schema revision for this identity and
@@ -161,6 +216,9 @@ impl MutationEntry {
             .map_err(|_| PortableMutationError::Invalid("invalid record key definitions"))?;
         self.operation
             .primary_key()
+            .ok_or(PortableMutationError::Invalid(
+                "a schema definition has no record keys",
+            ))?
             .validate_against(&keys.primary)?;
         if let MutationOperation::ReplaceRecord { data, .. } = &self.operation {
             data.validate_alternates(keys)?;

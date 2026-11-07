@@ -15,6 +15,7 @@ def directory():
     for row in rows:
         name = row["record_id"]["S"]
         if name == "schema":
+            # The retired Schema Service pin. Shared databases now carry their definitions.
             continue
         io.database_id(name)
         value = io.body(row)
@@ -46,14 +47,6 @@ def create(identity, case, targets):
     writers = [writers[-1], *writers[:-1]]
     scope = {"account_id": ACCOUNT, "database_id": database,
              "publisher_device": writers[0]["device_id"], "writers": writers}
-    pin = io.get(io.LEDGER, "schema")
-    if pin:
-        pinned = io.body(pin)
-        name = pinned["runtime_name"]
-        if case == "automatic":
-            require(name.endswith("/CloudSharedProof"), "shared_daily_automatic_canonical_schema")
-            name += "Alias"
-        scope.update(schema_name=name, schema_id=pinned["portable_id"])
     ledger = {"schema": "lastdb.shared-daily-owned.v1", "scope": scope,
               "owner": {**identity, "case": case}, "created_at_ms": io.now_ms(),
               "phase": "active", "fenced_at_ms": None, "targets": targets}
@@ -81,24 +74,6 @@ def create(identity, case, targets):
         "TableName": io.TABLE, "Key": {name: row[name] for name in ("account_id", "record_id")}}} for row in rows]})
     require([r.get("Item") for r in readback["Responses"]] == rows, "shared_daily_exact_genesis")
     return scope, seeds
-
-
-def remember_schema(case, summary):
-    binding = summary.get("schema_binding")
-    if not binding:
-        return
-    binding = {name: binding[name] for name in ("runtime_name", "portable_id")}
-    if case == "automatic":
-        # The automatic recipe binds a local alias for the same catalog schema.
-        name = binding["runtime_name"]
-        require(name.endswith("/CloudSharedProofAlias"), "shared_daily_automatic_schema_alias")
-        binding["runtime_name"] = name.removesuffix("Alias")
-    existing = io.get(io.LEDGER, "schema")
-    if existing:
-        require(io.body(existing) == binding, "shared_daily_schema_pin_changed")
-        return
-    io.aws("dynamodb", "put-item", {"TableName": io.TABLE, "Item": io.item(io.LEDGER, "schema", binding),
-                                     "ConditionExpression": "attribute_not_exists(record_id)"})
 
 
 def fence(database):

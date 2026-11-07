@@ -57,7 +57,7 @@ impl MutationManager {
         }
         transaction::request_scope(Arc::clone(&runtime), async {
             let bound = metadata.portable_bound_schemas().await?;
-            runtime.require_shared_schema_set(bound.values().map(String::as_str))?;
+            runtime.require_shared_schema_subset(bound.values().map(String::as_str))?;
             let schemas =
                 futures::future::try_join_all(bound.into_iter().map(|(id, alias)| async move {
                     let schema = self.load_schema_for_delta(&alias).await?;
