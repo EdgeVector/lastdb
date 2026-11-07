@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import traceback
 import uuid
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "benchmarks"))
@@ -29,6 +30,16 @@ class OperationError(Exception):
         # The CLI runner constructs only closed source labels and an exit code.
         self.cli_refusal = cli_refusal
         self.socket_refusal = socket_refusal
+
+
+def unexpected(error, nodes):
+    """Where an unclassified error left the recipe: its class, the last frames as
+    file:line:function, and each daemon's state. No message or value."""
+    frames = traceback.extract_tb(error.__traceback__)[-8:]
+    return {"unexpected_error": type(error).__name__,
+            "unexpected_frames": [f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}"
+                                  for frame in frames],
+            "daemons": [node.exit_report() for node in nodes]}
 
 
 def failure(error):
