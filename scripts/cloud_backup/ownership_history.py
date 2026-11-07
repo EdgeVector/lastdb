@@ -217,7 +217,19 @@ class History:
             require(str(run["id"]) == owner["run_id"]
                     and str(run["run_attempt"]) == owner["run_attempt"]
                     and run["head_sha"] == source, "ci_current_run_identity")
-            record = self.candidate(run, finished=False, startup=startup, kind=kind)
+            # The upload action can finish before the archive is readable
+            # through the Actions API. Retry only this read, before registration.
+            self.deadline = min(self.deadline, time.monotonic() + 45)
+            for delay in (2, 4, 8, 12, 0):
+                try:
+                    record = self.candidate(run, finished=False, startup=startup, kind=kind)
+                except OperationError as error:
+                    if str(error) != "ci_history_github_read_failed" or not delay:
+                        raise
+                    record = None
+                if record is not None or not delay:
+                    break
+                time.sleep(min(delay, max(0, self.deadline - time.monotonic())))
             require(record is not None and record["artifact_id"] == identifier
                     and record["artifact_sha256"] == digest, "ci_current_artifact_identity")
             return record
