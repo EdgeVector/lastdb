@@ -26,7 +26,7 @@ import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
 from node import OwnedNode
-from ownership import run_identity
+from shared_origin import owner as shared_owner
 from programs import Programs, execute
 from recover import step_summary
 from shared_scope import is_digest, is_schema_alias, protected_json, scope
@@ -54,9 +54,7 @@ class Operation:
 
     def prepare(self):
         source = self.args.source
-        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-                and re.fullmatch(r"[0-9a-f]{40}", source), "shared_manual_accepted_source")
-        self.owner = run_identity(source)
+        self.owner = shared_owner(source)
         self.proof_owner = self.owner
         require(re.fullmatch(r"[A-Za-z0-9.+_-]{1,128}", self.args.version)
                 and self.args.version.endswith(".g" + source[:9]), "shared_source_version")

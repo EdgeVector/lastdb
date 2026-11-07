@@ -1,0 +1,162 @@
+name: Daily shared DEV operations
+
+# Qualify manually before enabling the recurring suite and retirement passes.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [suite, cleanup]
+        default: suite
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-shared-daily
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      operation: ${{ steps.admit.outputs.operation }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_OPERATION: ${{ inputs.operation || 'suite' }}
+        run: python3 scripts/cloud_backup/shared_daily_admit.py
+
+  build:
+    needs: admission
+    if: needs.admission.outputs.operation == 'suite'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
+  cleanup:
+    name: Retire owned shared DEV scopes
+    needs: admission
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::152335099025:role/LastDBSharedDailyDev
+          aws-region: us-west-2
+          role-session-name: shared-cleanup-${{ github.run_id }}
+      - name: Advance bounded retirement after the full drain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/cloud_backup/shared_daily_suite.py --cleanup
+          --source "$GITHUB_SHA" --output "$RUNNER_TEMP/shared-daily-cleanup.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shared-daily-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shared-daily-cleanup.json
+          if-no-files-found: error
+          retention-days: 90
+
+  cases:
+    name: Shared DEV / ${{ matrix.case }}
+    needs: [admission, build, cleanup]
+    if: needs.admission.outputs.operation == 'suite'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        case: [lifecycle, conflicts, retention]
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/client-package
+      - name: Unpack the exact accepted client
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/client-bin"
+          tar -xzf "$RUNNER_TEMP/client-package/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$RUNNER_TEMP/client-bin" lastdb lastdbd
+          sha256sum "$RUNNER_TEMP/client-package/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::152335099025:role/LastDBSharedDailyDev
+          aws-region: us-west-2
+          role-session-name: shared-${{ matrix.case }}-${{ github.run_id }}
+      - name: Enroll, operate, verify and fence the fresh scope
+        env:
+          CASE: ${{ matrix.case }}
+          CLIENT_VERSION: ${{ needs.build.outputs.version }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+        run: >-
+          python3 scripts/cloud_backup/shared_daily_suite.py --case "$CASE"
+          --source "$GITHUB_SHA" --version "$CLIENT_VERSION" --bin-dir "$RUNNER_TEMP/client-bin"
+          --output "$RUNNER_TEMP/shared-daily-$CASE.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shared-daily-${{ matrix.case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shared-daily-${{ matrix.case }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  complete:
+    name: Shared daily complete
+    if: always()
+    needs: [admission, build, cleanup, cases]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: shared-daily-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shared-daily-results
+          merge-multiple: true
+      - name: Require actual exact-source results and cleanup state
+        env:
+          OPERATION: ${{ needs.admission.outputs.operation || inputs.operation || 'suite' }}
+          ADMISSION_RESULT: ${{ needs.admission.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          CLEANUP_RESULT: ${{ needs.cleanup.result }}
+          CASES_RESULT: ${{ needs.cases.result }}
+        run: >-
+          python3 scripts/cloud_backup/shared_daily_results.py --operation "$OPERATION"
+          --directory "$RUNNER_TEMP/shared-daily-results"
