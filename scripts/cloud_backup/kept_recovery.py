@@ -134,9 +134,12 @@ def recover(operation, kept, credentials, phrase):
     parent.mkdir(mode=0o700)
     destination = parent / "restored"
     report = operation.programs.restore(credentials, destination, expected, phrase)
+    # The native bytes are the main home only; the record's file stays a B2
+    # object until the first keyed read fetches it.
     require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
             "ci_kept_native_size")
     proof = restored(destination, report, expected, node_markers=(NODE_MARKER,))
+    require(proof["empty_cas_home_before_first_fetch"] is True, "ci_kept_blob_not_restored_eagerly")
     inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
     proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
     operation.node = OwnedNode(destination, operation.programs)

@@ -20,22 +20,23 @@ MARGIN_SECONDS = 30
 
 
 def frontiers(value):
-    require(isinstance(value, dict) and set(value) == {"main", "cas"}
-            and all(type(number) is int and 0 <= number < 2**64 for number in value.values()),
-            "stopped_frontiers")
-    return {"main": value["main"], "cas": value["cas"]}
+    require(isinstance(value, dict) and set(value) == {"main"}
+            and type(value["main"]) is int and 0 <= value["main"] < 2**64, "stopped_frontiers")
+    return {"main": value["main"]}
 
 
 def cut(profile):
-    # The run profile serializes each frontier as a decimal string.
-    values = {name: profile[name]["frontier"] for name in ("main", "cas")}
-    require(all(isinstance(value, str) and value.isdigit() and str(int(value)) == value
-                for value in values.values()), "stopped_run_profile_frontier")
-    return frontiers({name: int(value) for name, value in values.items()})
+    # A personal snapshot has no CAS home: record blobs upload by path.
+    require("cas" not in profile, "stopped_run_profile_without_cas")
+    # The run profile serializes the frontier as a decimal string.
+    value = profile["main"]["frontier"]
+    require(isinstance(value, str) and value.isdigit() and str(int(value)) == value,
+            "stopped_run_profile_frontier")
+    return frontiers({"main": int(value)})
 
 
 def covers(after, before):
-    return all(after[name] >= before[name] for name in ("main", "cas"))
+    return after["main"] >= before["main"]
 
 
 def ordinal(accepted):

@@ -28,7 +28,8 @@ def number(value):
 
 
 def frontiers(value):
-    return None if not isinstance(value, dict) else {name: number(value.get(name)) for name in ("main", "cas")}
+    # A personal backup has one frontier; record blobs upload by path.
+    return None if not isinstance(value, dict) else {"main": number(value.get("main"))}
 
 
 def public(value, pattern):

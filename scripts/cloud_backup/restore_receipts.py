@@ -71,32 +71,42 @@ def native_path(relative):
     require(isinstance(relative, str), "native_path_type")
     if relative == "laststore-pack-node-v1":
         return
-    for name in ("disk-run", "disk-cas"):
-        if relative in (name + "/CURRENT", name + "/laststore-run-home-v2"):
-            return
-        prefix = name + "/runs/"
-        if relative.startswith(prefix) and relative.endswith(".ldrun"):
-            identifier = relative[len(prefix):-6]
-            require(UUID.fullmatch(identifier) and identifier != NIL, "native_run_path")
-            return
+    # A personal backup holds the main home only. Record blobs are B2 objects
+    # at their own paths, outside the restored native files.
+    if relative in ("disk-run/CURRENT", "disk-run/laststore-run-home-v2"):
+        return
+    prefix = "disk-run/runs/"
+    if relative.startswith(prefix) and relative.endswith(".ldrun"):
+        identifier = relative[len(prefix):-6]
+        require(UUID.fullmatch(identifier) and identifier != NIL, "native_run_path")
+        return
     require(False, "native_path_allowlist")
+
+
+def empty_cas_home(home):
+    """The restore installs an empty CAS home: no record blob row is local
+    before the first fetch downloads one."""
+    require(names(owned(home, "data/disk-cas/CURRENT").parent)
+            == {"CURRENT", "laststore-run-home-v2", "LOCK", "runs"}, "restored_cas_home_closure")
+    require(not names(owned(home, "data/disk-cas/runs/placeholder").parent),
+            "restored_cas_home_has_no_blob_rows")
 
 
 def closure(home, files):
     require(names(owned(home, "data/laststore-pack-node-v1").parent)
             == {"laststore-pack-node-v1", "disk-run", "disk-cas"}, "restored_root_closure")
     paths = {"laststore-pack-node-v1"}
-    for name in ("disk-run", "disk-cas"):
-        require(names(owned(home, "data/" + name + "/CURRENT").parent)
-                == {"CURRENT", "laststore-run-home-v2", "LOCK", "runs"}, "restored_home_closure")
-        hash_file(owned(home, "data/" + name + "/LOCK"), 0)
-        paths.update(name + "/" + control for control in ("CURRENT", "laststore-run-home-v2"))
-        runs = owned(home, "data/" + name + "/runs/placeholder").parent
-        for filename in sorted(names(runs)):
-            require(filename.endswith(".ldrun") and UUID.fullmatch(filename[:-6])
-                    and filename[:-6] != NIL and len(paths) < MAX_FILES, "restored_run_name")
-            paths.add(name + "/runs/" + filename)
+    require(names(owned(home, "data/disk-run/CURRENT").parent)
+            == {"CURRENT", "laststore-run-home-v2", "LOCK", "runs"}, "restored_home_closure")
+    hash_file(owned(home, "data/disk-run/LOCK"), 0)
+    paths.update("disk-run/" + control for control in ("CURRENT", "laststore-run-home-v2"))
+    runs = owned(home, "data/disk-run/runs/placeholder").parent
+    for filename in sorted(names(runs)):
+        require(filename.endswith(".ldrun") and UUID.fullmatch(filename[:-6])
+                and filename[:-6] != NIL and len(paths) < MAX_FILES, "restored_run_name")
+        paths.add("disk-run/runs/" + filename)
     require(paths == {item["path"] for item in files}, "restored_native_file_closure")
+    empty_cas_home(home)
 
 
 def selection(home, baseline, endpoint=None):
@@ -188,10 +198,9 @@ def verified_prefixes(root, replay, accepted, observe):
 def replayed_inventory(home, root, replay, accepted, observe):
     routes = verified_prefixes(root, replay, accepted, observe)
     paths = ["laststore-pack-node-v1"]
-    for name in ("disk-run", "disk-cas"):
-        paths.extend(name + "/" + control for control in ("CURRENT", "laststore-run-home-v2"))
-        runs = owned(home, "data/" + name + "/runs/placeholder").parent
-        paths.extend(name + "/runs/" + filename for filename in sorted(names(runs)))
+    paths.extend("disk-run/" + control for control in ("CURRENT", "laststore-run-home-v2"))
+    runs = owned(home, "data/disk-run/runs/placeholder").parent
+    paths.extend("disk-run/runs/" + filename for filename in sorted(names(runs)))
     require(len(paths) <= MAX_FILES, "replayed_file_count")
     files = []
     for path in sorted(paths):
@@ -242,7 +251,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
             "independent_native_file_hashes_verified": replay is None,
             "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,
-            "native_file_closure_verified": True,
+            "native_file_closure_verified": True, "empty_cas_home_before_first_fetch": True,
             "before_first_normal_boot": True}
     if routes is not None:
         result["mutation_log_routes"] = routes

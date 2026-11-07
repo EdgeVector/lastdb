@@ -303,6 +303,9 @@ class OwnedNode:
         return summary
 
     def verify_file(self, baseline, placement="blob"):
+        """Stream the record's file and check its exact size and SHA-256. On a
+        restored home the first blob read downloads the version from its B2
+        path and installs it; the restore proof already showed the CAS home empty."""
         if placement == "inline":
             record, size, sha256 = baseline["inline_record"], baseline["inline_bytes"], baseline["inline_sha256"]
         else:

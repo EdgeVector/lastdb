@@ -66,10 +66,11 @@ def recover(programs, credentials, parent, phrase, expected, point, report, oper
             "fresh_restore_exact_accepted_snapshot")
     proof = restored(destination, restored_report, selected)
     files = proof.pop("files")
-    b2_runs = sum(item["path"].startswith("disk-cas/runs/") for item in files)
-    require(b2_runs > 0, "fresh_restore_b2_run")
+    # Record blobs are B2 objects at their own paths, not restored CAS runs.
+    # The keyed reads below fetch the record's file from B2 and check its hash.
+    require(not any(item["path"].startswith("disk-cas/") for item in files), "fresh_restore_without_cas_runs")
     inventory = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
-    proof.update(native_inventory_sha256=hashlib.sha256(inventory).hexdigest(), b2_run_files=b2_runs)
+    proof.update(native_inventory_sha256=hashlib.sha256(inventory).hexdigest(), cas_run_files=0)
     operation.summary["restore"] = proof
     operation.summary["stage"] = "verify_restored_boots"
     node = OwnedNode(destination, programs, account=point["account_id"])
