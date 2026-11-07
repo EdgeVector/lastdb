@@ -11,23 +11,21 @@ use fold_db::fold_db_core::{
     factory::{create_fold_db_with_options, FoldDbOptions},
     mutation_manager::portable_replay::ReplayCandidate,
 };
-use fold_db::portable_mutation::{
-    MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
-};
-use fold_db::schema::Schema;
+use fold_db::portable_mutation::{MutationEntry, MutationOperation, Position, StreamId};
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
-use futures::{StreamExt, TryStreamExt};
 use schema_service_client::SchemaServiceClient;
 use schema_types::PortableSchemaId;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod rejoin;
+mod schemas;
 pub use rejoin::PreparedRejoin;
 pub(super) use rejoin::{prepare_rejoin, RejoinSource};
+pub(crate) use schemas::{resolve_schemas, schema_id, SchemaTarget};
 
 const FILE_INPUT_LIMIT: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
@@ -284,104 +282,6 @@ impl<'a> NativeWriter<'a> {
             .map_err(|_| RestoreError::Invalid("restored account identity"))?;
         Ok(())
     }
-}
-
-pub(crate) enum SchemaTarget {
-    ActivePeer,
-    StagedRestore,
-}
-
-pub(crate) async fn resolve_schemas(
-    db: &FoldDB,
-    service: &SchemaServiceClient,
-    schemas: &mut BTreeMap<PortableSchemaId, SnapshotSchema>,
-    entries: &[&MutationEntry],
-    target: SchemaTarget,
-) -> Result<()> {
-    let mut missing = BTreeSet::new();
-    for entry in entries {
-        let id = schema_id(&entry.schema)?;
-        if !schemas.contains_key(&id) {
-            missing.insert(id);
-        }
-    }
-    let resolved: Vec<_> = futures::stream::iter(missing)
-        .map(|id| async move {
-            let definition = service
-                .get_portable_schema(&id)
-                .await
-                .map_err(|_| RestoreError::Source("immutable schema definition"))?;
-            let wire = definition
-                .verify(&id)
-                .map_err(|_| RestoreError::Invalid("resolved schema identity"))?;
-            let local_schema = wire.name.clone();
-            let schema: Schema = wire.clone().into();
-            Ok::<_, RestoreError>((
-                SnapshotSchema {
-                    local_schema,
-                    definition,
-                },
-                schema,
-            ))
-        })
-        .buffered(4)
-        .try_collect()
-        .await?;
-    let manager = db.schema_manager();
-    let mut aliases: BTreeSet<_> = schemas
-        .values()
-        .map(|schema| &schema.local_schema)
-        .collect();
-    let mut install = Vec::new();
-    for (binding, schema) in &resolved {
-        if matches!(target, SchemaTarget::ActivePeer) {
-            db.db_ops()
-                .native_runtime()
-                .require_shared_replay_alias(&binding.local_schema)
-                .map_err(|_| {
-                    RestoreError::Invalid("peer schema is outside the dedicated disk scope")
-                })?;
-        }
-        if !aliases.insert(&binding.local_schema) {
-            return Err(RestoreError::Invalid("portable schema alias collision"));
-        }
-        if let Some(existing) = manager
-            .get_schema_metadata(&binding.local_schema)
-            .map_err(|_| RestoreError::Invalid("resolved schema read"))?
-        {
-            binding
-                .definition
-                .bind_local_alias(binding.definition.id(), &existing.to_wire())
-                .map_err(|_| RestoreError::Invalid("resolved schema alias collision"))?;
-        } else {
-            install.push(schema.clone());
-        }
-    }
-    if !install.is_empty() {
-        let loaded = match target {
-            SchemaTarget::ActivePeer => manager.load_schema_batch(install).await,
-            SchemaTarget::StagedRestore => {
-                db.mutation_manager()
-                    .install_staged_shared_restore_schemas(install)
-                    .await
-            }
-        };
-        loaded.map_err(|_| RestoreError::Invalid("install resolved schema definitions"))?;
-    }
-    schemas.extend(
-        resolved
-            .into_iter()
-            .map(|(binding, _)| (binding.definition.id().clone(), binding)),
-    );
-    Ok(())
-}
-
-pub(crate) fn schema_id(identity: &SchemaIdentity) -> Result<PortableSchemaId> {
-    let SchemaIdentity::Shared(id) = identity else {
-        return Err(RestoreError::Invalid("local schema in shared replay"));
-    };
-    id.parse()
-        .map_err(|_| RestoreError::Invalid("portable schema ID"))
 }
 
 fn file_version(entry: &MutationEntry) -> Option<&Position> {

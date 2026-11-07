@@ -211,7 +211,8 @@ class Operation:
             return self.scope["schema_name"]
         database = uuid.UUID(self.scope["database_id"])
         suffix = base64.b32encode(database.bytes).decode().lower().rstrip("=")
-        return f"cloud-proof-{suffix}/CloudSharedProof"
+        name = "CloudSharedProofAlias" if self.args.automatic_sync else "CloudSharedProof"
+        return f"cloud-proof-{suffix}/{name}"
 
     def provision_schema(self, node, writer):
         self.schema = self.runtime_schema()
@@ -219,6 +220,8 @@ class Operation:
             identity = {"portable_id": self.scope["schema_id"]}
         else:
             namespace, name = self.schema.split("/")
+            if self.args.automatic_sync:
+                name = "CloudSharedProof"
             declaration = self.root / "declaration.json"
             save_json(declaration, {
                 "name": name, "descriptive_name": "Shared Storage Recovery Proof Record",

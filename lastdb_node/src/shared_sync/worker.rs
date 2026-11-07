@@ -1,6 +1,7 @@
 use super::{config, snapshot};
 use crate::byte_cloud_backup::{BackupError, Result};
-use crate::shared_peer::{PeerIdentity, PeerOutcome, PeerWorker};
+use crate::byte_cloud_restore::RestoreError;
+use crate::shared_peer::{PeerError, PeerIdentity, PeerOutcome, PeerWorker};
 use crate::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, shared_peer::SharedPeerClient,
@@ -24,7 +25,9 @@ pub(super) async fn run(host: Arc<crate::Host>, shutdown: Arc<AtomicBool>) {
         if tick(&host).await.is_err() {
             host.shared_sync.update(|state| {
                 state.running = false;
-                state.blocked_reason = Some("shared_sync_retry_pending");
+                state
+                    .blocked_reason
+                    .get_or_insert("shared_sync_retry_pending");
                 state.retry_at = fold_db::clock::unix_secs().saturating_add(5);
             });
         }
@@ -47,7 +50,10 @@ async fn tick(host: &crate::Host) -> Result<()> {
     if !config.enabled || now < status.progress.retry_at || (!sync_due && !snapshot_due) {
         return Ok(());
     }
-    host.shared_sync.update(|state| state.running = true);
+    host.shared_sync.update(|state| {
+        state.running = true;
+        state.blocked_reason = None;
+    });
     if sync_due {
         sync(host, &config).await?;
         host.shared_sync.update(|state| {
@@ -56,7 +62,11 @@ async fn tick(host: &crate::Host) -> Result<()> {
         });
     }
     if snapshot_due {
-        snapshot::publish(host, &mut config).await?;
+        if let Err(error) = snapshot::publish(host, &mut config).await {
+            host.shared_sync
+                .update(|state| state.blocked_reason = Some("shared_snapshot_retry_pending"));
+            return Err(error);
+        }
     }
     host.shared_sync.update(|state| {
         state.running = false;
@@ -118,8 +128,18 @@ async fn sync(host: &crate::Host, config: &config::Config) -> Result<()> {
             download(host, config, auth, &signer, &content_key)
         ),
     );
-    upload.map_err(|_| BackupError::Waiting)??;
-    download.map_err(|_| BackupError::Waiting)?
+    let reason = match download {
+        Ok(Ok(())) => match upload {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(_)) => "shared_upload_retry_pending",
+            Err(_) => "shared_upload_deadline",
+        },
+        Ok(Err(reason)) => reason,
+        Err(_) => "shared_download_deadline",
+    };
+    host.shared_sync
+        .update(|state| state.blocked_reason = Some(reason));
+    Err(BackupError::Waiting)
 }
 
 async fn upload(
@@ -156,9 +176,9 @@ async fn download(
     auth: AuthClient,
     signer: &fold_db::security::Ed25519KeyPair,
     content_key: &[u8; 32],
-) -> Result<()> {
+) -> std::result::Result<(), &'static str> {
     let peers = SharedPeerClient::from_auth(auth, config.account.clone(), config.device.clone())
-        .map_err(|_| BackupError::Source)?;
+        .map_err(|_| "shared_download_connection")?;
     let service = SchemaServiceClient::new(schema_service_url_for(Environment::Dev));
     let mut worker = PeerWorker::new(
         &host.db,
@@ -171,7 +191,11 @@ async fn download(
         BTreeMap::new(),
     );
     for _ in 0..RANGES_PER_PASS {
-        match worker.step().await.map_err(|_| BackupError::Source)? {
+        match worker
+            .step()
+            .await
+            .map_err(|error| download_reason(&error))?
+        {
             (PeerOutcome::Idle, _) => {
                 host.shared_sync.update(|state| state.needs_restore = None);
                 return Ok(());
@@ -182,9 +206,18 @@ async fn download(
             (PeerOutcome::NeedsCheckpoint { stream }, _) => {
                 host.shared_sync
                     .update(|state| state.needs_restore = Some(stream));
-                return Err(BackupError::Source);
+                return Err("shared_download_requires_restore");
             }
         }
     }
     Ok(())
+}
+
+fn download_reason(error: &PeerError) -> &'static str {
+    match error {
+        PeerError::Restore(RestoreError::Invalid(reason) | RestoreError::Source(reason)) => reason,
+        PeerError::Restore(_) => "shared_download_validation",
+        PeerError::NativeStage { stage, .. } => stage,
+        PeerError::Transport(_) => "shared_download_transport",
+    }
 }

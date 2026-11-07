@@ -82,7 +82,11 @@ impl<'a> PeerWorker<'a> {
             .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
         let db = self.db;
         let native = db.mutation_manager();
-        let reader = native.portable_outgoing().await?.stream;
+        let reader = native
+            .portable_outgoing()
+            .await
+            .map_err(PeerError::native("shared_peer_reader"))?
+            .stream;
         let heads = self
             .client
             .heads(&PeerHeadsRequest { reader }, proof_expires()?, |bytes| {
@@ -91,12 +95,18 @@ impl<'a> PeerWorker<'a> {
             .await?;
         let outcome = self.apply_one(native, &heads).await?;
         if matches!(outcome, PeerOutcome::Idle) {
-            native.reclaim_legacy_shared_retention().await?;
+            native
+                .reclaim_legacy_shared_retention()
+                .await
+                .map_err(PeerError::native("shared_peer_legacy_retention"))?;
         }
         let reclaimed = if matches!(outcome, PeerOutcome::NeedsCheckpoint { .. }) {
             0
         } else {
-            native.reclaim_portable_deletes(&heads).await?
+            native
+                .reclaim_portable_deletes(&heads)
+                .await
+                .map_err(PeerError::native("shared_peer_delete_retention"))?
         };
         Ok((outcome, reclaimed))
     }
@@ -113,7 +123,10 @@ impl<'a> PeerWorker<'a> {
             .map(|cut| Ok((cut, stream_id(&cut.source_stream)?)))
             .collect::<Result<Vec<_>>>()?;
         let streams = peers.iter().map(|(_, stream)| stream.clone()).collect();
-        let progress = native.portable_peer_selection(&streams).await?;
+        let progress = native
+            .portable_peer_selection(&streams)
+            .await
+            .map_err(PeerError::native("shared_peer_positions"))?;
         let start = peers.partition_point(|(_, stream)| {
             progress
                 .last_applied_peer
@@ -211,11 +224,13 @@ impl<'a> PeerWorker<'a> {
                 .ok_or(RestoreError::Invalid("empty peer genesis"))?;
             native
                 .admit_portable_peer(id.source_stream(), first.stamp.authored_at_ms)
-                .await?;
+                .await
+                .map_err(PeerError::native("shared_peer_admission"))?;
         }
         native
             .receive_portable_range(id, std::mem::take(&mut *plaintext))
-            .await?;
+            .await
+            .map_err(PeerError::native("shared_peer_save_range"))?;
         Ok(())
     }
 
@@ -226,7 +241,10 @@ impl<'a> PeerWorker<'a> {
         stream: &StreamId,
     ) -> Result<Option<u64>> {
         let streams = BTreeSet::from([stream.clone()]);
-        let entries = native.portable_peer_candidates(&streams).await?;
+        let entries = native
+            .portable_peer_candidates(&streams)
+            .await
+            .map_err(PeerError::native("shared_peer_candidates"))?;
         if entries.is_empty() {
             return Ok(None);
         }
@@ -253,7 +271,10 @@ impl<'a> PeerWorker<'a> {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let needed = native.portable_replay_needed(&candidates).await?;
+        let needed = native
+            .portable_replay_needed(&candidates)
+            .await
+            .map_err(PeerError::native("shared_peer_prepare_replay"))?;
         let files = self.files(reader, &entries, needed).await?;
         let definitions = self
             .schemas
@@ -270,8 +291,12 @@ impl<'a> PeerWorker<'a> {
             .collect();
         native
             .apply_portable_inbox(&streams, &definitions, files)
-            .await?;
-        let cursor = native.portable_peer_progress(&streams).await?;
+            .await
+            .map_err(PeerError::native("shared_peer_apply_range"))?;
+        let cursor = native
+            .portable_peer_progress(&streams)
+            .await
+            .map_err(PeerError::native("shared_peer_applied_position"))?;
         Ok(Some(
             cursor
                 .get(stream)
@@ -300,15 +325,24 @@ fn stream_id(id: &Id) -> Result<StreamId> {
 #[derive(Debug)]
 pub enum PeerError {
     Restore(RestoreError),
-    Native(SchemaError),
+    NativeStage {
+        stage: &'static str,
+        cause: SchemaError,
+    },
     Transport(BackupTransportError),
+}
+
+impl PeerError {
+    fn native(stage: &'static str) -> impl FnOnce(SchemaError) -> Self {
+        move |cause| Self::NativeStage { stage, cause }
+    }
 }
 
 impl fmt::Display for PeerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Restore(error) => fmt::Display::fmt(error, formatter),
-            Self::Native(error) => fmt::Display::fmt(error, formatter),
+            Self::NativeStage { stage, cause } => write!(formatter, "{stage}: {cause}"),
             Self::Transport(error) => fmt::Display::fmt(error, formatter),
         }
     }
@@ -319,12 +353,6 @@ impl std::error::Error for PeerError {}
 impl From<RestoreError> for PeerError {
     fn from(value: RestoreError) -> Self {
         Self::Restore(value)
-    }
-}
-
-impl From<SchemaError> for PeerError {
-    fn from(value: SchemaError) -> Self {
-        Self::Native(value)
     }
 }
 
