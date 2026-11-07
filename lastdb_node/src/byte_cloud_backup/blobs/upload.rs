@@ -82,6 +82,12 @@ async fn upload_one_page(
         for &i in chunk {
             let entry = &mut entries[i];
             let Some(bytes) = source.blob_bytes(&entry.key).await? else {
+                // The service accepts a job only when every blob transfer it
+                // knows is Verified. A frozen input may already be prepared,
+                // so its bytes must still exist.
+                if entry.input.is_some() {
+                    return Err(BackupError::Source);
+                }
                 // Retired before its upload: no record of this job names it.
                 entry.vanished = true;
                 continue;
