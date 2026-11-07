@@ -34,6 +34,17 @@ impl RecordStore {
         self.format.seal_record_file(plaintext, name, media_type)
     }
 
+    pub(crate) async fn reference_local_file(
+        &self,
+        path: &std::path::Path,
+        name: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<FileWrite, FoldDbError> {
+        self.format
+            .reference_local_file(path, name, media_type)
+            .await
+    }
+
     pub(crate) async fn open_record_file(
         &self,
         record_key: &str,

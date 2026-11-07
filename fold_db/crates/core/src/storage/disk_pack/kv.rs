@@ -1,6 +1,18 @@
 use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
 
+impl PackRuntime {
+    /// The cas namespace. Backup uses it to seal local file references into
+    /// the run that the hold hard-links, then to delete those rows.
+    pub(in crate::storage) async fn cas_store(self: &Arc<Self>) -> StorageResult<Arc<dyn KvStore>> {
+        self.ensure_namespace(CAS_COLLECTION).await?;
+        Ok(Arc::new(PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: CAS_COLLECTION.to_string(),
+        }))
+    }
+}
+
 impl PackKvStore {
     async fn values(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
         if keys.is_empty() {
