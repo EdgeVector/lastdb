@@ -161,7 +161,7 @@ pub(in crate::byte_cloud_backup) fn record_stopped(
     if policy
         .state
         .last_backed_up_frontiers
-        .is_some_and(|backed| frontiers.main < backed.main || frontiers.cas < backed.cas)
+        .is_some_and(|backed| frontiers.main < backed.main)
     {
         return Err(BackupError::Identity);
     }

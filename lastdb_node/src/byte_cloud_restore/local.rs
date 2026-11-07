@@ -97,12 +97,17 @@ pub(crate) fn writable_file(path: &Path, truncate: bool) -> Result<File> {
 }
 
 /// Recreate private runtime members that the native file inventory excludes.
+/// A personal backup has no CAS home files; restore creates that home empty
+/// afterwards, so an absent CAS home is skipped here.
 pub(crate) fn prepare_native_ephemera(data: &Path) -> Result<()> {
     for name in [
         fold_db::storage::disk_pack::RUN_DIR,
         fold_db::storage::disk_pack::CAS_DIR,
     ] {
         let home = data.join(name);
+        if name == fold_db::storage::disk_pack::CAS_DIR && !home.try_exists()? {
+            continue;
+        }
         directory(&home)?;
         let runs = home.join(laststore::disk_run::home::RUNS);
         match fs::DirBuilder::new().mode(0o700).create(&runs) {

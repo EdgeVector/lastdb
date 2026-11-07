@@ -1,4 +1,5 @@
-//! Paired owner capture. No second home owner or storage-format conversion.
+//! Owner capture of the main home (and, for a shared database, its CAS home).
+//! No second home owner or storage-format conversion.
 use super::{
     invalid, model::State, protocol, run_source::RunSource, store::private_directory, store::Store,
     ByteBackupCapture, Inner, PackRuntime, StorageResult, RUN_INTENT_FILE,
@@ -99,7 +100,7 @@ pub(super) async fn prepare(
         }
         if !root.try_exists()? {
             renew_intent(&runtime, &store, &mut intent, renew_unmaterialized)?;
-            capture_pair(&runtime, &root)?;
+            capture_pair(&runtime, &root, false)?;
         }
         drop(gate);
         let run = RunSource::open(Arc::clone(&runtime), root, &key)?;
@@ -162,7 +163,6 @@ fn renew_intent(
     let actual = runtime.physical.current_root();
     let journal = runtime.mutation_log.status(&runtime.physical)?;
     if actual.main.frontier() == anchor.frontiers.main
-        && actual.cas.frontier() == anchor.frontiers.cas
         && journal.anchor.as_ref() == Some(anchor)
         && journal.gap.is_none()
     {
@@ -186,7 +186,13 @@ pub(super) fn require_shared_hold(root: &Path) -> StorageResult<()> {
     Ok(())
 }
 
-pub(super) fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
+/// Hold the main home and the node marker. Only a shared database checkpoint
+/// also holds its CAS home; a personal snapshot uploads record blobs by path.
+pub(super) fn capture_pair(
+    runtime: &PackRuntime,
+    root: &Path,
+    with_cas: bool,
+) -> StorageResult<()> {
     let homes = &runtime.physical;
     let holds = root.parent().ok_or_else(|| invalid("run capture parent"))?;
     private_directory(
@@ -200,10 +206,12 @@ pub(super) fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<
         .home
         .capture_files(&root.join("main"))
         .map_err(crate::storage::disk_pack::map)?;
-    homes
-        .cas
-        .capture_files(&root.join("cas"))
-        .map_err(crate::storage::disk_pack::map)?;
+    if with_cas {
+        homes
+            .cas
+            .capture_files(&root.join("cas"))
+            .map_err(crate::storage::disk_pack::map)?;
+    }
     let node = homes
         .home
         .path()

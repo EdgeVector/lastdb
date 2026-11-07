@@ -55,7 +55,7 @@ impl<'a> Recording<'a> {
         let directory = store::entry(&log.root, epoch, sequence)?;
         store::create(&directory)?;
         let entry = LogEntry {
-            version: 1,
+            version: model::LOG_VERSION,
             epoch: epoch.clone(),
             sequence,
             previous_sha256: state.head.sha256.clone(),
@@ -99,11 +99,7 @@ impl<'a> Recording<'a> {
         {
             return Err(invalid("mutation log native commit order"));
         }
-        let frontier = if role.is_cas() {
-            &mut self.entry.after.cas
-        } else {
-            &mut self.entry.after.main
-        };
+        let frontier = &mut self.entry.after.main;
         if frontier.checked_add(1) != Some(commit.frontier) {
             return Err(invalid("mutation log native commit frontier"));
         }

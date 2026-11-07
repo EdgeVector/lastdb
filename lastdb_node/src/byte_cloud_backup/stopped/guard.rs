@@ -190,12 +190,9 @@ impl Ownership {
                 return Err(BackupError::Identity);
             }
         }
-        if self.currents
-            != [
-                profile.main.current_sha256.clone(),
-                profile.cas.current_sha256.clone(),
-            ]
-        {
+        // A personal profile carries no CAS home; its CURRENT is still held
+        // unchanged by the ownership check above.
+        if self.currents[0] != profile.main.current_sha256 || profile.cas.is_some() {
             return Err(BackupError::Identity);
         }
         Ok(())

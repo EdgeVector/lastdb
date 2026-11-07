@@ -124,9 +124,10 @@ impl Source {
                         .await?
                 };
                 let profile = capture.run_profile()?;
-                if minimum.as_ref().is_some_and(|min| {
-                    profile.main.frontier.get() < min.main || profile.cas.frontier.get() < min.cas
-                }) {
+                if minimum
+                    .as_ref()
+                    .is_some_and(|min| profile.main.frontier.get() < min.main)
+                {
                     return Err(BackupError::Identity);
                 }
                 Ok(Capture::Snapshot(capture))

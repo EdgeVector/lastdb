@@ -9,6 +9,13 @@ pub(super) fn verify(
 ) -> Result<run_restore::RunRestoreGuard> {
     let data = session.root.join("home/data");
     local::prepare_native_ephemera(&data)?;
+    // A personal backup carries no CAS home. Record blobs are fetched from
+    // their cloud paths on request, so the restored node starts with an
+    // empty local blob store; the proof requires it to stay empty.
+    if root.run.cas.is_none() {
+        run_restore::install_empty_cas_home(&data, keys.content_key())
+            .map_err(RestoreError::native_proof)?;
+    }
     let profile = &root.run;
     let proof = run_restore::verify(&data, profile, &root.native_root, keys.content_key())
         .map_err(RestoreError::native_proof)?;

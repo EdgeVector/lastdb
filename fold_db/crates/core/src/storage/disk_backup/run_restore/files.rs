@@ -230,7 +230,8 @@ fn hash(path: &Path, expected: &Digest) -> StorageResult<u64> {
     Ok(bytes)
 }
 
-/// Build one paired profile and validate it.
+/// Build one profile and validate it. Only a shared database profile names
+/// its CAS home; a personal CAS home is local and starts empty on restore.
 pub(super) fn backup_profile(
     root: &Path,
     version: u16,
@@ -240,7 +241,9 @@ pub(super) fn backup_profile(
     let profile = RunBackupProfile {
         version,
         main: profile(root, run_node::RUN_DIR, main)?,
-        cas: profile(root, run_node::CAS_DIR, cas)?,
+        cas: RunBackupProfile::carries_cas(version)
+            .then(|| profile(root, run_node::CAS_DIR, cas))
+            .transpose()?,
     };
     profile.validate()?;
     Ok(profile)

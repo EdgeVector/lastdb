@@ -20,7 +20,11 @@ pub struct RunBackupHome {
 pub struct RunBackupProfile {
     pub version: u16,
     pub main: RunBackupHome,
-    pub cas: RunBackupHome,
+    /// The CAS home of a shared database. A personal snapshot carries no CAS
+    /// home: its record blobs are B2 objects at client-derived paths, and a
+    /// restore installs an empty CAS home.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cas: Option<RunBackupHome>,
 }
 impl RunBackupProfile {
     /// The node marker of the profile. Only the current home format backs up
@@ -36,12 +40,22 @@ impl RunBackupProfile {
         }
     }
 
+    /// Only a shared database snapshot carries its CAS home.
+    pub(crate) fn carries_cas(version: u16) -> bool {
+        version == crate::storage::format::SHARED_RECORD_PROFILE
+    }
+
     pub fn validate(&self) -> StorageResult<()> {
         self.node_marker()?;
-        if self.main.home_id == self.cas.home_id {
+        if Self::carries_cas(self.version) != self.cas.is_some()
+            || self
+                .cas
+                .as_ref()
+                .is_some_and(|cas| cas.home_id == self.main.home_id)
+        {
             return Err(invalid("run backup profile identity"));
         }
-        for home in [&self.main, &self.cas] {
+        for home in std::iter::once(&self.main).chain(self.cas.as_ref()) {
             if home.generation.get() == 0
                 || home.frontier.get() > home.generation.get()
                 || home.files < 2

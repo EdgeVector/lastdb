@@ -13,7 +13,7 @@ pub use capture::{
 };
 use cloud_backup_protocol::Id;
 pub use model::{CommitRole, Frontiers, LogAnchor, LogEntry, LogPart, LogPosition};
-use model::{EpochState, Index};
+use model::{EpochState, Index, LOG_VERSION};
 pub(in crate::storage) use recording::Recording;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
@@ -39,10 +39,14 @@ struct Cache {
     loaded: bool,
     index: Option<Index>,
 }
+/// The version 2 log lives in its own directory inside the run home's log
+/// directory. A version 1 log (with CAS parts) is never read; its directory
+/// stays for the owner to remove.
+const LOG_ROOT: &str = "main-v2";
+
 pub(in crate::storage) struct MutationLog {
     root: PathBuf,
     main_home: Id,
-    cas_home: Id,
     cache: Mutex<Cache>,
 }
 impl MutationLog {
@@ -51,9 +55,9 @@ impl MutationLog {
             root: v2
                 .home
                 .path()
-                .join(laststore::disk_run::home::MUTATION_LOG_DIR),
+                .join(laststore::disk_run::home::MUTATION_LOG_DIR)
+                .join(LOG_ROOT),
             main_home: Id::try_from(v2.home.identity().to_string()).expect("native main UUID"),
-            cas_home: Id::try_from(v2.cas.identity().to_string()).expect("native CAS UUID"),
             cache: Mutex::default(),
         }
     }
@@ -74,9 +78,8 @@ impl MutationLog {
     }
 
     fn validate_index(&self, index: &Index) -> StorageResult<()> {
-        if index.version != 1
+        if index.version != LOG_VERSION
             || index.main_home != self.main_home
-            || index.cas_home != self.cas_home
             || index.epochs.len() + index.cleanup.len() > store::MAX_EPOCHS
             || index
                 .active
@@ -102,10 +105,7 @@ impl MutationLog {
         let state: EpochState = store::read(&store::epoch(&self.root, id).join("state.json"))?
             .ok_or_else(|| invalid("mutation log epoch is absent"))?;
         state.validate()?;
-        if state.anchor.epoch != *id
-            || state.anchor.main_home != self.main_home
-            || state.anchor.cas_home != self.cas_home
-        {
+        if state.anchor.epoch != *id || state.anchor.main_home != self.main_home {
             return Err(invalid("mutation log epoch owner"));
         }
         Ok(state)
@@ -163,14 +163,20 @@ impl MutationLog {
             if !enabled {
                 return Ok(());
             }
+            let parent = self
+                .root
+                .parent()
+                .ok_or_else(|| invalid("mutation log directory parent"))?;
+            if !parent.try_exists()? {
+                store::create(parent)?;
+            }
             if !self.root.try_exists()? {
                 store::create(&self.root)?;
             }
             cache.index = Some(Index {
-                version: 1,
+                version: LOG_VERSION,
                 enabled: false,
                 main_home: self.main_home.clone(),
-                cas_home: self.cas_home.clone(),
                 epochs: Vec::new(),
                 active: None,
                 cleanup: Vec::new(),
@@ -202,10 +208,9 @@ impl MutationLog {
         let epoch = Id::try_from(uuid::Uuid::new_v4().to_string())
             .map_err(|_| invalid("mutation log UUID"))?;
         let anchor = LogAnchor {
-            version: 1,
+            version: LOG_VERSION,
             epoch: epoch.clone(),
             main_home: self.main_home.clone(),
-            cas_home: self.cas_home.clone(),
             frontiers: frontiers(v2),
         };
         let state = EpochState {
@@ -269,7 +274,6 @@ impl MutationLog {
 fn frontiers(v2: &V2Home) -> Frontiers {
     Frontiers {
         main: v2.home.current_root().frontier(),
-        cas: v2.cas.current_root().frontier(),
     }
 }
 

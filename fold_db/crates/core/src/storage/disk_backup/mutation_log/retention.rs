@@ -111,9 +111,7 @@ impl MutationLog {
 
     fn release_epoch(&self, epoch: &Id, covering: &LogAnchor) -> StorageResult<()> {
         let state = self.state(epoch)?;
-        if state.head.frontiers.main > covering.frontiers.main
-            || state.head.frontiers.cas > covering.frontiers.cas
-        {
+        if state.head.frontiers.main > covering.frontiers.main {
             return Err(invalid("snapshot does not cover the old mutation log"));
         }
         for sequence in 1..=state.head.sequence {
@@ -154,14 +152,12 @@ impl MutationLog {
             "entry.json"
         }))?;
         if let Some(entry) = entry {
-            if entry.epoch != *epoch || entry.sequence != sequence || entry.parts.len() > 3 {
+            if entry.epoch != *epoch || entry.sequence != sequence || entry.parts.len() > 1 {
                 return Err(invalid("mutation log cleanup entry identity"));
             }
             parts(&directory, &entry)?;
         }
-        for role in [CommitRole::CasAdd, CommitRole::Main, CommitRole::CasDelete] {
-            store::remove_empty(&directory.join(role.directory()))?;
-        }
+        store::remove_empty(&directory.join(CommitRole::Main.directory()))?;
         for name in [
             "entry.json",
             "entry.pending",
