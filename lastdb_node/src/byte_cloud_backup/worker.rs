@@ -43,6 +43,7 @@ pub(super) async fn run(
         return close(source, store, saved, client, pause).await;
     }
     setup(source, store, saved, client, pause).await?;
+    super::blobs::plan_releases(source, store, saved).await?;
     let capture = source.prepare(saved, store).await?;
     refresh(&capture, store, saved)?;
     if source.retain_source_manifest {
@@ -266,6 +267,7 @@ async fn upload_and_publish(
             return Err(error);
         }
     }
+    super::blobs::release(store, saved, client, pause).await?;
     source.validate(saved)?;
     publication::publish(capture, store, saved, client, pause).await
 }
