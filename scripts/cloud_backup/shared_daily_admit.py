@@ -5,7 +5,7 @@ import json
 import os
 import time
 
-from shared_daily_io import github, suite_cases
+from shared_daily_io import CASES, github
 from shared_origin import owner
 from support import OperationError, require
 
@@ -39,7 +39,7 @@ def main():
     wait_for_gates(identity["source"])
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("operation=" + selected + "\n")
-        output.write("cases=" + json.dumps(suite_cases()) + "\n")
+        output.write("cases=" + json.dumps(CASES) + "\n")
     print("Accepted source gates passed")
 
 
