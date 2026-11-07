@@ -115,8 +115,9 @@ pub struct RecordData {
     pub file: Option<FileMarker>,
     /// The record's inline file travels inside the entry. Omitted when
     /// absent, so an entry without one keeps its earlier canonical bytes.
+    /// Boxed so a delete operation stays small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_file: Option<InlineFile>,
+    pub inline_file: Option<Box<InlineFile>>,
 }
 
 impl RecordData {
@@ -146,7 +147,7 @@ impl RecordData {
         MAX_RECORD_BYTES
             + self
                 .inline_file
-                .as_ref()
+                .as_deref()
                 .map_or(0, InlineFile::stored_allowance)
     }
 

@@ -81,7 +81,7 @@ pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaErr
         metadata,
         fields: record.fields.clone(),
         file,
-        inline_file: record.inline_file.clone(),
+        inline_file: record.inline_file.clone().map(Box::new),
     })
 }
 
