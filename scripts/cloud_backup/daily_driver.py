@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch the existing main DEV operation only after a bounded freshness check."""
+"""Dispatch current-source DEV recovery only after a bounded freshness check."""
 
 import json
 import os
@@ -17,15 +17,14 @@ TARGET = "cloud-backup-recovery.yml"
 WORKFLOW = ".github/workflows/" + TARGET
 DRIVER = ".github/workflows/cloud-backup-daily.yml"
 RECOVERY_JOB = "Automatic DEV backup and recovery"
+DISPATCH = {"ref": "main", "inputs": {"mode": "fresh-v2"}}
 ACTIVE = ("requested", "queued", "pending", "waiting", "in_progress")
 PER_PAGE, MAX_PAGES, MAX_CALLS = 100, 10, 80
 MAX_BODY = 2 * 1024 * 1024
 # The exact client build is a required earlier job; this job cannot start without it.
-RECOVERY_STEP = "Run automatic snapshots, mutation logs, restart and both recoveries"
 FRESH_V2_STEP = "Run Backup V2 recovery from a fresh generated source"
-STEPS = (RECOVERY_STEP, "Retain successful CI stream ownership",
+STEPS = (FRESH_V2_STEP, "Retain successful CI stream ownership",
          "Save durable CI ownership before this run ends")
-BASELINE_STEP = "Make, upload and restore a new fixed CI baseline"
 
 
 class Refused(RuntimeError):
@@ -77,7 +76,7 @@ class GitHub:
         remaining = self.deadline - time.monotonic()
         require(self.calls <= MAX_CALLS and remaining > 0, "github_request_budget_exhausted")
         if body is not None:
-            require(path == f"actions/workflows/{TARGET}/dispatches" and body == {"ref": "main"},
+            require(path == f"actions/workflows/{TARGET}/dispatches" and body == DISPATCH,
                     "only_existing_main_dispatch_is_permitted")
         request = Request(f"https://api.github.com/repos/{REPOSITORY}/{path}",
             data=None if body is None else json.dumps(body).encode(),
@@ -162,15 +161,8 @@ def successful_job(api, run, now):
     require(job.get("conclusion") == "success", "successful_run_has_failed_recovery_job")
     steps = job.get("steps")
     require(isinstance(steps, list) and len(steps) <= 100, "invalid_real_recovery_steps")
-    recovery = [step for step in steps if step.get("name") == RECOVERY_STEP]
-    baseline = [step for step in steps if step.get("name") == BASELINE_STEP]
     fresh_v2 = [step for step in steps if step.get("name") == FRESH_V2_STEP]
-    if (not recovery and len(fresh_v2) == 1 and fresh_v2[0].get("conclusion") == "success"):
-        # A fresh qualification does not exercise the protected pinned restore.
-        return None
-    if (len(recovery) == 1 and recovery[0].get("conclusion") == "skipped"
-            and len(baseline) == 1 and baseline[0].get("conclusion") == "success"):
-        # A manual baseline move is not a recovery result. Look at older runs.
+    if not fresh_v2 or (len(fresh_v2) == 1 and fresh_v2[0].get("conclusion") == "skipped"):
         return None
     for name in STEPS:
         match = [step for step in steps if step.get("name") == name]
@@ -184,14 +176,14 @@ def successful_job(api, run, now):
             "url": f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}"}
 
 
-def fresh(api, now):
+def fresh(api, now, source):
     cutoff = now - timedelta(hours=24)
-    examined = {"scope": "bounded_successful_main_history", "runs_examined": 0,
+    examined = {"scope": "bounded_successful_main_history", "source": source, "runs_examined": 0,
                 "jobs_examined": 0, "cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")}
     for run in api.pages(f"actions/workflows/{TARGET}/runs", "workflow_runs",
-                         {"branch": "main", "status": "success"}, examined):
+                         {"branch": "main", "status": "success", "head_sha": source}, examined):
         examined["runs_examined"] += 1
-        if not trusted(run):
+        if not trusted(run) or run["head_sha"] != source:
             continue
         require(run.get("status") == "completed" and run.get("conclusion") == "success", "successful_run_state_changed")
         # Creation time cannot exclude an old run with a recent successful rerun.
@@ -207,11 +199,11 @@ def fresh(api, now):
     return {"disposition": "no_fresh_proof_in_bounded_search", "freshness": examined}
 
 
-def inspect(api, now):
+def inspect(api, now, source):
     current = active(api)
     if current is not None:
         return {"disposition": "recovery_already_active", "active": current}
-    return fresh(api, now)
+    return fresh(api, now, source)
 
 
 def context():
@@ -241,23 +233,25 @@ def summary(value):
 def main():
     api = None
     result = {"status": "failed", "dispatch_attempted": False, "dispatch_outcome": "not_attempted",
-              "target": WORKFLOW, "target_ref": "main", "cloud_credentials": False,
+              "target": WORKFLOW, "target_ref": "main", "target_mode": DISPATCH["inputs"]["mode"],
+              "cloud_credentials": False,
               "cloud_recovery_proven_by_driver": False}
     try:
         context()
         api = GitHub(os.environ.pop("GH_TOKEN", ""))
         now = datetime.now(timezone.utc)
+        source = os.environ["GITHUB_SHA"]
         workflow = api.call(f"actions/workflows/{TARGET}")
         require(workflow.get("path") == WORKFLOW and workflow.get("state") == "active", "target_workflow_unavailable")
-        decision = inspect(api, now)
+        decision = inspect(api, now, source)
         if decision["disposition"] == "no_fresh_proof_in_bounded_search":
             # Recheck immediately before the sole dispatch. GitHub offers no atomic
             # check-and-dispatch operation; the target retains its serialized lane.
-            decision = inspect(api, datetime.now(timezone.utc))
+            decision = inspect(api, datetime.now(timezone.utc), source)
         if decision["disposition"] == "no_fresh_proof_in_bounded_search":
             result.update(dispatch_attempted=True, dispatch_outcome="unknown", freshness=decision["freshness"],
                           dispatch_rationale="no_positive_fresh_proof_in_bounded_search")
-            dispatched = api.call(f"actions/workflows/{TARGET}/dispatches", {"ref": "main"})
+            dispatched = api.call(f"actions/workflows/{TARGET}/dispatches", DISPATCH)
             run_id = integer(dispatched.get("workflow_run_id"))
             require(run_id > 0 and dispatched.get("run_url") == f"https://api.github.com/repos/{REPOSITORY}/actions/runs/{run_id}"
                     and dispatched.get("html_url") == f"https://github.com/{REPOSITORY}/actions/runs/{run_id}",

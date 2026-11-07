@@ -5,7 +5,6 @@ import hashlib
 import json
 import time
 
-from automatic_source import Source
 from automatic_prefixes import PrefixRecords
 from automatic_stopped import StoppedFinal
 from lifecycle import Lifecycle
@@ -27,7 +26,7 @@ def selection(baseline, accepted):
 class Automatic:
     def __init__(self, operation, credentials, phrase):
         self.operation, self.credentials, self.phrase = operation, credentials, phrase
-        self.programs, self.baseline = operation.programs, operation.baseline
+        self.programs = operation.programs
 
     def dependencies(self, expected, accepted):
         chosen = selection(expected, accepted)
@@ -80,17 +79,8 @@ class Automatic:
                              observe=stopped.source.observe_accepted, temporary=temporary)
         return manual, final
 
-    def run(self, source=None):
+    def run(self, source):
         operation = self.operation
-        if source is None:
-            operation.summary["stage"] = "automatic-connect"
-            source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True,
-                                     ci_stream_id=operation.ci_stream_id, terminal_r2=operation.terminal_r2),
-                            self.baseline, operation.args.source, operation.summary)
-            operation.node = source.node
-            source.node.start()
-            source.node.verify_records(self.baseline)
-            source.connect(operation.api_key)
         initial = copy.deepcopy(source.expected)
         lifecycle = Lifecycle(source)
         lifecycle.seed()
