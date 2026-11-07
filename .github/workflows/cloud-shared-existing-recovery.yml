@@ -52,3 +52,8 @@ jobs:
       database_id: ${{ inputs.database_id }}
       client_run: ${{ needs.admission.outputs.client_run }}
       artifact_id: ${{ needs.admission.outputs.artifact_id }}
+    secrets:
+      LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+      LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+      LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS: ${{ secrets.LASTDB_CLOUD_DEV_EXISTING_MULTIWRITER_SEEDS }}
+      LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS: ${{ secrets.LASTDB_CLOUD_DEV_EXISTING_RETENTION_SEEDS }}
