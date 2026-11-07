@@ -69,7 +69,13 @@ pub async fn backup_stopped(
     )?;
     let client = super::connection::client_for_stopped(home, &source.account, &source.source_home)?;
     let endpoint = client.canonical_endpoint();
-    super::automatic::check_stopped(home, &source.account, &source.source_home, &endpoint)?;
+    super::automatic::check_stopped(
+        home,
+        &runtime,
+        &source.account,
+        &source.source_home,
+        &endpoint,
+    )?;
     let store = Store::open(home, &request.request_id)?;
     manifest::same(&store, "stopped-session.json", &request)?;
     let mut saved: Saved = store

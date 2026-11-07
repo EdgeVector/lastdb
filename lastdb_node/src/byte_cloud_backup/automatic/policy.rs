@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
 const MAX_INTERVAL: u64 = 7 * 86400;
+/// Version 3: personal backups hold the main home only and record blobs
+/// upload by path. A version 2 file is retired by `previous::retire`.
+const VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,13 +48,53 @@ pub(super) struct Policy {
     pub cleanup: Option<Id>,
 }
 impl Policy {
+    pub(super) fn new(
+        account: AccountId,
+        source_home: Id,
+        endpoint: String,
+        credential_sha256: Digest,
+        state: AutomaticBackupStatus,
+    ) -> Self {
+        Self {
+            version: VERSION,
+            account,
+            source_home,
+            endpoint,
+            credential_sha256,
+            state,
+            pending: None,
+            cleanup: None,
+        }
+    }
+    /// A disabled setting with this cadence and no backup baseline: the
+    /// first run takes a snapshot.
+    pub(super) fn empty_state(log: u64, snapshot: u64) -> AutomaticBackupStatus {
+        AutomaticBackupStatus {
+            enabled: false,
+            revision: 0,
+            log_interval_seconds: log,
+            snapshot_interval_seconds: snapshot,
+            next_log_at: 0,
+            next_snapshot_at: 0,
+            pending_request_id: None,
+            attempts: 0,
+            retry_at: 0,
+            last_completed_request_id: None,
+            last_completed_at: None,
+            last_snapshot_at: None,
+            last_log_at: None,
+            last_backed_up_frontiers: None,
+            snapshot_reason: None,
+            paused: None,
+        }
+    }
     pub fn save(&self, host: &crate::host::Host) -> Result<()> {
         self.validate(host)?;
         Store::write_configuration(&host.home, FILE, self)
     }
     fn validate(&self, host: &crate::host::Host) -> Result<()> {
         let runtime = native(host)?;
-        if self.version != 2
+        if self.version != VERSION
             || self.account.as_str() != host.user_hash
             || self.source_home.as_str() != runtime.native_home_id().to_string()
             || self.endpoint.len() > 4096
@@ -98,7 +141,20 @@ impl Policy {
         Ok(())
     }
 }
+/// Retire a version 2 policy (its setting kept, its baseline dropped) before
+/// the current one is read.
+fn retire_previous(
+    home: &std::path::Path,
+    runtime: &fold_db::storage::disk_pack::PackRuntime,
+) -> Result<()> {
+    let version = store::read::<super::previous::Version>(&Store::base(home).join(FILE))?;
+    if version.is_some_and(|v| v.version == super::previous::PREVIOUS_VERSION) {
+        super::previous::retire(home, runtime)?;
+    }
+    Ok(())
+}
 pub(super) fn load(host: &crate::host::Host) -> Result<Option<Policy>> {
+    retire_previous(&host.home, &host.db.db_ops().native_runtime())?;
     let policy: Option<Policy> = store::read(&Store::base(&host.home).join(FILE))?;
     if let Some(policy) = &policy {
         policy.validate(host)?;
@@ -118,13 +174,18 @@ fn stopped(
     source_home: &Id,
     endpoint: &str,
 ) -> Result<Option<Policy>> {
+    let version = store::read::<super::previous::Version>(&Store::base(home).join(FILE))?;
+    if version.is_some_and(|v| v.version == super::previous::PREVIOUS_VERSION) {
+        // `check_stopped` retires it first; a direct caller must not use it.
+        return Err(BackupError::Busy);
+    }
     let Some(policy) = store::read::<Policy>(&Store::base(home).join(FILE))? else {
         return Ok(None);
     };
     if !policy.state.enabled {
         return Ok(None);
     }
-    if policy.version != 2
+    if policy.version != VERSION
         || policy.account != *account
         || policy.source_home != *source_home
         || policy.endpoint != endpoint
@@ -139,10 +200,12 @@ fn stopped(
 /// A final stopped snapshot uses the same connection as the automatic policy.
 pub(in crate::byte_cloud_backup) fn check_stopped(
     home: &std::path::Path,
+    runtime: &fold_db::storage::disk_pack::PackRuntime,
     account: &AccountId,
     source_home: &Id,
     endpoint: &str,
 ) -> Result<()> {
+    retire_previous(home, runtime)?;
     stopped(home, account, source_home, endpoint).map(|_| ())
 }
 /// Save a published stopped snapshot as the newest backed cut. The snapshot
@@ -200,32 +263,14 @@ pub(in crate::byte_cloud_backup) fn configure(
             .ok_or(BackupError::Invalid)?
             .require_connection(host)?;
     }
-    let mut policy = old.unwrap_or(Policy {
-        version: 2,
-        account: account.clone(),
-        source_home: source_home.clone(),
-        endpoint: endpoint.clone(),
-        credential_sha256: credential_sha256.clone(),
-        state: AutomaticBackupStatus {
-            enabled: false,
-            revision: 0,
-            log_interval_seconds: log,
-            snapshot_interval_seconds: snapshot,
-            next_log_at: 0,
-            next_snapshot_at: 0,
-            pending_request_id: None,
-            attempts: 0,
-            retry_at: 0,
-            last_completed_request_id: None,
-            last_completed_at: None,
-            last_snapshot_at: None,
-            last_log_at: None,
-            last_backed_up_frontiers: None,
-            snapshot_reason: None,
-            paused: None,
-        },
-        pending: None,
-        cleanup: None,
+    let mut policy = old.unwrap_or_else(|| {
+        Policy::new(
+            account.clone(),
+            source_home.clone(),
+            endpoint.clone(),
+            credential_sha256.clone(),
+            Policy::empty_state(log, snapshot),
+        )
     });
     policy.account = account;
     policy.source_home = source_home;

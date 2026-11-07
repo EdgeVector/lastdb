@@ -127,6 +127,9 @@ fn saved_cut(
         return Err(invalid("run capture writer recovery"));
     }
     let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
+    // A capture saved by a program with an older capture format cannot
+    // resume; release it so the new snapshot starts clean.
+    super::previous_capture::retire(runtime, &store, None)?;
     let previous = if store.exists("job.json")? {
         let old: State = store.read("job.json")?;
         old.validate()?;

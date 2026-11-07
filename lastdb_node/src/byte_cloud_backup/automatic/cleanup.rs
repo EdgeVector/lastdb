@@ -70,6 +70,8 @@ fn allowed(name: &str) -> bool {
         "inventory-index.pending",
         "close.json",
         "close.pending",
+        "blobs.json",
+        "blobs.pending",
     ]
     .contains(&name)
     {
@@ -80,6 +82,8 @@ fn allowed(name: &str) -> bool {
         "log-file-",
         "log-payload-",
         "inventory-page-",
+        "blob-upload-",
+        "blob-release-",
     ]
     .into_iter()
     .any(|prefix| {
