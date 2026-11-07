@@ -30,6 +30,14 @@ pub(crate) fn record_key(key: &str) -> Option<&str> {
     (family == INLINE_FILE_FAMILY).then_some(record)
 }
 
+/// The record key that an applied-delete or inline file row belongs to, or
+/// the key itself.
+pub(in crate::storage) fn owning_record(key: &str) -> &str {
+    super::applied_deletes::record_key(key)
+        .or_else(|| record_key(key))
+        .unwrap_or(key)
+}
+
 pub(in crate::storage) fn address(record: &str) -> String {
     format!("{INLINE_FILE_FAMILY}:{record}")
 }

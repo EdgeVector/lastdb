@@ -215,7 +215,7 @@ impl Scope {
     }
 
     fn public_record_key(&self, key: &str) -> bool {
-        let record = record_of(key);
+        let record = inline_files::owning_record(key);
         key == CURRENT_KEY_FORMAT_KEY
             || key == DELETE_REPLAY_CUTOFF_KEY
             || applied_deletes::is_age_key(key)
@@ -243,7 +243,7 @@ impl Scope {
         }
         let prefix = match collection {
             RECORDS_COLLECTION => {
-                let body = record_of(key);
+                let body = inline_files::owning_record(key);
                 let prefix = if body.starts_with(RECORD_PREFIX) {
                     RECORD_PREFIX
                 } else {
@@ -395,12 +395,4 @@ pub(super) fn invalid(reason: &str) -> StorageError {
 fn part<'a>(key: &'a str, prefix: &str) -> Option<&'a str> {
     let rest = key.strip_prefix(prefix)?;
     Some(rest.split_once(':').map_or(rest, |(first, _)| first))
-}
-
-/// The record key that an applied-delete or inline file row belongs to, or
-/// the key itself.
-fn record_of(key: &str) -> &str {
-    applied_deletes::record_key(key)
-        .or_else(|| inline_files::record_key(key))
-        .unwrap_or(key)
 }
