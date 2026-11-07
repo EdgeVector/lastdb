@@ -76,25 +76,6 @@ impl DbOperations {
             .await
     }
 
-    pub async fn set_schema_retention_policy(
-        &self,
-        schema_name: &str,
-        policy: SchemaRetentionPolicy,
-    ) -> Result<(), SchemaError> {
-        self.schemas()
-            .set_schema_retention_policy(schema_name, policy)
-            .await
-    }
-
-    pub async fn clear_schema_retention_policy(
-        &self,
-        schema_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.schemas()
-            .clear_schema_retention_policy(schema_name)
-            .await
-    }
-
     pub async fn list_schema_retention_policies(
         &self,
     ) -> Result<Vec<(String, SchemaRetentionPolicy)>, SchemaError> {
