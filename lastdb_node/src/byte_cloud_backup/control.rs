@@ -30,7 +30,7 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
                 *snapshot_interval_seconds,
             )?,
             ByteBackupRequest::DisableAutomatic => {
-                crate::shared_sync::configure(host, false, 0, 0)?
+                crate::shared_sync::configure(host, false, 0, 0)?;
             }
             _ => return Err(BackupError::Invalid),
         }
