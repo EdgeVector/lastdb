@@ -22,12 +22,13 @@ FILE_BYTES = 8 * CHUNK
 class OperationError(Exception):
     """An error code that contains no product output or credential."""
 
-    def __init__(self, code, service_field=None, *, cli_refusal=None):
+    def __init__(self, code, service_field=None, *, cli_refusal=None, socket_refusal=None):
         super().__init__(code)
         # The fixed protocol field a service refusal names, such as `ci.policy`.
         self.service_field = service_field
         # The CLI runner constructs only closed source labels and an exit code.
         self.cli_refusal = cli_refusal
+        self.socket_refusal = socket_refusal
 
 
 def failure(error):
@@ -37,6 +38,8 @@ def failure(error):
         value["service_field"] = error.service_field
     if error.cli_refusal is not None:
         value["cli_refusal"] = error.cli_refusal
+    if error.socket_refusal is not None:
+        value["socket_refusal"] = error.socket_refusal
     return value
 
 

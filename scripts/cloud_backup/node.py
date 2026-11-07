@@ -16,6 +16,44 @@ from support import (ACCOUNT, BACKUP_DIR, CHUNK, CREDENTIALS_FILE, OperationErro
                      read_json, require)
 
 
+SOCKET_OPERATIONS = {
+    "/health": "health",
+    "/api/status": "status",
+    "/api/system/boot-identity": "boot_identity",
+    "/api/db/native-status": "native_status",
+    "/api/queries/batch": "query_batch",
+    "/api/mutations/batch": "mutation_batch",
+    "/api/db/fetch-blob": "fetch_file",
+}
+SOCKET_REFUSALS = {
+    "cas_conflict", "compaction_behind", "field_value_too_large", "persist_queue_full",
+    "read_resource_limit", "storage_full", "write_resource_limit",
+}
+
+
+def socket_refusal(path, response):
+    """Keep the status and closed labels; never include a response body or path."""
+    refusal = {"operation": SOCKET_OPERATIONS.get(path, "other"),
+               "status": response.status, "reason": "unrecognized"}
+    try:
+        raw = response.read(4097)
+    except (OSError, http.client.HTTPException):
+        return refusal
+    if len(raw) > 4096:
+        return refusal
+    if raw.startswith(b"node is busy: too many concurrent reads; retry after "):
+        refusal["reason"] = "read_busy"
+        return refusal
+    try:
+        body = decode_json(raw)
+    except OperationError:
+        return refusal
+    code = body.get("error") if isinstance(body, dict) else None
+    if isinstance(code, str) and code in SOCKET_REFUSALS:
+        refusal["reason"] = code
+    return refusal
+
+
 class Connection(http.client.HTTPConnection):
     def __init__(self, path):
         super().__init__("localhost", timeout=30)
@@ -61,7 +99,8 @@ class OwnedNode:
         try:
             connection.request("GET" if body is None else "POST", path, content, headers)
             response = connection.getresponse()
-            require(response.status == 200, "socket_http_status")
+            if response.status != 200:
+                raise OperationError("socket_http_status", socket_refusal=socket_refusal(path, response))
             if binary:
                 returned_stream = True
                 return response, connection

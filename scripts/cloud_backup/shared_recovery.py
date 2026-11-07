@@ -324,18 +324,21 @@ class Operation:
         if local_file is not None:
             first.verify_file(local_file)
         first.stop()
-        self.summary["stage"] = "publish-post-checkpoint-tails"
+        self.summary["stage"] = "restart-publisher-after-checkpoint"
         first.start()
         previous, removed = native_records.read_records(first, self.schema, [
             native_records.key("winner"), native_records.key("deleted")])
+        self.summary["stage"] = "author-publisher-tail"
         losing = self.record("winner", "first-tail")
         durable_batch(first, [native_records.replace(self.schema, previous, losing),
                               native_records.delete(self.schema, removed)])
         if self.args.multiwriter:
             # The publisher's next accepted timestamp must be strictly later than the delete.
             time.sleep(0.01)
+        self.summary["stage"] = "attach-publisher-tail-file"
         self.attach(first, losing, "losing-tail")
         first.stop()
+        self.summary["stage"] = "upload-publisher-tail"
         self.summary["publisher_tail_through"] = self.push(first, a, 7)
 
         shared_multiwriter.refuse_empty_join(self, a, b)
