@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 mod content_hash;
 mod file_write;
-pub use file_write::{FileWrite, FileWriteIssuer, SealedRecordFile};
+pub use file_write::{FileWrite, FileWriteIssuer, LocalFileReference, SealedRecordFile};
 
 pub fn is_zero_u8(value: &u8) -> bool {
     *value == 0

@@ -15,6 +15,9 @@ struct InputFile {
     source: PathBuf,
     name: Option<String>,
     media_type: Option<String>,
+    /// Keep the file at `source`. Backup seals it into the cloud file format.
+    #[serde(default)]
+    local: bool,
 }
 
 pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
@@ -86,6 +89,25 @@ pub(super) fn mutate_command(
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .join(file.source);
+        if file.local {
+            let source = std::fs::canonicalize(&source)
+                .map_err(|error| format!("open {}: {error}", source.display()))?;
+            let metadata = serde_json::json!({
+                "mutation": body,
+                "name": file.name,
+                "media_type": file.media_type,
+                "local_path": source,
+            });
+            let raw = post_json_with_timeout(
+                &socket,
+                "/api/db/put-blob",
+                &metadata,
+                admin_scan_client_timeout(),
+            )?;
+            let receipt = parse_json_response(&raw, "/api/db/put-blob")?;
+            println!("{receipt}");
+            return Ok(());
+        }
         let metadata = serde_json::json!({
             "mutation": body, "name": file.name, "media_type": file.media_type,
         });

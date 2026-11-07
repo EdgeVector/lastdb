@@ -1,6 +1,7 @@
 //! The file routes of a record: read and remove one record's file by schema
-//! and key (`put-blob` is in `file_blob_put.rs`). No request names a pointer,
-//! a path or a key: the node derives them from the record.
+//! and key (`put-blob` is in `file_blob_put.rs`). Fetch and delete name no
+//! pointer, path, or key: the node derives them from the record. A put may
+//! name a local path; that path stays out of the record and out of the cloud.
 use super::*;
 use fold_db::record_value::InlineWrite;
 use fold_db::schema::types::operations::Operation;
