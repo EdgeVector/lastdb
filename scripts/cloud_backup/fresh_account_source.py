@@ -1,14 +1,18 @@
 """Create one owned DEV account, write a real source, and publish its stopped cut."""
 
 import hashlib
+import http.client
+import json
 import os
 import re
+import time
 import uuid
+from urllib.parse import urlsplit
 
 import native_records
 from automatic_source import durable_batch
 from fresh_source import write_private
-from restore_receipts import BACKUP_PROFILE, NODE_MARKER, node_marker
+from restore_receipts import NODE_MARKER, node_marker
 from support import (ACCOUNT, CREDENTIALS_FILE, FILE_BYTES, OperationError, canonical_uuid,
                      decode_json, dev_endpoint, private_file, read_json, require, save_json, stable)
 from programs import execute
@@ -146,25 +150,51 @@ def accepted_point(accepted, account, request):
 
 
 def publish(node):
-    require(node.process is not None and node.start_ts is not None, "fresh_source_stop_identity")
-    pid, start = node.process.pid, node.start_ts
-    node.stop()
-    require(node.process is None and node.clean_stops == 1 and not node.forced, "fresh_source_clean_stop")
+    require(node.process is not None and node.start_ts is not None, "fresh_source_identity")
     request = str(uuid.uuid4())
     require(not request.startswith("a17dbac2-"), "fresh_manual_request")
-    report = node.programs.command(node.home, ["cloud", "backup-v2", "start-stopped", "--request-id", request,
-        "--expected-user-hash", node.account, "--stopped-pid", str(pid), "--stopped-start-ts", str(start), "--json"],
-        timeout=540)
-    require(report["version"] == 1 and report["request"] == {"request_id": request, "account_id": node.account,
-                "stopped_pid": pid, "stopped_start_ts": start}
-            and report["automatic_backup_enabled"] is False and report["source_released"] is True
-            and report["native_cut_unchanged"] is True and report["all_remote_file_hashes_verified"] is True
-            and report["run_profile"]["version"] == BACKUP_PROFILE
-            and positive(report["run_profile"]["cas"]["files"], 4096)
-            and report["run_profile"]["cas"]["files"] > 2
-            and positive(report["native_files"], 4096) and positive(report["native_bytes"], MAX_INVENTORY_BYTES)
-            and positive(report["verified_remote_objects"], 4096), "fresh_stopped_snapshot_receipt")
-    return accepted_point(report["accepted_backup"], node.account, request), report
+    value = node.programs.command(node.home, ["cloud", "backup-v2", "start", "--request-id", request, "--json"])
+    deadline = time.monotonic() + 420
+    while time.monotonic() < deadline:
+        require(value["ok"] is True and value["user_hash"] == node.account
+                and value["request_id"] == request and value["backup_kind"] == "snapshot"
+                and value["automatic_backup_enabled"] is False, "fresh_snapshot_binding")
+        if value["phase"] == "published" and value["running"] is False:
+            require(value["retained_source_bytes"] == 0 and value["blocked_reason"] is None
+                    and positive(value["objects_verified"], 4096)
+                    and positive(value["native_files"], 4096)
+                    and positive(value["native_bytes"], MAX_INVENTORY_BYTES), "fresh_snapshot_receipt")
+            accepted = value["last_accepted_backup"]
+            return accepted_point(accepted, node.account, request), value
+        require(value["running"] is True and value["blocked_reason"] is None, "fresh_snapshot_stopped")
+        time.sleep(1)
+        value = node.programs.command(node.home, ["cloud", "backup-v2", "status", "--json"], timeout=20)
+    raise OperationError("fresh_snapshot_deadline")
+
+
+def await_restore_admission(account, key):
+    """Observe the ordinary point-retention fence before requesting restore grants."""
+    endpoint = urlsplit(dev_endpoint())
+    body = json.dumps({"version": 2, "account_id": account, "required_destinations": ["r2", "b2"]})
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        connection = http.client.HTTPSConnection(endpoint.hostname, timeout=10)
+        try:
+            connection.request("POST", "/api/cloud/backups/v2/context/read", body,
+                               {"Content-Type": "application/json", "X-API-Key": key.decode("ascii")})
+            response = connection.getresponse()
+            raw = response.read(65537)
+            require(response.status == 200 and len(raw) <= 65536, "fresh_restore_context_http")
+            result = decode_json(raw)
+        finally:
+            connection.close()
+        require(result.get("version") == 2
+                and result.get("scope") == {"account_id": account, "account_generation": "0"}
+                and type(result.get("new_work_allowed")) is bool, "fresh_restore_context_binding")
+        if result["new_work_allowed"]:
+            return
+        time.sleep(2)
+    raise OperationError("fresh_restore_scope_still_fenced")
 
 
 def restore_inputs(home, credentials, key):

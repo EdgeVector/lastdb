@@ -60,7 +60,7 @@ def recover(programs, credentials, parent, phrase, expected, point, report, oper
     selected = {**expected, **point}
     restored_report = programs.restore(credentials, destination, selected, phrase)
     session, _identifier = selection(destination, selected)
-    require(read_json(session / "selection.json")["accepted"] == report["accepted_backup"]
+    require(read_json(session / "selection.json")["accepted"] == report["last_accepted_backup"]
             and restored_report["native_files"] == report["native_files"]
             and restored_report["native_bytes"] == report["native_bytes"],
             "fresh_restore_exact_accepted_snapshot")
@@ -116,16 +116,23 @@ class Operation:
         source.bind(self.node, key)
         expected = source.seed(self.node, self.root)
         self.summary["source_reads"] = self.node.verify_records(expected)
-        self.summary["stage"] = "publish_stopped_snapshot"
+        self.summary["stage"] = "publish_snapshot"
         point, report = source.publish(self.node)
-        self.summary.update(snapshot=point, source_stopped=True, snapshot_ordinal="1",
-                            source_released=True, all_remote_file_hashes_verified=True,
-                            snapshot_inventory_bytes=int(report["accepted_backup"]["inventory_root"]["stored_bytes"]))
+        self.summary.update(snapshot=point, snapshot_ordinal="1", source_released=True,
+                            snapshot_inventory_bytes=int(
+                                report["last_accepted_backup"]["inventory_root"]["stored_bytes"]))
         self.summary["stage"] = "record_snapshot"
         broker.point("snapshot", point)
         self.summary["snapshot_recorded"] = True
+        self.summary["stage"] = "stop_source"
+        self.node.stop()
+        require(self.node.process is None and self.node.clean_stops == 1 and not self.node.forced,
+                "fresh_source_clean_stop")
+        self.summary["source_stopped"] = True
         if self.args.operation == "interrupt-after-upload":
             raise OperationError("intentional_interrupt_after_upload")
+        self.summary["stage"] = "restore_admission"
+        source.await_restore_admission(account, key)
         self.summary["stage"] = "restore_exact_snapshot"
         credentials = self.root / "credentials"
         phrase = source.restore_inputs(home, credentials, key)
