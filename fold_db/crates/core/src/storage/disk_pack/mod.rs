@@ -95,6 +95,11 @@ impl PackRuntime {
         Ok(())
     }
 
+    /// True when this runtime serves a dedicated shared database home.
+    pub fn is_dedicated_shared_home(&self) -> bool {
+        self.physical.shared.is_some()
+    }
+
     pub fn require_direct_shared_home(&self) -> StorageResult<()> {
         if self.physical.shared.is_none() {
             return Err(shared_layout::invalid(

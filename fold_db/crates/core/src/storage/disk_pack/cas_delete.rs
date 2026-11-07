@@ -189,7 +189,10 @@ impl PackRuntime {
         let operations = keys
             .into_iter()
             .map(|key| {
-                if !key.starts_with(crate::storage::format::RECORD_FILE_PREFIX.as_bytes()) {
+                let file = std::str::from_utf8(&key)
+                    .ok()
+                    .and_then(crate::storage::current_keys::families::record_file_space);
+                if file.is_none() {
                     return Err(invalid("file retirement requires a record file key"));
                 }
                 Ok(HomeMutation {

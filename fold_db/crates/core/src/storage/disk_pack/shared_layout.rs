@@ -1,11 +1,12 @@
 //! Physical placement for a dedicated shared database.
 
 use super::*;
+use crate::storage::current_keys::families::record_file_space;
 use crate::storage::format::{
     records::{applied_deletes, inline_files},
     CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
-    FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_FILE_PREFIX,
-    RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION, RETENTION_POLICY_KEY_PREFIX,
+    SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
 };
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
@@ -182,8 +183,7 @@ impl Scope {
         };
         match collection {
             CAS_COLLECTION
-                if part(key, RECORD_FILE_PREFIX)
-                    .is_some_and(|space| self.spaces.contains(space)) =>
+                if record_file_space(key).is_some_and(|(_, space)| self.spaces.contains(space)) =>
             {
                 Lane::Files
             }
@@ -254,8 +254,9 @@ impl Scope {
                     &key[..offset + prefix.len() + id.len()]
                 })
             }
-            CAS_COLLECTION => part(key, RECORD_FILE_PREFIX)
-                .map(|space| &key[..RECORD_FILE_PREFIX.len() + space.len()]),
+            CAS_COLLECTION => {
+                record_file_space(key).map(|(prefix, space)| &key[..prefix.len() + space.len()])
+            }
             _ => None,
         }?;
         end.starts_with(prefix.as_bytes())

@@ -12,6 +12,7 @@ mod alternates;
 pub(in crate::storage) mod applied_deletes;
 mod audit;
 mod file_crypto;
+mod file_install;
 mod files;
 pub(in crate::storage) mod inline_files;
 mod keys;

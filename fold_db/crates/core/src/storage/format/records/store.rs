@@ -3,6 +3,7 @@
 use super::{EncodedRecords, RecordChange};
 use crate::schema::types::{FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
+use crate::storage::current_keys::families::record_file_uploaded_path;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::metadata::Metadata;
@@ -166,6 +167,24 @@ impl RecordFormat {
             store.batch_mutate(puts).await?;
         }
         if !deletes.is_empty() {
+            // A retired row that a download installed carries its uploaded
+            // marker; the marker leaves with the row.
+            let markers = deletes
+                .iter()
+                .map(|key| record_file_uploaded_path(key.as_slice()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let present = store.get_many(markers.clone()).await?;
+            if present.len() != markers.len() {
+                return Err(SchemaError::InvalidData(
+                    "incomplete uploaded marker read".into(),
+                ));
+            }
+            deletes.extend(
+                markers
+                    .into_iter()
+                    .zip(present)
+                    .filter_map(|(key, value)| value.map(|_| key)),
+            );
             self.runtime.stage_record_file_deletes(deletes)?;
         }
         Ok(())

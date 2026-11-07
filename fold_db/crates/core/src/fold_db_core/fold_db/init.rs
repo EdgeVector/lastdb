@@ -73,6 +73,7 @@ impl FoldDB {
             query_executor,
             mutation_manager,
             pending_tasks,
+            record_blob_source: std::sync::RwLock::new(None),
         })
     }
 }

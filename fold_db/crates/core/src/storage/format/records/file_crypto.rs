@@ -175,9 +175,20 @@ impl RecordFormat {
         let Some(row) = self.file_store().await?.get(path.as_bytes()).await? else {
             return Ok(None);
         };
+        self.open_file_row(&row, marker).map(Some)
+    }
+
+    /// Decrypt one sealed file row and check the plaintext against the
+    /// record's marker. A row that does not open or differs is a security
+    /// error.
+    pub(super) fn open_file_row(
+        &self,
+        row: &[u8],
+        marker: &FileMarker,
+    ) -> Result<Vec<u8>, FoldDbError> {
         let (key, _) = file_key(self.account_key()?, &marker.sha256)?;
         let plaintext =
-            crate::crypto::envelope::decrypt_envelope(&key, &row).map_err(file_crypto_error)?;
+            crate::crypto::envelope::decrypt_envelope(&key, row).map_err(file_crypto_error)?;
         if plaintext.len() as u64 != marker.size_bytes
             || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
         {
@@ -185,8 +196,15 @@ impl RecordFormat {
                 "record file differs from its marker".into(),
             ));
         }
-        Ok(Some(plaintext))
+        Ok(plaintext)
     }
+}
+
+/// The exact length of the sealed row of a file with this marker.
+pub(super) fn sealed_row_bytes(marker: &FileMarker) -> Option<u64> {
+    marker
+        .size_bytes
+        .checked_add((1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64)
 }
 
 /// Validate the stored envelope at the only file-row write boundary. This

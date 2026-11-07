@@ -2,7 +2,7 @@
 
 /// Key family of record files in `cas_blobs` (design
 /// `design-lastdb-no-shared-file-blobs`).
-pub(crate) use crate::storage::format::RECORD_FILE_PREFIX;
+pub(crate) use crate::storage::format::{RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX};
 use lastdb_model::portable_mutation::Position;
 
 /// One immutable file version owned by a single record.
@@ -47,4 +47,31 @@ pub(crate) fn record_blob_path(
     };
     blob.validate().map_err(|_| invalid())?;
     Ok(blob)
+}
+
+/// The "already in the cloud" marker of the record file row at `file_path`
+/// (a [`record_file_path`] key): the same suffix under
+/// [`RECORD_FILE_UPLOADED_PREFIX`]. A node writes it with a row it downloaded,
+/// so backup never uploads that row again. A row without it was created
+/// locally by a record write.
+pub(crate) fn record_file_uploaded_path(file_path: &[u8]) -> super::StorageResult<Vec<u8>> {
+    let suffix = file_path
+        .strip_prefix(RECORD_FILE_PREFIX.as_bytes())
+        .filter(|suffix| !suffix.is_empty())
+        .ok_or_else(|| super::unsupported("an uploaded marker needs a record file path"))?;
+    Ok([RECORD_FILE_UPLOADED_PREFIX.as_bytes(), suffix].concat())
+}
+
+/// The record file family of a `cas_blobs` key: its family prefix and its
+/// schema space. `None` for any other key.
+pub(crate) fn record_file_space(key: &str) -> Option<(&'static str, &str)> {
+    [RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX]
+        .into_iter()
+        .find_map(|prefix| {
+            let rest = key.strip_prefix(prefix)?;
+            Some((
+                prefix,
+                rest.split_once(':').map_or(rest, |(space, _)| space),
+            ))
+        })
 }

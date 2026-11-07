@@ -85,6 +85,12 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
+/// Marks a record file row whose bytes are already in the cloud: the node
+/// downloaded it on request (design `design-lastdb-blob-files-on-demand-20261107`).
+/// The key is this prefix and the same suffix as the row's `fb:` key, in
+/// `cas_blobs`, written in the same batch as the row and removed with it. A row
+/// without this marker was created locally by a record write.
+pub(crate) const RECORD_FILE_UPLOADED_PREFIX: &str = "fu:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
 pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";

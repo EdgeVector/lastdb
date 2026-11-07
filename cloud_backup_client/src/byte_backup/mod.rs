@@ -5,6 +5,7 @@ use cloud_backup_protocol::v2::limits;
 use serde::{de::DeserializeOwned, Serialize};
 
 mod access;
+mod blobs;
 mod jobs;
 mod publication;
 mod transfer;

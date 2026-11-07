@@ -5,6 +5,13 @@
 //! native request (`FileWrite::Put`). `fetch-blob` reads the record, takes its
 //! marker, reads the record's file path and checks the bytes against the
 //! marker. No request names a pointer, a path or a key.
+//!
+//! A home restored from a backup has the records but not their blob rows
+//! (design `design-lastdb-blob-files-on-demand-20261107`). When the record
+//! selects a file version whose row is not local, the read asks the registered
+//! [`crate::fold_db_core::RecordBlobSource`] for the sealed row at the record's
+//! cloud path, checks it as a local read does, and installs it locally
+//! (`download.rs`). A dedicated shared database never downloads.
 
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
@@ -13,6 +20,9 @@ use lastdb_model::record_value::{FileMarker, StoredRecord};
 use std::sync::Arc;
 
 use super::FoldDB;
+
+mod download;
+use download::LocalFile;
 
 impl FoldDB {
     /// Seal `plaintext` under the account key for a `put-blob` write. The
@@ -84,7 +94,8 @@ impl FoldDB {
         key: &KeyValue,
         revision: Option<&str>,
     ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.db_ops()
+        let local = self
+            .db_ops()
             .read_scope()
             .await?
             .run_result(async {
@@ -94,21 +105,46 @@ impl FoldDB {
                     .as_ref()
                     .and_then(|record| record.file.as_ref().zip(record.file_version.as_ref()))
                 else {
-                    return Ok(None);
+                    return Ok(LocalFile::None);
                 };
                 let bytes = self
                     .db_ops()
                     .records()
                     .open_record_file(&record_key, version, marker)
                     .await?;
-                if revision.is_some() && bytes.is_none() {
-                    return Err(FoldDbError::Database(
-                        "record file bytes are missing".into(),
-                    ));
-                }
-                Ok(bytes.map(|bytes| (marker.clone(), bytes)))
+                Ok::<_, FoldDbError>(match bytes {
+                    Some(bytes) => LocalFile::Bytes(marker.clone(), bytes),
+                    None => LocalFile::Missing {
+                        record_key,
+                        marker: marker.clone(),
+                        version: version.clone(),
+                    },
+                })
             })
-            .await
+            .await?;
+        match local {
+            LocalFile::None => Ok(None),
+            LocalFile::Bytes(marker, bytes) => Ok(Some((marker, bytes))),
+            LocalFile::Missing {
+                record_key,
+                marker,
+                version,
+            } => {
+                if self.db_ops().records().dedicated_shared_home() {
+                    // A shared database keeps its files in its own home.
+                    return match revision {
+                        Some(_) => Err(FoldDbError::Database(
+                            "record file bytes are missing".into(),
+                        )),
+                        None => Ok(None),
+                    };
+                }
+                let bytes = self
+                    .download_record_file(&record_key, &version, &marker)
+                    .await?;
+                Ok(Some((marker, bytes)))
+            }
+        }
     }
 
     /// The inline file of the record at `key`: its marker and its plaintext
