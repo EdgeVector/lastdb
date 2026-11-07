@@ -129,13 +129,14 @@ def remove_control(database, saved):
     require(io.get(io.LEDGER, database) is None, "shared_daily_ledger_absence")
 
 
-def run():
+def run(summary):
     identity = io.admission()
-    summary = {"source": identity["source"], "owner": identity, "result": "passed",
-               "removed_scopes": [], "fenced_scopes": [], "draining_scopes": [], "active_scopes": []}
+    summary.update(source=identity["source"], owner=identity, removed_scopes=[],
+                   fenced_scopes=[], draining_scopes=[], active_scopes=[])
     for saved in scopes.directory():
         value = io.body(saved)
         database = value["scope"]["database_id"]
+        summary["current_scope"] = database
         if value["phase"] == "active":
             if io.terminal(value["owner"]):
                 scopes.fence(database)
@@ -154,4 +155,5 @@ def run():
         deleted = {target["name"]: remove_provider(database, target) for target in value["targets"]}
         remove_control(database, saved)
         summary["removed_scopes"].append({"database_id": database, "objects": deleted})
-    return summary
+    summary.pop("current_scope", None)
+    summary["result"] = "passed"
