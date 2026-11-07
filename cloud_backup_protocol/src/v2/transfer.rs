@@ -58,13 +58,25 @@ pub struct TransferInput {
     pub job: Job,
     /// Object bytes to transfer.
     pub object: Object,
+    /// A record blob version uploads to its client-derived path, on B2, and
+    /// is never an inventory member. Absent for every other object, so older
+    /// inputs keep their digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob: Option<super::blobs::BlobPath>,
 }
 
 impl TransferInput {
-    /// Validate the job and object, and reject oversized JSON.
+    /// Validate the job and object, and reject oversized JSON. A blob path
+    /// requires the B2 destination.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         self.job.validate()?;
         self.object.validate()?;
+        if let Some(path) = &self.blob {
+            path.validate()?;
+            if self.object.destination != super::Destination::B2 {
+                return Err(ProtocolError::invalid("transfer.blob.destination"));
+            }
+        }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
     }
 

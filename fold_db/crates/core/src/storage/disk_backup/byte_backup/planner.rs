@@ -209,6 +209,7 @@ pub(super) fn input(
         request_id,
         job: state.begin.job.clone(),
         object,
+        blob: None,
     };
     input.validate().map_err(protocol)?;
     Ok(input)

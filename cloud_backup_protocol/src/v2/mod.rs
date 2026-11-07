@@ -1,6 +1,7 @@
 //! Generic byte backup transport. Pure wire validation; no I/O or admission.
 //! Native formats, recovery keys and client completeness stay with the client.
 pub mod access;
+pub mod blobs;
 mod common;
 pub mod context;
 pub mod discovery;
