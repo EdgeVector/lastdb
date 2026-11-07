@@ -1,0 +1,85 @@
+name: Primary format 9 to 14 migration rehearsal
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/primary-format-migration.yml
+      - scripts/operations/primary_format_migration.py
+permissions:
+  contents: read
+  actions: read
+env:
+  ENVIRONMENT: dev
+  SOURCE_DB: 5e4655e87c14cb5f603ec40b81e8969371abe888
+  TARGET_DB: 983ccc0eb4939429a04cf02faf542dd52f781937
+  SOURCE_BRAIN: 6a3e326669e5d876924feaed7df2043b83318d79
+  TARGET_BRAIN: 3fd809c8b317373c77bd6daa1f2284cfe84f0df1
+  SOURCE_SECRETS: 310460ad282152d4f810c403af503babec4ce33c
+  TARGET_SECRETS: e74ac199880c526019f2b7f09524740b91a0c706
+  COPY_TOOL: 196303b68d65ce1cc01d396c60dbb8dd23b7dd05
+jobs:
+  move:
+    name: Copy both apps from format 9 directly to format 14
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_DB }}
+          path: source-db
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-bundles-42323311253-x86_64-unknown-linux-gnu
+          github-token: ${{ github.token }}
+          run-id: 42323311253
+          path: ${{ runner.temp }}/format14-bundle
+      - name: Build the exact historical format 9 program on the runner
+        working-directory: source-db
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install --profile minimal
+          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$SOURCE_DB" CARGO_TARGET_DIR="$RUNNER_TEMP/format9-build" \
+            cargo build --locked --release -p lastdb_node --bin lastdbd
+      - name: Fetch the exact app and converter sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_source() {
+            local repo="$1" ref="$2" directory="$RUNNER_TEMP/$3"
+            git init "$directory"
+            git -C "$directory" remote add origin "https://github.com/EdgeVector/$repo.git"
+            git -C "$directory" fetch --depth 1 origin "$ref"
+            git -C "$directory" checkout --detach FETCH_HEAD
+            test "$(git -C "$directory" rev-parse HEAD)" = "$ref"
+          }
+          fetch_source brain "$SOURCE_BRAIN" source-brain
+          fetch_source brain "$TARGET_BRAIN" target-brain
+          fetch_source lastsecrets "$SOURCE_SECRETS" source-secrets
+          fetch_source lastsecrets "$TARGET_SECRETS" target-secrets
+          fetch_source last-stack "$COPY_TOOL" migration-tool
+          for app in source-brain target-brain source-secrets target-secrets; do
+            (cd "$RUNNER_TEMP/$app" && bun install --frozen-lockfile)
+          done
+      - name: Move and reopen generated Brain and LastSecrets records
+        run: python3 scripts/operations/primary_format_migration.py
+      - name: Retain redacted migration results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: primary-format-migration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/primary-format-results/
+          if-no-files-found: warn
+          retention-days: 14
