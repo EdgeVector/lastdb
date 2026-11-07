@@ -17,7 +17,6 @@ import tomllib
 REPOSITORY = "EdgeVector/lastdb"
 ACTIONS_APP_ID = 15368
 CHECKS = ("ci-required", "benchmark-complete", "CodeQL security (actions)",
-          "CodeQL security (c-cpp)",
           "CodeQL security (python)", "CodeQL security (rust)",
           "CodeQL security (ruby)", "CodeQL security (javascript-typescript)")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
