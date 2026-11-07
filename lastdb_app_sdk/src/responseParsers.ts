@@ -1,5 +1,7 @@
 /** Parsers that validate node response bodies into typed SDK results. */
 
+import { createHash } from 'node:crypto';
+
 import {
   UnexpectedResponseError,
 } from './errors.js';
@@ -14,6 +16,8 @@ import {
   QueryPage,
   QueryResult,
   QueryRow,
+  FileMarker,
+  InlineFile,
   RecordMetadata,
   SchemaDescriptor,
   RowFields,
@@ -181,16 +185,41 @@ export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
     );
   }
   if (isObject(raw['file'])) {
-    const file = raw['file'];
-    if (typeof file['sha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(file['sha256'])
-        || typeof file['size_bytes'] !== 'number' || !Number.isSafeInteger(file['size_bytes']) || file['size_bytes'] < 0) {
-      throw new UnexpectedResponseError('query returned invalid file marker', 200, raw);
-    }
-    metadata.file = { sha256: file['sha256'], size_bytes: file['size_bytes'],
-      ...(typeof file['name'] === 'string' ? { name: file['name'] } : {}),
-      ...(typeof file['media_type'] === 'string' ? { media_type: file['media_type'] } : {}) };
+    metadata.file = parseFileMarker(raw['file'], 'file marker', raw);
+  }
+  if (isObject(raw['inline_file'])) {
+    metadata.inline_file = parseInlineFile(raw['inline_file'], raw);
   }
   return metadata;
+}
+
+function parseFileMarker(file: Record<string, unknown>, what: string, raw: unknown): FileMarker {
+  if (typeof file['sha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(file['sha256'])
+      || typeof file['size_bytes'] !== 'number' || !Number.isSafeInteger(file['size_bytes']) || file['size_bytes'] < 0) {
+    throw new UnexpectedResponseError(`query returned invalid ${what}`, 200, raw);
+  }
+  return { sha256: file['sha256'], size_bytes: file['size_bytes'],
+    ...(typeof file['name'] === 'string' ? { name: file['name'] } : {}),
+    ...(typeof file['media_type'] === 'string' ? { media_type: file['media_type'] } : {}) };
+}
+
+/** The inline file marker, and its bytes when the query hydrated them. */
+function parseInlineFile(file: Record<string, unknown>, raw: unknown): InlineFile {
+  const marker: InlineFile = parseFileMarker(file, 'inline file marker', raw);
+  const encoded = file['bytes_b64'];
+  if (encoded === undefined) {
+    return marker;
+  }
+  if (typeof encoded !== 'string') {
+    throw new UnexpectedResponseError('query returned invalid inline file bytes', 200, raw);
+  }
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.length !== marker.size_bytes
+      || createHash('sha256').update(bytes).digest('hex') !== marker.sha256) {
+    throw new UnexpectedResponseError('query returned inline file bytes that do not match the marker', 200, raw);
+  }
+  marker.bytes = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return marker;
 }
 
 /**
