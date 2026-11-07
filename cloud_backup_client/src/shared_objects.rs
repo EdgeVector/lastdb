@@ -71,12 +71,9 @@ impl SharedObjectClient {
             }
         };
         match self.put_grant(request, source, deadline_ms, grant).await {
-            Ok(()) => (),
+            Ok(()) => {}
             Err(BackupTransportError::Http(404))
-                if destination(request) == Some(Destination::B2) =>
-            {
-                ()
-            }
+                if destination(request) == Some(Destination::B2) => {}
             Err(error) => return Err(error),
         }
         self.complete(request, deadline_ms, sign).await
