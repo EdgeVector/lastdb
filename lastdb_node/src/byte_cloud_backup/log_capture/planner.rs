@@ -171,6 +171,7 @@ pub(super) fn input(
         request_id,
         job: capture.frozen.begin.job.clone(),
         object,
+        blob: None,
     };
     input.validate()?;
     Ok(input)
