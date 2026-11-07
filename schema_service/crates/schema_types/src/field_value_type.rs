@@ -41,7 +41,6 @@ pub enum FieldValueType {
     /// with existing schemas that have no type declarations.
     Any,
 
-    // Append new variants to retain the existing enum discriminants.
     /// Gregorian calendar date, encoded as a strict `YYYY-MM-DD` JSON string.
     Date,
     /// RFC 3339 instant with an offset and at most nine fractional digits.
