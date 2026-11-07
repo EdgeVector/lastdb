@@ -29,7 +29,8 @@ def directory():
 
 
 def create(identity, case, targets):
-    require(case in io.CASES and len(directory()) < io.MAX_SCOPES, "shared_daily_scope_budget")
+    require(case in (*io.CASES, io.RECLAMATION) and len(directory()) < io.MAX_SCOPES,
+            "shared_daily_scope_budget")
     database = io.PREFIX + str(uuid.uuid4()).split("-", 1)[1]
     seeds, writers = {}, []
     for _ in range(7):
@@ -51,10 +52,13 @@ def create(identity, case, targets):
               "owner": {**identity, "case": case}, "created_at_ms": io.now_ms(),
               "phase": "active", "fenced_at_ms": None, "targets": targets}
     partition = "shared#" + io.database_id(database)
-    rows = [io.item(partition, "database", {
+    database_state = {
         "publisher_device": scope["publisher_device"], "writers": sorted(w["source_stream"] for w in writers),
         "snapshot": None, "writes_open": True, "object_limit_bytes": str(128 * 1024 * 1024),
-        "reserved_object_bytes": "0"})]
+        "reserved_object_bytes": "0"}
+    if case == io.RECLAMATION:
+        database_state["reclamation_enabled"] = True
+    rows = [io.item(partition, "database", database_state)]
     for writer in writers:
         rows += [io.item(partition, "device#" + writer["device_id"], {
             "account_id": ACCOUNT, "public_key": list(bytes.fromhex(writer["public_key"])), "can_write": True}),

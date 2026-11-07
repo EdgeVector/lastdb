@@ -7,21 +7,23 @@ import os
 from pathlib import Path
 import sys
 
-from shared_daily_io import CASES
+from shared_daily_io import CASES, RECLAMATION
 from shared_origin import owner
 from support import OperationError, require
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--operation", choices=("suite", "cleanup"), required=True)
+    parser.add_argument("--operation", choices=("suite", "cleanup", RECLAMATION), required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     identity = owner(os.environ.get("GITHUB_SHA", ""))
     expected = ("cleanup", *CASES) if args.operation == "suite" else ("cleanup",)
+    if args.operation == RECLAMATION:
+        expected += (RECLAMATION,)
     require(os.environ["ADMISSION_RESULT"] == "success" and os.environ["CLEANUP_RESULT"] == "success",
             "shared_daily_required_control_job")
-    if args.operation == "suite":
+    if args.operation != "cleanup":
         require(os.environ["BUILD_RESULT"] == "success" and os.environ["CASES_RESULT"] == "success",
                 "shared_daily_required_product_jobs")
     rows, binaries = [], []

@@ -8,7 +8,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [suite, cleanup]
+        options: [suite, cleanup, reclamation]
         default: suite
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
 
   build:
     needs: admission
-    if: needs.admission.outputs.operation == 'suite'
+    if: needs.admission.outputs.operation != 'cleanup'
     permissions:
       contents: read
       actions: read
@@ -94,7 +94,7 @@ jobs:
   cases:
     name: Shared DEV / ${{ matrix.case }}
     needs: [admission, build, cleanup]
-    if: needs.admission.outputs.operation == 'suite'
+    if: needs.admission.outputs.operation != 'cleanup'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -102,7 +102,7 @@ jobs:
         case: ${{ fromJSON(needs.admission.outputs.cases) }}
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: ${{ matrix.case == 'reclamation' && 55 || 10 }}
     permissions:
       contents: read
       actions: read
