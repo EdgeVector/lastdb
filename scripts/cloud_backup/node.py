@@ -76,7 +76,7 @@ class OwnedNode:
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
         self.backup_source = backup_source
-        self.shared_sync = False
+        self.shared_sync = None
         self.isolated_copy = backup_source or isolated_copy
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
         require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
@@ -165,7 +165,11 @@ class OwnedNode:
     def health(self, readiness=False):
         paths = ("/health", "/api/status", "/api/system/boot-identity", "/api/db/native-status")
         # Independent observations settle before the caller uses any of them.
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=len(paths) + (self.shared_sync is not None)) as pool:
+            policy = None
+            if self.shared_sync is not None:
+                # General status is sampled. Check a just-changed policy at its live endpoint.
+                policy = pool.submit(self.call, "/api/sync/byte-backup-v2", {"action": "status"})
             health, status, boot, native = list(pool.map(self.call, paths))
         require(self.process is not None and self.process.poll() is None, "daemon_health_exit")
         instance = health["instance_id"]
@@ -185,8 +189,11 @@ class OwnedNode:
         measured = status["status"]
         require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
-        if self.shared_sync:
-            require(durability["automatic_enabled"] is True, "daemon_shared_sync_enabled")
+        if policy is not None:
+            shared = policy.result()["shared_sync"]
+            require(shared["enabled"] is self.shared_sync
+                    and (self.shared_sync or shared["progress"]["running"] is False),
+                    "daemon_shared_sync_policy")
         elif not self.backup_source:
             require(durability["automatic_enabled"] is False and durability["running"] is False,
                     "daemon_backup_off")
