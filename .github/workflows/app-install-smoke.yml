@@ -535,15 +535,18 @@ jobs:
           mkdir -p "$root/index/$REGISTRY_CHANNEL/api" "$root/user"
           curl -fsS --proto '=https' "$base/$path" -o "$root/index/$path"
           curl -fsS --proto '=https' "$base/$path.sig" -o "$root/index/$path.sig"
-          export HOME="$root/user" LASTDB_APPS_ROOT="$root/apps"
-          lastdb app install brain --channel "$REGISTRY_CHANNEL" --index "$root/index" --accept-install --inactive
+          export HOME="$root/user" LASTDB_APPS_ROOT="$root/apps" XDG_STATE_HOME="$root/install-state"
+          lastdb app install brain --channel "$REGISTRY_CHANNEL" --index "$root/index" --accept-install --inactive --json > "$root/brain-install.json"
           channel=stable
           if ! lastdb app list lastsecrets --channel "$channel" --json > "$root/lastsecrets.json"; then
             channel=next
             lastdb app list lastsecrets --channel "$channel" --json > "$root/lastsecrets.json"
           fi
-          lastdb app install lastsecrets --channel "$channel" --accept-install --inactive
+          lastdb app install lastsecrets --channel "$channel" --accept-install --inactive --json > "$root/lastsecrets-install.json"
           mv "$root/index" "$root/available-index"
+          # An index outage is recoverable with a verified cache. Give this
+          # isolated poll fresh state to exercise the uncached failure path.
+          export XDG_STATE_HOME="$root/poll-state"
           if LASTDB_APP_REGISTRY_POLL=1 lastdb app upgrade --all --json > "$PROOF_DIR/updater-index-unavailable.json"; then
             echo "The missing signed index was not reported as an error."
             exit 1
