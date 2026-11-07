@@ -2,7 +2,7 @@
 
 The receipt must bind the exact protected point and source. Missing historical
 evidence leaves compatibility unknown and the existing native restore decides.
-No historical code or executable is fetched or run.
+Only historical format definitions are read; no historical program is run.
 """
 
 import ast
