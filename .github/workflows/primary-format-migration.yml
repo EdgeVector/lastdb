@@ -11,11 +11,11 @@ permissions:
 env:
   ENVIRONMENT: dev
   SOURCE_DB: 5e4655e87c14cb5f603ec40b81e8969371abe888
-  TARGET_DB: 983ccc0eb4939429a04cf02faf542dd52f781937
+  TARGET_DB: ebd09268f8d151fb6cc382d8b1f9ac2c82e3420d
   SOURCE_BRAIN: 6a3e326669e5d876924feaed7df2043b83318d79
-  TARGET_BRAIN: d017126a65ad53bfc55e70c247776cedfc35ed46
-  SOURCE_SECRETS: 310460ad282152d4f810c403af503babec4ce33c
-  TARGET_SECRETS: e74ac199880c526019f2b7f09524740b91a0c706
+  TARGET_BRAIN: e96a6733bca2be7798f9ad5f34919919b3deb26e
+  SOURCE_SECRETS: 6753ca81c03062927fc86d56db00ba95ef130406
+  TARGET_SECRETS: ff3600f8fc9ceede3ba562617167709bed6c86d5
   COPY_TOOL: f95e4376c1c4f7cf594e1a9571d6dfa3516143fd
 jobs:
   move:
@@ -41,11 +41,11 @@ jobs:
           bun-version: '1.3.10'
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-bundles-42323311253-x86_64-unknown-linux-gnu
+          name: nightly-bundles-42326290532-x86_64-unknown-linux-gnu
           github-token: ${{ github.token }}
-          run-id: 42323311253
+          run-id: 42326290532
           path: ${{ runner.temp }}/format14-bundle
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: source-program
         with:
           path: ${{ runner.temp }}/format9-build/release/lastdbd
@@ -59,6 +59,11 @@ jobs:
           rustup toolchain install --profile minimal
           FOLDDB_BUILD_VERSION_OVERRIDE="bench-$SOURCE_DB" CARGO_TARGET_DIR="$RUNNER_TEMP/format9-build" \
             cargo build --locked --release -p lastdb_node --bin lastdbd
+      - uses: actions/cache/save@v4
+        if: steps.source-program.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/format9-build/release/lastdbd
+          key: ${{ steps.source-program.outputs.cache-primary-key }}
       - name: Fetch the exact app and converter sources
         shell: bash
         run: |
