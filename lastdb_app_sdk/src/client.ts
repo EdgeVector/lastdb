@@ -982,6 +982,9 @@ export class LastDbClient {
     if (filter.where !== undefined) {
       body.where = mapPredicateFields(filter.where, resolved.appToNodeFields);
     }
+    if (filter.hydrate !== undefined) {
+      body.hydrate = filter.hydrate;
+    }
     return body;
   }
 

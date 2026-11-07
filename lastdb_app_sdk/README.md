@@ -461,15 +461,38 @@ field map. Each `QueryRow` (the SDK type name) carries:
 | `fields` | every field the record stores; copy them when constructing a replacement |
 | `revision` | the whole-record condition token returned by the read |
 | `alternates` | all named alternate addresses, independent of payload fields |
-| `metadata` | the one metadata block of the record (`source_file_name` and the `metadata` map), or `null` when the record has none. A field has no metadata of its own |
+| `metadata` | the one metadata block of the record (`source_file_name`, the `metadata` map, and the `file` and `inline_file` markers), or `null` when the record has none. A field has no metadata of its own |
 
 This is the API 29 shape of `lastdbd`'s `/api/query`. The request names a
 schema and an optional key filter. It does not name fields. Each item of
 `results` is one record: `{key, revision, alternates, fields, metadata}`.
-`metadata` is `{source_file_name, metadata?, file?}` or `null`.
+`metadata` is `{source_file_name, metadata?, file?, inline_file?}` or `null`.
 The SDK surfaces the key, field, and metadata parts and invents none. A body
 without a `results` array, or a record without an object `key` and `fields`,
 throws `UnexpectedResponseError`.
+
+### Inline files
+
+A record can hold one small inline file (64 KiB at most), such as a
+thumbnail, in the record value itself. It travels with the record through
+backup and restore. The record's large file stays in `metadata.file`.
+
+- A query returns the inline file's marker in `metadata.inline_file`
+  (`size_bytes`, `sha256`, and `name` / `media_type` when set).
+- `query(schema, { filter, hydrate: 'inline' })` also returns the bytes in
+  `metadata.inline_file.bytes` (a `Uint8Array`). The SDK checks the bytes
+  against the marker's size and SHA-256, and throws `UnexpectedResponseError`
+  on a mismatch. `queryBatch` and `queryAll` accept the same option.
+- `mutate` never sends the inline file. A replacement keeps the record's
+  inline file. The owner writes and removes inline files through the node's
+  file routes (`put-blob` / `delete-blob` with `placement: "inline"`, or the
+  `lastdb mutate` request file).
+- A node without inline files refuses `hydrate` with `NodeTooOldError`.
+
+```ts
+const page = await fold.query('photos/Photo', { filter: { HashKey: 'p1' }, hydrate: 'inline' });
+const thumb = page.rows[0]?.metadata?.inline_file?.bytes; // Uint8Array | undefined
+```
 
 ## Pagination
 

@@ -90,6 +90,8 @@ export type {
   QueryResult,
   QueryRow,
   RecordMetadata,
+  FileMarker,
+  InlineFile,
   SchemaDescriptor,
   CasExpectation,
   MutationDurability,
