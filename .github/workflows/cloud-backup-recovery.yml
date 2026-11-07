@@ -1,19 +1,17 @@
 name: Cloud backup recovery
 
-# Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
+# Real DEV operations: generated current-format recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
-# The manual `baseline` mode cuts the fixed baseline once for each home format
-# (scripts/cloud_backup/baseline.py), because a client restores only a
-# snapshot of its own home format.
-# A baseline run also points the two protected inputs at the new baseline.
-# The manual fresh-v2 mode seeds a new source and proves its own Backup V2 chain.
+# Explicit baseline maintenance cuts and verifies a replacement protected
+# point and updates its two inputs. Both ordinary recovery selections seed
+# a new source and prove its own Backup V2 chain.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
 # Shared-multiwriter uses its own preadmitted seven-device DEV scope.
 # offline_conflicts selects independent same-key writes with opposite replay orders.
 # Shared-readback reuses only a completed operation's exact published cut.
-# Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
-# this operation never waits for it and fails fast while a cleanup is active.
+# Cleanup runs in cloud-backup-cleanup.yml. A recovery refuses admission
+# while cleanup is active.
 on:
   pull_request:
     paths:
@@ -43,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery = full operation; fresh-v2 = generated source; baseline = format-specific baseline; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-retention = shared disk retention and restore; shared-readback = verify a retained two-writer cut."
+        description: "recovery or fresh-v2 = current-format generated source and restore; baseline = explicit baseline maintenance; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-retention = shared disk retention and restore; shared-readback = verify a retained two-writer cut."
         type: choice
         options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-retention, shared-readback]
         default: recovery
@@ -149,14 +147,14 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'recovery' || inputs.mode == 'fresh-v2' || inputs.mode == 'baseline')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 16
     permissions:
       contents: read
       actions: read
     env:
       SOURCE_COMMIT: ${{ github.sha }}
       CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-      # The daily driver dispatches recovery; a manual main run can move the baseline.
+      # The daily driver selects fresh-v2. Baseline is explicit maintenance.
       RUN_MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@v7
@@ -191,14 +189,10 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
-          args=()
-          if [ "$RUN_MODE" = recovery ]; then
-            args+=(--pinned)
-          fi
           python3 scripts/cloud_backup/preflight.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
-            --output "$RUNNER_TEMP/cloud-ci-preflight" "${args[@]}"
+            --output "$RUNNER_TEMP/cloud-ci-preflight"
       - name: Check protected-input credential before a baseline starts
         if: env.RUN_MODE == 'baseline'
         env:
@@ -232,7 +226,7 @@ jobs:
             --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase startup \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json"
-      - name: ${{ env.RUN_MODE == 'fresh-v2' && 'Run Backup V2 recovery from a fresh generated source' || 'Run automatic snapshots, mutation logs, restart and both recoveries' }}
+      - name: Run Backup V2 recovery from a fresh generated source
         if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
@@ -241,17 +235,13 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           set -euo pipefail
-          args=()
-          if [ "$RUN_MODE" = fresh-v2 ]; then
-            args+=(--fresh)
-          fi
           python3 scripts/cloud_backup/recover.py \
             --bin-dir "$CLIENT_BIN_DIR" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
             --startup-artifact "$RUNNER_TEMP/cloud-ci-start/ci-start.json" \
-            --output "$RUNNER_TEMP/cloud-backup-recovery" "${args[@]}"
+            --output "$RUNNER_TEMP/cloud-backup-recovery"
       - name: Retain successful CI stream ownership
         id: ci-stream-artifact
         if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'

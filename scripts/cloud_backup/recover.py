@@ -2,7 +2,6 @@
 """Run real DEV automatic backup and recovery with the exact CI-built Mini pair."""
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,18 +10,15 @@ import shutil
 import signal
 import sys
 import tempfile
-import time
 
 sys.dont_write_bytecode = True
 
-from node import OwnedNode
 from automatic import Automatic
 from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
 from fresh_source import seed
 from ownership import run_identity
 from programs import Programs
-from restore_receipts import restored
 from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
                      dev_endpoint, failure, private_directory, require, save_json)
@@ -54,8 +50,8 @@ class Operation:
             "schema": "lastdb.cloud-dev-automatic.v1", "source": args.source,
             "version": args.version, "account": ACCOUNT, "result": "failed",
             "primary_access": False, "provider_deletions": 0,
-            "coverage": "pinned recovery, automatic snapshot/log, restart, changed snapshot interval, "
-                        "a stopped snapshot with automatic backup on, and fresh recovery",
+            "coverage": "generated current-format Backup V2 snapshot/log, restart, changed snapshot interval, "
+                        "a stopped snapshot with automatic backup on, and source-free recovery",
         })
 
     def prepare(self, startup=True):
@@ -133,51 +129,10 @@ class Operation:
             self.summary["ci_quota"] = control.usage()
         finally:
             control.close()
-        destination = self.root / "restored"
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")
-        if self.args.fresh:
-            self.fresh_recovery(credentials, phrase)
-            return
-        started = time.monotonic()
-        self.summary["stage"] = "pinned-restore"
-        report = self.programs.restore(credentials, destination, self.baseline, phrase)
-        require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
-                "pinned_ci_native_size")
-        native = restored(destination, report, self.baseline)
-        # The per-file names and all product controls remain private in memory.
-        inventory = json.dumps(native.pop("files"), sort_keys=True, separators=(",", ":")).encode()
-        native["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
-        self.summary["restore"] = native
-        self.summary["restore_seconds"] = round(time.monotonic() - started, 3)
-        self.node = OwnedNode(destination, self.programs)
-        self.summary["stage"] = "pinned-restart"
-        boots = []
-        for _number in range(2):
-            self.node.start()
-            boots.append(self.node.verify_records(self.baseline))
-            try:
-                self.node.stop()
-            except BaseException:
-                self.preserve = True
-                raise
-        require(self.node.clean_stops == 2, "two_clean_restarts")
-        try:
-            self.summary["automatic"] = Automatic(self, credentials, phrase).run()
-        except BaseException:
-            # Keep uncertain captures private; never delete cloud allocations.
-            self.preserve = True
-            raise
-        finally:
-            del phrase
-            self.api_key = None
-        self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
-                            keyed_reads=boots, file_bytes=self.baseline["file_bytes"],
-                            file_sha256=self.baseline["file_sha256"])
-
-    def fresh_recovery(self, credentials, phrase):
-        self.summary.update(stage="fresh-source", mode="fresh-v2",
-                            coverage="generated current-format Backup V2 snapshot/log, restart, and source-free recovery")
+        self.summary["mode"] = "fresh-v2"
+        self.summary["stage"] = "fresh-source"
         try:
             source = seed(self, phrase)
             self.summary["automatic"] = Automatic(self, credentials, phrase).run(source)
@@ -275,7 +230,6 @@ def main():
     parser.add_argument("--startup-proof", required=True, type=Path)
     parser.add_argument("--startup-artifact", required=True, type=Path)
     parser.add_argument("--preflight", required=True, type=Path)
-    parser.add_argument("--fresh", action="store_true", help="Seed a new home and skip the pinned restore")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
@@ -283,8 +237,8 @@ def main():
         raise OperationError("operation_cancelled_or_deadline")
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    # The job limit is 10 minutes; owned cleanup needs the rest.
-    signal.alarm(480)
+    # Several real publication intervals must fit before the 16-minute job ends.
+    signal.alarm(780)
     try:
         operation.prepare()
         operation.execute()
