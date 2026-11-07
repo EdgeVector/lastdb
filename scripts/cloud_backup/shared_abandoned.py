@@ -9,14 +9,31 @@ import shared_daily_io as io
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
-from shared_abandoned_client import Client, digest
 from shared_reclamation import FILE_BYTES, await_report, publish
 from shared_reclamation_observer import control, location_set, provider_objects, refresh_session
-from support import OperationError, canonical_uuid, decode_json, require
+from support import OperationError, canonical_uuid, decode_json, require, save_json
 
 
 TIMEOUT = 115 * 60
 DRAIN_MS = 35 * 60 * 1000
+
+
+def qualify(operation, writer, action, **fields):
+    plan = operation.root / "staging-plan.json"
+    save_json(plan, {"action": action, **fields})
+    try:
+        return decode_json(operation.command(operation.root / "credentials", [
+            "shared-writer", "--device-id", writer["device_id"],
+            "--device-key-file", str(operation.device_file(writer["device_id"])),
+            "--recovery-phrase-stdin", "qualify-staging", "--plan", str(plan),
+        ], timeout=180))
+    finally:
+        plan.unlink()
+
+
+def upload(operation, writer, snapshot, provider, *, incomplete=False):
+    return qualify(operation, writer, "upload", database_id=operation.scope["database_id"],
+                   snapshot_id=snapshot, destination=provider, incomplete=incomplete)
 
 
 def run(operation):
@@ -36,43 +53,35 @@ def run(operation):
     operation.summary.update(snapshot_id=operation.snapshot, source_homes_removed=True)
 
     operation.summary["stage"] = "abandoned_upload_and_stage"
-    client = Client(operation, publisher)
     old = str(uuid.uuid4())
-    incomplete = client.upload(old, "b2", operation.payload("abandoned-b2-part", FILE_BYTES))
-    staged = client.upload(old, "b2", operation.payload("abandoned-b2-object", FILE_BYTES))
-    manifest = client.upload(old, "r2", operation.payload("abandoned-r2-manifest", FILE_BYTES))
-    client.complete(staged)
-    client.complete(manifest)
-    page = {"database_id": client.database, "snapshot_id": old, "page_index": 0,
-            "objects": [staged["object"]]}
-    require(client.post("inventory", page) is None, "shared_abandoned_inventory_response")
+    incomplete = upload(operation, publisher, old, "b2", incomplete=True)
+    staged = upload(operation, publisher, old, "b2")
+    manifest = upload(operation, publisher, old, "r2")
+    inventory = [staged["object"]]
+    proposed = qualify(operation, publisher, "stage", database_id=operation.scope["database_id"],
+                       snapshot_id=old, replaces=operation.snapshot, encrypted_manifest=manifest["object"],
+                       inventory=inventory)
     publish(mailbox, "abandoned", {"accepted": operation.snapshot, "snapshot": old,
-                                  "incomplete": incomplete, "staged": [staged, manifest], "page": page})
+                                  "incomplete": incomplete, "staged": [staged, manifest], "inventory": inventory})
     operation.summary["stage"] = "abandoned_wait_for_active_window"
     accepted = await_report(mailbox, "start-active", time.monotonic() + TIMEOUT)
 
     operation.summary["stage"] = "abandoned_start_active_upload"
-    active = client.upload(str(uuid.uuid4()), "b2", operation.payload("active-b2-part", FILE_BYTES))
+    active = upload(operation, publisher, str(uuid.uuid4()), "b2", incomplete=True)
     publish(mailbox, "active", active)
     operation.summary["stage"] = "abandoned_wait_for_exact_provider_absence"
     evidence = await_report(mailbox, "observed-expiry", time.monotonic() + TIMEOUT)
     operation.summary["abandoned_reclamation"] = evidence
 
     operation.summary["stage"] = "abandoned_replay_and_complete_active"
-    proposed = {**accepted["manifest"], "snapshot_id": old, "replaces": operation.snapshot,
-                "encrypted_manifest": manifest["object"], "object_count": 1,
-                "inventory_sha256": digest("inventory", page["objects"])}
-    client.post("publish", proposed, expired=True)
-    client.post("inventory", page, expired=True)
-    client.post("prepare", incomplete, expired=True)
-    require(client.post("publish", accepted["manifest"]) == accepted["receipt"],
-            "shared_abandoned_accepted_receipt_replay")
-    client.complete(active)
-    fresh = client.upload(active["role"]["snapshot_id"], "r2",
-                          operation.payload("fresh-r2-after-expiry", FILE_BYTES))
-    client.complete(fresh)
-    operation.summary.update(expired_staging_refused=True, accepted_receipt_replayed=True,
-                             active_upload_completed=True, fresh_upload_verified=True)
+    replay = qualify(operation, publisher, "replay", expired=proposed, inventory=inventory,
+                     incomplete=incomplete, accepted=accepted["manifest"], receipt=accepted["receipt"])
+    require(replay == {"expired_staging_refused": True, "accepted_receipt_replayed": True},
+            "shared_abandoned_replay_receipt")
+    require(qualify(operation, publisher, "complete", request=active) == {"verified": True},
+            "shared_abandoned_active_completion")
+    upload(operation, publisher, active["role"]["snapshot_id"], "r2")
+    operation.summary.update(replay, active_upload_completed=True, fresh_upload_verified=True)
 
     operation.summary["stage"] = "abandoned_source_free_restore"
     destination = operation.root / "restored"
@@ -162,7 +171,7 @@ def observe(mailbox, scope, targets, process):
     require(first["database"]["abandoned_reclamation_enabled"] is True
             and first["database"]["snapshot"] == accepted["receipt"]
             and "snapshot#" + old_id not in first and stage["state"] == "open"
-            and first[page_key] == old["page"]["objects"], "shared_abandoned_initial_staging")
+            and first[page_key] == old["inventory"], "shared_abandoned_initial_staging")
     transfers = [exact_transfer(first, request) for request in requests]
     multipart_key = unfinished_part(database, b2, secret, transfers[0])
     old_objects = location_set({"sealed#" + vid: first["sealed#" + vid] for vid in versions[1:]},
@@ -186,7 +195,7 @@ def observe(mailbox, scope, targets, process):
         if active is None and io.now_ms() >= active_at:
             rows = control(database)
             require((rows.get(stage_key) or {}).get("state") == "open"
-                    and rows.get(page_key) == old["page"]["objects"],
+                    and rows.get(page_key) == old["inventory"],
                     "shared_abandoned_live_staging_preserved")
             for request in requests:
                 exact_transfer(rows, request)

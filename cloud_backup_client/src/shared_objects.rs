@@ -5,8 +5,8 @@ use crate::shared_authority::device_headers;
 use crate::AuthClient;
 use cloud_backup_protocol::shared::objects::{
     ObjectAuthorityRequest, SharedObjectPrepare, SharedObjectRequest, SharedObjectRole,
-    SharedObjectStatus, SnapshotHeadRequest, SnapshotInventoryPage, SnapshotLogEndsReply,
-    SnapshotLogEndsRequest, INVENTORY_PAGE_ENTRIES,
+    SharedObjectStatus, SharedUploadGrant, SnapshotHeadRequest, SnapshotInventoryPage,
+    SnapshotLogEndsReply, SnapshotLogEndsRequest, INVENTORY_PAGE_ENTRIES,
 };
 use cloud_backup_protocol::shared::{SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover};
 use cloud_backup_protocol::v2::Destination;
@@ -16,6 +16,8 @@ use std::io::Read;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use crate::backup_transport::BackupTransportError;
+
+mod qualification;
 
 type Result<T> = std::result::Result<T, BackupTransportError>;
 const RETRY_DELAYS_MS: [u64; 6] = [25, 50, 100, 200, 400, 800];
@@ -68,6 +70,25 @@ impl SharedObjectClient {
                 return self.complete(request, deadline_ms, sign).await;
             }
         };
+        match self.put_grant(request, source, deadline_ms, grant).await {
+            Ok(()) => (),
+            Err(BackupTransportError::Http(404))
+                if destination(request) == Some(Destination::B2) =>
+            {
+                ()
+            }
+            Err(error) => return Err(error),
+        }
+        self.complete(request, deadline_ms, sign).await
+    }
+
+    async fn put_grant(
+        &self,
+        request: &SharedObjectRequest,
+        source: Box<dyn Read + Send>,
+        deadline_ms: u64,
+        grant: SharedUploadGrant,
+    ) -> Result<()> {
         grant.validate_for(request, DecimalU64::new(now_ms()?))?;
         let object = StoredObject {
             sha256: &request.object.sha256,
@@ -80,10 +101,7 @@ impl SharedObjectClient {
         match destination(request) {
             Some(Destination::B2) => {
                 require_provider(grant.url, Destination::B2)?;
-                match self.transport.upload_part(object, grant, source).await {
-                    Ok(_) | Err(BackupTransportError::Http(404)) => (),
-                    Err(error) => return Err(error),
-                }
+                self.transport.upload_part(object, grant, source).await?;
             }
             destination => {
                 if let Some(destination) = destination {
@@ -92,7 +110,7 @@ impl SharedObjectClient {
                 self.transport.upload(object, grant, source).await?;
             }
         }
-        self.complete(request, deadline_ms, sign).await
+        Ok(())
     }
 
     async fn complete(

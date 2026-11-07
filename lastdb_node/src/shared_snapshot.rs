@@ -9,7 +9,7 @@ use cloud_backup_protocol::shared::{
     inventory_sha256, SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover,
 };
 use cloud_backup_protocol::v2::Destination;
-use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, ErrorCode, Id, RelativePath};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
 use fold_db::portable_mutation::{StreamId, StreamProgress};
 use fold_db::storage::disk_pack::{byte_backup::RunBackupProfile, HOME_FORMAT};
 use std::collections::BTreeMap;
@@ -193,8 +193,7 @@ pub async fn publish(
 
 fn staging_expired(error: &RestoreError) -> bool {
     // The service checks the accepted receipt before returning this refusal.
-    matches!(error, RestoreError::Protocol(error)
-        if error.code == ErrorCode::JobClosed && error.field == "shared.snapshot.staging_expired")
+    matches!(error, RestoreError::Protocol(error) if cloud_backup_protocol::shared::objects::staging_expired(error))
 }
 
 fn prepare(source: &impl FrozenCheckpoint, store: &IntentStore, key: &[u8; 32]) -> Result<Intent> {

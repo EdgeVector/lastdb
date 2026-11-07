@@ -22,6 +22,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
+#[path = "shared_writer/qualification.rs"]
+mod qualification;
 #[path = "shared_writer/rejoin.rs"]
 mod rejoin;
 #[path = "shared_writer/schema.rs"]
@@ -85,6 +87,9 @@ impl Owner {
         action: SharedWriterAction,
         e2e: &E2eKeys,
     ) -> Result<(), String> {
+        if let SharedWriterAction::QualifyStaging { plan } = &action {
+            return qualification::execute(self, plan).await;
+        }
         let store = home.join("data");
         if matches!(action, SharedWriterAction::Rejoin { .. }) {
             lastdb_node::shared_sync::require_rejoin_ready(home)
@@ -180,7 +185,9 @@ impl Owner {
             SharedWriterAction::DefineSchema { .. } => {
                 unreachable!("this action has no source writer")
             }
-            SharedWriterAction::Rejoin { .. } => unreachable!("rejoin owns writer shutdown"),
+            SharedWriterAction::Rejoin { .. } | SharedWriterAction::QualifyStaging { .. } => {
+                unreachable!("handled before writer operations")
+            }
         }
         Ok(())
     }

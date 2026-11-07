@@ -21,6 +21,11 @@ pub const SNAPSHOT_LOG_ENDS_PATH: &str = "/cloud/shared/v1/snapshots/log-ends";
 /// Conditionally publish the verified snapshot and covers.
 pub const SNAPSHOT_PUBLISH_PATH: &str = "/cloud/shared/v1/snapshots/publish";
 
+/// An exact unpublished snapshot staging ID has been permanently closed.
+pub fn staging_expired(error: &ProtocolError) -> bool {
+    error.code == ErrorCode::JobClosed && error.field == "shared.snapshot.staging_expired"
+}
+
 /// Exact object references per inventory page, except the final page.
 pub const INVENTORY_PAGE_ENTRIES: usize = 512;
 
