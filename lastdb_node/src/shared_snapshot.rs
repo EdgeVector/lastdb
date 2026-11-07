@@ -9,7 +9,7 @@ use cloud_backup_protocol::shared::{
     inventory_sha256, SealedObject, SnapshotManifest, SnapshotReceipt, StreamCover,
 };
 use cloud_backup_protocol::v2::Destination;
-use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, ErrorCode, Id, RelativePath};
 use fold_db::portable_mutation::{StreamId, StreamProgress};
 use fold_db::storage::disk_pack::{byte_backup::RunBackupProfile, HOME_FORMAT};
 use std::collections::BTreeMap;
@@ -138,10 +138,14 @@ pub async fn publish(
             }
             .await;
             if let Err(error) = transfer {
-                if remaining(source.cut()).is_err() {
+                let closed = staging_expired(&error);
+                if closed || remaining(source.cut()).is_err() {
                     intent.phase = Phase::Abandoned;
                     store.save(&intent)?;
                     source.thaw(&intent.manifest.snapshot_id).await?;
+                }
+                if closed {
+                    return Ok(SnapshotOutcome::Abandoned);
                 }
                 return Err(error);
             }
@@ -150,18 +154,20 @@ pub async fn publish(
         }
         let publish = transport.publish(&intent.manifest);
         let reply = if first_submission {
-            within_freeze(source.cut(), publish).await?
+            within_freeze(source.cut(), publish).await
         } else {
-            publish.await?
+            publish.await
         };
         let receipt = match reply {
-            PublishReply::Accepted(receipt) => {
+            Ok(PublishReply::Accepted(receipt)) => {
                 if receipt != intent.manifest.receipt()? {
                     return Err(RestoreError::Invalid("shared snapshot receipt"));
                 }
                 Phase::Accepted(receipt)
             }
-            PublishReply::Refused => Phase::Abandoned,
+            Ok(PublishReply::Refused) => Phase::Abandoned,
+            Err(error) if staging_expired(&error) => Phase::Abandoned,
+            Err(error) => return Err(error),
         };
         intent.phase = receipt;
         store.save(&intent)?;
@@ -183,6 +189,12 @@ pub async fn publish(
     };
     source.thaw(&intent.manifest.snapshot_id).await?;
     Ok(outcome)
+}
+
+fn staging_expired(error: &RestoreError) -> bool {
+    // The service checks the accepted receipt before returning this refusal.
+    matches!(error, RestoreError::Protocol(error)
+        if error.code == ErrorCode::JobClosed && error.field == "shared.snapshot.staging_expired")
 }
 
 fn prepare(source: &impl FrozenCheckpoint, store: &IntentStore, key: &[u8; 32]) -> Result<Intent> {
