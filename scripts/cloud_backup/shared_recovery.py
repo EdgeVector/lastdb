@@ -19,6 +19,7 @@ sys.dont_write_bytecode = True
 
 import baseline_data
 import native_records
+import shared_abandoned
 import shared_conflicts
 import shared_automatic
 import shared_daemon
@@ -75,9 +76,9 @@ class Operation:
         require(not self.args.automatic_sync or (self.args.multiwriter and not self.args.retention
                 and not self.args.conflicts and self.args.prior_summary is None),
                 "shared_automatic_new_multiwriter_scope")
-        require(not self.args.reclamation or (self.args.multiwriter and not self.args.retention
+        require(not (self.args.reclamation or self.args.abandoned) or (self.args.multiwriter and not self.args.retention
                 and not self.args.conflicts and not self.args.automatic_sync
-                and self.args.prior_summary is None), "shared_reclamation_new_multiwriter_scope")
+                and self.args.prior_summary is None), "shared_manual_new_multiwriter_scope")
         writer_count = shared_multiwriter.WRITER_COUNT if self.args.multiwriter else 2
         self.scope = scope(writer_count)
         self.summary["scope"] = self.scope
@@ -392,6 +393,9 @@ class Operation:
         self.summary["wrong_device_refused"] = True
 
     def execute(self):
+        if self.args.abandoned:
+            shared_abandoned.run(self)
+            return
         if self.args.reclamation:
             shared_reclamation.run(self)
             return
@@ -484,7 +488,9 @@ def main():
     parser.add_argument("--retention", action="store_true")
     parser.add_argument("--conflicts", action="store_true")
     parser.add_argument("--automatic-sync", action="store_true")
-    parser.add_argument("--reclamation", action="store_true")
+    manual = parser.add_mutually_exclusive_group()
+    manual.add_argument("--reclamation", action="store_true")
+    manual.add_argument("--abandoned", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)
@@ -494,7 +500,8 @@ def main():
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(shared_reclamation.TIMEOUT + 240 if args.reclamation else 340)
+    timeout = shared_abandoned.TIMEOUT if args.abandoned else shared_reclamation.TIMEOUT
+    signal.alarm(timeout + 240 if args.abandoned or args.reclamation else 340)
     try:
         operation.prepare()
         operation.execute()

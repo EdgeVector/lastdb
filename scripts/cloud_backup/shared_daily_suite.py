@@ -12,6 +12,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import shared_abandoned
 import shared_daily_cleanup as cleanup
 import shared_daily_io as io
 import shared_daily_scopes as scopes
@@ -34,6 +35,17 @@ def verify_case(case, proof, source, scope):
                 and evidence["uncovered_peer_through"] > 0
                 and proof["source_homes_removed"] is True and proof["exact_absent_records"] == 1,
                 "shared_daily_reclamation_coverage")
+        return
+    if case == io.ABANDONED:
+        evidence = proof["abandoned_reclamation"]
+        require(evidence["released_objects"] == 3 and evidence["released_bytes"] == 3 * shared_abandoned.FILE_BYTES
+                and evidence["pruned_pages"] == 1 and evidence["old_b2_versions_absent"] == 1
+                and evidence["old_r2_objects_absent"] == 1 and evidence["old_b2_multipart_absent"] is True
+                and evidence["active_b2_multipart_preserved"] is True
+                and evidence["provider_bytes_preserved_during_drain"] is True
+                and all(proof[name] is True for name in ("source_homes_removed", "expired_staging_refused",
+                        "accepted_receipt_replayed", "active_upload_completed", "fresh_upload_verified")),
+                "shared_daily_abandoned_coverage")
         return
     flags = {
         "lifecycle": ("live_write_during_upload", "live_write_after_restart", "local_only_excluded",
@@ -86,18 +98,19 @@ def case(args):
     if args.case == "automatic":
         arguments.append("--automatic-sync")
     observation_failure = None
-    if args.case == io.RECLAMATION:
-        arguments.append("--reclamation")
+    if args.case in io.MANUAL_CASES:
+        arguments.append("--" + args.case)
         mailbox = root / "provider-observation"
         mailbox.mkdir(mode=0o700)
+        observer = shared_abandoned if args.case == io.ABANDONED else shared_reclamation_observer
         with subprocess.Popen(arguments, env=environment, stdin=subprocess.DEVNULL,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as process:
             try:
-                shared_reclamation_observer.observe(mailbox, scope, targets, process)
-                exit_code = process.wait(timeout=140)
+                observer.observe(mailbox, scope, targets, process)
+                exit_code = process.wait(timeout=240 if args.case == io.ABANDONED else 140)
             except Exception as error:
                 observation_failure = (str(error) if isinstance(error, OperationError)
-                                       else "shared_reclamation_observer_failed")
+                                       else "shared_" + args.case + "_observer_failed")
                 if process.poll() is None:
                     process.terminate()
                 exit_code = process.wait(timeout=30)
@@ -128,7 +141,7 @@ def case(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--case", choices=(*io.CASES, io.RECLAMATION))
+    selection.add_argument("--case", choices=(*io.CASES, *io.MANUAL_CASES))
     selection.add_argument("--cleanup", action="store_true")
     parser.add_argument("--source", required=True)
     parser.add_argument("--bin-dir", type=Path)
