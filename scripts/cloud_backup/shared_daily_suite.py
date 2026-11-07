@@ -38,7 +38,7 @@ def verify_case(case, proof, source, scope):
                       "automatic_policy_paused_both_directions", "automatic_policy_resume_caught_up",
                       "automatic_policy_survived_restart", "automatic_download_after_restart",
                       "automatic_upload_after_restart", "automatic_snapshot_shorter_than_sync",
-                      "automatic_uncovered_peer_tail", "source_homes_removed"),
+                      "automatic_snapshot", "automatic_uncovered_peer_tail", "source_homes_removed"),
     }
     require(all(proof.get(name) is True for name in flags[case]), "shared_daily_case_coverage")
     if case == "lifecycle":
@@ -48,7 +48,8 @@ def verify_case(case, proof, source, scope):
         require(proof["shared_retention_overwrites"] == 24 and len(proof["retention_measurements"]) == 3,
                 "shared_daily_retention_coverage")
     if case == "automatic":
-        require(proof["automatic_running_writers"] == 6, "shared_daily_automatic_writer_count")
+        require(proof["automatic_running_writers"] == 6,
+                "shared_daily_automatic_coverage")
 
 
 def case(args):
@@ -84,7 +85,7 @@ def case(args):
         require(proof.get("cleanup") == "owned runner data removed", "shared_daily_owned_case_cleanup")
         fenced = scopes.fence(scope["database_id"])
         summary.update(phase=fenced["phase"], fenced_at_ms=fenced["fenced_at_ms"])
-        scopes.remember_schema(proof)
+        scopes.remember_schema(args.case, proof)
         require(result.returncode == 0, "shared_daily_product_case_failed")
         verify_case(args.case, proof, args.source, scope)
         summary["result"] = "passed"

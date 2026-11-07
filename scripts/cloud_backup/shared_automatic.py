@@ -9,7 +9,6 @@ from shared_daemon import policy
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
-from shared_scope import is_schema_alias
 from support import OperationError, decode_json, private_directory, require
 
 
@@ -167,7 +166,7 @@ def run(operation):
     wait_all(operation, nodes, records, files)
     operation.summary.update(automatic_running_writers=len(nodes), automatic_upload=True,
                              automatic_download_apply=True, manual_push_pull_commands=0,
-                             automatic_bound_schema_alias=is_schema_alias(operation.schema))
+                             automatic_bound_schema_alias=operation.schema.endswith("/CloudSharedProofAlias"))
 
     operation.summary["stage"] = "automatic-delete-and-file-update"
     removed, = native_records.read_records(publisher, operation.schema, [native_records.key("automatic-0")])

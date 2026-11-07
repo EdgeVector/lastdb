@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Require successful source gates before the daily workflow receives DEV rights."""
 
+import json
 import os
 import time
 
-from shared_daily_io import github
+from shared_daily_io import github, suite_cases
 from shared_origin import owner
 from support import OperationError, require
 
@@ -38,6 +39,7 @@ def main():
     wait_for_gates(identity["source"])
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("operation=" + selected + "\n")
+        output.write("cases=" + json.dumps(suite_cases()) + "\n")
     print("Accepted source gates passed")
 
 
