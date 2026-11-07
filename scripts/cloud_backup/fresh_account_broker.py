@@ -1,10 +1,10 @@
 """Private HTTPS exchange with the DEV fresh-account lease broker."""
 
-import hashlib
 import json
 import os
 import re
-from urllib.error import URLError
+import time
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
@@ -21,7 +21,11 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def exchange(opener, url, token, body, failure):
+class EnrollmentIndexPending(OperationError):
+    pass
+
+
+def exchange(opener, url, token, body, failure, *, enrollment=False):
     require(isinstance(token, str) and re.fullmatch(r"[\x21-\x7e]{1,32768}", token), failure)
     headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
     payload = None
@@ -34,6 +38,18 @@ def exchange(opener, url, token, body, failure):
             raw = response.read(RESPONSE_BYTES + 1)
             require(len(raw) <= RESPONSE_BYTES, failure)
             value = decode_json(raw)
+    except HTTPError as error:
+        with error:
+            if enrollment and error.code == 409:
+                try:
+                    raw = error.read(257)
+                    require(len(raw) <= 256, failure)
+                    pending = decode_json(raw)
+                except (OSError, ValueError, OperationError):
+                    raise OperationError(failure) from None
+                if pending == {"error": "enrollment_index_pending"}:
+                    raise EnrollmentIndexPending("dev_broker_enrollment_index_pending") from None
+        raise OperationError(failure) from None
     except (OSError, URLError, ValueError, OperationError):
         raise OperationError(failure) from None
     require(isinstance(value, dict), failure)
@@ -64,7 +80,8 @@ class Broker:
         token = oidc.get("value")
         require(isinstance(token, str) and len(token) <= 32768
                 and re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2}", token), "github_oidc_token")
-        return exchange(self.opener, self.endpoint + "/" + route, token, body, "dev_broker_" + route)
+        return exchange(self.opener, self.endpoint + "/" + route, token, body,
+                        "dev_broker_" + route, enrollment=route == "enrolled")
 
     def lease(self, account, operation, public_key):
         result = self.post("lease", {"account_id": account, "operation": operation, "public_key": public_key})
@@ -74,8 +91,16 @@ class Broker:
                 "dev_broker_lease_receipt")
         return invite.encode()
 
-    def enrolled(self, account, api_key):
-        result = self.post("enrolled", {"account_id": account, "api_key_sha256": hashlib.sha256(api_key).hexdigest()})
+    def enrolled(self, account):
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                result = self.post("enrolled", {"account_id": account})
+                break
+            except EnrollmentIndexPending:
+                if time.monotonic() + 2 >= deadline:
+                    raise
+                time.sleep(2)
         require(result == {"account_id": account, "state": "enrolled"}, "dev_broker_enrolled_receipt")
 
     def point(self, route, point):

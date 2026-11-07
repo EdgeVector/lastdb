@@ -108,7 +108,7 @@ class Operation:
         key = source.register(programs, home, account, invite)
         del invite
         self.summary["stage"] = "record_enrollment"
-        broker.enrolled(account, key)
+        broker.enrolled(account)
         self.summary["enrollment_recorded"] = True
         self.summary["stage"] = "write_source"
         self.node = OwnedNode(home, programs, backup_source=True, account=account)
