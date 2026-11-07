@@ -12,7 +12,7 @@ from support import OperationError, canonical_uuid, decode_json, read_json, requ
 
 
 FILE_BYTES = 32 * 1024
-TIMEOUT = 49 * 60
+TIMEOUT = 85 * 60
 
 
 def publish(directory, name, value):

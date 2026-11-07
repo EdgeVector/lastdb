@@ -1,12 +1,51 @@
 """Read exact owned DEV control and provider state without doing the deletion."""
 
 from concurrent.futures import ThreadPoolExecutor
+import os
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.request import Request, build_opener
+from xml.etree import ElementTree
 
 import shared_daily_cleanup as storage
 import shared_daily_io as io
 import shared_reclamation as scenario
-from support import canonical_uuid, require
+from support import canonical_uuid, decode_json, require
+
+
+def refresh_session():
+    # Two independent drains can exceed the first session. The product child
+    # never receives AWS credentials or the runner's OIDC request credential.
+    url = urlsplit(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"])
+    require(url.scheme == "https" and url.hostname and url.hostname.endswith(".actions.githubusercontent.com")
+            and url.port is None and url.username is None and not url.fragment,
+            "shared_reclamation_oidc_endpoint")
+    query = parse_qsl(url.query, keep_blank_values=True)
+    require(all(key != "audience" for key, _ in query), "shared_reclamation_oidc_audience")
+    endpoint = urlunsplit(url._replace(query=urlencode([*query, ("audience", "sts.amazonaws.com")])))
+    opener = build_opener(io.NoRedirect())
+    request = Request(endpoint, headers={"Authorization": "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+    with opener.open(request, timeout=20) as response:
+        token = decode_json(response.read(16385))["value"]
+    role = f"arn:aws:iam::{io.ACCOUNT}:role/LastDBSharedDailyDev"
+    body = urlencode({"Action": "AssumeRoleWithWebIdentity", "Version": "2011-06-15", "RoleArn": role,
+                      "RoleSessionName": "reclamation-" + os.environ["GITHUB_RUN_ID"],
+                      "DurationSeconds": "3600", "WebIdentityToken": token}).encode()
+    with opener.open(Request(f"https://sts.{io.REGION}.amazonaws.com/", data=body), timeout=20) as response:
+        raw = response.read(16385)
+    require(len(raw) <= 16384, "shared_reclamation_sts_response")
+    document = ElementTree.fromstring(raw)
+    ns = {"sts": "https://sts.amazonaws.com/doc/2011-06-15/"}
+    session = document.find(".//sts:Credentials", ns)
+    assumed = document.findtext(".//sts:AssumedRoleUser/sts:Arn", namespaces=ns)
+    require(session is not None and assumed and assumed.startswith(
+        f"arn:aws:sts::{io.ACCOUNT}:assumed-role/LastDBSharedDailyDev/"), "shared_reclamation_sts_role")
+    for field, key in (("AccessKeyId", "AWS_ACCESS_KEY_ID"), ("SecretAccessKey", "AWS_SECRET_ACCESS_KEY"),
+                       ("SessionToken", "AWS_SESSION_TOKEN")):
+        value = session.findtext("sts:" + field, namespaces=ns)
+        require(isinstance(value, str) and 0 < len(value) <= 4096, "shared_reclamation_sts_credential")
+        os.environ[key] = value
+    io.admission()
 
 
 def control(database):
@@ -53,6 +92,7 @@ def active_hold(rows, snapshot):
 
 def observe(mailbox, scope, targets, process):
     database = io.database_id(scope["database_id"])
+    refresh_at = time.monotonic() + 40 * 60
     with ThreadPoolExecutor(max_workers=len(targets)) as executor:
         credentials = dict(zip((target["name"] for target in targets),
                                executor.map(storage.credentials, targets)))
@@ -89,9 +129,13 @@ def observe(mailbox, scope, targets, process):
 
     deadline = time.monotonic() + scenario.TIMEOUT - 30
     while time.monotonic() < deadline and process.poll() is None:
+        if time.monotonic() >= refresh_at:
+            refresh_session()
+            refresh_at = time.monotonic() + 40 * 60
         rows = control(database)
         status = rows.get("reclamation#v1") or {}
-        if status.get("phase") == "complete" and (status.get("target") or {}).get("snapshot_id") == new_id:
+        target = (status.get("target") or {}).get("snapshot") or {}
+        if status.get("phase") == "complete" and target.get("snapshot_id") == new_id:
             break
         time.sleep(15)
     else:
@@ -100,7 +144,8 @@ def observe(mailbox, scope, targets, process):
     surviving = provider_objects(database, targets, credentials)
     require(not old_objects & surviving and surviving == location_set(rows, targets, database),
             "shared_reclamation_exact_old_provider_versions_absent")
-    require([key for key in rows if key.startswith("snapshot#")] == ["snapshot#" + new_id]
+    require(rows["database"]["snapshot"]["snapshot_id"] == new_id
+            and not any(key.startswith("inventory#" + old_id + "#") for key in rows)
             and int(rows["writer#" + publisher]["reclaimed_through"]) == covers[publisher]
             and all(key.startswith("batch#" + peer + "#") for key in rows if key.startswith("batch#"))
             and f"batch#{peer}#{peer_through:020}" in rows,
