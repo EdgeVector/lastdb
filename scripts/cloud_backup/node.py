@@ -16,6 +16,44 @@ from support import (ACCOUNT, BACKUP_DIR, CHUNK, CREDENTIALS_FILE, OperationErro
                      read_json, require)
 
 
+SOCKET_OPERATIONS = {
+    "/health": "health",
+    "/api/status": "status",
+    "/api/system/boot-identity": "boot_identity",
+    "/api/db/native-status": "native_status",
+    "/api/queries/batch": "query_batch",
+    "/api/mutations/batch": "mutation_batch",
+    "/api/db/fetch-blob": "fetch_file",
+}
+SOCKET_REFUSALS = {
+    "cas_conflict", "compaction_behind", "field_value_too_large", "persist_queue_full",
+    "read_resource_limit", "storage_full", "write_resource_limit",
+}
+
+
+def socket_refusal(path, response):
+    """Keep the status and closed labels; never include a response body or path."""
+    refusal = {"operation": SOCKET_OPERATIONS.get(path, "other"),
+               "status": response.status, "reason": "unrecognized"}
+    try:
+        raw = response.read(4097)
+    except (OSError, http.client.HTTPException):
+        return refusal
+    if len(raw) > 4096:
+        return refusal
+    if raw.startswith(b"node is busy: too many concurrent reads; retry after "):
+        refusal["reason"] = "read_busy"
+        return refusal
+    try:
+        body = decode_json(raw)
+    except OperationError:
+        return refusal
+    code = body.get("error") if isinstance(body, dict) else None
+    if isinstance(code, str) and code in SOCKET_REFUSALS:
+        refusal["reason"] = code
+    return refusal
+
+
 class Connection(http.client.HTTPConnection):
     def __init__(self, path):
         super().__init__("localhost", timeout=30)
@@ -29,7 +67,7 @@ class Connection(http.client.HTTPConnection):
 
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
-                 account=ACCOUNT, *, isolated_copy=False, storage_inventory=False):
+                 account=ACCOUNT, *, isolated_copy=False):
         self.home, self.programs = home, programs
         require(isinstance(account, str) and len(account) == 32
                 and all(char in "0123456789abcdef" for char in account), "owned_account")
@@ -40,7 +78,6 @@ class OwnedNode:
         self.backup_source = backup_source
         self.shared_sync = False
         self.isolated_copy = backup_source or isolated_copy
-        self.storage_inventory = storage_inventory
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
         require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
         self.ci_stream_id = None if ci_stream_id is None else canonical_uuid(ci_stream_id)
@@ -61,7 +98,8 @@ class OwnedNode:
         try:
             connection.request("GET" if body is None else "POST", path, content, headers)
             response = connection.getresponse()
-            require(response.status == 200, "socket_http_status")
+            if response.status != 200:
+                raise OperationError("socket_http_status", socket_refusal=socket_refusal(path, response))
             if binary:
                 returned_stream = True
                 return response, connection
@@ -80,7 +118,7 @@ class OwnedNode:
                 "restored_no_active_backup")
         require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
-    def start(self, *, shared_schema=None):
+    def start(self, *, shared_schema=None, storage_inventory=False):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         self.offline()
         self.programs.verify()
@@ -93,7 +131,7 @@ class OwnedNode:
         environment.update(self.ci_uploads())
         if shared_schema is not None:
             environment["LASTDB_NATIVE_SHARED_SCHEMAS"] = json.dumps([shared_schema])
-        if self.storage_inventory:
+        if storage_inventory:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)], env=environment,

@@ -3,7 +3,7 @@
 use super::manifest::{Manifest, RunFile, CURRENT};
 use super::{
     RunHome, BACKUP_DIR, CAS_DELETE, LOCK, MUTATION_LOG_DIR, NODE_CLEANUP, RUNS, RUN_HOME_MARKER,
-    RUN_SUFFIX,
+    RUN_SUFFIX, SHARED_BACKUP_DIR,
 };
 use crate::{Error, Result};
 use serde::Serialize;
@@ -209,7 +209,7 @@ fn enumerate(
         // `runs/` is read next. The owner directories hold owner state, and a
         // backup hold hard-links runs that `runs/` already counts.
         if root
-            && [RUNS, MUTATION_LOG_DIR, BACKUP_DIR]
+            && [RUNS, MUTATION_LOG_DIR, BACKUP_DIR, SHARED_BACKUP_DIR]
                 .iter()
                 .any(|dir| name == *dir)
             && metadata.is_dir()

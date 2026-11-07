@@ -42,7 +42,7 @@ def replace(operation, node, version):
 
 
 def settled(operation, node, version, *, dedicated=False):
-    node.start()
+    node.start(storage_inventory=True)
     value, = native_records.read_records(node, operation.schema, [native_records.key(KEY)])
     require(value["fields"] == record(operation, version), "shared_retention_live_record")
     payload = operation.payload(label(version))

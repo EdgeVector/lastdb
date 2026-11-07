@@ -4,7 +4,7 @@ use super::{invalid, run_capture, run_source::RunSource, PackRuntime, RunBackupP
 use crate::storage::disk_backup::NativeCloudWorkGuard;
 use crate::storage::disk_pack::{map, run_blocking};
 use crate::storage::error::{StorageError, StorageResult};
-use laststore::disk_run::home::CapturedRunHome;
+use laststore::disk_run::home::{CapturedRunHome, SHARED_BACKUP_DIR};
 use std::fs::File;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -138,7 +138,7 @@ fn shared_holds(runtime: &PackRuntime) -> PathBuf {
     runtime
         .physical
         .path()
-        .join("cloud-shared")
+        .join(SHARED_BACKUP_DIR)
         .join(super::HOLDS_DIR)
 }
 

@@ -102,7 +102,10 @@ def main():
     try:
         identity = owner(args.source)
         require(identity["workflow"].endswith("/cloud-shared-daily.yml"), "shared_daily_workflow")
-        summary = cleanup.run() if args.cleanup else case(args)
+        if args.cleanup:
+            cleanup.run(summary)
+        else:
+            summary = case(args)
     except OperationError as error:
         summary.update(failure(error), result="failed")
     except Exception:
