@@ -35,6 +35,17 @@ impl FoldDB {
         key: &KeyValue,
     ) -> Result<(String, Option<Arc<StoredRecord>>), FoldDbError> {
         let schema = self.schema_manager().require_schema_metadata(schema_name)?;
+        // The key codec comes from the schema's field key bundles. After a
+        // restart they load on first use, as the query path does.
+        self.db_ops()
+            .field_keys()
+            .load_schema(&schema)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "load field key bundles for schema '{schema_name}': {error}"
+                ))
+            })?;
         let records = self.db_ops().records();
         let record_key = records.record_key(&schema, key)?;
         let record = records
