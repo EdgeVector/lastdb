@@ -110,7 +110,9 @@ def current_baseline_ownership(raw, run, baseline):
     """Identify the protected point in its producer's completed baseline receipt."""
     value = decode_json(raw)
     previous = value.get("previous") if isinstance(value, dict) else None
-    require(isinstance(previous, dict), "ci_baseline_producer_previous")
+    require(isinstance(previous, dict) and set(previous) == {
+        "stream_id", "commit_id", "commit_sha256"}, "ci_baseline_producer_previous")
+    point(previous, canonical_uuid(previous["stream_id"]))
     # The original receipt names the baseline it replaced. Validate that
     # original relationship, then bind its new point to today's protected input.
     original = {**baseline, **previous}
