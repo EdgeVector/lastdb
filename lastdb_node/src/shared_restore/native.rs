@@ -11,21 +11,18 @@ use fold_db::fold_db_core::{
     factory::{create_fold_db_with_options, FoldDbOptions},
     mutation_manager::portable_replay::ReplayCandidate,
 };
-use fold_db::portable_mutation::{MutationEntry, MutationOperation, Position, StreamId};
+use fold_db::portable_mutation::{MutationEntry, Position, SchemaIdentity, StreamId};
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
-use schema_service_client::SchemaServiceClient;
 use schema_types::PortableSchemaId;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod rejoin;
-mod schemas;
 pub use rejoin::PreparedRejoin;
 pub(super) use rejoin::{prepare_rejoin, RejoinSource};
-pub(crate) use schemas::{resolve_schemas, schema_id, SchemaTarget};
 
 const FILE_INPUT_LIMIT: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
@@ -37,40 +34,30 @@ pub async fn restore_from_source<S: SharedRecoverySource>(
     device: &Id,
     destination: &Path,
     keys: &RecoveryKeys,
-    service: &SchemaServiceClient,
 ) -> Result<PathBuf> {
     let prepared =
         super::recovery::prepare(source, database_id, keys.content_key(), destination).await?;
-    replay_and_activate(prepared, device, keys, service).await
+    replay_and_activate(prepared, device, keys).await
 }
 
 async fn replay_and_activate<S: SharedRecoverySource>(
     prepared: PreparedSharedRestore<'_, S>,
     device: &Id,
     keys: &RecoveryKeys,
-    service: &SchemaServiceClient,
 ) -> Result<PathBuf> {
     let PreparedSharedRestore {
         mut session,
         schemas,
         tail,
     } = prepared;
-    let mut writer = match NativeWriter::open(
-        session.stage(),
-        device,
-        &session.cut,
-        schemas,
-        keys,
-        service,
-    )
-    .await
-    {
-        Ok(writer) => writer,
-        Err(error) => {
-            session.discard_unsealed()?;
-            return Err(error.shared_stage("writer-open"));
-        }
-    };
+    let mut writer =
+        match NativeWriter::open(session.stage(), device, &session.cut, schemas, keys).await {
+            Ok(writer) => writer,
+            Err(error) => {
+                session.discard_unsealed()?;
+                return Err(error.shared_stage("writer-open"));
+            }
+        };
     if let Err(error) = tail
         .replay(keys.content_key(), &mut session, &mut writer)
         .await
@@ -96,7 +83,6 @@ pub(super) struct NativeWriter<'a> {
     db: Arc<FoldDB>,
     schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
     keys: &'a RecoveryKeys,
-    service: &'a SchemaServiceClient,
 }
 
 impl<'a> NativeWriter<'a> {
@@ -106,7 +92,6 @@ impl<'a> NativeWriter<'a> {
         checkpoint: &RestoreCut,
         schemas: Vec<SnapshotSchema>,
         keys: &'a RecoveryKeys,
-        service: &'a SchemaServiceClient,
     ) -> Result<Self> {
         let e2e = E2eKeys::from_ed25519_seed(keys.account_seed())
             .map_err(|_| RestoreError::Invalid("shared account key"))?;
@@ -137,19 +122,20 @@ impl<'a> NativeWriter<'a> {
             .await
             .map_err(|_| RestoreError::Invalid("staged replay checkpoint"))?;
 
-        let mut admitted = BTreeMap::new();
-        let manager = db.schema_manager();
-        for schema in schemas {
-            let local = manager
-                .get_schema_metadata(&schema.local_schema)
-                .map_err(|_| RestoreError::Invalid("checkpoint schema read"))?
-                .ok_or(RestoreError::Invalid("missing checkpoint schema"))?;
-            schema
-                .definition
-                .bind_local_alias(schema.definition.id(), &local.to_wire())
-                .map_err(|_| RestoreError::Invalid("checkpoint schema binding"))?;
-            admitted.insert(schema.definition.id().clone(), schema);
-        }
+        // The manifest names each shared alias's definition. Recording it binds
+        // the definition to the checkpoint's installed schema.
+        let recorded = schemas
+            .iter()
+            .map(|schema| (schema.local_schema.clone(), schema.definition.clone()))
+            .collect();
+        db.mutation_manager()
+            .record_portable_definitions(&recorded)
+            .await
+            .map_err(|_| RestoreError::Invalid("checkpoint schema binding"))?;
+        let admitted = schemas
+            .into_iter()
+            .map(|schema| (schema.definition.id().clone(), schema))
+            .collect();
 
         Ok(Self {
             stage: stage.to_path_buf(),
@@ -157,8 +143,43 @@ impl<'a> NativeWriter<'a> {
             db,
             schemas: admitted,
             keys,
-            service,
         })
+    }
+
+    /// The checkpoint or an earlier tail entry already defined this schema.
+    pub(super) fn installed(&self, schema: &SchemaIdentity) -> bool {
+        schema_id(schema).is_ok_and(|id| self.schemas.contains_key(&id))
+    }
+
+    /// Install tail definitions this staged home lacks before their records.
+    pub(super) async fn install_definitions(&mut self, entries: &[&MutationEntry]) -> Result<()> {
+        let missing: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| entry.definition())
+            .filter(|definition| !self.schemas.contains_key(definition.id()))
+            .cloned()
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let native = self.db.mutation_manager();
+        native
+            .install_portable_definitions(&missing)
+            .await
+            .map_err(|_| RestoreError::Invalid("install shared tail schema definitions"))?;
+        let recorded = native
+            .portable_definitions()
+            .await
+            .map_err(|_| RestoreError::Invalid("read shared schema definitions"))?;
+        for (local_schema, definition) in recorded {
+            self.schemas
+                .entry(definition.id().clone())
+                .or_insert(SnapshotSchema {
+                    local_schema,
+                    definition,
+                });
+        }
+        Ok(())
     }
 
     async fn apply(
@@ -174,7 +195,7 @@ impl<'a> NativeWriter<'a> {
             let candidate = candidates
                 .get(index)
                 .ok_or(RestoreError::Invalid("native replay candidate index"))?;
-            let version = file_version(candidate.entry);
+            let version = candidate.entry.operation.file_version();
             let length = version
                 .map(|version| dependencies.bytes(version))
                 .transpose()?
@@ -219,18 +240,10 @@ impl<'a> NativeWriter<'a> {
             .map_err(|_| RestoreError::Invalid("commit native replay candidates"))
     }
     pub(super) async fn apply_candidates(
-        &mut self,
+        &self,
         entries: &[&MutationEntry],
         files: &HeldFileVersions<'_, impl SharedRecoverySource>,
     ) -> Result<()> {
-        resolve_schemas(
-            &self.db,
-            self.service,
-            &mut self.schemas,
-            entries,
-            SchemaTarget::StagedRestore,
-        )
-        .await?;
         let candidates = entries
             .iter()
             .map(|entry| {
@@ -284,11 +297,10 @@ impl<'a> NativeWriter<'a> {
     }
 }
 
-fn file_version(entry: &MutationEntry) -> Option<&Position> {
-    match &entry.operation {
-        MutationOperation::ReplaceRecord { data, .. } => {
-            data.file.as_ref().map(|marker| &marker.version)
-        }
-        MutationOperation::DeleteRecord { .. } => None,
-    }
+fn schema_id(identity: &SchemaIdentity) -> Result<PortableSchemaId> {
+    let SchemaIdentity::Shared(id) = identity else {
+        return Err(RestoreError::Invalid("local schema in shared replay"));
+    };
+    id.parse()
+        .map_err(|_| RestoreError::Invalid("portable schema ID"))
 }

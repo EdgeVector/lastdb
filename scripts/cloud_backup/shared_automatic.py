@@ -6,10 +6,16 @@ import shutil
 
 import native_records
 from shared_daemon import policy
+from shared_multiwriter import refused_write
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
-from support import OperationError, decode_json, private_directory, require
+from support import OperationError, decode_json, private_directory, require, save_json
+
+
+LATER_SCHEMA = "CloudSharedLater"
+LATER_KEY = "later-schema"
+UNADMITTED = b"shared schema writes require an active writer binding that admits the schema"
 
 
 def wait_all(operation, nodes, records, files, absent_keys=()):
@@ -47,6 +53,59 @@ def sync_observation(node):
             "needs_restore": progress["needs_restore"] is not None}
 
 
+def holds(node, schema, key, record):
+    try:
+        result, = node.call("/api/queries/batch", {"queries": [
+            {"schema_name": schema, "filter": {"HashKey": key}, "limit": 2, "offset": 0}]})["results"]
+    except (OperationError, ValueError):
+        return False
+    rows = (result.get("response") or {}).get("results") or []
+    return result.get("status") == 200 and len(rows) == 1 and rows[0].get("fields") == record
+
+
+def wait_later(operation, nodes, later):
+    deadline = time.monotonic() + 90
+    while not all(holds(node, *later) for node in nodes):
+        if time.monotonic() >= deadline:
+            operation.summary["automatic_replication_observations"] = [
+                dict(sync_observation(node), later_schema_record=holds(node, *later)) for node in nodes]
+            raise OperationError("shared_automatic_later_schema_deadline")
+        time.sleep(1)
+
+
+def admit_later_schema(operation, node, writer):
+    """Define a second schema on one stopped writer. Only its writer log carries it."""
+    require(operation.programs.environment["FOLD_SCHEMA_SERVICE_URL"] == "http://127.0.0.1:9",
+            "shared_automatic_schema_service_unreachable")
+    namespace = operation.schema.split("/")[0]
+    identity = operation.define_schema(node, writer, namespace, LATER_SCHEMA,
+                                       "Shared Storage Later Proof Record")
+    schema = f"{namespace}/{LATER_SCHEMA}"
+    bindings = operation.root / "later-schemas.json"
+    save_json(bindings, {schema: identity["definition"]})
+    reply = operation.writer(node, writer, "admit", "--schema-bindings", str(bindings))
+    require(reply.splitlines() == [b"Shared schemas admitted"], "shared_automatic_later_schema_admitted")
+    operation.summary["later_schema_binding"] = {"runtime_name": schema,
+                                                 "portable_id": identity["portable_id"]}
+    return schema
+
+
+def replicate_later_schema(operation, nodes, schema):
+    operation.summary["stage"] = "automatic-later-schema"
+    publisher, peer = nodes[:2]
+    record = operation.record(LATER_KEY, "later-schema")
+    durable_batch(peer, [native_records.create(schema, native_records.key(LATER_KEY), record)])
+    later = (schema, LATER_KEY, record)
+    wait_later(operation, nodes, later)
+    # The publisher installed the schema from the peer's log but never admitted it.
+    require(refused_write(operation, publisher, schema, "unadmitted-later", UNADMITTED),
+            "shared_automatic_unadmitted_write_refusal")
+    operation.summary.update(automatic_later_schema_replicated=True,
+                             automatic_unadmitted_write_refused=True,
+                             schema_service_unreachable=True)
+    return later
+
+
 def absent(node, schema, *keys):
     queries = [{"schema_name": schema, "filter": {"HashKey": key}, "limit": 1, "offset": 0}
                for key in keys]
@@ -80,6 +139,7 @@ def restart(operation, nodes, records, files):
     operation.summary["stage"] = "automatic-restart-catch-up"
     publisher, peer = nodes[:2]
     peer.stop()
+    later = admit_later_schema(operation, peer, operation.writers[1])
     records["while-offline"] = create(operation, publisher, "while-offline", "missed-while-stopped")
     files["while-offline"] = operation.attach(publisher, records["while-offline"], "while-offline")
     wait_all(operation, [publisher], records, files)
@@ -90,6 +150,7 @@ def restart(operation, nodes, records, files):
     operation.summary.update(automatic_policy_survived_restart=True,
                              automatic_download_after_restart=True,
                              automatic_upload_after_restart=True)
+    return replicate_later_schema(operation, nodes, later)
 
 
 
@@ -135,7 +196,8 @@ def run(operation):
                               for key, value in records.items()])
     files = {"checkpoint": operation.attach(publisher, records["checkpoint"], "automatic-base")}
     workspace = operation.root / "initial-automatic-snapshot"
-    receipt = shared_snapshot.invoke(operation, publisher, operation.writers[0], workspace, 3)
+    # One definition, two records, and one file.
+    receipt = shared_snapshot.invoke(operation, publisher, operation.writers[0], workspace, 4)
     operation.snapshot = receipt["snapshot_id"]
     operation.summary["snapshot_id"] = operation.snapshot
     publisher.stop()
@@ -181,7 +243,7 @@ def run(operation):
     wait_all(operation, nodes, records, files, absent_keys=("automatic-0",))
     operation.summary.update(automatic_delete_applied=True, automatic_replacement_file_applied=True)
     pause_and_resume(operation, nodes, records, files)
-    restart(operation, nodes, records, files)
+    later = restart(operation, nodes, records, files)
 
     snapshot_schedule(operation, publisher)
     author_uncovered_tail(operation, nodes, records, files)
@@ -205,6 +267,7 @@ def run(operation):
         node.start()
         operation.verify(node, records, files)
         require(absent(node, operation.schema, "automatic-0"), "shared_automatic_restored_delete")
+        require(holds(node, *later), "shared_automatic_restored_later_schema")
         node.stop()
     operation.summary.update(result="passed", restored_boots=2, exact_live_records=len(records),
                              file_sha256=files, provider_deletions=0)

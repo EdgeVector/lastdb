@@ -4,7 +4,9 @@
 //! module consumes immutable ranges and returns their effective candidates and
 //! cursor updates without changing a home.
 
-use crate::portable_mutation::{MutationEntry, PortableMutationError, StreamId, StreamProgress};
+use crate::portable_mutation::{
+    MutationEntry, PortableMutationError, SchemaIdentity, StreamId, StreamProgress,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -27,6 +29,7 @@ pub enum ReplayError {
     OverlappingRanges,
     WindowLimit,
     LogLimit,
+    UnknownSchema,
     InvalidMutation(PortableMutationError),
 }
 
@@ -43,6 +46,9 @@ impl fmt::Display for ReplayError {
             Self::OverlappingRanges => "mutation log ranges overlap with conflicting input",
             Self::WindowLimit => "mutation log replay window exceeds its bounds",
             Self::LogLimit => "mutation log file exceeds its bounds",
+            Self::UnknownSchema => {
+                "mutation names a schema neither installed nor defined earlier in its stream"
+            }
             Self::InvalidMutation(_) => "invalid portable mutation or stream progress",
         })
     }
@@ -64,11 +70,19 @@ impl From<PortableMutationError> for ReplayError {
 }
 
 pub struct ReplayPlan<'a> {
+    definitions: Vec<&'a MutationEntry>,
     candidates: Vec<&'a MutationEntry>,
     progress: BTreeMap<StreamId, StreamProgress>,
 }
 
 impl<'a> ReplayPlan<'a> {
+    /// Every `define_schema` entry in the planned suffixes, in log order.
+    /// Install them before any candidate. Definitions are not subject to
+    /// newest-wins, and a repeated definition is harmless.
+    pub fn definitions(&self) -> &[&'a MutationEntry] {
+        &self.definitions
+    }
+
     /// The newest candidate for each affected primary key, newest first.
     /// The writer must compare each against the live/delete stamp in its write scope.
     pub fn candidates(&self) -> &[&'a MutationEntry] {
@@ -86,10 +100,15 @@ impl<'a> ReplayPlan<'a> {
 /// its captured heads and checks that the committed cursors reach those heads.
 /// Large restores can spool candidates by primary key across bounded windows
 /// before fetching winning file versions or activating the staged home.
+///
+/// `installed` reports whether the home already holds a schema definition.
+/// A record operation whose schema is neither installed nor defined earlier
+/// in its own stream stops the plan.
 pub fn plan_replay<'a>(
     ranges: &'a [VerifiedLogRange],
     applied: &BTreeMap<StreamId, StreamProgress>,
     delete_reclaimed_through_ms: Option<u64>,
+    installed: impl Fn(&SchemaIdentity) -> bool,
 ) -> Result<ReplayPlan<'a>, ReplayError> {
     if ranges.len() > MAX_REPLAY_RANGES
         || ranges
@@ -104,6 +123,8 @@ pub fn plan_replay<'a>(
     ordered.sort_unstable_by(|left, right| left.id().cmp(right.id()));
 
     let mut previous: Option<&VerifiedLogRange> = None;
+    let mut definitions = Vec::new();
+    let mut defined = BTreeMap::<&StreamId, BTreeSet<&SchemaIdentity>>::new();
     let mut candidates = Vec::new();
     let mut progress = BTreeMap::new();
     for range in ordered {
@@ -127,7 +148,17 @@ pub fn plan_replay<'a>(
             });
         cursor.validate()?;
         if let Some(suffix) = range.contiguous_suffix(cursor, delete_reclaimed_through_ms)? {
-            candidates.extend(suffix);
+            let defined = defined.entry(source).or_default();
+            for entry in suffix {
+                if entry.definition().is_some() {
+                    defined.insert(&entry.schema);
+                    definitions.push(entry);
+                } else if installed(&entry.schema) || defined.contains(&entry.schema) {
+                    candidates.push(entry);
+                } else {
+                    return Err(ReplayError::UnknownSchema);
+                }
+            }
             cursor.applied_through = range.id().last_sequence();
             cursor.applied_through_ms = Some(range.last_authored_at_ms());
             progress.insert(source.clone(), cursor);
@@ -141,6 +172,7 @@ pub fn plan_replay<'a>(
         keys.insert((&entry.schema, entry.operation.primary_key()))
     });
     Ok(ReplayPlan {
+        definitions,
         candidates,
         progress,
     })

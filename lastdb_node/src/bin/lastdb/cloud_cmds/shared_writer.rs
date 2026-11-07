@@ -13,13 +13,10 @@ use fold_db::fold_db_core::factory::{create_fold_db_with_options, FoldDbOptions}
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
-use folddb_profile::endpoints::{schema_service_url_for, Environment};
+use folddb_profile::endpoints::Environment;
 use lastdb_node::shared_peer::{PeerIdentity, PeerOutcome, PeerWorker};
-use lastdb_node::shared_restore::recovery::SnapshotSchema;
 use lastdb_node::shared_snapshot::SignedSnapshotTransport;
 use lastdb_node::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
-use schema_service_client::SchemaServiceClient;
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,6 +31,13 @@ const DEV: Environment = Environment::Dev;
 const UPLOAD_DEADLINE_SECONDS: u32 = 300;
 
 pub(super) fn run(home: Option<&Path>, selection: SharedWriterCommand) -> Result<(), String> {
+    if let SharedWriterAction::DefineSchema {
+        namespace,
+        declaration,
+    } = &selection.action
+    {
+        return schema::define(namespace, declaration);
+    }
     let home = home
         .filter(|path| path.is_absolute())
         .ok_or("shared writer requires an explicit absolute --data-dir")?;
@@ -81,15 +85,6 @@ impl Owner {
         action: SharedWriterAction,
         e2e: &E2eKeys,
     ) -> Result<(), String> {
-        let action = match action {
-            SharedWriterAction::PublishSchema {
-                namespace,
-                declaration,
-            } => {
-                return schema::publish(&namespace, &declaration, &self.account_signer).await;
-            }
-            action => action,
-        };
         let store = home.join("data");
         if matches!(action, SharedWriterAction::Rejoin { .. }) {
             lastdb_node::shared_sync::require_rejoin_ready(home)
@@ -128,7 +123,7 @@ impl Owner {
     ) -> Result<(), String> {
         match action {
             SharedWriterAction::Install { schema_bindings } => {
-                let definitions = schema::definitions(&schema_bindings).await?;
+                let definitions = schema::definitions(&schema_bindings)?;
                 schema::install(db, &definitions).await?;
                 println!("Shared schemas installed");
             }
@@ -145,7 +140,7 @@ impl Owner {
                 let publisher = self
                     .check_writer_enrollment(&stream, initialize_publisher)
                     .await?;
-                let definitions = schema::definitions(&schema_bindings).await?;
+                let definitions = schema::definitions(&schema_bindings)?;
                 db.mutation_manager()
                     .bind_portable_journal(
                         stream.clone(),
@@ -166,19 +161,23 @@ impl Owner {
                 .map_err(|_| "cannot save the shared automatic connection")?;
                 println!("Shared writer bound");
             }
+            SharedWriterAction::Admit { schema_bindings } => {
+                let definitions = schema::admitted(&schema_bindings)?;
+                db.mutation_manager()
+                    .admit_portable_schemas(&definitions)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                println!("Shared schemas admitted");
+            }
             SharedWriterAction::Push { batches } => {
                 let content_key = Zeroizing::new(e2e.encryption_key());
                 self.push(db, store, &content_key, batches).await?;
             }
-            SharedWriterAction::Pull {
-                schema_bindings,
-                ranges,
-            } => {
+            SharedWriterAction::Pull { ranges } => {
                 let content_key = Zeroizing::new(e2e.encryption_key());
-                self.pull(db, &schema_bindings, &content_key, ranges)
-                    .await?;
+                self.pull(db, &content_key, ranges).await?;
             }
-            SharedWriterAction::PublishSchema { .. } => {
+            SharedWriterAction::DefineSchema { .. } => {
                 unreachable!("this action has no source writer")
             }
             SharedWriterAction::Rejoin { .. } => unreachable!("rejoin owns writer shutdown"),
@@ -281,42 +280,20 @@ impl Owner {
         Ok(())
     }
 
-    async fn pull(
-        &self,
-        db: &FoldDB,
-        bindings: &Path,
-        content_key: &[u8; 32],
-        ranges: u16,
-    ) -> Result<(), String> {
+    async fn pull(&self, db: &FoldDB, content_key: &[u8; 32], ranges: u16) -> Result<(), String> {
         let client = SharedPeerClient::from_auth(
             self.auth.clone(),
             self.account.clone(),
             self.device.clone(),
         )
         .map_err(|error| error.to_string())?;
-        let service = SchemaServiceClient::new(schema_service_url_for(DEV));
-        let definitions = schema::definitions(bindings).await?;
-        let schemas: BTreeMap<_, _> = definitions
-            .into_iter()
-            .map(|(local_schema, definition)| {
-                (
-                    definition.id().clone(),
-                    SnapshotSchema {
-                        local_schema,
-                        definition,
-                    },
-                )
-            })
-            .collect();
-        let mut worker = PeerWorker::new(
+        let worker = PeerWorker::new(
             db,
             &client,
-            &service,
             PeerIdentity {
                 device_signer: &self.device_signer,
                 content_key,
             },
-            schemas,
         );
         let mut applied = 0;
         for _ in 0..ranges {

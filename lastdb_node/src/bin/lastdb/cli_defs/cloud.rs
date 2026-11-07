@@ -78,19 +78,20 @@ pub(crate) struct SharedWriterCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SharedWriterAction {
-    /// Publish one new typed DEV catalog declaration and pin its immutable identity.
-    PublishSchema {
+    /// Print the definition of one typed declaration under its portable ID.
+    /// No service registers it. The writer log carries it to other writers.
+    DefineSchema {
         #[arg(long)]
         namespace: String,
         #[arg(long)]
         declaration: PathBuf,
     },
-    /// Install the exact immutable service definitions at their local aliases.
+    /// Install verified definitions from a private JSON file at their local aliases.
     Install {
         #[arg(long)]
         schema_bindings: PathBuf,
     },
-    /// Bind a restored writer to immutable schema IDs in a private JSON file.
+    /// Bind a restored writer to the verified definitions in a private JSON file.
     Bind {
         /// Start an empty home as the designated publisher before the first snapshot.
         #[arg(long)]
@@ -99,6 +100,11 @@ pub(crate) enum SharedWriterAction {
         database_id: String,
         #[arg(long)]
         source_stream: String,
+        #[arg(long)]
+        schema_bindings: PathBuf,
+    },
+    /// Admit later schemas to a bound writer. Each alias is its canonical name.
+    Admit {
         #[arg(long)]
         schema_bindings: PathBuf,
     },
@@ -115,8 +121,6 @@ pub(crate) enum SharedWriterAction {
     },
     /// Fetch and apply a bounded number of verified peer ranges.
     Pull {
-        #[arg(long)]
-        schema_bindings: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
         ranges: u16,
     },

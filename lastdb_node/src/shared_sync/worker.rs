@@ -7,9 +7,6 @@ use cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, shared_peer::SharedPeerClient,
     AuthClient,
 };
-use folddb_profile::endpoints::{schema_service_url_for, Environment};
-use schema_service_client::SchemaServiceClient;
-use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -179,16 +176,13 @@ async fn download(
 ) -> std::result::Result<(), &'static str> {
     let peers = SharedPeerClient::from_auth(auth, config.account.clone(), config.device.clone())
         .map_err(|_| "shared_download_connection")?;
-    let service = SchemaServiceClient::new(schema_service_url_for(Environment::Dev));
-    let mut worker = PeerWorker::new(
+    let worker = PeerWorker::new(
         &host.db,
         &peers,
-        &service,
         PeerIdentity {
             device_signer: signer,
             content_key,
         },
-        BTreeMap::new(),
     );
     for _ in 0..RANGES_PER_PASS {
         let (outcome, reclaimed) = worker

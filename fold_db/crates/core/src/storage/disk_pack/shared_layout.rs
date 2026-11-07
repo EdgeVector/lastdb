@@ -205,7 +205,7 @@ impl Scope {
             METADATA_NAMESPACE
                 if key == SCOPE_KEY
                     || key.as_bytes() == CONTENT_KEY_PROOF_KEY
-                    || crate::storage::format::metadata::shared_replay_coordinate(key) =>
+                    || crate::storage::format::metadata::shared_metadata_key(key) =>
             {
                 Lane::Records
             }
@@ -303,36 +303,49 @@ impl PackRuntime {
         Ok(())
     }
 
-    /// Active dedicated writers replay only the shared schemas fixed at creation.
-    pub fn require_shared_replay_alias(&self, name: &str) -> StorageResult<()> {
+    /// A writer binds a subset of the shared aliases. Peer definitions add the rest.
+    pub fn require_shared_schema_subset<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a str>,
+    ) -> StorageResult<()> {
         if let Some(shared) = &self.physical.shared {
-            if !shared
-                .scope
-                .read()
-                .expect("shared disk scope")
-                .aliases
-                .contains(name)
-            {
+            let scope = shared.scope.read().expect("shared disk scope");
+            if names.into_iter().any(|name| !scope.aliases.contains(name)) {
                 return Err(invalid(
-                    "peer schema is outside this dedicated shared disk scope",
+                    "writer schema alias is outside its dedicated shared disk scope",
                 ));
             }
         }
         Ok(())
     }
 
-    pub(in crate::storage) fn staged_shared_restore_aliases<'a>(
+    pub(crate) fn shared_schema_aliases(&self) -> Vec<String> {
+        self.physical
+            .shared
+            .as_ref()
+            .map_or_else(Vec::new, |shared| {
+                shared
+                    .scope
+                    .read()
+                    .expect("shared disk scope")
+                    .aliases
+                    .iter()
+                    .cloned()
+                    .collect()
+            })
+    }
+
+    /// The caller grows the scope only by aliases that no schema in this home
+    /// uses yet, so no existing private row changes its lane.
+    pub(in crate::storage) fn grown_shared_aliases<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<Option<Vec<u8>>> {
         let Some(shared) = &self.physical.shared else {
-            return Ok(None);
-        };
-        if self.serving.load(Ordering::Acquire) {
             return Err(invalid(
-                "shared schema scope can grow only in a staged restore",
+                "shared schema definitions require a dedicated shared disk home",
             ));
-        }
+        };
         let active = shared.scope.read().expect("shared disk scope");
         let mut names: BTreeSet<_> = names.into_iter().map(str::to_owned).collect();
         if names.is_subset(&active.aliases) {

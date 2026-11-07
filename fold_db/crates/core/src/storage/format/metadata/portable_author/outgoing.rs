@@ -8,9 +8,10 @@ use crate::storage::error::StorageResult;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream, MAX_WRITERS};
 use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{
-    HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, StreamId,
+    HomeReplayState, MutationEntry, MutationOperation, Position, SchemaIdentity, Stamp, StreamId,
     StreamProgress,
 };
+use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 
 const ENTRY_PREFIX: &str = "portable-entry:";
@@ -38,6 +39,10 @@ impl SharedAuthor {
                 .collect::<BTreeSet<_>>()
                 .len()
                 != self.schemas.len()
+            || !self
+                .defined
+                .iter()
+                .all(|id| self.schemas.values().any(|schema| &schema.id == id))
             || self.progress.uploaded_through
                 != self.uploaded_head.as_ref().map(|head| head.sequence.get())
             || self
@@ -82,13 +87,18 @@ impl Metadata {
         Ok((author.scope, author.progress))
     }
 
+    /// A shared schema stays while any writer or snapshot can name it.
     pub(crate) async fn shared_schema_bound(&self, name: &str) -> StorageResult<bool> {
+        if self.runtime.is_shared_schema(name) {
+            return Ok(true);
+        }
         let state = self.local_author().await?;
         Ok(state
             .shared
             .is_some_and(|shared| shared.schemas.contains_key(name)))
     }
 
+    /// Bind a fresh writer. Its stream defines each schema before that schema's first record.
     pub(crate) async fn bind_portable_journal(
         &self,
         stream: WriterStream,
@@ -123,6 +133,7 @@ impl Metadata {
         let shared = SharedAuthor {
             scope: stream,
             schemas,
+            defined: BTreeSet::new(),
             progress: StreamProgress::default(),
             uploaded_head: None,
             uploaded_through_ms: None,
@@ -175,6 +186,34 @@ impl Metadata {
             },
         ])
         .await
+    }
+
+    /// Extend a bound writer. The stream defines each new schema before its first record.
+    pub(crate) async fn admit_portable_schemas(
+        &self,
+        schemas: BTreeMap<String, JournalSchema>,
+    ) -> StorageResult<()> {
+        self.require_scope()?;
+        let mut state = self.local_author().await?;
+        let shared = state
+            .shared
+            .as_mut()
+            .ok_or_else(|| invalid("shared journal is not bound"))?;
+        let mut added = false;
+        for (alias, schema) in schemas {
+            match shared.schemas.get(&alias) {
+                Some(bound) if *bound == schema => continue,
+                Some(_) => return Err(invalid("a bound shared alias cannot change")),
+                None => {}
+            }
+            shared.schemas.insert(alias, schema);
+            added = true;
+        }
+        if !added {
+            return Ok(());
+        }
+        shared.validate()?;
+        self.stage_local_author(&state).await
     }
 
     pub(crate) async fn portable_bound_schemas(&self) -> StorageResult<BTreeMap<String, String>> {
@@ -363,15 +402,30 @@ fn shared(state: &LocalAuthor) -> StorageResult<&SharedAuthor> {
         .ok_or_else(|| invalid("shared journal is not bound"))
 }
 
+/// The definition entry that precedes a schema's first record in a stream.
+pub(super) fn define_row(
+    stream: &StreamId,
+    stamp: Stamp,
+    definition: &PortableSchemaDefinition,
+) -> StorageResult<EncodedMetadata> {
+    let entry = MutationEntry {
+        stamp,
+        schema: SchemaIdentity::Shared(definition.id().as_str().to_owned()),
+        operation: MutationOperation::DefineSchema {
+            definition: Box::new(definition.clone()),
+        },
+    };
+    entry.validate().map_err(invalid)?;
+    Ok(EncodedMetadata {
+        key: entry_key(stream, entry.stamp.position.sequence),
+        bytes: entry.encode().map_err(invalid)?,
+    })
+}
+
 fn same_file_versions(entries: &[MutationEntry], batch: &LogBatch) -> bool {
     let files: BTreeSet<&Position> = entries
         .iter()
-        .filter_map(|entry| match &entry.operation {
-            MutationOperation::ReplaceRecord { data, .. } => {
-                data.file.as_ref().map(|file| &file.version)
-            }
-            MutationOperation::DeleteRecord { .. } => None,
-        })
+        .filter_map(|entry| entry.operation.file_version())
         .collect();
     files
         .iter()

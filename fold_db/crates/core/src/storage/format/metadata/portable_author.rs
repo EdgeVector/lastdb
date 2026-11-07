@@ -5,22 +5,28 @@ use crate::storage::error::{StorageError, StorageResult};
 use cloud_backup_protocol::shared::{LogHead, WriterStream};
 use cloud_backup_protocol::Id;
 use lastdb_model::portable_mutation::{HomeReplayState, Position, Stamp, StreamId, StreamProgress};
+use schema_types::PortableSchemaDefinition;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 const REPLAY_STATE_KEY: &str = "portable-replay-state";
 const RESTORE_OWNER_KEY: &str = "portable-restore-owner";
 const PROGRESS_PREFIX: &str = "portable-progress:";
-pub(in crate::storage) fn shared_replay_coordinate(key: &str) -> bool {
-    key == REPLAY_STATE_KEY || key.starts_with(PROGRESS_PREFIX)
+const DEFINITION_PREFIX: &str = "portable-schema:";
+/// Replay coordinates and schema definitions travel with the shared records.
+pub(in crate::storage) fn shared_metadata_key(key: &str) -> bool {
+    key == REPLAY_STATE_KEY
+        || key.starts_with(PROGRESS_PREFIX)
+        || key.starts_with(DEFINITION_PREFIX)
 }
 
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
 mod checkpoint;
 mod cleanup;
+mod definitions;
 mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
 mod outgoing;
@@ -47,6 +53,8 @@ pub(crate) struct JournalSchema {
 struct SharedAuthor {
     scope: WriterStream,
     schemas: BTreeMap<String, JournalSchema>,
+    /// Schema IDs whose definition this stream already carries.
+    defined: BTreeSet<String>,
     progress: StreamProgress,
     uploaded_head: Option<LogHead>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,6 +124,34 @@ impl LocalAuthor {
             shared_schema: None,
         })
     }
+
+    /// Author one definition entry before the schema's first record in this stream.
+    fn define(
+        &mut self,
+        definition: &PortableSchemaDefinition,
+        now_ms: u64,
+    ) -> StorageResult<EncodedMetadata> {
+        let now_ms = now_ms.max(self.clock_floor_ms.unwrap_or_default());
+        let shared = self
+            .shared
+            .as_mut()
+            .ok_or_else(|| invalid("shared journal is not bound"))?;
+        let stream =
+            StreamId::try_from(shared.scope.source_stream.as_str().to_owned()).map_err(invalid)?;
+        let stamp = next_stamp(&stream, &mut shared.progress, now_ms)?;
+        shared.defined.insert(definition.id().as_str().to_owned());
+        outgoing::define_row(&stream, stamp, definition)
+    }
+}
+
+fn now_ms() -> StorageResult<u64> {
+    u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(invalid)?
+            .as_millis(),
+    )
+    .map_err(invalid)
 }
 
 fn next_stamp(
@@ -148,20 +184,27 @@ impl Metadata {
         if schemas.is_empty() {
             return Ok(Vec::new());
         }
-        let now_ms = u64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(invalid)?
-                .as_millis(),
-        )
-        .map_err(invalid)?;
+        let now_ms = now_ms()?;
         let mut state = self.local_author().await?;
+        let defines = self
+            .first_definitions(&state, schemas)
+            .await?
+            .iter()
+            .map(|definition| state.define(definition, now_ms))
+            .collect::<StorageResult<Vec<_>>>()?;
         let stamps: Vec<_> = schemas
             .iter()
             .map(|(schema, imported)| {
-                if state.shared.is_none() && self.runtime.is_shared_schema(schema) {
+                // A peer's definition can install a shared schema that this
+                // writer has not admitted. Its stream never defined that schema.
+                if self.runtime.is_shared_schema(schema)
+                    && !state
+                        .shared
+                        .as_ref()
+                        .is_some_and(|shared| shared.schemas.contains_key(*schema))
+                {
                     return Err(invalid(
-                        "shared schema writes require an active writer binding",
+                        "shared schema writes require an active writer binding that admits the schema",
                     ));
                 }
                 if let Some(stamp) = imported {
@@ -191,7 +234,9 @@ impl Metadata {
                 key: format!("{PROGRESS_PREFIX}{}", shared.scope.source_stream.as_str()),
                 bytes: serde_json::to_vec(&progress).map_err(invalid)?,
             };
-            self.stage_batch(vec![author_row(&state)?, cursor]).await?;
+            let mut rows = vec![author_row(&state)?, cursor];
+            rows.extend(defines);
+            self.stage_batch(rows).await?;
         } else if schemas.iter().any(|(_, imported)| imported.is_none()) {
             self.stage_local_author(&state).await?;
         }

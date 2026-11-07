@@ -59,20 +59,24 @@ def refuse_empty_join(operation, publisher, writer):
     operation.summary["empty_writer_refused"] = True
 
 
-def refuse_unbound_write(operation, node):
-    record = operation.record("premature-write", "before-writer-binding")
-    mutation = native_records.create(operation.schema, native_records.key("premature-write"), record)
+def refused_write(operation, node, schema, kind, refusal):
+    """Send one create and report whether the node refused it with the exact reason."""
+    mutation = native_records.create(schema, native_records.key(kind), operation.record(kind, "refused"))
     body = json.dumps({"mutations": [mutation]}, separators=(",", ":")).encode()
     connection = Connection(node.socket)
     try:
         connection.request("POST", "/api/mutations/batch", body,
                            {"X-LastDB-Client": "cloud-backup-ci", "Content-Type": "application/json"})
         response = connection.getresponse()
-        require(response.status == 400 and
-                b"shared schema writes require an active writer binding" in response.read(4096),
-                "shared_exact_unbound_write_refusal")
+        return response.status == 400 and refusal in response.read(4096)
     finally:
         connection.close()
+
+
+def refuse_unbound_write(operation, node):
+    require(refused_write(operation, node, operation.schema, "premature-write",
+                          b"shared schema writes require an active writer binding"),
+            "shared_exact_unbound_write_refusal")
     operation.summary["unbound_write_refused"] = True
 
 
@@ -253,12 +257,13 @@ def rejoin_writer(operation, node, writer, local_file):
 def exchange_tails(operation, publisher, peer_writer):
     operation.summary["stage"] = "publish-independent-writer-tails"
     records = extra_records(operation)
-    positions = {peer_writer["source_stream"]: 3}
+    positions = {peer_writer["source_stream"]: 4}
     for writer, (kind, record) in zip(operation.writers[2:-1], records.items(), strict=True):
         node = operation.join_writer(kind, writer)
         node.start()
         durable_batch(node, [native_records.create(operation.schema, native_records.key(kind), record)])
-        positions[writer["source_stream"]] = shared_daemon.upload(operation, node, 1)
+        # The schema definition precedes the writer's first record.
+        positions[writer["source_stream"]] = shared_daemon.upload(operation, node, 2)
         node.stop()
         require(node.clean_stops == 2, "shared_independent_writer_clean_stops")
 
@@ -285,8 +290,8 @@ def join_restored_writer(operation, node, reader):
     durable_batch(node, [native_records.create(operation.schema, native_records.key("restored-writer"), record)])
     shared_daemon.policy(node, True)
     shared_daemon.wait(operation, node, "shared_restored_writer_cleanup_deadline",
-                       uploaded=1, ranges=0, reclaimed=1)
+                       uploaded=2, ranges=0, reclaimed=1)
     shared_daemon.policy(node, False)
     node.stop()
-    operation.summary.update(restored_writer_accepted_through=1, local_only_excluded=True,
+    operation.summary.update(restored_writer_accepted_through=2, local_only_excluded=True,
                              delete_notes_reclaimed=1)

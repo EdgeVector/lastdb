@@ -18,8 +18,10 @@ OLDER_DELETES = {"revived", "delete-file"}
 NEWER_DELETES = {"deleted", "file-delete"}
 OLDER_FILES = ("file-race", "file-delete")
 NEWER_FILES = ("file-race", "delete-file")
-INITIAL_POSITION = len(KEYS) + 1
+# Each authoring stream defines the schema once, before its first record.
+INITIAL_POSITION = 1 + len(KEYS) + 1
 TAIL_LENGTH = len(CASES) + 2
+PEER_END = 1 + TAIL_LENGTH
 
 
 def values(operation, version):
@@ -94,7 +96,7 @@ def author(operation, node, version):
 def exchange(operation, nodes, expected_rows):
     first, peer, forward, reverse = nodes
     a, b = operation.writers[:2]
-    a_end, b_end = INITIAL_POSITION + TAIL_LENGTH, TAIL_LENGTH
+    a_end, b_end = INITIAL_POSITION + TAIL_LENGTH, PEER_END
     a_range, b_range = (a["source_stream"], a_end), (b["source_stream"], b_end)
     operation.summary["stage"] = "replay-older-first"
     first.start()
@@ -131,7 +133,7 @@ def exchange(operation, nodes, expected_rows):
 
 def repeat_after_restart(operation, nodes, expected_rows):
     operation.summary["stage"] = "verify-conflict-restart-and-idle-retry"
-    ends = (INITIAL_POSITION + TAIL_LENGTH, TAIL_LENGTH, 0, 0)
+    ends = (INITIAL_POSITION + TAIL_LENGTH, PEER_END, 0, 0)
     for node, uploaded in zip(nodes, ends, strict=True):
         node.start()
         shared_daemon.policy(node, True)

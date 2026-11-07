@@ -13,6 +13,7 @@ use lastdb_model::portable_mutation::{
     MutationEntry, SchemaIdentity, Stamp, StreamId, StreamProgress,
 };
 use lastdb_model::portable_replay::LogRangeId;
+use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Domain access to author clocks; no raw store handle.
@@ -148,6 +149,26 @@ impl MetadataStore {
             .await?)
     }
 
+    pub(crate) async fn admit_portable_schemas(
+        &self,
+        schemas: BTreeMap<String, JournalSchema>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.admit_portable_schemas(schemas).await?)
+    }
+
+    pub(crate) async fn portable_definitions(
+        &self,
+    ) -> Result<BTreeMap<String, PortableSchemaDefinition>, SchemaError> {
+        Ok(self.format.portable_definitions().await?)
+    }
+
+    pub(crate) async fn stage_portable_definitions(
+        &self,
+        definitions: &BTreeMap<String, PortableSchemaDefinition>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.stage_portable_definitions(definitions).await?)
+    }
+
     pub(crate) async fn portable_outgoing(&self) -> Result<OutgoingPortablePage, SchemaError> {
         Ok(self.format.portable_outgoing().await?)
     }
@@ -173,11 +194,11 @@ impl MetadataStore {
         Ok(self.format.stage_outgoing_receipt(batch, receipt).await?)
     }
 
-    pub(crate) async fn stage_shared_restore_aliases<'a>(
+    pub(crate) async fn stage_shared_aliases<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> Result<(), SchemaError> {
-        Ok(self.format.stage_shared_restore_aliases(names).await?)
+        Ok(self.format.stage_shared_aliases(names).await?)
     }
 
     pub(crate) async fn stage_portable_restore(

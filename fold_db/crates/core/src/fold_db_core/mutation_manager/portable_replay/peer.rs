@@ -8,13 +8,71 @@ use cloud_backup_protocol::shared::peer::PeerHeads;
 use lastdb_model::portable_mutation::{
     MutationEntry, Position, SchemaIdentity, StreamId, StreamProgress,
 };
-use lastdb_model::portable_replay::{plan_replay, LogRangeId};
+use lastdb_model::portable_replay::{
+    plan_replay, LogRangeId, ReplayError, ReplayPlan, VerifiedLogRange,
+};
 use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub struct ReplayBinding<'a> {
-    pub local_schema: &'a str,
-    pub definition: &'a PortableSchemaDefinition,
+/// The current gap-free inbox window, before its dependencies are fetched.
+pub struct PortablePeerWindow {
+    /// Definitions in the window. Install them before the candidates.
+    pub definitions: Vec<PortableSchemaDefinition>,
+    pub candidates: Vec<MutationEntry>,
+}
+
+/// Recorded shared definitions by ID, with their local aliases.
+struct Installed(BTreeMap<String, (String, PortableSchemaDefinition)>);
+
+impl Installed {
+    fn new(recorded: BTreeMap<String, PortableSchemaDefinition>) -> Self {
+        Self(
+            recorded
+                .into_iter()
+                .map(|(alias, definition)| {
+                    (definition.id().as_str().to_owned(), (alias, definition))
+                })
+                .collect(),
+        )
+    }
+
+    fn plan<'a>(
+        &self,
+        ranges: &'a [VerifiedLogRange],
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+    ) -> Result<ReplayPlan<'a>, SchemaError> {
+        plan_replay(
+            ranges,
+            progress,
+            cutoff,
+            |schema| matches!(schema, SchemaIdentity::Shared(id) if self.0.contains_key(id)),
+        )
+        .map_err(|error| replay_error(&error))
+    }
+
+    fn candidates<'a>(
+        &'a self,
+        entries: impl IntoIterator<Item = &'a MutationEntry>,
+    ) -> Result<Vec<ReplayCandidate<'a>>, SchemaError> {
+        entries
+            .into_iter()
+            .map(|entry| {
+                let SchemaIdentity::Shared(id) = &entry.schema else {
+                    return Err(invalid("replay candidate is not shared"));
+                };
+                let (local_schema, definition) = self
+                    .0
+                    .get(id)
+                    .ok_or_else(|| invalid("install peer definitions before their records"))?;
+                Ok(ReplayCandidate {
+                    entry,
+                    definition,
+                    local_schema,
+                })
+            })
+            .collect()
+    }
 }
 
 impl MutationManager {
@@ -90,62 +148,67 @@ impl MutationManager {
             .await
     }
 
-    /// Get candidates from the current gap-free inbox window before fetching dependencies.
+    /// Read the current gap-free inbox window. `None` when no range waits.
     pub async fn portable_peer_candidates(
         &self,
         streams: &BTreeSet<StreamId>,
-    ) -> Result<Vec<MutationEntry>, SchemaError> {
+    ) -> Result<Option<PortablePeerWindow>, SchemaError> {
         self.db_ops
             .read_scope()
             .await?
             .run_result(async {
-                let window = self.db_ops.metadata().portable_inbox(streams).await?;
-                let plan = plan_replay(&window.ranges, &window.progress, window.cutoff)
-                    .map_err(|error| replay_error(&error))?;
-                Ok(plan
-                    .candidates()
-                    .iter()
-                    .map(|entry| (*entry).clone())
-                    .collect())
+                let metadata = self.db_ops.metadata();
+                let window = metadata.portable_inbox(streams).await?;
+                if window.ranges.is_empty() {
+                    return Ok(None);
+                }
+                let installed = Installed::new(metadata.portable_definitions().await?);
+                let plan = installed.plan(&window.ranges, &window.progress, window.cutoff)?;
+                Ok(Some(PortablePeerWindow {
+                    definitions: plan
+                        .definitions()
+                        .iter()
+                        .filter_map(|entry| entry.definition().cloned())
+                        .collect(),
+                    candidates: plan
+                        .candidates()
+                        .iter()
+                        .map(|entry| (*entry).clone())
+                        .collect(),
+                }))
             })
             .await
+    }
+
+    /// The candidates whose records win, after their definitions are installed.
+    pub async fn portable_peer_needed(
+        &self,
+        entries: &[MutationEntry],
+    ) -> Result<Vec<usize>, SchemaError> {
+        let installed = Installed::new(self.portable_definitions().await?);
+        let candidates = installed.candidates(entries)?;
+        self.portable_replay_needed(&candidates).await
     }
 
     /// Apply the current window and retire fully applied ranges in the same commit.
     pub async fn apply_portable_inbox(
         &self,
         streams: &BTreeSet<StreamId>,
-        definitions: &BTreeMap<String, ReplayBinding<'_>>,
         files: BTreeMap<Position, Vec<u8>>,
     ) -> Result<(), SchemaError> {
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let metadata = self.db_ops.metadata();
             let window = metadata.portable_inbox(streams).await?;
-            let plan = plan_replay(&window.ranges, &window.progress, window.cutoff)
-                .map_err(|error| replay_error(&error))?;
-            let bound = metadata.portable_bound_schemas().await?;
-            let candidates = plan
-                .candidates()
-                .iter()
-                .map(|entry| {
-                    let SchemaIdentity::Shared(id) = &entry.schema else {
-                        return Err(invalid("replay candidate is not shared"));
-                    };
-                    let binding = definitions
-                        .get(id)
-                        .ok_or_else(|| invalid("portable schema definition missing"))?;
-                    if bound.get(id).map(String::as_str) != Some(binding.local_schema) {
-                        return Err(invalid(
-                            "peer replay schema is outside the bound shared database",
-                        ));
-                    }
-                    Ok(ReplayCandidate {
-                        entry,
-                        definition: binding.definition,
-                        local_schema: binding.local_schema,
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let installed = Installed::new(metadata.portable_definitions().await?);
+            let plan = installed.plan(&window.ranges, &window.progress, window.cutoff)?;
+            if plan.definitions().iter().any(|entry| {
+                entry
+                    .definition()
+                    .is_some_and(|definition| !installed.0.contains_key(definition.id().as_str()))
+            }) {
+                return Err(invalid("install peer definitions before their records"));
+            }
+            let candidates = installed.candidates(plan.candidates().iter().copied())?;
             self.stage_portable_candidates(&candidates, files).await?;
             let progress = plan.progress().clone();
             metadata
@@ -156,6 +219,6 @@ impl MutationManager {
     }
 }
 
-fn replay_error(error: &lastdb_model::portable_replay::ReplayError) -> SchemaError {
+fn replay_error(error: &ReplayError) -> SchemaError {
     SchemaError::InvalidData(error.to_string())
 }

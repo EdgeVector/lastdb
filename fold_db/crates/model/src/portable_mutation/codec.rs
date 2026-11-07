@@ -19,7 +19,9 @@ impl MutationEntry {
     pub fn max_encoded_bytes(&self) -> usize {
         let record = match &self.operation {
             MutationOperation::ReplaceRecord { data, .. } => data.max_record_bytes(),
-            MutationOperation::DeleteRecord { .. } => MAX_RECORD_BYTES,
+            MutationOperation::DeleteRecord { .. } | MutationOperation::DefineSchema { .. } => {
+                MAX_RECORD_BYTES
+            }
         };
         record + ENTRY_FRAMING_BYTES
     }

@@ -20,7 +20,9 @@ impl MutationManager {
                     .file
                     .as_ref()
                     .map(|file| (&entry.schema, primary_key, &file.version)),
-                MutationOperation::DeleteRecord { .. } => None,
+                MutationOperation::DeleteRecord { .. } | MutationOperation::DefineSchema { .. } => {
+                    None
+                }
             })
             .collect();
         if files.is_empty() {

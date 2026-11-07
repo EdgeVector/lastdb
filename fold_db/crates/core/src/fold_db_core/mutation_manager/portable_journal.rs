@@ -18,6 +18,7 @@ mod retention;
 
 impl MutationManager {
     /// Bind an enrolled restored writer, or the authenticated first publisher.
+    /// Each alias must already hold its schema in the shared scope.
     pub async fn bind_portable_journal(
         &self,
         stream: WriterStream,
@@ -28,44 +29,82 @@ impl MutationManager {
         if definitions.is_empty() || definitions.len() > 64 {
             return Err(invalid("invalid shared journal schema count"));
         }
-        self.db_ops
-            .native_runtime()
-            .require_shared_schema_set(definitions.keys().map(String::as_str))?;
         transaction::request_scope(self.db_ops.native_runtime(), async {
-            let schemas =
-                futures::future::try_join_all(definitions.iter().map(|(name, definition)| async {
-                    let schema = self.load_schema_for_delta(name).await?;
-                    PortableReplaySchema::bind(definition, definition.id(), &schema)?;
-                    if self
-                        .db_ops
-                        .schemas()
-                        .get_schema_retention_policy(name)
-                        .await?
-                        .is_some()
-                    {
-                        return Err(invalid("shared expiry policy is deferred"));
-                    }
-                    Ok((
-                        schema.name.clone(),
-                        JournalSchema {
-                            id: definition.id().as_str().to_owned(),
-                            local_sha256: schema_fingerprint(&schema)?,
-                        },
-                    ))
-                }))
-                .await?;
-            let bound: BTreeMap<_, _> = schemas.into_iter().collect();
-            if bound.len() != definitions.len() {
-                return Err(invalid(
-                    "shared schema aliases resolve to a duplicate local schema",
-                ));
-            }
+            self.stage_recorded_definitions(definitions).await?;
+            let bound = self.journal_schemas(definitions).await?;
             self.db_ops
                 .metadata()
                 .bind_portable_journal(stream, bound, device, initialize_publisher)
                 .await
         })
         .await
+    }
+
+    /// Admit more shared schemas to a bound writer. A schema this home lacks
+    /// installs under its canonical name. The writer's stream then defines
+    /// each new schema before its first record.
+    pub async fn admit_portable_schemas(
+        &self,
+        definitions: &[PortableSchemaDefinition],
+    ) -> Result<(), SchemaError> {
+        if definitions.is_empty() || definitions.len() > 64 {
+            return Err(invalid("invalid admitted shared schema count"));
+        }
+        self.install_portable_definitions(definitions).await?;
+        transaction::request_scope(self.db_ops.native_runtime(), async {
+            let metadata = self.db_ops.metadata();
+            let recorded = metadata.portable_definitions().await?;
+            let admitted: BTreeMap<_, _> = recorded
+                .into_iter()
+                .filter(|(_, recorded)| {
+                    definitions
+                        .iter()
+                        .any(|definition| definition.id() == recorded.id())
+                })
+                .collect();
+            if admitted.len() != definitions.len() {
+                return Err(invalid("an admitted shared schema is not installed"));
+            }
+            let bound = self.journal_schemas(&admitted).await?;
+            metadata.admit_portable_schemas(bound).await
+        })
+        .await
+    }
+
+    /// Fingerprint each installed alias after its definition binds to it.
+    async fn journal_schemas(
+        &self,
+        definitions: &BTreeMap<String, PortableSchemaDefinition>,
+    ) -> Result<BTreeMap<String, JournalSchema>, SchemaError> {
+        let schemas =
+            futures::future::try_join_all(definitions.iter().map(|(name, definition)| async {
+                let schema = self.load_schema_for_delta(name).await?;
+                PortableReplaySchema::bind(definition, definition.id(), &schema)?;
+                if self
+                    .db_ops
+                    .schemas()
+                    .get_schema_retention_policy(name)
+                    .await?
+                    .is_some()
+                {
+                    return Err(invalid("shared expiry policy is deferred"));
+                }
+                Ok((
+                    schema.name.clone(),
+                    JournalSchema {
+                        id: definition.id().as_str().to_owned(),
+                        local_sha256: schema_fingerprint(&schema)?,
+                    },
+                ))
+            }))
+            .await?;
+        let bound: BTreeMap<_, _> = schemas.into_iter().collect();
+        if bound.len() != definitions.len() || !bound.keys().eq(definitions.keys()) {
+            return Err(invalid(
+                "shared schema aliases resolve to a duplicate local schema",
+            ));
+        }
+        Ok(bound)
     }
 
     /// The next bounded immutable prefix after this writer's accepted head.

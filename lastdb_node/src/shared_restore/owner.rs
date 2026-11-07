@@ -10,8 +10,6 @@ use cloud_backup_protocol::shared::{
 };
 use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{schema_service_url_for, Environment};
-use schema_service_client::SchemaServiceClient;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zeroize::Zeroizing;
@@ -40,7 +38,6 @@ pub async fn restore_owner(
     selection: OwnerRestoreSelection<'_>,
     destination: &Path,
     recovery_phrase: &str,
-    environment: Environment,
 ) -> Result<PathBuf> {
     let account = crate::backup_access::account_from_phrase(recovery_phrase)
         .map_err(|_| RestoreError::Invalid("shared recovery account phrase"))?;
@@ -52,16 +49,7 @@ pub async fn restore_owner(
         snapshot: selection.snapshot.cloned(),
         writer_head: None,
     };
-    let schemas = SchemaServiceClient::new(schema_service_url_for(environment));
-    super::restore_from_source(
-        &source,
-        selection.database,
-        &device,
-        destination,
-        &keys,
-        &schemas,
-    )
-    .await
+    super::restore_from_source(&source, selection.database, &device, destination, &keys).await
 }
 
 /// A stopped writer whose pending mutations have exact cloud receipts.
@@ -95,11 +83,9 @@ pub async fn prepare_owner_rejoin(request: OwnerRejoin<'_>) -> Result<super::Pre
         snapshot: None,
         writer_head: Some((stream.source_stream.clone(), confirmed_head.cloned())),
     };
-    let schemas = SchemaServiceClient::new(schema_service_url_for(Environment::Dev));
     super::native::prepare_rejoin(
         &remote,
         &keys,
-        &schemas,
         super::native::RejoinSource {
             device,
             stream,

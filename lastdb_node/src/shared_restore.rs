@@ -17,7 +17,6 @@ mod rejoin_disk;
 pub use native::restore_from_source;
 use native::NativeWriter;
 pub use native::PreparedRejoin;
-pub(crate) use native::{resolve_schemas, schema_id, SchemaTarget};
 pub use owner::{prepare_owner_rejoin, restore_owner, OwnerRejoin, OwnerRestoreSelection};
 use recovery::{HeldFileVersions, SharedRecoverySource};
 
@@ -117,6 +116,7 @@ impl SharedRestore {
             std::slice::from_ref(range),
             &self.cut.progress,
             self.cut.delete_reclaimed_through_ms,
+            |schema| writer.installed(schema),
         )
         .map_err(|_| RestoreError::Invalid("verified replay window"))?;
         let covered = plan
@@ -128,6 +128,7 @@ impl SharedRestore {
             return Err(RestoreError::Invalid("gap in captured mutation tail"));
         }
 
+        writer.install_definitions(plan.definitions()).await?;
         writer.apply_candidates(plan.candidates(), files).await?;
         self.cut.progress.extend(
             plan.progress()

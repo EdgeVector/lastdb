@@ -53,7 +53,6 @@ pub(super) fn run(
             },
             &selection.into,
             &phrase,
-            environment,
         ))
         .map_err(|error| error.to_string())?;
     print(&home, selection.json);

@@ -2,14 +2,12 @@
 
 use crate::byte_cloud_restore::RestoreError;
 use crate::shared_restore::recovery::{
-    exact_file_versions, open_log_plaintext, SnapshotSchema, MAX_SEALED_LOG_BYTES,
+    exact_file_versions, open_log_plaintext, MAX_SEALED_LOG_BYTES,
 };
-use crate::shared_restore::{resolve_schemas, schema_id, SchemaTarget};
 use cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
 use cloud_backup_protocol::shared::peer::{PeerHeads, PeerHeadsRequest, PeerNextRequest};
 use cloud_backup_protocol::shared::{StreamCut, WriterStream};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id};
-use fold_db::fold_db_core::mutation_manager::portable_replay::{ReplayBinding, ReplayCandidate};
 use fold_db::fold_db_core::MutationManager;
 use fold_db::portable_mutation::StreamId;
 use fold_db::portable_replay::{LogRangeId, VerifiedLogRange};
@@ -17,9 +15,7 @@ use fold_db::schema::SchemaError;
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use fold_db::FoldDB;
-use schema_service_client::SchemaServiceClient;
-use schema_types::PortableSchemaId;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 mod files;
@@ -50,34 +46,25 @@ pub struct PeerIdentity<'a> {
 }
 
 /// Explicitly invoked, round-robin shared catch-up. Creating a worker starts no task.
+/// Each peer stream carries its own schema definitions.
 pub struct PeerWorker<'a> {
     db: &'a FoldDB,
     client: &'a SharedPeerClient,
-    schema_service: &'a SchemaServiceClient,
     identity: PeerIdentity<'a>,
-    schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
 }
 
 impl<'a> PeerWorker<'a> {
-    pub fn new(
-        db: &'a FoldDB,
-        client: &'a SharedPeerClient,
-        schema_service: &'a SchemaServiceClient,
-        identity: PeerIdentity<'a>,
-        schemas: BTreeMap<PortableSchemaId, SnapshotSchema>,
-    ) -> Self {
+    pub fn new(db: &'a FoldDB, client: &'a SharedPeerClient, identity: PeerIdentity<'a>) -> Self {
         Self {
             db,
             client,
-            schema_service,
             identity,
-            schemas,
         }
     }
 
     /// Verify and stage one retained range, then atomically apply its winning
     /// records, file versions and fully accounted progress.
-    pub async fn step(&mut self) -> Result<(PeerOutcome, u64)> {
+    pub async fn step(&self) -> Result<(PeerOutcome, u64)> {
         let _admission = NativeCloudWorkGuard::acquire()
             .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
         let db = self.db;
@@ -111,11 +98,7 @@ impl<'a> PeerWorker<'a> {
         Ok((outcome, reclaimed))
     }
 
-    async fn apply_one(
-        &mut self,
-        native: &MutationManager,
-        heads: &PeerHeads,
-    ) -> Result<PeerOutcome> {
+    async fn apply_one(&self, native: &MutationManager, heads: &PeerHeads) -> Result<PeerOutcome> {
         let reader = &heads.reader;
         let peers = heads
             .streams
@@ -235,62 +218,30 @@ impl<'a> PeerWorker<'a> {
     }
 
     async fn apply(
-        &mut self,
+        &self,
         native: &MutationManager,
         reader: &WriterStream,
         stream: &StreamId,
     ) -> Result<Option<u64>> {
         let streams = BTreeSet::from([stream.clone()]);
-        let entries = native
+        let Some(window) = native
             .portable_peer_candidates(&streams)
             .await
-            .map_err(PeerError::native("shared_peer_candidates"))?;
-        if entries.is_empty() {
+            .map_err(PeerError::native("shared_peer_candidates"))?
+        else {
             return Ok(None);
-        }
-        let refs = entries.iter().collect::<Vec<_>>();
-        resolve_schemas(
-            self.db,
-            self.schema_service,
-            &mut self.schemas,
-            &refs,
-            SchemaTarget::ActivePeer,
-        )
-        .await?;
-        let candidates = entries
-            .iter()
-            .map(|entry| {
-                let schema = self
-                    .schemas
-                    .get(&schema_id(&entry.schema)?)
-                    .ok_or(RestoreError::Invalid("missing peer schema binding"))?;
-                Ok(ReplayCandidate {
-                    entry,
-                    local_schema: &schema.local_schema,
-                    definition: &schema.definition,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        };
+        native
+            .install_portable_definitions(&window.definitions)
+            .await
+            .map_err(PeerError::native("shared_peer_install_definitions"))?;
         let needed = native
-            .portable_replay_needed(&candidates)
+            .portable_peer_needed(&window.candidates)
             .await
             .map_err(PeerError::native("shared_peer_prepare_replay"))?;
-        let files = self.files(reader, &entries, needed).await?;
-        let definitions = self
-            .schemas
-            .values()
-            .map(|schema| {
-                (
-                    schema.definition.id().to_string(),
-                    ReplayBinding {
-                        local_schema: &schema.local_schema,
-                        definition: &schema.definition,
-                    },
-                )
-            })
-            .collect();
+        let files = self.files(reader, &window.candidates, needed).await?;
         native
-            .apply_portable_inbox(&streams, &definitions, files)
+            .apply_portable_inbox(&streams, files)
             .await
             .map_err(PeerError::native("shared_peer_apply_range"))?;
         let cursor = native
