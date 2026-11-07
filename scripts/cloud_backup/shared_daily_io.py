@@ -20,7 +20,13 @@ PREFIX = "c1da11d0-"
 MAX_SCOPES = 12
 GRACE_MS = 60 * 60 * 1000
 MAX_AGE_MS = 26 * 60 * 60 * 1000
-CASES = ("lifecycle", "conflicts", "retention")
+SCHEDULED_CASES = ("lifecycle", "conflicts", "retention")
+CASES = (*SCHEDULED_CASES, "automatic")
+
+
+def suite_cases():
+    # Qualify the automatic case on accepted main before scheduling it.
+    return CASES if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" else SCHEDULED_CASES
 
 
 def now_ms():

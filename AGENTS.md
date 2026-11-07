@@ -84,6 +84,10 @@ the one-hour retirement drain, bounded exact-scope cleanup and the aggregate
 result are part of this authorization. Qualify the suite and physical cleanup
 before enabling its recurring schedules.
 
+Tom also approved adding the existing six-running-writer automatic sync and
+seventh-device restore operation to the daily suite on 2026-11-07. It uses the
+same DEV boundaries, exact client, scope enrollment, retirement and aggregate.
+
 Keep all other test targets retired. No local LastDB builds, benchmarks or
 runtime proofs. No primary lifecycle, format, installed-binary or backup change;
 no PROD or retained manual-scope cleanup.
