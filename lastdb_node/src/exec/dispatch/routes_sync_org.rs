@@ -15,9 +15,6 @@ pub(super) async fn dispatch_sync_deliver(
             super::super::byte_backup_routes::connect(req, ctx, host).await
         }
         DataRoute::SyncSharedSnapshot => heap_route!(shared_snapshot, req, ctx, host).await,
-        DataRoute::SyncLogicalV1 => {
-            heap_route!(super::super::logical_sync_routes::execute, req, ctx, host).await
-        }
         DataRoute::DeliverSnapshot => {
             heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
         }

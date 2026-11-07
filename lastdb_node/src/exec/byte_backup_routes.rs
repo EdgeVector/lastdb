@@ -1,4 +1,4 @@
-//! Owner-only admission for explicit V2 work. Legacy sync remains separate.
+//! Owner-only admission for explicit V2 work.
 use super::*;
 use crate::byte_cloud_backup::{self, ByteBackupRequest};
 
