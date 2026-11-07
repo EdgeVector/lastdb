@@ -50,8 +50,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Pure helpers (also sourced by validate-mini-fresh-install-test.sh). Keep them
-# side-effect-free so the unit test can exercise them without a daemon/network.
+# Pure helpers for artifact and runtime response validation.
 # ---------------------------------------------------------------------------
 
 # detect_triple — map the host OS/arch to the release tarball target triple.
@@ -198,7 +197,7 @@ schema_ref_from_declare() {
 }
 
 # ---------------------------------------------------------------------------
-# When sourced for unit tests, stop here — only the helpers above are wanted.
+# Sourcing loads only the artifact and response helpers.
 # ---------------------------------------------------------------------------
 if [ "${MINI_FRESH_INSTALL_LIB:-0}" = "1" ]; then
   return 0 2>/dev/null || exit 0
@@ -243,10 +242,8 @@ for bin in curl jq tar python3; do
   }
 done
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TS="$(date -u +%Y-%m-%d-%H%M%S)"
-REPORT_DIR="${REPORT_DIR:-$WORKSPACE_ROOT/.gstack/mini-fresh-install/$TS}"
+REPORT_DIR="${REPORT_DIR:-${LAST_STACK_EVIDENCE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/last-stack/artifacts/lastdb}/mini-fresh-install/$TS}"
 mkdir -p "$REPORT_DIR"
 
 LOG_FILE="$REPORT_DIR/run.log"
@@ -399,7 +396,7 @@ cat > "$REPORT_DIR/declare-request.json" <<'JSON'
     "name": "MiniFreshInstall",
     "descriptive_name": "Mini Fresh Install",
     "schema_type": "HashRange",
-    "key": { "hash_field": "record_bucket", "range_field": "record_id" },
+    "record_keys": { "primary": { "kind": "hash_range", "range_type": "String" }, "alternates": {} },
     "fields": ["record_bucket", "record_id", "record_title", "note_body"],
     "field_types": {
       "record_bucket": "String",
@@ -438,14 +435,16 @@ cat > "$REPORT_DIR/mutation-request.json" <<JSON
 {
   "type": "mutation",
   "schema": "$SCHEMA_REF",
-  "fields_and_values": {
+  "record": {
     "record_bucket": "release",
     "record_id": "mini-1",
     "record_title": "Mini fresh install",
     "note_body": "A brand new LastDB Mini user can boot the daemon and run semantic search over the owner socket."
   },
   "key_value": { "hash": "release", "range": "mini-1" },
-  "mutation_type": "create"
+  "mutation_type": "create",
+  "alternates": {}, "expected": { "type": "absent" },
+  "durability": "durable", "convergence": "sync"
 }
 JSON
 if ! C -H 'Content-Type: application/json' \
@@ -465,7 +464,6 @@ log "querying the record back"
 cat > "$REPORT_DIR/query-request.json" <<JSON
 {
   "schema_name": "$SCHEMA_REF",
-  "fields": ["record_bucket", "record_id", "record_title", "note_body"],
   "filter": { "HashRangeKey": { "hash": "release", "range": "mini-1" } }
 }
 JSON
@@ -494,7 +492,7 @@ cat > "$REPORT_DIR/apps-declare-request.json" <<'JSON'
     "name": "AppCatalogProbe",
     "descriptive_name": "AppCatalogProbe",
     "schema_type": "Hash",
-    "key": { "hash_field": "record_slug" },
+    "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
     "fields": ["record_slug", "record_title", "note_body"],
     "field_types": {
       "record_slug": "String",
@@ -528,13 +526,15 @@ cat > "$REPORT_DIR/apps-mutation-request.json" <<JSON
 {
   "type": "mutation",
   "schema": "$APP_SCHEMA",
-  "fields_and_values": {
+  "record": {
     "record_slug": "first-run",
     "record_title": "App catalog probe",
     "note_body": "brain/kanban-style declare + write by identity hash"
   },
   "key_value": { "hash": "first-run" },
-  "mutation_type": "create"
+  "mutation_type": "create",
+  "alternates": {}, "expected": { "type": "absent" },
+  "durability": "durable", "convergence": "sync"
 }
 JSON
 C -H 'Content-Type: application/json' \
@@ -546,7 +546,6 @@ jq -e '.ok == true and .success == true' "$REPORT_DIR/apps-mutation.json" >/dev/
 cat > "$REPORT_DIR/apps-query-request.json" <<JSON
 {
   "schema_name": "$APP_SCHEMA",
-  "fields": ["record_slug", "record_title", "note_body"],
   "filter": { "HashKey": "first-run" }
 }
 JSON
