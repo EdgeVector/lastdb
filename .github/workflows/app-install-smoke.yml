@@ -410,7 +410,7 @@ jobs:
         run: |
           # Verify that health checks actually executed for this app (unless intentionally skipped)
           if [ "$SKIP_APP" = "true" ]; then
-            echo "✓ App intentionally skipped (likely due to access restrictions)"
+            echo "✓ Optional app skipped because no compatible signed registry entry was resolved"
             echo "HEALTH_CHECKS_STATUS=skipped-intentional" >> "$GITHUB_ENV"
           else
             # Check that app-specific health check files exist
@@ -459,8 +459,8 @@ jobs:
           LASTDB_VERSION=$(cat lastdb-version.txt 2>/dev/null || echo "unknown")
           
           # Get app resolution
-          APP_SHA=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
-          APP_VERSION=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"app_version":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
+          APP_SHA=$(jq -r '.sha // "unknown"' '${{ matrix.app }}-resolve.json' 2>/dev/null || echo "unknown")
+          APP_VERSION=$(jq -r '.app_version // "unknown"' '${{ matrix.app }}-resolve.json' 2>/dev/null || echo "unknown")
           
           # Create summary
           cat > smoke-summary.txt <<EOF
@@ -490,7 +490,7 @@ jobs:
           
           if [ "$SKIP_APP" = "true" ]; then
             cat >> smoke-summary.txt <<EOF
-          - Intentionally skipped (repository not accessible, requires APP_REPOS_TOKEN)
+          - Optional app skipped because no compatible signed registry entry was resolved
           EOF
           elif [ "${{ matrix.app }}" = "brain" ]; then
             cat >> smoke-summary.txt <<EOF
@@ -542,7 +542,7 @@ jobs:
               echo "This app will be tested automatically once it is published to the next or stable registry."
               echo ""
             elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
-              echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)"
+              echo "⚠️  **INTENTIONALLY SKIPPED** - No compatible signed registry entry was resolved"
               echo ""
             elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
               echo "✅ **HEALTH CHECKS PASSED**"
