@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 
+from shared_daily_io import suite_cases
 from shared_origin import owner
 from support import OperationError, require
 
@@ -17,7 +18,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     identity = owner(os.environ.get("GITHUB_SHA", ""))
-    expected = ["cleanup"] + (["lifecycle", "conflicts", "retention"] if args.operation == "suite" else [])
+    expected = ("cleanup", *suite_cases()) if args.operation == "suite" else ("cleanup",)
     require(os.environ["ADMISSION_RESULT"] == "success" and os.environ["CLEANUP_RESULT"] == "success",
             "shared_daily_required_control_job")
     if args.operation == "suite":
