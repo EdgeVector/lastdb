@@ -1,12 +1,15 @@
 use super::{record::RecordValue, MutationEntry, MutationOperation, PortableMutationError};
-use crate::record_value::{MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES};
+use crate::record_value::{MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES};
 use serde::{de::DeserializeOwned, Serialize};
 use std::io::{self, Write};
 
 /// Room for the schema and operation framing around a record value.
 const ENTRY_FRAMING_BYTES: usize = 4096;
+/// The largest portable record: the record cap plus the bytes of one inline
+/// file, which travel inside the entry.
+pub const MAX_PORTABLE_RECORD_BYTES: usize = MAX_RECORD_BYTES + MAX_INLINE_STORED_BYTES;
 /// The largest entry: a record with an inline file plus its framing.
-pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_STORED_RECORD_BYTES + ENTRY_FRAMING_BYTES;
+pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_PORTABLE_RECORD_BYTES + ENTRY_FRAMING_BYTES;
 
 // The existing JSON decoder allows fewer than 128 containers. Leave space
 // for the extra portable envelope objects while bounding both directions.

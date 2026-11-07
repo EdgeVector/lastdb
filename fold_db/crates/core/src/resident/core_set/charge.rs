@@ -51,13 +51,13 @@ pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord
             + file.media_type.as_ref().map_or(0, String::capacity)
             + file.sha256.capacity()
     });
-    // The inline file bytes stay in the decoded record, so they count.
-    let inline_file = record.inline_file.as_ref().map_or(0, |inline| {
-        let file = &inline.marker;
-        file.name.as_ref().map_or(0, String::capacity)
+    // The record holds the inline file marker only; the bytes stay in
+    // their own row, outside the warm set.
+    let inline_file = record.inline_file.as_ref().map_or(0, |file| {
+        std::mem::size_of::<lastdb_model::record_value::FileMarker>()
+            + file.name.as_ref().map_or(0, String::capacity)
             + file.media_type.as_ref().map_or(0, String::capacity)
             + file.sha256.capacity()
-            + inline.data.capacity()
     });
     finish(
         RECORD_BASE

@@ -31,17 +31,35 @@ impl FileMarker {
 pub const MAX_INLINE_FILE_BYTES: usize = 64 * 1024;
 /// The longest inline file name or media type.
 pub const MAX_INLINE_LABEL_BYTES: usize = 255;
-/// Room for the marker and JSON framing of an inline file in its record.
+/// Room for the marker and JSON framing of an encoded inline file.
 const INLINE_MARKER_ALLOWANCE: usize = 1024;
-/// The most that one inline file adds to its stored record.
+/// The largest encoded inline file: its row, or its room in a portable entry.
 pub const MAX_INLINE_STORED_BYTES: usize =
     MAX_INLINE_FILE_BYTES.div_ceil(3) * 4 + INLINE_MARKER_ALLOWANCE;
 
-/// A small file kept inside its record value
-/// (`decision-2026-11-07-lastdb-inline-file-in-record-value`). It lives in
-/// the `records` collection, so the backup sends it with the records (R2) and
-/// a restore brings it back with them. The run block encryption of the record
-/// row protects the bytes.
+impl FileMarker {
+    /// The bounds of an inline file marker: a valid digest, short labels and
+    /// a size within the inline cap.
+    #[must_use]
+    pub fn fits_inline(&self) -> bool {
+        let label_fits = |label: &Option<String>| {
+            label
+                .as_ref()
+                .is_none_or(|label| label.len() <= MAX_INLINE_LABEL_BYTES)
+        };
+        self.has_valid_hash()
+            && label_fits(&self.name)
+            && label_fits(&self.media_type)
+            && usize::try_from(self.size_bytes).is_ok_and(|size| size <= MAX_INLINE_FILE_BYTES)
+    }
+}
+
+/// A small file of one record (a thumbnail, an icon)
+/// (`decision-2026-11-07-lastdb-inline-file-own-row`). The bytes live in
+/// their own row next to the record in the `records` collection, so the
+/// backup sends them with the records (R2) and a restore brings them back.
+/// The record value holds only the marker, so a record read never carries
+/// the bytes. The run block encryption of the row protects the bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InlineFile {
@@ -93,7 +111,7 @@ impl InlineFile {
         Ok(bytes)
     }
 
-    /// How much this file may add to its record above the record cap.
+    /// How much this file adds to a portable entry above the record cap.
     #[must_use]
     pub fn stored_allowance(&self) -> usize {
         self.data.len() + INLINE_MARKER_ALLOWANCE
@@ -102,17 +120,31 @@ impl InlineFile {
     /// The bounds a decoder can check without hashing the bytes.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
-        let label_fits = |label: &Option<String>| {
-            label
-                .as_ref()
-                .is_none_or(|label| label.len() <= MAX_INLINE_LABEL_BYTES)
-        };
-        self.marker.has_valid_hash()
-            && label_fits(&self.marker.name)
-            && label_fits(&self.marker.media_type)
-            && usize::try_from(self.marker.size_bytes).is_ok_and(|size| {
-                size <= MAX_INLINE_FILE_BYTES && self.data.len() == size.div_ceil(3) * 4
-            })
+        self.marker.fits_inline()
+            && usize::try_from(self.marker.size_bytes)
+                .is_ok_and(|size| self.data.len() == size.div_ceil(3) * 4)
+    }
+
+    /// The row value of this file.
+    pub fn encode(&self) -> Result<Vec<u8>, String> {
+        if !self.is_well_formed() {
+            return Err("the inline file has an invalid marker, size or encoding".into());
+        }
+        serde_json::to_vec(self).map_err(|error| format!("encode inline file: {error}"))
+    }
+
+    /// Decode a row value and check its bytes against its marker.
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() > MAX_INLINE_STORED_BYTES {
+            return Err("an inline file row exceeds its bound".into());
+        }
+        let file: Self = serde_json::from_slice(bytes)
+            .map_err(|error| format!("inline file row format: {error}"))?;
+        if !file.is_well_formed() {
+            return Err("the inline file has an invalid marker, size or encoding".into());
+        }
+        file.bytes()?;
+        Ok(file)
     }
 }
 

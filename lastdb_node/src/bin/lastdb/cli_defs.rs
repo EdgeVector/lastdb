@@ -140,8 +140,8 @@ pub(super) enum Command {
         /// Hydrate the same record version and write its verified file to a new path.
         #[arg(long, value_name = "FILE")]
         hydrate: Option<PathBuf>,
-        /// Read the record with `hydrate: inline` and write its verified
-        /// inline file to a new path.
+        /// Fetch the inline file of the same record version and write it,
+        /// verified, to a new path.
         #[arg(long, value_name = "FILE")]
         hydrate_inline: Option<PathBuf>,
     },

@@ -103,21 +103,6 @@ export interface FileMarker {
 }
 
 /**
- * A record's inline file: a small file (64 KiB at most), such as a
- * thumbnail, kept in the record value itself. It travels with the record
- * through backup and restore. The record's large file, if any, stays in
- * {@link RecordMetadata.file}.
- */
-export interface InlineFile extends FileMarker {
-  /**
-   * The plaintext bytes. Present only when the query asked for them with
-   * `hydrate: 'inline'`; the SDK checks them against `size_bytes` and
-   * `sha256` before it returns the row.
-   */
-  bytes?: Uint8Array;
-}
-
-/**
  * The one metadata block of a record (decision D7): the source file name and
  * the metadata map of the complete replacement, the marker of the record's
  * file, and its inline file. A field has no metadata of its own.
@@ -130,11 +115,12 @@ export interface RecordMetadata {
   /** The record's file, when it has one. */
   file?: FileMarker;
   /**
-   * The record's inline file, when it has one. A query returns its marker;
-   * `hydrate: 'inline'` also returns its bytes. `mutate` never sends it, and
-   * a replacement keeps the record's inline file.
+   * The marker of the record's inline file (64 KiB at most, such as a
+   * thumbnail), when it has one. The bytes live in their own row next to the
+   * record, so a query never returns them. `mutate` never sends the inline
+   * file, and a replacement keeps it.
    */
-  inline_file?: InlineFile;
+  inline_file?: FileMarker;
 }
 
 /**
@@ -389,13 +375,6 @@ export interface QueryFilter {
    * use `where` to trim within it.
    */
   where?: QueryFieldPredicate[];
-  /**
-   * `'inline'` returns the bytes of each row's inline file with its marker,
-   * in `metadata.inline_file.bytes`. Without it a row carries the marker
-   * only. A node without inline files refuses the key with
-   * `NodeTooOldError`.
-   */
-  hydrate?: 'inline';
 }
 
 /**

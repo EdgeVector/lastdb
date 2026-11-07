@@ -1,7 +1,8 @@
 //! A schema release selects format-owned families, never caller-built prefixes.
 
 use super::{
-    applied_deletes::APPLIED_DELETE_FAMILY, file_crypto::dropped_file_paths, RecordFormat,
+    applied_deletes::APPLIED_DELETE_FAMILY, file_crypto::dropped_file_paths,
+    inline_files::INLINE_FILE_FAMILY, RecordFormat,
 };
 use crate::schema::{Schema, SchemaError};
 use crate::storage::format::metadata::FileReferenceChange;
@@ -15,6 +16,7 @@ pub(crate) enum ReleaseKind {
     Records,
     Alternates,
     AppliedDeletes,
+    InlineFiles,
 }
 
 pub(crate) struct ReleaseFamily {
@@ -32,6 +34,10 @@ pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, Sc
         ReleaseFamily {
             prefix: format!("{APPLIED_DELETE_FAMILY}:{RECORD_PREFIX}{space}:"),
             kind: ReleaseKind::AppliedDeletes,
+        },
+        ReleaseFamily {
+            prefix: format!("{INLINE_FILE_FAMILY}:{RECORD_PREFIX}{space}:"),
+            kind: ReleaseKind::InlineFiles,
         },
     ];
     families.extend(

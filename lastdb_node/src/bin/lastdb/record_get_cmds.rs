@@ -86,10 +86,7 @@ pub(super) fn get_record(
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
-    let mut body = get_query_body(schema_name, hash, key_range);
-    if hydrate_inline.is_some() {
-        body["hydrate"] = serde_json::json!("inline");
-    }
+    let body = get_query_body(schema_name, hash, key_range);
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let response = post_json_with_timeout(
         &socket,
@@ -100,10 +97,24 @@ pub(super) fn get_record(
     let mut value = parse_json_response(&response, "query")?;
     if let Some(out) = hydrate {
         let file_required = schema["file_required"].as_bool().unwrap_or(false);
-        hydrate_cmds::hydrate(&socket, schema_name, &mut value, out, file_required)?;
+        hydrate_cmds::hydrate(
+            &socket,
+            schema_name,
+            &mut value,
+            out,
+            file_required,
+            hydrate_cmds::Placement::Blob,
+        )?;
     }
     if let Some(out) = hydrate_inline {
-        hydrate_cmds::hydrate_inline(&mut value, out)?;
+        hydrate_cmds::hydrate(
+            &socket,
+            schema_name,
+            &mut value,
+            out,
+            false,
+            hydrate_cmds::Placement::Inline,
+        )?;
     }
     if json_only {
         println!(

@@ -96,8 +96,8 @@ def put_file(node, schema, record, payload, *, target=None):
 
 
 def put_inline(node, schema, record, payload, *, target=None):
-    """Store `payload` as the record's inline file. The file travels in the
-    record value, so the record backup carries it."""
+    """Store `payload` as the record's inline file. The file has its own row
+    next to the record, so the record backup carries it."""
     target = target if target is not None else key(record["id"])
     row = read_records(node, schema, [target])[0]
     require(row["fields"] == record, "inline_write_complete_preimage")

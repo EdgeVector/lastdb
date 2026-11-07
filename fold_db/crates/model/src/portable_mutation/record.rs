@@ -1,6 +1,6 @@
 use super::{codec, PortableMutationError, Position, Stamp};
 use crate::canonical::CanonicalValue;
-use crate::record_value::{InlineFile, MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES};
+use crate::record_value::{InlineFile, MAX_RECORD_BYTES};
 use crate::schema::types::KeyValue;
 use schema_types::record_keys::{RecordKeyDefinition, RecordKeys};
 use serde::ser::SerializeMap;
@@ -227,7 +227,7 @@ impl StoredRecord {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PortableMutationError> {
-        let record: Self = codec::parse(bytes, MAX_STORED_RECORD_BYTES)?;
+        let record: Self = codec::parse(bytes, codec::MAX_PORTABLE_RECORD_BYTES)?;
         codec::require_canonical(bytes, &record.encode()?)?;
         Ok(record)
     }

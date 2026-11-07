@@ -80,6 +80,7 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
     "ak",
     records::applied_deletes::APPLIED_DELETE_FAMILY,
     records::applied_deletes::DELETE_AGE_FAMILY,
+    records::inline_files::INLINE_FILE_FAMILY,
     DELETE_AUDIT_FAMILY,
 ];
 

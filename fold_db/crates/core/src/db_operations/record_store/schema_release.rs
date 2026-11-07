@@ -32,7 +32,7 @@ impl RecordStore {
             match family.kind() {
                 ReleaseKind::Records => out.records += count,
                 ReleaseKind::Alternates => out.alternates += count,
-                ReleaseKind::AppliedDeletes => {}
+                ReleaseKind::AppliedDeletes | ReleaseKind::InlineFiles => {}
             }
         }
         Ok(out)

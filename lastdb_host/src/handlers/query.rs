@@ -32,20 +32,19 @@ pub use output::QueryResponseFormat;
 /// saturated, and the core's typed status on a read failure.
 pub async fn execute_query<H: HostNode>(
     host: &H,
-    mut query: Query,
+    query: Query,
     limit: Option<usize>,
     offset: Option<usize>,
     cursor: Option<QueryCursor>,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
-    let hydrate = query.hydrate.take();
     let scope = host
         .fold_db()
         .db_ops()
         .read_scope()
         .await
         .map_err(|error| HostError::new(503, error.to_string()))?;
-    let mut page = scope
+    scope
         .run_result(Box::pin(execute_query_scoped(
             host,
             query,
@@ -54,28 +53,7 @@ pub async fn execute_query<H: HostNode>(
             cursor,
             allow_full_scan,
         )))
-        .await?;
-    if hydrate != Some(QueryHydrate::Inline) {
-        drop_inline_bytes(&mut page);
-    }
-    Ok(page)
-}
-
-/// A row carries its inline file bytes only when the query asks for
-/// `hydrate: inline`; otherwise it keeps the marker alone. Only the record
-/// metadata block is touched, never a stored field.
-fn drop_inline_bytes(page: &mut Value) {
-    let Some(Value::Array(rows)) = page.get_mut("results") else {
-        return;
-    };
-    for row in rows {
-        if let Some(Value::Object(file)) = row
-            .get_mut("metadata")
-            .and_then(|metadata| metadata.get_mut("inline_file"))
-        {
-            file.remove("bytes_b64");
-        }
-    }
+        .await
 }
 
 async fn execute_query_scoped<H: HostNode>(

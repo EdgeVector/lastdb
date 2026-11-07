@@ -6,12 +6,34 @@ use lastdb_model::portable_mutation::{
     FileMarker, MutationEntry, MutationOperation, PortableMutationError, RecordData, RecordKey,
     SchemaIdentity,
 };
-use lastdb_model::record_value::StoredRecord;
+use lastdb_model::record_value::{self, InlineFile, InlineWrite, StoredRecord};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+/// A shared entry carries the bytes of its record's inline file. A shared
+/// write that keeps the inline file has no bytes in hand, so the writer reads
+/// these rows, in one batch, before it encodes the entries.
+pub(super) fn kept_inline_files(
+    changes: &[RecordChange],
+) -> Vec<(String, record_value::FileMarker)> {
+    changes
+        .iter()
+        .filter(|change| matches!(change.portable, PortableEffect::SharedAuthor(_)))
+        .filter(|change| !matches!(change.inline_write, Some(InlineWrite::Put(_))))
+        .filter_map(|change| {
+            let marker = change.after.inline_file.as_ref()?;
+            change
+                .after
+                .is_live()
+                .then(|| (change.key.as_str().to_owned(), marker.clone()))
+        })
+        .collect()
+}
 
 pub(super) fn entries(
     schema: &Schema,
     changes: &[RecordChange],
+    kept: &BTreeMap<String, InlineFile>,
 ) -> Result<Vec<MutationEntry>, SchemaError> {
     let mut entries = Vec::new();
     for change in changes {
@@ -21,9 +43,13 @@ pub(super) fn entries(
         let primary_key =
             RecordKey::try_from(change.key.api_key().clone()).map_err(|error| invalid(&error))?;
         let operation = if change.after.is_live() {
+            let inline = match &change.inline_write {
+                Some(InlineWrite::Put(file)) => Some(file),
+                _ => kept.get(change.key.as_str()),
+            };
             MutationOperation::ReplaceRecord {
                 primary_key,
-                data: record_data(&change.after)?,
+                data: record_data(&change.after, inline)?,
             }
         } else {
             MutationOperation::DeleteRecord { primary_key }
@@ -41,7 +67,15 @@ pub(super) fn entries(
     Ok(entries)
 }
 
-pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaError> {
+pub(crate) fn record_data(
+    record: &StoredRecord,
+    inline: Option<&InlineFile>,
+) -> Result<RecordData, SchemaError> {
+    if record.inline_file.as_ref() != inline.map(|file| &file.marker) {
+        return Err(SchemaError::InvalidData(
+            "a shared record's inline file bytes differ from its marker".into(),
+        ));
+    }
     let metadata = record
         .meta
         .as_ref()
@@ -81,7 +115,7 @@ pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaErr
         metadata,
         fields: record.fields.clone(),
         file,
-        inline_file: record.inline_file.clone().map(Box::new),
+        inline_file: inline.cloned().map(Box::new),
     })
 }
 

@@ -124,6 +124,7 @@ impl MutationManager {
                 }
                 _ => None,
             };
+            let inline_write = values::inline_write(input.entry, before.as_deref());
             groups
                 .entry(input.local_schema)
                 .or_default()
@@ -132,6 +133,7 @@ impl MutationManager {
                     before,
                     after,
                     file_write,
+                    inline_write,
                     portable: PortableEffect::SharedReplay,
                 });
         }

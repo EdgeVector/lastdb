@@ -17,8 +17,6 @@ pub use file::{
 
 pub const RECORD_VALUE_VERSION: u8 = 3;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
-/// The largest stored record body: the record cap plus one inline file.
-pub const MAX_STORED_RECORD_BYTES: usize = MAX_RECORD_BYTES + MAX_INLINE_STORED_BYTES;
 
 pub use crate::portable_mutation::Stamp as RecordStamp;
 
@@ -82,9 +80,10 @@ pub struct StoredRecord {
     pub file: Option<FileMarker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_version: Option<Position>,
-    /// The small file kept inside this record value (a thumbnail, an icon).
+    /// The marker of the record's inline file (a thumbnail, an icon). The
+    /// bytes live in their own row, so a record read never carries them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_file: Option<InlineFile>,
+    pub inline_file: Option<FileMarker>,
     #[serde(skip)]
     pub deleted: bool,
 }
@@ -145,22 +144,10 @@ impl StoredRecord {
 
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
         let bytes = self.encode_uncapped()?;
-        if bytes.len() > self.size_limit() {
+        if bytes.len() > MAX_RECORD_BYTES {
             return Err(RecordValueError::TooLarge { bytes: bytes.len() });
         }
         Ok(bytes)
-    }
-
-    /// The size cap of this record body: the record cap, plus the room of
-    /// its inline file when it has one. An inline file never takes room from
-    /// the fields.
-    #[must_use]
-    pub fn size_limit(&self) -> usize {
-        MAX_RECORD_BYTES
-            + self
-                .inline_file
-                .as_ref()
-                .map_or(0, InlineFile::stored_allowance)
     }
 
     /// Final admission still enforces the configured complete-record size cap.
@@ -204,10 +191,10 @@ impl StoredRecord {
         if self
             .inline_file
             .as_ref()
-            .is_some_and(|file| !file.is_well_formed())
+            .is_some_and(|file| !file.fits_inline())
         {
             return Err(RecordValueError::Format(
-                "the inline file has an invalid marker, size or encoding".into(),
+                "the inline file marker has an invalid digest, label or size".into(),
             ));
         }
         Ok(())

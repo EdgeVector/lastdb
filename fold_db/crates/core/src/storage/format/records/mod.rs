@@ -13,6 +13,7 @@ pub(in crate::storage) mod applied_deletes;
 mod audit;
 mod file_crypto;
 mod files;
+pub(in crate::storage) mod inline_files;
 mod keys;
 mod maintenance;
 mod open;
@@ -34,9 +35,7 @@ use crate::schema::SchemaError;
 use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, KvStore, StorageError};
-use lastdb_model::record_value::{
-    RecordValueError, StoredRecord, MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES,
-};
+use lastdb_model::record_value::{InlineWrite, RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -47,6 +46,8 @@ pub(crate) struct RecordChange {
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
     pub file_write: Option<FileWrite>,
+    /// Puts or clears the inline file row. `None` keeps the row as it is.
+    pub inline_write: Option<InlineWrite>,
     pub portable: PortableEffect,
 }
 
@@ -96,18 +97,28 @@ fn encode(
             needs_upload: matches!(change.portable, PortableEffect::SharedAuthor(_)),
         });
         if after.is_live() {
-            let value = after.encode_uncapped().map_err(record_value_error)?;
-            // The cap of one record depends on its inline file, so the
-            // writer checks it here; final admission checks the ceiling.
-            if value.len() > after.size_limit() {
-                return Err(SchemaError::RecordTooLarge {
-                    size: value.len(),
-                    limit: after.size_limit(),
-                });
+            match &change.inline_write {
+                Some(InlineWrite::Put(file))
+                    if after.inline_file.as_ref() == Some(&file.marker) =>
+                {
+                    main.push(inline_files::put(&change.key, file)?);
+                }
+                Some(InlineWrite::Clear) if after.inline_file.is_none() => {
+                    main.push(inline_files::delete(&change.key));
+                }
+                None => {}
+                Some(_) => {
+                    return Err(SchemaError::InvalidData(
+                        "the inline file write differs from the record marker".into(),
+                    ))
+                }
             }
+            let value = after.encode_uncapped().map_err(record_value_error)?;
             written.push(WrittenRecord::new(change.key.as_str(), after, &value));
             main.push(KvMutation::put(change.key.into_string(), value));
         } else {
+            // A record delete removes its inline file row too.
+            main.push(inline_files::delete(&change.key));
             main.push(applied_deletes::encode(&change.key, &after.stamp)?);
             if !matches!(change.portable, PortableEffect::Local) {
                 main.push(applied_deletes::encode_age(&change.key, &after.stamp)?);
@@ -152,17 +163,17 @@ pub(in crate::storage) fn require_final_record_sizes<'a>(
     // The native accounting loop derives this upper bound from every staged
     // body. If all bodies fit, every final record necessarily fits too, so
     // the lazy iterator need not visit any keys in the ordinary case.
-    if max_body_bytes <= MAX_STORED_RECORD_BYTES {
+    if max_body_bytes <= MAX_RECORD_BYTES {
         return Ok(());
     }
     for (collection, key, bytes) in records {
         if collection == super::RECORDS_COLLECTION
             && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
-            && bytes > MAX_STORED_RECORD_BYTES
+            && bytes > MAX_RECORD_BYTES
         {
             return Err(StorageError::RecordTooLarge {
                 size: bytes,
-                limit: MAX_STORED_RECORD_BYTES,
+                limit: MAX_RECORD_BYTES,
             });
         }
     }
