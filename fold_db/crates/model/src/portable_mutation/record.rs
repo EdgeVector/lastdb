@@ -1,6 +1,6 @@
 use super::{codec, PortableMutationError, Position, Stamp};
 use crate::canonical::CanonicalValue;
-use crate::record_value::MAX_RECORD_BYTES;
+use crate::record_value::{InlineFile, MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES};
 use crate::schema::types::KeyValue;
 use schema_types::record_keys::{RecordKeyDefinition, RecordKeys};
 use serde::ser::SerializeMap;
@@ -113,6 +113,10 @@ pub struct RecordData {
     #[serde(serialize_with = "serialize_metadata")]
     pub metadata: Option<BTreeMap<String, Value>>,
     pub file: Option<FileMarker>,
+    /// The record's inline file travels inside the entry. Omitted when
+    /// absent, so an entry without one keeps its earlier canonical bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_file: Option<InlineFile>,
 }
 
 impl RecordData {
@@ -123,7 +127,27 @@ impl RecordData {
         if let Some(file) = &self.file {
             file.validate(record_position)?;
         }
+        if self
+            .inline_file
+            .as_ref()
+            .is_some_and(|file| !file.is_well_formed())
+        {
+            return Err(PortableMutationError::Invalid(
+                "inline file requires a valid marker, size and encoding",
+            ));
+        }
         Ok(())
+    }
+
+    /// The size cap of the record value: the record cap, plus the room of its
+    /// inline file when it has one.
+    #[must_use]
+    pub fn max_record_bytes(&self) -> usize {
+        MAX_RECORD_BYTES
+            + self
+                .inline_file
+                .as_ref()
+                .map_or(0, InlineFile::stored_allowance)
     }
 
     pub(super) fn validate_alternates(
@@ -198,11 +222,11 @@ impl StoredRecord {
 
     pub fn encode(&self) -> Result<Vec<u8>, PortableMutationError> {
         self.validate()?;
-        codec::encode(self, MAX_RECORD_BYTES)
+        codec::encode(self, self.data.max_record_bytes())
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PortableMutationError> {
-        let record: Self = codec::parse(bytes, MAX_RECORD_BYTES)?;
+        let record: Self = codec::parse(bytes, MAX_STORED_RECORD_BYTES)?;
         codec::require_canonical(bytes, &record.encode()?)?;
         Ok(record)
     }
