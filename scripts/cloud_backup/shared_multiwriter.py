@@ -10,6 +10,7 @@ import stat
 import time
 
 import native_records
+import shared_daemon
 import shared_snapshot
 from automatic_source import durable_batch
 from baseline import private_write
@@ -175,14 +176,14 @@ def peer_tail_record(operation):
     return operation.record(PEER_TAIL, "peer-after-replacement")
 
 
-def publish_peer_tail(operation, node, writer):
+def publish_peer_tail(operation, node):
     operation.summary["stage"] = "publish-peer-tail-after-replacement"
     node.start()
     durable_batch(node, [native_records.create(operation.schema, native_records.key(PEER_TAIL),
                                                peer_tail_record(operation))])
-    node.stop()
     through = operation.summary["peer_tail_through"] + 1
-    operation.summary["peer_after_replacement_through"] = operation.push(node, writer, through)
+    operation.summary["peer_after_replacement_through"] = shared_daemon.upload(operation, node, through)
+    node.stop()
 
 
 def rejoin_records(operation):
@@ -241,20 +242,15 @@ def rejoin_writer(operation, node, writer, local_file):
                       "file_bytes": len(operation.payload(REJOIN_PENDING)), "file_sha256": digest})
     durable_batch(node, [native_records.create(operation.schema, native_records.key(REJOIN_NEXT),
                                                records[REJOIN_NEXT])])
+    shared_daemon.upload(operation, node, through + 1)
     node.stop()
-    operation.push(node, writer, through + 1)
     operation.summary.update(returning_writer_stream=writer["source_stream"],
                              returning_writer_pending_through=through,
                              returning_writer_next_through=through + 1,
                              returning_writer_private_file=True, returning_writer_previous_data=True)
 
 
-def pull(operation, node, writer):
-    return operation.writer(node, writer, "pull", "--schema-bindings", str(operation.bindings),
-                            "--ranges", "1").splitlines()
-
-
-def exchange_tails(operation, publisher, publisher_writer, peer_writer):
+def exchange_tails(operation, publisher, peer_writer):
     operation.summary["stage"] = "publish-independent-writer-tails"
     records = extra_records(operation)
     positions = {peer_writer["source_stream"]: 3}
@@ -262,42 +258,35 @@ def exchange_tails(operation, publisher, publisher_writer, peer_writer):
         node = operation.join_writer(kind, writer)
         node.start()
         durable_batch(node, [native_records.create(operation.schema, native_records.key(kind), record)])
+        positions[writer["source_stream"]] = shared_daemon.upload(operation, node, 1)
         node.stop()
         require(node.clean_stops == 2, "shared_independent_writer_clean_stops")
-        positions[writer["source_stream"]] = operation.push(node, writer, 1)
 
-    operation.summary["stage"] = "pull-five-remote-writer-tails"
-    for stream, sequence in sorted(positions.items()):
-        require(pull(operation, publisher, publisher_writer) == [
-            f"Applied shared peer {stream} through {sequence}".encode(),
-            b"Applied 1 shared peer ranges",
-        ], "shared_multiwriter_exact_resumed_pull")
-    require(pull(operation, publisher, publisher_writer) == [b"Applied 0 shared peer ranges"],
-            "shared_idle_writer_holds_delete_cleanup")
-    operation.summary.update(writer_count=WRITER_COUNT, peer_applied_positions=positions,
-                             idle_writer_held_cleanup=True)
-
+    operation.summary["stage"] = "apply-five-remote-writer-tails"
     publisher.start()
+    shared_daemon.receive(operation, publisher, ranges=len(positions), reclaimed=0)
     kinds = ["peer-only", *records]
     rows = native_records.read_records(publisher, operation.schema, [native_records.key(k) for k in kinds])
     records["peer-only"] = operation.record("peer-only", "peer-tail")
     require([row["fields"] for row in rows] == [records[kind] for kind in kinds],
             "shared_multiwriter_exact_live_import")
     publisher.stop()
+    operation.summary.update(writer_count=WRITER_COUNT, peer_applied_positions=positions,
+                             idle_writer_held_cleanup=True)
 
 
 def join_restored_writer(operation, node, reader):
     operation.summary["stage"] = "bind-restored-idle-writer"
     reply = operation.bind_writer(node, reader)
     require(reply.splitlines() == [b"Shared writer bound"], "shared_restored_idle_writer_bound")
-    operation.summary["stage"] = "push-restored-writer-and-cleanup"
+    operation.summary["stage"] = "sync-restored-writer-and-cleanup"
     record = operation.record("restored-writer", "first-write")
     node.start()
     durable_batch(node, [native_records.create(operation.schema, native_records.key("restored-writer"), record)])
+    shared_daemon.policy(node, True)
+    shared_daemon.wait(operation, node, "shared_restored_writer_cleanup_deadline",
+                       uploaded=1, ranges=0, reclaimed=1)
+    shared_daemon.policy(node, False)
     node.stop()
-    operation.push(node, reader, 1)
-    require(pull(operation, node, reader) == [
-        b"Reclaimed 1 shared delete notes", b"Applied 0 shared peer ranges",
-    ], "shared_delete_reclaimed_after_all_writers_advanced")
     operation.summary.update(restored_writer_accepted_through=1, local_only_excluded=True,
                              delete_notes_reclaimed=1)

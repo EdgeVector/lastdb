@@ -23,6 +23,7 @@ def verify_case(case, proof, source, scope):
     require(proof["result"] == "passed" and proof["stage"] == "complete"
             and proof["source"] == source and proof["scope"] == scope
             and proof["primary_access"] is False and proof["provider_deletions"] == 0
+            and proof["manual_push_pull_commands"] == 0
             and proof["cleanup"] == "owned runner data removed" and proof["restored_boots"] == 2,
             "shared_daily_complete_case")
     flags = {
@@ -47,7 +48,7 @@ def verify_case(case, proof, source, scope):
         require(proof["shared_retention_overwrites"] == 24 and len(proof["retention_measurements"]) == 3,
                 "shared_daily_retention_coverage")
     if case == "automatic":
-        require(proof["automatic_running_writers"] == 6 and proof["manual_push_pull_commands"] == 0,
+        require(proof["automatic_running_writers"] == 6,
                 "shared_daily_automatic_coverage")
 
 

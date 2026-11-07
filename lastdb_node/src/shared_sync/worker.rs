@@ -191,19 +191,26 @@ async fn download(
         BTreeMap::new(),
     );
     for _ in 0..RANGES_PER_PASS {
-        match worker
+        let (outcome, reclaimed) = worker
             .step()
             .await
-            .map_err(|error| download_reason(&error))?
-        {
-            (PeerOutcome::Idle, _) => {
+            .map_err(|error| download_reason(&error))?;
+        host.shared_sync.update(|state| {
+            state.reclaimed_delete_notes = state.reclaimed_delete_notes.saturating_add(reclaimed);
+        });
+        match outcome {
+            PeerOutcome::Idle => {
                 host.shared_sync.update(|state| state.needs_restore = None);
                 return Ok(());
             }
-            (PeerOutcome::Applied { .. }, _) => {
-                host.shared_sync.update(|state| state.applied_ranges += 1);
+            PeerOutcome::Applied { stream, through } => {
+                host.shared_sync.update(|state| {
+                    state.applied_ranges = state.applied_ranges.saturating_add(1);
+                    state.last_peer_applied = Some(stream);
+                    state.last_peer_through = Some(through);
+                });
             }
-            (PeerOutcome::NeedsCheckpoint { stream }, _) => {
+            PeerOutcome::NeedsCheckpoint { stream } => {
                 host.shared_sync
                     .update(|state| state.needs_restore = Some(stream));
                 return Err("shared_download_requires_restore");

@@ -19,6 +19,9 @@ pub struct SharedSyncProgress {
     pub retry_at: u64,
     pub uploaded_through: u64,
     pub applied_ranges: u64,
+    pub last_peer_applied: Option<Id>,
+    pub last_peer_through: Option<u64>,
+    pub reclaimed_delete_notes: u64,
     pub needs_restore: Option<Id>,
     pub blocked_reason: Option<&'static str>,
 }

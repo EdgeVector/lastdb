@@ -5,6 +5,7 @@ import shutil
 import time
 
 import native_records
+import shared_daemon
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
@@ -31,14 +32,19 @@ def values(operation, version):
     return records, files
 
 
-def verify(operation, node, version, expected_rows=None):
+def read_version(operation, node, version, expected_rows=None):
     records, files = values(operation, version)
-    node.start()
     operation.verify(node, records, files, absent=KEYS)
     rows = native_records.read_records(node, operation.schema,
                                       [native_records.key(key) for key in sorted(records)])
     if expected_rows is not None:
         require(rows == expected_rows, "shared_conflict_exact_revisions_and_metadata")
+    return rows
+
+
+def verify(operation, node, version, expected_rows=None):
+    node.start()
+    rows = read_version(operation, node, version, expected_rows)
     node.stop()
     return rows
 
@@ -85,55 +91,56 @@ def author(operation, node, version):
     return verify(operation, node, version)
 
 
-def pull(operation, node, reader, stream, through):
-    reply = operation.writer(node, reader, "pull", "--schema-bindings", str(operation.bindings),
-                             "--ranges", "1").splitlines()
-    require(reply == [f"Applied shared peer {stream} through {through}".encode(),
-                      b"Applied 1 shared peer ranges"], "shared_conflict_exact_peer_order")
-    return {"source_stream": stream, "through": through}
-
-
 def exchange(operation, nodes, expected_rows):
     first, peer, forward, reverse = nodes
-    a, b, c, d = operation.writers[:4]
+    a, b = operation.writers[:2]
     a_end, b_end = INITIAL_POSITION + TAIL_LENGTH, TAIL_LENGTH
+    a_range, b_range = (a["source_stream"], a_end), (b["source_stream"], b_end)
     operation.summary["stage"] = "replay-older-first"
-    operation.push(first, a, a_end)
-    forward_order = [pull(operation, forward, c, a["source_stream"], a_end)]
-    verify(operation, forward, "older")
+    first.start()
+    shared_daemon.upload(operation, first, a_end)
+    first.stop()
+    forward.start()
+    shared_daemon.receive(operation, forward, ranges=1, last=a_range)
+    read_version(operation, forward, "older")
 
     operation.summary["stage"] = "replay-newer-first"
-    operation.push(peer, b, b_end)
-    reverse_order = [pull(operation, reverse, d, b["source_stream"], b_end)]
-    verify(operation, reverse, "newer", expected_rows)
-    reverse_order.append(pull(operation, reverse, d, a["source_stream"], a_end))
-    verify(operation, reverse, "newer", expected_rows)
-    forward_order.append(pull(operation, forward, c, b["source_stream"], b_end))
-    verify(operation, forward, "newer", expected_rows)
+    peer.start()
+    shared_daemon.upload(operation, peer, b_end)
+    read_version(operation, peer, "newer", expected_rows)
+    peer.stop()
+    reverse.start()
+    # Both tails are available. Two applications ending at A prove B ran first.
+    shared_daemon.receive(operation, reverse, ranges=2, last=a_range)
+    read_version(operation, reverse, "newer", expected_rows)
+    reverse.stop()
+    shared_daemon.receive(operation, forward, ranges=2, last=b_range)
+    read_version(operation, forward, "newer", expected_rows)
+    forward.stop()
 
     operation.summary["stage"] = "converge-original-offline-writers"
-    pull(operation, first, a, b["source_stream"], b_end)
-    pull(operation, peer, b, a["source_stream"], a_end)
-    verify(operation, first, "newer", expected_rows)
-    verify(operation, peer, "newer", expected_rows)
-    require([entry["source_stream"] for entry in forward_order]
-            == list(reversed([entry["source_stream"] for entry in reverse_order])),
-            "shared_conflict_opposite_orders")
-    operation.summary.update(forward_replay=forward_order, reverse_replay=reverse_order,
+    first.start()
+    shared_daemon.receive(operation, first, ranges=1, last=b_range)
+    read_version(operation, first, "newer", expected_rows)
+    first.stop()
+    forward_order = [{"source_stream": stream, "through": through} for stream, through in (a_range, b_range)]
+    operation.summary.update(forward_replay=forward_order, reverse_replay=list(reversed(forward_order)),
                              opposite_replay_orders_converged=True, original_writers_converged=True,
                              exact_original_revisions_preserved=True)
 
 
 def repeat_after_restart(operation, nodes, expected_rows):
     operation.summary["stage"] = "verify-conflict-restart-and-idle-retry"
-    for node, writer in zip(nodes, operation.writers[:4], strict=True):
-        verify(operation, node, "newer", expected_rows)
-        reply = operation.writer(node, writer, "pull", "--schema-bindings", str(operation.bindings),
-                                 "--ranges", "1").splitlines()
-        require(reply == [b"Applied 0 shared peer ranges"], "shared_conflict_replay_cursor_survived")
-    for node, writer in zip(nodes[:2], operation.writers[:2], strict=True):
-        reply = operation.writer(node, writer, "push", "--batches", "2").splitlines()
-        require(reply == [b"Shared writer caught up"], "shared_conflict_upload_cursor_survived")
+    ends = (INITIAL_POSITION + TAIL_LENGTH, TAIL_LENGTH, 0, 0)
+    for node, uploaded in zip(nodes, ends, strict=True):
+        node.start()
+        shared_daemon.policy(node, True)
+        state = shared_daemon.wait(operation, node, "shared_conflict_restart_sync_deadline",
+                                   uploaded=uploaded, ranges=0)
+        require(state["last_upload_at"] is None, "shared_conflict_upload_cursor_survived")
+        read_version(operation, node, "newer", expected_rows)
+        shared_daemon.policy(node, False)
+        node.stop()
     operation.summary.update(restart_convergence=True, replay_retry_idle=True, upload_retry_idle=True)
 
 
@@ -157,6 +164,7 @@ def source_free_restore(operation, publication, expected_rows):
     require(node.clean_stops == 2, "shared_conflict_restore_two_clean_boots")
     records, files = values(operation, "newer")
     operation.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
+                             manual_push_pull_commands=0,
                              exact_live_records=len(records), exact_absent_records=len(NEWER_DELETES),
                              file_sha256=files, recovery_device=reader["device_id"])
 

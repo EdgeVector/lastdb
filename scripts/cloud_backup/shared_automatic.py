@@ -5,27 +5,11 @@ import time
 import shutil
 
 import native_records
+from shared_daemon import policy
 import shared_snapshot
 from automatic_source import durable_batch
 from node import OwnedNode
 from support import OperationError, decode_json, private_directory, require
-
-
-def policy(node, enabled, log_interval=1, snapshot_interval=86400):
-    request = ({"action": "enable_automatic", "log_interval_seconds": log_interval,
-                "snapshot_interval_seconds": snapshot_interval} if enabled else {"action": "disable_automatic"})
-    deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        try:
-            result = node.call("/api/sync/byte-backup-v2", request)
-            require(result["automatic_backup_enabled"] is enabled, "shared_automatic_policy")
-            node.shared_sync = enabled
-            return
-        except OperationError as error:
-            if str(error) != "socket_http_status":
-                raise
-            time.sleep(0.25)
-    raise OperationError("shared_automatic_policy_deadline")
 
 
 def wait_all(operation, nodes, records, files, absent_keys=()):

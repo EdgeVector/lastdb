@@ -4,8 +4,8 @@ import hashlib
 import time
 
 import native_records
+import shared_daemon
 from automatic_source import durable_batch
-from shared_multiwriter import pull
 from support import require
 
 
@@ -25,13 +25,6 @@ def record(operation, version):
     # The complete record rides in the file command's bounded HTTP header.
     payload = hashlib.shake_256(label(version).encode()).hexdigest(3072)
     return operation.record(KEY, payload)
-
-
-def drain(operation, node, writer):
-    for _ in range(20):
-        if pull(operation, node, writer)[-1:] == [b"Applied 0 shared peer ranges"]:
-            return
-    require(False, "shared_retention_peer_not_caught_up")
 
 
 def replace(operation, node, version):
@@ -90,36 +83,43 @@ def within_bound(before, after):
 
 
 def establish_baseline(operation, first, peer, publisher, receiver):
-    drain(operation, first, publisher)
-    drain(operation, peer, receiver)
     through = operation.summary["snapshot_command_uploaded_through"]
     first.start()
     value = record(operation, "original")
     durable_batch(first, [native_records.create(operation.schema, native_records.key(KEY), value)])
     operation.attach(first, value, label("original"))
+    shared_daemon.upload(operation, first, through + 2)
     first.stop()
-    operation.push(first, publisher, through + 2)
-    drain(operation, peer, receiver)
 
-    # Leave a local mutation pending that still needs the publisher's old file.
     peer.start()
-    replace(operation, peer, "pending-on-peer")
+    shared_daemon.receive(operation, peer, last=(publisher["source_stream"], through + 2))
+    # The first pending change references the publisher's exact old file.
+    # The next change displaces that file before the daemon can upload either.
+    pending = replace(operation, peer, "pending-on-peer")
+    digest = operation.attach(peer, pending, label("displaced-before-upload"))
+    peer.verify_file({"schema": operation.schema, "records": [{"id": KEY}],
+                      "file_bytes": len(operation.payload(label("displaced-before-upload"))),
+                      "file_sha256": digest})
     peer.stop()
     time.sleep(0.01)
     first.start()
     value = replace(operation, first, 0)
     operation.attach(first, value, label(0))
+    shared_daemon.upload(operation, first, through + 4)
     first.stop()
-    operation.push(first, publisher, through + 4)
-    drain(operation, peer, receiver)
-    # Verify the new live file has displaced the version needed by the pending
-    # mutation before pushing. Upload must still resolve the old exact bytes.
+
+    peer_end = operation.summary["peer_after_replacement_through"] + 2
     peer.start()
+    shared_daemon.policy(peer, True)
+    shared_daemon.wait(operation, peer, "shared_retention_pending_upload_deadline",
+                       uploaded=peer_end, last=(publisher["source_stream"], through + 4))
+    shared_daemon.policy(peer, False)
     row, = native_records.read_records(peer, operation.schema, [native_records.key(KEY)])
-    require(row["fields"] == value, "shared_retention_pending_file_displaced")
+    require(row["fields"] == value, "shared_retention_latest_peer_file")
     peer.stop()
-    operation.push(peer, receiver, operation.summary["peer_after_replacement_through"] + 1)
-    drain(operation, first, publisher)
+    first.start()
+    shared_daemon.receive(operation, first, last=(receiver["source_stream"], peer_end))
+    first.stop()
     operation.summary["displaced_pending_file_uploaded"] = True
     return through + 4
 
@@ -141,12 +141,14 @@ def run(operation, first, peer, publisher, receiver):
                 version += 1
                 value = replace(operation, first, version)
                 operation.attach(first, value, label(version))
-            first.stop()
             through += 2 * OVERWRITES_PER_BATCH
             operation.summary["stage"] = "shared-retention-upload-overwrites"
-            operation.push(first, publisher, through)
+            shared_daemon.upload(operation, first, through)
+            first.stop()
             operation.summary["stage"] = "shared-retention-replay-overwrites"
-            drain(operation, peer, receiver)
+            peer.start()
+            shared_daemon.receive(operation, peer, last=(publisher["source_stream"], through))
+            peer.stop()
         points.append(measure(operation, first, peer, version))
         require(all(within_bound(points[0][role], points[-1][role]) for role in ("writer", "peer")),
                 "shared_retention_settled_storage_grew")
