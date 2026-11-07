@@ -71,6 +71,11 @@ pub struct Mutation {
     /// never captured, synced or replayed, and API input cannot forge it.
     #[serde(skip)]
     pub file_write: Option<FileWrite>,
+    /// The inline file write of `put-blob` (its thumbnail), `put-inline` or
+    /// `delete-blob`. Never serialized, like `file_write`. `None` keeps the
+    /// record's current inline file.
+    #[serde(skip)]
+    pub inline_write: Option<crate::record_value::InlineWrite>,
 }
 
 impl Mutation {
@@ -105,6 +110,7 @@ impl Mutation {
             erase_caller: None,
             erase_written_before_nanos: None,
             file_write: None,
+            inline_write: None,
         }
     }
 
@@ -160,7 +166,8 @@ impl Mutation {
             || self.file.is_some()
             || self.metadata.is_some()
             || self.source_file_name.is_some()
-            || self.file_write.is_some())
+            || self.file_write.is_some()
+            || self.inline_write.is_some())
         {
             return Err(invalid(
                 "a deletion carries keys and revision, without record content",

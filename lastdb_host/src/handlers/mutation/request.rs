@@ -1,5 +1,6 @@
 //! Single-mutation steps using the existing host interface.
 
+use fold_db::record_value::InlineWrite;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::FileWrite;
 use serde_json::Value;
@@ -33,7 +34,11 @@ pub async fn execute_mutation<H: HostNode>(
     .await?;
     request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
     let payload_bytes = fields_payload_bytes(&components.record_fields)
-        + components.file_write.as_ref().map_or(0, FileWrite::row_len);
+        + components.file_write.as_ref().map_or(0, FileWrite::row_len)
+        + match &components.inline_write {
+            Some(InlineWrite::Put(file)) => file.data.len(),
+            Some(InlineWrite::Clear) | None => 0,
+        };
 
     let convergence = components.convergence;
     let receipt = commit_mutation(host, components, canonical, payload_bytes).await?;

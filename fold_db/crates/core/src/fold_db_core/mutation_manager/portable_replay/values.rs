@@ -35,6 +35,7 @@ pub(super) fn record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError>
             sha256: file.sha256.clone(),
         }),
         file_version: data.file.as_ref().map(|file| file.version.clone()),
+        inline_file: None,
         deleted: false,
     })
 }

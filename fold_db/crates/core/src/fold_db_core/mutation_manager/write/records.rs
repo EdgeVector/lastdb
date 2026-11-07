@@ -10,7 +10,7 @@ use crate::schema::types::{FileWrite, MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::records::{PortableEffect, RecordAddress};
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
-use lastdb_model::record_value::StoredRecord;
+use lastdb_model::record_value::{InlineWrite, StoredRecord};
 use std::sync::Arc;
 
 impl MutationManager {
@@ -191,6 +191,13 @@ fn replace_record(
             before.and_then(|record| record.file.clone())
         }
     });
+    // Like the blob marker, a write keeps the current inline file unless it
+    // carries an inline file operation.
+    let inline_file = match &mutation.inline_write {
+        Some(InlineWrite::Put(file)) => Some(file.clone()),
+        Some(InlineWrite::Clear) => None,
+        None => before.and_then(|record| record.inline_file.clone()),
+    };
     let replacement = RecordReplacement {
         target: mutation.target(),
         expected: mutation.expected.clone(),
@@ -209,6 +216,7 @@ fn replace_record(
             None
         },
         file,
+        inline_file,
     };
     replacement
         .validate(schema.require_record_keys()?)
