@@ -7,7 +7,7 @@ use fold_db::schema::types::operations::Operation;
 use fold_db::schema::types::{FileWrite, KeyValue, MutationType};
 
 /// Which file of a record a route acts on. A record can own one blob file
-/// (B2) and one inline file kept in the record value (R2).
+/// (B2) and one inline file in its own row next to the record (R2).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Placement {

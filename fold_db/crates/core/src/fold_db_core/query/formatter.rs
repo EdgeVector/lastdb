@@ -14,36 +14,10 @@ pub struct RecordMetadata {
     /// The record's file, read with `fetch-blob` by schema and key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<lastdb_model::record_value::FileMarker>,
-    /// The record's inline file. The host keeps `bytes_b64` only for a
-    /// query with `hydrate: inline`.
+    /// The record's inline file, read with `fetch-blob` and placement
+    /// `inline`. The bytes are in their own row, never in a query reply.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_file: Option<InlineFileView>,
-}
-
-/// The marker of an inline file and, when hydrated, its bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InlineFileView {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media_type: Option<String>,
-    pub size_bytes: u64,
-    pub sha256: String,
-    /// Standard base64 of the plaintext.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bytes_b64: Option<String>,
-}
-
-impl From<&lastdb_model::record_value::InlineFile> for InlineFileView {
-    fn from(file: &lastdb_model::record_value::InlineFile) -> Self {
-        Self {
-            name: file.marker.name.clone(),
-            media_type: file.marker.media_type.clone(),
-            size_bytes: file.marker.size_bytes,
-            sha256: file.marker.sha256.clone(),
-            bytes_b64: Some(file.data.clone()),
-        }
-    }
+    pub inline_file: Option<lastdb_model::record_value::FileMarker>,
 }
 
 /// One stored record, keyed by `KeyValue` in [`QueryRecords`].

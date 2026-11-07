@@ -21,6 +21,6 @@ pub use field_value_type::FieldValueType;
 pub use key_config::KeyConfig;
 pub use key_value::KeyValue;
 pub use mutation::{FileWrite, FileWriteIssuer, Mutation, SealedRecordFile};
-pub use operations::{MutationType, Operation, Query, QueryHydrate, SortOrder, ValueFilter};
+pub use operations::{MutationType, Operation, Query, SortOrder, ValueFilter};
 pub use query_cursor::QueryCursor;
 pub use schema::{DeclarativeSchemaType as SchemaType, Schema};

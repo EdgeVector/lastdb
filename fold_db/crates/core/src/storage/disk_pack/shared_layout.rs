@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::storage::format::{
-    records::applied_deletes, CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY,
-    DELETE_REPLAY_CUTOFF_KEY, FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION,
-    RECORD_FILE_PREFIX, RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    records::{applied_deletes, inline_files},
+    CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+    FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_FILE_PREFIX,
+    RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
 };
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
@@ -214,7 +215,7 @@ impl Scope {
     }
 
     fn public_record_key(&self, key: &str) -> bool {
-        let record = applied_deletes::record_key(key).unwrap_or(key);
+        let record = record_of(key);
         key == CURRENT_KEY_FORMAT_KEY
             || key == DELETE_REPLAY_CUTOFF_KEY
             || applied_deletes::is_age_key(key)
@@ -242,7 +243,7 @@ impl Scope {
         }
         let prefix = match collection {
             RECORDS_COLLECTION => {
-                let body = applied_deletes::record_key(key).unwrap_or(key);
+                let body = record_of(key);
                 let prefix = if body.starts_with(RECORD_PREFIX) {
                     RECORD_PREFIX
                 } else {
@@ -394,4 +395,12 @@ pub(super) fn invalid(reason: &str) -> StorageError {
 fn part<'a>(key: &'a str, prefix: &str) -> Option<&'a str> {
     let rest = key.strip_prefix(prefix)?;
     Some(rest.split_once(':').map_or(rest, |(first, _)| first))
+}
+
+/// The record key that an applied-delete or inline file row belongs to, or
+/// the key itself.
+fn record_of(key: &str) -> &str {
+    applied_deletes::record_key(key)
+        .or_else(|| inline_files::record_key(key))
+        .unwrap_or(key)
 }

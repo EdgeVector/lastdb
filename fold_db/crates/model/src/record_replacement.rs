@@ -3,7 +3,7 @@
 //! The native writer consumes these values without granting storage authority.
 //! A format writer must still validate payload fields, the stored revision,
 //! complete key equality on delete and the issuing context for changed files.
-use crate::record_value::{FileMarker, InlineFile};
+use crate::record_value::FileMarker;
 use crate::schema::types::KeyValue;
 use schema_types::record_keys::RecordKeys;
 use serde::{Deserialize, Serialize};
@@ -67,8 +67,9 @@ pub struct RecordReplacement {
     pub fields: BTreeMap<String, Value>,
     pub metadata: Option<RecordMetadata>,
     pub file: Option<FileMarker>,
+    /// The marker of the record's inline file; its bytes are in their own row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_file: Option<InlineFile>,
+    pub inline_file: Option<FileMarker>,
 }
 
 impl RecordReplacement {
@@ -88,9 +89,9 @@ impl RecordReplacement {
         if self
             .inline_file
             .as_ref()
-            .is_some_and(|file| !file.is_well_formed())
+            .is_some_and(|file| !file.fits_inline())
         {
-            return Err("an inline file has an invalid marker, size or encoding".into());
+            return Err("an inline file marker has an invalid digest, label or size".into());
         }
         Ok(())
     }

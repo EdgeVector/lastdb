@@ -7,7 +7,8 @@
 //!
 //! With `placement: "inline"` the bytes become the record's inline file
 //! instead (`design-lastdb-inline-files-20261107`): at most 64 KiB, kept in
-//! the record value, backed up with the records. An optional `thumbnail` puts
+//! its own row next to the record, backed up with the records. The record
+//! holds only the marker. An optional `thumbnail` puts
 //! an inline file next to a new blob file in the same write.
 //!
 //! Native format, pending memory and disk-space checks admit the stored row.

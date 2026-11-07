@@ -121,14 +121,6 @@ impl<'de> Deserialize<'de> for SortOrder {
     }
 }
 
-/// What a query reply carries beyond the record fields and markers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryHydrate {
-    /// Each row's inline file includes its bytes as `bytes_b64`.
-    Inline,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
@@ -163,10 +155,6 @@ pub struct Query {
     /// count or alternate key shortcut. The default is `false`.
     #[serde(default)]
     pub include_tombstones: bool,
-    /// `inline` returns the inline file bytes with each row. Without it a
-    /// row carries only the inline file marker.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hydrate: Option<QueryHydrate>,
 }
 
 impl Query {
@@ -205,7 +193,6 @@ impl Query {
             predicate_limit: None,
             expected_total_count: None,
             include_tombstones: false,
-            hydrate: None,
         }
     }
 }

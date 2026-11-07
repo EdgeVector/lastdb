@@ -165,6 +165,7 @@ fn prepare_record(
         before,
         after,
         file_write: mutation.file_write.take(),
+        inline_write: mutation.inline_write.take(),
         portable,
     })
 }
@@ -192,9 +193,9 @@ fn replace_record(
         }
     });
     // Like the blob marker, a write keeps the current inline file unless it
-    // carries an inline file operation.
+    // carries an inline file operation. The record keeps only the marker.
     let inline_file = match &mutation.inline_write {
-        Some(InlineWrite::Put(file)) => Some(file.clone()),
+        Some(InlineWrite::Put(file)) => Some(file.marker.clone()),
         Some(InlineWrite::Clear) => None,
         None => before.and_then(|record| record.inline_file.clone()),
     };

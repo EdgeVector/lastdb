@@ -2,12 +2,16 @@
 //!
 //! A record has no separate body row and no file dependency row. A record
 //! with a file marker has one file, at a path made from its key. The proof
-//! checks that the path is a live row of the authenticated CAS run.
+//! checks that the path is a live row of the authenticated CAS run. A record
+//! with an inline file marker has one inline file row in the same run, and
+//! the proof checks its bytes against the marker.
 use super::{budget, invalid, map, read_budget, rows::Rows, Proof, StorageResult};
 use crate::storage::disk_pack::native_routing;
-use crate::storage::format::records::applied_deletes;
+use crate::storage::format::records::{applied_deletes, inline_files};
 use lastdb_model::record_space::RECORD_PREFIX;
-use lastdb_model::record_value::{StoredRecord, MAX_STORED_RECORD_BYTES};
+use lastdb_model::record_value::{
+    FileMarker, InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
+};
 
 /// Validate the keys and records of the `records` collection and return the
 /// number of record files found.
@@ -34,15 +38,22 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
         applied_deletes::validate_age_row(raw, body)?;
         return Ok(false);
     }
+    if inline_files::record_key(raw).is_some() {
+        InlineFile::decode(body).map_err(|_| invalid("run backup inline file row"))?;
+        return Ok(false);
+    }
     if !raw.starts_with(RECORD_PREFIX) {
         return Ok(false);
     }
-    if body.len() > MAX_STORED_RECORD_BYTES {
+    if body.len() > MAX_RECORD_BYTES {
         return Err(invalid("run backup record exceeds its bound"));
     }
     // The charged decoder bounds the tree before the strict record decoder.
     drop(super::budget_json::decode(body)?);
     let record = StoredRecord::decode(body).map_err(|_| invalid("run backup record format"))?;
+    if let Some(marker) = &record.inline_file {
+        inline_file_in_backup(proof, raw, marker)?;
+    }
     let Some(version) = record.file_version else {
         return Ok(false);
     };
@@ -67,5 +78,33 @@ fn file_in_backup(proof: &Proof<'_>, path: &str) -> StorageResult<()> {
     )
     .map_err(map)?
     .ok_or_else(|| invalid("run backup record file missing"))?;
+    Ok(())
+}
+
+/// The inline file row of a record must be in the same run and match the
+/// record's marker.
+fn inline_file_in_backup(
+    proof: &Proof<'_>,
+    record: &str,
+    marker: &FileMarker,
+) -> StorageResult<()> {
+    let key = native_routing::encode(inline_files::address(record).as_bytes());
+    let mut read = super::fork_mapped(
+        proof.main,
+        read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1),
+    )?;
+    let mut body = Vec::new();
+    read.copy_body_to(
+        crate::storage::format::RECORDS_COLLECTION,
+        key.as_bytes(),
+        &mut body,
+    )
+    .map_err(map)?
+    .ok_or_else(|| invalid("run backup inline file missing"))?;
+    if body.len() > MAX_INLINE_STORED_BYTES {
+        return Err(invalid("run backup inline file exceeds its bound"));
+    }
+    inline_files::decode_for(&body, marker)
+        .map_err(|_| invalid("run backup inline file differs from its record"))?;
     Ok(())
 }

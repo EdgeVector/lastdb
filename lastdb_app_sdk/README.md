@@ -473,26 +473,22 @@ throws `UnexpectedResponseError`.
 
 ### Inline files
 
-A record can hold one small inline file (64 KiB at most), such as a
-thumbnail, in the record value itself. It travels with the record through
-backup and restore. The record's large file stays in `metadata.file`.
+A record can own one small inline file (64 KiB at most), such as a
+thumbnail. Its bytes live in their own row next to the record, so they travel
+with the records through backup and restore, and a query that reads many
+records (for example, all the vector embeddings) never loads the thumbnails.
+The record's large file stays in `metadata.file`.
 
-- A query returns the inline file's marker in `metadata.inline_file`
-  (`size_bytes`, `sha256`, and `name` / `media_type` when set).
-- `query(schema, { filter, hydrate: 'inline' })` also returns the bytes in
-  `metadata.inline_file.bytes` (a `Uint8Array`). The SDK checks the bytes
-  against the marker's size and SHA-256, and throws `UnexpectedResponseError`
-  on a mismatch. `queryBatch` and `queryAll` accept the same option.
+- A query returns the whole record, with the inline file's marker in
+  `metadata.inline_file` (`size_bytes`, `sha256`, and `name` / `media_type`
+  when set). It never returns the bytes.
+- The owner reads the bytes with the node's `fetch-blob` route and
+  `placement: "inline"` (or `lastdb get --hydrate-inline <path>`).
 - `mutate` never sends the inline file. A replacement keeps the record's
-  inline file. The owner writes and removes inline files through the node's
-  file routes (`put-blob` / `delete-blob` with `placement: "inline"`, or the
-  `lastdb mutate` request file).
-- A node without inline files refuses `hydrate` with `NodeTooOldError`.
-
-```ts
-const page = await fold.query('photos/Photo', { filter: { HashKey: 'p1' }, hydrate: 'inline' });
-const thumb = page.rows[0]?.metadata?.inline_file?.bytes; // Uint8Array | undefined
-```
+  inline file and does not rewrite its row. The owner writes and removes
+  inline files through the node's file routes (`put-blob` / `delete-blob`
+  with `placement: "inline"`, or the `lastdb mutate` request file). A record
+  delete removes its inline file.
 
 ## Pagination
 

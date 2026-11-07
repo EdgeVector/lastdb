@@ -111,9 +111,10 @@ impl FoldDB {
             .await
     }
 
-    /// The inline file of the record at `key`: its marker and its plaintext,
-    /// checked against the marker. `None` when the record has no inline file.
-    /// With `revision`, the record must still be at that revision.
+    /// The inline file of the record at `key`: its marker and its plaintext
+    /// from the inline file row, checked against the marker. `None` when the
+    /// record has no inline file. With `revision`, the record must still be at
+    /// that revision. A marker without its row is an error.
     pub async fn read_record_inline_file(
         &self,
         schema_name: &str,
@@ -124,16 +125,23 @@ impl FoldDB {
             .read_scope()
             .await?
             .run_result(async {
-                let (_, record) = self.read_file_record(schema_name, key).await?;
+                let (record_key, record) = self.read_file_record(schema_name, key).await?;
                 require_revision(schema_name, key, record.as_deref(), revision)?;
-                let Some(file) = record
+                let Some(marker) = record
                     .as_ref()
                     .and_then(|record| record.inline_file.as_ref())
                 else {
                     return Ok(None);
                 };
-                let bytes = file.bytes().map_err(FoldDbError::Database)?;
-                Ok(Some((file.marker.clone(), bytes)))
+                let bytes = self
+                    .db_ops()
+                    .records()
+                    .open_inline_file(&record_key, marker)
+                    .await?
+                    .ok_or_else(|| {
+                        FoldDbError::Database("record inline file bytes are missing".into())
+                    })?;
+                Ok(Some((marker.clone(), bytes)))
             })
             .await
     }

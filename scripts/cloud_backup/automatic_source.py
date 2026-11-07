@@ -307,8 +307,8 @@ class Source:
         records = self.expected["records"]
         reply = native_records.put_file(self.node, schema, records[0], path)
         require(reply["file"]["sha256"] == hashlib.sha256(payload).hexdigest(), "automatic_file_marker")
-        # The second record gets an inline file. It travels in the record value,
-        # and the replacement below keeps it.
+        # The second record gets an inline file. Its row travels with the
+        # records, and the replacement below keeps it.
         inline = hashlib.shake_256(("Cloud automatic inline " + self.source).encode()).digest(60000)
         inline_path = self.node.home.parent / "automatic-inline.bin"
         descriptor = os.open(inline_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)

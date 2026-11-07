@@ -7,8 +7,8 @@
 
 use super::error::{StorageError, StorageResult};
 use super::format::{
-    records::applied_deletes, CURRENT_FAMILIES, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
-    MAIN_NAMESPACE,
+    records::{applied_deletes, inline_files},
+    CURRENT_FAMILIES, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY, MAIN_NAMESPACE,
 };
 
 pub(crate) mod families;
@@ -17,6 +17,7 @@ pub(crate) mod families;
 ///
 /// - `rk`: one record for each key. `ak`: the alternate key entries.
 /// - `ad`: one applied-delete stamp at the erased record's address.
+/// - `fi`: the inline file of the record at the same address.
 /// - `dellog`: the hard-delete audit rows.
 /// - `layout`: the key format marker and the delete replay floor.
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
@@ -33,10 +34,12 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     }
     if family == applied_deletes::DELETE_AGE_FAMILY {
         applied_deletes::validate_age_key(key)?;
-    } else if let Some(record) = applied_deletes::record_key(key) {
+    } else if let Some(record) =
+        applied_deletes::record_key(key).or_else(|| inline_files::record_key(key))
+    {
         let rest = record
             .strip_prefix(lastdb_model::record_space::RECORD_PREFIX)
-            .ok_or_else(|| unsupported("invalid applied-delete record key"))?;
+            .ok_or_else(|| unsupported("invalid applied-delete or inline file record key"))?;
         validate_record(rest)?;
     } else if let Some(rest) = key
         .strip_prefix(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX)

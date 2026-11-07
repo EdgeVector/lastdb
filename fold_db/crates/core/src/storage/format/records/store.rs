@@ -74,7 +74,10 @@ impl RecordFormat {
                 !matches!(change.portable, super::PortableEffect::Local),
             )?;
         }
-        let entries = super::outgoing::entries(schema, &changes)?;
+        let kept = self
+            .inline_files(super::outgoing::kept_inline_files(&changes))
+            .await?;
+        let entries = super::outgoing::entries(schema, &changes, &kept)?;
         let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         // Resolve the prior file version from the actual record preimage.

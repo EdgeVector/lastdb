@@ -1,8 +1,27 @@
 use super::invalid;
 use crate::schema::SchemaError;
 use lastdb_model::portable_mutation::{MutationEntry, MutationOperation};
-use lastdb_model::record_value::{FileMarker, StoredRecord, RECORD_VALUE_VERSION};
+use lastdb_model::record_value::{FileMarker, InlineWrite, StoredRecord, RECORD_VALUE_VERSION};
 use serde_json::{Map, Value};
+
+/// A replacement entry carries the bytes of its record's inline file, so the
+/// replayed record writes its inline file row. An unchanged marker keeps the
+/// local row; a record without one clears it.
+pub(super) fn inline_write(
+    entry: &MutationEntry,
+    before: Option<&StoredRecord>,
+) -> Option<InlineWrite> {
+    let MutationOperation::ReplaceRecord { data, .. } = &entry.operation else {
+        return None;
+    };
+    let before = before.and_then(|record| record.inline_file.as_ref());
+    match data.inline_file.as_deref() {
+        Some(file) if before == Some(&file.marker) => None,
+        Some(file) => Some(InlineWrite::Put(file.clone())),
+        None if before.is_some() => Some(InlineWrite::Clear),
+        None => None,
+    }
+}
 
 pub(super) fn record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError> {
     let MutationOperation::ReplaceRecord { primary_key, data } = &entry.operation else {
@@ -35,7 +54,7 @@ pub(super) fn record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError>
             sha256: file.sha256.clone(),
         }),
         file_version: data.file.as_ref().map(|file| file.version.clone()),
-        inline_file: data.inline_file.as_deref().cloned(),
+        inline_file: data.inline_file.as_ref().map(|file| file.marker.clone()),
         deleted: false,
     })
 }

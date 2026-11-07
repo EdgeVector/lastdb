@@ -34,6 +34,14 @@ impl RecordStore {
         self.format.seal_record_file(plaintext, name, media_type)
     }
 
+    pub(crate) async fn open_inline_file(
+        &self,
+        record_key: &str,
+        marker: &FileMarker,
+    ) -> Result<Option<Vec<u8>>, FoldDbError> {
+        self.format.open_inline_file(record_key, marker).await
+    }
+
     pub(crate) async fn open_record_file(
         &self,
         record_key: &str,
