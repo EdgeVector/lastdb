@@ -66,6 +66,17 @@ impl FileTarget {
 /// JSON clients receive `{ file: { name?, media_type?, size_bytes, sha256,
 /// bytes_b64 } }`. `placement: "inline"` reads the record's inline file. Clients that send `Accept: application/octet-stream`
 /// receive the plaintext bytes, with the hash and size in headers.
+///
+/// A blob file whose row is not on this device (a restored home) is
+/// downloaded from the owner's cloud backup, checked against the record's
+/// marker and kept locally (design `design-lastdb-blob-files-on-demand-20261107`).
+/// Results: `404 the record has no file` when the record selects no file;
+/// `404 ... not in the cloud` when the cloud has no object for the selected
+/// version (another writer deleted it, or it was never uploaded); `503 ... not
+/// on this device and could not be downloaded: <reason>` when no cloud backup
+/// is configured or the cloud did not answer; the security error when the
+/// bytes differ from the marker. `expected_revision` checks the record first,
+/// as before. A dedicated shared database never downloads.
 pub(super) async fn execute_db_fetch_blob_route(
     req: &UdsRequest,
     ctx: &AccessContext,

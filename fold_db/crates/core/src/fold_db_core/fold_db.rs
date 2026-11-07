@@ -31,4 +31,8 @@ pub struct FoldDB {
     pub(crate) mutation_manager: Arc<MutationManager>,
     /// Tracker for pending background tasks
     pub(crate) pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
+    /// Downloads a record file that is not local; `None` when no cloud backup
+    /// is configured. The node registers it after boot.
+    pub(crate) record_blob_source:
+        std::sync::RwLock<Option<Arc<dyn super::record_blob_source::RecordBlobSource>>>,
 }

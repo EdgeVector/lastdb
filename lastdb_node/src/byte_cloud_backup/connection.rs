@@ -91,6 +91,7 @@ pub async fn connect_existing(
         &encoded,
     )?;
     let (saved, _) = load(host)?.ok_or(BackupError::Identity)?;
+    super::register_blob_source(host);
     Ok(saved.into())
 }
 

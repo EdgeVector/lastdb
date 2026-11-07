@@ -1,5 +1,6 @@
 //! Explicit V2 byte backup. The native format remains a client responsibility.
 mod automatic;
+mod blob_source;
 mod capture;
 pub(crate) mod connection;
 mod control;
@@ -21,6 +22,7 @@ mod worker;
 
 pub use crate::backup_runtime::{BackupError, BackupRuntime};
 pub use automatic::{spawn_automatic, AutomaticBackupStatus};
+pub use blob_source::register_blob_source;
 pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
 pub use control::request;
 pub(crate) use control::status;

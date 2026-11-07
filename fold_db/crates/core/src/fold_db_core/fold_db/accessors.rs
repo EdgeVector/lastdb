@@ -28,6 +28,28 @@ impl FoldDB {
         Arc::clone(&self.schema_manager)
     }
 
+    /// Register the source that downloads a record file that is not local,
+    /// or remove it with `None`. A dedicated shared database never uses it.
+    pub fn set_record_blob_source(
+        &self,
+        source: Option<Arc<dyn crate::fold_db_core::RecordBlobSource>>,
+    ) {
+        *self
+            .record_blob_source
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = source;
+    }
+
+    /// The registered record file source, if any.
+    pub(crate) fn record_blob_source(
+        &self,
+    ) -> Option<Arc<dyn crate::fold_db_core::RecordBlobSource>> {
+        self.record_blob_source
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// Get the mutation manager for testing mutation functionality
     pub fn mutation_manager(&self) -> &MutationManager {
         &self.mutation_manager

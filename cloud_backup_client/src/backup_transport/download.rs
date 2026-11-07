@@ -15,8 +15,28 @@ impl BackupTransport {
         object: StoredObject<'_>,
         grant: TemporaryGrant<'_>,
     ) -> Result<ObjectStream> {
+        self.open_bounded(object.bytes, Some(object.sha256.clone()), grant)
+            .await
+    }
+
+    /// Read exactly `bytes` bytes with no stored SHA-256 (record blob
+    /// objects). The caller authenticates the content itself.
+    pub(crate) async fn open_exact_length(
+        &self,
+        bytes: u64,
+        grant: TemporaryGrant<'_>,
+    ) -> Result<ObjectStream> {
+        self.open_bounded(bytes, None, grant).await
+    }
+
+    async fn open_bounded(
+        &self,
+        bytes: u64,
+        expected: Option<cloud_backup_protocol::Digest>,
+        grant: TemporaryGrant<'_>,
+    ) -> Result<ObjectStream> {
         let url = urls::signed(grant.url, false)?;
-        let budget = self.transfer_timeout(object.bytes, grant.expires_ms)?;
+        let budget = self.transfer_timeout(bytes, grant.expires_ms)?;
         let deadline = tokio::time::Instant::now() + budget;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
             .await
@@ -31,7 +51,7 @@ impl BackupTransport {
         }
         if response
             .content_length()
-            .is_some_and(|bytes| bytes != object.bytes)
+            .is_some_and(|length| length != bytes)
         {
             return Err(BackupTransportError::Integrity("download length"));
         }
@@ -42,9 +62,9 @@ impl BackupTransport {
         Ok(Box::pin(Bounded {
             input: Box::pin(input),
             deadline: Box::pin(tokio::time::sleep_until(deadline)),
-            left: object.bytes,
+            left: bytes,
             hash: Sha256::new(),
-            expected: object.sha256.clone(),
+            expected,
             finished: false,
             _permit: permit,
         }))
@@ -56,7 +76,8 @@ struct Bounded {
     deadline: Pin<Box<tokio::time::Sleep>>,
     left: u64,
     hash: Sha256,
-    expected: cloud_backup_protocol::Digest,
+    /// `None` checks the exact length only.
+    expected: Option<cloud_backup_protocol::Digest>,
     finished: bool,
     _permit: tokio::sync::OwnedSemaphorePermit,
 }
@@ -120,8 +141,10 @@ impl Bounded {
                 self.finished = true;
                 if result.is_err()
                     || !buffer.filled().is_empty()
-                    || lastdb_model::hex::hex_lower(self.hash.clone().finalize())
-                        != self.expected.as_str()
+                    || self.expected.as_ref().is_some_and(|expected| {
+                        lastdb_model::hex::hex_lower(self.hash.clone().finalize())
+                            != expected.as_str()
+                    })
                 {
                     Poll::Ready(Err(io::Error::other("native object bytes differ")))
                 } else {

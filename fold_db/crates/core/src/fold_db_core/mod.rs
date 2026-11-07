@@ -16,9 +16,11 @@ pub mod query;
 
 pub mod mutation_manager;
 pub mod purge;
+pub mod record_blob_source;
 
 pub use query::QueryExecutor;
 
 pub use mutation_manager::MutationManager;
 
 pub use fold_db::FoldDB;
+pub use record_blob_source::{BlobFetch, RecordBlobSource};

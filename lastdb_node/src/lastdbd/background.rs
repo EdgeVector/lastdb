@@ -11,6 +11,9 @@ pub(crate) fn spawn(
 ) -> (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>) {
     let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
     let _runtime_guard = runtime.enter();
+    // fetch-blob downloads a record file that is not local (after a restore)
+    // when this home has saved cloud credentials.
+    lastdb_node::byte_cloud_backup::register_blob_source(host);
     (
         lastdb_node::jobs::self_metrics::spawn_sampler(
             Arc::clone(host),
