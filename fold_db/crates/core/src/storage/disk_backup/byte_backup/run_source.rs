@@ -61,7 +61,7 @@ impl RunSource {
         } else {
             None
         };
-        let cas_files: &[SnapshotFile] = cas.as_ref().map_or(&[], |cas| cas.files.as_slice());
+        let cas_files = cas.as_ref().map_or(&[][..], |cas| cas.files.as_slice());
         let count = main
             .files
             .len()
