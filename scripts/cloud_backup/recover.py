@@ -192,8 +192,6 @@ class Operation:
         if self.summary["schema"] == "lastdb.cloud-ci-preflight.v2":
             value["ci_cleanup"] = {name: self.summary.get(name) for name in (
                 "cleanup_active", "active_cleanup", "backup_service_requests")}
-            if "baseline_compatibility" in self.summary:
-                value["baseline_compatibility"] = self.summary["baseline_compatibility"]
         elif self.summary["schema"] == "lastdb.cloud-ci-kept.v1":
             value["kept_latest"] = {name: self.summary.get("kept_latest", {}).get(name) for name in (
                 "stream_id", "restored_boots", "strict_clean_stops", "legacy_format")}
