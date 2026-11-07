@@ -2,18 +2,16 @@ name: Cloud backup recovery
 
 # Real DEV operations: generated current-format recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
-# The manual `baseline` mode cuts the fixed baseline once for each home format
-# (scripts/cloud_backup/baseline.py), because a client restores only a
-# snapshot of its own home format.
-# A baseline run also points the two protected inputs at the new baseline.
-# Both recovery inputs seed a new source and prove its own Backup V2 chain.
+# Explicit baseline maintenance cuts and verifies a replacement protected
+# point and updates its two inputs. Both ordinary recovery selections seed
+# a new source and prove its own Backup V2 chain.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
 # Shared-multiwriter uses its own preadmitted seven-device DEV scope.
 # offline_conflicts selects independent same-key writes with opposite replay orders.
 # Shared-readback reuses only a completed operation's exact published cut.
-# Every job ends within 10 minutes. Cleanup runs in cloud-backup-cleanup.yml;
-# this operation never waits for it and fails fast while a cleanup is active.
+# Cleanup runs in cloud-backup-cleanup.yml. A recovery refuses admission
+# while cleanup is active.
 on:
   pull_request:
     paths:
