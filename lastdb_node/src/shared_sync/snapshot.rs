@@ -46,8 +46,20 @@ pub(super) async fn publish(host: &crate::Host, config: &mut Config) -> Result<(
         config.device.clone(),
         Arc::new(config.signer()?),
     )
-    .await
-    .map_err(|_| BackupError::Source)?;
+    .await;
+    let result = match result {
+        Ok(result) => result,
+        Err(crate::byte_cloud_restore::RestoreError::Invalid(
+            crate::shared_snapshot::native::ABANDONED,
+        )) => {
+            // The publication is terminal and its hold has been released.
+            // Retire this workspace before the next automatic capture.
+            config.completed_snapshot = config.pending_snapshot.take();
+            config::save(&host.home, config)?;
+            return Err(BackupError::Waiting);
+        }
+        Err(_) => return Err(BackupError::Source),
+    };
     config.last_snapshot_id = Some(result.snapshot_id);
     config.completed_snapshot = config.pending_snapshot.take();
     config.last_snapshot_at = Some(fold_db::clock::unix_secs());
