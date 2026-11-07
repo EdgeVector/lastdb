@@ -1,16 +1,29 @@
 use super::{record::RecordValue, MutationEntry, MutationOperation, PortableMutationError};
-use crate::record_value::MAX_RECORD_BYTES;
+use crate::record_value::{MAX_RECORD_BYTES, MAX_STORED_RECORD_BYTES};
 use serde::{de::DeserializeOwned, Serialize};
 use std::io::{self, Write};
 
-/// Room for the exact record value plus its schema and operation framing.
-pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4096;
+/// Room for the schema and operation framing around a record value.
+const ENTRY_FRAMING_BYTES: usize = 4096;
+/// The largest entry: a record with an inline file plus its framing.
+pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_STORED_RECORD_BYTES + ENTRY_FRAMING_BYTES;
 
 // The existing JSON decoder allows fewer than 128 containers. Leave space
 // for the extra portable envelope objects while bounding both directions.
 const MAX_JSON_DEPTH: usize = 132;
 
 impl MutationEntry {
+    /// The encoded size bound of this entry. Only an entry whose record
+    /// carries an inline file gets room above the record cap.
+    #[must_use]
+    pub fn max_encoded_bytes(&self) -> usize {
+        let record = match &self.operation {
+            MutationOperation::ReplaceRecord { data, .. } => data.max_record_bytes(),
+            MutationOperation::DeleteRecord { .. } => MAX_RECORD_BYTES,
+        };
+        record + ENTRY_FRAMING_BYTES
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>, PortableMutationError> {
         self.validate()?;
         if let MutationOperation::ReplaceRecord { primary_key, data } = &self.operation {
@@ -20,9 +33,9 @@ impl MutationEntry {
                 written_at_ms: self.stamp.authored_at_ms,
                 last_mutation: &self.stamp.position,
             };
-            BoundedJson::new(MAX_RECORD_BYTES, None).serialize(&record)?;
+            BoundedJson::new(data.max_record_bytes(), None).serialize(&record)?;
         }
-        encode(self, MAX_MUTATION_ENTRY_BYTES)
+        encode(self, self.max_encoded_bytes())
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PortableMutationError> {

@@ -13,7 +13,7 @@ use cloud_backup_protocol::shared::{
 };
 use cloud_backup_protocol::{bytes_sha256, AccountId, DecimalU64, ErrorCode, Id, ProtocolError};
 use fold_db::fold_db_core::MutationManager;
-use fold_db::portable_mutation::{MutationEntry, MAX_MUTATION_ENTRY_BYTES};
+use fold_db::portable_mutation::MutationEntry;
 use fold_db::portable_replay::{LogRangeId, MAX_LOG_BYTES, MAX_LOG_ENTRIES};
 use fold_db::schema::SchemaError;
 use fold_db::security::Ed25519KeyPair;
@@ -155,10 +155,19 @@ async fn prepare(
     entries: &[MutationEntry],
     content_key: &[u8; 32],
 ) -> Result<spool::Frozen> {
-    // Each admitted entry has a fixed upper bound. Reserve frame/header bytes
-    // so every selected prefix fits without a second encode or a sealing retry.
-    let limit = ((MAX_LOG_BYTES - 64) / (MAX_MUTATION_ENTRY_BYTES + 4)).min(MAX_LOG_ENTRIES);
-    let entries = files::bounded_prefix(&entries[..entries.len().min(limit)])?;
+    // Each admitted entry has a fixed upper bound, larger only when it carries
+    // an inline file. Reserve frame/header bytes so every selected prefix fits
+    // without a second encode or a sealing retry.
+    let mut budget = MAX_LOG_BYTES - 64;
+    let mut limit = 0;
+    for entry in entries.iter().take(MAX_LOG_ENTRIES) {
+        let Some(left) = budget.checked_sub(entry.max_encoded_bytes() + 4) else {
+            break;
+        };
+        budget = left;
+        limit += 1;
+    }
+    let entries = files::bounded_prefix(&entries[..limit])?;
     let first = after
         .map_or(0, |head| head.sequence.get())
         .checked_add(1)

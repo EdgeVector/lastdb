@@ -42,14 +42,6 @@ pub(super) fn entries(
 }
 
 pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaError> {
-    // The portable record has no inline file yet. Refuse it rather than send
-    // a record that lost its file.
-    if record.inline_file.is_some() {
-        return Err(SchemaError::InvalidData(
-            "a record with an inline file cannot be shared yet; remove the inline file first"
-                .into(),
-        ));
-    }
     let metadata = record
         .meta
         .as_ref()
@@ -89,6 +81,7 @@ pub(crate) fn record_data(record: &StoredRecord) -> Result<RecordData, SchemaErr
         metadata,
         fields: record.fields.clone(),
         file,
+        inline_file: record.inline_file.clone().map(Box::new),
     })
 }
 
