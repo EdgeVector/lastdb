@@ -25,18 +25,34 @@ from support import (ACCOUNT, OperationError, baseline_from_environment, child_e
 from support import CREDENTIALS_FILE, read_json
 
 
+class Summary(dict):
+    """The operation summary. Each new stage records its start, in seconds
+    since the operation began, so a deadline failure shows where time went."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.started = time.monotonic()
+
+    def __setitem__(self, key, value):
+        if key == "stage":
+            self.setdefault("stage_started_seconds", []).append(
+                [value, round(time.monotonic() - self.started, 1)])
+        super().__setitem__(key, value)
+
+
 class Operation:
     def __init__(self, args):
         self.args, self.root, self.node = args, None, None
         self.root_identity, self.preserve = None, False
         self.output_owned = False
         self.ci_stream_id, self.terminal_r2 = None, False
-        self.summary = {
+        self.summary = Summary({
             "schema": "lastdb.cloud-dev-automatic.v1", "source": args.source,
             "version": args.version, "account": ACCOUNT, "result": "failed",
             "primary_access": False, "provider_deletions": 0,
-            "coverage": "generated current-format Backup V2 snapshot/log, restart, and source-free recovery",
-        }
+            "coverage": "generated current-format Backup V2 snapshot/log, restart, changed snapshot interval, "
+                        "a stopped snapshot with automatic backup on, and source-free recovery",
+        })
 
     def prepare(self, startup=True):
         require(os.environ.get("GITHUB_ACTIONS") == "true", "github_ci_only")
@@ -115,7 +131,8 @@ class Operation:
             control.close()
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")
-        self.summary.update(stage="fresh-source", mode="fresh-v2")
+        self.summary["mode"] = "fresh-v2"
+        self.summary["stage"] = "fresh-source"
         try:
             source = seed(self, phrase)
             self.summary["automatic"] = Automatic(self, credentials, phrase).run(source)
@@ -163,6 +180,8 @@ class Operation:
         if self.summary.get("mode") == "fresh-v2":
             value.update(mode="fresh-v2", generated_home_format=self.summary.get("generated_home_format"),
                          native_backup_profile=self.summary.get("native_backup_profile"))
+        if "stage_started_seconds" in self.summary:
+            value["stage_started_seconds"] = self.summary["stage_started_seconds"]
         if "service_field" in self.summary:
             value["service_field"] = self.summary["service_field"]
         if "cli_refusal" in self.summary:
