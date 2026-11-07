@@ -74,7 +74,8 @@ jobs:
     if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 16
+    # Preserve time for owned cleanup after the operation's twelve-minute alarm.
+    timeout-minutes: 18
     permissions:
       contents: read
       actions: read
