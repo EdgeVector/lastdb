@@ -6,8 +6,6 @@ use fold_db::record_value::InlineWrite;
 use fold_db::schema::types::operations::Operation;
 use fold_db::schema::types::{FileWrite, KeyValue, MutationType};
 
-pub(super) const FILE_BLOB_METADATA_HEADER: &str = "x-lastdb-file-blob-metadata";
-
 /// Which file of a record a route acts on. A record can own one blob file
 /// (B2) and one inline file kept in the record value (R2).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
