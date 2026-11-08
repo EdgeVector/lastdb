@@ -11,10 +11,6 @@ impl SchemaServiceState {
         &self,
         proposal: &SchemaResolveProposal,
     ) -> FoldDbResult<Option<SchemaResolveResult>> {
-        if !self.native_component_cover_resolve_enabled() {
-            return Ok(None);
-        }
-
         let built = match self.build_native_resolver_input(proposal) {
             Ok(b) => b,
             Err(e) => {

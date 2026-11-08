@@ -1,8 +1,7 @@
 //! Live Schema Service resolve via `native_component_cover@1` (embedding-beam).
 //!
-//! Production `POST /v1/schemas/resolve` prefers this path when enabled
-//! (`SCHEMA_NATIVE_COMPONENT_COVER_RESOLVE` on [`crate::SchemaConfig`], default
-//! **on**). On embedder failure, work-limit, or non-reuse decisions the caller
+//! Production `POST /v1/schemas/resolve` prefers this path. On embedder
+//! failure, work-limit, or non-reuse decisions the caller
 //! falls back to the legacy descriptive-name match. The embedding budget is
 //! `SCHEMA_NATIVE_RESOLVE_BUDGET_MS` (default 8000).
 

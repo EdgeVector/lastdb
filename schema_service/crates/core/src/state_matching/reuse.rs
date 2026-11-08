@@ -42,11 +42,11 @@ impl SchemaServiceState {
         &self,
         incoming: &Schema,
     ) -> Option<(String, String)> {
-        if !self.reuse_before_new_enabled() || self.is_seeding_in_progress() {
+        if self.is_seeding_in_progress() {
             return None;
         }
         let inc_desc = strip_decollision_suffix(incoming.descriptive_name.as_deref()?);
-        let field_fidelity = self.reuse_field_fidelity_floor();
+        let field_fidelity = REUSE_FIELD_FIDELITY_FLOOR;
 
         fn normalize(s: Option<&str>) -> Option<&str> {
             s.filter(|x| !x.is_empty())
@@ -130,16 +130,13 @@ impl SchemaServiceState {
     /// merge a pair the dual-signal gate would have vetoed.
     ///
     /// Read-only: takes the `schemas` read lock briefly, never persists.
-    /// Returns `None` when the feature is disabled, no candidate clears both
-    /// gates, or the proposal carries no `descriptive_name`.
+    /// Returns `None` when no candidate clears both gates, or the proposal
+    /// carries no `descriptive_name`.
     pub(super) fn find_purpose_reuse_target_inner(
         &self,
         incoming: &Schema,
         allow_same_name: bool,
     ) -> Option<(String, String)> {
-        if !self.reuse_before_new_enabled() {
-            return None;
-        }
         // Authoritative seeding (built-ins, persona/schema.org seeds) must
         // register its committed schemas EXACTLY — never fuzzy-merge one into a
         // semantically-near committed neighbour. Skip the whole fuzzy path
@@ -164,12 +161,11 @@ impl SchemaServiceState {
         self.apply_field_fidelity_guard(incoming, best, scan.field_fidelity)
     }
 
-    /// Read the live gate thresholds and embed the incoming side. `None` when
-    /// the embedder fails.
+    /// Embed the incoming side. `None` when the embedder fails.
     fn build_reuse_scan<'a>(&self, incoming: &'a Schema) -> Option<ReuseScan<'a>> {
-        let purpose_threshold = self.reuse_purpose_threshold();
-        let struct_floor = self.reuse_struct_floor();
-        let field_fidelity = self.reuse_field_fidelity_floor();
+        let purpose_threshold = REUSE_PURPOSE_THRESHOLD;
+        let struct_floor = REUSE_STRUCT_FLOOR;
+        let field_fidelity = REUSE_FIELD_FIDELITY_FLOOR;
 
         // Embed the incoming side ONCE up front (its descriptive_name for the
         // struct signal, its `"{desc} — {purpose}"` blob for the purpose
