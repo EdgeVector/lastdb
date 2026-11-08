@@ -57,7 +57,7 @@ pub(super) const PURPOSE_SIMILARITY_THRESHOLD: f32 = 0.88;
 /// dual-signal τ ([`PURPOSE_SIMILARITY_THRESHOLD`] = 0.88) because that gate
 /// runs in tandem with an *exact/near* descriptive_name match, whereas this
 /// last-chance path pairs a looser purpose bar with a much TIGHTER name
-/// floor. Overridable via `SCHEMA_REUSE_PURPOSE_THRESHOLD`.
+/// floor.
 pub const REUSE_PURPOSE_THRESHOLD: f32 = 0.65;
 
 /// Structural floor for the **reuse-before-NEW** check: the candidate's
@@ -97,7 +97,6 @@ pub const REUSE_PURPOSE_THRESHOLD: f32 = 0.65;
 /// cross-concept pair that also clears it (Customers↔Orders, Orders↔Invoices,
 /// Contacts↔Addresses all fail purpose). Pairs below 0.55 (the bulk —
 /// Photos↔Recipes 0.43 etc.) are still pruned cheaply without a purpose embed.
-/// Overridable via `SCHEMA_REUSE_STRUCT_FLOOR`.
 pub const REUSE_STRUCT_FLOOR: f32 = 0.55;
 
 /// Field-fidelity floor for the **reuse-before-NEW** check: the fraction of the
@@ -127,8 +126,7 @@ pub const REUSE_STRUCT_FLOOR: f32 = 0.55;
 /// fields are a near-superset) while rejecting a purpose-coincidental pair
 /// whose field shapes diverge (e.g. a proposal carrying nested
 /// `camera_details` / `dimensions` structures absent from the candidate).
-/// Subset proposals (input ⊆ candidate) trivially clear it. Overridable via
-/// `SCHEMA_REUSE_FIELD_FIDELITY_FLOOR`.
+/// Subset proposals (input ⊆ candidate) trivially clear it.
 pub(crate) const REUSE_FIELD_FIDELITY_FLOOR: f32 = 0.5;
 
 /// Per-comparison snapshot produced by

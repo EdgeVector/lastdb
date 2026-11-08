@@ -36,18 +36,7 @@ fn schema_config_from_env() -> SchemaConfig {
         dual_signal_canonicalization: default_on_unless_exact_falsy(
             "SCHEMA_DUAL_SIGNAL_CANONICALIZATION",
         ),
-        reuse_before_new: default_on_unless_exact_falsy("SCHEMA_REUSE_BEFORE_NEW"),
-        reuse_purpose_threshold: var_or(
-            "SCHEMA_REUSE_PURPOSE_THRESHOLD",
-            defaults.reuse_purpose_threshold,
-        ),
-        reuse_struct_floor: var_or("SCHEMA_REUSE_STRUCT_FLOOR", defaults.reuse_struct_floor),
-        reuse_field_fidelity_floor: var_or(
-            "SCHEMA_REUSE_FIELD_FIDELITY_FLOOR",
-            defaults.reuse_field_fidelity_floor,
-        ),
         shadow_mode: var_truthy("SCHEMA_SHADOW_MODE"),
-        native_component_cover_resolve: native_cover_from_env(),
         native_resolve_budget: native_budget_from_env(defaults.native_resolve_budget),
         registry_index_signing_key: registry_signing_key_from_env(),
     }
@@ -193,15 +182,6 @@ fn default_on_unless_exact_falsy(name: &str) -> bool {
         return true;
     };
     !matches!(value.as_str(), "0" | "false" | "FALSE" | "no")
-}
-
-/// Default on. Trim and ASCII lowercase. Falsy: `0`, `false`, `off`, `no`.
-fn native_cover_from_env() -> bool {
-    let Ok(value) = std::env::var("SCHEMA_NATIVE_COMPONENT_COVER_RESOLVE") else {
-        return true;
-    };
-    let trimmed = value.trim().to_ascii_lowercase();
-    !matches!(trimmed.as_str(), "0" | "false" | "off" | "no")
 }
 
 fn native_budget_from_env(default: Duration) -> Duration {

@@ -5,8 +5,8 @@ use schema_core_resolver::ResolverOutput;
 
 impl SchemaServiceState {
     /// Evaluate registration-time component cover for an incoming add-schema
-    /// proposal. Returns `None` when native cover is disabled/unavailable or
-    /// when the proposal does not meet the configured coverage threshold.
+    /// proposal. Returns `None` when native cover is unavailable or when the
+    /// proposal does not meet the configured coverage threshold.
     ///
     /// Unlike `POST /v1/schemas/resolve`, this helper surfaces partial-cover
     /// residue so the mutation path can register only the uncovered fields and
@@ -15,10 +15,6 @@ impl SchemaServiceState {
         &self,
         schema: &Schema,
     ) -> FoldDbResult<Option<SchemaRegistrationComposition>> {
-        if !self.native_component_cover_resolve_enabled() {
-            return Ok(None);
-        }
-
         let Some(fields) = schema.fields.as_ref().filter(|fields| !fields.is_empty()) else {
             return Ok(None);
         };
