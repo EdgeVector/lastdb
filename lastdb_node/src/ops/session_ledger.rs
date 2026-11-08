@@ -98,8 +98,7 @@ fn rewrite_ledger(home: &Path, records: &[SessionRecord]) -> std::io::Result<()>
     std::fs::rename(&tmp, &path)
 }
 
-/// Human-readable duration: "6h15m", "45s", "2d3h". Compact, for log lines and
-/// the `folddb sessions` table.
+/// Human-readable duration: "6h15m", "45s", "2d3h". Compact, for log lines.
 pub fn format_duration(secs: u64) -> String {
     if secs == 0 {
         return "0s".to_string();
