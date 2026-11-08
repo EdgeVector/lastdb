@@ -35,17 +35,11 @@ impl EncryptingKvStore {
         Self { inner, crypto }
     }
 
-    /// Select the crypto provider for a key.
-    fn select_crypto(&self, key: &[u8]) -> Arc<dyn CryptoProvider> {
-        let _ = key;
-        Arc::clone(&self.crypto)
-    }
-
     /// Seal one value as `ENB:`. A file row is already ciphertext, so it is
     /// not compressed first.
-    async fn seal_value(&self, key: &[u8], value: &[u8]) -> StorageResult<Vec<u8>> {
-        let crypto = self.select_crypto(key);
-        let ciphertext = crypto
+    async fn seal_value(&self, value: &[u8]) -> StorageResult<Vec<u8>> {
+        let ciphertext = self
+            .crypto
             .encrypt(value)
             .await
             .map_err(|e| StorageError::EncryptionError(e.to_string()))?;
@@ -72,10 +66,9 @@ impl EncryptingKvStore {
     }
 
     /// Open one stored value and record the decrypt receipt.
-    async fn open_value(&self, key: &[u8], stored: Vec<u8>) -> StorageResult<Vec<u8>> {
-        let crypto = self.select_crypto(key);
+    async fn open_value(&self, stored: Vec<u8>) -> StorageResult<Vec<u8>> {
         let started = std::time::Instant::now();
-        let result = self.open_sealed_value(&stored, crypto.as_ref()).await;
+        let result = self.open_sealed_value(&stored, self.crypto.as_ref()).await;
         let bytes = result.as_ref().map_or(0, Vec::len);
         crate::read_receipts::decrypted(bytes, started.elapsed());
         result
@@ -87,7 +80,7 @@ impl EncryptingKvStore {
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let mut decrypted_rows = Vec::with_capacity(rows.len());
         for (key, stored) in rows {
-            let plaintext = self.open_value(&key, stored).await?;
+            let plaintext = self.open_value(stored).await?;
             decrypted_rows.push((key, plaintext));
         }
         Ok(decrypted_rows)

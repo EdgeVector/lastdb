@@ -7,18 +7,18 @@ use crate::storage::traits::YieldedScan;
 impl KvStore for EncryptingKvStore {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         match self.inner.get(key).await? {
-            Some(stored) => self.open_value(key, stored).await.map(Some),
+            Some(stored) => self.open_value(stored).await.map(Some),
             None => Ok(None),
         }
     }
 
     /// Decrypt one physical batch without a second cache of logical values.
     async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        let stored = self.inner.get_many(keys.clone()).await?;
-        let mut values = Vec::with_capacity(keys.len());
-        for (key, stored) in keys.into_iter().zip(stored) {
+        let stored = self.inner.get_many(keys).await?;
+        let mut values = Vec::with_capacity(stored.len());
+        for stored in stored {
             let opened = match stored {
-                Some(stored) => Some(self.open_value(&key, stored).await?),
+                Some(stored) => Some(self.open_value(stored).await?),
                 None => None,
             };
             values.push(opened);
@@ -27,7 +27,7 @@ impl KvStore for EncryptingKvStore {
     }
 
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
-        let sealed = self.seal_value(key, &value).await?;
+        let sealed = self.seal_value(&value).await?;
         self.inner.put(key, sealed).await
     }
 
@@ -128,7 +128,7 @@ impl KvStore for EncryptingKvStore {
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         let mut encrypted_items = Vec::with_capacity(items.len());
         for (key, value) in items {
-            let sealed = self.seal_value(&key, &value).await?;
+            let sealed = self.seal_value(&value).await?;
             encrypted_items.push((key, sealed));
         }
         self.inner.batch_put(encrypted_items).await
@@ -139,7 +139,7 @@ impl KvStore for EncryptingKvStore {
         for mutation in mutations {
             sealed.push(match mutation {
                 KvMutation::Put { key, value } => {
-                    let value = self.seal_value(&key, &value).await?;
+                    let value = self.seal_value(&value).await?;
                     KvMutation::Put { key, value }
                 }
                 KvMutation::Delete { key } => KvMutation::Delete { key },
