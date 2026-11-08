@@ -80,15 +80,23 @@ impl PortableSchemaDefinition {
             .clone()
             .ok_or("the installed shared schema has no identity")?;
         let installed = Self::from_catalog(&catalog_id, candidate)?;
-        let fields: BTreeSet<&str> = field_names(&installed.definition).collect();
-        if !field_names(definition).all(|field| fields.contains(field))
-            || !compatible(definition, &installed.definition)?
-        {
+        if !installed.definition.extends(definition)? {
             return Err(
                 "the installed schema does not extend this shared schema definition".into(),
             );
         }
         Ok(definition)
+    }
+}
+
+impl DeclarativeSchemaDefinition {
+    /// Whether this definition keeps the name, the key, the alternate keys and
+    /// every field of `earlier`, and only adds fields.
+    pub fn extends(&self, earlier: &Self) -> Result<bool, String> {
+        let fields: BTreeSet<&str> = field_names(self).collect();
+        Ok(self.name == earlier.name
+            && field_names(earlier).all(|field| fields.contains(field))
+            && compatible(earlier, self)?)
     }
 }
 
