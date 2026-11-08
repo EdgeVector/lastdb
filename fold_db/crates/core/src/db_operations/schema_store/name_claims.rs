@@ -41,8 +41,7 @@ impl SchemaStore {
 
     /// Every installed schema whose name claim is retired, sorted.
     ///
-    /// Read once at boot by `SchemaCore::new`, exactly like the schema-state
-    /// and superseded-by maps.
+    /// Read once at boot by `SchemaCore::new`, the same way as the schema-state map.
     pub async fn list_retired_name_claims(&self) -> Result<Vec<String>, SchemaError> {
         let rows = self
             .schema_states_store

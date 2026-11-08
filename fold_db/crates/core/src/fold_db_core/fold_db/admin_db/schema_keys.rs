@@ -37,7 +37,7 @@ impl FoldDB {
         } = request;
         let schema = self
             .schema_manager()
-            .get_schema_following_supersession_for_read(schema_id)
+            .resolve_schema_for_read(schema_id)
             .await?
             .ok_or_else(|| SchemaError::NotFound(format!("schema not found: {schema_id}")))?;
         self.schema_manager()

@@ -14,19 +14,16 @@ impl SchemaCore {
     /// executor actually serves (see #618).
     ///
     /// Note: This is STRICTLY case-sensitive.
-    pub async fn get_schema_following_supersession(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<Schema>, SchemaError> {
+    pub async fn resolve_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         self.get_schema_resolved(schema_name, false).await
     }
 
-    /// Read-path variant of [`Self::get_schema_following_supersession`]. The
+    /// Read-path variant of [`Self::resolve_schema`]. The
     /// in-memory hit is a [`Schema::clone_for_read_shared`] copy taken under a
     /// shared read lock, so concurrent queries resolve their schema in
     /// parallel. A field holds no data, so the copy is small. Use this
     /// whenever the result drives a query read.
-    pub async fn get_schema_following_supersession_for_read(
+    pub async fn resolve_schema_for_read(
         &self,
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {

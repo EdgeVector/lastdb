@@ -151,7 +151,7 @@ pub(super) async fn capture_key_comparison<H: HostNode>(
     let Some(schema) = host
         .fold_db()
         .schema_manager()
-        .get_schema_following_supersession_for_read(name)
+        .resolve_schema_for_read(name)
         .await
         .map_err(HostError::from)?
     else {
