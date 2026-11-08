@@ -27,9 +27,6 @@ on:
       search_queue:
         type: boolean
         default: true
-      whole_record_reads:
-        type: boolean
-        default: false
       baseline_workers:
         type: string
         default: "0"
@@ -67,7 +64,6 @@ jobs:
     env:
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
-      WHOLE_RECORD_READS: ${{ inputs.whole_record_reads }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
       SPEED_TIMEOUT: ${{ inputs.profile == 'nightly' && '90m' || '65m' }}
@@ -147,11 +143,9 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate }}
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
-          LASTDB_BENCH_FULL_FIELDS: ${{ inputs.whole_record_reads && 'bucket,id,title,body' || '' }}
         run: |
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
-          if [ "$WHOLE_RECORD_READS" = true ]; then args+=(--reads-only); fi
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -166,8 +160,6 @@ jobs:
       - name: Repeat speed measurements only when an advisory limit is crossed
         if: matrix.lane == 'speed'
         id: speed-confirmation
-        env:
-          LASTDB_BENCH_FULL_FIELDS: ${{ inputs.whole_record_reads && 'bucket,id,title,body' || '' }}
         run: |
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT"
