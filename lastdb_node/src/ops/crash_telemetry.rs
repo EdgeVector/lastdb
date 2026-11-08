@@ -1,11 +1,7 @@
 //! Ship crash evidence to Sentry on the launch AFTER a crash.
 //!
-//! Ported from `fold_db_node::crash_telemetry` into the `lastdbd` Mini daemon
-//! (the fold_db_node desktop node was deleted in the 2026-07-12 Mini-only
-//! cutover). The daemon-relevant surface is kept; the desktop-only explicit
-//! per-crash consent path (`send_crashes_one_shot`, which reached into the
-//! desktop's `telemetry_consent`/`install_id`) was dropped — a headless daemon
-//! has no per-crash "send this report?" prompt.
+//! A headless daemon promotes local crash evidence on the next launch. It has
+//! no per-crash prompt.
 //!
 //! The node leaves two kinds of durable, local-only crash evidence:
 //!
@@ -37,13 +33,7 @@
 use crate::session_ledger::StartSummary;
 #[cfg(feature = "sentry-telemetry")]
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
-/// Sibling marker written next to a report once it has been shipped at crash
-/// time, so the next-launch scan neither re-sends nor re-offers it. Kept as a
-/// separate file (rather than deleting/renaming the report) so `folddb
-/// crash-reports` can still show the human-readable `.txt` locally.
-const SENT_MARKER_SUFFIX: &str = ".sent";
+use std::path::PathBuf;
 
 /// Upper bound on panic reports promoted per launch. `scan_and_warn` already
 /// caps retention at 20; a crash-looping binary should not turn a backlog
@@ -91,20 +81,6 @@ pub fn report_crashes_with_log_tail(reports: &[PathBuf], start: Option<&StartSum
 #[cfg(not(feature = "sentry-telemetry"))]
 pub fn report_crashes_with_log_tail(_reports: &[PathBuf], _start: Option<&StartSummary>) -> usize {
     0
-}
-
-/// The sent-marker path for a crash report (`<report>.txt.sent`).
-fn sent_marker_path(report: &Path) -> PathBuf {
-    let mut name = report.as_os_str().to_os_string();
-    name.push(SENT_MARKER_SUFFIX);
-    PathBuf::from(name)
-}
-
-/// Whether a report was already shipped at crash time (its sent-marker exists).
-/// The next-launch path filters these out so a crash reported in-the-moment is
-/// not reported a second time.
-pub fn is_report_sent(report: &Path) -> bool {
-    sent_marker_path(report).exists()
 }
 
 /// Build + capture the events for the given evidence. Caller has ensured a
