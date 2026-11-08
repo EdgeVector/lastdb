@@ -109,11 +109,12 @@ impl Source {
     }
     pub async fn pending_blob_releases(
         &self,
+        after: Option<&str>,
         limit: usize,
     ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
         Ok(self
             .runtime
-            .pending_blob_releases(&self.source_home, limit)
+            .pending_blob_releases(&self.source_home, after, limit)
             .await?)
     }
     pub async fn blob_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {

@@ -17,8 +17,12 @@
 //! service deletes the objects when it accepts the job; the node then drops
 //! the `fr:` rows. A release of a path that was never uploaded is harmless.
 //!
-//! The job state keeps a bounded plan: an index and pages of 64 entries in
-//! the job's store, so a restart resumes each frozen transfer exactly.
+//! A job has no limit on the number of versions it uploads or releases.
+//! Every request still carries at most 64 paths. The job state keeps the
+//! plan as an index and pages of 64 entries in the job's store, so memory
+//! stays bounded and a restart resumes each frozen transfer exactly. A page
+//! whose uploads are done shrinks to the keys of its uploaded versions,
+//! which is all that the node needs after the service accepts the job.
 
 use super::{model::Saved, source::Source, store::Store, BackupError, Phase, Result};
 use cloud_backup_protocol::v2::blobs::{BlobPath, MAX_BLOB_BATCH};
@@ -31,11 +35,9 @@ pub(super) use release::{plan_releases, release};
 pub(super) use upload::upload;
 
 const INDEX: &str = "blobs.json";
-const VERSION: u16 = 1;
-/// Upload pages per job. Versions past this bound wait for the next job.
-const MAX_UPLOAD_PAGES: u32 = 64;
-/// Release pages per job. Later releases wait for the next job.
-const MAX_RELEASE_PAGES: u32 = 16;
+/// Version 2: the plan has no page limit, keeps its cursors in the index,
+/// and shrinks a finished upload page to its uploaded keys.
+const VERSION: u16 = 2;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,13 +46,18 @@ struct Index {
     /// A snapshot queued the local versions without markers.
     queued: bool,
     upload_pages: u32,
+    /// The `fb:` key of the last planned upload; the next page starts after it.
+    upload_cursor: Option<String>,
     /// Every upload page is planned.
     uploads_planned: bool,
-    /// Pages whose entries all have a receipt or vanished.
+    /// Pages whose entries all have a receipt or vanished. Each of them is
+    /// kept only as its uploaded keys.
     uploads_done: u32,
     /// The releases are planned, before the job's first capture.
     releases_planned: bool,
     release_pages: u32,
+    /// The `fr:` key of the last planned release.
+    release_cursor: Option<String>,
     /// Release pages that the service recorded on the job.
     releases_sent: u32,
     /// The `fu:` markers are written for an accepted job.
@@ -83,6 +90,11 @@ fn upload_page(index: u32) -> String {
     format!("blob-upload-{index:04}.json")
 }
 
+/// The keys of the versions that a finished upload page uploaded.
+fn uploaded_page(index: u32) -> String {
+    format!("blob-uploaded-{index:04}.json")
+}
+
 fn release_page(index: u32) -> String {
     format!("blob-release-{index:04}.json")
 }
@@ -94,9 +106,9 @@ fn load(store: &Store) -> Result<Index> {
     });
     if index.version != VERSION
         || index.uploads_done > index.upload_pages
-        || index.upload_pages > MAX_UPLOAD_PAGES
         || index.releases_sent > index.release_pages
-        || index.release_pages > MAX_RELEASE_PAGES
+        || (index.upload_pages > 0) != index.upload_cursor.is_some()
+        || (index.release_pages > 0) != index.release_cursor.is_some()
     {
         return Err(BackupError::Invalid);
     }
@@ -112,8 +124,8 @@ fn read_page<T: serde::de::DeserializeOwned>(store: &Store, name: &str) -> Resul
 }
 
 /// After the service accepted the job: mark its uploaded versions and drop
-/// its released `fr:` rows. Repeating
-/// this is harmless, so a crash before the index records it only repeats it.
+/// its released `fr:` rows, one page at a time. Repeating this is harmless,
+/// so a crash before the index records it only repeats it.
 pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
     if saved.phase != Phase::Published {
         return Ok(());
@@ -122,22 +134,63 @@ pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> R
     if index.marked {
         return Ok(());
     }
-    let mut uploaded = Vec::new();
     for page in 0..index.upload_pages {
-        let entries: Vec<Upload> = read_page(store, &upload_page(page))?;
-        uploaded.extend(
-            entries
-                .into_iter()
-                .filter(|entry| entry.receipt.is_some())
-                .map(|entry| entry.key),
-        );
+        let uploaded: Vec<String> = if page < index.uploads_done {
+            read_page(store, &uploaded_page(page))?
+        } else {
+            uploaded_keys(store, page)?
+        };
+        source.blobs_accepted(&uploaded, &[]).await?;
     }
-    let mut released = Vec::new();
     for page in 0..index.releases_sent {
         let entries: Vec<Release> = read_page(store, &release_page(page))?;
-        released.extend(entries.into_iter().map(|entry| entry.key));
+        let released: Vec<String> = entries.into_iter().map(|entry| entry.key).collect();
+        source.blobs_accepted(&[], &released).await?;
     }
-    source.blobs_accepted(&uploaded, &released).await?;
     index.marked = true;
     store.write(INDEX, &index)
+}
+
+/// The keys of the entries of one upload page that have a receipt.
+fn uploaded_keys(store: &Store, page: u32) -> Result<Vec<String>> {
+    let entries: Vec<Upload> = read_page(store, &upload_page(page))?;
+    Ok(entries
+        .into_iter()
+        .filter(|entry| entry.receipt.is_some())
+        .map(|entry| entry.key)
+        .collect())
+}
+
+/// The page counts of a job's plan, read without its other fields, so a
+/// cleanup can remove the plan of any index version.
+#[derive(Deserialize)]
+struct Pages {
+    #[serde(default)]
+    upload_pages: u32,
+    #[serde(default)]
+    release_pages: u32,
+}
+
+/// Remove the blob plan of a finished job by exact names: every page that
+/// its index counts, one page past each count (a page written before its
+/// index), then the index last, so a repeat finds the same names.
+pub(super) fn remove_plan(root: &std::path::Path) -> Result<()> {
+    let Some(pages) = super::store::read::<Pages>(&root.join(INDEX))? else {
+        return Ok(());
+    };
+    let mut names = Vec::new();
+    for page in 0..=pages.upload_pages {
+        names.push(upload_page(page));
+        names.push(uploaded_page(page));
+    }
+    for page in 0..=pages.release_pages {
+        names.push(release_page(page));
+    }
+    names.push(INDEX.to_owned());
+    for name in names {
+        let path = root.join(&name);
+        super::store::remove_owned(&path.with_extension("pending"))?;
+        super::store::remove_owned(&path)?;
+    }
+    Ok(())
 }

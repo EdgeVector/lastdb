@@ -7,8 +7,9 @@ use cloud_backup_protocol::v2::{limits::MAX_BATCH_ITEMS, Destination, Object, Ve
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id};
 use std::sync::atomic::AtomicBool;
 
-/// Plan and upload every queued version, page by page. Called after the
-/// capture is prepared and before the job publishes.
+/// Plan and upload every queued version, page by page, with no limit on
+/// the number of pages. Called after the capture is prepared and before the
+/// job publishes. A finished page is kept only as its uploaded keys.
 pub(in crate::byte_cloud_backup) async fn upload(
     source: &Source,
     store: &Store,
@@ -26,25 +27,25 @@ pub(in crate::byte_cloud_backup) async fn upload(
     }
     loop {
         if index.uploads_done < index.upload_pages {
-            upload_one_page(source, store, saved, client, pause, index.uploads_done).await?;
+            let page = index.uploads_done;
+            upload_one_page(source, store, saved, client, pause, page).await?;
+            // The uploaded keys are durable before the index counts the page
+            // as done; only then does the full page go.
+            store.write(&uploaded_page(page), &uploaded_keys(store, page)?)?;
             index.uploads_done += 1;
             store.write(INDEX, &index)?;
+            store.remove(&upload_page(page))?;
             continue;
         }
         if index.uploads_planned {
             return Ok(());
         }
-        let after = match index.upload_pages {
-            0 => None,
-            pages => read_page::<Upload>(store, &upload_page(pages - 1))?
-                .last()
-                .map(|entry| entry.key.clone()),
-        };
         let rows = source
-            .pending_blob_uploads(after.as_deref(), MAX_BLOB_BATCH)
+            .pending_blob_uploads(index.upload_cursor.as_deref(), MAX_BLOB_BATCH)
             .await?;
         let full = rows.len() == MAX_BLOB_BATCH;
-        if !rows.is_empty() {
+        if let Some(last) = rows.last() {
+            index.upload_cursor = Some(last.key.clone());
             let entries: Vec<Upload> = rows
                 .into_iter()
                 .map(|row| Upload {
@@ -58,7 +59,7 @@ pub(in crate::byte_cloud_backup) async fn upload(
             store.write(&upload_page(index.upload_pages), &entries)?;
             index.upload_pages += 1;
         }
-        index.uploads_planned = !full || index.upload_pages == MAX_UPLOAD_PAGES;
+        index.uploads_planned = !full;
         store.write(INDEX, &index)?;
     }
 }

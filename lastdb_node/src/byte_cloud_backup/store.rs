@@ -106,6 +106,23 @@ impl Store {
     pub fn write<T: Serialize>(&self, name: &str, value: &T) -> Result<()> {
         write(&self.root.join(name), value, &self.bytes)
     }
+    /// Remove one owned checkpoint of this job and its pending copy, and
+    /// return their bytes to the job's allowance. An absent file is removed.
+    pub fn remove(&self, name: &str) -> Result<()> {
+        let path = self.root.join(name);
+        let pending = path.with_extension("pending");
+        let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
+        let freed = size(&path)?
+            .checked_add(size(&pending)?)
+            .ok_or(BackupError::Limit)?;
+        remove_owned(&pending)?;
+        remove_owned(&path)?;
+        File::open(&self.root)?.sync_all()?;
+        let used = self.bytes.load(Ordering::Relaxed);
+        self.bytes
+            .store(used.saturating_sub(freed), Ordering::Relaxed);
+        Ok(())
+    }
     pub fn raw(&self, name: &str) -> Result<Option<Vec<u8>>> {
         raw(&self.root.join(name))
     }

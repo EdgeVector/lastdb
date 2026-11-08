@@ -247,14 +247,24 @@ impl PackRuntime {
         Ok(uploads)
     }
 
-    /// Up to `limit` queued releases (`fr:` keys) with their paths.
+    /// Up to `limit` queued releases (`fr:` keys) after the `fr:` key
+    /// `after`, in key order, with their paths. A caller pages through every
+    /// queued release by passing the last key it received.
     pub async fn pending_blob_releases(
         self: &Arc<Self>,
         database: &Id,
+        after: Option<&str>,
         limit: usize,
     ) -> StorageResult<Vec<BlobRow>> {
         let store = self.blob_store()?;
-        let rows = page(&store, RELEASED_FILE_PREFIX, None, limit).await?;
+        let after = after
+            .map(|key| {
+                key.starts_with(RELEASED_FILE_PREFIX)
+                    .then(|| key.as_bytes().to_vec())
+                    .ok_or_else(|| StorageError::InvalidOperation("release cursor".into()))
+            })
+            .transpose()?;
+        let rows = page(&store, RELEASED_FILE_PREFIX, after, limit).await?;
         rows.into_iter()
             .map(|(key, _)| {
                 let key = String::from_utf8(key).map_err(|_| {

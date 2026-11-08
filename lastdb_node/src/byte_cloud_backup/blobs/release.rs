@@ -7,9 +7,12 @@ use cloud_backup_protocol::v2::blobs::BlobReleaseRequest;
 use cloud_backup_protocol::v2::Version;
 use std::sync::atomic::AtomicBool;
 
-/// Plan once, before the job's first capture. Every queued release then
-/// belongs to a main publication that the capture holds. A job that already
-/// sent its begin without a plan releases nothing; the next job does.
+/// Plan once, before the job's first capture: every queued release, in
+/// pages of 64, with no limit on the number of pages. Every planned release
+/// then belongs to a main publication that the capture holds. The index
+/// records each page, so a restart continues the plan after its cursor. A
+/// job that already sent its begin without a plan releases nothing; the next
+/// job does.
 pub(in crate::byte_cloud_backup) async fn plan_releases(
     source: &Source,
     store: &Store,
@@ -19,19 +22,27 @@ pub(in crate::byte_cloud_backup) async fn plan_releases(
     if index.releases_planned {
         return Ok(());
     }
-    if !saved.begin_submitted {
-        let limit = MAX_BLOB_BATCH * MAX_RELEASE_PAGES as usize;
-        let rows = source.pending_blob_releases(limit).await?;
-        for chunk in rows.chunks(MAX_BLOB_BATCH) {
-            let entries: Vec<Release> = chunk
-                .iter()
-                .map(|row| Release {
-                    key: row.key.clone(),
-                    path: row.path.clone(),
-                })
-                .collect();
-            store.write(&release_page(index.release_pages), &entries)?;
-            index.release_pages += 1;
+    while !saved.begin_submitted {
+        let rows = source
+            .pending_blob_releases(index.release_cursor.as_deref(), MAX_BLOB_BATCH)
+            .await?;
+        let Some(last) = rows.last() else {
+            break;
+        };
+        let full = rows.len() == MAX_BLOB_BATCH;
+        index.release_cursor = Some(last.key.clone());
+        let entries: Vec<Release> = rows
+            .into_iter()
+            .map(|row| Release {
+                key: row.key,
+                path: row.path,
+            })
+            .collect();
+        store.write(&release_page(index.release_pages), &entries)?;
+        index.release_pages += 1;
+        store.write(INDEX, &index)?;
+        if !full {
+            break;
         }
     }
     index.releases_planned = true;
