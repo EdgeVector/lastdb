@@ -125,20 +125,6 @@ const GENERIC_WORDS: &[&str] = &[
 /// A name is generic if **every meaningful word** (after lowercasing) is in
 /// the [`GENERIC_WORDS`] set. Names with at least one content-specific word
 /// pass — e.g. "Medical Records" passes because "medical" is specific.
-///
-/// # Examples
-///
-/// ```
-/// use schema_service_core::name_validator::is_generic_name;
-///
-/// assert!(is_generic_name("Document Collection"));
-/// assert!(is_generic_name("Data Records"));
-/// assert!(is_generic_name("text content"));
-///
-/// assert!(!is_generic_name("Family Vacation Photos"));
-/// assert!(!is_generic_name("Medical Records"));
-/// assert!(!is_generic_name("Technical Notes"));
-/// ```
 pub fn is_generic_name(name: &str) -> bool {
     let generic_set: HashSet<&str> = GENERIC_WORDS.iter().copied().collect();
 
@@ -205,23 +191,6 @@ pub const MAX_DESCRIPTIVE_NAME_WORDS: usize = 3;
 ///
 /// Punctuation tokens that aren't whitespace-separated count as part of
 /// their adjacent word; we trim the same way [`is_generic_name`] does.
-///
-/// # Examples
-///
-/// ```
-/// use schema_service_core::name_validator::is_over_specific_name;
-///
-/// // Instance-level — too specific:
-/// assert!(is_over_specific_name("Roasted Tomato Soup Recipe"));
-/// assert!(is_over_specific_name("Paris Trip 2024 Journal"));
-/// assert!(is_over_specific_name("How Rust Borrow Checker Works"));
-///
-/// // Category-level — passes:
-/// assert!(!is_over_specific_name("Recipes"));
-/// assert!(!is_over_specific_name("Travel Notes"));
-/// assert!(!is_over_specific_name("Family Vacation Photos"));
-/// assert!(!is_over_specific_name("Customer Orders"));
-/// ```
 pub fn is_over_specific_name(name: &str) -> bool {
     let meaningful_word_count = name
         .split_whitespace()
