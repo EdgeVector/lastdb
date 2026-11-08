@@ -203,6 +203,12 @@ pub(super) async fn execute_db_put_blob_route(
             thumbnail,
             local_path,
         } = metadata;
+        let input = BlobInput {
+            name,
+            media_type,
+            placement,
+            thumbnail,
+        };
         let components = handlers::MutationComponents::from_operation(mutation, None);
         if !matches!(
             components.mutation_type,
@@ -214,28 +220,28 @@ pub(super) async fn execute_db_put_blob_route(
                 "put-blob requires create or complete replacement",
             ));
         }
-        if local_path.is_some() && placement == Placement::Inline {
+        if local_path.is_some() && input.placement == Placement::Inline {
             return Err(HostError::new(
                 400,
                 "an inline file stores its bytes; it has no local path",
             ));
         }
         if let Some(path) = local_path {
-            return put_local_reference(
-                host, components, path, plaintext, name, media_type, placement, thumbnail,
-            )
-            .await;
+            return put_local_reference(host, components, path, plaintext, input).await;
         }
-        if placement == Placement::Inline {
-            return put_inline_file(host, components, &plaintext, name, media_type, thumbnail)
-                .await;
+        if input.placement == Placement::Inline {
+            return put_inline_file(host, components, &plaintext, input).await;
         }
-        put_blob_file(
-            host, components, &plaintext, name, media_type, placement, thumbnail,
-        )
-        .await
+        put_blob_file(host, components, &plaintext, input).await
     };
     render(put.await, ctx)
+}
+
+struct BlobInput {
+    name: Option<String>,
+    media_type: Option<String>,
+    placement: Placement,
+    thumbnail: Option<Thumbnail>,
 }
 
 async fn put_local_reference(
@@ -243,10 +249,7 @@ async fn put_local_reference(
     mut components: handlers::MutationComponents,
     path: String,
     plaintext: Cow<'_, [u8]>,
-    name: Option<String>,
-    media_type: Option<String>,
-    placement: Placement,
-    thumbnail: Option<Thumbnail>,
+    input: BlobInput,
 ) -> Result<serde_json::Value, HostError> {
     if !plaintext.is_empty() {
         return Err(HostError::new(
@@ -255,6 +258,12 @@ async fn put_local_reference(
         ));
     }
     drop(plaintext);
+    let BlobInput {
+        name,
+        media_type,
+        placement,
+        thumbnail,
+    } = input;
     let file_write = host
         .db
         .reference_local_file(Path::new(&path), name, media_type)
@@ -306,10 +315,14 @@ async fn put_inline_file(
     host: &Host,
     mut components: handlers::MutationComponents,
     plaintext: &[u8],
-    name: Option<String>,
-    media_type: Option<String>,
-    thumbnail: Option<Thumbnail>,
+    input: BlobInput,
 ) -> Result<serde_json::Value, HostError> {
+    let BlobInput {
+        name,
+        media_type,
+        thumbnail,
+        ..
+    } = input;
     if thumbnail.is_some() {
         return Err(HostError::new(
             400,
@@ -333,11 +346,14 @@ async fn put_blob_file(
     host: &Host,
     mut components: handlers::MutationComponents,
     plaintext: &[u8],
-    name: Option<String>,
-    media_type: Option<String>,
-    placement: Placement,
-    thumbnail: Option<Thumbnail>,
+    input: BlobInput,
 ) -> Result<serde_json::Value, HostError> {
+    let BlobInput {
+        name,
+        media_type,
+        placement,
+        thumbnail,
+    } = input;
     let thumbnail = thumbnail.map(Thumbnail::into_inline).transpose()?;
     let file_write = host
         .db
