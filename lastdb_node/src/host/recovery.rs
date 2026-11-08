@@ -2,13 +2,9 @@ use super::*;
 
 /// Whether stderr may receive a raw recovery phrase.
 ///
-/// CI logs and cargo-test captures are retained. Recovery material must never
-/// appear there, even for ephemeral test identities
+/// CI logs are retained. Recovery material must never appear there
 /// (`papercut-fold-ci-test-recovery-phrase-leaks-to-logs-20260817`).
 pub fn should_emit_recovery_phrase() -> bool {
-    if cfg!(test) {
-        return false;
-    }
     if std::env::var_os("CI").is_some() {
         return false;
     }
@@ -19,7 +15,7 @@ pub fn should_emit_recovery_phrase() -> bool {
 }
 
 /// Lines written when a fresh identity is minted. `emit_secret=false` is the
-/// test/CI/non-TTY path and must never contain the mnemonic.
+/// CI/non-TTY path and must never contain the mnemonic.
 pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> String {
     if emit_secret {
         format!(
@@ -32,7 +28,7 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              no re-encryption of field keys.\n"
         )
     } else {
-        "=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===\n"
+        "=== LastDB recovery phrase generated (redacted; not printed in CI/non-TTY) ===\n"
             .to_string()
     }
 }
@@ -44,7 +40,7 @@ pub fn emit_fresh_recovery_phrase(mnemonic: &str) {
     if emit_secret {
         tracing::info!("fresh identity generated; recovery phrase printed on stderr");
     } else {
-        tracing::info!("fresh identity generated; recovery phrase redacted (test/CI/non-TTY)");
+        tracing::info!("fresh identity generated; recovery phrase redacted (CI/non-TTY)");
     }
 }
 
