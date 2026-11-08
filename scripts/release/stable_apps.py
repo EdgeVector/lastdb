@@ -23,10 +23,7 @@ def command(argv, environment, directory, output, name, body=None, timeout=300, 
 
 def source_for(node, plan, app, output, environment, cli):
     prefix = [str(cli), "--data-dir", str(node.home), "app"]
-    help_result = subprocess.run([*prefix, "list", "--help"], env=environment,
-                                 capture_output=True, text=True, timeout=10)
-    resolver = "list" if help_result.returncode == 0 and "[APP]" in help_result.stdout else "resolve"
-    resolved = subprocess.run([*prefix, resolver, app, "--channel", "stable", "--json"],
+    resolved = subprocess.run([*prefix, "list", app, "--channel", "stable", "--json"],
                               env=environment, capture_output=True, text=True, timeout=60)
     if resolved.returncode == 0 and json.loads(resolved.stdout).get("sha") == plan["apps"][app]:
         command([*prefix, "install", app, "--channel", "stable", "--accept-install"],
@@ -59,7 +56,6 @@ def prove(node, plan, output, prepare_cli=None):
                    "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"),
                                             os.environ["PATH"])),
                    "LASTDB_APPS_ROOT": str(node.root / "managed-apps"),
-                   "FBRAIN_FOLDDB_SOCKET": str(node.socket),
                    "LASTSECRETS_SOCKET_PATH": str(node.socket),
                    "LASTDB_SOCKET_PATH": str(node.socket)}
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"):

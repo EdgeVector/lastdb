@@ -207,9 +207,6 @@ jobs:
           
           # Schema registration check is optional - just note it in logs
           echo "Brain schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/brain-schemas.txt"
-        env:
-          # Brain reads socket path from this env var
-          FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Run Brain health checks
         if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
@@ -264,9 +261,6 @@ jobs:
           
           # Check LastDB status after operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-brain.txt"
-        env:
-          # Brain reads socket path from this env var
-          FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       # === LastSecrets (HTTP API) ===
       - name: Use the registry-installed LastSecrets command
@@ -347,8 +341,6 @@ jobs:
 
       - name: Produce Search delivery with real database writes
         if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
-        env:
-          FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
         run: |
           set -euo pipefail
           lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install
