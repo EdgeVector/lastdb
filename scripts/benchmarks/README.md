@@ -67,9 +67,7 @@ Search stays off. All generated daemons stop and their owned homes are removed.
 Speed changes remain advisory. Required standard speed, growth, disk/delete and upload checks still run.
 The additional job uses the same source revisions and programs, without another build or local operation.
 
-## Historical 16-writer investigation
-
-The one-artifact replay is removed. `write_contention.py` and `write-contention.yml` replayed archived programs from run 40558556490, and that artifact is expired. The workflow was not a required status check. The current 16-writer measurement is `write_gate.py` in the ordinary benchmark workflow. That script still imports `write_contention_workload.py` and `write_contention_report.py`.
+The current 16-writer measurement is `write_gate.py`. The optional comparison is the `writer16` job above.
 
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
