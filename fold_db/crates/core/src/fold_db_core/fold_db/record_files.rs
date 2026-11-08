@@ -2,9 +2,10 @@
 //! `design-lastdb-no-shared-file-blobs`).
 //!
 //! `put-blob` seals the bytes here and writes them with the record in one
-//! native request (`FileWrite::Put`). `fetch-blob` reads the record, takes its
-//! marker, reads the record's file path and checks the bytes against the
-//! marker. No request names a pointer, a path or a key.
+//! native request (`FileWrite::Put`). A local reference (`FileWrite::LocalPath`)
+//! stores the path outside the run and does not copy the bytes. `fetch-blob`
+//! reads the record, takes its marker, reads the record's file path and checks
+//! the bytes against the marker. The record itself names no path.
 //!
 //! A home restored from a backup has the records but not their blob rows
 //! (design `design-lastdb-blob-files-on-demand-20261107`). When the record
@@ -16,7 +17,9 @@
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, KeyValue};
 use crate::schema::SchemaError;
+use crate::storage::current_keys::families::record_file_path;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
+use std::path::Path;
 use std::sync::Arc;
 
 use super::FoldDB;
@@ -37,6 +40,61 @@ impl FoldDB {
         self.db_ops()
             .records()
             .seal_record_file(plaintext, name, media_type)
+    }
+
+    /// Hash `path` and bind it to this node. The file stays where it is.
+    pub async fn reference_local_file(
+        &self,
+        path: &Path,
+        name: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<FileWrite, FoldDbError> {
+        self.db_ops()
+            .records()
+            .reference_local_file(path, name, media_type)
+            .await
+    }
+
+    /// Point the committed file version at `path`. A retry with the same
+    /// marker writes the same catalog entry.
+    pub async fn remember_local_file(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+        path: &Path,
+        marker: &FileMarker,
+    ) -> Result<(), FoldDbError> {
+        self.db_ops()
+            .read_scope()
+            .await?
+            .run_result(async {
+                let (record_key, record) = self.read_file_record(schema_name, key).await?;
+                let record = record.ok_or_else(|| {
+                    FoldDbError::Database("local file reference has no record".into())
+                })?;
+                let (stored, version) = record
+                    .file
+                    .as_ref()
+                    .zip(record.file_version.as_ref())
+                    .ok_or_else(|| {
+                        FoldDbError::Database("local file reference has no file version".into())
+                    })?;
+                if stored != marker {
+                    return Err(FoldDbError::Database(
+                        "local file reference does not match the committed marker".into(),
+                    ));
+                }
+                let cas_key = record_file_path(&record_key, version)?;
+                crate::storage::local_file_ref::remember(
+                    &self.db_ops().native_runtime(),
+                    &cas_key,
+                    path,
+                    &marker.sha256,
+                    marker.size_bytes,
+                )?;
+                Ok(())
+            })
+            .await
     }
 
     async fn read_file_record(

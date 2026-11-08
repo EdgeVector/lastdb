@@ -83,7 +83,7 @@ impl RecordFormat {
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         // Resolve the prior file version from the actual record preimage.
         // A provider cannot suppress cleanup or authorize a new reference.
-        let files = self
+        let (files, local_refs) = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
         let written = encoded
@@ -92,15 +92,46 @@ impl RecordFormat {
         self.stage_files(files).await?;
         self.metadata.stage_outgoing(entries).await?;
         self.runtime.stage_written_records(written);
+        self.schedule_local_file_refs(local_refs)?;
         Ok(())
+    }
+
+    /// Record local paths only after this request commits. A failed request
+    /// leaves the catalog unchanged. A catalog error does not fail the node:
+    /// the put route writes the same entry again after commit.
+    fn schedule_local_file_refs(
+        &self,
+        plan: crate::storage::local_file_ref::SidecarPlan,
+    ) -> Result<(), SchemaError> {
+        if plan.is_empty() {
+            return Ok(());
+        }
+        let runtime = Arc::clone(&self.runtime);
+        crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
+            let result = crate::storage::disk_pack::run_blocking(move || {
+                crate::storage::local_file_ref::apply(&runtime, plan)
+            })
+            .await;
+            if let Err(error) = result {
+                tracing::error!(
+                    %error,
+                    "local file reference catalog update failed after commit"
+                );
+            }
+            Ok(())
+        })
+        .map_err(SchemaError::from)
     }
 
     async fn encode_files(
         &self,
         changes: Vec<super::files::FileChange>,
-    ) -> Result<Vec<KvMutation>, SchemaError> {
+    ) -> Result<(Vec<KvMutation>, crate::storage::local_file_ref::SidecarPlan), SchemaError> {
         if changes.is_empty() {
-            return Ok(Vec::new());
+            return Ok((
+                Vec::new(),
+                crate::storage::local_file_ref::SidecarPlan::default(),
+            ));
         }
         let keys: Vec<_> = changes
             .iter()
@@ -115,22 +146,26 @@ impl RecordFormat {
         }
         let mut rows = Vec::with_capacity(changes.len());
         let mut references = BTreeMap::new();
+        let mut local_refs = crate::storage::local_file_ref::SidecarPlan::default();
         for (change, bytes) in changes.into_iter().zip(stored) {
             let before = bytes
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
                 .map_err(super::record_value_error)?;
             change.references(before.as_ref(), &mut references)?;
-            rows.extend(super::files::encode(
+            let (encoded, plan) = super::files::encode(
                 change,
                 before.as_ref(),
                 &self.file_issuer,
                 self.content_key.as_ref(),
-            )?);
+            )?;
+            rows.extend(encoded);
+            local_refs.forget.extend(plan.forget);
+            local_refs.remember.extend(plan.remember);
         }
         let retired = self.metadata.stage_file_references(references).await?;
         rows.extend(retired.into_iter().map(KvMutation::delete));
-        Ok(rows)
+        Ok((rows, local_refs))
     }
 
     pub(super) fn require_scope(&self) -> Result<(), SchemaError> {

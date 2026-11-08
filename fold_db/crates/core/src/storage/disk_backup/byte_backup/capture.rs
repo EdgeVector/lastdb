@@ -13,7 +13,7 @@ impl PackRuntime {
         key: &[u8; 32],
         recovery: cloud_backup_protocol::RecoveryDescriptor,
     ) -> StorageResult<ByteBackupCapture> {
-        super::run_capture::prepare(self, begin, key, recovery, false).await
+        prepare_capturing_local_files(self, begin, key, recovery, false).await
     }
     /// The coordinator holds its owner lock and proves begin_submitted=false.
     /// Only an intent with no held files or saved source state can renew its cut.
@@ -23,15 +23,41 @@ impl PackRuntime {
         key: &[u8; 32],
         recovery: cloud_backup_protocol::RecoveryDescriptor,
     ) -> StorageResult<ByteBackupCapture> {
-        super::run_capture::prepare(self, begin, key, recovery, true).await
+        prepare_capturing_local_files(self, begin, key, recovery, true).await
     }
     /// Resume only the saved cut. A missing source still permits exact close.
     pub async fn resume_byte_backup_capture(
         self: &Arc<Self>,
         key: &[u8; 32],
     ) -> StorageResult<ByteBackupCapture> {
-        super::run_capture::resume(self, key).await
+        let capture = super::run_capture::resume(self, key).await?;
+        // A capture that stopped after sealing local files still holds those
+        // rows in the saved cut. Drop the live copies. Absent rows do nothing.
+        if let Err(error) = crate::storage::local_file_ref::release_catalog(self).await {
+            tracing::error!(%error, "local file reference release after backup resume");
+        }
+        Ok(capture)
     }
+}
+
+/// Seal local file references into cas, capture that run, then delete the
+/// live rows. The hold keeps the sealed bytes. A release failure after a
+/// successful capture still returns the capture: the upload can proceed, and
+/// the next capture deletes the leftover live rows.
+async fn prepare_capturing_local_files(
+    runtime: &Arc<PackRuntime>,
+    begin: Begin,
+    key: &[u8; 32],
+    recovery: cloud_backup_protocol::RecoveryDescriptor,
+    renew_unmaterialized: bool,
+) -> StorageResult<ByteBackupCapture> {
+    let sealed = crate::storage::local_file_ref::materialize(runtime, key).await?;
+    let prepared =
+        super::run_capture::prepare(runtime, begin, key, recovery, renew_unmaterialized).await;
+    if let Err(error) = crate::storage::local_file_ref::release(runtime, &sealed).await {
+        tracing::error!(%error, "local file reference release after backup capture");
+    }
+    prepared
 }
 pub(super) fn finish(
     inner: Inner,

@@ -5,6 +5,7 @@ use crate::schema::types::{FileWrite, FileWriteIssuer};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::format::metadata::FileReferenceChange;
+use crate::storage::local_file_ref::{Remember, SidecarPlan};
 use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;
@@ -47,13 +48,14 @@ impl FileChange {
 }
 
 /// Compare against the writer's current record, including every marker field.
-/// A new reference needs its bound payload; unchanged references reuse bytes.
+/// A new sealed reference needs its bound payload. A local reference stores
+/// no cas row; the caller records the path after the commit.
 pub(super) fn encode(
     change: FileChange,
     before: Option<&StoredRecord>,
     issuer: &FileWriteIssuer,
     content_key: Option<&[u8; 32]>,
-) -> Result<Vec<KvMutation>, SchemaError> {
+) -> Result<(Vec<KvMutation>, SidecarPlan), SchemaError> {
     let FileChange {
         key, after, write, ..
     } = change;
@@ -65,15 +67,14 @@ pub(super) fn encode(
                 "a retained file version has a different marker".into(),
             ));
         }
-        return Ok(Vec::new());
+        return Ok((Vec::new(), SidecarPlan::default()));
     }
     let mut rows = Vec::new();
+    let mut plan = SidecarPlan::default();
+    if let Some(version) = previous {
+        plan.forget.push(record_file_path(key.as_str(), version)?);
+    }
     if let Some(version) = next {
-        let Some(FileWrite::Put(file)) = write else {
-            return Err(SchemaError::InvalidData(
-                "a selected file requires its sealed payload".into(),
-            ));
-        };
         let marker = after
             .file
             .as_ref()
@@ -81,19 +82,46 @@ pub(super) fn encode(
                 SchemaError::InvalidData("a file row requires its record marker".into())
             })?
             .clone();
-        if file.marker() != &marker {
-            return Err(SchemaError::InvalidData(
-                "file payload differs from its record marker".into(),
-            ));
+        match write {
+            Some(FileWrite::Put(file)) => {
+                if file.marker() != &marker {
+                    return Err(SchemaError::InvalidData(
+                        "file payload differs from its record marker".into(),
+                    ));
+                }
+                let row = issuer.admit(file).ok_or_else(|| {
+                    SchemaError::InvalidData("file payload belongs to another format writer".into())
+                })?;
+                super::file_crypto::require_row(content_key, &marker, &row)?;
+                rows.push(KvMutation::put(
+                    record_file_path(key.as_str(), version)?.into_bytes(),
+                    row,
+                ));
+            }
+            Some(FileWrite::LocalPath(local)) => {
+                if local.marker() != &marker {
+                    return Err(SchemaError::InvalidData(
+                        "local file reference differs from its record marker".into(),
+                    ));
+                }
+                let path = issuer.admit_local(&local).ok_or_else(|| {
+                    SchemaError::InvalidData(
+                        "local file reference belongs to another format writer".into(),
+                    )
+                })?;
+                plan.remember.push(Remember {
+                    cas_key: record_file_path(key.as_str(), version)?,
+                    path: path.to_path_buf(),
+                    sha256: marker.sha256.clone(),
+                    size_bytes: marker.size_bytes,
+                });
+            }
+            Some(FileWrite::Clear) | None => {
+                return Err(SchemaError::InvalidData(
+                    "a selected file requires its sealed payload or a local reference".into(),
+                ));
+            }
         }
-        let row = issuer.admit(file).ok_or_else(|| {
-            SchemaError::InvalidData("file payload belongs to another format writer".into())
-        })?;
-        super::file_crypto::require_row(content_key, &marker, &row)?;
-        rows.push(KvMutation::put(
-            record_file_path(key.as_str(), version)?.into_bytes(),
-            row,
-        ));
     }
-    Ok(rows)
+    Ok((rows, plan))
 }

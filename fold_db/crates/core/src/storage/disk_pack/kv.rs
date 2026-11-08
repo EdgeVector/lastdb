@@ -1,6 +1,46 @@
 use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
 
+impl PackRuntime {
+    /// The cas namespace. Backup uses it to seal local file references into
+    /// the run that the hold hard-links, then to delete those rows.
+    pub(in crate::storage) async fn cas_store(self: &Arc<Self>) -> StorageResult<Arc<dyn KvStore>> {
+        self.ensure_namespace(CAS_COLLECTION).await?;
+        Ok(Arc::new(PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: CAS_COLLECTION.to_string(),
+        }))
+    }
+
+    /// One cas row. Backup skips a local file whose sealed row is already valid.
+    pub(in crate::storage) async fn cas_get(
+        self: &Arc<Self>,
+        key: &[u8],
+    ) -> StorageResult<Option<Vec<u8>>> {
+        self.cas_store().await?.get(key).await
+    }
+
+    /// Put one sealed cas row. The caller already checked the envelope.
+    pub(in crate::storage) async fn cas_put(
+        self: &Arc<Self>,
+        key: &[u8],
+        value: Vec<u8>,
+    ) -> StorageResult<()> {
+        self.cas_store().await?.put(key, value).await
+    }
+
+    /// Delete cas rows. An empty list publishes nothing.
+    pub(in crate::storage) async fn cas_delete(
+        self: &Arc<Self>,
+        keys: Vec<Vec<u8>>,
+    ) -> StorageResult<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        self.cas_store().await?.batch_delete(keys).await
+    }
+}
+
 impl PackKvStore {
     async fn values(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
         if keys.is_empty() {
