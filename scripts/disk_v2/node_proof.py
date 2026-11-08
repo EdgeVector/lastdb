@@ -56,7 +56,6 @@ NODE_MARKER = "laststore-pack-node-v1"
 # size limit, the memory budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
-    "LASTDB_ENGINE": "laststore",
     "LASTDB_MAX_FIELD_VALUE_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
     "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",

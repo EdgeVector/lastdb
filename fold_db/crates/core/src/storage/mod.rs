@@ -37,7 +37,7 @@ pub(crate) mod format;
 pub mod traits;
 
 // Re-exports for convenience
-pub use config::{DatabaseConfig, StorageEngine};
+pub use config::DatabaseConfig;
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::EncryptingNamespacedStore;

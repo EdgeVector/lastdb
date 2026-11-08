@@ -45,7 +45,7 @@ impl Host {
         Ok((keypair, e2e_keys, freshly_generated))
     }
 
-    /// Open native local storage without a legacy cloud or replay engine.
+    /// Open native local storage.
     pub(super) async fn open_boot_db(
         home: &Path,
         data_path: &Path,
@@ -54,10 +54,7 @@ impl Host {
         e2e_keys: &E2eKeys,
         search_outbox_inbox: PathBuf,
     ) -> Result<Arc<FoldDB>, String> {
-        let config = DatabaseConfig {
-            path: data_path.to_path_buf(),
-            engine: StorageEngine::Laststore,
-        };
+        let config = DatabaseConfig::local(data_path.to_path_buf());
         fold_db::fold_db_core::factory::create_fold_db_with_options(
             &config,
             e2e_keys,
