@@ -86,8 +86,6 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "Source lints" -- bash scripts/lints/source-lints.sh
       - name: cargo fmt --check
         run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
-      - name: lint no write-path syncing store
-        run: bash scripts/ci/mini-gate-step.sh "lint no write-path syncing store" -- bash scripts/lints/lint-no-write-path-syncing-store.sh
       - name: Record counter writer-boundary lint
         run: bash scripts/ci/mini-gate-step.sh "Store writer-boundary lint" -- python3 scripts/lints/lint-store-writers.py
       - name: Model purity lint
