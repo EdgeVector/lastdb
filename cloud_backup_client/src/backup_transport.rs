@@ -41,7 +41,7 @@ pub(super) struct BackupTransport {
     uploads: Arc<tokio::sync::Semaphore>,
 }
 impl BackupTransport {
-    /// Use explicit API-key credentials, endpoint, and the fixed request deadline.
+    /// Use explicit account credentials, endpoint, and the fixed request deadline.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         let base = urls::https(&auth.base_url)?;
         if base.query().is_some() {

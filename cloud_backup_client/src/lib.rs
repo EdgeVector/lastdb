@@ -1,6 +1,6 @@
 //! HTTPS client for the native LastDB cloud backup service.
 //!
-//! Immutable API-key credentials and a separately versioned opaque byte
+//! Immutable account credentials and a separately versioned opaque byte
 //! transport over the `cloud_backup_protocol` wire contract. The crate knows
 //! no database type: the core (`fold_db`) does no network I/O, and the node
 //! (`lastdb_node`) owns every caller.
@@ -22,19 +22,36 @@ const SHARED_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub struct AuthClient {
     base_url: String,
-    api_key: Arc<str>,
+    credential: AccountCredential,
+}
+
+#[derive(Clone)]
+enum AccountCredential {
+    ApiKey(Arc<str>),
+    Session(Arc<str>),
 }
 
 impl AuthClient {
     pub fn new(base_url: String, api_key: String) -> Self {
         Self {
             base_url,
-            api_key: api_key.into(),
+            credential: AccountCredential::ApiKey(api_key.into()),
+        }
+    }
+
+    /// Use an existing account session for bounded service requests.
+    pub fn with_session(base_url: String, session: String) -> Self {
+        Self {
+            base_url,
+            credential: AccountCredential::Session(session.into()),
         }
     }
 
     pub(crate) fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        request.header("X-API-Key", self.api_key.as_ref())
+        match &self.credential {
+            AccountCredential::ApiKey(key) => request.header("X-API-Key", key.as_ref()),
+            AccountCredential::Session(token) => request.bearer_auth(token.as_ref()),
+        }
     }
 }
 

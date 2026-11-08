@@ -1,6 +1,6 @@
 use super::{download, inventory::Inventory};
 use super::{
-    keys::RecoveryDecryption, ByteBackupClient, RestoreError, RestoreReport, RestoreSession,
+    keys::RecoveryDecryption, ByteBackupReader, RestoreError, RestoreReport, RestoreSession,
     Result, VerifiedNativeContext,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
@@ -10,7 +10,7 @@ use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BY
 /// profile. Each strict decode admits only its own version.
 pub(super) async fn restore(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     identity_seed: &[u8; 32],
 ) -> Result<RestoreReport> {
@@ -28,10 +28,7 @@ pub(super) async fn restore(
         return super::logs::restore(session, client, decryption, identity_seed, root).await;
     }
     let accepted = session.accepted();
-    let root = ClientRoot::decode(&bytes, decryption.content_key(), &accepted.begin)
-        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
-    root.recovery.validate_for(&accepted.job().stream.scope)?;
-    decryption.validate_account(&root.recovery.account_public_key)?;
+    let root = snapshot(session, decryption, &bytes)?;
     let context = VerifiedNativeContext {
         root: &session.root,
         destination: &session.selection.destination,
@@ -47,9 +44,22 @@ pub(super) async fn restore(
     super::runs::restore(session, client, decryption, identity_seed, &root, inventory).await
 }
 
+pub(super) fn snapshot(
+    session: &RestoreSession,
+    decryption: &RecoveryDecryption,
+    bytes: &[u8],
+) -> Result<ClientRoot> {
+    let accepted = session.accepted();
+    let root = ClientRoot::decode(bytes, decryption.content_key(), &accepted.begin)
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    root.recovery.validate_for(&accepted.job().stream.scope)?;
+    decryption.validate_account(&root.recovery.account_public_key)?;
+    Ok(root)
+}
+
 pub(super) async fn load(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
 ) -> Result<(Inventory, Vec<u8>)> {
     let accepted = session.accepted();
     let inventory = Inventory::load(session, client).await?;

@@ -8,10 +8,12 @@ mod access;
 mod blobs;
 mod jobs;
 mod publication;
+mod reader;
 mod release;
 mod transfer;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};
+pub use reader::ByteBackupReader;
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
 #[derive(Clone)]

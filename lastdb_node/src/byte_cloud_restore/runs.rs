@@ -4,7 +4,7 @@ mod install;
 
 use super::{download, inventory::Inventory, native};
 use super::{
-    keys::RecoveryDecryption, ByteBackupClient, NativeInventory, RestoreError, RestoreReport,
+    keys::RecoveryDecryption, ByteBackupReader, NativeInventory, RestoreError, RestoreReport,
 };
 use super::{RestoreSession, Result, VerifiedNativeContext};
 use cloud_backup_protocol::v2::access::ReadSelector;
@@ -12,7 +12,7 @@ use fold_db::storage::disk_pack::byte_backup::{ClientPage, ClientRoot, CODEC_ENV
 
 pub(super) async fn restore(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     identity_seed: &[u8; 32],
     root: &ClientRoot,
@@ -34,7 +34,7 @@ pub(super) async fn restore(
 
 pub(super) async fn stage(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     root: &ClientRoot,
     mut inventory: Inventory,

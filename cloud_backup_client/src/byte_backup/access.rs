@@ -39,31 +39,12 @@ impl ByteBackupClient {
         request: &ReadGrantRequest,
         accepted: &AcceptedBackup,
     ) -> Result<ReadGrantResponse> {
-        request.validate()?;
-        accepted.validate()?;
-        if &request.job != accepted.job() {
-            return Err(BackupTransportError::Configuration("accepted selection"));
-        }
-        let response: ReadGrantResponse = self.post("objects/read", request).await?;
-        response.validate_for(request, accepted)?;
-        Ok(response)
+        self.reader().read_grants(request, accepted).await
     }
 
     /// The caller validates accepted membership through read_grants before open.
     /// EOF authenticates exact stored byte count and SHA256, not client plaintext.
     pub async fn open(&self, grant: &ReadGrant) -> Result<ObjectStream> {
-        grant.validate()?;
-        self.transport
-            .open(
-                StoredObject {
-                    sha256: &grant.sha256,
-                    bytes: grant.bytes.get(),
-                },
-                TemporaryGrant {
-                    url: grant.url.as_str(),
-                    expires_ms: grant.expires_ms.get(),
-                },
-            )
-            .await
+        self.reader().open(grant).await
     }
 }

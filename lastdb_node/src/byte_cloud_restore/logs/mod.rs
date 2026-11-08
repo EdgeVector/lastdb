@@ -4,7 +4,7 @@ mod checkpoint;
 mod plan;
 mod routing;
 use super::{
-    keys::RecoveryDecryption, local, ByteBackupClient, RestoreError, RestoreReport, RestoreSession,
+    keys::RecoveryDecryption, local, ByteBackupReader, RestoreError, RestoreReport, RestoreSession,
     Result, VerifiedNativeContext,
 };
 use crate::byte_cloud_log::MutationLogRoot;
@@ -33,7 +33,7 @@ struct Cursor {
 
 pub(super) async fn restore(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     identity_seed: &[u8; 32],
     latest: MutationLogRoot,
@@ -142,7 +142,7 @@ fn finish(
 
 async fn replay_checkpoint(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
     cursor: &mut Cursor,
