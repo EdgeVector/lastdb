@@ -7,14 +7,8 @@ use serde::{Deserialize, Serialize};
 pub enum ErrorCode {
     /// A field failed a protocol check. `ProtocolError::invalid` uses this code.
     InvalidInput,
-    /// The peer sent a protocol version this side does not accept.
-    UnsupportedVersion,
     /// The requested capability is not available.
     UnsupportedCapability,
-    /// The format is not supported.
-    UnsupportedFormat,
-    /// The key mode is not supported.
-    UnsupportedKeyMode,
     /// The caller is not authorized for this operation.
     Unauthorized,
     /// The named object is absent. Callers distinguish a missing stream by `field`.
@@ -102,12 +96,6 @@ pub enum PendingReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalFailureCode {
-    /// The frozen input failed a field check and cannot succeed.
-    InvalidInput,
-    /// The frozen input uses an unsupported format.
-    UnsupportedFormat,
-    /// The frozen input uses an unsupported key mode.
-    UnsupportedKeyMode,
     /// The frozen input does not match its byte digest.
     IntegrityMismatch,
 }

@@ -103,11 +103,7 @@ fn cloud_label(error: &BackupTransportError) -> &'static str {
             ErrorCode::ProviderPending | ErrorCode::OutcomeUnknown | ErrorCode::RetryLater => {
                 "native backup awaits cloud verification; resume this job"
             }
-            ErrorCode::UnsupportedFormat
-            | ErrorCode::UnsupportedKeyMode
-            | ErrorCode::UnsupportedCapability => {
-                "native backup cloud format or key mode is unsupported"
-            }
+            ErrorCode::UnsupportedCapability => "native backup cloud capability is unsupported",
             _ => "native backup cloud request was refused; the saved job retains its source",
         },
         BackupTransportError::Integrity(_) => {
@@ -213,9 +209,7 @@ impl BackupError {
                     ErrorCode::IntegrityMismatch
                     | ErrorCode::IdentityConflict
                     | ErrorCode::RecoveryKeyMismatch => P::Identity,
-                    ErrorCode::UnsupportedFormat
-                    | ErrorCode::UnsupportedKeyMode
-                    | ErrorCode::UnsupportedCapability => P::Unsupported,
+                    ErrorCode::UnsupportedCapability => P::Unsupported,
                     _ => P::Refused,
                 },
                 BackupTransportError::Source | BackupTransportError::Task => P::Source,

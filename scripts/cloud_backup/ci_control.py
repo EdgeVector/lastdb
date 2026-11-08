@@ -12,8 +12,7 @@ from urllib.parse import urlsplit
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, dev_endpoint, require
 
 ERROR_CODES = frozenset((
-    "invalid_input", "unsupported_version", "unsupported_capability", "unsupported_format",
-    "unsupported_key_mode", "unauthorized", "not_found", "generation_conflict",
+    "invalid_input", "unsupported_capability", "unauthorized", "not_found", "generation_conflict",
     "stream_authority_conflict", "job_closed", "identity_conflict", "predecessor_conflict",
     "resource_limit", "quota_exceeded", "missing_dependency", "integrity_mismatch",
     "recovery_key_mismatch", "source_unavailable", "provider_pending", "outcome_unknown", "retry_later"))
