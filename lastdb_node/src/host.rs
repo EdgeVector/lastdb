@@ -130,7 +130,6 @@ impl Host {
         tracing::info!(
             target: "lastdbd::boot",
             user_hash = %user_hash,
-            cloud_sync = false,
             at_rest_provider = %at_rest_provider,
             "minimal host booted"
         );
