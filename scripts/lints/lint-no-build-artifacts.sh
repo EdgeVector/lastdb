@@ -43,13 +43,11 @@ forbidden_path() {
   local p="$1"
   case "$p" in
     target/*|*/target/*) return 0 ;;
-    target-dogfood/*|*/target-dogfood/*) return 0 ;;
     node_modules/*|*/node_modules/*) return 0 ;;
     *.rlib|*.rmeta|*.rlib.bc|*.o) return 0 ;;
     *.pyc|__pycache__/*|*/__pycache__/*) return 0 ;;
     .fastembed_cache/*|*/.fastembed_cache/*) return 0 ;;
     .semantic-search-fastembed-cache/*|*/.semantic-search-fastembed-cache/*) return 0 ;;
-    .folddb-dev/*|*/.folddb-dev/*) return 0 ;;
   esac
   # CACHEDIR.TAG only matters as a cargo-target marker; still never commit it.
   case "$p" in
