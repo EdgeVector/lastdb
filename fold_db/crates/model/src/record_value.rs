@@ -38,11 +38,6 @@ impl Stamp {
     pub fn written_at_nanos(&self) -> u64 {
         self.authored_at_ms.saturating_mul(1_000_000)
     }
-
-    #[must_use]
-    pub fn mutation_identity(&self) -> String {
-        format!("{}/{}", self.position.source_stream, self.position.sequence)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

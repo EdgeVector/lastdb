@@ -47,8 +47,3 @@ pub use schema_types::{
     SchemaWithState,
 };
 pub use types::{Schema, SchemaError};
-
-/// Public prelude module for external callers.
-pub mod prelude {
-    pub use super::SchemaCore;
-}
