@@ -33,16 +33,11 @@
 .env
 .env.local
 
-# Personal gbrain eval fixture — silences `gbrain doctor` whoknows_health
-# WARN when run from this directory. Not part of the Rust monorepo.
-/test/fixtures/whoknows-eval.jsonl
-
 # Local agent/tool state (gstack, scratch, embedding cache)
 .gstack/
 .agent-scratch/
 .portal-worktree
 .fastembed_cache/
-.semantic-search-fastembed-cache/
 # A node run from the repo root writes its store to ./data/ (conf, db,
 # blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
 /data/
