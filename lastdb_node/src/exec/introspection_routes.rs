@@ -55,50 +55,6 @@ pub(super) fn execute_boot_ledger_route(host: &Host) -> UdsResponse {
     json_ok(&serde_json::json!({ "boots": boots }))
 }
 
-/// `GET /api/native-index/search` — owner-wide index search over live schemas.
-pub(super) fn execute_native_index_search_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let raw_term = query_value(&req.target, "q").or_else(|| query_value(&req.target, "term"));
-    let term = match raw_term {
-        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
-        _ => return Reject::missing(WireKey::Query).response(),
-    };
-
-    let include_internal = query_flag(&req.target, "include_internal");
-    let exact = query_flag(&req.target, "exact");
-    let Ok(min_score) = parse_min_score(query_value(&req.target, "min_score").as_deref()) else {
-        return Reject::invalid(WireKey::MinScore).response();
-    };
-    let schemas: Option<Vec<String>> = query_value(&req.target, "schemas").and_then(|raw| {
-        let mut seen = HashSet::new();
-        let parsed: Vec<String> = raw
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .filter(|s| seen.insert(s.clone()))
-            .collect();
-        (!parsed.is_empty()).then_some(parsed)
-    });
-
-    render(
-        handlers::native_index_search(
-            host,
-            NativeSearchParams {
-                term,
-                include_internal,
-                exact,
-                min_score,
-                schemas,
-            },
-            ctx,
-        ),
-        ctx,
-    )
-}
-
 /// `GET /api/search/query` — Search app text query scoped to Search-owned
 /// schemas.
 pub(super) fn execute_search_app_query_route(

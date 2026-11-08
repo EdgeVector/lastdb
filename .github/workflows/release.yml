@@ -127,7 +127,7 @@ jobs:
 
       # Fresh-install / first-run gate: boot candidate lastdbd on a pristine
       # throwaway home, exercise /api/schemas/declare + /api/apps/declare-schema
-      # (brain/kanban init path), mutation/query, semantic search, restart.
+      # (brain/kanban init path), mutation/query, and restart.
       - name: Fresh-install first-run gate
         shell: bash
         run: |

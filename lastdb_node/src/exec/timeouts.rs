@@ -212,7 +212,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema
         | DataRoute::AutoIdentity
-        | DataRoute::NativeIndexSearch
         | DataRoute::SearchAppQuery
         | DataRoute::AppSearch
         | DataRoute::NativeIndexAppVectorPut

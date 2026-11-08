@@ -132,36 +132,23 @@ pub enum DataRoute {
     /// `GET /api/system/boot-ledger` — a bounded recent history of durable
     /// boot rows for stateless canary reconciliation. OWNER socket only.
     BootLedger,
-    /// `GET /api/native-index/search` — owner-wide index search over schemas
-    /// the node can query. OWNER socket only: this is a cross-namespace read.
-    NativeIndexSearch,
     /// `GET /api/search/query` — first-party Search app text query. Served on
     /// BOTH sockets, but the executor requires a verified `search` app identity
-    /// and scopes ranking to Search-owned schemas. This gives Search a
-    /// host-mediated app route without exposing an owner-wide native-index
-    /// search route to jailed apps.
+    /// and scopes ranking to Search-owned schemas.
     SearchAppQuery,
     /// `POST /api/app/search` — canonical app-owned text search. Served on
     /// BOTH sockets, but the executor treats it as an app-boundary route:
     /// a verified app identity is required even on the owner socket, and native
-    /// ranking is scoped to schemas owned by that app. This is the app SDK's
-    /// search surface and the companion to owner-only
-    /// owner-wide native-index search route.
+    /// ranking is scoped to schemas owned by that app.
     AppSearch,
     /// `POST /api/native-index/embeddings` — upsert one app-supplied vector
     /// for a `(schema, key, field)` slot, tagged with the app's embedder
-    /// identity. Served on BOTH sockets: unlike
-    /// owner-wide native-index search this is a write into a
-    /// named schema, not an owner-wide read, and the handler enforces that a
-    /// verified app indexes only into its own schemas (write-own-namespace,
-    /// exactly like mutation).
+    /// identity. Served on BOTH sockets. The handler enforces that a
+    /// verified app indexes only into its own schemas.
     NativeIndexAppVectorPut,
     /// `POST /api/native-index/knn` — bounded k-NN over app-supplied vectors,
     /// scoped to an explicit non-empty schema list plus one exact embedder
-    /// identity. Served on BOTH sockets: the caller must name its scope (the
-    /// ranking starts from the named schemas' pointer sets, so out-of-scope
-    /// entries are structurally unreachable), which is precisely what
-    /// distinguishes it from retired owner-wide cross-namespace search.
+    /// identity. Served on BOTH sockets. The caller names its schema scope.
     NativeIndexKnn,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,

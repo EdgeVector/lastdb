@@ -152,8 +152,6 @@ pub enum WireKey {
     ResponseFormat,
     /// `min_score` — the native-index search score floor.
     MinScore,
-    /// `q` — the native-index search query string.
-    Query,
     /// `type` — the operation discriminator on `POST /api/mutation`.
     ///
     /// `Operation` is `#[serde(tag = "type")]`, so an absent `type` fails
@@ -198,7 +196,6 @@ impl WireKey {
             Self::ExpectedTotalCount => "expected_total_count",
             Self::ResponseFormat => "response_format",
             Self::MinScore => "min_score",
-            Self::Query => "q",
             Self::OperationType => "type",
             Self::Schema => "schema",
             Self::Record => "record",
@@ -234,7 +231,6 @@ impl WireKey {
             }
             Self::ResponseFormat => &[r#""response_format": "full"    # full, values, count"#],
             Self::MinScore => &[r#""min_score": 0.5    # finite, 0.0 ..= 1.0"#],
-            Self::Query => &[r#"?q=<text>&k=10"#],
             // Every structural mutation key hands back the whole canonical
             // body rather than a fragment. A caller who got one of these
             // wrong has, in practice, hand-written the request — the useful

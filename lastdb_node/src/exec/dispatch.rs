@@ -223,9 +223,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         | DataRoute::SeedSystemSchema
         | DataRoute::RetireSchemaNameClaim
         | DataRoute::DropSchema => OpKind::Schema,
-        DataRoute::NativeIndexSearch | DataRoute::SearchAppQuery | DataRoute::AppSearch => {
-            OpKind::Search
-        }
+        DataRoute::SearchAppQuery | DataRoute::AppSearch => OpKind::Search,
         DataRoute::AppChanges => OpKind::History,
         DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so

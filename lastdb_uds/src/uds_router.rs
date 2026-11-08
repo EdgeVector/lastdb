@@ -192,9 +192,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
 /// The owner-only `POST /api/sync/logical-v1` route is removed. No command,
 /// script, or workflow called its local snapshot actions.
-/// This is an owner-only change, so `API_VERSION` stays `30` and
+/// `31` removes the owner-only `GET /api/native-index/search` route.
 /// `MIN_SUPPORTED_API_VERSION` stays `29`.
-pub const API_VERSION: u32 = 30;
+pub const API_VERSION: u32 = 31;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
