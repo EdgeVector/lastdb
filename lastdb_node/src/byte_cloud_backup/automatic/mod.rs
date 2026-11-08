@@ -14,8 +14,11 @@ use crate::backup_runtime::{Disposition, PauseReason, PauseState};
 use cloud_backup_protocol::v2::jobs::JobResult;
 use cloud_backup_protocol::Id;
 pub use policy::AutomaticBackupStatus;
-pub(super) use policy::{check_stopped, configure, record_stopped, status};
+pub(super) use policy::{
+    check_stopped, configure, record_stopped, status, VERSION as POLICY_VERSION,
+};
 use policy::{Pending, Policy};
+pub(super) use previous::PREVIOUS_VERSION as PREVIOUS_POLICY_VERSION;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,

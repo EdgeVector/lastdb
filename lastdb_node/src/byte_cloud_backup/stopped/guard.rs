@@ -162,7 +162,15 @@ impl Ownership {
         if let Some(policy) = super::super::store::read::<serde_json::Value>(
             &Store::base(home).join(super::super::store::AUTOMATIC_FILE),
         )? {
-            if policy["version"].as_u64() != Some(2)
+            // A version 2 file is retired by `check_stopped` after this
+            // guard, so a stopped backup right after the upgrade admits it.
+            let versions = [
+                super::super::automatic::POLICY_VERSION,
+                super::super::automatic::PREVIOUS_POLICY_VERSION,
+            ];
+            if !policy["version"]
+                .as_u64()
+                .is_some_and(|version| versions.iter().any(|v| u64::from(*v) == version))
                 || policy["account"].as_str() != Some(request.account_id.as_str())
                 || policy["state"]["enabled"].as_bool().is_none()
             {
@@ -170,7 +178,13 @@ impl Ownership {
             }
             // Automatic backup may stay on: its worker lives in the stopped daemon,
             // so nothing races this cut. A saved automatic job must finish first.
-            if !policy["pending"].is_null() || !policy["state"]["pending_request_id"].is_null() {
+            // The retire step drops a version 2 job, so only a current one waits.
+            let current = policy["version"].as_u64()
+                == Some(u64::from(super::super::automatic::POLICY_VERSION));
+            if current
+                && (!policy["pending"].is_null()
+                    || !policy["state"]["pending_request_id"].is_null())
+            {
                 return Err(BackupError::Busy);
             }
         }

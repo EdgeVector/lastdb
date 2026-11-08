@@ -6,7 +6,7 @@ use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
 const MAX_INTERVAL: u64 = 7 * 86400;
 /// Version 3: personal backups hold the main home only and record blobs
 /// upload by path. A version 2 file is retired by `previous::retire`.
-const VERSION: u32 = 3;
+pub(in crate::byte_cloud_backup) const VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

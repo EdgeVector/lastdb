@@ -30,7 +30,7 @@ use fold_db::storage::disk_pack::PackRuntime;
 use serde::Deserialize;
 use std::path::Path;
 
-pub(super) const PREVIOUS_VERSION: u32 = 2;
+pub(in crate::byte_cloud_backup) const PREVIOUS_VERSION: u32 = 2;
 
 #[derive(Deserialize)]
 pub(super) struct Version {
