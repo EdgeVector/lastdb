@@ -27,7 +27,6 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-        imports: Vec<Option<Stamp>>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
@@ -50,7 +49,6 @@ impl MutationManager {
                 runtime: self.db_ops.native_runtime(),
                 mutations,
                 author_clock: author_clock_barrier,
-                imports,
             },
             start_time,
             state,

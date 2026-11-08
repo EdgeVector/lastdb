@@ -232,15 +232,14 @@ impl Metadata {
     pub(super) async fn first_definitions(
         &self,
         state: &LocalAuthor,
-        schemas: &[(&str, Option<Stamp>)],
+        schemas: &[&str],
     ) -> StorageResult<Vec<PortableSchemaDefinition>> {
         let Some(shared) = &state.shared else {
             return Ok(Vec::new());
         };
         let pending: BTreeMap<String, &str> = schemas
             .iter()
-            .filter(|(_, imported)| imported.is_none())
-            .filter_map(|(alias, _)| {
+            .filter_map(|alias| {
                 let bound = shared.schemas.get(*alias)?;
                 (!shared.defined.contains(&bound.id)).then(|| ((*alias).to_owned(), &*bound.id))
             })

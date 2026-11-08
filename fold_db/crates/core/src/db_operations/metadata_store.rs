@@ -9,9 +9,7 @@ pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerPro
 use cloud_backup_protocol::shared::peer::PeerHeads;
 use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, LogHead, WriterStream};
 use cloud_backup_protocol::Id;
-use lastdb_model::portable_mutation::{
-    MutationEntry, SchemaIdentity, Stamp, StreamId, StreamProgress,
-};
+use lastdb_model::portable_mutation::{MutationEntry, SchemaIdentity, StreamId, StreamProgress};
 use lastdb_model::portable_replay::LogRangeId;
 use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet};
@@ -131,7 +129,7 @@ impl MetadataStore {
 
     pub(crate) async fn stage_local_stamps(
         &self,
-        schemas: &[(&str, Option<Stamp>)],
+        schemas: &[&str],
     ) -> Result<Vec<AuthoredStamp>, SchemaError> {
         Ok(self.format.stage_local_stamps(schemas).await?)
     }
