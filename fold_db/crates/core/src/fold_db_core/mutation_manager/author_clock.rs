@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::schema::mutation_author::{sign_mutation_author_clock, verify_mutation_author_clock};
+use crate::schema::mutation_author::sign_mutation_author_clock;
 use crate::schema::types::{Mutation, MutationAuthorClockState};
 use crate::schema::SchemaError;
 
@@ -262,12 +262,11 @@ async fn run_author_clock_persist_queue(
 }
 
 impl MutationManager {
-    /// Stamp local mutations in caller order and observe imported author clocks.
+    /// Stamp every mutation in caller order.
     ///
     /// `now` is the caller's one wall-clock sample for this batch, in
     /// nanoseconds since the Unix epoch. This function does not read the
-    /// clock. Imported clocks are observed first, then one local range is
-    /// reserved from that sample.
+    /// clock. One local range is reserved from that sample.
     ///
     /// The resident state and a bounded persist slot are reserved before
     /// mutation apply. The caller submits the state before resident apply and
@@ -300,62 +299,29 @@ impl MutationManager {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut state = *resident_state;
-        let mut changed = false;
 
-        // Observe imported clocks before reserving consecutive local write
-        // times in caller order. Local mutations keep one batch counter, so
-        // the receipt remains their common revision. Their distinct times
-        // prevent a repeated key from choosing its winner by random UUID.
-        // Imported signatures and clocks remain unchanged.
-        for mutation in mutations.iter() {
-            if let Some(written_at) = mutation.imported_written_at {
-                if !verify_mutation_author_clock(mutation) {
-                    return Err(SchemaError::InvalidData(format!(
-                        "invalid mutation author-clock signature for {}",
-                        mutation.uuid
-                    )));
-                }
-                let before = state;
-                state.observe_remote(written_at, mutation.logical_counter);
-                changed |= state != before;
-            }
-        }
-
-        let local_count = mutations
-            .iter()
-            .filter(|mutation| mutation.imported_written_at.is_none())
-            .count();
-        let mut local_clock = if local_count == 0 {
-            None
-        } else {
-            Some(state.advance_local_batch(now, local_count).ok_or_else(|| {
+        // One batch counter, so the receipt stays the common revision. Distinct
+        // times keep a repeated key from choosing its winner by random UUID.
+        let (mut times, logical_counter) = state
+            .advance_local_batch(now, mutations.len())
+            .ok_or_else(|| {
                 SchemaError::InvalidData("mutation author-clock range exhausted".into())
-            })?)
-        };
+            })?;
         for mutation in mutations {
-            if mutation.imported_written_at.is_some() {
-                continue;
-            }
-            let (times, logical_counter) = local_clock.as_mut().expect("reserved local clocks");
             let written_at = times.next().expect("one reserved time per local mutation");
             mutation.imported_written_at = Some(written_at);
-            mutation.logical_counter = *logical_counter;
+            mutation.logical_counter = logical_counter;
             mutation.author_clock_writer_id = local_writer_id.clone();
             mutation.author_clock_signature_version =
                 crate::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
             mutation.author_clock_signature =
                 sign_mutation_author_clock(mutation, self.signer.as_ref());
-            changed = true;
         }
-
-        if changed {
-            *resident_state = state;
-        }
-        // Every accepted nonempty batch gets a barrier, even when an imported
-        // clock does not advance the resident high-water value. A prior batch
-        // can own the same in-memory value while its metadata retry is still
-        // pending. This queued monotonic write keeps later data behind that
-        // durable value.
+        *resident_state = state;
+        // Every accepted nonempty batch gets a barrier. A prior batch can own
+        // the same in-memory value while its metadata retry is still pending.
+        // This queued monotonic write keeps later data behind that durable
+        // value.
         Ok(Some((reservation, state)))
     }
 }

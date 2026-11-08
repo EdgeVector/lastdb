@@ -181,7 +181,7 @@ fn next_stamp(
 impl Metadata {
     pub(crate) async fn stage_local_stamps(
         &self,
-        schemas: &[(&str, Option<Stamp>)],
+        schemas: &[&str],
     ) -> StorageResult<Vec<AuthoredStamp>> {
         self.require_scope()?;
         if schemas.is_empty() {
@@ -197,7 +197,7 @@ impl Metadata {
             .collect::<StorageResult<Vec<_>>>()?;
         let stamps: Vec<_> = schemas
             .iter()
-            .map(|(schema, imported)| {
+            .map(|schema| {
                 // A peer's definition can install a shared schema that this
                 // writer has not admitted. Its stream never defined that schema.
                 if self.runtime.is_shared_schema(schema)
@@ -209,19 +209,6 @@ impl Metadata {
                     return Err(invalid(
                         "shared schema writes require an active writer binding that admits the schema",
                     ));
-                }
-                if let Some(stamp) = imported {
-                    if state
-                        .shared
-                        .as_ref()
-                        .is_some_and(|shared| shared.schemas.contains_key(*schema))
-                    {
-                        return Err(invalid("legacy imports cannot enter a shared stream"));
-                    }
-                    return Ok(AuthoredStamp {
-                        stamp: stamp.clone(),
-                        shared_schema: None,
-                    });
                 }
                 state.author(schema, now_ms)
             })
@@ -240,7 +227,7 @@ impl Metadata {
             let mut rows = vec![author_row(&state)?, cursor];
             rows.extend(defines);
             self.stage_batch(rows).await?;
-        } else if schemas.iter().any(|(_, imported)| imported.is_none()) {
+        } else {
             self.stage_local_author(&state).await?;
         }
         Ok(stamps)

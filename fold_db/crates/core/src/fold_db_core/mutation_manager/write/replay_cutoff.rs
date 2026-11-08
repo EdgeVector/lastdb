@@ -1,4 +1,4 @@
-//! Every imported author clock observes the home-wide durable replay floor.
+//! Every stamped write time is checked against the home-wide durable replay floor.
 
 use super::*;
 

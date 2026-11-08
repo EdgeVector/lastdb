@@ -9,7 +9,6 @@ pub(super) struct NativeRequest {
     pub runtime: Arc<PackRuntime>,
     pub mutations: Vec<Mutation>,
     pub author_clock: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    pub imports: Vec<Option<Stamp>>,
 }
 
 struct NativeCommit {
@@ -57,10 +56,9 @@ impl MutationManager {
             let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
-            let schemas: Vec<_> = mutations
+            let schemas: Vec<&str> = mutations
                 .iter()
-                .zip(request.imports)
-                .map(|(mutation, imported)| (mutation.schema_name.as_str(), imported))
+                .map(|mutation| mutation.schema_name.as_str())
                 .collect();
             let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
             for (mutation, stamp) in mutations.iter().zip(&stamps) {

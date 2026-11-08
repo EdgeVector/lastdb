@@ -133,8 +133,7 @@ pub struct ResidentCommitReceipt {
     /// the primary and its projections and therefore cannot be "one committed
     /// revision" at all).
     ///
-    /// `None` when the batch stamped no local clock: a pure replay of imported
-    /// mutations keeps the authoring device's clock and mints none of its own.
+    /// `None` only for an empty batch, which allocates no author-clock counter.
     pub revision: Option<u64>,
     /// Per-class operation counts.
     pub operations: ResidentCommitOperations,

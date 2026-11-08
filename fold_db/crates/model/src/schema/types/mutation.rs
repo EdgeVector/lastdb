@@ -34,9 +34,7 @@ pub struct Mutation {
     /// Per-key metadata is part of the signed mutation, not the record UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    /// The author-clock write time. A local write gets it from the node
-    /// clock. A mutation that arrives with one must carry a valid author-clock
-    /// signature, and the record keeps that time.
+    /// The author-clock write time. The node assigns it from its clock.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
     /// Durable per-device logical author counter. A mutation without one uses zero.
@@ -49,7 +47,8 @@ pub struct Mutation {
     /// Ed25519 signature over the mutation content, id, and author clock.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_signature: String,
-    /// Zero for unsigned input; see `MUTATION_AUTHOR_SIGNATURE_VERSION` for signed input.
+    /// Author-clock signature version. Local writes use
+    /// `MUTATION_AUTHOR_SIGNATURE_VERSION`.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
     /// Required acceptance policy for the entire record.
