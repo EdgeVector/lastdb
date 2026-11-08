@@ -414,11 +414,11 @@ Each slow request keeps its own RPC time, request phases, resident stages, and c
 No difference between unrelated percentiles supplies a stage duration.
 The `apply_us` request phase is residual batch time after named stages, not a direct CPU or disk measurement.
 
-## PR 317 native diagnostics and read repeat
+## Manual investigation mode
 
-PR 317 uses four ordinary base/candidate pairs with the standard request sizes and case order.
+The manual bench-compare `investigation` input uses four ordinary base/candidate pairs with the standard request sizes and case order.
 This repeat retains the mixed-read P99 for each pair. The ordinary daemon has native diagnostics off.
-The shared workflow defaults stay unchanged for other PRs, main pushes, and nightly runs.
+Pull requests, main pushes, and nightly runs leave that input off.
 
 A separate diagnostic pair uses fresh generated homes and enables the existing `LASTDB_SNAPSHOT_TIMING` output.
 This mode requires a GitHub-hosted Actions runner. It follows the ordinary measurements and uses the same exact programs.
