@@ -1,7 +1,7 @@
 //! Verify one portable schema binding before its entries reach the writer.
 
 use lastdb_model::portable_mutation::{MutationEntry, MutationOperation, SchemaIdentity};
-use schema_types::{PortableSchemaDefinition, PortableSchemaId};
+use schema_types::{DeclarativeSchemaDefinition, PortableSchemaDefinition, PortableSchemaId};
 
 use super::key_values::validate_field_value;
 use crate::schema::{Schema, SchemaError};
@@ -11,6 +11,9 @@ use crate::schema::{Schema, SchemaError};
 pub struct PortableReplaySchema<'a> {
     id: &'a PortableSchemaId,
     local: &'a Schema,
+    /// The record's definition when the local schema may hold fields that
+    /// later definitions added. Its records use only its own fields.
+    declared: Option<&'a DeclarativeSchemaDefinition>,
 }
 
 impl<'a> PortableReplaySchema<'a> {
@@ -25,6 +28,24 @@ impl<'a> PortableReplaySchema<'a> {
         Ok(Self {
             id: definition.id(),
             local,
+            declared: None,
+        })
+    }
+
+    /// Bind a record's definition to the schema of its name, which may hold
+    /// fields that later accepted definitions added.
+    pub fn bind_version(
+        definition: &'a PortableSchemaDefinition,
+        expected: &PortableSchemaId,
+        local: &'a Schema,
+    ) -> Result<Self, SchemaError> {
+        let declared = definition
+            .bind_local_version(expected, &local.to_wire())
+            .map_err(SchemaError::InvalidData)?;
+        Ok(Self {
+            id: definition.id(),
+            local,
+            declared: Some(declared),
         })
     }
 
@@ -54,11 +75,16 @@ impl<'a> PortableReplaySchema<'a> {
             .map_err(invalid)?;
         if let MutationOperation::ReplaceRecord { data, .. } = &entry.operation {
             for (field, value) in &data.fields {
-                validate_field_value(&self.local.name, self.local, field, value).map_err(|_| {
-                    SchemaError::InvalidData(
+                let declared = self.declared.is_none_or(|definition| {
+                    definition.fields.iter().flatten().any(|f| f == field)
+                });
+                if !declared
+                    || validate_field_value(&self.local.name, self.local, field, value).is_err()
+                {
+                    return Err(SchemaError::InvalidData(
                         "portable mutation has an undeclared or wrongly typed field".into(),
-                    )
-                })?;
+                    ));
+                }
             }
         }
         Ok(())

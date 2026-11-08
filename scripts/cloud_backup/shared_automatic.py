@@ -16,6 +16,8 @@ from support import OperationError, decode_json, private_directory, require, sav
 LATER_SCHEMA = "CloudSharedLater"
 LATER_KEY = "later-schema"
 UNADMITTED = b"shared schema writes require an active writer binding that admits the schema"
+DETAIL = ("shared_proof_record_detail", "Synthetic detail that one later definition of the shared proof schema adds.")
+ORIGIN = ("shared_proof_record_origin", "Synthetic origin that another later definition of the shared proof schema adds.")
 
 
 def wait_all(operation, nodes, records, files, absent_keys=()):
@@ -53,17 +55,22 @@ def sync_observation(node):
             "needs_restore": progress["needs_restore"] is not None}
 
 
-def holds(node, schema, key, record):
+def stored_fields(node, schema, key):
     try:
         result, = node.call("/api/queries/batch", {"queries": [
             {"schema_name": schema, "filter": {"HashKey": key}, "limit": 2, "offset": 0}]})["results"]
     except (OperationError, ValueError):
-        return False
+        return None
     # Before a node installs the schema, the item's response is a plain-text refusal.
     response = result.get("response")
     rows = response.get("results") if isinstance(response, dict) else None
-    return (result.get("status") == 200 and isinstance(rows, list) and len(rows) == 1
-            and rows[0].get("fields") == record)
+    if result.get("status") == 200 and isinstance(rows, list) and len(rows) == 1:
+        return rows[0].get("fields")
+    return None
+
+
+def holds(node, schema, key, record):
+    return stored_fields(node, schema, key) == record
 
 
 def wait_later(operation, nodes, later):
@@ -107,6 +114,85 @@ def replicate_later_schema(operation, nodes, schema):
                              automatic_unadmitted_write_refused=True,
                              schema_service_unreachable=True)
     return later
+
+
+def admit_definition(operation, node, index, schema, label, **changes):
+    """Admit one definition of the later schema on a stopped writer."""
+    namespace, name = schema.split("/")
+    identity = operation.define_schema(node, operation.writers[index], namespace, name,
+                                       "Shared Storage Later Proof Record", **changes)
+    bindings = operation.root / f"later-{label}.json"
+    save_json(bindings, {schema: identity["definition"]})
+    reply = operation.writer(node, operation.writers[index], "admit", "--schema-bindings", str(bindings))
+    require(reply.splitlines() == [b"Shared schemas admitted"], "shared_automatic_later_definition_admitted")
+    operation.summary.setdefault("later_definitions", {})[label] = identity["portable_id"]
+
+
+def refuse_incompatible(operation, node, schema):
+    try:
+        admit_definition(operation, node, 1, schema, "incompatible", note_type="Integer")
+    except OperationError as error:
+        require(str(error) == "product_cli_refused" and error.cli_refusal is not None
+                and error.cli_refusal["reason"] == "shared_incompatible_definition",
+                "shared_automatic_incompatible_definition_refusal")
+    else:
+        raise OperationError("shared_automatic_incompatible_definition_admitted")
+
+
+def write_later(operation, nodes, writer, schema, key, record):
+    durable_batch(writer, [native_records.create(schema, native_records.key(key), record)])
+    wait_later(operation, nodes, (schema, key, record))
+    return schema, key, record
+
+
+def extend_later_schema(operation, nodes, schema):
+    """Two writers each add a field to an admitted schema before either sees the
+    other. Every home installs both and holds their union, and a writer that
+    admitted only the first definition keeps writing. A definition that changes
+    an existing field is refused
+    (decision-2026-11-07-lastdb-schema-name-slot-definition-per-record)."""
+    operation.summary["stage"] = "automatic-later-definitions"
+    peer, earlier, branch = nodes[1:4]
+    earlier.stop()
+    admit_definition(operation, earlier, 2, schema, "first")
+    earlier.start()
+    peer.stop()
+    branch.stop()
+    admit_definition(operation, peer, 1, schema, "detail", extra=(DETAIL,))
+    refuse_incompatible(operation, peer, schema)
+    admit_definition(operation, branch, 3, schema, "origin", extra=(ORIGIN,))
+    peer.start()
+    branch.start()
+    detail = write_later(operation, nodes, peer, schema, "later-detail",
+                         dict(operation.record("later-detail", "detail-branch"), **{DETAIL[0]: "detail"}))
+    origin = write_later(operation, nodes, branch, schema, "later-origin",
+                         dict(operation.record("later-origin", "origin-branch"), **{ORIGIN[0]: "origin"}))
+    # The earlier writer installed both branches from the peer logs, so its next record may use both fields.
+    union = write_later(operation, nodes, earlier, schema, "later-union",
+                        dict(operation.record("later-union", "earlier-writer"),
+                             **{DETAIL[0]: "both", ORIGIN[0]: "both"}))
+    operation.summary.update(later_definition_admitted=True, incompatible_definition_refused=True,
+                             branch_definitions_converged=True, earlier_definition_writer_kept_writing=True)
+    return [detail, origin, union]
+
+
+def replace_without_later_field(operation, nodes, schema):
+    """Not decided: an older app's whole-record replace omits a later field. Record what happens."""
+    earlier = nodes[2]
+    prior, = native_records.read_records(earlier, schema, [native_records.key("later-detail")])
+    replaced = operation.record("later-detail", "earlier-app-replace")
+    durable_batch(earlier, [native_records.replace(schema, prior, replaced)])
+    deadline = time.monotonic() + 90
+    while True:
+        observed = [stored_fields(node, schema, "later-detail") for node in nodes]
+        if all(fields and all(fields.get(name) == value for name, value in replaced.items())
+               for fields in observed):
+            break
+        if time.monotonic() >= deadline:
+            raise OperationError("shared_automatic_later_replace_deadline")
+        time.sleep(1)
+    operation.summary["earlier_app_replace_kept_later_field"] = any(DETAIL[0] in fields for fields in observed)
+    return schema, "later-detail", observed[0]
 
 
 def absent(node, schema, *keys):
@@ -247,6 +333,8 @@ def run(operation):
     operation.summary.update(automatic_delete_applied=True, automatic_replacement_file_applied=True)
     pause_and_resume(operation, nodes, records, files)
     later = restart(operation, nodes, records, files)
+    extended = extend_later_schema(operation, nodes, later[0])
+    extended[0] = replace_without_later_field(operation, nodes, later[0])
 
     snapshot_schedule(operation, publisher)
     author_uncovered_tail(operation, nodes, records, files)
@@ -271,6 +359,7 @@ def run(operation):
         operation.verify(node, records, files)
         require(absent(node, operation.schema, "automatic-0"), "shared_automatic_restored_delete")
         require(holds(node, *later), "shared_automatic_restored_later_schema")
+        require(all(holds(node, *item) for item in extended), "shared_automatic_restored_later_definitions")
         node.stop()
     operation.summary.update(result="passed", restored_boots=2, exact_live_records=len(records),
                              file_sha256=files, provider_deletions=0)

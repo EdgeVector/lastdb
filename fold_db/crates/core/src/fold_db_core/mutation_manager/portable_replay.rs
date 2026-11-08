@@ -192,7 +192,7 @@ impl MutationManager {
         let mut seen = HashSet::with_capacity(candidates.len());
         for input in candidates {
             let schema = &schemas[input.local_schema];
-            PortableReplaySchema::bind(input.definition, input.definition.id(), schema)?
+            PortableReplaySchema::bind_version(input.definition, input.definition.id(), schema)?
                 .validate_entry(input.entry)?;
             let key = input
                 .entry

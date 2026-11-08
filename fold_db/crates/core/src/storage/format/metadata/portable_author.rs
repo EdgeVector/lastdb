@@ -15,11 +15,13 @@ const REPLAY_STATE_KEY: &str = "portable-replay-state";
 const RESTORE_OWNER_KEY: &str = "portable-restore-owner";
 const PROGRESS_PREFIX: &str = "portable-progress:";
 const DEFINITION_PREFIX: &str = "portable-schema:";
+const VERSIONS_PREFIX: &str = "portable-schema-versions:";
 /// Replay coordinates and schema definitions travel with the shared records.
 pub(in crate::storage) fn shared_metadata_key(key: &str) -> bool {
     key == REPLAY_STATE_KEY
         || key.starts_with(PROGRESS_PREFIX)
         || key.starts_with(DEFINITION_PREFIX)
+        || key.starts_with(VERSIONS_PREFIX)
 }
 
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
@@ -29,6 +31,7 @@ mod cleanup;
 mod definitions;
 mod inbox;
 pub(crate) use checkpoint::CheckpointDirectory;
+pub(crate) use definitions::DefinitionSet;
 mod outgoing;
 mod rejoin;
 mod retention;

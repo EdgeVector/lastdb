@@ -3,7 +3,7 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::format::metadata::{
-    AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema, Metadata,
+    AuthoredStamp, CheckpointDirectory, DefinitionSet, InboxWindow, JournalSchema, Metadata,
 };
 pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 use cloud_backup_protocol::shared::peer::PeerHeads;
@@ -167,6 +167,32 @@ impl MetadataStore {
         definitions: &BTreeMap<String, PortableSchemaDefinition>,
     ) -> Result<(), SchemaError> {
         Ok(self.format.stage_portable_definitions(definitions).await?)
+    }
+
+    pub(crate) async fn portable_definition_sets(
+        &self,
+    ) -> Result<BTreeMap<String, DefinitionSet>, SchemaError> {
+        Ok(self.format.portable_definition_sets().await?)
+    }
+
+    pub(crate) async fn stage_definition_sets(
+        &self,
+        sets: &BTreeMap<String, DefinitionSet>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.stage_definition_sets(sets).await?)
+    }
+
+    pub(crate) async fn portable_writer_bindings(
+        &self,
+    ) -> Result<Option<BTreeMap<String, JournalSchema>>, SchemaError> {
+        Ok(self.format.portable_writer_bindings().await?)
+    }
+
+    pub(crate) async fn rebind_portable_schemas(
+        &self,
+        schemas: BTreeMap<String, JournalSchema>,
+    ) -> Result<(), SchemaError> {
+        Ok(self.format.rebind_portable_schemas(schemas).await?)
     }
 
     pub(crate) async fn portable_outgoing(&self) -> Result<OutgoingPortablePage, SchemaError> {

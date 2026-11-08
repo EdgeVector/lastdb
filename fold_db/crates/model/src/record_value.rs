@@ -3,6 +3,7 @@
 use crate::portable_mutation::{Position, Stamp};
 use crate::record_replacement::RecordReplacement;
 use crate::schema::types::KeyValue;
+use schema_types::PortableSchemaId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -84,6 +85,12 @@ pub struct StoredRecord {
     /// bytes live in their own row, so a record read never carries them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_file: Option<FileMarker>,
+    /// The shared schema definition the record was written with
+    /// (`decision-2026-11-07-lastdb-schema-name-slot-definition-per-record`).
+    /// The record stays keyed by its schema name. A record of a schema with
+    /// no portable definition has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition_id: Option<PortableSchemaId>,
     #[serde(skip)]
     pub deleted: bool,
 }
@@ -111,6 +118,7 @@ impl StoredRecord {
             file: value.file,
             file_version,
             inline_file: value.inline_file,
+            definition_id: None,
             deleted: false,
         }
     }
@@ -138,6 +146,7 @@ impl StoredRecord {
             file: None,
             file_version: None,
             inline_file: None,
+            definition_id: None,
             deleted: true,
         }
     }

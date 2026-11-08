@@ -215,17 +215,21 @@ class Operation:
         name = "CloudSharedProofAlias" if self.args.automatic_sync else "CloudSharedProof"
         return f"cloud-proof-{suffix}/{name}"
 
-    def define_schema(self, node, writer, namespace, name, description):
-        """Compute a typed definition locally. No schema service registers or serves it."""
-        declaration = self.root / f"declaration-{name}.json"
+    def define_schema(self, node, writer, namespace, name, description, *, extra=(), note_type="String"):
+        """Compute a typed definition locally. No schema service registers or serves it.
+        A later definition of a name may add `extra` (field, description) string fields.
+        A `note_type` other than String changes an existing field."""
+        fields = {
+            IDENTIFIER: ("String", "Stable identifier for the generated record in a DEV shared storage recovery operation."),
+            NOTE: (note_type, "Synthetic text that distinguishes versions of the generated DEV shared recovery record."),
+            **{field: ("String", text) for field, text in extra},
+        }
+        declaration = self.root / f"declaration-{name}-{uuid.uuid4().hex}.json"
         save_json(declaration, {
             "name": name, "descriptive_name": description,
             "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-            "fields": [IDENTIFIER, NOTE], "field_types": {IDENTIFIER: "String", NOTE: "String"},
-            "field_descriptions": {
-                IDENTIFIER: "Stable identifier for the generated record in a DEV shared storage recovery operation.",
-                NOTE: "Synthetic text that distinguishes versions of the generated DEV shared recovery record.",
-            },
+            "fields": list(fields), "field_types": {field: kind for field, (kind, _) in fields.items()},
+            "field_descriptions": {field: text for field, (_, text) in fields.items()},
         })
         identity = decode_json(self.writer(node, writer, "define-schema", "--namespace",
                                           namespace, "--declaration", str(declaration)))

@@ -237,11 +237,12 @@ impl Metadata {
             return Err(invalid("portable mutation log requires a shared schema"));
         };
         let state = self.local_author().await?;
-        shared(&state)?
-            .schemas
-            .iter()
-            .find_map(|(name, bound)| (&bound.id == id).then(|| name.clone()))
-            .ok_or_else(|| invalid("outgoing schema has no admitted binding"))
+        let shared = shared(&state)?;
+        match shared.schemas.iter().find(|(_, bound)| &bound.id == id) {
+            Some((name, _)) => Ok(name.clone()),
+            // An entry written before its alias followed a later definition.
+            None => self.accepting_alias(&shared.schemas, id).await,
+        }
     }
 
     pub(crate) async fn stage_outgoing_receipt(
