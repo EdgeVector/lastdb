@@ -99,14 +99,41 @@ PROOF_CAUSES.update({
 })
 
 
-def cli_refusal(stderr, exit_code):
+def command_words(command):
+    """The subcommand words of a CLI call, without the binary, flags or values."""
+    words, arguments = [], list(command[1:])
+    while arguments and arguments[0] == "--data-dir":
+        arguments = arguments[2:]
+    for argument in arguments[:3]:
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", argument):
+            break
+        words.append(argument)
+    return " ".join(words)
+
+
+def error_head(message):
+    """The leading static segments of an error chain. A segment with a digit,
+    slash, dot or other punctuation stops it, so ids, paths and numbers stay
+    out of the public log."""
+    segments = []
+    for segment in message.split(b": ")[:4]:
+        if not re.fullmatch(rb"[A-Za-z][A-Za-z _'-]{0,79}", segment):
+            break
+        segments.append(segment.decode("ascii"))
+    return ": ".join(segments) or None
+
+
+def cli_refusal(stderr, exit_code, command=None):
     """Project only closed source labels; never return a captured byte or path."""
     result = {"exit_code": exit_code, "reason": "unrecognized"}
+    if command:
+        result["command"] = command_words(command)
     errors = [line[len(b"error: "):] for line in bytes(stderr).splitlines()
               if line.startswith(b"error: ")]
     if len(errors) != 1:
         return result
     message = errors[0]
+    result["error_head"] = error_head(message)
     snapshot_http = re.fullmatch(rb"shared snapshot returned HTTP/1.1 ([0-9]{3}) [^:]+: (.{1,4096})", message)
     if snapshot_http:
         result["snapshot_http_status"] = int(snapshot_http[1])
@@ -172,7 +199,7 @@ def execute(command, environment, input_bytes=None, timeout=120):
         process.wait(timeout=max(0.1, deadline - time.monotonic()))
         if process.returncode != 0:
             raise OperationError("product_cli_refused",
-                                 cli_refusal=cli_refusal(output["stderr"], process.returncode))
+                                 cli_refusal=cli_refusal(output["stderr"], process.returncode, command))
         return bytes(output["stdout"])
     except subprocess.TimeoutExpired as error:
         raise OperationError("cli_deadline") from error
