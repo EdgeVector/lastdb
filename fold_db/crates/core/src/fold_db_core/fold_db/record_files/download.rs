@@ -7,11 +7,13 @@
 //! - `SchemaError::NotFound` (404) when the cloud has no object at the path:
 //!   another writer released it, or it was never uploaded;
 //! - `FoldDbError::InProgress` (503, owner-visible) when no cloud source is
-//!   registered or the cloud could not answer, with the reason;
+//!   registered or the cloud could not answer, with the reason. A personal
+//!   home with no saved credentials returns the body
+//!   `sign in to fetch this file` and nothing else;
 //! - `FoldDbError::SecurityError` when the bytes differ from the marker.
 
 use crate::error::FoldDbError;
-use crate::fold_db_core::BlobFetch;
+use crate::fold_db_core::{BlobFetch, SIGN_IN_TO_FETCH_FILE};
 use crate::schema::SchemaError;
 use crate::storage::format::records::RecordFormat;
 use lastdb_model::portable_mutation::Position;
@@ -67,6 +69,11 @@ impl FoldDB {
             )
             .into()),
             BlobFetch::Unavailable(reason) => {
+                // The owner HTTP body is this sentence alone, so a caller can
+                // tell "sign in" from a cloud failure that uses the longer text.
+                if reason == SIGN_IN_TO_FETCH_FILE {
+                    return Err(FoldDbError::InProgress(reason));
+                }
                 tracing::warn!(
                     target: "fold_db::record_files",
                     %reason,

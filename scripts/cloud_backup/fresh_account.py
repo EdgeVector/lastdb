@@ -73,15 +73,20 @@ def recover(programs, credentials, parent, phrase, expected, point, report, oper
     proof.update(native_inventory_sha256=hashlib.sha256(inventory).hexdigest(), cas_run_files=0)
     operation.summary["restore"] = proof
     operation.summary["stage"] = "verify_restored_boots"
-    node = OwnedNode(destination, programs, account=point["account_id"], cloud_credentials=credentials)
+    node = OwnedNode(destination, programs, account=point["account_id"], cloud_credentials=credentials,
+                     device_sign_in=True)
     operation.node = node
+    node.start(sign_in=False)
+    sign_in = node.verify_file_needs_sign_in(expected)
+    node.stop()
     reads = []
     for _number in range(2):
         node.start()
         reads.append(node.verify_records(expected))
         node.stop()
-    require(node.clean_stops == 2 and not node.forced and node.process is None, "fresh_restore_two_clean_stops")
-    operation.summary.update(restored_boots=2, strict_restore_stops=2, keyed_reads=reads)
+    require(node.clean_stops == 3 and not node.forced and node.process is None, "fresh_restore_clean_stops")
+    operation.summary.update(restored_boots=2, strict_restore_stops=3, keyed_reads=reads,
+                             file_read_before_sign_in=sign_in)
 
 
 class Operation:

@@ -45,6 +45,11 @@ def socket_refusal(path, response):
     if raw.startswith(b"node is busy: too many concurrent reads; retry after "):
         refusal["reason"] = "read_busy"
         return refusal
+    # The owner body is this sentence alone. A cloud failure uses a longer
+    # 503, so the status is not enough.
+    if raw == b"sign in to fetch this file":
+        refusal["reason"] = "sign_in_required"
+        return refusal
     try:
         body = decode_json(raw)
     except OperationError:
@@ -68,11 +73,17 @@ class Connection(http.client.HTTPConnection):
 
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
-                 account=ACCOUNT, *, isolated_copy=False, cloud_credentials=None):
+                 account=ACCOUNT, *, isolated_copy=False, cloud_credentials=None,
+                 device_sign_in=False):
         self.home, self.programs = home, programs
-        # A restored device fetches a record's file from B2 on its first read,
-        # so it holds the account's saved credentials. Backup stays off there.
+        # A restored device fetches a record's file from B2 on its first read.
+        # device_sign_in registers a new device on this home and saves that
+        # device's own credentials. The copy path is the older workaround.
+        # Backup stays off on a restored home either way.
         self.cloud_credentials = cloud_credentials
+        require(type(device_sign_in) is bool, "device_sign_in_flag")
+        require(not device_sign_in or cloud_credentials is not None, "device_sign_in_account")
+        self.device_sign_in = device_sign_in
         require(isinstance(account, str) and len(account) == 32
                 and all(char in "0123456789abcdef" for char in account), "owned_account")
         self.account = account
@@ -124,23 +135,49 @@ class OwnedNode:
         require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
     def connect(self):
-        """Save the account credentials in a restored home, as a sign-in does."""
-        if self.cloud_credentials is None or os.path.lexists(self.home / CREDENTIALS_FILE):
+        """Sign this restored home in as its own device, or copy saved credentials."""
+        if os.path.lexists(self.home / CREDENTIALS_FILE):
+            return
+        if self.device_sign_in:
+            self.sign_in_restored_device()
+            return
+        if self.cloud_credentials is None:
             return
         target = self.home / CREDENTIALS_FILE
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         shutil.copyfile(self.cloud_credentials / CREDENTIALS_FILE, target)
         os.chmod(target, 0o600)
 
+    def sign_in_restored_device(self):
+        """Register a new device for this home. The report stays in memory:
+        it names the home and the account."""
+        report = self.programs.command(
+            self.home, ["cloud", "backup-v2", "connect", "--dev", "--restored", "--json"])
+        require(isinstance(report, dict)
+                and report.get("ok") is True
+                and report.get("registration_attempted") is True
+                and report.get("restored_home") is True
+                and report.get("credentials_saved") is True
+                and report.get("automatic_backup_enabled") is False
+                and report.get("cloud_sync_off") is True
+                and report.get("api_key_output") is False
+                and os.path.lexists(self.home / CREDENTIALS_FILE),
+                "restored_device_sign_in")
+
     def disconnect(self):
-        """Remove the copied credentials once the daemon is down, so a retained
-        runner home never keeps an API key."""
-        if self.cloud_credentials is not None:
+        """Remove the saved credentials once the daemon is down, so a retained
+        runner home never keeps an API key. The device id file stays, so the
+        next boot registers the same restored device again."""
+        if self.cloud_credentials is not None or self.device_sign_in:
             (self.home / CREDENTIALS_FILE).unlink(missing_ok=True)
 
-    def start(self, *, shared_schema=None, storage_inventory=False):
+    def start(self, *, shared_schema=None, storage_inventory=False, sign_in=True):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
-        self.connect()
+        require(type(sign_in) is bool, "sign_in_flag")
+        if sign_in:
+            self.connect()
+        elif self.device_sign_in:
+            require(not os.path.lexists(self.home / CREDENTIALS_FILE), "unsigned_boot_has_credentials")
         self.offline()
         self.programs.verify()
         # Native timing requires isolated-copy admission. Only the retention
@@ -330,6 +367,21 @@ class OwnedNode:
         self.health()
         summary["health_checked"] = True
         return summary
+
+    def verify_file_needs_sign_in(self, baseline):
+        """A file read before sign-in. The body is the sign-in sentence."""
+        target = {"schema": baseline["schema"], "key": {"hash": baseline["records"][0]["id"]},
+                  "placement": "blob"}
+        try:
+            response, connection = self.call("/api/db/fetch-blob", target, binary=True)
+        except OperationError as error:
+            refusal = error.socket_refusal or {}
+            require(str(error) == "socket_http_status" and refusal.get("status") == 503
+                    and refusal.get("reason") == "sign_in_required",
+                    "file_read_before_sign_in")
+            return "sign_in_required"
+        connection.close()
+        raise OperationError("file_read_before_sign_in")
 
     def verify_file_released(self, baseline):
         """The record still holds its marker (checked above), so a 404 here is

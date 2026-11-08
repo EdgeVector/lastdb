@@ -13,31 +13,50 @@ use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReadItem, BlobReadRequest};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::{Destination, Version};
 use cloud_backup_protocol::{AccountId, CloudScope};
-use fold_db::fold_db_core::{BlobFetch, RecordBlobSource};
+use fold_db::fold_db_core::{BlobFetch, RecordBlobSource, SIGN_IN_TO_FETCH_FILE};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 
-/// Register the cloud source on the host's database when this home has saved
-/// cloud credentials. A dedicated shared database home and a home without
-/// credentials keep no source, so a missing file stays a local error there.
+/// Register the source a personal home uses for a record file that is not
+/// local. Saved credentials install the cloud source. A personal home with
+/// no saved credentials installs a source that tells the owner to sign in.
+/// A dedicated shared home, and a home whose credential file cannot be read,
+/// keep no source.
 pub fn register_blob_source(host: &crate::host::Host) {
     let runtime = host.db.db_ops().native_runtime();
     if runtime.is_dedicated_shared_home() {
         return;
     }
-    let source = match blob_source(host) {
-        Ok(source) => source,
+    let source: Arc<dyn RecordBlobSource> = match blob_source(host) {
+        Ok(source) => Arc::new(source),
         Err(reason) => {
-            tracing::debug!(
-                target: "lastdbd::blob_source",
-                %reason,
-                "record files download on request is off"
-            );
-            return;
+            if credentials_absent(&host.home) {
+                Arc::new(SignInRequired)
+            } else {
+                tracing::debug!(
+                    target: "lastdbd::blob_source",
+                    %reason,
+                    "record files download on request is off"
+                );
+                return;
+            }
         }
     };
-    let source: Arc<dyn RecordBlobSource> = Arc::new(source);
     host.db.set_record_blob_source(Some(source));
+}
+
+fn credentials_absent(home: &std::path::Path) -> bool {
+    matches!(crate::cloud::load_saved_credentials(home), Ok(None))
+}
+
+/// A personal home that has not signed in. The fetch does not call the cloud.
+struct SignInRequired;
+
+#[async_trait]
+impl RecordBlobSource for SignInRequired {
+    async fn fetch(&self, _path: &BlobPath, _sealed_bytes: u64) -> BlobFetch {
+        BlobFetch::Unavailable(SIGN_IN_TO_FETCH_FILE.to_owned())
+    }
 }
 
 fn blob_source(host: &crate::host::Host) -> Result<CloudBlobSource, String> {
