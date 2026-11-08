@@ -46,7 +46,7 @@ pub async fn backup_stopped(
     home: &Path,
     request: StoppedBackupRequest,
 ) -> Result<StoppedBackupReport> {
-    run_stopped(home, request, ordinary_source).await
+    run_stopped(home, &Store::base(home), request, ordinary_source).await
 }
 
 /// Publish a cleanly stopped publication home through the ordinary V2 snapshot worker.
@@ -63,7 +63,10 @@ pub(crate) async fn backup_publication_stopped(
         stopped_pid: session.pid,
         stopped_start_ts: session.start_ts,
     };
-    run_stopped(home, request, |home, _| {
+    // The ordinary local writer has a different identity from the cloud owner.
+    // Keep its personal backup status and saved jobs separate from publication.
+    let base = home.join("data/cloud-share-backup-v2");
+    run_stopped(home, &base, request, |home, _| {
         Ok((Source::from_publication_stopped(home, identity)?, client))
     })
     .await
@@ -92,6 +95,7 @@ fn ordinary_source(
 
 async fn run_stopped(
     home: &Path,
+    base: &Path,
     request: StoppedBackupRequest,
     open: impl FnOnce(&Path, &StoppedBackupRequest) -> Result<(Source, ByteBackupClient)>,
 ) -> Result<StoppedBackupReport> {
@@ -99,8 +103,8 @@ async fn run_stopped(
     if super::automatic::reserved(&request.request_id) {
         return Err(BackupError::Invalid);
     }
-    let permit = Store::lock(home)?;
-    super::control::ensure_previous(home, &request.request_id)?;
+    let permit = Store::lock_at(base)?;
+    super::control::ensure_previous_at(base, &request.request_id)?;
     let (source, client) = open(home, &request)?;
     let endpoint = client.canonical_endpoint();
     if source.publication_stream.is_some() {
@@ -117,7 +121,7 @@ async fn run_stopped(
     } else {
         super::automatic::check_stopped(home, &source, &endpoint)?;
     }
-    let store = Store::open(home, &request.request_id)?;
+    let store = Store::open_at(base, &request.request_id)?;
     manifest::same(&store, "stopped-session.json", &request)?;
     let mut saved: Saved = store
         .state()?

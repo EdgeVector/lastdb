@@ -199,13 +199,17 @@ fn bind_work(
 }
 
 pub(super) fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
-    let Some(previous) = Store::active(home)? else {
+    ensure_previous_at(&Store::base(home), id)
+}
+
+pub(super) fn ensure_previous_at(base: &std::path::Path, id: &Id) -> Result<()> {
+    let Some(previous) = Store::active_at(base)? else {
         return Ok(());
     };
     if &previous == id {
         return Ok(());
     }
-    let saved = store::state(home, &previous)?.ok_or(BackupError::Invalid)?;
+    let saved = store::state_at(base, &previous)?.ok_or(BackupError::Invalid)?;
     if !saved.terminal() {
         return Err(BackupError::Busy);
     }
