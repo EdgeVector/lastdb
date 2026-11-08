@@ -11,7 +11,7 @@ use super::*;
 /// (and projects the durable rollup through the same list). So a phase the
 /// daemon reports but the CLI has no field for is dropped on both paths, and
 /// a dropped phase renders byte-identically to a phase measured at zero. An
-/// operator reading `cas_precondition` as absent concludes "that check costs
+/// operator reading `index_wait` as absent concludes "that check costs
 /// nothing" — the exact opposite of what the daemon measured.
 ///
 /// The remedy is not a version comparison (versions are opaque strings, and
