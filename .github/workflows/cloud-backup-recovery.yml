@@ -3,8 +3,8 @@ name: Cloud backup recovery
 # Real DEV operations: generated current-format recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
 # Explicit baseline maintenance cuts and verifies a replacement protected
-# point and updates its two inputs. Both ordinary recovery selections seed
-# a new source and prove its own Backup V2 chain.
+# point and updates its two inputs. The fresh-v2 selection seeds a new
+# source and proves its own Backup V2 chain.
 # The manual shared-recovery mode uses a separate preadmitted two-device DEV
 # scope. It never moves a V2 baseline or asks for cloud cleanup.
 # Shared-multiwriter uses its own preadmitted seven-device DEV scope.
@@ -41,10 +41,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "recovery or fresh-v2 = current-format generated source and restore; baseline = explicit baseline maintenance; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-retention = shared disk retention and restore; shared-readback = verify a retained two-writer cut."
+        description: "fresh-v2 = current-format generated source and restore; baseline = explicit baseline maintenance; writer-check = credential metadata; shared-recovery = new two-writer cut; shared-multiwriter = seven-writer cut and restore; shared-retention = shared disk retention and restore; shared-readback = verify a retained two-writer cut."
         type: choice
-        options: [recovery, fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-retention, shared-readback]
-        default: recovery
+        options: [fresh-v2, baseline, writer-check, shared-recovery, shared-multiwriter, shared-retention, shared-readback]
+        default: fresh-v2
       automatic_sync:
         description: "Verify automatic upload, peer download and snapshots with running shared devices; shared-multiwriter only."
         type: boolean
@@ -144,7 +144,7 @@ jobs:
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'recovery' || inputs.mode == 'fresh-v2' || inputs.mode == 'baseline')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.mode == 'fresh-v2' || inputs.mode == 'baseline')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 16
@@ -227,7 +227,7 @@ jobs:
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase startup \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json"
       - name: Run Backup V2 recovery from a fresh generated source
-        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
+        if: env.RUN_MODE == 'fresh-v2'
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
@@ -244,7 +244,7 @@ jobs:
             --output "$RUNNER_TEMP/cloud-backup-recovery"
       - name: Retain successful CI stream ownership
         id: ci-stream-artifact
-        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
+        if: env.RUN_MODE == 'fresh-v2'
         uses: actions/upload-artifact@v7
         with:
           name: cloud-ci-stream-${{ github.run_id }}-${{ github.run_attempt }}
@@ -252,7 +252,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Save durable CI ownership before this run ends
-        if: env.RUN_MODE == 'recovery' || env.RUN_MODE == 'fresh-v2'
+        if: env.RUN_MODE == 'fresh-v2'
         env:
           GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
