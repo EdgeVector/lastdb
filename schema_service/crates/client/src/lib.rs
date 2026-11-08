@@ -73,7 +73,7 @@ pub fn validate_shared_surface_request_pub(
 /// (200 with `AlreadyExists`-shaped body, or 201 with `Added` / `Expanded`)
 /// or it refused with a 409 because the `descriptive_name` is already bound
 /// to a different active canonical. Returned from
-/// [`SchemaServiceClient::add_schema_typed`].
+/// [`SchemaServiceClient::add_schema_with_shared_surface`].
 ///
 /// `Accepted` boxes its `AddSchemaResponse` for the same reason
 /// the response carries a full `Schema` (~1KB) while `Conflict` is only ~72
@@ -107,7 +107,6 @@ struct AddSchemaOptions<'a> {
     fallback_reason: Option<&'a str>,
     offer_to_shared_discovery: bool,
     shared_surface: Option<SharedSurfaceMetadata>,
-    schema_claim_auth: Option<SchemaClaimAuth>,
 }
 
 /// Client for communicating with the schema service `/v1/*` API.

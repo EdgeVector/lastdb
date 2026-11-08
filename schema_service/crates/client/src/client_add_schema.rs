@@ -3,74 +3,6 @@
 use super::*;
 
 impl SchemaServiceClient {
-    /// Add a schema definition to the schema service.
-    ///
-    /// Returns the typed `AddSchemaResponse` for 2xx outcomes. Collapses a
-    /// 409 `DescriptiveNameConflict` into a `FoldDbError::Config` whose
-    /// message includes the conflicting descriptive_name and the existing
-    /// canonical hash, so legacy callers that only want a yes/no answer keep
-    /// working. Callers that need to distinguish the conflict (UIs, CLI
-    /// error mapping) should use [`Self::add_schema_typed`] instead.
-    ///
-    /// Retries up to 3 times on transient failures (connect errors, timeouts,
-    /// 5xx responses). Does NOT retry on 4xx responses including 409 CONFLICT
-    /// or on deserialization failures.
-    pub async fn add_schema(
-        &self,
-        schema: &Schema,
-        mutation_mappers: HashMap<String, String>,
-    ) -> FoldDbResult<AddSchemaResponse> {
-        self.add_schema_with_match_source(schema, mutation_mappers, "direct", None)
-            .await
-    }
-
-    pub async fn add_schema_with_match_source(
-        &self,
-        schema: &Schema,
-        mutation_mappers: HashMap<String, String>,
-        schema_match_source: &str,
-        fallback_reason: Option<&str>,
-    ) -> FoldDbResult<AddSchemaResponse> {
-        match self
-            .add_schema_typed_with_match_source(
-                schema,
-                mutation_mappers,
-                schema_match_source,
-                fallback_reason,
-            )
-            .await?
-        {
-            AddSchemaOutcome::Accepted(response) => Ok(*response),
-            AddSchemaOutcome::Conflict(c) => Err(FoldDbError::Config(format!(
-                "schema service refused duplicate descriptive_name '{}': \
-                 an Approved schema with identity_hash '{}' is already registered. \
-                 Reason: {}. Rename the new schema or reuse the existing one.",
-                c.descriptive_name, c.existing_canonical, c.reason
-            ))),
-        }
-    }
-
-    pub async fn add_schema_typed_with_match_source(
-        &self,
-        schema: &Schema,
-        mutation_mappers: HashMap<String, String>,
-        schema_match_source: &str,
-        fallback_reason: Option<&str>,
-    ) -> FoldDbResult<AddSchemaOutcome> {
-        self.add_schema_typed_inner(
-            schema,
-            mutation_mappers,
-            AddSchemaOptions {
-                schema_match_source,
-                fallback_reason,
-                offer_to_shared_discovery: false,
-                shared_surface: None,
-                schema_claim_auth: None,
-            },
-        )
-        .await
-    }
-
     /// Register a schema with an explicit shared-surface envelope.
     ///
     /// Sets `offer_to_shared_discovery = true` and attaches
@@ -95,7 +27,6 @@ impl SchemaServiceClient {
                     fallback_reason,
                     offer_to_shared_discovery: true,
                     shared_surface: Some(shared_surface),
-                    schema_claim_auth: None,
                 },
             )
             .await?
@@ -134,12 +65,7 @@ impl SchemaServiceClient {
         })?;
 
         with_retries(|| async {
-            let mut builder = self.client.post(&url);
-            if let Some(auth) = &options.schema_claim_auth {
-                builder = builder
-                    .header("X-Exemem-Dev-Cert", &auth.cert_b64)
-                    .header("X-Signature", &auth.signature_b64);
-            }
+            let builder = self.client.post(&url);
             let response = observability::propagation::inject_w3c(builder.json(&request))
                 .send()
                 .await
@@ -177,7 +103,6 @@ impl SchemaServiceClient {
                         &request,
                         &schema_payload,
                         schema.owner_app_id.as_deref(),
-                        &options.schema_claim_auth,
                         &body,
                     )
                     .await;
@@ -199,7 +124,6 @@ impl SchemaServiceClient {
         request: &AddSchemaRequest,
         schema_payload: &serde_json::Value,
         owner_app_id: Option<&str>,
-        claim_auth: &Option<SchemaClaimAuth>,
         first_body: &str,
     ) -> Result<AddSchemaOutcome, RetryError> {
         let Some(identity) = self.node_identity.as_ref() else {
@@ -211,7 +135,7 @@ impl SchemaServiceClient {
             .solve_schema_pow(identity, schema_payload, owner_app_id)
             .await
             .map_err(RetryError::Permanent)?;
-        let mut retry_builder = self
+        let retry_builder = self
             .client
             .post(url)
             .header(HEADER_NODE_PUBLIC_KEY, &identity.public_key_b64)
@@ -228,11 +152,6 @@ impl SchemaServiceClient {
                 headers.expires_at_unix_secs.to_string(),
             )
             .header(HEADER_POW_COUNTER, headers.counter.to_string());
-        if let Some(auth) = claim_auth {
-            retry_builder = retry_builder
-                .header("X-Exemem-Dev-Cert", &auth.cert_b64)
-                .header("X-Signature", &auth.signature_b64);
-        }
         let retry = observability::propagation::inject_w3c(retry_builder.json(request))
             .send()
             .await

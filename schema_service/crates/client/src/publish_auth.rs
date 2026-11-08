@@ -106,9 +106,3 @@ pub(crate) fn sign_schema_claim(
     })?;
     Ok(BASE64.encode(bytes))
 }
-
-#[derive(Debug, Clone)]
-pub(crate) struct SchemaClaimAuth {
-    pub(crate) cert_b64: String,
-    pub(crate) signature_b64: String,
-}

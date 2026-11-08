@@ -68,7 +68,7 @@ impl SchemaServiceClient {
 
     /// Resolve proposed schemas against the service registry without mutating it.
     ///
-    /// This is the read-only cache-miss companion to `add_schema`: the service
+    /// This is the read-only cache-miss companion to `POST /v1/schemas`: the service
     /// returns reuse/novel/refresh advice but does not create schemas or update
     /// shared discovery state.
     pub async fn resolve_schemas(
