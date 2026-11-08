@@ -4,11 +4,14 @@ use super::*;
 use crate::durability::sync_dirty_file;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
 /// Every published home can enter read-only admission before a writer opens.
 pub(super) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
-    fs::create_dir(dir.join(RUNS))?;
+    // `create_dir` uses 0o777 masked by umask. A 0o022 umask leaves this
+    // directory group-readable, and the restore proof rejects that. The
+    // parent home is already 0o700.
+    fs::DirBuilder::new().mode(0o700).create(dir.join(RUNS))?;
     let lock = OpenOptions::new()
         .write(true)
         .create_new(true)
