@@ -131,6 +131,17 @@ def cli_refusal(stderr, exit_code, command=None):
         return result
     message = errors[0]
     result["error_head"] = error_head(message)
+    # `<route> returned HTTP/1.1 <status> <reason>: <body>` from a node route.
+    routed = re.match(rb"(/api/[a-z0-9/-]{1,64}) returned HTTP/1\.1 ([0-9]{3})[^:]*: (.*)", message)
+    if routed:
+        result["route"] = routed[1].decode("ascii")
+        result["http_status"] = int(routed[2])
+        try:
+            body = decode_json(routed[3])
+        except OperationError:
+            body = None
+        detail = body.get("error") if isinstance(body, dict) else None
+        result["error_head"] = error_head(detail.encode()) if isinstance(detail, str) else None
     snapshot_http = re.fullmatch(rb"shared snapshot returned HTTP/1.1 ([0-9]{3}) [^:]+: (.{1,4096})", message)
     if snapshot_http:
         result["snapshot_http_status"] = int(snapshot_http[1])
