@@ -21,7 +21,9 @@ pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETEN
 pub(in crate::storage) use portable_author::{
     initial_local_author, shared_metadata_key, validate_local_author, LOCAL_AUTHOR_KEY,
 };
-pub(crate) use portable_author::{AuthoredStamp, CheckpointDirectory, InboxWindow, JournalSchema};
+pub(crate) use portable_author::{
+    AuthoredStamp, CheckpointDirectory, DefinitionSet, InboxWindow, JournalSchema,
+};
 pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
 
 #[derive(Clone)]

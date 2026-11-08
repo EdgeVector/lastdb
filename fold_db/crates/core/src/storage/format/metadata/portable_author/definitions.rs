@@ -2,15 +2,138 @@
 //! shared records, so a snapshot carries the definition of every shared alias.
 
 use super::outgoing::entry_key;
-use super::{invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata, DEFINITION_PREFIX};
+use super::{
+    invalid, EncodedMetadata, JournalSchema, LocalAuthor, Metadata, DEFINITION_PREFIX,
+    VERSIONS_PREFIX,
+};
 use crate::storage::error::StorageResult;
 use lastdb_model::portable_mutation::{
     MutationEntry, MutationOperation, SchemaIdentity, Stamp, StreamId,
 };
-use schema_types::PortableSchemaDefinition;
-use std::collections::BTreeMap;
+use schema_types::{PortableSchemaDefinition, PortableSchemaId};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Every definition one shared name accepted, and the one it holds now
+/// (`decision-2026-11-07-lastdb-schema-name-slot-definition-per-record`).
+/// The accepted definitions include the current one. A record keeps the ID
+/// of the definition it was written with, and any accepted ID binds to the
+/// name's schema.
+pub(crate) struct DefinitionSet {
+    pub(crate) current: PortableSchemaDefinition,
+    pub(crate) accepted: BTreeMap<PortableSchemaId, PortableSchemaDefinition>,
+}
+
+impl DefinitionSet {
+    pub(crate) fn new(
+        current: PortableSchemaDefinition,
+        accepted: impl IntoIterator<Item = PortableSchemaDefinition>,
+    ) -> Self {
+        let mut accepted: BTreeMap<_, _> = accepted
+            .into_iter()
+            .map(|definition| (definition.id().clone(), definition))
+            .collect();
+        accepted.insert(current.id().clone(), current.clone());
+        Self { current, accepted }
+    }
+}
 
 impl Metadata {
+    /// The definitions of each alias in the shared scope, in one read. A name
+    /// that accepted one definition has no versions row.
+    pub(crate) async fn portable_definition_sets(
+        &self,
+    ) -> StorageResult<BTreeMap<String, DefinitionSet>> {
+        let aliases = self.runtime.shared_schema_aliases();
+        let keys = aliases
+            .iter()
+            .flat_map(|alias| [definition_key(alias), versions_key(alias)])
+            .map(String::into_bytes)
+            .collect();
+        let rows = self.metadata_store.get_many(keys).await?;
+        if rows.len() != aliases.len() * 2 {
+            return Err(invalid("incomplete shared schema definition read"));
+        }
+        let mut sets = BTreeMap::new();
+        for (alias, pair) in aliases.into_iter().zip(rows.chunks_exact(2)) {
+            let Some(current) = &pair[0] else {
+                continue;
+            };
+            let current = serde_json::from_slice(current).map_err(invalid)?;
+            let accepted: Vec<PortableSchemaDefinition> = match &pair[1] {
+                Some(bytes) => serde_json::from_slice(bytes).map_err(invalid)?,
+                None => Vec::new(),
+            };
+            sets.insert(alias, DefinitionSet::new(current, accepted));
+        }
+        Ok(sets)
+    }
+
+    /// Record the current and accepted definitions the caller verified.
+    pub(crate) async fn stage_definition_sets(
+        &self,
+        sets: &BTreeMap<String, DefinitionSet>,
+    ) -> StorageResult<()> {
+        self.require_scope()?;
+        let mut rows = Vec::with_capacity(sets.len() * 2);
+        for (alias, set) in sets {
+            rows.push(EncodedMetadata {
+                key: definition_key(alias),
+                bytes: encode(&set.current)?,
+            });
+            if set.accepted.len() > 1 {
+                let accepted: Vec<_> = set.accepted.values().collect();
+                rows.push(EncodedMetadata {
+                    key: versions_key(alias),
+                    bytes: encode(&accepted)?,
+                });
+            }
+        }
+        if rows.is_empty() {
+            return Ok(());
+        }
+        self.stage_batch(rows).await
+    }
+
+    /// The bound writer's schemas by alias. `None` when no writer is bound.
+    pub(crate) async fn portable_writer_bindings(
+        &self,
+    ) -> StorageResult<Option<BTreeMap<String, JournalSchema>>> {
+        Ok(self
+            .local_author()
+            .await?
+            .shared
+            .map(|shared| shared.schemas))
+    }
+
+    /// Bind aliases to the current definitions of their names. The stream
+    /// defines each new binding before its next record. A definition it
+    /// carried for an earlier binding is no longer one it binds.
+    pub(crate) async fn rebind_portable_schemas(
+        &self,
+        schemas: BTreeMap<String, JournalSchema>,
+    ) -> StorageResult<()> {
+        self.require_scope()?;
+        let mut state = self.local_author().await?;
+        let shared = state
+            .shared
+            .as_mut()
+            .ok_or_else(|| invalid("shared journal is not bound"))?;
+        for (alias, schema) in schemas {
+            *shared
+                .schemas
+                .get_mut(&alias)
+                .ok_or_else(|| invalid("a rebound shared alias is not bound"))? = schema;
+        }
+        let bound: BTreeSet<_> = shared
+            .schemas
+            .values()
+            .map(|schema| schema.id.clone())
+            .collect();
+        shared.defined.retain(|id| bound.contains(id));
+        shared.validate()?;
+        self.stage_local_author(&state).await
+    }
+
     /// The recorded definition of each alias in the shared scope.
     pub(crate) async fn portable_definitions(
         &self,
@@ -87,6 +210,21 @@ impl Metadata {
         }
         shared.validate()?;
         self.stage_local_author(&state).await
+    }
+
+    /// The bound alias whose name accepted the definition `id`.
+    pub(super) async fn accepting_alias(
+        &self,
+        bound: &BTreeMap<String, JournalSchema>,
+        id: &str,
+    ) -> StorageResult<String> {
+        let id: PortableSchemaId = id.parse().map_err(invalid)?;
+        self.portable_definition_sets()
+            .await?
+            .into_iter()
+            .find(|(alias, set)| bound.contains_key(alias) && set.accepted.contains_key(&id))
+            .map(|(alias, _)| alias)
+            .ok_or_else(|| invalid("outgoing schema has no admitted binding"))
     }
 
     /// The recorded definition of each admitted schema that this batch uses
@@ -171,7 +309,11 @@ fn definition_key(alias: &str) -> String {
     format!("{DEFINITION_PREFIX}{alias}")
 }
 
-/// Canonical bytes: the definition holds hash maps, and a JSON value orders keys.
-fn encode(definition: &PortableSchemaDefinition) -> StorageResult<Vec<u8>> {
+fn versions_key(alias: &str) -> String {
+    format!("{VERSIONS_PREFIX}{alias}")
+}
+
+/// Canonical bytes: a definition holds hash maps, and a JSON value orders keys.
+fn encode(definition: &impl serde::Serialize) -> StorageResult<Vec<u8>> {
     serde_json::to_vec(&serde_json::to_value(definition).map_err(invalid)?).map_err(invalid)
 }

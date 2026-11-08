@@ -41,8 +41,9 @@ impl MutationManager {
     }
 
     /// Admit more shared schemas to a bound writer. A schema this home lacks
-    /// installs under its canonical name. The writer's stream then defines
-    /// each new schema before its first record.
+    /// installs under its canonical name. A later definition of an admitted
+    /// name adds its fields to that name. The writer binds each name's current
+    /// definition, and its stream defines that before the name's next record.
     pub async fn admit_portable_schemas(
         &self,
         definitions: &[PortableSchemaDefinition],
@@ -53,22 +54,60 @@ impl MutationManager {
         self.install_portable_definitions(definitions).await?;
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let metadata = self.db_ops.metadata();
-            let recorded = metadata.portable_definitions().await?;
-            let admitted: BTreeMap<_, _> = recorded
-                .into_iter()
-                .filter(|(_, recorded)| {
-                    definitions
-                        .iter()
-                        .any(|definition| definition.id() == recorded.id())
-                })
-                .collect();
-            if admitted.len() != definitions.len() {
-                return Err(invalid("an admitted shared schema is not installed"));
+            let sets = metadata.portable_definition_sets().await?;
+            let mut admitted = BTreeMap::new();
+            for definition in definitions {
+                let (alias, set) = sets
+                    .iter()
+                    .find(|(_, set)| set.accepted.contains_key(definition.id()))
+                    .ok_or_else(|| invalid("an admitted shared schema is not installed"))?;
+                admitted.insert(alias.clone(), set.current.clone());
             }
             let bound = self.journal_schemas(&admitted).await?;
             metadata.admit_portable_schemas(bound).await
         })
         .await
+    }
+
+    /// Bind each of the writer's aliases to its name's current definition.
+    /// A record then names the definition that declares its fields, and the
+    /// stream defines that definition before the record.
+    pub(super) async fn follow_portable_definitions(&self) -> Result<(), SchemaError> {
+        let stale = self
+            .db_ops
+            .read_scope()
+            .await?
+            .run_result(self.stale_writer_bindings())
+            .await?;
+        if stale.is_empty() {
+            return Ok(());
+        }
+        transaction::request_scope(self.db_ops.native_runtime(), async {
+            let stale = self.stale_writer_bindings().await?;
+            if stale.is_empty() {
+                return Ok(());
+            }
+            let bound = self.journal_schemas(&stale).await?;
+            self.db_ops.metadata().rebind_portable_schemas(bound).await
+        })
+        .await
+    }
+
+    /// The current definition of each bound alias whose binding is older.
+    async fn stale_writer_bindings(
+        &self,
+    ) -> Result<BTreeMap<String, PortableSchemaDefinition>, SchemaError> {
+        let metadata = self.db_ops.metadata();
+        let Some(bound) = metadata.portable_writer_bindings().await? else {
+            return Ok(BTreeMap::new());
+        };
+        let mut current = metadata.portable_definitions().await?;
+        current.retain(|alias, definition| {
+            bound
+                .get(alias)
+                .is_some_and(|binding| binding.id != definition.id().as_str())
+        });
+        Ok(current)
     }
 
     /// Fingerprint each installed alias after its definition binds to it.

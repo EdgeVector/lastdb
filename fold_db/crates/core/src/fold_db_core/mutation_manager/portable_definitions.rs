@@ -4,6 +4,7 @@
 use super::{portable_schema::PortableReplaySchema, MutationManager};
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::DefinitionSet;
 use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,6 +18,23 @@ impl MutationManager {
             .await?
             .run_result(self.db_ops.metadata().portable_definitions())
             .await
+    }
+
+    /// Every definition each shared alias accepted, its current one included.
+    /// A shared record names one of them.
+    pub async fn portable_accepted_definitions(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<PortableSchemaDefinition>>, SchemaError> {
+        let sets = self
+            .db_ops
+            .read_scope()
+            .await?
+            .run_result(self.db_ops.metadata().portable_definition_sets())
+            .await?;
+        Ok(sets
+            .into_iter()
+            .map(|(alias, set)| (alias, set.accepted.into_values().collect()))
+            .collect())
     }
 
     /// Record definitions of schemas that a snapshot or an owner installed
@@ -58,53 +76,112 @@ impl MutationManager {
     }
 
     /// Install log definitions that this home lacks before their records
-    /// apply. Each takes its canonical name, which no schema here may use yet.
+    /// apply. A definition of a new name takes that name, which no schema here
+    /// may use yet. A later definition of a shared name joins the definitions
+    /// it accepted when it only adds fields
+    /// (`decision-2026-11-07-lastdb-schema-name-slot-definition-per-record`).
+    /// The name's schema becomes their current definition, and a bound
+    /// writer follows it.
     pub async fn install_portable_definitions(
         &self,
         definitions: &[PortableSchemaDefinition],
     ) -> Result<(), SchemaError> {
-        if definitions.is_empty() {
+        if !definitions.is_empty() {
+            transaction::request_scope(
+                self.db_ops.native_runtime(),
+                self.stage_log_definitions(definitions),
+            )
+            .await?;
+        }
+        // Its own request reads the schema the install published. It also
+        // completes an install that stopped before the writer followed.
+        self.follow_portable_definitions().await
+    }
+
+    async fn stage_log_definitions(
+        &self,
+        definitions: &[PortableSchemaDefinition],
+    ) -> Result<(), SchemaError> {
+        let metadata = self.db_ops.metadata();
+        let mut sets = metadata.portable_definition_sets().await?;
+        let mut changed = BTreeSet::new();
+        let mut added = BTreeMap::<String, Vec<PortableSchemaDefinition>>::new();
+        for definition in definitions {
+            definition
+                .verify(definition.id())
+                .map_err(SchemaError::InvalidData)?;
+            if sets
+                .values()
+                .any(|set| set.accepted.contains_key(definition.id()))
+            {
+                continue;
+            }
+            let name = definition.canonical_name();
+            let mut holders = sets
+                .iter_mut()
+                .filter(|(_, set)| set.current.canonical_name() == name);
+            match (holders.next(), holders.next()) {
+                (Some((alias, set)), None) => {
+                    set.accepted
+                        .insert(definition.id().clone(), definition.clone());
+                    changed.insert(alias.clone());
+                }
+                (None, _) => {
+                    let versions = added.entry(name.to_owned()).or_default();
+                    if versions.iter().all(|known| known.id() != definition.id()) {
+                        versions.push(definition.clone());
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    return Err(invalid("two shared aliases hold one shared schema name"));
+                }
+            }
+        }
+        let mut staged = BTreeMap::new();
+        let mut schemas = Vec::new();
+        for alias in changed {
+            let mut set = sets
+                .remove(&alias)
+                .ok_or_else(|| invalid("a changed shared alias has no definitions"))?;
+            let accepted: Vec<_> = set.accepted.values().cloned().collect();
+            let current = PortableSchemaDefinition::current_of(&accepted)
+                .map_err(SchemaError::InvalidData)?;
+            if current.id() != set.current.id() {
+                schemas.push(local_schema(&alias, &current)?);
+                set = DefinitionSet::new(current, accepted);
+            }
+            staged.insert(alias, set);
+        }
+        for (name, versions) in &added {
+            if sets.contains_key(name) || self.db_ops.schemas().get_schema(name).await?.is_some() {
+                return Err(invalid(
+                    "a shared schema definition names a schema already in this home",
+                ));
+            }
+            let current =
+                PortableSchemaDefinition::current_of(versions).map_err(SchemaError::InvalidData)?;
+            schemas.push(local_schema(name, &current)?);
+            staged.insert(name.clone(), DefinitionSet::new(current, versions.clone()));
+        }
+        if staged.is_empty() {
             return Ok(());
         }
-        transaction::request_scope(self.db_ops.native_runtime(), async {
-            let metadata = self.db_ops.metadata();
-            let recorded = metadata.portable_definitions().await?;
-            let mut known: BTreeSet<_> = recorded
-                .values()
-                .map(|definition| definition.id().clone())
-                .collect();
-            let mut added = BTreeMap::new();
-            let mut schemas = Vec::new();
-            for definition in definitions {
-                let wire = definition
-                    .verify(definition.id())
-                    .map_err(SchemaError::InvalidData)?;
-                if !known.insert(definition.id().clone()) {
-                    continue;
-                }
-                let alias = wire.name.clone();
-                if recorded.contains_key(&alias)
-                    || added.contains_key(&alias)
-                    || self.db_ops.schemas().get_schema(&alias).await?.is_some()
-                {
-                    return Err(invalid(
-                        "a shared schema definition names a schema already in this home",
-                    ));
-                }
-                schemas.push(Schema::from(wire.clone()));
-                added.insert(alias, definition.clone());
-            }
-            if added.is_empty() {
-                return Ok(());
-            }
-            metadata
-                .stage_shared_aliases(added.keys().map(String::as_str))
-                .await?;
-            metadata.stage_portable_definitions(&added).await?;
-            self.schema_manager.load_schema_batch(schemas).await
-        })
-        .await
+        metadata
+            .stage_shared_aliases(added.keys().map(String::as_str))
+            .await?;
+        metadata.stage_definition_sets(&staged).await?;
+        self.schema_manager.load_schema_batch(schemas).await
     }
+}
+
+/// The installed schema of a current definition under its local alias.
+fn local_schema(alias: &str, current: &PortableSchemaDefinition) -> Result<Schema, SchemaError> {
+    let mut local = current
+        .verify(current.id())
+        .map_err(SchemaError::InvalidData)?
+        .clone();
+    local.name = alias.to_owned();
+    Ok(Schema::from(local))
 }
 
 fn invalid(detail: &str) -> SchemaError {

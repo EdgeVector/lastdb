@@ -6,6 +6,8 @@ use std::{fmt, str::FromStr};
 
 use super::DeclarativeSchemaDefinition;
 
+mod versions;
+
 /// Immutable service identity of a complete portable definition.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]

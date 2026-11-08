@@ -85,6 +85,30 @@ pub(super) struct NativeWriter<'a> {
     keys: &'a RecoveryKeys,
 }
 
+/// A record names any definition its shared alias accepted. The checkpoint
+/// carries the earlier definitions of a name beside its current one.
+async fn add_accepted(
+    db: &FoldDB,
+    schemas: &mut BTreeMap<PortableSchemaId, SnapshotSchema>,
+) -> Result<()> {
+    let accepted = db
+        .mutation_manager()
+        .portable_accepted_definitions()
+        .await
+        .map_err(|_| RestoreError::Invalid("read shared schema definitions"))?;
+    for (local_schema, definitions) in accepted {
+        for definition in definitions {
+            schemas
+                .entry(definition.id().clone())
+                .or_insert_with(|| SnapshotSchema {
+                    local_schema: local_schema.clone(),
+                    definition,
+                });
+        }
+    }
+    Ok(())
+}
+
 impl<'a> NativeWriter<'a> {
     async fn open(
         stage: &Path,
@@ -132,10 +156,11 @@ impl<'a> NativeWriter<'a> {
             .record_portable_definitions(&recorded)
             .await
             .map_err(|_| RestoreError::Invalid("checkpoint schema binding"))?;
-        let admitted = schemas
+        let mut admitted: BTreeMap<_, _> = schemas
             .into_iter()
             .map(|schema| (schema.definition.id().clone(), schema))
             .collect();
+        add_accepted(&db, &mut admitted).await?;
 
         Ok(Self {
             stage: stage.to_path_buf(),
@@ -167,19 +192,7 @@ impl<'a> NativeWriter<'a> {
             .install_portable_definitions(&missing)
             .await
             .map_err(|_| RestoreError::Invalid("install shared tail schema definitions"))?;
-        let recorded = native
-            .portable_definitions()
-            .await
-            .map_err(|_| RestoreError::Invalid("read shared schema definitions"))?;
-        for (local_schema, definition) in recorded {
-            self.schemas
-                .entry(definition.id().clone())
-                .or_insert(SnapshotSchema {
-                    local_schema,
-                    definition,
-                });
-        }
-        Ok(())
+        add_accepted(&self.db, &mut self.schemas).await
     }
 
     async fn apply(

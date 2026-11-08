@@ -1,7 +1,8 @@
 use super::invalid;
 use crate::schema::SchemaError;
-use lastdb_model::portable_mutation::{MutationEntry, MutationOperation};
+use lastdb_model::portable_mutation::{MutationEntry, MutationOperation, SchemaIdentity};
 use lastdb_model::record_value::{FileMarker, InlineWrite, StoredRecord, RECORD_VALUE_VERSION};
+use schema_types::PortableSchemaId;
 use serde_json::{Map, Value};
 
 /// A replacement entry carries the bytes of its record's inline file, so the
@@ -36,6 +37,14 @@ pub(super) fn record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError>
                 .map_err(|_| invalid("portable record metadata differs from the record API"))
         })
         .transpose()?;
+    // A shared record keeps the definition its writer used.
+    let definition_id = match &entry.schema {
+        SchemaIdentity::Shared(id) => Some(
+            id.parse::<PortableSchemaId>()
+                .map_err(|_| invalid("a shared record names an invalid schema definition"))?,
+        ),
+        SchemaIdentity::Local(_) => None,
+    };
     Ok(StoredRecord {
         v: RECORD_VALUE_VERSION,
         key: primary_key.clone().into(),
@@ -55,6 +64,7 @@ pub(super) fn record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError>
         }),
         file_version: data.file.as_ref().map(|file| file.version.clone()),
         inline_file: data.inline_file.as_ref().map(|file| file.marker.clone()),
+        definition_id,
         deleted: false,
     })
 }

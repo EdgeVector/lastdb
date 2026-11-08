@@ -4,6 +4,7 @@ use super::{invalid, MutationManager, ReplayCandidate};
 use crate::db_operations::metadata_store::PortablePeerProgress;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::DefinitionSet;
 use cloud_backup_protocol::shared::peer::PeerHeads;
 use lastdb_model::portable_mutation::{
     MutationEntry, Position, SchemaIdentity, StreamId, StreamProgress,
@@ -21,16 +22,20 @@ pub struct PortablePeerWindow {
     pub candidates: Vec<MutationEntry>,
 }
 
-/// Recorded shared definitions by ID, with their local aliases.
+/// Every accepted shared definition by ID, with its local alias.
 struct Installed(BTreeMap<String, (String, PortableSchemaDefinition)>);
 
 impl Installed {
-    fn new(recorded: BTreeMap<String, PortableSchemaDefinition>) -> Self {
+    fn new(sets: BTreeMap<String, DefinitionSet>) -> Self {
         Self(
-            recorded
-                .into_iter()
-                .map(|(alias, definition)| {
-                    (definition.id().as_str().to_owned(), (alias, definition))
+            sets.into_iter()
+                .flat_map(|(alias, set)| {
+                    set.accepted.into_values().map(move |definition| {
+                        (
+                            definition.id().as_str().to_owned(),
+                            (alias.clone(), definition),
+                        )
+                    })
                 })
                 .collect(),
         )
@@ -162,7 +167,7 @@ impl MutationManager {
                 if window.ranges.is_empty() {
                     return Ok(None);
                 }
-                let installed = Installed::new(metadata.portable_definitions().await?);
+                let installed = Installed::new(metadata.portable_definition_sets().await?);
                 let plan = installed.plan(&window.ranges, &window.progress, window.cutoff)?;
                 Ok(Some(PortablePeerWindow {
                     definitions: plan
@@ -185,7 +190,13 @@ impl MutationManager {
         &self,
         entries: &[MutationEntry],
     ) -> Result<Vec<usize>, SchemaError> {
-        let installed = Installed::new(self.portable_definitions().await?);
+        let installed = Installed::new(
+            self.db_ops
+                .read_scope()
+                .await?
+                .run_result(self.db_ops.metadata().portable_definition_sets())
+                .await?,
+        );
         let candidates = installed.candidates(entries)?;
         self.portable_replay_needed(&candidates).await
     }
@@ -199,7 +210,7 @@ impl MutationManager {
         transaction::request_scope(self.db_ops.native_runtime(), async {
             let metadata = self.db_ops.metadata();
             let window = metadata.portable_inbox(streams).await?;
-            let installed = Installed::new(metadata.portable_definitions().await?);
+            let installed = Installed::new(metadata.portable_definition_sets().await?);
             let plan = installed.plan(&window.ranges, &window.progress, window.cutoff)?;
             if plan.definitions().iter().any(|entry| {
                 entry

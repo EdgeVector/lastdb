@@ -159,7 +159,16 @@ fn prepare_record(
         PortableEffect::Local
     };
     check_expectation(mutation, before.as_deref())?;
-    let after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
+    let mut after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
+    // A live shared record keeps the definition its log entry names.
+    if let Some(binding) = shared_schema.as_ref().filter(|_| after.is_live()) {
+        after.definition_id = Some(
+            binding
+                .id
+                .parse::<schema_types::PortableSchemaId>()
+                .map_err(SchemaError::InvalidData)?,
+        );
+    }
     Ok(RecordChange {
         key: address,
         before,
