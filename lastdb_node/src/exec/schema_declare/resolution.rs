@@ -36,7 +36,7 @@ pub(crate) fn declare_resolution_payload(
         .ok_or("declared schema has no catalog identity")?;
     let definition = schema_types::PortableSchemaDefinition::from_catalog(
         &catalog_id,
-        declare.catalog_schema.clone(),
+        declare.catalog_schema.to_wire(),
     )?;
     // Keep the adapter metadata for existing clients.
     let adapter = serde_json::json!({
