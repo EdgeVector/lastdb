@@ -65,7 +65,7 @@ impl RestoreSession {
         reader: &ByteBackupReader,
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
-        query: StagedRecordQuery<'_>,
+        query: &StagedRecordQuery<'_>,
     ) -> Result<(PathBuf, Option<StagedRecord>)> {
         if reader.guest_stream().is_none() {
             return Err(RestoreError::Invalid("guest reader"));

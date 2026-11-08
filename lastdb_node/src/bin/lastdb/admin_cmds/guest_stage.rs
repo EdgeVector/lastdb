@@ -53,7 +53,7 @@ pub(super) fn run(args: GuestStageArgs) -> Result<(), String> {
             _ => return Err("stage-guest requires either --into or --resume".into()),
         }
         .map_err(|error| error.to_string())?;
-        let (data, record) = match query {
+        let (data, record) = match query.as_ref() {
             Some(query) => {
                 session
                     .stage_guest_record(&reader, content_key, publisher, query)

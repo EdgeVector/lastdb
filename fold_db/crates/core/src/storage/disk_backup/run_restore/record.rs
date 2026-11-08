@@ -62,7 +62,7 @@ impl RunRestoreGuard {
     /// Read one primary key while the verified native root remains locked.
     pub fn read_staged_record(
         &self,
-        query: StagedRecordQuery<'_>,
+        query: &StagedRecordQuery<'_>,
         account_key: &[u8; 32],
     ) -> StorageResult<Option<StagedRecord>> {
         // One catalog row, two key bundle rows, one record and one inline row.
