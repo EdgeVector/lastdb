@@ -177,9 +177,8 @@ fn error_only_event_filter() -> FilterFn {
 /// disabled" so invalid host env (e.g. routines injecting a secret locator)
 /// never aborts `lastdbd` before the owner socket is bound.
 ///
-/// Secret locators must be resolved by a process wrapper (see
-/// `scripts/lastdbd/install-secondary-launch-agent.sh`); this binary never
-/// treats them as raw DSNs.
+/// Secret locators must be resolved by a process wrapper before lastdbd
+/// starts. This binary never treats them as raw DSNs.
 #[cfg(feature = "sentry")]
 pub fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
     let raw = raw.trim();
