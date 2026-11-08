@@ -42,11 +42,11 @@ def point(value, stream):
 
 def ownership(raw, run, baseline):
     value = decode_json(raw)
-    require(isinstance(value, dict) and set(value) - {"recipe"} == {
+    require(isinstance(value, dict) and set(value) == {
         "schema", "owner", "account", "account_generation", "stream_id",
         "observed_accepted_points", "verified_recovery_points", "source_stopped",
         "log_and_snapshot_recovery_passed", "complete_frozen_directory",
-        "provider_deletion_authority"}, "ci_history_receipt_fields")
+        "provider_deletion_authority", "recipe"}, "ci_history_receipt_fields")
     require(value["schema"] == "lastdb.cloud-ci-stream.v1" and value["owner"] == {
         "repository": REPOSITORY, "workflow": WORKFLOW, "source": run["head_sha"],
         "run_id": str(run["id"]), "run_attempt": str(run["run_attempt"])}, "ci_history_exact_owner")
@@ -65,8 +65,7 @@ def ownership(raw, run, baseline):
     require(len({item["commit_id"] for item in observed}) == len(observed)
             and len({item["commit_id"] for item in recovered}) == len(recovered)
             and all(item in observed for item in recovered), "ci_history_point_closure")
-    if "recipe" in value:
-        validate_recipe(value["recipe"], recovered, value["owner"]["source"])
+    validate_recipe(value["recipe"], recovered, value["owner"]["source"])
     return value
 
 
