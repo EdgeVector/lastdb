@@ -8,6 +8,21 @@
 //! of that job. The next run takes a full snapshot at once. Nothing is
 //! converted, and a failure leaves the version 2 file in place, so the next
 //! tick retries; backup is never turned off here.
+//!
+//! On a personal home the same step removes everything else that only the
+//! previous program used, by exact paths and never by a walk:
+//!
+//! - its saved snapshot capture of the older capture format (native);
+//! - its version 1 mutation log in the run home's log directory: the index,
+//!   each epoch that the index names, and the log captures (native);
+//! - the job directories that its policy names: the pending job, the job
+//!   waiting for cleanup and the last completed job, each only with the
+//!   job file names that a backup job writes;
+//! - `recovery.json` and `active.json` in the backup store, with their
+//!   pending copies.
+//!
+//! A dedicated shared home keeps all of this. Each removal repeats safely,
+//! and the version 3 policy is written last.
 
 use super::*;
 use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
@@ -32,6 +47,8 @@ struct Previous {
     state: PreviousState,
     #[serde(default)]
     pending: Option<PreviousPending>,
+    #[serde(default)]
+    cleanup: Option<Id>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +57,8 @@ struct PreviousState {
     revision: u64,
     log_interval_seconds: u64,
     snapshot_interval_seconds: u64,
+    #[serde(default)]
+    last_completed_request_id: Option<Id>,
 }
 
 #[derive(Deserialize)]
@@ -56,9 +75,24 @@ pub(super) fn retire(home: &Path, runtime: &PackRuntime) -> Result<()> {
     };
     let dropped = previous
         .pending
+        .as_ref()
         .map(|pending| pending.id.as_str().to_owned());
     if !runtime.is_dedicated_shared_home() {
         runtime.retire_previous_backup_capture(dropped.as_deref())?;
+        runtime.retire_previous_mutation_log()?;
+        let jobs = previous
+            .pending
+            .as_ref()
+            .map(|pending| &pending.id)
+            .into_iter()
+            .chain(previous.cleanup.as_ref())
+            .chain(previous.state.last_completed_request_id.as_ref());
+        for id in jobs {
+            super::cleanup::remove_previous_job(home, id)?;
+        }
+        for name in ["recovery.pending", "active.pending"] {
+            store::remove_owned(&base.join(name))?;
+        }
     }
     for name in ["recovery.json", "active.json"] {
         store::remove_owned(&base.join(name))?;

@@ -45,9 +45,12 @@ Only the presence of a marker matters.
    record wrote that row.
 3. A snapshot first queues every `fb:` row with neither `fu:` nor `fp:`. The
    first snapshot after the upgrade therefore uploads every local version.
-4. The job state keeps the plan as an index and pages of 64 frozen transfer
-   inputs, so a restart resumes the same transfer. A job takes at most
-   4096 versions; later ones wait for the next job.
+4. A job uploads every queued version; there is no limit on the number of
+   versions in one job. The job state keeps the plan as an index (with the
+   key cursor of the last planned page) and pages of 64 frozen transfer
+   inputs, so memory stays bounded and a restart resumes the same transfer.
+   A page whose uploads are done shrinks to the keys of its uploaded
+   versions. Each request still carries at most 64 paths.
 5. After the service accepts the job, the node writes `fu:` and removes
    `fp:` for each version with a verified receipt.
 
@@ -58,8 +61,10 @@ Only the presence of a marker matters.
    that retires it runs after the main publication that dropped it. That
    commit also writes `fr:` and removes `fu:` and `fp:`. A restored node has
    no `fb:` rows but still queues the releases of the versions it drops.
-2. A job plans its releases once, before its first capture, so every planned
-   release belongs to a write that the job's backup holds.
+2. A job plans all of its queued releases once, before its first capture,
+   so every planned release belongs to a write that the job's backup holds.
+   There is no limit on the number of releases in one job; the plan is paged
+   in the job store, and a restart continues it after its cursor.
 3. The job sends them to `blobs/release` in pages of at most 64 paths before
    it publishes. The service deletes the objects when it accepts the job.
 4. After acceptance the node removes the job's `fr:` rows.
@@ -93,6 +98,31 @@ The next run takes a full snapshot at once. A snapshot capture of an older
 capture format is released before a new capture starts. The new policy is
 written last, so a failed step leaves the old file and the next tick retries;
 the upgrade never turns automatic backup off.
+
+On a personal home the same retire step removes everything that only the
+previous program used, so nothing of version 2 stays on disk. Each removal
+uses an exact path, repeats safely, and runs before the version 3 policy is
+written:
+
+- the saved snapshot capture of the older capture format, its held run
+  files and the run intent of the dropped job;
+- the version 1 mutation log in the run home's `mutation-log-v1` directory:
+  its `captures` directory, each epoch directory that its `index.json`
+  names, then `index.json` and `index.pending` (the version 2 log in
+  `main-v2` is not touched);
+- the backup job directories that the version 2 policy names (the pending
+  job, the job waiting for cleanup and the last completed job), with only
+  the file names that a backup job writes;
+- `recovery.json` and `active.json` in the backup store, with their pending
+  copies.
+
+A dedicated shared home is left alone: only its policy file and its
+`recovery.json` and `active.json` are replaced, as before.
+
+Cloud points that the previous program published stay on the service until
+normal point retention removes them: after the first version 3 snapshot is
+accepted, the older points are no longer needed by any kept point and expire
+on the usual schedule. The upgrade does not delete cloud points itself.
 
 An older cloud backup carries the CAS home and is restored only by the
 program that wrote it. The first snapshot of the new program is the first
