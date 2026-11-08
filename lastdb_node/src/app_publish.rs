@@ -12,7 +12,7 @@ use app_identity_crypto::SigningKey;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use schema_service_core::app_identity::validate_app_version;
-use schema_service_core::snapshot::{AppArtifact, AppMetadata};
+use schema_service_core::snapshot::AppMetadata;
 use serde::Deserialize;
 use serde_json::{json, Value};
 

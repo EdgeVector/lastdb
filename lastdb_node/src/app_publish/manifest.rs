@@ -51,27 +51,17 @@ use fold_db::schema::ManifestRetention;
 ///   one shape can resolve to one catalog schema and then share one dataset.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppManifest {
-    /// Optional LastDB version constraint (semver-style, e.g. `>=0.23.0, <0.24.0`).
-    /// Checked at install time against the running `lastdb --version`.
-    #[serde(default, rename = "lastdb")]
-    pub lastdb_constraint: Option<String>,
     pub app_id: String,
     pub metadata: AppMetadata,
     pub version: String,
     #[serde(default)]
     pub source: Option<String>,
     #[serde(default)]
-    pub artifact: Option<AppArtifact>,
-    #[serde(default)]
-    pub uses: Vec<String>,
-    #[serde(default)]
     pub schemas: Vec<Value>,
     /// Contract surfaces this app depends on: "http" for HTTP API routes,
-    /// "outbox" for IndexChangeBatch format. Apps using the HTTP API (e.g.,
-    /// Brain, LastSecrets) declare `["http"]`. Apps consuming the outbox
-    /// (e.g., lastseek, Search) declare `["outbox"]`. Apps using both declare
-    /// `["http", "outbox"]`. When omitted, defaults to an empty list for
-    /// backward compatibility with old manifests.
+    /// "outbox" for IndexChangeBatch format. Apps using the HTTP API declare
+    /// `["http"]`. Apps consuming the outbox declare `["outbox"]`. Apps using
+    /// both declare `["http", "outbox"]`.
     #[serde(default)]
     pub contract_surfaces: Vec<String>,
     /// HTTP API version this app requires. For TypeScript apps using
@@ -85,13 +75,6 @@ pub struct AppManifest {
     /// they understand. Only relevant when `contract_surfaces` includes "outbox".
     #[serde(default)]
     pub outbox_format_version: Option<u32>,
-    /// The LastDB contract versions this app claims to work with, as
-    /// comma-separated comparators (`>=0.1.0-0, <0.2.0`). A release copies it
-    /// into its manifest, and the release verifier checks the release on each
-    /// supported contract version in the range. `release-publish` refuses a
-    /// manifest without one; other commands ignore it.
-    #[serde(default)]
-    pub contract_range: Option<String>,
 }
 
 pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
