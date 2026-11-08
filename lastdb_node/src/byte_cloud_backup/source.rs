@@ -13,6 +13,7 @@ pub(super) struct Source {
     pub source_home: Id,
     pub recovery: RecoveryDescriptor,
     pub key: Zeroizing<[u8; 32]>,
+    pub publication_stream: Option<Id>,
     pub retain_source_manifest: bool,
 }
 impl Source {
@@ -31,6 +32,7 @@ impl Source {
             },
             runtime,
             key: Zeroizing::new(keys.encryption_key()),
+            publication_stream: None,
             retain_source_manifest: false,
         })
     }
@@ -53,6 +55,31 @@ impl Source {
                 ))?,
             },
             key: Zeroizing::new(keys.encryption_key()),
+            publication_stream: None,
+            retain_source_manifest: true,
+        })
+    }
+
+    pub fn from_publication_stopped(
+        home: &std::path::Path,
+        identity: crate::share_publication::PublicationIdentity,
+    ) -> Result<Self> {
+        let runtime = fold_db::storage::disk_pack::open_backup_runtime(
+            &home.join("data"),
+            &identity.content_key,
+        )?;
+        Ok(Self {
+            source_home: Id::try_from(runtime.native_home_id().to_string())?,
+            runtime,
+            account: identity.account,
+            // Keep the ordinary native format. Guests supply the publication key
+            // separately instead of deriving the ordinary owner's content key.
+            recovery: RecoveryDescriptor {
+                profile: RecoveryProfile::MiniPortableV1,
+                account_public_key: identity.publisher,
+            },
+            key: identity.content_key,
+            publication_stream: Some(identity.id),
             retain_source_manifest: true,
         })
     }
@@ -86,7 +113,11 @@ impl Source {
             return Err(BackupError::Identity);
         }
         if let Some(begin) = &saved.begin {
-            if begin.required_destinations != [Destination::R2, Destination::B2] {
+            if begin.required_destinations != [Destination::R2, Destination::B2]
+                || self.publication_stream.as_ref().is_some_and(|id| {
+                    &begin.job.stream.stream_id != id || begin.r2_multipart.is_some()
+                })
+            {
                 return Err(BackupError::Identity);
             }
         }

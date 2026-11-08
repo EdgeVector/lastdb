@@ -133,7 +133,9 @@ async fn setup(
         },
         descriptor: ClientDescriptor::empty(),
         required_destinations: vec![Destination::R2, Destination::B2],
-        r2_multipart: env_flag::var_truthy("LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS").then_some(true),
+        r2_multipart: (source.publication_stream.is_none()
+            && env_flag::var_truthy("LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"))
+        .then_some(true),
         predecessor,
         // Declared so the service can retire points that no kept point needs.
         // Every deployed V2 service package accepts this field.
