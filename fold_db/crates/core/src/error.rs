@@ -17,9 +17,6 @@ pub enum FoldDbError {
     /// Errors related to database operations
     Database(String),
 
-    /// Errors related to permission checks
-    Permission(String),
-
     /// Errors related to configuration
     Config(String),
 
@@ -45,7 +42,6 @@ impl fmt::Display for FoldDbError {
         match self {
             Self::Schema(err) => write!(f, "Schema error: {err}"),
             Self::Database(msg) => write!(f, "Database error: {msg}"),
-            Self::Permission(msg) => write!(f, "Permission error: {msg}"),
             Self::Config(msg) => write!(f, "Configuration error: {msg}"),
             Self::Io(err) => write!(f, "IO error: {err}"),
             Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),

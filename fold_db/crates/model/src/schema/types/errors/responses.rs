@@ -3,24 +3,6 @@
 use super::SchemaError;
 
 impl SchemaError {
-    /// The discriminated `403 transport_not_attested` response body for a
-    /// [`Self::TransportNotAttested`] denial, byte-compatible with the body the
-    /// `OwnerVerbGate` middleware and the slice-3 owner verbs emit (clients key on `error == "transport_not_attested"`).
-    ///
-    /// Returns `None` for every other variant.
-    pub fn transport_not_attested_body(&self) -> Option<serde_json::Value> {
-        match self {
-            Self::TransportNotAttested { verb } => Some(serde_json::json!({
-                "ok": false,
-                "error": "transport_not_attested",
-                "verb": verb,
-                "message": "this data operation hit a governed namespace from an \
-                            unattested surface (bare loopback TCP); use the owner Unix socket / attested control plane and retry",
-            })),
-            _ => None,
-        }
-    }
-
     /// The discriminated `409 cas_conflict` response body for a
     /// [`Self::CasConflict`]. The HTTP layer renders this verbatim so a client
     /// (e.g. lastgit's ref-update path) can key on `error == "cas_conflict"`
@@ -80,15 +62,6 @@ impl SchemaError {
             })),
             _ => None,
         }
-    }
-
-    /// True when this error is the host running out of disk space.
-    ///
-    /// The reporting paths use this to keep an operator condition out of the
-    /// channels reserved for code faults.
-    #[must_use]
-    pub const fn is_storage_full(&self) -> bool {
-        matches!(self, Self::StorageFull { .. })
     }
 
     /// Discriminated `503 persist_queue_full` body. Clients retry after drain.
