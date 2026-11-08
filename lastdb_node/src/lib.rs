@@ -15,7 +15,6 @@ mod change_feed_queue;
 pub mod cloud;
 pub mod deliver;
 pub mod distribution;
-pub mod ephemeral;
 pub mod exec;
 pub mod host;
 pub mod jobs;
