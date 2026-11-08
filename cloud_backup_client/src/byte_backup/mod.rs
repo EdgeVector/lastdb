@@ -6,6 +6,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 mod access;
 mod blobs;
+mod guest_permission;
 mod jobs;
 mod publication;
 mod reader;
@@ -13,6 +14,7 @@ mod release;
 mod transfer;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};
+pub use guest_permission::{GuestReadPermission, ShareEnvironment};
 pub use reader::ByteBackupReader;
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 

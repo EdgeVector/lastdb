@@ -20,7 +20,7 @@ impl BackupTransport {
             .headers(headers)
             .header(header::CONTENT_TYPE, "application/json")
             .body(bytes);
-        let request = self.auth.apply_auth(request);
+        let request = self.apply_auth(request);
         tokio::time::timeout(self.timeout, async {
             let response = observability::propagation::inject_w3c(request)
                 .send()
