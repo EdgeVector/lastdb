@@ -75,9 +75,7 @@ pub mod backup_decode {
     pub const RECORD_BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
     /// Maximum decoded record JSON tree, half of `decoded_values_bytes`.
     pub const RECORD_JSON_TREE_MAX_BYTES: u64 = super::BACKUP_RESOURCES.decoded_values_bytes / 2;
-    /// Maximum directory record size, in bytes, for backup decode.
-    pub const DIRECTORY_MAX_BYTES: u64 = 4096;
-    /// Read allowance, in bytes, for a directory during backup decode.
+    /// Read allowance, in bytes, for account proof-key reads during restore.
     pub const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
     /// Read allowance, in bytes, for a record inventory.
     pub const RECORD_INVENTORY_READ_BYTES: u64 = 64 * 1024 * 1024;
@@ -87,8 +85,6 @@ pub mod backup_decode {
     pub const NATIVE_STREAM_LOOKUP_READ_BYTES: u64 = 128 * 1024 * 1024;
     /// Maximum native stream blocks considered during a lookup.
     pub const NATIVE_STREAM_BLOCKS: u64 = 16_384;
-    /// Memory bound, in bytes, for file-coverage state.
-    pub const FILE_COVERAGE_MEMORY_BYTES: usize = 8 * 1024 * 1024;
     /// Reserved bytes for one JSON page during backup decode.
     pub const JSON_PAGE_RESERVE_BYTES: u64 = 4 * 1024 * 1024;
     /// Reserved bytes for the restore spool.
@@ -105,19 +101,17 @@ pub mod backup_memory {
     use super::{backup_decode, BACKUP_RESOURCES};
     /// Buffers counted per stream when estimating the upload peak.
     pub const UPLOAD_BUFFERS_PER_STREAM: u64 = 6;
-    /// Estimated proof-phase peak: decoded values, key heads, directory and coverage state, and four stream buffers.
+    /// Estimated proof-phase peak: decoded values, key heads, proof-key reads, one JSON page, and four stream buffers.
     pub const PROOF_PEAK_BYTES: u64 = BACKUP_RESOURCES.decoded_values_bytes
         + backup_decode::PROOF_KEY_HEAD_BYTES
         + backup_decode::DIRECTORY_READ_BYTES
-        + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64
         + backup_decode::JSON_PAGE_RESERVE_BYTES
         + 4 * BACKUP_RESOURCES.stream_buffer_bytes;
-    /// Estimated upload-phase peak: stream buffers for every concurrent stream, plus page and coverage reserves.
+    /// Estimated upload-phase peak: stream buffers for every concurrent stream, plus page reserves.
     pub const UPLOAD_PEAK_BYTES: u64 = UPLOAD_BUFFERS_PER_STREAM
         * BACKUP_RESOURCES.concurrent_streams as u64
         * BACKUP_RESOURCES.stream_buffer_bytes
-        + 2 * backup_decode::JSON_PAGE_RESERVE_BYTES
-        + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64;
+        + 2 * backup_decode::JSON_PAGE_RESERVE_BYTES;
 }
 
 // A zero-sized stream buffer can return EOF without authentication. The crypto
