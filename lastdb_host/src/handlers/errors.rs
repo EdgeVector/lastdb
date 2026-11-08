@@ -69,13 +69,11 @@ impl From<SchemaError> for HostError {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
             SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
-            // A blocked schema maps to a content-free 400 for a non-owner.
-            SchemaError::Blocked(msg) => Self::new(400, msg.clone()),
-            // A caller-supplied resume cursor that names no key in the walked
-            // keyspace. Typed separately from `InvalidData` (which this
-            // codebase also uses for store failures) precisely so paging admin
-            // routes can answer 400 instead of a Sentry-promoting 500.
-            SchemaError::InvalidCursor(msg) => Self::new(400, msg.clone()),
+            // A blocked schema and a resume cursor that names no key are caller
+            // faults. A paging route answers 400 instead of a Sentry-promoting 500.
+            SchemaError::Blocked(msg) | SchemaError::InvalidCursor(msg) => {
+                Self::new(400, msg.clone())
+            }
             schema_err @ SchemaError::CasConflict { .. } => Self::new(
                 409,
                 schema_err
