@@ -65,9 +65,6 @@ impl InstallPlan {
         }
         let mut plan: Self = serde_json::from_value(value["install"].clone())
             .map_err(|e| format!("app needs an install manifest: {e}"))?;
-        if value["install"].get("uses").is_some() {
-            return Err("uses belongs at the top of the app manifest".into());
-        }
         plan.uses = serde_json::from_value(
             value
                 .get("uses")
