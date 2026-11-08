@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Retain native wait/commit clocks and render the CI writer investigation."""
+"""Retain native wait and commit clocks for the write gate."""
 
-import argparse
 from bisect import bisect_left
 import json
-import os
-from pathlib import Path
 from statistics import mean, median
 
 from node import save
@@ -63,77 +60,3 @@ def native_events(directory, cases):
                           "commit_slots_include_background": True,
                           "scope_phase_totals_overlap": False}
         save(directory / f"{case['name']}.json", case)
-
-
-def milliseconds(phases, name):
-    value = phases.get(name, {}).get("mean_us")
-    return f"{value / 1000:.3f}" if value is not None else "unreported"
-
-
-def render(output):
-    data = json.loads((output / "investigation.json").read_text())
-    if not data["complete"] or len(data["homes"]) != 7 or not all(h["complete"] for h in data["homes"]):
-        raise ValueError(f"Incomplete writer investigation: {data.get('error', 'missing homes')}")
-    lines = ["# Writer CPU and wait investigation", "",
-             f"Controller: `{data['controller_revision']}`. Historical driver: `{data['driver_revision']}`.",
-             f"Each fresh home has {data['records']} generated records. CPU capacity: {data['host_cpus']} cores.",
-             "A and B are the exact archived programs from the reported warning. The final A/shared home repeats the same executable.",
-             "Every client owns different keys. Separate schemas have disjoint canonical field identities.",
-             "All requests require durable acknowledgements and verified final values. Search stays off.",
-             "These focused homes do not replay the full nightly history. Native logging can affect timings.",
-             "Native cases disable stdio log rotation to retain complete numeric records; ordinary cases keep the product default.",
-             "Fixed-flight batch cases keep 16 records in flight: 16 clients × 1, 4 × 4, or 1 × 16. Latency is per whole RPC, never divided by batch size.",
-             "CPU counters describe one whole case, without adding overlapping per-request CPU intervals.",
-             "Native admission includes the global preparation gate and waits on a sealed durable queue.",
-             "Native phase averages describe all foreground storage scopes, including extra author-clock metadata scopes; they are not per-HTTP costs.",
-             "The HTTP request-clock count must equal the actual successful request count. Extra storage scopes remain explicit.",
-             "Missing native phases or disabled kernel scheduler counters remain unreported. Host pressure is correlation only.", "",
-             "| Home / case | Workers | Clients / batch | p95 ms | Records/s | Daemon CPU cores | Client CPU cores | Socket queue ms | Native admission ms | Logical preparation ms | Durable wait ms | HTTP / storage scopes | Requests/commit |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
-    physical = ["", "| Home / case | Commits | Commit mean ms | Largest physical phases ms |", "|---|---:|---:|---|"]
-    for home in data["homes"]:
-        directory = output / home["directory"]
-        cleanup = json.loads((directory / "cleanup.json").read_text())
-        if not cleanup["daemon_stopped"] or not cleanup["removed"]:
-            raise ValueError("A generated home lacks cleanup evidence")
-        for case in home["cases"]:
-            metrics = case["metrics"]
-            native = case.get("native", {})
-            phases = native.get("scope_phases", {})
-            process = case["process"]
-            label = f"{home['directory']} / {case['name']}"
-            request_count = native.get("requests_per_commit")
-            group_size = f"{request_count:.2f}" if request_count is not None else "unreported"
-            queue = f"{native['socket_queue_mean_us']/1000:.3f}" if native else "unreported"
-            scopes = f"{native['http_requests']} / {native['scopes']}" if native else "unreported"
-            lines.append(f"| {label} | {case['workers']} | {case['clients']} / {case['batch_records']} | "
-                         f"{metrics['p95_ms']:.3f} | {metrics['records_per_second']:.2f} | "
-                         f"{process['daemon']['average_cpu_cores']:.3f} | {process['client']['average_cpu_cores']:.3f} | "
-                         f"{queue} | "
-                         f"{milliseconds(phases, 'admission_us')} | {milliseconds(phases, 'logical_prepare_us')} | "
-                         f"{milliseconds(phases, 'durable_wait_us')} | {scopes} | {group_size} |")
-            if native:
-                largest = sorted(native["commit_phases"].items(), key=lambda pair: pair[1]["mean_us"], reverse=True)[:6]
-                details = ", ".join(f"{n}={v['mean_us']/1000:.3f}" for n, v in largest)
-                physical.append(f"| {label} | {native['commits']} | {native['commit_mean_us']/1000:.3f} | {details} |")
-    return "\n".join(lines + physical) + "\n"
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    try:
-        report, rc = render(args.output), 0
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        report, rc = f"# Writer investigation — incomplete\n\n{type(error).__name__}: {error}\n", 1
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "summary.md").write_text(report)
-    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
-        summary.write(report)
-    print(report)
-    return rc
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
