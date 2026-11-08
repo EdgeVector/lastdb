@@ -160,8 +160,7 @@ local embedding path.
 ### Schema service deploys
 
 [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) owns the
-CDK and the deploy scripts for the schema service (Lambda, fastembed layer,
-worker container image). It consumes this repository as a git submodule.
+CDK and the deploy scripts for the schema service (Lambda and fastembed layer). It consumes this repository as a git submodule.
 
 ### Downstream submodule pointer policy
 
