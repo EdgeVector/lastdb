@@ -1,11 +1,11 @@
 //! Local publication ownership. Cloud upload authority stays with the owner's home.
 use crate::byte_cloud_backup::connection::files::Directory;
-use cloud_backup_client::byte_backup::{ByteBackupClient, GuestReadPermission, ShareEnvironment};
+use cloud_backup_client::byte_backup::{
+    BackupTransportError, ByteBackupClient, ByteBackupReader, GuestReadPermission, ShareEnvironment,
+};
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::v2::{
-    context::ContextReadRequest,
-    publication::{HeadReadRequest, HeadReadResult},
-    Stream, Version,
+    context::ContextReadRequest, publication::HeadReadResult, Stream, Version,
 };
 use cloud_backup_protocol::{AccountId, Digest, Id};
 use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair};
@@ -152,21 +152,6 @@ pub async fn invite(
         scope: context.scope,
         stream_id: publication.id,
     };
-    let head = client
-        .head(&HeadReadRequest {
-            version: Version::V2,
-            stream: stream.clone(),
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-    match head {
-        HeadReadResult::Ok { response }
-            if response
-                .accepted
-                .as_ref()
-                .is_some_and(|p| p.begin.dependencies().is_empty()) => {}
-        _ => return Err("publish an independent backup before issuing a share invitation".into()),
-    }
     let expires = chrono::Utc::now() + chrono::Duration::hours(i64::from(lifetime_hours));
     let permission = GuestReadPermission::sign(
         stream,
@@ -176,6 +161,7 @@ pub async fn invite(
         |bytes| publication.signer.sign(bytes).to_bytes(),
     )
     .map_err(|e| e.to_string())?;
+    require_guest_head(&permission).await?;
     crate::share_invitation::seal_invitation(
         contact,
         &permission,
@@ -183,6 +169,25 @@ pub async fn invite(
         &publication.signer,
     )
     .map_err(|e| e.to_string())
+}
+
+async fn require_guest_head(permission: &GuestReadPermission) -> Result<(), String> {
+    // Exercise the recipient route before writing a file, including the service's
+    // independent-head check and the guest enablement of the selected issuer.
+    let read_permission =
+        GuestReadPermission::parse(permission.authorization()).map_err(|e| e.to_string())?;
+    let reader = ByteBackupReader::guest(read_permission).map_err(|e| e.to_string())?;
+    match reader.guest_head().await {
+        Ok(HeadReadResult::Ok { response }) if response.accepted.is_some() => Ok(()),
+        Ok(_) => Err("publish an independent backup before issuing a share invitation".into()),
+        Err(BackupTransportError::Protocol(e)) if e.field == "guest.independent_snapshot" => {
+            Err("the current share backup has dependencies; publish a full snapshot".into())
+        }
+        Err(BackupTransportError::Protocol(e)) if e.field == "guest.disabled" => {
+            Err("guest reads are disabled in this Exemem environment".into())
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 pub fn recipient(home: &Path) -> Result<crate::share_invitation::ShareRecipient, String> {
