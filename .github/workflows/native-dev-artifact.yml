@@ -57,7 +57,7 @@ jobs:
                   summary.write("- [{}]({})\n".format(name, check["url"]))
           '
           core="$(git show "$SOURCE_COMMIT:Cargo.toml" | python3 -c 'import re, sys, tomllib; value = tomllib.load(sys.stdin.buffer)["workspace"]["package"]["version"]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value); print(value)')"
-          version="$core-nightly.$(date -u +%Y%m%d).g${SOURCE_COMMIT:0:9}"
+          version="$core-nightly.$(date -u +%Y%m%d)-g${SOURCE_COMMIT:0:9}"
           printf 'source=%s\nversion=%s\nepoch=%s\n' "$SOURCE_COMMIT" "$version" \
             "$(git show -s --format=%ct "$SOURCE_COMMIT")" >> "$GITHUB_OUTPUT"
 
@@ -149,9 +149,27 @@ jobs:
             codesign --force --sign - "$bin/$binary"
             codesign --verify --strict "$bin/$binary"
           done
-          python3 scripts/release/nightly_package.py --target "$TARGET" --bin-dir "$bin" \
-            --out-dir "$RUNNER_TEMP/native-accepted-client" --git-oid "$SOURCE_COMMIT" \
-            --expect-version "$ACCEPTED_VERSION" --source-epoch "$ACCEPTED_EPOCH"
+          # Use the upgrade gate's -g version suffix with the same bundle format.
+          PYTHONPATH=scripts/release python3 -c '
+          import os
+          from pathlib import Path
+          from nightly_package import archive_pair, digest, validate_architecture, validate_pair, write_json
+          target = os.environ["TARGET"]
+          version = os.environ["ACCEPTED_VERSION"]
+          directory = Path("target") / target / "release"
+          binaries = validate_pair(directory, version)
+          validate_architecture(directory, target)
+          output = Path(os.environ["RUNNER_TEMP"]) / "native-accepted-client"
+          output.mkdir(mode=0o700)
+          bundle = output / f"lastdb-{target}.tar.gz"
+          archive_pair(bundle, directory, binaries, int(os.environ["ACCEPTED_EPOCH"]))
+          write_json(output / f"lastdb-{target}.manifest.json", {
+              "schema": "lastdb.mini.bundle.v1", "target": target, "version": version,
+              "source_git_oid": os.environ["SOURCE_COMMIT"], "binaries": binaries,
+              "artifact": {"file": bundle.name, "sha256": digest(bundle), "size": bundle.stat().st_size},
+              "platform": {"os": "darwin", "arch": "arm64"}, "signing": "ad-hoc",
+          })
+          '
       - id: accepted-artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
