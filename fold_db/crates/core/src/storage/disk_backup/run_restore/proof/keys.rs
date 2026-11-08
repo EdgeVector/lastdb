@@ -6,6 +6,7 @@ use crate::storage::format::control::{
 };
 use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
 use crate::storage::format::METADATA_NAMESPACE;
+use crate::storage::format::RECORDS_COLLECTION;
 use lastdb_storage_policy::backup_decode as budget;
 
 pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {
@@ -63,8 +64,5 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
 }
 
 fn native_coordinate(key: &[u8]) -> (String, String) {
-    (
-        native_routing::collection_for_key(key).to_owned(),
-        native_routing::encode(key),
-    )
+    (RECORDS_COLLECTION.to_owned(), native_routing::encode(key))
 }

@@ -9,10 +9,9 @@ impl PackKvStore {
     /// Same rows as [`Self::range_rows`], but a call that runs short of key
     /// budget returns the rows it has and `resume`, the last key it examined,
     /// instead of an error. It stops while `keys_per_row` keys for each row are
-    /// left, for the reads that the caller makes for those rows. `None` means the range ended. A
-    /// write scope, a range over more than one collection and a range that is
-    /// not UTF-8 read as `range_rows` does, and `resume` is the last row of a
-    /// full page.
+    /// left, for the reads that the caller makes for those rows. `None` means
+    /// the range ended. A write scope and a range that is not UTF-8 read as
+    /// `range_rows` does, and `resume` is the last row of a full page.
     pub(super) async fn range_rows_yielding(
         &self,
         start: &[u8],
@@ -20,10 +19,8 @@ impl PackKvStore {
         limit: usize,
         keys_per_row: usize,
     ) -> StorageResult<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
-        let collections = self.owned_range_collections(start, end);
         let simple = limit > 0
             && start < end
-            && collections.len() == 1
             && std::str::from_utf8(start).is_ok_and(|text| !text.starts_with("b64:"))
             && std::str::from_utf8(end).is_ok()
             && transaction::PendingBatch::current(&self.runtime).is_none();
@@ -34,11 +31,11 @@ impl PackKvStore {
                 .flatten();
             return Ok((rows, resume));
         }
+        let collection = native_routing::collection_for_namespace(&self.namespace).to_string();
         let (start, end) = (start.to_vec(), end.to_vec());
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let observed = Arc::clone(&context);
-        let collection = collections.into_iter().next().expect("one collection");
         let result = run_blocking(move || {
             let (rows, resume) = runtime.raw_rows_yielding(
                 &context,
