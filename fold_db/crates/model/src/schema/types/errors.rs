@@ -13,54 +13,15 @@ pub enum SchemaError {
     WriteResourceLimit {
         detail: String,
     },
-    /// A read selected a record that it cannot resolve.
-    /// This is a store failure, not an absent key or an optional field.
-    MissingSelectedRecord,
     /// Storage or decode failed after a read selected the stored record.
     StorageRead {
         detail: String,
     },
     InvalidField(String),
-    InvalidPermission(String),
-    InvalidTransform(String),
     InvalidData(String),
     /// A retired source needs a current snapshot before it can replay again.
     ReplayBeforeDeleteCutoff {
         cutoff_nanos: u64,
-    },
-    PermissionDenied(String),
-    /// A legacy owner-transport denial that re-pairing the caller's surface
-    /// would fix.
-    ///
-    /// Carried separately from [`Self::PermissionDenied`] so the HTTP layer can
-    /// render the discriminated `403 { error: "transport_not_attested", … }`
-    /// body the `OwnerVerbGate` middleware and slice-3 owner verbs return — the
-    /// SPA's `PairBrowserScreen` keys on that discriminator to fire the
-    /// re-pairing recovery flow (NB2). Other permission denials stay ordinary
-    /// [`Self::PermissionDenied`].
-    ///
-    /// `verb` is the request path/operation the denial was raised for (echoed in
-    /// the 403 body, mirroring the gate's `verb` field).
-    TransportNotAttested {
-        verb: String,
-    },
-    /// Transform exceeded its fuel budget (MDT-E). Carried separately from
-    /// `InvalidTransform` so the view resolver can recognize a fuel trap
-    /// and surface a `gas exceeded` cause string without parsing the
-    /// inner message — `max_gas` must fail identically on every device,
-    /// so mis-classifying a fuel trap as a generic execution error would
-    /// hide the canonical failure shape from the audit log.
-    TransformGasExceeded {
-        input_size: u64,
-    },
-    /// A `__registry_call` chain exceeded `MAX_REGISTRY_CALL_DEPTH`
-    /// (see `crate::view::registry_call`). Carried separately from
-    /// `InvalidTransform` for the same reason as `TransformGasExceeded`: a
-    /// self-referential or mutually-recursive call chain must fail with a
-    /// recognizable, stable shape rather than a stringly-typed message, so
-    /// the resolver/audit-log path can classify it without sniffing text.
-    TransformCallDepthExceeded {
-        max_depth: u32,
     },
     /// A compare-and-set (CAS) mutation's precondition did not match the
     /// current state at its key, so the node applied nothing. The loser of a
@@ -140,28 +101,12 @@ impl fmt::Display for SchemaError {
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
-            Self::MissingSelectedRecord => write!(f, "selected record has no readable body"),
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
-            Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),
-            Self::InvalidTransform(msg) => write!(f, "Invalid transform: {msg}"),
             Self::InvalidData(msg) => write!(f, "Invalid data: {msg}"),
             Self::ReplayBeforeDeleteCutoff { cutoff_nanos } => write!(f,
                 "replay_cutoff_requires_resync: original write time is missing or at/before {cutoff_nanos}; restore a current snapshot before replay"),
             Self::InvalidCursor(msg) => write!(f, "Invalid resume cursor: {msg}"),
-            Self::PermissionDenied(msg) => write!(f, "Permission denied: {msg}"),
-            Self::TransportNotAttested { verb } => write!(
-                f,
-                "transport not attested: a governed namespace was denied to an owner \
-                 context on an unattested transport (use the owner Unix socket / attested control plane, not bare loopback TCP) \
-                 for '{verb}'"
-            ),
-            Self::TransformGasExceeded { input_size } => {
-                write!(f, "Transform gas exceeded (input_size={input_size})")
-            }
-            Self::TransformCallDepthExceeded { max_depth } => {
-                write!(f, "Transform call depth exceeded (max_depth={max_depth})")
-            }
             Self::CasConflict {
                 schema,
                 key,

@@ -55,7 +55,6 @@ impl From<FoldDbError> for HostError {
     fn from(err: FoldDbError) -> Self {
         match &err {
             FoldDbError::Schema(schema_err) => Self::from(schema_err.clone()),
-            FoldDbError::Permission(msg) => Self::new(401, msg.clone()),
             FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => {
                 Self::new(400, msg.clone())
             }
@@ -69,28 +68,14 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
-            SchemaError::MissingSelectedRecord | SchemaError::StorageRead { .. } => {
-                Self::internal(err.to_string())
-            }
-            // Blocked and cross-app/isolation ACL denials (I3c) both map to a
-            // content-free 400 for a non-owner, matching the full node's
-            // HandlerError::BadRequest arm.
-            SchemaError::Blocked(msg) | SchemaError::PermissionDenied(msg) => {
-                Self::new(400, msg.clone())
-            }
-            SchemaError::InvalidPermission(msg) => Self::new(401, msg.clone()),
+            SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
+            // A blocked schema maps to a content-free 400 for a non-owner.
+            SchemaError::Blocked(msg) => Self::new(400, msg.clone()),
             // A caller-supplied resume cursor that names no key in the walked
             // keyspace. Typed separately from `InvalidData` (which this
             // codebase also uses for store failures) precisely so paging admin
             // routes can answer 400 instead of a Sentry-promoting 500.
             SchemaError::InvalidCursor(msg) => Self::new(400, msg.clone()),
-            schema_err @ SchemaError::TransportNotAttested { .. } => Self::new(
-                403,
-                schema_err
-                    .transport_not_attested_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
             schema_err @ SchemaError::CasConflict { .. } => Self::new(
                 409,
                 schema_err
