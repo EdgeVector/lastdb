@@ -15,7 +15,6 @@ import json
 import math
 import random
 import time
-import uuid
 
 # Mutations in one request. A key occurs at most once in a request.
 BATCH = 64
@@ -44,34 +43,23 @@ SCHEMAS = {
 }
 
 
-def schema_request(name, native=False):
+def schema_request(name):
     hash_field, range_field, fields = SCHEMAS[name]
-    request = {"isolated_copy": True, "schema": {
+    return {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": name, "descriptive_name": name,
         "schema_type": "HashRange",
-        "key": {"hash_field": hash_field, "range_field": range_field},
+        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
         "fields": list(fields),
         "field_types": {hash_field: "String", range_field: "String"},
         "field_descriptions": {field: f"disk v2 proof {field}" for field in fields}}}
-    if native:
-        request["schema"].pop("key")
-        request["schema"]["record_keys"] = {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}}
-    return request
 
 
-def batch_request(batch, native=False, caller_ids=False):
-    if native:
-        return {"mutations": [{"type": "mutation",
-            **({"mutation_id": str(uuid.uuid4())} if caller_ids else {}),
-            "schema": edit[1], "key_value": {"hash": edit[2][0], "range": edit[2][1]},
-            "record": edit.complete, "alternates": {}, "expected": None,
-            "mutation_type": "delete" if edit[0] == "delete" else "replace" if edit.existed else "create",
-            "durability": "durable"} for edit in batch]}
-    return {"mutations": [
-        {"type": "mutation", "schema": schema, "mutation_type": operation,
-         "durability": "durable", "key_value": {"hash": key[0], "range": key[1]},
-         "fields_and_values": fields}
-        for operation, schema, key, fields in batch]}
+def batch_request(batch):
+    return {"mutations": [{"type": "mutation",
+        "schema": edit[1], "key_value": {"hash": edit[2][0], "range": edit[2][1]},
+        "record": edit.complete, "alternates": {}, "expected": None,
+        "mutation_type": "delete" if edit[0] == "delete" else "replace" if edit.existed else "create",
+        "durability": "durable"} for edit in batch]}
 
 
 def query_request(schema, keys):

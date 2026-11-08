@@ -14,11 +14,11 @@ Seed writes are batched; complete verification uses one batch of known keys.
 Every logical update must receive a durable acknowledgement. Reopen verifies
 every generated record. These are actual CI daemon requests, not a fixture suite.
 
-The baseline currently uses the existing API and a payload-value CAS. The
+The baseline uses complete records and an acknowledged revision. The
 application measurement includes its keyed read, full reply, serialization and
 conditional full write. Request/response body counts exclude HTTP headers.
 Successful-update throughput uses the entire concurrent case wall duration.
-Unchanged read-only calls retain the same RPC timer on both APIs. Only schema
+Unchanged read-only calls retain the same RPC timer on both labels. Only schema
 and mutation preparation, plus reads explicitly preparing a complete replacement,
 enter the protocol adapter. Application cases keep the complete-flow outer timer
 on both labels, including JSON decoding, serialization and every physical RPC.
@@ -186,7 +186,6 @@ and candidate SHAs. An empty candidate uses the selected workflow revision.
 An empty baseline uses the candidate's first parent. All three recipes are available.
 The two revisions must differ. The plan rejects identical revisions before builds or cache restores.
 This prevents a baseline cache restore from replacing the fresh candidate at the same source path.
-Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
 Every measured home is a home in the current format on disk format v2, with blinded hashes and typed ranges.
@@ -484,8 +483,8 @@ The workload has no cloud, external file blobs, or crash-recovery phase.
 
 ### Whole-record protocol comparison
 
-Benchmark drivers explicitly opt into `record_protocol.py` for API 27 and later. Operational
-proofs do not use this adapter. The API 26 baseline keeps its original requests.
+Benchmark drivers explicitly opt into `record_protocol.py`. Operational
+proofs do not use this adapter.
 Current declarations carry explicit key definitions. Existing partial-edit logical
 workloads perform a batched client read, edit the complete record, supply explicit
 alternate addresses, and condition the replacement on its revision. The timer
@@ -501,7 +500,4 @@ keys in that matrix, so it does not measure contention. The existing concurrent
 logical workloads retain their read/edit and retry costs rather than presenting
 those operations as engine-only replacements.
 
-API 28 mutation requests omit caller IDs. The benchmark adapter consumes server IDs
-in input order from each receipt. Only historical API 27 baselines receive caller
-UUIDs; this translation is confined to the benchmark client. Replayed successful
-requests may fail their revision condition; no original-acknowledgement cache exists.
+Replayed successful requests may fail their revision condition; no original-acknowledgement cache exists.
