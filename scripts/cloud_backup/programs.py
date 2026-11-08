@@ -112,15 +112,12 @@ def command_words(command):
 
 
 def error_head(message):
-    """The leading static segments of an error chain. A segment with a digit,
-    slash, dot or other punctuation stops it, so ids, paths and numbers stay
-    out of the public log."""
-    segments = []
-    for segment in message.split(b": ")[:4]:
-        if not re.fullmatch(rb"[A-Za-z][A-Za-z _'-]{0,79}", segment):
-            break
-        segments.append(segment.decode("ascii"))
-    return ": ".join(segments) or None
+    """The leading static words of an error chain: the longest prefix of
+    letters, spaces, colons, hyphens, underscores and apostrophes, at most
+    160 bytes. The first digit, slash, dot or other punctuation ends it, so
+    ids, paths and numbers stay out of the public log."""
+    head = re.match(rb"[A-Za-z _:'-]{0,160}", message)[0].rstrip(b" :")
+    return head.decode("ascii") or None
 
 
 def cli_refusal(stderr, exit_code, command=None):
