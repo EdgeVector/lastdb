@@ -1,4 +1,4 @@
-//! Canonical env-flag truthy / falsy vocabulary for the fold monorepo.
+//! Canonical env-flag truthy vocabulary.
 //!
 //! Feature and gate flags used to reimplement ad-hoc parsers (`1`/`true` only
 //! in one crate, `1`/`true`/`yes`/`on` in another). Operators who set
@@ -6,20 +6,13 @@
 //!
 //! # Canonical vocabulary
 //!
-//! After `trim` + ASCII lowercasing:
-//!
-//! | Kind | Accepted values |
-//! |------|-----------------|
-//! | **Truthy** | `1`, `true`, `yes`, `on` |
-//! | **Falsy** | `0`, `false`, `no`, `off` |
-//!
-//! Whitespace around the value is ignored. Unrecognized non-empty strings are
-//! neither truthy nor falsy (`parse` returns `None`). Empty / missing env
-//! values are not truthy.
+//! After `trim` + ASCII lowercasing, a truthy value is `1`, `true`, `yes`, or
+//! `on`. Whitespace around the value is ignored. Unrecognized, empty, and
+//! missing values are not truthy.
 //!
 //! # Default-on / default-off semantics
 //!
-//! This crate only owns **recognition** of enablement strings. Callers still
+//! This crate only owns recognition of enablement strings. Callers still
 //! decide what happens when the variable is unset (default-off vs default-on).
 #![warn(missing_docs)]
 
@@ -35,48 +28,13 @@ pub fn truthy(raw: &str) -> bool {
     )
 }
 
-/// Returns `true` when `raw` is a canonical falsy flag value.
-///
-/// Accepts `0` / `false` / `no` / `off` (case-insensitive, surrounding
-/// whitespace ignored).
-#[must_use]
-pub fn falsy(raw: &str) -> bool {
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "0" | "false" | "no" | "off"
-    )
-}
-
-/// Parse a flag string into `Some(true)` / `Some(false)` / `None`.
-///
-/// Use this when the caller needs a tri-state (e.g. env override that keeps a
-/// product default when the value is unrecognized).
-#[must_use]
-pub fn parse(raw: &str) -> Option<bool> {
-    if truthy(raw) {
-        Some(true)
-    } else if falsy(raw) {
-        Some(false)
-    } else {
-        None
-    }
-}
-
 /// `true` when the process environment variable `name` is set to a truthy value.
 ///
 /// Missing or unreadable variables, empty strings, and unrecognized values all
-/// yield `false` (default-off). Does not change default-on semantics — callers
-/// that need default-on should use [`var_parse`] and supply their own default.
+/// yield `false` (default-off).
 #[must_use]
 pub fn var_truthy(name: &str) -> bool {
     std::env::var(name).ok().is_some_and(|v| truthy(&v))
-}
-
-/// Parse env var `name` as a tri-state bool, or `None` when unset / unreadable /
-/// unrecognized.
-#[must_use]
-pub fn var_parse(name: &str) -> Option<bool> {
-    std::env::var(name).ok().as_deref().and_then(parse)
 }
 
 /// Parse env var `name` as `T` after trimming whitespace, or `None` when unset,
