@@ -5,10 +5,18 @@ use cloud_backup_protocol::v2::{AcceptedBackup, Job};
 use cloud_backup_protocol::{Digest, Id};
 use reqwest::header::{HeaderMap, HeaderValue};
 
-/// Read one accepted backup through owner or explicitly granted recipient access.
+mod guest;
+
+/// Read accepted backups with owner, named recipient, or guest authority.
 pub struct ByteBackupReader {
     transport: BackupTransport,
-    recipient: Option<RecipientAccess>,
+    proof: ReadProof,
+}
+
+enum ReadProof {
+    Owner,
+    Recipient(RecipientAccess),
+    Guest(guest::GuestAccess),
 }
 
 struct RecipientAccess {
@@ -21,7 +29,7 @@ impl ByteBackupClient {
     pub fn reader(&self) -> ByteBackupReader {
         ByteBackupReader {
             transport: self.transport.clone(),
-            recipient: None,
+            proof: ReadProof::Owner,
         }
     }
 }
@@ -47,7 +55,7 @@ impl ByteBackupReader {
         header.set_sensitive(true);
         Ok(Self {
             transport: BackupTransport::from_auth(auth)?,
-            recipient: Some(RecipientAccess {
+            proof: ReadProof::Recipient(RecipientAccess {
                 header,
                 job,
                 commit_sha256,
@@ -56,7 +64,11 @@ impl ByteBackupReader {
     }
 
     pub fn recipient_job(&self) -> Option<&Job> {
-        self.recipient.as_ref().map(|access| &access.job)
+        if let ReadProof::Recipient(access) = &self.proof {
+            Some(&access.job)
+        } else {
+            None
+        }
     }
 
     pub fn canonical_endpoint(&self) -> String {
@@ -65,7 +77,10 @@ impl ByteBackupReader {
 
     pub async fn commit_status(&self, request: &CommitStatusRequest) -> Result<CommitResponse> {
         request.validate()?;
-        let operation = if let Some(access) = &self.recipient {
+        if let ReadProof::Guest(access) = &self.proof {
+            return self.guest_commit_status(access, request).await;
+        }
+        let operation = if let ReadProof::Recipient(access) = &self.proof {
             access.validate_job(&request.job)?;
             "recipients/accepted/read"
         } else {
@@ -73,7 +88,7 @@ impl ByteBackupReader {
         };
         let response: CommitResponse = self.post(operation, request).await?;
         response.validate_for_status(request)?;
-        if let Some(access) = &self.recipient {
+        if let ReadProof::Recipient(access) = &self.proof {
             let CommitResponse::Accepted { backup } = &response else {
                 return Err(BackupTransportError::InvalidResponse(
                     "recipient accepted point",
@@ -96,16 +111,28 @@ impl ByteBackupReader {
         if &request.job != accepted.job() {
             return Err(BackupTransportError::Configuration("accepted selection"));
         }
-        if let Some(access) = &self.recipient {
-            access.validate_job(&request.job)?;
-            if accepted.commit_sha256 != access.commit_sha256 {
-                return Err(BackupTransportError::Configuration(
-                    "recipient accepted point",
-                ));
+        let operation = match &self.proof {
+            ReadProof::Owner => "objects/read",
+            ReadProof::Recipient(access) => {
+                access.validate_job(&request.job)?;
+                if accepted.commit_sha256 != access.commit_sha256 {
+                    return Err(BackupTransportError::Configuration(
+                        "recipient accepted point",
+                    ));
+                }
+                "objects/read"
             }
-        }
-        let response: ReadGrantResponse = self.post("objects/read", request).await?;
+            ReadProof::Guest(access) => {
+                access.validate_stream(&request.job.stream)?;
+                guest::require_independent(accepted)?;
+                "guest/objects/read"
+            }
+        };
+        let response: ReadGrantResponse = self.post(operation, request).await?;
         response.validate_for(request, accepted)?;
+        if let ReadProof::Guest(access) = &self.proof {
+            access.validate_grant_expiry(&response)?;
+        }
         Ok(response)
     }
 
@@ -132,22 +159,24 @@ impl ByteBackupReader {
         request: &Q,
     ) -> Result<R> {
         let path = format!("cloud/backups/v2/{operation}");
-        if let Some(access) = &self.recipient {
-            let mut headers = HeaderMap::new();
-            headers.insert("x-lastdb-recipient-grant", access.header.clone());
-            self.transport
-                .post_bounded_with_headers(
-                    self.transport.api_endpoint(&path),
-                    request,
-                    limits::CONTROL_JSON_MAX_BYTES,
-                    headers,
-                )
-                .await
-        } else {
-            self.transport
-                .post(&path, request, limits::CONTROL_JSON_MAX_BYTES)
-                .await
+        let mut headers = HeaderMap::new();
+        match &self.proof {
+            ReadProof::Owner => {}
+            ReadProof::Recipient(access) => {
+                headers.insert("x-lastdb-recipient-grant", access.header.clone());
+            }
+            ReadProof::Guest(access) => {
+                headers.insert(reqwest::header::AUTHORIZATION, access.header.clone());
+            }
         }
+        self.transport
+            .post_bounded_with_headers(
+                self.transport.api_endpoint(&path),
+                request,
+                limits::CONTROL_JSON_MAX_BYTES,
+                headers,
+            )
+            .await
     }
 }
 

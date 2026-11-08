@@ -22,7 +22,9 @@ pub use keys::RecoveryKeys;
 pub use report::RestoreReport;
 pub use session::RestoreSession;
 
+use cloud_backup_client::byte_backup::BackupTransportError;
 use cloud_backup_client::byte_backup::{ByteBackupClient, ByteBackupReader};
+use cloud_backup_protocol::ErrorCode;
 use context::{NativeFileProof, NativeInventory, VerifiedNativeContext};
 pub(crate) use file_proof::check_capacity;
 use file_proof::{bounded_bytes, verify_file};
@@ -99,6 +101,26 @@ impl std::fmt::Display for RestoreError {
 }
 impl std::error::Error for RestoreError {}
 
-fn source_error(_: cloud_backup_client::byte_backup::BackupTransportError) -> RestoreError {
+fn source_error(_: BackupTransportError) -> RestoreError {
     RestoreError::Source("byte transport")
+}
+
+fn reader_error(reader: &ByteBackupReader, error: BackupTransportError) -> RestoreError {
+    if reader.guest_stream().is_some() {
+        match &error {
+            BackupTransportError::Protocol(error)
+                if error.code == ErrorCode::RetryLater && error.field == "guest.head_changed" =>
+            {
+                return RestoreError::Source("share changed, start a new guest stage");
+            }
+            BackupTransportError::Authentication => {
+                return RestoreError::Source("guest permission refused");
+            }
+            BackupTransportError::Protocol(error) if error.code == ErrorCode::Unauthorized => {
+                return RestoreError::Source("guest permission refused");
+            }
+            _ => {}
+        }
+    }
+    source_error(error)
 }

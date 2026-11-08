@@ -7,6 +7,10 @@ autotests = false
 description = "HTTPS client for the native LastDB cloud backup service"
 
 [dependencies]
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+folddb_profile = { workspace = true }
+ring = "0.17"
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 lastdb_storage_policy = { path = "../lastdb_storage_policy" }
 lastdb_model = { workspace = true }
@@ -22,6 +26,7 @@ tokio = { workspace = true, features = ["sync", "time", "io-util", "rt"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures = { workspace = true }
 tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [lints]
 workspace = true

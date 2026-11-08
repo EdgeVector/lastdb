@@ -1,5 +1,5 @@
 use super::{
-    local, source_error, ByteBackupClient, ByteBackupReader, RecoveryKeys, RestoreError,
+    local, reader_error, ByteBackupClient, ByteBackupReader, RecoveryKeys, RestoreError,
     RestoreReport, Result,
 };
 use cloud_backup_protocol::v2::{
@@ -184,8 +184,10 @@ impl RestoreSession {
             version: Version::V2,
             job: self.accepted().job().clone(),
         };
-        let CommitResponse::Accepted { backup } =
-            client.commit_status(&request).await.map_err(source_error)?
+        let CommitResponse::Accepted { backup } = client
+            .commit_status(&request)
+            .await
+            .map_err(|error| reader_error(client, error))?
         else {
             return Err(RestoreError::Invalid("authoritative accepted selection"));
         };

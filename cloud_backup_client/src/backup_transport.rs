@@ -34,7 +34,7 @@ pub(super) struct TemporaryGrant<'a> {
 
 #[derive(Clone)]
 pub(super) struct BackupTransport {
-    auth: AuthClient,
+    auth: Option<AuthClient>,
     http: Arc<Client>,
     base: Url,
     timeout: Duration,
@@ -44,6 +44,14 @@ impl BackupTransport {
     /// Use explicit account credentials, endpoint, and the fixed request deadline.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         let base = urls::https(&auth.base_url)?;
+        Self::new(base, Some(auth))
+    }
+
+    pub(crate) fn for_guest(base_url: &str) -> Result<Self> {
+        Self::new(urls::https(base_url)?, None)
+    }
+
+    fn new(base: Url, auth: Option<AuthClient>) -> Result<Self> {
         if base.query().is_some() {
             return Err(BackupTransportError::Configuration("endpoint"));
         }
@@ -67,6 +75,14 @@ impl BackupTransport {
                 lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams,
             )),
         })
+    }
+
+    fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(auth) = &self.auth {
+            auth.apply_auth(request)
+        } else {
+            request
+        }
     }
 
     pub fn endpoint(&self, operation: &str) -> String {
