@@ -276,6 +276,28 @@ impl PackRuntime {
             .collect()
     }
 
+    /// Which of these `cas_blobs` marker keys are present. Markers carry no
+    /// storage envelope (the backup worker writes a bare marker), so presence
+    /// is read below the encrypting namespace, which would refuse to open
+    /// them. Any home: a shared home's downloaded rows carry `fu:` markers too.
+    pub(in crate::storage) async fn markers_present(
+        self: &Arc<Self>,
+        keys: Vec<Vec<u8>>,
+    ) -> StorageResult<Vec<bool>> {
+        let store = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: CAS_COLLECTION.into(),
+        };
+        let wanted = keys.len();
+        let present = store.get_many(keys).await?;
+        if present.len() != wanted {
+            return Err(StorageError::InvalidOperation(
+                "incomplete marker presence read".into(),
+            ));
+        }
+        Ok(present.iter().map(Option::is_some).collect())
+    }
+
     /// The sealed row of one local record file version, as the record format
     /// reads it (the storage envelope of `cas_blobs` removed), or None when
     /// the version is gone. A download installs exactly these bytes.

@@ -173,17 +173,12 @@ impl RecordFormat {
                 .iter()
                 .map(|key| record_file_uploaded_path(key.as_slice()))
                 .collect::<Result<Vec<_>, _>>()?;
-            let present = store.get_many(markers.clone()).await?;
-            if present.len() != markers.len() {
-                return Err(SchemaError::InvalidData(
-                    "incomplete uploaded marker read".into(),
-                ));
-            }
+            let present = self.runtime.markers_present(markers.clone()).await?;
             deletes.extend(
                 markers
                     .into_iter()
                     .zip(present)
-                    .filter_map(|(key, value)| value.map(|_| key)),
+                    .filter_map(|(key, present)| present.then_some(key)),
             );
             self.runtime.stage_record_file_deletes(deletes)?;
         }
