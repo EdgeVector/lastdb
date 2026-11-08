@@ -17,9 +17,6 @@ pub enum RequestPhase {
     SchemaResolve,
     /// Mutation field validation.
     Validate,
-    /// Mutation only: the persisted-head reads that verify CAS expectations
-    /// inside the native request gate. Storage IO, not contention.
-    CasPrecondition,
     /// Query only: the cheap exact row count read from the key index that
     /// every push-down shape performs before hydrating anything.
     Count,
@@ -71,7 +68,7 @@ pub enum RequestPhase {
     /// Mutation: the batch write's wall time less [`Self::Grouping`] —
     /// a residual, not a direct measurement. It
     /// covers the native request's staging, commit and durability wait.
-    /// [`Self::CasPrecondition`] runs inside the same window and is not
+    /// CAS expectation checks run inside the Apply window and are not
     /// subtracted. See
     /// [`crate::fold_db_core::mutation_manager::MutationManager::report_phase_totals`].
     Apply,

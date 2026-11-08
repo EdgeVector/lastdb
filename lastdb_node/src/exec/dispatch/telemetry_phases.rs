@@ -12,7 +12,6 @@ pub(super) fn phase_timings(
         parse_us: phase_totals.parse_us,
         schema_resolve_us: phase_totals.schema_resolve_us,
         validate_us: phase_totals.validate_us,
-        cas_precondition_us: phase_totals.cas_precondition_us,
         count_us: phase_totals.count_us,
         hydrate_us: phase_totals.hydrate_us,
         hydrate_records_us: phase_totals.hydrate_records_us,

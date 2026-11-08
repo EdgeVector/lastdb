@@ -3,7 +3,7 @@
 //! The request-ops telemetry (`lastdb_node::request_telemetry::PhaseTimings`)
 //! wants to know *where inside the node* a request spent its time. For a
 //! mutation that is QoS admission wait, parse, schema resolve, validate,
-//! `cas_precondition`, grouping, apply, background
+//! grouping, apply, background
 //! index wait, change recording, and response envelope rendering.
 //! For a query it is admission wait, parse, schema resolve, the index
 //! `count` and record `hydrate`. For status it is the
@@ -17,8 +17,7 @@
 //!
 //! Instead, the socket executor wraps request dispatch in
 //! [`run_with_phases`] and every recording site calls [`add_phase`], which
-//! silently no-ops when no scope is present (background jobs, tests, the
-//! desktop node's non-instrumented surfaces). Precedent:
+//! silently no-ops when no scope is present (background jobs). Precedent:
 //! [`crate::user_context::run_with_user`], which propagates the request's
 //! user id over exactly the same task-local seam.
 //!
@@ -59,8 +58,7 @@ pub use totals::RequestPhaseTotals;
 /// — [`add_counter`] would then report a structural zero indistinguishable
 /// from "this path issues no durable commits". And nesting a second
 /// `task_local::scope` around request dispatch pushed the compiler past its
-/// query-depth limit on two `lastdb_node` integration tests (`local_watch_admission`,
-/// `mutation_phase_instrumentation`): each `scope` wraps the whole request
+/// query-depth limit: each `scope` wraps the whole request
 /// future in another generic future type, and that future is already ~130
 /// layers deep. Widening the payload costs no type depth at all.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -141,7 +139,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::Parse => &mut totals.parse_us,
             RequestPhase::SchemaResolve => &mut totals.schema_resolve_us,
             RequestPhase::Validate => &mut totals.validate_us,
-            RequestPhase::CasPrecondition => &mut totals.cas_precondition_us,
             RequestPhase::Count => &mut totals.count_us,
             RequestPhase::Hydrate => &mut totals.hydrate_us,
             RequestPhase::HydrateRecords => &mut totals.hydrate_records_us,

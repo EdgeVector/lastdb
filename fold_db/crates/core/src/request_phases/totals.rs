@@ -12,7 +12,6 @@ pub struct RequestPhaseTotals {
     pub parse_us: u64,
     pub schema_resolve_us: u64,
     pub validate_us: u64,
-    pub cas_precondition_us: u64,
     pub count_us: u64,
     pub hydrate_us: u64,
     pub hydrate_records_us: u64,

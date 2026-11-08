@@ -43,7 +43,7 @@ phase_timings! {
     /// reports them, these fields answer *where inside the node* a slow request
     /// spent its time — waiting in the socket queue, waiting at the QoS
     /// admission gate, or doing parse / schema-resolve / validate /
-    /// cas-precondition / grouping / apply / index-wait /
+    /// grouping / apply / index-wait /
     /// change-record / response-envelope work.
     /// This struct is the shared vocabulary; the recording sites land separately.
     ///
@@ -79,9 +79,6 @@ phase_timings! {
         schema_resolve_us => "schema_resolve",
         /// Mutation validation.
         validate_us => "validate",
-        /// Mutation: persisted-head reads verifying CAS expectations inside the
-        /// native request gate. Storage IO, not contention.
-        cas_precondition_us => "cas_precondition",
         /// Query: the exact row count read from the key index ahead of the
         /// push-down. Large relative to `hydrate` means the partition is being
         /// counted more expensively than the page is being served.
