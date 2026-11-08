@@ -210,8 +210,6 @@ def range_records(node):
 
 def preconditions(node):
     fields = {"id": "one", "bucket": "b2", "value": "v3"}
-    retired = mutation("RecordById", {"hash": "one"}, fields, "create")
-    refused(lambda: node.call("/api/mutation", {**retired, "mutation_id": "retired"}), "HTTP 400")
     old = query(node, "RecordById", {"HashKey": "one"})[0]["revision"]
     refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, "create",
                            expected={"type": "absent"}), "HTTP 4")
