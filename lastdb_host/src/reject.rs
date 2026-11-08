@@ -46,10 +46,7 @@
 //! [`Reject`] is a closed enum over `&'static str`, so a rejection body is built
 //! entirely from compile-time constants. There is no constructor that accepts a
 //! `String`, a `Value`, or any byte derived from the request — adding one would
-//! be the reviewable moment, and [`reject_bodies_are_built_only_from_static_bytes`]
-//! pins the property against every caller-controlled input the routes parse.
-//!
-//! [`reject_bodies_are_built_only_from_static_bytes`]: tests::reject_bodies_are_built_only_from_static_bytes
+//! be the reviewable moment.
 
 use lastdb_uds::uds_http::UdsResponse;
 use serde_json::{Map, Value};
