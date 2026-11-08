@@ -18,7 +18,9 @@ pub(crate) use super::FIELD_KEY_ROW_MAX_BYTES as NODE_KEY_ROW_MAX_BYTES;
 pub use bundle::FieldKeyBundle;
 use codec::open_wrap;
 pub(crate) use codec::{metadata_key, validate_identity, wrap_key_for, BundleMetadata, BundleWrap};
-pub(crate) use frozen::{node_bundle_storage_keys, verify_frozen_typed_profile};
+pub(crate) use frozen::{
+    node_bundle_storage_keys, open_frozen_typed_bundle, verify_frozen_typed_profile,
+};
 
 /// The field identity associated with one native bundle row.
 pub(in crate::storage) fn storage_key_identity(key: &str) -> Option<&str> {

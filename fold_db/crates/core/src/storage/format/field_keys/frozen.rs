@@ -2,7 +2,7 @@
 use super::super::FIELD_KEY_METADATA_VERSION;
 use super::codec::validate_field_key;
 use super::NODE_KEY_ROW_MAX_BYTES;
-use super::{metadata_key, open_wrap, wrap_key_for, BundleMetadata, BundleWrap};
+use super::{metadata_key, open_wrap, wrap_key_for, BundleMetadata, BundleWrap, FieldKeyBundle};
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use schema_types::field_range_profile::FieldRangeProfile;
@@ -23,6 +23,16 @@ pub(crate) fn verify_frozen_typed_profile(
     metadata: Option<&[u8]>,
     wrap: Option<&[u8]>,
 ) -> StorageResult<()> {
+    open_frozen_typed_bundle(field_key, expected, account_key, metadata, wrap).map(drop)
+}
+
+pub(crate) fn open_frozen_typed_bundle(
+    field_key: &str,
+    expected: FieldRangeProfile,
+    account_key: &[u8; 32],
+    metadata: Option<&[u8]>,
+    wrap: Option<&[u8]>,
+) -> StorageResult<FieldKeyBundle> {
     validate_field_key(field_key)?;
     let metadata: BundleMetadata =
         decode(metadata.ok_or_else(|| invalid("typed field key metadata is absent"))?)?;
@@ -33,7 +43,7 @@ pub(crate) fn verify_frozen_typed_profile(
         return Err(invalid("typed field key metadata differs from its schema"));
     }
     let wrap: BundleWrap = decode(wrap.ok_or_else(|| invalid("typed field key wrap is absent"))?)?;
-    open_wrap(&wrap, field_key, account_key).map(drop)
+    open_wrap(&wrap, field_key, account_key)
 }
 
 /// The native field_keys namespace stores metadata and wrapped keys as

@@ -19,6 +19,7 @@ mod session;
 mod spool;
 
 pub use keys::RecoveryKeys;
+pub use recipient::{StagedRecord, StagedRecordQuery};
 pub use report::RestoreReport;
 pub use session::RestoreSession;
 

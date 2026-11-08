@@ -8,9 +8,12 @@ use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::publication::HeadReadResult;
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::{Digest, RecoveryDescriptor};
+use fold_db::storage::disk_pack::run_restore::RunRestoreGuard;
 use std::fs;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
+
+pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
 
 impl RestoreSession {
     /// Select the current independent snapshot authorized by a guest permission.
@@ -50,6 +53,43 @@ impl RestoreSession {
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
     ) -> Result<PathBuf> {
+        let (data, ()) = self
+            .with_verified_recipient_stage(reader, content_key, publisher_public_key, |_, _| Ok(()))
+            .await?;
+        Ok(data)
+    }
+
+    /// Stage the exact guest snapshot and read one primary key from its held root.
+    pub async fn stage_guest_record(
+        &mut self,
+        reader: &ByteBackupReader,
+        content_key: Zeroizing<[u8; 32]>,
+        publisher_public_key: Digest,
+        query: StagedRecordQuery<'_>,
+    ) -> Result<(PathBuf, Option<StagedRecord>)> {
+        if reader.guest_stream().is_none() {
+            return Err(RestoreError::Invalid("guest reader"));
+        }
+        self.with_verified_recipient_stage(
+            reader,
+            content_key,
+            publisher_public_key,
+            |proof, key| {
+                proof
+                    .read_staged_record(query, key)
+                    .map_err(RestoreError::native_proof)
+            },
+        )
+        .await
+    }
+
+    async fn with_verified_recipient_stage<T>(
+        &mut self,
+        reader: &ByteBackupReader,
+        content_key: Zeroizing<[u8; 32]>,
+        publisher_public_key: Digest,
+        read: impl FnOnce(&RunRestoreGuard, &[u8; 32]) -> Result<T>,
+    ) -> Result<(PathBuf, T)> {
         let accepted = self.accepted();
         if self.selection.mode != RestoreMode::Recipient
             || (reader.recipient_job() != Some(accepted.job())
@@ -84,7 +124,8 @@ impl RestoreSession {
             return Err(RestoreError::Invalid("verified recipient inventory"));
         }
         self.require_unactivated()?;
-        Ok(data)
+        let result = read(&proof, decryption.content_key())?;
+        Ok((data, result))
     }
 
     fn require_unactivated(&self) -> Result<()> {

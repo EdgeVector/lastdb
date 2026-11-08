@@ -1,7 +1,8 @@
 use super::GuestStageArgs;
 use cloud_backup_client::byte_backup::{ByteBackupReader, GuestReadPermission};
 use cloud_backup_protocol::Digest;
-use lastdb_node::byte_cloud_restore::RestoreSession;
+use fold_db::schema::types::KeyValue;
+use lastdb_node::byte_cloud_restore::{RestoreSession, StagedRecordQuery};
 use serde::Deserialize;
 use std::io::{self, IsTerminal, Read};
 use zeroize::Zeroizing;
@@ -26,6 +27,19 @@ pub(super) fn run(args: GuestStageArgs) -> Result<(), String> {
         }
         lastdb_node::offline_home::refuse_primary(path)?;
     }
+    let query = args
+        .schema
+        .as_deref()
+        .map(|schema| {
+            StagedRecordQuery::new(
+                schema,
+                KeyValue::new(args.key_hash, args.key_range),
+                args.inline_file,
+            )
+        })
+        .transpose()
+        .map_err(|_| "invalid staged record coordinates")?;
+    let read_record = query.is_some();
     let (permission, publisher, content_key) = read_input()?;
     let reader = ByteBackupReader::guest(permission).map_err(|error| error.to_string())?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -39,26 +53,35 @@ pub(super) fn run(args: GuestStageArgs) -> Result<(), String> {
             _ => return Err("stage-guest requires either --into or --resume".into()),
         }
         .map_err(|error| error.to_string())?;
-        let data = session
-            .stage_recipient(&reader, content_key, publisher)
-            .await
-            .map_err(|error| {
-                format!(
-                    "guest stage retained workspace {}: {error}",
-                    session.path().display()
-                )
-            })?;
+        let (data, record) = match query {
+            Some(query) => {
+                session
+                    .stage_guest_record(&reader, content_key, publisher, query)
+                    .await
+            }
+            None => session
+                .stage_recipient(&reader, content_key, publisher)
+                .await
+                .map(|data| (data, None)),
+        }
+        .map_err(|error| {
+            format!(
+                "guest stage retained workspace {}: {error}",
+                session.path().display()
+            )
+        })?;
         let accepted = session.accepted();
         if args.json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "workspace": session.path(),
-                    "data": data,
-                    "commit_id": accepted.job().commit_id,
-                    "commit_sha256": accepted.commit_sha256,
-                })
-            );
+            let mut receipt = serde_json::json!({
+                "workspace": session.path(),
+                "data": data,
+                "commit_id": accepted.job().commit_id,
+                "commit_sha256": accepted.commit_sha256,
+            });
+            if read_record {
+                receipt["record"] = serde_json::json!(record);
+            }
+            println!("{receipt}");
         } else {
             println!("Verified guest stage {}", data.display());
             println!("Workspace {}", session.path().display());

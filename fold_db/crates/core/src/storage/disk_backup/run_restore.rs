@@ -6,6 +6,7 @@
 mod files;
 mod node;
 mod proof;
+mod record;
 mod replay;
 
 use super::byte_backup::RunBackupProfile;
@@ -17,6 +18,7 @@ use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::path::Path;
 
 pub use node::{validate_replayed_shared_node, validate_restored_node, RunNodeGuard};
+pub use record::{StagedRecord, StagedRecordQuery};
 pub use replay::{verify_replayed, MutationReplay};
 
 pub struct RunRestoreFile {
