@@ -86,8 +86,9 @@ class ProductionRecovery:
         self.programs = ProductionPrograms(self.args.bin_dir, self.args.version, environment)
         self.summary.update(account=self.account, binaries=self.programs.identities)
 
-    def owned_node(self, home, source=False):
-        node = OwnedNode(home, self.programs, backup_source=source, account=self.account)
+    def owned_node(self, home, source=False, cloud_credentials=None):
+        node = OwnedNode(home, self.programs, backup_source=source, account=self.account,
+                         cloud_credentials=cloud_credentials)
         self.nodes.append(node)
         self.node = node
         return node
@@ -142,7 +143,7 @@ class ProductionRecovery:
         proof = restored(destination, report, selected, replay, observe, endpoint=endpoint())
         files = json.dumps(proof.pop("files"), sort_keys=True).encode()
         proof["native_inventory_sha256"] = hashlib.sha256(files).hexdigest()
-        node = self.owned_node(destination)
+        node = self.owned_node(destination, cloud_credentials=self.root / "credentials")
         reads = []
         for _ in range(2):
             node.start()

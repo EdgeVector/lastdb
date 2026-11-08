@@ -73,7 +73,7 @@ def recover(programs, credentials, parent, phrase, expected, point, report, oper
     proof.update(native_inventory_sha256=hashlib.sha256(inventory).hexdigest(), cas_run_files=0)
     operation.summary["restore"] = proof
     operation.summary["stage"] = "verify_restored_boots"
-    node = OwnedNode(destination, programs, account=point["account_id"])
+    node = OwnedNode(destination, programs, account=point["account_id"], cloud_credentials=credentials)
     operation.node = node
     reads = []
     for _number in range(2):

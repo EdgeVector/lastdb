@@ -142,7 +142,7 @@ def recover(operation, kept, credentials, phrase):
     require(proof["empty_cas_home_before_first_fetch"] is True, "ci_kept_blob_not_restored_eagerly")
     inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
     proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
-    operation.node = OwnedNode(destination, operation.programs)
+    operation.node = OwnedNode(destination, operation.programs, cloud_credentials=credentials)
     reads = []
     for _number in range(2):
         operation.node.start()
