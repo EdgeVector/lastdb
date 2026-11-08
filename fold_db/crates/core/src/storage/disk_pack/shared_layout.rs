@@ -13,6 +13,7 @@ use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use laststore::disk_run::home::{RunHome, RunRead};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod extension;
 pub(super) mod journal;
 pub(super) mod range;
 
@@ -147,13 +148,12 @@ impl Scope {
                 .ok_or_else(|| invalid("a shared schema cannot be removed"))?;
             match active.schemas.get(name) {
                 Some(previous) if previous == bytes => continue,
-                Some(_) => return Err(invalid("a shared schema definition cannot be replaced")),
-                None => {
-                    scope
-                        .get_or_insert_with(|| current.as_ref().clone())
-                        .add_schema(name.to_owned(), bytes)?;
-                }
+                Some(previous) => extension::require(previous, bytes)?,
+                None => {}
             }
+            scope
+                .get_or_insert_with(|| current.as_ref().clone())
+                .add_schema(name.to_owned(), bytes)?;
         }
         Ok(scope.map_or_else(|| Arc::clone(current), Arc::new))
     }
