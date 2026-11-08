@@ -63,7 +63,10 @@ pub(crate) async fn execute_catalog_schema_sync(
         "canonical app schema sync completed"
     );
 
-    let mut payload = declare_resolution_payload(&declare, &resolution);
+    let mut payload = match declare_resolution_payload(&declare, &resolution) {
+        Ok(payload) => payload,
+        Err(error) => return error_response(409, &error, ctx),
+    };
     payload["audit_event_id"] = serde_json::json!(audit.event_id);
     payload["bind_eligible"] = serde_json::json!(audit.bind_eligible);
 
@@ -99,7 +102,10 @@ pub(crate) async fn execute_catalog_schema_check(
         Ok(plan) => plan,
         Err(e) => return error_response(409, &e, ctx),
     };
-    let mut payload = declare_resolution_payload(&declare, &plan.resolution);
+    let mut payload = match declare_resolution_payload(&declare, &plan.resolution) {
+        Ok(payload) => payload,
+        Err(error) => return error_response(409, &error, ctx),
+    };
     payload["intent"] = serde_json::json!("check");
     payload["dry_run"] = serde_json::json!(true);
     payload["bind_eligible"] = serde_json::json!(false);

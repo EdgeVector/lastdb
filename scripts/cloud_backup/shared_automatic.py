@@ -161,6 +161,11 @@ def extend_later_schema(operation, nodes, schema):
     admit_definition(operation, peer, 1, schema, "detail", extra=(DETAIL,))
     refuse_incompatible(operation, peer, schema)
     admit_definition(operation, branch, 3, schema, "origin", extra=(ORIGIN,))
+    namespace, name = schema.split("/")
+    current = operation.define_schema(peer, operation.writers[1], namespace, name,
+                                      "Shared Storage Later Proof Record",
+                                      extra=(DETAIL, ORIGIN), sort_fields=True)
+    operation.summary["later_definitions"]["current"] = current["portable_id"]
     peer.start()
     branch.start()
     detail = write_later(operation, nodes, peer, schema, "later-detail",
@@ -177,22 +182,52 @@ def extend_later_schema(operation, nodes, schema):
 
 
 def replace_without_later_field(operation, nodes, schema):
-    """Not decided: an older app's whole-record replace omits a later field. Record what happens."""
+    """An older app names its own definition. The later field stays, with its stored value."""
     earlier = nodes[2]
+    definitions = operation.summary["later_definitions"]
     prior, = native_records.read_records(earlier, schema, [native_records.key("later-detail")])
     replaced = operation.record("later-detail", "earlier-app-replace")
-    durable_batch(earlier, [native_records.replace(schema, prior, replaced)])
+    durable_batch(earlier, [native_records.replace(
+        schema, prior, replaced, definition_id=definitions["first"])])
+    observed = wait_replaced(operation, nodes, schema, "later-detail", replaced,
+                             "shared_automatic_later_replace_deadline")
+    kept = all(fields.get(DETAIL[0]) == "detail" for fields in observed)
+    operation.summary["earlier_app_replace_kept_later_field"] = kept
+    require(kept, "shared_automatic_earlier_replace_kept_later_field")
+    stored = dict(replaced)
+    stored[DETAIL[0]] = "detail"
+    return schema, "later-detail", stored
+
+
+def replace_naming_current_definition(operation, nodes, schema):
+    """A replace that names the current definition and omits a field still clears that field."""
+    earlier = nodes[2]
+    definitions = operation.summary["later_definitions"]
+    prior, = native_records.read_records(earlier, schema, [native_records.key("later-origin")])
+    replaced = operation.record("later-origin", "current-definition-replace")
+    durable_batch(earlier, [native_records.replace(
+        schema, prior, replaced, definition_id=definitions["current"])])
+    observed = wait_replaced(operation, nodes, schema, "later-origin", replaced,
+                             "shared_automatic_current_replace_deadline")
+    cleared = all(ORIGIN[0] not in fields for fields in observed)
+    operation.summary["current_definition_replace_cleared_later_field"] = cleared
+    require(cleared, "shared_automatic_current_replace_cleared_later_field")
+    return schema, "later-origin", observed[0]
+
+
+def wait_replaced(operation, nodes, schema, key, replaced, deadline_name):
     deadline = time.monotonic() + 90
     while True:
-        observed = [stored_fields(node, schema, "later-detail") for node in nodes]
+        observed = [stored_fields(node, schema, key) for node in nodes]
         if all(fields and all(fields.get(name) == value for name, value in replaced.items())
                for fields in observed):
-            break
+            return observed
         if time.monotonic() >= deadline:
-            raise OperationError("shared_automatic_later_replace_deadline")
+            operation.summary["automatic_replication_observations"] = [
+                dict(sync_observation(node), replaced_key=key, fields=fields)
+                for node, fields in zip(nodes, observed)]
+            raise OperationError(deadline_name)
         time.sleep(1)
-    operation.summary["earlier_app_replace_kept_later_field"] = any(DETAIL[0] in fields for fields in observed)
-    return schema, "later-detail", observed[0]
 
 
 def absent(node, schema, *keys):
@@ -335,6 +370,7 @@ def run(operation):
     later = restart(operation, nodes, records, files)
     extended = extend_later_schema(operation, nodes, later[0])
     extended[0] = replace_without_later_field(operation, nodes, later[0])
+    extended[1] = replace_naming_current_definition(operation, nodes, later[0])
 
     snapshot_schedule(operation, publisher)
     author_uncovered_tail(operation, nodes, records, files)

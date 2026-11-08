@@ -76,6 +76,13 @@ pub struct Mutation {
     /// record's current inline file.
     #[serde(skip)]
     pub inline_write: Option<crate::record_value::InlineWrite>,
+    /// The shared definition the writer declared
+    /// (`decision-2026-11-07-lastdb-replace-keeps-fields-writer-does-not-know`).
+    /// On a shared replace, stored fields this definition does not declare stay.
+    /// `None` means the write names the current definition. Never serialized:
+    /// the log entry is the stored record, and author signatures do not cover it.
+    #[serde(skip)]
+    pub definition_id: Option<String>,
 }
 
 impl Mutation {
@@ -111,6 +118,7 @@ impl Mutation {
             erase_written_before_nanos: None,
             file_write: None,
             inline_write: None,
+            definition_id: None,
         }
     }
 

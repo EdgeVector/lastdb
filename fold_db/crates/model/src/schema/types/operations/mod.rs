@@ -292,5 +292,10 @@ pub enum Operation {
         convergence: Option<MutationConvergence>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         durability: Option<MutationDurability>,
+        /// The definition the writer declared. A shared replace keeps stored
+        /// fields this definition does not declare. Omitted, the replace names
+        /// the current definition.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition_id: Option<String>,
     },
 }

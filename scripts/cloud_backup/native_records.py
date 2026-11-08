@@ -50,11 +50,13 @@ def read_records(node, schema, targets):
     return rows
 
 
-def replace(schema, row, record):
+def replace(schema, row, record, definition_id=None):
     request = {"type": "mutation", "schema": schema, "key_value": copy.deepcopy(row["key"]),
                "record": copy.deepcopy(record), "alternates": copy.deepcopy(row["alternates"]),
                "mutation_type": "replace", "durability": "durable",
                "expected": {"type": "revision", "revision": row["revision"]}}
+    if definition_id is not None:
+        request["definition_id"] = definition_id
     # These are complete-record columns. Omission would remove a retained file.
     metadata = row.get("metadata") or {}
     for name in ("source_file_name", "metadata", "file"):

@@ -63,7 +63,9 @@ def verify_case(case, proof, source, scope):
                       "automatic_later_schema_replicated", "automatic_unadmitted_write_refused",
                       "schema_service_unreachable", "later_definition_admitted",
                       "incompatible_definition_refused", "branch_definitions_converged",
-                      "earlier_definition_writer_kept_writing"),
+                      "earlier_definition_writer_kept_writing",
+                      "earlier_app_replace_kept_later_field",
+                      "current_definition_replace_cleared_later_field"),
     }
     require(all(proof.get(name) is True for name in flags[case]), "shared_daily_case_coverage")
     if case == "lifecycle":
@@ -73,10 +75,7 @@ def verify_case(case, proof, source, scope):
         require(proof["shared_retention_overwrites"] == 24 and len(proof["retention_measurements"]) == 3,
                 "shared_daily_retention_coverage")
     if case == "automatic":
-        # The replace that omits a later field is recorded, not decided.
-        require(proof["automatic_running_writers"] == 6
-                and isinstance(proof.get("earlier_app_replace_kept_later_field"), bool),
-                "shared_daily_automatic_coverage")
+        require(proof["automatic_running_writers"] == 6, "shared_daily_automatic_coverage")
 
 
 def case(args):
