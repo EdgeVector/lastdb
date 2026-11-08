@@ -57,48 +57,27 @@ impl PackKvStore {
         let observed = Arc::clone(&context);
         let result = run_blocking(move || {
             let mut combined = Vec::new();
-            let collections = if namespace == crate::storage::format::MAIN_NAMESPACE {
-                native_routing::prefix_collections(prefix.as_bytes())
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect()
-            } else {
-                vec![namespace.clone()]
-            };
-            for collection in collections {
-                let end = text_upper(&prefix).map_or_else(|| vec![255], String::into_bytes);
-                let (rows, exhausted) = runtime.raw_rows(
-                    &context,
-                    &collection,
-                    prefix.as_bytes(),
-                    &end,
-                    limit,
-                    pending.as_ref(),
-                )?;
-                extend_bounded_rows(
-                    &mut combined,
-                    rows,
-                    exhausted,
-                    require_end,
-                    "native prefix result requires a bounded continuation",
-                )?;
-            }
+            let collection = native_routing::collection_for_namespace(&namespace);
+            let end = text_upper(&prefix).map_or_else(|| vec![255], String::into_bytes);
+            let (rows, exhausted) = runtime.raw_rows(
+                &context,
+                collection,
+                prefix.as_bytes(),
+                &end,
+                limit,
+                pending.as_ref(),
+            )?;
+            extend_bounded_rows(
+                &mut combined,
+                rows,
+                exhausted,
+                require_end,
+                "native prefix result requires a bounded continuation",
+            )?;
             finish_rows(combined, limit, require_end)
         })
         .await;
         observed.remembered(result)
-    }
-
-    /// A main namespace spans the routed collections. Any other namespace stays one collection.
-    pub(super) fn owned_range_collections(&self, start: &[u8], end: &[u8]) -> Vec<String> {
-        if self.namespace == crate::storage::format::MAIN_NAMESPACE {
-            native_routing::range_collections(start, end)
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        } else {
-            vec![self.namespace.clone()]
-        }
     }
 
     pub(super) async fn range_rows(
@@ -127,27 +106,19 @@ impl PackKvStore {
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
-        let collections = self.owned_range_collections(&start, &end);
+        let collection = native_routing::collection_for_namespace(&self.namespace).to_string();
         let observed = Arc::clone(&context);
         let result = run_blocking(move || {
             let mut out = Vec::new();
-            for collection in collections {
-                let (rows, exhausted) = runtime.raw_rows(
-                    &context,
-                    &collection,
-                    &start,
-                    &end,
-                    limit,
-                    pending.as_ref(),
-                )?;
-                extend_bounded_rows(
-                    &mut out,
-                    rows,
-                    exhausted,
-                    require_end,
-                    "native range requires a bounded continuation",
-                )?;
-            }
+            let (rows, exhausted) =
+                runtime.raw_rows(&context, &collection, &start, &end, limit, pending.as_ref())?;
+            extend_bounded_rows(
+                &mut out,
+                rows,
+                exhausted,
+                require_end,
+                "native range requires a bounded continuation",
+            )?;
             finish_rows(out, limit, require_end)
         })
         .await;
@@ -155,9 +126,9 @@ impl PackKvStore {
     }
 }
 
-/// Completeness covers the union of current layouts and collections. Private
-/// write preparation has a larger read allowance, so it cannot rely on the
-/// ordinary call's key cap to detect an oversized combined metadata result.
+/// Sort by decoded key and drop a repeated key. Private write preparation has
+/// a larger read allowance, so it cannot rely on the ordinary call's key cap
+/// to detect an oversized metadata result.
 fn finish_rows(
     mut rows: Vec<(Vec<u8>, Vec<u8>)>,
     limit: usize,

@@ -1,4 +1,7 @@
-//! Canonical current-key routing for the native disk backend.
+//! Native key encoding for the disk backend.
+//!
+//! The main namespace is the `records` collection. Every other namespace is
+//! its own collection.
 //!
 //! ## Key encoding
 //!
@@ -6,24 +9,17 @@
 //! start with `b64:` are stored as themselves (production field keys are
 //! UTF-8). Other keys use `b64:` + standard base64.
 
-mod key_routing;
-
 use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::format::{MAIN_NAMESPACE, RECORDS_COLLECTION};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use key_routing::*;
 
-use crate::storage::format::RECORDS_COLLECTION;
-
-pub(in crate::storage) fn collection_for_key(key: &[u8]) -> &'static str {
-    main_collection_for_key(key)
-}
-
-pub(in crate::storage) fn prefix_collections(prefix: &[u8]) -> Vec<&'static str> {
-    main_collections_for_prefix(prefix)
-}
-
-pub(in crate::storage) fn range_collections(start: &[u8], end: &[u8]) -> Vec<&'static str> {
-    main_collections_for_range(start, end)
+/// Map a logical namespace to its one native collection.
+pub(in crate::storage) fn collection_for_namespace(namespace: &str) -> &str {
+    if namespace == MAIN_NAMESPACE {
+        RECORDS_COLLECTION
+    } else {
+        namespace
+    }
 }
 
 pub(in crate::storage) fn encode(key: &[u8]) -> String {

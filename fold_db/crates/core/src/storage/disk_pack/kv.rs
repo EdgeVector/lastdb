@@ -105,12 +105,10 @@ fn prepare(
 }
 
 pub(super) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
-    let collection = if namespace == crate::storage::format::MAIN_NAMESPACE {
-        native_routing::collection_for_key(key)
-    } else {
-        namespace
-    };
-    (collection.to_string(), native_routing::encode(key))
+    (
+        native_routing::collection_for_namespace(namespace).to_string(),
+        native_routing::encode(key),
+    )
 }
 
 #[async_trait::async_trait]

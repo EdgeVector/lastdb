@@ -14,6 +14,7 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use crate::storage::format::RECORDS_COLLECTION;
 use crate::storage::format::SHARED_NODE_BYTES;
 pub use crate::storage::format::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub(in crate::storage) use crate::storage::format::{RECORD_PROFILE, SHARED_RECORD_PROFILE};
@@ -66,14 +67,8 @@ fn verify_proofs(main: &mut RunRead, key: &[u8; 32], version: u16) -> StorageRes
     let marker = CURRENT_KEY_FORMAT_KEY;
     let cutoff = DELETE_REPLAY_CUTOFF_KEY;
     let coordinates = vec![
-        (
-            native_routing::collection_for_key(marker.as_bytes()).into(),
-            marker.into(),
-        ),
-        (
-            native_routing::collection_for_key(cutoff.as_bytes()).into(),
-            cutoff.into(),
-        ),
+        (RECORDS_COLLECTION.into(), marker.into()),
+        (RECORDS_COLLECTION.into(), cutoff.into()),
         (
             content_key_proof::NAMESPACE.into(),
             native_routing::encode(content_key_proof::KEY),
