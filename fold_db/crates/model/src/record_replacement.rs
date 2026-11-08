@@ -96,20 +96,3 @@ impl RecordReplacement {
         Ok(())
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RecordDeletion {
-    pub target: RecordTarget,
-    pub revision: String,
-}
-
-impl RecordDeletion {
-    pub fn validate(&self, definition: &RecordKeys) -> Result<(), String> {
-        self.target.validate(definition)?;
-        if self.revision.is_empty() {
-            return Err("a deletion revision must be nonempty".into());
-        }
-        Ok(())
-    }
-}

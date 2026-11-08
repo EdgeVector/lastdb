@@ -40,7 +40,7 @@ pub fn current_key_format(marker: &[u8]) -> bool {
 /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
 /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
 /// `escape_segment` remains safe. `blind_key` is the field key bundle's key.
-/// A pure function of its inputs; core's `E2eKeys::blind_hash_key` calls it.
+/// A pure function of its inputs. `FieldKeyCodec::storage_hash` calls it.
 #[must_use]
 pub fn blind_hash_key(blind_key: &[u8; 32], field_key_id: &str, plaintext_hash: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(blind_key).expect("HMAC accepts any key length");

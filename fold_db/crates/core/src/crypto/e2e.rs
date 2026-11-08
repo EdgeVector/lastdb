@@ -55,24 +55,4 @@ impl E2eKeys {
     pub fn encryption_key(&self) -> [u8; 32] {
         self.encryption_key
     }
-
-    /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
-    ///
-    /// MAC input (exact bytes):
-    /// ```text
-    /// hk|v1\0{field_key_id}\0{plaintext_hash}
-    /// ```
-    ///
-    /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
-    /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
-    /// `escape_segment` remains safe. `blind_key` is the field key bundle's key.
-    ///
-    /// The pure function is model code: `lastdb_model::field_key_codec::blind_hash_key`.
-    pub fn blind_hash_key(
-        blind_key: &[u8; 32],
-        field_key_id: &str,
-        plaintext_hash: &str,
-    ) -> String {
-        lastdb_model::field_key_codec::blind_hash_key(blind_key, field_key_id, plaintext_hash)
-    }
 }
