@@ -28,7 +28,7 @@ use lastdb_node::host::{self, Host};
 use lastdbd::cli::Cli;
 use lastdbd::node_run::{build_runtime, NodeRun};
 use lastdbd::serve::Server;
-use lastdbd::{background, footprint_proof, session, shutdown, tracing_init};
+use lastdbd::{background, session, shutdown, tracing_init};
 
 #[cfg(feature = "purging-allocator")]
 #[global_allocator]
@@ -294,7 +294,6 @@ fn run() -> Result<(), String> {
 
     let home = host::resolve_home(cli.data_dir)?;
     let data_dir = home.join("data");
-    let _footprint_proof_pin = footprint_proof::footprint_proof_pin_from_env()?;
     init_core_warm_bytes()?;
 
     // Refuse an unservable data dir before ANY boot work: the socket-path length

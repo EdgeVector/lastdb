@@ -39,8 +39,7 @@ pub struct FootprintGovernorSnapshot {
     /// purges, so the 0 was honest there -- but only a reading of
     /// `allocator_committed_bytes` over time can establish that.
     pub malloc_bytes_released_last_purge: u64,
-    /// Lifetime warm bytes released by eviction steps. The footprint proof
-    /// scores each increase against the `phys_footprint` drop.
+    /// Lifetime warm bytes released by eviction steps.
     pub warm_bytes_freed: u64,
 }
 

@@ -345,7 +345,6 @@ log "booting lastdbd on the pristine home (zero config, no prompts)"
   env \
     HOME="$HOME_DIR" \
     EXEMEM_ENV=dev \
-    FOLDDB_DISABLE_KEYCHAIN=1 \
     RUST_LOG="${RUST_LOG:-info}" \
     "$LASTDBD" --data-dir "$HOME_DIR" </dev/null
 ) >"$SERVER_LOG" 2>&1 &
@@ -377,7 +376,7 @@ jq -e '.status == "ok"' "$REPORT_DIR/health.json" >/dev/null \
   || fail "/health did not return status=ok"
 
 log "checking lastdb status sees the daemon"
-env HOME="$HOME_DIR" FOLDDB_DISABLE_KEYCHAIN=1 "$LASTDB" --data-dir "$HOME_DIR" status \
+env HOME="$HOME_DIR" "$LASTDB" --data-dir "$HOME_DIR" status \
   > "$REPORT_DIR/status.txt" 2>&1 \
   || fail "lastdb status failed"
 grep -qi 'running' "$REPORT_DIR/status.txt" || fail "lastdb status does not report running"
@@ -592,7 +591,7 @@ DAEMON_PID=""
 
 (
   cd "$WORK_ROOT"
-  env HOME="$HOME_DIR" FOLDDB_DISABLE_KEYCHAIN=1 RUST_LOG="${RUST_LOG:-info}" \
+  env HOME="$HOME_DIR" RUST_LOG="${RUST_LOG:-info}" \
     "$LASTDBD" --data-dir "$HOME_DIR" </dev/null
 ) >>"$SERVER_LOG" 2>&1 &
 DAEMON_PID="$!"
