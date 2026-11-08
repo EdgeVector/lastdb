@@ -191,8 +191,7 @@ const API_VERSION_PATH: &str = "/api/version";
 /// left. The SDK no longer sends that header or exports the locator. No
 /// request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
 /// The owner-only `POST /api/sync/logical-v1` route is removed. No command,
-/// script, or workflow called its local snapshot actions. Cloud backup still
-/// refuses to start while an unreleased local snapshot intent remains.
+/// script, or workflow called its local snapshot actions.
 /// This is an owner-only change, so `API_VERSION` stays `30` and
 /// `MIN_SUPPORTED_API_VERSION` stays `29`.
 pub const API_VERSION: u32 = 30;
