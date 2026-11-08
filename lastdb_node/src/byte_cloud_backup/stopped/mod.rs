@@ -107,6 +107,9 @@ async fn run_stopped(
     let (source, client) = open(home, &request)?;
     let endpoint = client.canonical_endpoint();
     if source.publication_stream.is_some() {
+        if source.runtime().has_external_backup_files().await? {
+            return Err(BackupError::PublicationFile);
+        }
         if super::store::read::<serde_json::Value>(
             &Store::base(home).join(super::store::AUTOMATIC_FILE),
         )?

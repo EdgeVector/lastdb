@@ -56,6 +56,7 @@ pub enum BackupError {
     Shutdown,
     WorkerPanic,
     Authority,
+    PublicationFile,
     Cloud(BackupTransportError),
 }
 impl BackupError {
@@ -76,6 +77,7 @@ impl BackupError {
             Self::Shutdown => "native backup paused for daemon shutdown",
             Self::WorkerPanic => "native backup worker needs attention",
             Self::Authority => "native backup cloud authority needs attention",
+            Self::PublicationFile => "share publication supports inline files only",
             Self::Cloud(error) => cloud_label(error),
         }
     }
@@ -188,6 +190,7 @@ impl BackupError {
             Self::Shutdown => P::Shutdown,
             Self::WorkerPanic => P::WorkerPanic,
             Self::Authority => P::Authority,
+            Self::PublicationFile => P::Unsupported,
             Self::Cloud(error) => match error {
                 BackupTransportError::Transport | BackupTransportError::Timeout => P::Temporary,
                 BackupTransportError::Http(code)
