@@ -7,6 +7,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path};
 
 use rustix::fs::{self, AtFlags, Mode, OFlags};
+use zeroize::Zeroizing;
 
 fn directory_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
@@ -146,7 +147,7 @@ pub(crate) struct FreshHome {
 struct CreatedFile {
     name: &'static str,
     descriptor: File,
-    expected: Vec<u8>,
+    expected: Zeroizing<Vec<u8>>,
 }
 
 impl FreshHome {
@@ -256,7 +257,7 @@ impl FreshHome {
             descriptor: file
                 .try_clone()
                 .map_err(|_| "cannot retain new credential file")?,
-            expected: bytes.to_vec(),
+            expected: Zeroizing::new(bytes.to_vec()),
         });
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .map_err(|_| "cannot protect recovery credential file")?;
@@ -264,7 +265,12 @@ impl FreshHome {
             .map_err(|_| "cannot write recovery credential file")?;
         file.sync_all()
             .map_err(|_| "cannot sync recovery credential file")?;
-        if read_private_file(self.directory(), name, bytes.len() as u64)? != bytes {
+        let observed = Zeroizing::new(read_private_file(
+            self.directory(),
+            name,
+            bytes.len() as u64,
+        )?);
+        if observed.as_slice() != bytes {
             return Err("recovery credential read-back does not match".into());
         }
         Ok(())
@@ -326,13 +332,13 @@ impl FreshHome {
             return Err("recovery home protected credential count differs".into());
         }
         for file in &self.created_files {
-            let bytes = read_private_file_bound(
+            let bytes = Zeroizing::new(read_private_file_bound(
                 self.directory(),
                 file.name,
                 file.expected.len() as u64,
                 Some(&file.descriptor),
-            )?;
-            if bytes != file.expected {
+            )?);
+            if bytes.as_slice() != file.expected.as_slice() {
                 return Err("final recovery credential contents do not match".into());
             }
         }

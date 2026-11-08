@@ -1,7 +1,7 @@
 use super::*;
 
 #[path = "admin_cmds/guest_stage.rs"]
-mod guest_stage;
+pub(super) mod guest_stage;
 
 pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {
     match action {

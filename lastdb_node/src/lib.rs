@@ -28,6 +28,7 @@ pub mod schema_resolver_host;
 pub mod schema_sync_audit;
 pub mod seal;
 pub mod service_home;
+pub mod share_publication;
 pub mod shared_peer;
 pub mod shared_restore;
 pub mod shared_snapshot;
