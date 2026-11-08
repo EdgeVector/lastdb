@@ -122,7 +122,7 @@ def original_seed_arm(args, label, output):
     try:
         case.node.start()
         for schema in SCHEMAS:
-            case.node.call("/api/schemas/seed-system", schema_request(schema, native=case.node.api_version >= 27))
+            case.node.call("/api/schemas/seed-system", schema_request(schema))
         writes = case.write(case.seed.phase(**ORIGINAL_SEED))
         reads = case.reads()
         listed = case.listed("original seed audit")

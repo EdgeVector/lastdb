@@ -148,7 +148,7 @@ class Case:
         self.node.start()
         self.check_new_home()
         for schema in SCHEMAS:
-            self.node.call("/api/schemas/seed-system", schema_request(schema, native=self.node.api_version >= 27))
+            self.node.call("/api/schemas/seed-system", schema_request(schema))
         name = f"seed (new v2 home, {self.candidate[1][:12]})"
         writes = self.write(self.seed.phase(**PROFILE["seed"]))
         # The writes start from an empty home, under the 16 MiB that the limit
@@ -245,10 +245,9 @@ class Case:
         total = sum(len(batch) for batch in batches)
         done, condition_reads, started = 0, 0, time.monotonic()
         for batch in batches:
-            request = batch_request(batch, native=self.node.api_version >= 27, caller_ids=self.node.api_version == 27)
-            if self.node.api_version >= 27:
-                condition_reads += int(any(item["mutation_type"] != "create" for item in request["mutations"]))
-                request["mutations"] = conditioned(self.node, request["mutations"])
+            request = batch_request(batch)
+            condition_reads += int(any(item["mutation_type"] != "create" for item in request["mutations"]))
+            request["mutations"] = conditioned(self.node, request["mutations"])
             result, _, _ = self.node.call("/api/mutations/batch", request)
             if result.get("count") != len(batch) or result.get("durability") != "durable":
                 raise ProofError(f"a write lacks a complete durable acknowledgement: {brief(result)}")
