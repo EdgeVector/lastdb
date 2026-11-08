@@ -30,7 +30,6 @@ pub enum OpKind {
     Search,
     /// App change-feed reads.
     History,
-    Record,
     Deliver,
     /// `GET /api/local-watch` — intentional long-poll; duration often equals
     /// the client timeout (idle backoff), not store work.
@@ -51,7 +50,6 @@ impl OpKind {
             Self::Schema => "schema",
             Self::Search => "search",
             Self::History => "history",
-            Self::Record => "record",
             Self::Deliver => "deliver",
             Self::LocalWatch => "local_watch",
             Self::FileBlob => "file_blob",

@@ -22,11 +22,7 @@ pub(crate) fn alert_check(data_dir: Option<PathBuf>, args: AlertCheckArgs) -> Re
         acknowledged_incident_file: args.acknowledged_incident_file,
         routine_name: args.routine_name,
         now: SystemTime::now(),
-        slowest_request_warn_ms: if args.no_degradation_probe {
-            None
-        } else {
-            Some(args.slowest_request_warn_ms)
-        },
+        slowest_request_warn_ms: args.slowest_request_warn_ms,
     };
     let outcome = lastdb_node::health_alert::run_once(&config)?;
     println!(

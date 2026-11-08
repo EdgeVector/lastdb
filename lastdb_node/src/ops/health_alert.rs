@@ -26,10 +26,9 @@ pub struct Config {
     pub acknowledged_incident_file: Option<PathBuf>,
     pub routine_name: String,
     pub now: SystemTime,
-    /// Slowest-request budget in ms. `Some(n)` enables the `/api/status`
-    /// degradation probe and flags a slowest request at or above `n`; `None`
-    /// disables the probe entirely and restores liveness-only behaviour.
-    pub slowest_request_warn_ms: Option<u64>,
+    /// Slowest-request budget in ms. The `/api/status` degradation probe flags
+    /// a slowest request at or above this value.
+    pub slowest_request_warn_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -144,13 +143,11 @@ pub fn run_once(config: &Config) -> Result<Outcome, String> {
     // that is DOWN is not also "degraded", and RecoveryAlert must keep firing on
     // the tick the node comes back.
     if matches!(outcome, Outcome::Healthy) {
-        if let Some(warn_ms) = config.slowest_request_warn_ms {
-            outcome = match probe_degradation(&config.socket, warn_ms) {
-                Degradation::Clean => Outcome::Healthy,
-                Degradation::Degraded(reasons) => Outcome::Degraded { reasons },
-                Degradation::Unknown(why) => Outcome::DegradationUnknown { why },
-            };
-        }
+        outcome = match probe_degradation(&config.socket, config.slowest_request_warn_ms) {
+            Degradation::Clean => Outcome::Healthy,
+            Degradation::Degraded(reasons) => Outcome::Degraded { reasons },
+            Degradation::Unknown(why) => Outcome::DegradationUnknown { why },
+        };
     }
 
     if matches!(outcome, Outcome::DownAlert { .. } | Outcome::RecoveryAlert) {

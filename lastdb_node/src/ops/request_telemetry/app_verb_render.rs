@@ -16,13 +16,7 @@ pub fn app_verb_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
         "App / verb latency (idle excluded; count/avg/max=lifetime process totals; p95=recent ring):"
             .to_string(),
     ];
-    // Defensive filter: older snapshots / hand-built fixtures may still mix
-    // idle kinds into `app_verb`. The live rollup already drops them.
-    let work: Vec<&AppVerbAggregate> = snap
-        .app_verb
-        .iter()
-        .filter(|a| !a.kind.is_idle_wait())
-        .collect();
+    let work: Vec<&AppVerbAggregate> = snap.app_verb.iter().collect();
     if work.is_empty() {
         lines.push("  (no app/verb work aggregates yet)".to_string());
         return lines;
@@ -66,12 +60,7 @@ pub fn app_verb_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
 /// its existing ops-terminal parser. The default view is for people and uses
 /// columns plus an explicit population note.
 pub(super) fn app_verb_table_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
-    let work: Vec<&AppVerbAggregate> = snap
-        .app_verb
-        .iter()
-        .filter(|a| !a.kind.is_idle_wait())
-        .take(10)
-        .collect();
+    let work: Vec<&AppVerbAggregate> = snap.app_verb.iter().take(10).collect();
     let mut lines = vec![
         "App / verb latency — idle excluded".to_string(),
         "  Lifetime: calls, avg, max, errors, body. Recent ring: p95 and N.".to_string(),
