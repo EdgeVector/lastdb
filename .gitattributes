@@ -1,2 +1,0 @@
-# Pre-compiled WASM fixtures (if any) are binary: no EOL normalization, no text diffs.
-*.wasm binary
