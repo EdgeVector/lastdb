@@ -200,7 +200,8 @@ class BaselineOperation(Operation):
         proof = restored(destination, report, selected)
         inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
         proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
-        node = OwnedNode(destination, self.programs, cloud_credentials=credentials)
+        node = OwnedNode(destination, self.programs, cloud_credentials=credentials,
+                         device_sign_in=True)
         self.node = node
         reads = []
         for _number in range(2):

@@ -40,7 +40,7 @@ class Automatic:
         return report
 
     def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None,
-                temporary=None, file_released=False):
+                temporary=None, file_released=False, sign_in_check=False):
         operation = self.operation
         operation.summary["stage"] = name
         require(operation.node.process is None, "source_stays_stopped_for_restore")
@@ -52,8 +52,14 @@ class Automatic:
         proof = restored(destination, report, selected, replay, observe)
         inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
         proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
-        node = OwnedNode(destination, self.programs, cloud_credentials=self.credentials)
+        node = OwnedNode(destination, self.programs, cloud_credentials=self.credentials,
+                         device_sign_in=True)
         operation.node = node
+        sign_in = None
+        if sign_in_check:
+            node.start(sign_in=False)
+            sign_in = node.verify_file_needs_sign_in(expected)
+            node.stop()
         reads = []
         lifecycle_reads = []
         temporary_reads = []
@@ -66,9 +72,14 @@ class Automatic:
             if temporary is not None:
                 temporary_reads.append(temporary.verify_absent(node))
             node.stop()
-        require(node.clean_stops == 2, "two_automatic_restore_clean_stops")
-        return {"restore": proof, "restored_boots": 2, "strict_clean_stops": 2,
-                "keyed_reads": reads, "lifecycle_reads": lifecycle_reads, "temporary_key_reads": temporary_reads}
+        stops = 3 if sign_in_check else 2
+        require(node.clean_stops == stops, "automatic_restore_clean_stops")
+        result = {"restore": proof, "restored_boots": 2, "strict_clean_stops": stops,
+                  "keyed_reads": reads, "lifecycle_reads": lifecycle_reads,
+                  "temporary_key_reads": temporary_reads}
+        if sign_in is not None:
+            result["file_read_before_sign_in"] = sign_in
+        return result
 
     def stopped_recoveries(self, stopped, lifecycle, temporary):
         manual = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
@@ -152,7 +163,8 @@ class Automatic:
                                     lifecycle=lifecycle, initial=True, temporary=temporary,
                                     file_released=True)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
-                                   lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)
+                                   lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary,
+                                   sign_in_check=True)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle, temporary=temporary)
         stopped_restore, final_restore = self.stopped_recoveries(stopped, lifecycle, temporary)

@@ -23,4 +23,4 @@ pub use query::QueryExecutor;
 pub use mutation_manager::MutationManager;
 
 pub use fold_db::FoldDB;
-pub use record_blob_source::{BlobFetch, RecordBlobSource};
+pub use record_blob_source::{BlobFetch, RecordBlobSource, SIGN_IN_TO_FETCH_FILE};

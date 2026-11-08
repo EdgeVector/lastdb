@@ -2,16 +2,22 @@
 //! `design-lastdb-blob-files-on-demand-20261107`).
 //!
 //! Core has no cloud client. The node registers a source on [`FoldDB`] when
-//! the owner's cloud backup credentials exist; with no source, a record file
-//! that is not local cannot be read. The source returns the sealed row bytes
-//! exactly as the cloud stores them. Core checks them against the record's
-//! marker before it uses or installs them, so the source is not trusted for
-//! integrity.
+//! this home can ask the cloud, and on a personal home that still needs the
+//! owner to sign in. A dedicated shared home keeps no source. With no source,
+//! a record file that is not local cannot be read. The source returns the
+//! sealed row bytes exactly as the cloud stores them. Core checks them against
+//! the record's marker before it uses or installs them, so the source is not
+//! trusted for integrity.
 //!
 //! [`FoldDB`]: super::FoldDB
 
 use async_trait::async_trait;
 pub use cloud_backup_protocol::v2::blobs::BlobPath;
+
+/// Owner-visible body when a personal home has no saved credentials.
+/// The download returns this sentence as the whole message, and the
+/// proof matches these bytes.
+pub const SIGN_IN_TO_FETCH_FILE: &str = "sign in to fetch this file";
 
 /// The result of one blob download.
 pub enum BlobFetch {
