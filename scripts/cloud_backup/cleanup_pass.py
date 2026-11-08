@@ -105,12 +105,9 @@ class Pass:
             "unknown_records": history.unknown_records, "invalid_records": history.invalid_records,
             "complete_directory": False, "provider_deletion_authority": False}
         self.summary["stage"] = "ci-ownership-registration"
-        # Earlier direct-PUT runs lack a durable recovery recipe and their
-        # uncertain uploads remain protected. Never adopt them for cleanup.
-        eligible = [record for record in records if record["ownership"].get("recipe") is not None]
-        registered = [control.register(record) for record in eligible]
+        registered = [control.register(record) for record in records]
         self.summary["ci_ownership_registration"] = {
-            "registered": len(registered), "recipe_less_retained": len(records) - len(eligible),
+            "registered": len(registered),
             "refresh": control.refresh(), "provider_deletions": 0}
         self.summary["stage"] = "retire-old-ci-backups"
         return retirement.create(self.args.output)
