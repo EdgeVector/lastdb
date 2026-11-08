@@ -1,6 +1,6 @@
 //! Account-authorized discovery. A directory entry is not acceptance evidence.
-use super::{limits, AcceptedBackup, Stream, Version};
-use crate::{CloudScope, Digest, Id, ProtocolError, Text};
+use super::{limits, Stream, Version};
+use crate::{CloudScope, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -62,39 +62,5 @@ impl StreamsListResponse {
             }
         }
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-}
-
-/// Optional user receipt. Credentials plus discovery can recover this selection.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RecoveryLocator {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Stream the accepted backup was published on.
-    pub stream: Stream,
-    /// Commit id of that backup.
-    pub commit_id: Id,
-    /// SHA-256 of that backup's commit input.
-    pub commit_sha256: Digest,
-}
-impl RecoveryLocator {
-    /// Validate the stream and the encoded size.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-
-    /// Require this locator's stream, commit id, and commit digest to match the accepted backup.
-    pub fn validate_for(&self, accepted: &AcceptedBackup) -> Result<(), ProtocolError> {
-        self.validate()?;
-        accepted.validate()?;
-        if self.stream != accepted.job().stream
-            || self.commit_id != accepted.job().commit_id
-            || self.commit_sha256 != accepted.commit_sha256
-        {
-            return Err(ProtocolError::invalid("v2.recovery_locator.accepted"));
-        }
-        Ok(())
     }
 }

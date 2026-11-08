@@ -8,8 +8,6 @@ use crate::{CloudScope, Digest, Id, PendingReason, ProtocolError, TerminalFailur
 use serde::{Deserialize, Serialize};
 
 pub use super::limits::MAX_BATCH_ITEMS;
-/// Legacy and R2 upload grants require this signed condition and exact Content-Length.
-pub const UPLOAD_IF_NONE_MATCH: &str = "*";
 
 /// The service returns an authoritative receipt only after exact byte verification.
 /// An internally consistent client value does not establish service authority or retention.
