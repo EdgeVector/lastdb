@@ -1,8 +1,5 @@
 //! Install the identity and publish the verified restored home with its receipt.
-use super::{
-    report, NativeInventory, RecoveryKeys, RestoreError, RestoreReport, Result,
-    VerifiedNativeContext,
-};
+use super::{report, NativeInventory, RestoreError, RestoreReport, Result, VerifiedNativeContext};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -43,7 +40,7 @@ pub(super) fn published_context(
 
 pub(super) fn finish_run_context(
     session: &VerifiedNativeContext<'_>,
-    keys: &RecoveryKeys,
+    identity_seed: &[u8; 32],
     inventory: NativeInventory,
     proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
 ) -> Result<RestoreReport> {
@@ -56,17 +53,17 @@ pub(super) fn finish_run_context(
     if files != inventory.files || bytes != inventory.bytes {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
-    publish_context(session, keys, inventory, proof.verified_records())
+    publish_context(session, identity_seed, inventory, proof.verified_records())
 }
 
 fn publish_context(
     session: &VerifiedNativeContext<'_>,
-    keys: &RecoveryKeys,
+    identity_seed: &[u8; 32],
     inventory: NativeInventory,
     records: u64,
 ) -> Result<RestoreReport> {
     let home = session.root.join("home");
-    install_identity(&home, keys)?;
+    install_identity(&home, identity_seed)?;
     if crate::cloud::cloud_credentials_path(&home).try_exists()? {
         return Err(RestoreError::Invalid("restore cloud configuration"));
     }
@@ -115,7 +112,7 @@ pub(crate) fn sync_publish_parents(root: &Path, destination: &Path) -> Result<()
     Ok(())
 }
 
-fn install_identity(home: &Path, keys: &RecoveryKeys) -> Result<()> {
+fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
     let path = home.join(lastdb_identity::IDENTITY_KEY_FILE);
     if path.try_exists()? {
         if !fs::symlink_metadata(&path)?.is_file() {
@@ -124,15 +121,15 @@ fn install_identity(home: &Path, keys: &RecoveryKeys) -> Result<()> {
         let mut file = report::owner_file(&path, false)?;
         let mut seed = zeroize::Zeroizing::new(Vec::new());
         Read::by_ref(&mut file).take(33).read_to_end(&mut seed)?;
-        if seed.len() > 32 || !keys.seed.starts_with(&seed) {
+        if seed.len() > 32 || !identity_seed.starts_with(&seed) {
             return Err(RestoreError::Invalid("restore identity"));
         }
         if seed.len() < 32 {
             file.seek(SeekFrom::Start(0))?;
-            file.write_all(&*keys.seed)?;
+            file.write_all(identity_seed)?;
         }
     } else {
-        lastdb_identity::write_seed(home, &keys.seed)
+        lastdb_identity::write_seed(home, identity_seed)
             .map_err(|_| RestoreError::Invalid("restore identity flush"))?;
     }
     File::open(path)?.sync_all()?;

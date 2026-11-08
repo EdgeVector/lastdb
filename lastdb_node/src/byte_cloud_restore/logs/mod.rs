@@ -4,8 +4,8 @@ mod checkpoint;
 mod plan;
 mod routing;
 use super::{
-    local, ByteBackupClient, RecoveryKeys, RestoreError, RestoreReport, RestoreSession, Result,
-    VerifiedNativeContext,
+    keys::RecoveryDecryption, local, ByteBackupClient, RestoreError, RestoreReport, RestoreSession,
+    Result, VerifiedNativeContext,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::v2::AcceptedBackup;
@@ -34,14 +34,15 @@ struct Cursor {
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
+    identity_seed: &[u8; 32],
     latest: MutationLogRoot,
 ) -> Result<RestoreReport> {
-    keys.validate_account(&latest.recovery.account_public_key)?;
-    let plan = plan::prepare(session, client, keys, &latest).await?;
+    decryption.validate_account(&latest.recovery.account_public_key)?;
+    let plan = plan::prepare(session, client, decryption, &latest).await?;
     let base = session.ancestor(plan.base.clone())?;
     let (inventory, bytes) = super::closure::load(&base, client).await?;
-    let snapshot = ClientRoot::decode(&bytes, keys.content_key(), &base.accepted().begin)
+    let snapshot = ClientRoot::decode(&bytes, decryption.content_key(), &base.accepted().begin)
         .map_err(|_| RestoreError::Invalid("mutation base snapshot"))?;
     let profile = &snapshot.run;
     if snapshot.recovery != latest.recovery
@@ -58,8 +59,8 @@ pub(super) async fn restore(
     let mut cursor: Cursor = if cursor_path.try_exists()? {
         local::read_json(&cursor_path, 256 * 1024)?
     } else {
-        let total = super::runs::stage(&base, client, keys, &snapshot, inventory).await?;
-        let proof = super::runs::verify_stage(&base, keys, &snapshot)?;
+        let total = super::runs::stage(&base, client, decryption, &snapshot, inventory).await?;
+        let proof = super::runs::verify_stage(&base, decryption, &snapshot)?;
         if proof
             .totals()
             .map_err(|_| RestoreError::Invalid("mutation snapshot proof"))?
@@ -94,14 +95,15 @@ pub(super) async fn restore(
     }
     local::directory(&replay_files)?;
     while cursor.remaining > 0 {
-        replay_checkpoint(session, client, keys, &latest, &mut cursor).await?;
+        replay_checkpoint(session, client, decryption, &latest, &mut cursor).await?;
     }
-    finish(session, keys, &latest, &cursor)
+    finish(session, decryption, identity_seed, &latest, &cursor)
 }
 
 fn finish(
     session: &RestoreSession,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
+    identity_seed: &[u8; 32],
     latest: &MutationLogRoot,
     cursor: &Cursor,
 ) -> Result<RestoreReport> {
@@ -110,7 +112,7 @@ fn finish(
     }
     let replay = run_restore::MutationReplay::open(
         &session.root.join("home/data"),
-        keys.content_key(),
+        decryption.content_key(),
         &latest.anchor,
     )
     .map_err(|_| RestoreError::Invalid("final native replay admission"))?;
@@ -122,7 +124,7 @@ fn finish(
         &session.root.join("home/data"),
         &latest.anchor,
         &latest.through,
-        keys.content_key(),
+        decryption.content_key(),
     )
     .map_err(RestoreError::native_proof)?;
     let root = proof
@@ -131,13 +133,17 @@ fn finish(
     let (files, bytes) = proof
         .totals()
         .map_err(|_| RestoreError::Invalid("replayed native totals"))?;
-    context(session, &root).finish_run(keys, super::NativeInventory { files, bytes }, &proof)
+    context(session, &root).finish_run(
+        identity_seed,
+        super::NativeInventory { files, bytes },
+        &proof,
+    )
 }
 
 async fn replay_checkpoint(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
     cursor: &mut Cursor,
 ) -> Result<()> {
@@ -145,7 +151,7 @@ async fn replay_checkpoint(
         local::read_json(&plan::link_path(session, cursor.remaining - 1), 256 * 1024)?;
     let ancestor = session.ancestor(accepted.clone())?;
     let (inventory, bytes) = super::closure::load(&ancestor, client).await?;
-    let root = MutationLogRoot::decode(&bytes, keys.content_key(), &accepted.begin)
+    let root = MutationLogRoot::decode(&bytes, decryption.content_key(), &accepted.begin)
         .map_err(|_| RestoreError::Invalid("replayed checkpoint root"))?;
     if root.base != latest.base
         || root.anchor != latest.anchor
@@ -167,7 +173,7 @@ async fn replay_checkpoint(
     checkpoint::download(
         &ancestor,
         client,
-        keys,
+        decryption,
         &root,
         inventory,
         cursor.remaining - 1,
@@ -175,7 +181,7 @@ async fn replay_checkpoint(
     .await?;
     let replay = run_restore::MutationReplay::open(
         &session.root.join("home/data"),
-        keys.content_key(),
+        decryption.content_key(),
         &root.anchor,
     )
     .map_err(|_| RestoreError::Invalid("private native replay admission"))?;

@@ -1,5 +1,5 @@
 //! Client-owned native validation after a transport proves its complete closure.
-use super::{RecoveryKeys, RestoreReport, Result};
+use super::{RestoreReport, Result};
 use cloud_backup_protocol::{Digest, NativeRoot};
 use std::path::{Path, PathBuf};
 
@@ -36,10 +36,10 @@ impl VerifiedNativeContext<'_> {
     }
     pub fn finish_run(
         &self,
-        keys: &RecoveryKeys,
+        identity_seed: &[u8; 32],
         inventory: NativeInventory,
         proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
     ) -> Result<RestoreReport> {
-        super::publish::finish_run_context(self, keys, inventory, proof)
+        super::publish::finish_run_context(self, identity_seed, inventory, proof)
     }
 }

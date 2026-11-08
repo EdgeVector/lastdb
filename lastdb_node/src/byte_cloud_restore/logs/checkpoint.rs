@@ -7,7 +7,7 @@ use fold_db::storage::disk_pack::byte_backup::CODEC_ENVELOPE_MAX_BYTES;
 pub(super) async fn download(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     root: &MutationLogRoot,
     mut inventory: Inventory,
     link_index: u32,
@@ -31,7 +31,7 @@ pub(super) async fn download(
             let path = download::fetch(session, client, &grant, true).await?;
             let page = MutationLogPage::decode(
                 &crate::byte_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-                keys.content_key(),
+                decryption.content_key(),
                 &session.accepted().begin,
             )
             .map_err(|_| RestoreError::Invalid("mutation file page"))?;

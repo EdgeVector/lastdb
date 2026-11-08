@@ -15,7 +15,7 @@ pub(super) struct Plan {
 pub(super) async fn prepare(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
 ) -> Result<Plan> {
     let path = session.root.join("chain/plan.json");
@@ -64,7 +64,7 @@ pub(super) async fn prepare(
         let ancestor = session.ancestor(root.previous.clone())?;
         let (_, bytes) = super::super::closure::load(&ancestor, client).await?;
         let previous =
-            MutationLogRoot::decode(&bytes, keys.content_key(), &ancestor.accepted().begin)
+            MutationLogRoot::decode(&bytes, decryption.content_key(), &ancestor.accepted().begin)
                 .map_err(|_| RestoreError::Invalid("mutation ancestor root"))?;
         root.validate_previous(&previous)
             .map_err(|_| RestoreError::Invalid("mutation ancestor prefix"))?;

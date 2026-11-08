@@ -158,7 +158,7 @@ impl RestoreSession {
         if *backup != *self.accepted() {
             return Err(RestoreError::Invalid("authoritative accepted selection"));
         }
-        super::closure::restore(self, client, keys).await
+        super::closure::restore(self, client, keys.decryption(), keys.account_seed()).await
     }
 
     fn bind_endpoint(&mut self, client: &ByteBackupClient) -> Result<()> {

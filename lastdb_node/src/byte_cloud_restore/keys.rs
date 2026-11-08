@@ -4,10 +4,16 @@ use zeroize::Zeroizing;
 
 /// The caller supplies the phrase again after restart; the session stores no secret.
 pub struct RecoveryKeys {
-    pub(super) seed: Zeroizing<[u8; 32]>,
-    pub(super) content: Zeroizing<[u8; 32]>,
-    account_public_key: String,
+    seed: Zeroizing<[u8; 32]>,
+    decryption: RecoveryDecryption,
     account_id: cloud_backup_protocol::AccountId,
+}
+
+/// Key material used to verify and decrypt a backup, separate from the
+/// identity installed when restoring an owner home.
+pub(super) struct RecoveryDecryption {
+    content: Zeroizing<[u8; 32]>,
+    account_public_key: String,
 }
 
 impl RecoveryKeys {
@@ -40,13 +46,33 @@ impl RecoveryKeys {
             .map_err(|_| RestoreError::Invalid("recovery account"))?;
         Ok(Self {
             seed,
-            content: Zeroizing::new(keys.encryption_key()),
-            account_public_key: fold_db::hex::hex_lower(pair.public_key_bytes()),
+            decryption: RecoveryDecryption {
+                content: Zeroizing::new(keys.encryption_key()),
+                account_public_key: fold_db::hex::hex_lower(pair.public_key_bytes()),
+            },
             account_id: cloud_backup_protocol::AccountId::try_from(account_id)
                 .map_err(|_| RestoreError::Invalid("recovery account"))?,
         })
     }
-    pub(crate) fn validate_account(
+    pub(super) fn decryption(&self) -> &RecoveryDecryption {
+        &self.decryption
+    }
+
+    pub(crate) fn account_seed(&self) -> &[u8; 32] {
+        &self.seed
+    }
+
+    pub(crate) fn content_key(&self) -> &[u8; 32] {
+        self.decryption.content_key()
+    }
+
+    pub(crate) fn account_id(&self) -> &cloud_backup_protocol::AccountId {
+        &self.account_id
+    }
+}
+
+impl RecoveryDecryption {
+    pub(super) fn validate_account(
         &self,
         account_public_key: &cloud_backup_protocol::Digest,
     ) -> Result<()> {
@@ -56,15 +82,7 @@ impl RecoveryKeys {
         Ok(())
     }
 
-    pub(crate) fn account_seed(&self) -> &[u8; 32] {
-        &self.seed
-    }
-
-    pub(crate) fn content_key(&self) -> &[u8; 32] {
+    pub(super) fn content_key(&self) -> &[u8; 32] {
         &self.content
-    }
-
-    pub(crate) fn account_id(&self) -> &cloud_backup_protocol::AccountId {
-        &self.account_id
     }
 }
