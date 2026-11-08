@@ -90,18 +90,12 @@ pub(super) fn retire(home: &Path, runtime: &PackRuntime) -> Result<()> {
         for id in jobs {
             super::cleanup::remove_previous_job(home, id)?;
         }
-        for name in [
-            "recovery.json",
-            "recovery.pending",
-            "active.json",
-            "active.pending",
-        ] {
+        for name in ["recovery.pending", "active.pending"] {
             store::remove_owned(&base.join(name))?;
         }
-    } else {
-        for name in ["recovery.json", "active.json"] {
-            store::remove_owned(&base.join(name))?;
-        }
+    }
+    for name in ["recovery.json", "active.json"] {
+        store::remove_owned(&base.join(name))?;
     }
     let mut state = Policy::empty_state(
         previous.state.log_interval_seconds,

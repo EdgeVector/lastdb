@@ -22,27 +22,29 @@ pub(in crate::byte_cloud_backup) async fn plan_releases(
     if index.releases_planned {
         return Ok(());
     }
-    while !saved.begin_submitted {
-        let rows = source
-            .pending_blob_releases(index.release_cursor.as_deref(), MAX_BLOB_BATCH)
-            .await?;
-        let Some(last) = rows.last() else {
-            break;
-        };
-        let full = rows.len() == MAX_BLOB_BATCH;
-        index.release_cursor = Some(last.key.clone());
-        let entries: Vec<Release> = rows
-            .into_iter()
-            .map(|row| Release {
-                key: row.key,
-                path: row.path,
-            })
-            .collect();
-        store.write(&release_page(index.release_pages), &entries)?;
-        index.release_pages += 1;
-        store.write(INDEX, &index)?;
-        if !full {
-            break;
+    if !saved.begin_submitted {
+        loop {
+            let rows = source
+                .pending_blob_releases(index.release_cursor.as_deref(), MAX_BLOB_BATCH)
+                .await?;
+            let Some(last) = rows.last() else {
+                break;
+            };
+            let full = rows.len() == MAX_BLOB_BATCH;
+            index.release_cursor = Some(last.key.clone());
+            let entries: Vec<Release> = rows
+                .into_iter()
+                .map(|row| Release {
+                    key: row.key,
+                    path: row.path,
+                })
+                .collect();
+            store.write(&release_page(index.release_pages), &entries)?;
+            index.release_pages += 1;
+            store.write(INDEX, &index)?;
+            if !full {
+                break;
+            }
         }
     }
     index.releases_planned = true;
