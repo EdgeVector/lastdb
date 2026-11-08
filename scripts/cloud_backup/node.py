@@ -277,9 +277,11 @@ class OwnedNode:
             locations = ["unreadable"]
         return {"home": self.home.name, "exit": state, "crash_locations": locations}
 
-    def verify_records(self, baseline):
+    def verify_records(self, baseline, file_released=False):
         """Exact keyed reads. The first baseline record holds the one file;
-        no other record has a file."""
+        no other record has a file. With `file_released`, a later write replaced
+        that file version and the release deleted its B2 object, so the read
+        must answer "not in the cloud" (design-lastdb-blob-files-on-demand)."""
         file_record = baseline["records"][0]["id"]
         queries = [{"schema_name": baseline["schema"],
                     "filter": {"HashKey": record["id"]}, "limit": 2, "offset": 0}
@@ -313,17 +315,36 @@ class OwnedNode:
                         and "bytes_b64" not in inline, "record_inline_marker")
             else:
                 require(inline is None, "record_without_inline_file")
-        self.verify_file(baseline)
+        if file_released:
+            self.verify_file_released(baseline)
+        else:
+            self.verify_file(baseline)
         summary = {"records": sum(not record.get("deleted", False) for record in baseline["records"]),
                    "deleted_records": sum(record.get("deleted", False) for record in baseline["records"]),
                    "file_bytes": baseline["file_bytes"],
-                   "file_sha256": baseline["file_sha256"], "exact_values": True}
+                   "file_sha256": baseline["file_sha256"], "exact_values": True,
+                   "released_file_absent_in_cloud": file_released}
         if baseline.get("inline_record") is not None:
             self.verify_file(baseline, placement="inline")
             summary.update(inline_bytes=baseline["inline_bytes"], inline_sha256=baseline["inline_sha256"])
         self.health()
         summary["health_checked"] = True
         return summary
+
+    def verify_file_released(self, baseline):
+        """The record still holds its marker (checked above), so a 404 here is
+        the daemon's "not in the cloud" answer for the released version."""
+        target = {"schema": baseline["schema"], "key": {"hash": baseline["records"][0]["id"]},
+                  "placement": "blob"}
+        try:
+            response, connection = self.call("/api/db/fetch-blob", target, binary=True)
+        except OperationError as error:
+            refusal = error.socket_refusal or {}
+            require(str(error) == "socket_http_status" and refusal.get("status") == 404,
+                    "released_file_not_in_cloud")
+            return
+        connection.close()
+        raise OperationError("released_file_still_in_cloud")
 
     def verify_file(self, baseline, placement="blob"):
         """Stream the record's file and check its exact size and SHA-256. On a
