@@ -1,7 +1,6 @@
 //! Offline restore of an exact accepted opaque-byte backup.
 //! The cloud authorizes bytes; this client verifies all native semantics,
-//! then installs and publishes the verified home. No V1 cloud selection,
-//! read grant or downloader is admitted here.
+//! then installs and publishes the verified home.
 mod closure;
 mod context;
 mod download;

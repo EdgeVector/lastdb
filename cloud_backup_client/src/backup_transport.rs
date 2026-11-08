@@ -1,4 +1,4 @@
-//! Format-neutral bounded byte transport. No legacy wire operation is admitted.
+//! Format-neutral bounded byte transport.
 use super::{AuthClient, DEFAULT_AUTH_REQUEST_TIMEOUT};
 use cloud_backup_protocol::Digest;
 use reqwest::{Client, Url};

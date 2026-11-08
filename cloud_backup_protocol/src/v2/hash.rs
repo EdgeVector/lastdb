@@ -1,4 +1,4 @@
-//! V2 commitment domains never reuse a V1 identity. Stored bytes use plain SHA256.
+//! Commitment domains start with `lastdb:cloud-byte-backup:` and end with `:v2`. Stored bytes use plain SHA256.
 use crate::{Digest, ProtocolError};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
