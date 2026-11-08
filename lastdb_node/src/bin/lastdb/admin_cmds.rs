@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "admin_cmds/guest_stage.rs"]
+mod guest_stage;
+
 pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {
     match action {
         AdminCommand::Ops(args) => ops(data_dir, &args),
@@ -85,6 +88,14 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
 
 fn shared(data_dir: Option<PathBuf>, action: AdminSharedCommand) -> Result<(), String> {
     let action = match action {
+        AdminSharedCommand::StageGuest(args) => {
+            if data_dir.is_some() {
+                return Err(
+                    "stage-guest uses an independent workspace and takes no --data-dir".into(),
+                );
+            }
+            return guest_stage::run(args);
+        }
         AdminSharedCommand::Snapshot(args) => return snapshot_cmd::run(data_dir.as_deref(), args),
         AdminSharedCommand::Restore(args) => CloudCommand::RestoreShared(args),
         AdminSharedCommand::ResumeRestore(args) => CloudCommand::ResumeSharedRestore(args),

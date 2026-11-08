@@ -1,4 +1,4 @@
-use super::{source_error, ByteBackupReader, RestoreError, RestoreSession, Result};
+use super::{reader_error, source_error, ByteBackupReader, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::v2::access::{
     ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
@@ -24,7 +24,7 @@ pub(super) async fn grants(
     let response = client
         .read_grants(&request, session.accepted())
         .await
-        .map_err(source_error)?;
+        .map_err(|error| reader_error(client, error))?;
     response.validate_for(&request, session.accepted())?;
     response
         .items

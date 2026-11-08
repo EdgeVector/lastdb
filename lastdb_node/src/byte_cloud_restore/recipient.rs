@@ -1,9 +1,11 @@
 //! Stage one granted backup without creating an owner home.
 use super::session::{acquire_native_work, RestoreMode};
 use super::{
-    closure, keys::RecoveryDecryption, runs, ByteBackupReader, RestoreError, RestoreSession, Result,
+    closure, keys::RecoveryDecryption, reader_error, runs, ByteBackupReader, RestoreError,
+    RestoreSession, Result,
 };
 use cloud_backup_protocol::recovery::RecoveryProfile;
+use cloud_backup_protocol::v2::publication::HeadReadResult;
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::{Digest, RecoveryDescriptor};
 use std::fs;
@@ -11,6 +13,27 @@ use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 impl RestoreSession {
+    /// Select the current independent snapshot authorized by a guest permission.
+    pub async fn begin_guest(destination: &Path, reader: &ByteBackupReader) -> Result<Self> {
+        let stream = reader
+            .guest_stream()
+            .ok_or(RestoreError::Invalid("guest reader"))?;
+        let accepted = match reader
+            .guest_head()
+            .await
+            .map_err(|error| reader_error(reader, error))?
+        {
+            HeadReadResult::Ok { response } => response
+                .accepted
+                .ok_or(RestoreError::Source("share has no published backup"))?,
+            HeadReadResult::Error { error } => return Err(reader_error(reader, error.into())),
+        };
+        if &accepted.job().stream != stream {
+            return Err(RestoreError::Invalid("guest stream"));
+        }
+        Self::begin_recipient(destination, accepted)
+    }
+
     /// Reserve a private workspace for an independent accepted snapshot.
     pub fn begin_recipient(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
         require_independent(&accepted)?;
@@ -29,7 +52,8 @@ impl RestoreSession {
     ) -> Result<PathBuf> {
         let accepted = self.accepted();
         if self.selection.mode != RestoreMode::Recipient
-            || reader.recipient_job() != Some(accepted.job())
+            || (reader.recipient_job() != Some(accepted.job())
+                && reader.guest_stream() != Some(&accepted.job().stream))
         {
             return Err(RestoreError::Invalid("recipient restore session"));
         }
