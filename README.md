@@ -171,13 +171,6 @@ cherry-picked, or dangling commits through a submodule gitlink; land the change
 through a normal PR first, then bump the submodule pointer to that merged
 commit.
 
-Downstream CI can enforce this from the parent repo after submodules are
-checked out:
-
-```bash
-bash <submodule>/scripts/ci/verify-fold-gitlink-main.sh . <submodule> origin/main
-```
-
 ## Why the monorepo (and what disappeared with it)
 
 Before 2026-05-13 these crates lived in four repos with a diamond-shaped
