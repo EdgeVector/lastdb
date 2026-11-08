@@ -23,8 +23,6 @@ pub(super) struct Routing {
     objects: u64,
     metadata_objects: u64,
     main_files: u64,
-    cas_add_files: u64,
-    cas_delete_files: u64,
 }
 
 impl Routing {
@@ -42,7 +40,7 @@ impl Routing {
             .and_then(|count| count.checked_add(1))
             .ok_or(RestoreError::Limit("mutation route metadata count"))?;
         Ok(Self {
-            version: 1,
+            version: 2,
             link_index,
             commit_sha256: accepted.commit_sha256.clone(),
             root_receipt_id: accepted.root_receipt_id.clone(),
@@ -55,8 +53,6 @@ impl Routing {
             objects,
             metadata_objects,
             main_files: 0,
-            cas_add_files: 0,
-            cas_delete_files: 0,
         })
     }
 
@@ -69,13 +65,11 @@ impl Routing {
         for file in files {
             add(&mut self.native_files, 1)?;
             add(&mut self.native_bytes, file.native_bytes.get())?;
-            let count = match file.path.as_str().split('/').nth(3) {
-                Some("main") => &mut self.main_files,
-                Some("cas-add") => &mut self.cas_add_files,
-                Some("cas-delete") => &mut self.cas_delete_files,
-                _ => return Err(RestoreError::Invalid("mutation route role")),
-            };
-            add(count, 1)?;
+            // The log carries main-home runs only; record blobs are not logged.
+            if file.path.as_str().split('/').nth(3) != Some("main") {
+                return Err(RestoreError::Invalid("mutation route role"));
+            }
+            add(&mut self.main_files, 1)?;
         }
         if self.native_files > root.native_file_count || self.native_bytes > root.native_bytes {
             return Err(RestoreError::Invalid("mutation file totals"));
@@ -85,11 +79,7 @@ impl Routing {
 
     /// The caller completes both coverage and inventory checks before this write.
     pub(super) fn save(&self, session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
-        let roles = self
-            .main_files
-            .checked_add(self.cas_add_files)
-            .and_then(|count| count.checked_add(self.cas_delete_files));
-        if roles != Some(self.native_files)
+        if self.main_files != self.native_files
             || self.native_files != root.native_file_count
             || self.native_bytes != root.native_bytes
             || self.objects != self.inventory_root.object_count.get()

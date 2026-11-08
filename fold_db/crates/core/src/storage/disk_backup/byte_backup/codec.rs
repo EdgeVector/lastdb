@@ -1,6 +1,7 @@
 //! Mini-owned encrypted metadata. The byte service never interprets these values.
 //!
-//! Version 7 is the snapshot root. Version 4 belongs to mutation-log roots.
+//! Version 8 is the snapshot root (no CAS home; record blobs upload by path).
+//! Version 5 belongs to mutation-log roots.
 use super::{invalid, protocol, StorageResult};
 use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;
@@ -10,7 +11,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub const CODEC_PLAINTEXT_MAX_BYTES: u64 = 256 * 1024;
 pub const CODEC_ENVELOPE_MAX_BYTES: u64 = CODEC_PLAINTEXT_MAX_BYTES + 29;
 /// New snapshot metadata; independent of the cloud protocol and disk versions.
-pub const CLIENT_VERSION: u16 = 7;
+pub const CLIENT_VERSION: u16 = 8;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
 
@@ -105,12 +106,12 @@ impl ClientRoot {
         let files = profile
             .main
             .files
-            .checked_add(profile.cas.files)
+            .checked_add(profile.cas.as_ref().map_or(0, |cas| cas.files))
             .and_then(|n| n.checked_add(1));
         let bytes = profile
             .main
             .bytes
-            .checked_add(profile.cas.bytes)
+            .checked_add(profile.cas.as_ref().map_or(0, |cas| cas.bytes))
             .and_then(|n| n.checked_add(profile.node_marker().ok()?.len() as u64));
         if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
             return Err(invalid("run root exact native totals"));

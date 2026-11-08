@@ -12,7 +12,8 @@ use fold_db::storage::disk_pack::mutation_log::{log_path, LogAnchor, LogEntry, L
 pub use page::MutationLogPage;
 pub use root::{LogKind, MutationLogRoot};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-pub const VERSION: u16 = 4;
+/// Version 5 logs main-home runs only; record blobs upload by path.
+pub const VERSION: u16 = 5;
 pub const MAX_BATCH_ENTRIES: usize = 128;
 
 #[derive(Debug)]

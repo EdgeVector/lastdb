@@ -6,6 +6,7 @@ mod capture;
 mod codec;
 mod model;
 mod planner;
+mod previous_capture;
 mod reader;
 mod run_capture;
 mod run_codec;

@@ -8,6 +8,7 @@ mod access;
 mod blobs;
 mod jobs;
 mod publication;
+mod release;
 mod transfer;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};

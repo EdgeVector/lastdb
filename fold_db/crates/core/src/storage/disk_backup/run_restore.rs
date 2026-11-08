@@ -1,4 +1,8 @@
-//! Verify an inactive paired run home without a writer, cleanup, or conversion.
+//! Verify an inactive run home without a writer, cleanup, or conversion.
+//!
+//! A personal backup carries the main home only. Restore installs an empty
+//! CAS home ([`install_empty_cas_home`]); record blobs are fetched from their
+//! cloud paths on request. A shared database backup still carries its CAS home.
 mod files;
 mod node;
 mod proof;
@@ -78,9 +82,10 @@ pub fn verify(
     if native.profile != *profile {
         return Err(invalid("run restore captured profile differs"));
     }
+    native.require_empty_local_cas()?;
     let records = verify_readers_for_profile(
         &native.main,
-        &native.cas,
+        native.backed_up_cas(),
         account_key,
         native.profile.version,
     )?;
@@ -91,11 +96,26 @@ pub fn verify(
 
 pub(crate) fn verify_readers_for_profile(
     main: &RunRead,
-    cas: &RunRead,
+    cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
 ) -> StorageResult<u64> {
     proof::verify(main, cas, account_key, version)
+}
+
+/// Create the empty local CAS home of a restored personal node, after its
+/// main home files are in place and before the proof opens the node. An
+/// existing CAS home is kept; the proof requires it to be empty.
+pub fn install_empty_cas_home(data_root: &Path, account_key: &[u8; 32]) -> StorageResult<()> {
+    let path = data_root.join(run_node::CAS_DIR);
+    if path.try_exists()? {
+        return Ok(());
+    }
+    let home = laststore::disk_run::home::RunHome::create(&path, &run_node::cas_key(account_key))
+        .map_err(map)?;
+    drop(home);
+    std::fs::File::open(data_root)?.sync_all()?;
+    Ok(())
 }
 
 fn invalid(message: &'static str) -> StorageError {

@@ -11,7 +11,6 @@ impl PackRuntime {
             state.validate()?;
             if state.begin.job.commit_id != *request
                 || state.anchor.main_home != self.mutation_log.main_home
-                || state.anchor.cas_home != self.mutation_log.cas_home
             {
                 return Err(invalid("mutation capture replacement identity"));
             }

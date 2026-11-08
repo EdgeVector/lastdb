@@ -72,8 +72,7 @@ class Automatic:
     def stopped_recoveries(self, stopped, lifecycle, temporary):
         manual = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
                               temporary=temporary)
-        replay = {"base": stopped.accepted, "minimum": stopped.final_minimum,
-                  "require_cas_additions": False}
+        replay = {"base": stopped.accepted, "minimum": stopped.final_minimum}
         final = self.recover("stopped-log-recovery", stopped.final_expected,
                              stopped.final_accepted, replay, lifecycle=lifecycle,
                              observe=stopped.source.observe_accepted, temporary=temporary)

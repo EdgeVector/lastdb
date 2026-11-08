@@ -8,6 +8,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+mod blob_backup;
+pub use blob_backup::{blob_path_of_key, BlobRow};
 mod blocking;
 pub(in crate::storage) mod cas_delete;
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};

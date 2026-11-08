@@ -58,7 +58,6 @@ impl Capture {
                     through,
                     frontiers: Frontiers {
                         main: profile.main.frontier.get(),
-                        cas: profile.cas.frontier.get(),
                     },
                 }
             }

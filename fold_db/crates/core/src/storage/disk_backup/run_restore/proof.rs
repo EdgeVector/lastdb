@@ -1,4 +1,6 @@
-//! Semantic proof against two fixed, authenticated disk V2 roots.
+//! Semantic proof against fixed, authenticated disk V2 roots: the main home,
+//! and for a shared database its CAS home. A personal home's record blobs are
+//! B2 objects by path, so its proof checks each record's file marker only.
 mod budget_json;
 mod keys;
 mod ranges;
@@ -17,7 +19,7 @@ use laststore::disk_run::home::RunRead;
 /// held throughout this proof. No live home or source path is opened here.
 pub(super) fn verify(
     main: &RunRead,
-    cas: &RunRead,
+    cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
 ) -> StorageResult<u64> {
@@ -33,7 +35,7 @@ pub(super) fn verify(
     let result = {
         let (read_main, read_cas) = reserved
             .as_ref()
-            .map_or((main, cas), |(main, cas)| (main, cas));
+            .map_or((main, cas), |(main, cas)| (main, cas.as_ref()));
         verify_once(read_main, read_cas, account_key, version, key_heads)
     };
     // Every optional inventory cursor and fork must close before nested reads
@@ -49,7 +51,7 @@ pub(super) fn verify(
 
 fn verify_once(
     main: &RunRead,
-    cas: &RunRead,
+    cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
     key_heads: bool,
@@ -79,16 +81,19 @@ fn descriptor_pressure(error: &StorageError) -> bool {
     matches!(code, Some(code) if code == libc::EMFILE || code == libc::ENFILE)
 }
 
-fn reserve_cursor(main: &RunRead, cas: &RunRead) -> StorageResult<Option<(RunRead, RunRead)>> {
+fn reserve_cursor(
+    main: &RunRead,
+    cas: Option<&RunRead>,
+) -> StorageResult<Option<(RunRead, Option<RunRead>)>> {
     // Both proof forks and the single long-lived inventory fork coexist with
     // nested directory and CAS reads. The manifest charge is conservative:
     // those forks share its Arc, but every reader has its own run-slot vector.
     let shared = main
         .reserved_metadata_bytes()
-        .max(cas.reserved_metadata_bytes())
+        .max(cas.map_or(0, RunRead::reserved_metadata_bytes))
         .checked_add(main.retained_bytes())
         .and_then(|n| n.checked_add(main.retained_bytes()))
-        .and_then(|n| n.checked_add(cas.retained_bytes()))
+        .and_then(|n| n.checked_add(cas.map_or(0, RunRead::retained_bytes)))
         .and_then(|n| n.checked_add(budget::PROOF_KEY_HEAD_BYTES));
     let Some(shared) = shared else {
         return Ok(None);
@@ -104,10 +109,17 @@ fn reserve_cursor(main: &RunRead, cas: &RunRead) -> StorageResult<Option<(RunRea
     let Some(mut main) = fork_or_skip(main)? else {
         return Ok(None);
     };
-    let Some(mut cas) = fork_or_skip(cas)? else {
-        return Ok(None);
+    let mut cas = match cas {
+        Some(cas) => match fork_or_skip(cas)? {
+            Some(cas) => Some(cas),
+            None => return Ok(None),
+        },
+        None => None,
     };
-    super::reserve_paired_metadata(&mut main, &mut cas, shared)?;
+    match cas.as_mut() {
+        Some(cas) => super::reserve_paired_metadata(&mut main, cas, shared)?,
+        None => main.reserve_metadata(shared).map_err(map)?,
+    }
     Ok(Some((main, cas)))
 }
 
@@ -132,7 +144,8 @@ pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> St
 
 struct Proof<'a> {
     main: &'a RunRead,
-    cas: &'a RunRead,
+    /// Present only for a shared database, whose CAS home is in the backup.
+    cas: Option<&'a RunRead>,
     key_heads: bool,
 }
 

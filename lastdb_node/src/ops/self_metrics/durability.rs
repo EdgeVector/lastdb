@@ -86,7 +86,7 @@ impl DurabilityHealth {
         if local == backed {
             return Some(Coverage::Current);
         }
-        if backed.main > local.main || backed.cas > local.cas {
+        if backed.main > local.main {
             return Some(Coverage::Mismatch);
         }
         if self.upload_overdue_secs().unwrap_or(0) > STALE_UPLOAD_SECS {
@@ -122,7 +122,7 @@ impl DurabilityHealth {
     }
 
     fn coverage_text(&self, coverage: Coverage) -> String {
-        let log = |f: Frontiers| format!("{}/{}", f.main, f.cas);
+        let log = |f: Frontiers| f.main.to_string();
         let positions = match (self.local_frontiers, self.backed_up_frontiers) {
             (Some(local), Some(backed)) => {
                 format!("local log {}, backed up {}", log(local), log(backed))

@@ -54,6 +54,21 @@ impl LocalRoot {
 }
 
 impl RunNodeGuard {
+    /// The CAS reader the proof checks file rows in: only a shared database
+    /// backs up its CAS home.
+    pub(super) fn backed_up_cas(&self) -> Option<&RunRead> {
+        self.profile.cas.as_ref().map(|_| &self.cas)
+    }
+
+    /// A restored personal home holds no record blob rows: each blob is
+    /// fetched from its cloud path on its first request.
+    pub(super) fn require_empty_local_cas(&self) -> StorageResult<()> {
+        if self.profile.cas.is_none() && self.cas.referenced_runs().next().is_some() {
+            return Err(invalid("restored personal CAS home is not empty"));
+        }
+        Ok(())
+    }
+
     pub fn check_binding(&self) -> StorageResult<()> {
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
@@ -74,7 +89,9 @@ impl RunNodeGuard {
             &self.main,
             &self.profile.main,
         )?;
-        check_home(&self.root, run_node::CAS_DIR, &self.cas, &self.profile.cas)?;
+        if let Some(cas) = &self.profile.cas {
+            check_home(&self.root, run_node::CAS_DIR, &self.cas, cas)?;
+        }
         if let Some(private) = &self.private {
             private.check(&self.root)?;
         }
@@ -119,7 +136,9 @@ impl RunNodeGuard {
             bytes: profile.node_marker()?.len() as u64,
         }];
         entries.extend(check_home(root, run_node::RUN_DIR, &main, &profile.main)?);
-        entries.extend(check_home(root, run_node::CAS_DIR, &cas, &profile.cas)?);
+        if let Some(expected) = &profile.cas {
+            entries.extend(check_home(root, run_node::CAS_DIR, &cas, expected)?);
+        }
         super::phase(
             super::Stage::Account,
             proof::verify_account(&main, key, version),

@@ -8,7 +8,7 @@ use cloud_backup_protocol::{Digest, NativeRoot, RecoveryDescriptor, RelativePath
 use serde::{Deserialize, Serialize};
 
 /// The shape version of a saved capture record.
-pub(super) const STATE_FORMAT: u16 = 4;
+pub(super) const STATE_FORMAT: u16 = 5;
 pub(super) const MAX_OBJECTS: u64 = (cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES
     * cloud_backup_protocol::v2::limits::MAX_PAGES) as u64;
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,9 +42,8 @@ impl State {
         if let Some(anchor) = &self.journal_anchor {
             anchor.position()?;
             if anchor.main_home != run.main.home_id
-                || anchor.cas_home != run.cas.home_id
                 || anchor.frontiers.main != run.main.frontier.get()
-                || anchor.frontiers.cas != run.cas.frontier.get()
+                || run.cas.is_some()
             {
                 return Err(invalid("snapshot mutation log anchor differs"));
             }

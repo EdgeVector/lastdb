@@ -92,6 +92,39 @@ impl Source {
         }
         Ok(())
     }
+    /// Snapshot jobs queue every local record file version without an
+    /// upload marker, so versions from before the markers upload once.
+    pub async fn queue_unuploaded_blobs(&self) -> Result<u64> {
+        Ok(self.runtime.queue_unuploaded_blobs().await?)
+    }
+    pub async fn pending_blob_uploads(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
+        Ok(self
+            .runtime
+            .pending_blob_uploads(&self.source_home, after, limit)
+            .await?)
+    }
+    pub async fn pending_blob_releases(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
+        Ok(self
+            .runtime
+            .pending_blob_releases(&self.source_home, limit)
+            .await?)
+    }
+    pub async fn blob_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.runtime.record_blob_bytes(key, &self.key).await?)
+    }
+    pub async fn blobs_accepted(&self, uploaded: &[String], released: &[String]) -> Result<()> {
+        Ok(self.runtime.blobs_accepted(uploaded, released).await?)
+    }
+    pub fn runtime(&self) -> &PackRuntime {
+        &self.runtime
+    }
     pub async fn flush(&self) -> Result<()> {
         self.runtime.flush_native().await?;
         Ok(())
@@ -124,9 +157,10 @@ impl Source {
                         .await?
                 };
                 let profile = capture.run_profile()?;
-                if minimum.as_ref().is_some_and(|min| {
-                    profile.main.frontier.get() < min.main || profile.cas.frontier.get() < min.cas
-                }) {
+                if minimum
+                    .as_ref()
+                    .is_some_and(|min| profile.main.frontier.get() < min.main)
+                {
                     return Err(BackupError::Identity);
                 }
                 Ok(Capture::Snapshot(capture))

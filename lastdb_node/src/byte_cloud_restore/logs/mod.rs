@@ -46,9 +46,8 @@ pub(super) async fn restore(
     let profile = &snapshot.run;
     if snapshot.recovery != latest.recovery
         || profile.main.home_id != latest.anchor.main_home
-        || profile.cas.home_id != latest.anchor.cas_home
         || profile.main.frontier.get() != latest.anchor.frontiers.main
-        || profile.cas.frontier.get() != latest.anchor.frontiers.cas
+        || profile.cas.is_some()
     {
         return Err(RestoreError::Invalid("mutation exact snapshot boundary"));
     }
@@ -70,7 +69,7 @@ pub(super) async fn restore(
         }
         drop(proof);
         let cursor = Cursor {
-            version: 1,
+            version: 2,
             head: plan.head.clone(),
             remaining: plan.links,
             previous: plan.base.clone(),
@@ -84,7 +83,7 @@ pub(super) async fn restore(
         plan::save(session, &cursor_path, &cursor)?;
         cursor
     };
-    if cursor.version != 1 || cursor.head != plan.head || cursor.remaining > plan.links {
+    if cursor.version != 2 || cursor.head != plan.head || cursor.remaining > plan.links {
         return Err(RestoreError::Invalid("mutation replay cursor"));
     }
     let replay_files = session.root.join("replay-files");

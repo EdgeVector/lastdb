@@ -1,8 +1,11 @@
 //! The records of a home and their files.
 //!
 //! A record has no separate body row and no file dependency row. A record
-//! with a file marker has one file, at a path made from its key. The proof
-//! checks that the path is a live row of the authenticated CAS run. A record
+//! with a file marker has one file, at a path made from its key. For a shared
+//! database the proof checks that the path is a live row of the authenticated
+//! CAS run. A personal home's record files are B2 objects at a path derived
+//! from the record, fetched on request, so the proof checks that the marker
+//! derives a valid local and cloud path and does not look for the row. A record
 //! with an inline file marker has one inline file row in the same run, and
 //! the proof checks its bytes against the marker.
 use super::{budget, invalid, map, read_budget, rows::Rows, Proof, StorageResult};
@@ -12,6 +15,7 @@ use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{
     FileMarker, InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
 };
+use laststore::disk_run::home::RunRead;
 
 /// Validate the keys and records of the `records` collection and return the
 /// number of record files found.
@@ -59,18 +63,33 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<bool> {
     };
     let path = crate::storage::current_keys::families::record_file_path(raw, &version)
         .map_err(|_| invalid("run backup record file path"))?;
-    super::phase(super::Stage::NativeCas, file_in_backup(proof, &path))?;
+    match proof.cas {
+        Some(cas) => super::phase(super::Stage::NativeCas, file_in_backup(cas, &path))?,
+        None => marker_has_blob_path(proof.main, raw, &version)?,
+    }
     Ok(true)
+}
+
+/// A personal record file is fetched on request from its cloud path under
+/// the database identity (the main home identity). The marker must derive it.
+fn marker_has_blob_path(
+    main: &RunRead,
+    record: &str,
+    version: &lastdb_model::portable_mutation::Position,
+) -> StorageResult<()> {
+    let database = cloud_backup_protocol::Id::try_from(main.home_id().to_string())
+        .map_err(|_| invalid("run backup record blob path"))?;
+    crate::storage::current_keys::families::record_blob_path(&database, record, version)
+        .map_err(|_| invalid("run backup record blob path"))?;
+    Ok(())
 }
 
 /// The file must be a live row of the authenticated CAS run. The read streams
 /// the row through, so the run reader checks its blocks, and keeps nothing.
-fn file_in_backup(proof: &Proof<'_>, path: &str) -> StorageResult<()> {
+fn file_in_backup(cas: &RunRead, path: &str) -> StorageResult<()> {
     let key = native_routing::encode(path.as_bytes());
-    let mut read = super::fork_mapped(
-        proof.cas,
-        read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1),
-    )?;
+    let mut read =
+        super::fork_mapped(cas, read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1))?;
     read.copy_body_to(
         crate::storage::disk_pack::CAS_COLLECTION,
         key.as_bytes(),

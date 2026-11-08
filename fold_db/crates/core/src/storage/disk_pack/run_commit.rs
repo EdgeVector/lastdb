@@ -91,7 +91,13 @@ impl PackRuntime {
             if let Some(shared) = &v2.shared {
                 shared_layout::journal::write(v2, shared, operations)
             } else {
-                let mut journal = self.mutation_log.begin(v2);
+                // The log holds main-home runs only. A CAS-only batch (blob
+                // upload markers, releases) makes no log entry.
+                let mut journal = operations
+                    .iter()
+                    .any(|op| op.collection != CAS_COLLECTION)
+                    .then(|| self.mutation_log.begin(v2))
+                    .flatten();
                 commit_split(v2, operations, journal.as_mut())?;
                 if let Some(journal) = journal {
                     journal.finish(v2);
@@ -191,27 +197,26 @@ fn commit_split(
     for op in cas {
         last.insert(op.key.clone(), op);
     }
+    blob_backup::queue_new_uploads(&mut last);
     let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
     cas_delete::save(v2, !puts.is_empty(), !main.is_empty(), &deletes)?;
-    for (home, batch, role) in [
-        (&v2.cas, puts, mutation_log::CommitRole::CasAdd),
-        (&v2.home, main, mutation_log::CommitRole::Main),
-    ] {
-        if !batch.is_empty() {
-            let committed = home.commit(batch).map_err(map)?;
-            if let Some(log) = journal.as_mut() {
-                log.retain(role, &committed);
-            }
+    // CAS runs are not logged: record blobs upload by path, not as log files.
+    if !puts.is_empty() {
+        v2.cas.commit(puts).map_err(map)?;
+    }
+    if !main.is_empty() {
+        let committed = v2.home.commit(main).map_err(map)?;
+        if let Some(log) = journal.as_mut() {
+            log.retain(mutation_log::CommitRole::Main, &committed);
         }
     }
     // Main publication is durable. A later failure is an uncertain commit,
     // never a logical refusal. Fail the runtime and retain the authenticated
     // intent; reopen finishes it before any reader or writer can reuse a key.
     if !deletes.is_empty() {
-        let committed = v2.cas.commit(deletes).map_err(map)?;
-        if let Some(log) = journal.as_mut() {
-            log.retain(mutation_log::CommitRole::CasDelete, &committed);
-        }
+        v2.cas
+            .commit(blob_backup::with_releases(deletes))
+            .map_err(map)?;
         v2.home.clear_cas_delete_checkpoint().map_err(map)?;
     }
     Ok(())

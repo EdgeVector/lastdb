@@ -129,11 +129,7 @@ impl MutationLogRoot {
                     if file.native_bytes.get() != part.bytes {
                         return Err(LogCodecError("mutation log original file length"));
                     }
-                    return Ok(if part.role.is_cas() {
-                        Destination::B2
-                    } else {
-                        Destination::R2
-                    });
+                    return Ok(Destination::R2);
                 }
             }
         }

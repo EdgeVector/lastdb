@@ -1,4 +1,8 @@
 //! Native log identities and complete ordered batch facts. No network authority.
+//!
+//! Version 2 logs only the main home. The CAS home (record blobs) is not
+//! logged: a record blob version uploads by its client-derived path in the
+//! job that publishes its record write.
 use super::{invalid, StorageResult};
 use cloud_backup_protocol::{bytes_sha256, v2::hash::canonical_bytes, Digest, Id};
 use serde::{Deserialize, Serialize};
@@ -7,28 +11,23 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct Frontiers {
     pub main: u64,
-    pub cas: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitRole {
-    CasAdd,
     Main,
-    CasDelete,
 }
 impl CommitRole {
     pub fn directory(self) -> &'static str {
         match self {
-            Self::CasAdd => "cas-add",
             Self::Main => "main",
-            Self::CasDelete => "cas-delete",
         }
     }
-    pub fn is_cas(self) -> bool {
-        self != Self::Main
-    }
 }
+
+/// The log metadata version: main-home parts only.
+pub(super) const LOG_VERSION: u16 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,12 +44,11 @@ pub struct LogAnchor {
     pub version: u16,
     pub epoch: Id,
     pub main_home: Id,
-    pub cas_home: Id,
     pub frontiers: Frontiers,
 }
 impl LogAnchor {
     pub fn position(&self) -> StorageResult<LogPosition> {
-        if self.version != 1 {
+        if self.version != LOG_VERSION {
             return Err(invalid("mutation log anchor version"));
         }
         Ok(LogPosition {
@@ -84,13 +82,12 @@ pub struct LogEntry {
 }
 impl LogEntry {
     pub fn position_after(&self, previous: &LogPosition) -> StorageResult<LogPosition> {
-        if self.version != 1
+        if self.version != LOG_VERSION
             || self.epoch != previous.epoch
             || previous.sequence.checked_add(1) != Some(self.sequence)
             || self.previous_sha256 != previous.sha256
             || self.before != previous.frontiers
-            || self.parts.is_empty()
-            || self.parts.len() > 3
+            || self.parts.len() != 1
         {
             return Err(invalid("mutation log entry sequence or context"));
         }
@@ -100,11 +97,7 @@ impl LogEntry {
             if part.bytes == 0 || role.is_some_and(|old| old >= part.role) {
                 return Err(invalid("mutation log part order or length"));
             }
-            let frontier = if part.role.is_cas() {
-                &mut frontiers.cas
-            } else {
-                &mut frontiers.main
-            };
+            let frontier = &mut frontiers.main;
             *frontier = frontier
                 .checked_add(1)
                 .ok_or_else(|| invalid("mutation log frontier overflow"))?;
@@ -169,7 +162,6 @@ pub(super) struct Index {
     pub version: u16,
     pub enabled: bool,
     pub main_home: Id,
-    pub cas_home: Id,
     pub epochs: Vec<Id>,
     pub active: Option<Id>,
     pub cleanup: Vec<Id>,

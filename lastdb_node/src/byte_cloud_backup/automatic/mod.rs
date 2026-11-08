@@ -1,6 +1,7 @@
 //! One owner, one saved pending request, separate log and snapshot schedules.
 mod cleanup;
 mod policy;
+mod previous;
 mod replacement;
 use super::{
     model::Saved,

@@ -5,9 +5,9 @@ use crate::storage::disk_pack::{run_node, NODE_MARKER};
 use laststore::disk_run::home::RunHome;
 use std::fs::File;
 
+/// Replays main-home log parts. The CAS home is not logged and stays empty.
 pub struct MutationReplay {
     main: RunHome,
-    cas: RunHome,
     _node: File,
 }
 impl MutationReplay {
@@ -20,32 +20,21 @@ impl MutationReplay {
             .map_err(|_| invalid("mutation replay node is owned"))?;
         let main =
             RunHome::open(&data.join(run_node::RUN_DIR), &run_node::home_key(key)).map_err(map)?;
-        let cas =
-            RunHome::open(&data.join(run_node::CAS_DIR), &run_node::cas_key(key)).map_err(map)?;
-        if main.identity().to_string() != anchor.main_home.as_str()
-            || cas.identity().to_string() != anchor.cas_home.as_str()
-        {
+        if main.identity().to_string() != anchor.main_home.as_str() {
             return Err(invalid("mutation replay native home identity"));
         }
-        Ok(Self {
-            main,
-            cas,
-            _node: node,
-        })
+        Ok(Self { main, _node: node })
     }
     pub fn frontiers(&self) -> Frontiers {
         Frontiers {
             main: self.main.current_root().frontier(),
-            cas: self.cas.current_root().frontier(),
         }
     }
     /// Only after the caller durably advances beyond every part in a checkpoint.
     /// Physical native compaction bounds replay files without changing frontiers.
     pub fn settle(&self) -> StorageResult<()> {
         let before = self.frontiers();
-        for home in [&self.main, &self.cas] {
-            while home.merge_step().map_err(map)?.is_some() {}
-        }
+        while self.main.merge_step().map_err(map)?.is_some() {}
         if self.frontiers() != before {
             return Err(invalid("mutation replay compaction changed frontier"));
         }
@@ -59,20 +48,11 @@ impl MutationReplay {
             .ok_or_else(|| invalid("mutation replay part number"))?;
         let mut before = entry.before;
         for old in &entry.parts[..part_index] {
-            if old.role.is_cas() {
-                before.cas = old.frontier;
-            } else {
-                before.main = old.frontier;
-            }
+            before.main = old.frontier;
         }
         let mut after = before;
-        let (home, from) = if part.role.is_cas() {
-            after.cas = part.frontier;
-            (&self.cas, before.cas)
-        } else {
-            after.main = part.frontier;
-            (&self.main, before.main)
-        };
+        after.main = part.frontier;
+        let (home, from) = (&self.main, before.main);
         let current = self.frontiers();
         if current != before && current != after {
             return Err(invalid("mutation replay exact partial frontier"));
@@ -101,14 +81,18 @@ pub fn verify_replayed(
     }
     let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(data, key))?;
     if native.profile.main.home_id != anchor.main_home
-        || native.profile.cas.home_id != anchor.cas_home
         || native.profile.main.frontier.get() != through.frontiers.main
-        || native.profile.cas.frontier.get() != through.frontiers.cas
+        || native.profile.cas.is_some()
     {
         return Err(invalid("mutation replay exact final frontier"));
     }
-    let records =
-        verify_readers_for_profile(&native.main, &native.cas, key, native.profile.version)?;
+    native.require_empty_local_cas()?;
+    let records = verify_readers_for_profile(
+        &native.main,
+        native.backed_up_cas(),
+        key,
+        native.profile.version,
+    )?;
     let guard = RunRestoreGuard { native, records };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)

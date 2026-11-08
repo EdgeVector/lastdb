@@ -81,7 +81,7 @@ impl PackRuntime {
             if root.try_exists()? {
                 RunSource::release_saved(&root)?;
             }
-            run_capture::capture_pair(&runtime, &root)?;
+            run_capture::capture_pair(&runtime, &root, true)?;
             drop(gate);
             open_capture(runtime, root, &key, admission)
         })

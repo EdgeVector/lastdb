@@ -90,12 +90,9 @@ impl ObjectRecord {
         Ok(())
     }
 }
+/// Log files hold main-home runs only, which go to R2.
 pub(super) fn destination(
-    file: &fold_db::storage::disk_pack::mutation_log::FrozenLogFile,
+    _file: &fold_db::storage::disk_pack::mutation_log::FrozenLogFile,
 ) -> cloud_backup_protocol::v2::Destination {
-    if file.role.is_cas() {
-        cloud_backup_protocol::v2::Destination::B2
-    } else {
-        cloud_backup_protocol::v2::Destination::R2
-    }
+    cloud_backup_protocol::v2::Destination::R2
 }

@@ -39,10 +39,7 @@ impl PackRuntime {
             return absent::cancel(&root, &begin.job.commit_id);
         };
         state.validate()?;
-        if state.begin != *begin
-            || state.anchor.main_home != self.mutation_log.main_home
-            || state.anchor.cas_home != self.mutation_log.cas_home
-        {
+        if state.begin != *begin || state.anchor.main_home != self.mutation_log.main_home {
             return Err(invalid("mutation cancellation job differs"));
         }
         retirement::prepare(&root, &begin.job.commit_id)?;
@@ -88,7 +85,6 @@ impl PackRuntime {
         if state.begin != *begin
             || state.from != *from
             || state.anchor.main_home != self.mutation_log.main_home
-            || state.anchor.cas_home != self.mutation_log.cas_home
         {
             return Err(invalid("mutation capture frozen identity changed"));
         }

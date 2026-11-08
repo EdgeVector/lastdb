@@ -57,7 +57,7 @@ class PrefixRecords:
         durable_batch(self.source.node, mutations)
         after = self.journal()
         require(before["epoch"] == after["epoch"] and before["sequence"] < after["sequence"]
-                and all(before["frontiers"][name] <= after["frontiers"][name] for name in ("main", "cas")),
+                and before["frontiers"]["main"] <= after["frontiers"]["main"],
                 "new_durable_temporary_journal_position")
         self.minimums[stage] = after
         self.verify(self.source.node, expected)
