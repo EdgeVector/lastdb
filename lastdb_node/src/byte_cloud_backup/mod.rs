@@ -7,7 +7,6 @@ pub(crate) mod connection;
 mod control;
 mod credentials;
 mod invocation;
-mod local_snapshot;
 mod log_capture;
 mod model;
 mod publication;
