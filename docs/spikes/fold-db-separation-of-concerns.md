@@ -169,8 +169,6 @@ The engine reads env vars in constructors and in hot paths:
 - `EncryptingKvStore::new` reads `KvCompressionPolicy::from_env()` (`encrypting_store/mod.rs:68`).
 - The schema key budget reads `CoreKeyBudget::from_env()` (`disk_pack/schema_keys.rs:80`).
 - The disk node reads `space::policy_from_env()` (`disk_pack/run_node.rs:220`).
-- `create_fold_db_with_options` reads `LASTDB_ENGINE`
-  ([factory/mod.rs:59](../../fold_db/crates/core/src/fold_db_core/factory/mod.rs#L59)).
 
 Three budgets live in `OnceLock` statics:
 
@@ -319,7 +317,7 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 |---|---|
 | 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and field value limit. |
 | 2b | Move the task policies: field key drain, conflict janitor, lane breaker cooldown, writer watch, and conflict retention. |
-| 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, `LASTDB_ENGINE`, attribution events, and the conflict index flags. |
+| 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, attribution events, and the conflict index flags. |
 | 2d | Move the other process state into the `FoldDB` instance (appendix list). Keep a static only with a written reason, for example the process start time in `footprint.rs`. |
 
 Done when: `fold_db` has 0 env reads and 0 `OnceLock` statics.

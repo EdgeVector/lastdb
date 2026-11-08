@@ -10,16 +10,16 @@ mod boot;
 mod local;
 
 use crate::crypto::E2eKeys;
-use crate::error::{FoldDbError, FoldDbResult};
+use crate::error::FoldDbResult;
 use crate::fold_db_core::FoldDB;
 use crate::security::Ed25519KeyPair;
-use crate::storage::config::{DatabaseConfig, StorageEngine};
+use crate::storage::config::DatabaseConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use local::create_local_fold_db;
 
-/// Local construction inputs. None of these options selects another engine.
+/// Local construction inputs.
 #[derive(Default)]
 pub struct FoldDbOptions {
     /// Open without periodic writers. The offline owner retains the home lock.
@@ -45,7 +45,5 @@ pub async fn create_fold_db_with_options(
     signer: Arc<Ed25519KeyPair>,
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
-    StorageEngine::from_env().map_err(FoldDbError::Config)?;
-
     create_local_fold_db(&config.path, e2e_keys, signer, options).await
 }
