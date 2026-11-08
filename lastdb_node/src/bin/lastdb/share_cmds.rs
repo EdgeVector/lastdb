@@ -97,11 +97,7 @@ fn create(owner: &Path, into: &Path, env: &str) -> Result<(), String> {
 fn publish(owner: &Path, home: &Path, request_id: String) -> Result<(), String> {
     let request_id =
         Id::try_from(request_id).map_err(|_| "invalid share publication request ID")?;
-    let report = runtime()?
-        .block_on(lastdb_node::byte_cloud_backup::backup_publication_stopped(
-            home, owner, request_id,
-        ))
-        .map_err(|e| e.to_string())?;
+    let report = runtime()?.block_on(share_publication::publish(home, owner, request_id))?;
     let accepted = report.accepted_backup;
     println!(
         "{}",

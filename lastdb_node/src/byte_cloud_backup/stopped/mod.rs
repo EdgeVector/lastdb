@@ -1,4 +1,5 @@
 //! A final backup of a clean, stopped home through the ordinary V2 worker.
+use super::source::PublicationSource;
 use super::{
     capture::Capture, model::Saved, source::Source, store::Store, BackupError, Phase, Result,
 };
@@ -49,13 +50,12 @@ pub async fn backup_stopped(
 }
 
 /// Publish a cleanly stopped publication home through the ordinary V2 snapshot worker.
-pub async fn backup_publication_stopped(
+pub(crate) async fn backup_publication_stopped(
     home: &Path,
-    owner_home: &Path,
     request_id: Id,
+    identity: PublicationSource,
+    client: ByteBackupClient,
 ) -> Result<StoppedBackupReport> {
-    let identity =
-        crate::share_publication::load(home, owner_home).map_err(|_| BackupError::Identity)?;
     let session = crate::session_ledger::read_last_record(home).ok_or(BackupError::Missing)?;
     let request = StoppedBackupRequest {
         request_id,
@@ -64,9 +64,6 @@ pub async fn backup_publication_stopped(
         stopped_start_ts: session.start_ts,
     };
     run_stopped(home, request, |home, _| {
-        let client = identity
-            .client(owner_home)
-            .map_err(|_| BackupError::Identity)?;
         Ok((Source::from_publication_stopped(home, identity)?, client))
     })
     .await

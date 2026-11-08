@@ -16,6 +16,14 @@ pub(super) struct Source {
     pub publication_stream: Option<Id>,
     pub retain_source_manifest: bool,
 }
+
+pub(crate) struct PublicationSource {
+    pub(crate) id: Id,
+    pub(crate) publisher: Digest,
+    pub(crate) account: AccountId,
+    pub(crate) content_key: Zeroizing<[u8; 32]>,
+}
+
 impl Source {
     pub fn from_host(host: &crate::host::Host) -> Result<Self> {
         let seed = Zeroizing::new(host.keypair.secret_key_bytes());
@@ -62,7 +70,7 @@ impl Source {
 
     pub fn from_publication_stopped(
         home: &std::path::Path,
-        identity: crate::share_publication::PublicationIdentity,
+        identity: PublicationSource,
     ) -> Result<Self> {
         let runtime = fold_db::storage::disk_pack::open_backup_runtime(
             &home.join("data"),

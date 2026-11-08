@@ -1,5 +1,8 @@
 //! Local publication ownership. Cloud upload authority stays with the owner's home.
 use crate::byte_cloud_backup::connection::files::Directory;
+use crate::byte_cloud_backup::{
+    backup_publication_stopped, PublicationSource, StoppedBackupReport,
+};
 use cloud_backup_client::byte_backup::{
     BackupTransportError, ByteBackupClient, ByteBackupReader, GuestReadPermission, ShareEnvironment,
 };
@@ -32,11 +35,11 @@ pub struct PreparedPublication {
     pub seed: Zeroizing<[u8; 32]>,
 }
 
-pub(crate) struct PublicationIdentity {
-    pub(crate) id: Id,
-    pub(crate) publisher: Digest,
-    pub(crate) account: AccountId,
-    pub(crate) content_key: Zeroizing<[u8; 32]>,
+struct PublicationIdentity {
+    id: Id,
+    publisher: Digest,
+    account: AccountId,
+    content_key: Zeroizing<[u8; 32]>,
     environment: ShareEnvironment,
     signer: Ed25519KeyPair,
 }
@@ -62,7 +65,7 @@ pub fn prepare(
     })
 }
 
-pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
+fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
     crate::offline_home::refuse_primary(home)?;
     let directory = owned(home)?;
     let marker = directory
@@ -97,7 +100,7 @@ pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity
 
 impl PublicationIdentity {
     /// Read the existing owner's credentials in place and pin their issuer.
-    pub(crate) fn client(&self, owner_home: &Path) -> Result<ByteBackupClient, String> {
+    fn client(&self, owner_home: &Path) -> Result<ByteBackupClient, String> {
         let bytes = owned(owner_home)?
             .read(crate::cloud::CLOUD_CREDENTIALS_FILE)
             .map_err(|e| e.to_string())?
@@ -126,6 +129,25 @@ impl PublicationIdentity {
         ))
         .map_err(|e| e.to_string())
     }
+}
+
+/// Publish this separate home using the owner's existing Backup V2 authority.
+pub async fn publish(
+    home: &Path,
+    owner_home: &Path,
+    request_id: Id,
+) -> Result<StoppedBackupReport, String> {
+    let identity = load(home, owner_home)?;
+    let client = identity.client(owner_home)?;
+    let source = PublicationSource {
+        id: identity.id,
+        publisher: identity.publisher,
+        account: identity.account,
+        content_key: identity.content_key,
+    };
+    backup_publication_stopped(home, request_id, source, client)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// Mint a short-lived invitation only after Backup V2 has accepted this publication.
