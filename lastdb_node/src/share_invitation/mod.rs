@@ -23,9 +23,16 @@ const TAG_BYTES: usize = 16;
 /// Limit sealed invitation input before allocation or decryption.
 pub const MAX_SEALED_INVITATION_BYTES: usize = 4096;
 
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
+#[derive(Debug)]
 pub struct ShareInvitationError(&'static str);
+
+impl std::fmt::Display for ShareInvitationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for ShareInvitationError {}
 
 pub type Result<T> = std::result::Result<T, ShareInvitationError>;
 

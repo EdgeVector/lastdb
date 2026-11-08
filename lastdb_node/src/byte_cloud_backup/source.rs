@@ -157,6 +157,9 @@ impl Source {
     pub fn runtime(&self) -> &PackRuntime {
         &self.runtime
     }
+    pub async fn has_external_backup_files(&self) -> Result<bool> {
+        Ok(self.runtime.has_external_backup_files().await?)
+    }
     pub async fn flush(&self) -> Result<()> {
         self.runtime.flush_native().await?;
         Ok(())
