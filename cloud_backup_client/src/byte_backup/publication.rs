@@ -19,10 +19,7 @@ impl ByteBackupClient {
     }
 
     pub async fn commit_status(&self, request: &CommitStatusRequest) -> Result<CommitResponse> {
-        request.validate()?;
-        let response: CommitResponse = self.post("commits/status", request).await?;
-        response.validate_for_status(request)?;
-        Ok(response)
+        self.reader().commit_status(request).await
     }
 
     pub async fn head(&self, request: &HeadReadRequest) -> Result<HeadReadResult> {

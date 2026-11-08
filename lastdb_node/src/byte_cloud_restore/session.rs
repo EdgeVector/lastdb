@@ -1,5 +1,6 @@
 use super::{
-    local, source_error, ByteBackupClient, RecoveryKeys, RestoreError, RestoreReport, Result,
+    local, source_error, ByteBackupClient, ByteBackupReader, RecoveryKeys, RestoreError,
+    RestoreReport, Result,
 };
 use cloud_backup_protocol::v2::{
     publication::{CommitResponse, CommitStatusRequest},
@@ -19,6 +20,21 @@ pub(super) struct Selection {
     pub accepted: AcceptedBackup,
     pub destination: PathBuf,
     pub endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "RestoreMode::is_owner")]
+    pub mode: RestoreMode,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RestoreMode {
+    #[default]
+    Owner,
+    Recipient,
+}
+impl RestoreMode {
+    fn is_owner(&self) -> bool {
+        *self == Self::Owner
+    }
 }
 
 /// Durable exact V2 selection. A resume never discovers or substitutes a new head.
@@ -31,6 +47,14 @@ pub struct RestoreSession {
 
 impl RestoreSession {
     pub fn begin(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
+        Self::begin_with_mode(destination, accepted, RestoreMode::Owner)
+    }
+
+    pub(super) fn begin_with_mode(
+        destination: &Path,
+        accepted: AcceptedBackup,
+        mode: RestoreMode,
+    ) -> Result<Self> {
         accepted.validate()?;
         crate::offline_home::refuse_primary(destination)
             .map_err(|_| RestoreError::Invalid("destination"))?;
@@ -59,6 +83,7 @@ impl RestoreSession {
             accepted,
             destination,
             endpoint: None,
+            mode,
         };
         local::atomic_json(&root.join("selection.json"), &selection)?;
         scaffold(&root)?;
@@ -132,6 +157,7 @@ impl RestoreSession {
                 accepted,
                 destination: self.selection.destination.clone(),
                 endpoint: self.selection.endpoint.clone(),
+                mode: self.selection.mode,
             },
             _lock: self._lock.try_clone()?,
             spool_bytes: Arc::clone(&self.spool_bytes),
@@ -142,8 +168,16 @@ impl RestoreSession {
         client: &ByteBackupClient,
         keys: &RecoveryKeys,
     ) -> Result<RestoreReport> {
-        let _admission = fold_db::storage::disk_pack::NativeCloudWorkGuard::acquire()
-            .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
+        if !self.selection.mode.is_owner() {
+            return Err(RestoreError::Invalid("owner restore session"));
+        }
+        let _admission = acquire_native_work()?;
+        let reader = client.reader();
+        self.authorize_read(&reader).await?;
+        super::closure::restore(self, &reader, keys.decryption(), keys.account_seed()).await
+    }
+
+    pub(super) async fn authorize_read(&mut self, client: &ByteBackupReader) -> Result<()> {
         self.bind_endpoint(client)?;
         self.check_spool()?;
         let request = CommitStatusRequest {
@@ -158,10 +192,10 @@ impl RestoreSession {
         if *backup != *self.accepted() {
             return Err(RestoreError::Invalid("authoritative accepted selection"));
         }
-        super::closure::restore(self, client, keys.decryption(), keys.account_seed()).await
+        Ok(())
     }
 
-    fn bind_endpoint(&mut self, client: &ByteBackupClient) -> Result<()> {
+    fn bind_endpoint(&mut self, client: &ByteBackupReader) -> Result<()> {
         let endpoint = client.canonical_endpoint();
         if self
             .selection
@@ -177,6 +211,11 @@ impl RestoreSession {
         }
         Ok(())
     }
+}
+
+pub(super) fn acquire_native_work() -> Result<fold_db::storage::disk_pack::NativeCloudWorkGuard> {
+    fold_db::storage::disk_pack::NativeCloudWorkGuard::acquire()
+        .map_err(|_| RestoreError::Limit("active native cloud operation"))
 }
 
 fn scaffold(root: &Path) -> Result<()> {

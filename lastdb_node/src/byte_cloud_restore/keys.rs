@@ -72,6 +72,16 @@ impl RecoveryKeys {
 }
 
 impl RecoveryDecryption {
+    pub(super) fn for_publication(
+        content: Zeroizing<[u8; 32]>,
+        account_public_key: &cloud_backup_protocol::Digest,
+    ) -> Self {
+        Self {
+            content,
+            account_public_key: account_public_key.as_str().to_owned(),
+        }
+    }
+
     pub(super) fn validate_account(
         &self,
         account_public_key: &cloud_backup_protocol::Digest,

@@ -14,7 +14,7 @@ pub(super) struct Plan {
 
 pub(super) async fn prepare(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
 ) -> Result<Plan> {

@@ -1,5 +1,5 @@
 use super::{
-    download, inventory::Inventory, local, ByteBackupClient, NativeFileProof, RestoreError,
+    download, inventory::Inventory, local, ByteBackupReader, NativeFileProof, RestoreError,
     RestoreSession, Result,
 };
 use cloud_backup_plan::ClientNativeFile;
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub(super) async fn restore_at(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     inventory: &mut Inventory,
     entries: &[ClientNativeFile],
     root: &Path,

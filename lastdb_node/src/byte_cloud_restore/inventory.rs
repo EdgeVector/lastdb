@@ -1,4 +1,4 @@
-use super::{download, local, ByteBackupClient, RestoreError, RestoreSession, Result};
+use super::{download, local, ByteBackupReader, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::v2::inventory::{InventoryIndex, InventoryPage, InventoryVerifier};
 use cloud_backup_protocol::v2::transfer::ObjectReceipt;
@@ -13,7 +13,7 @@ pub(super) struct Inventory {
 }
 
 impl Inventory {
-    pub async fn load(session: &RestoreSession, client: &ByteBackupClient) -> Result<Self> {
+    pub async fn load(session: &RestoreSession, client: &ByteBackupReader) -> Result<Self> {
         let accepted = session.accepted();
         let grant = download::one(
             session,

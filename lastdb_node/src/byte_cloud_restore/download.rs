@@ -1,4 +1,4 @@
-use super::{source_error, ByteBackupClient, RestoreError, RestoreSession, Result};
+use super::{source_error, ByteBackupReader, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::v2::access::{
     ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
@@ -12,7 +12,7 @@ use tokio::io::AsyncReadExt;
 
 pub(super) async fn grants(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     selectors: Vec<ReadSelector>,
 ) -> Result<Vec<ReadGrant>> {
     let request = ReadGrantRequest {
@@ -38,7 +38,7 @@ pub(super) async fn grants(
 
 pub(super) async fn one(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     selector: ReadSelector,
 ) -> Result<ReadGrant> {
     grants(session, client, vec![selector])
@@ -50,7 +50,7 @@ pub(super) async fn one(
 
 pub(super) async fn fetch(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     grant: &ReadGrant,
     cache: bool,
 ) -> Result<PathBuf> {
@@ -90,7 +90,7 @@ pub(super) async fn fetch(
     Ok(path)
 }
 
-async fn stream_to(client: &ByteBackupClient, grant: &ReadGrant, file: &mut File) -> Result<()> {
+async fn stream_to(client: &ByteBackupReader, grant: &ReadGrant, file: &mut File) -> Result<()> {
     let mut stream = client.open(grant).await.map_err(source_error)?;
     let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
     let mut left = grant.bytes.get();

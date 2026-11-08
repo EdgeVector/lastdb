@@ -12,6 +12,7 @@ pub(crate) mod local;
 mod logs;
 mod native;
 pub(crate) mod publish;
+mod recipient;
 mod report;
 mod runs;
 mod session;
@@ -21,7 +22,7 @@ pub use keys::RecoveryKeys;
 pub use report::RestoreReport;
 pub use session::RestoreSession;
 
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use cloud_backup_client::byte_backup::{ByteBackupClient, ByteBackupReader};
 use context::{NativeFileProof, NativeInventory, VerifiedNativeContext};
 pub(crate) use file_proof::check_capacity;
 use file_proof::{bounded_bytes, verify_file};

@@ -6,7 +6,7 @@ use fold_db::storage::disk_pack::byte_backup::CODEC_ENVELOPE_MAX_BYTES;
 
 pub(super) async fn download(
     session: &RestoreSession,
-    client: &ByteBackupClient,
+    client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     root: &MutationLogRoot,
     mut inventory: Inventory,
