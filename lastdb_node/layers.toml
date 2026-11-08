@@ -38,11 +38,10 @@ modules = [
 
 [[layer]]
 name = "cloud"
-doc = "Cloud account configuration, registration, the saved cloud credentials loader, backup access, and ephemeral homes."
+doc = "Cloud account configuration, registration, the saved cloud credentials loader, and backup access."
 modules = [
   "backup_access",
   "cloud",
-  "ephemeral",
 ]
 
 [[layer]]

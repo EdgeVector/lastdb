@@ -32,7 +32,7 @@ fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     let primary_abs = canonicalize_lenient(&user_home.join(folddb_profile::paths::LASTDB_DIR));
     if abs.starts_with(&primary_abs) {
         return Err(format!(
-            "refusing primary path {} — use a CoW copy first",
+            "refusing primary path {}: use a home outside ~/.lastdb",
             abs.display()
         ));
     }
