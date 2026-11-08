@@ -24,7 +24,7 @@ pub struct ByteBackupClient {
 }
 impl ByteBackupClient {
     /// Construction reuses only configured credentials and bounded byte transport.
-    /// It starts no enrollment, claim, legacy request, stream or background work.
+    /// It starts no enrollment, claim, stream or background work.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         Ok(Self {
             transport: BackupTransport::from_auth(auth)?,

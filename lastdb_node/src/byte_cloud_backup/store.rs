@@ -1,4 +1,4 @@
-//! Private, bounded V2 checkpoints. V1 state and temporary grants stay separate.
+//! Private, bounded V2 checkpoints.
 use super::{model::Saved, BackupError, Result};
 use cloud_backup_protocol::Id;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

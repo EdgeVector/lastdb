@@ -9,7 +9,7 @@ pub use recovery::{
 };
 
 /// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519
-/// seed — the same derivation as the full node's `identity_from_phrase`.
+/// seed.
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {
     let mnemonic =
         bip39::Mnemonic::parse(words.trim()).map_err(|_| "Invalid recovery phrase".to_string())?;
@@ -59,8 +59,7 @@ pub(super) fn signed_register_request(
     if let Some(code) = invite_code {
         body["invite_code"] = serde_json::Value::String(code.to_string());
     }
-    // Multi-device: scope key rotation to THIS device (401-window fix);
-    // same `.device_id` the sync engine uses.
+    // Multi-device: scope key rotation to this device.
     if let Some(device) = device_id {
         body["device_id"] = serde_json::Value::String(device.to_string());
     }
@@ -97,10 +96,7 @@ fn parse_registered_response(text: &str, expected_user_hash: &str) -> Result<Reg
             .map(str::to_string)
             .ok_or_else(|| format!("Register response missing nonempty {name}"))
     };
-    // The response contract requires a token. The sync engine mints its own
-    // sessions, so the daemon has no reason to retain this one.
     let api_key = field("api_key")?;
-    field("session_token")?;
     let registered = Registered {
         api_key,
         user_hash: field("user_hash")?,

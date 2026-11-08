@@ -20,7 +20,7 @@ pub async fn register_dev_recovery_device(
 }
 
 /// Register one native-backup DEV device through the existing signed auth API.
-/// This does not enroll a legacy recipient or change cloud control.
+/// It does not change cloud control.
 pub async fn register_dev_native_device(
     keypair: &Ed25519KeyPair,
     device_id: &str,

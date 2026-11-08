@@ -23,8 +23,8 @@ impl UsageReadRequest {
     }
 }
 
-/// One shared account ledger covers V1, V2 and separately accounted obligations.
-/// The three used categories are disjoint. A quota downgrade can leave used > quota.
+/// One account ledger. The three used categories are disjoint.
+/// A quota downgrade can leave used bytes above the quota.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UsageReadResponse {

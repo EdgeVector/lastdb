@@ -44,7 +44,7 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
             schema_service_env = %effective,
             schema_service_url = %schema_url,
             expected_schema_service_url = %expected_url,
-            "ENVIRONMENT MISMATCH: this home syncs to the {cloud_env} Exemem cloud \
+            "ENVIRONMENT MISMATCH: this home is connected to the {cloud_env} Exemem cloud \
              (cloud-credentials.json), but schema resolve/register go to {schema_url}. \
              An env var (ENVIRONMENT / EXEMEM_ENV / FOLD_SCHEMA_SERVICE_URL) overrides \
              the home. Unset it, or reconnect the home to the matching environment."

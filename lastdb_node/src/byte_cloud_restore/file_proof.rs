@@ -1,4 +1,4 @@
-//! Bounded local file proof helpers. No cloud request or V1 grant path exists.
+//! Bounded local file proof helpers. They make no cloud request.
 use super::{RestoreError, Result};
 use cloud_backup_protocol::Digest;
 use sha2::{Digest as _, Sha256};

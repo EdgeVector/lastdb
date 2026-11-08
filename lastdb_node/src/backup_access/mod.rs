@@ -1,4 +1,4 @@
-//! Protected backup credentials and account identity. No legacy cloud activation.
+//! Protected backup credentials and account identity.
 use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::AccountId;
 use std::path::Path;
