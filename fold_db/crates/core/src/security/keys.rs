@@ -25,23 +25,17 @@ impl Ed25519KeyPair {
         })
     }
 
-    /// Create a key pair from a secret key
+    /// Create a key pair from a 32-byte seed.
     pub fn from_secret_key(secret_key: &[u8]) -> SecurityResult<Self> {
-        // Ed25519 private keys are either 32 bytes (raw seed) or 64 bytes
-        // (seed || derived public). Accept both so callers that stored the
-        // 64-byte form (e.g. older identity writers) still round-trip.
-        let seed = match secret_key.len() {
-            32 => secret_key,
-            64 => &secret_key[..32],
-            n => {
-                return Err(SecurityError::KeyGenerationFailed(format!(
-                    "Ed25519 secret key must be 32 or 64 bytes, got {n}"
-                )));
-            }
-        };
+        if secret_key.len() != 32 {
+            return Err(SecurityError::KeyGenerationFailed(format!(
+                "Ed25519 secret key must be 32 bytes, got {}",
+                secret_key.len()
+            )));
+        }
 
         let mut key_bytes = [0u8; 32];
-        key_bytes.copy_from_slice(seed);
+        key_bytes.copy_from_slice(secret_key);
 
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
