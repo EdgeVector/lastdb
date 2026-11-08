@@ -3,30 +3,90 @@ name: Native DEV client artifact
 on:
   pull_request:
     types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Accepted pre-path Backup V2 source to package for qualification
+        type: choice
+        required: true
+        options: [5618696b65a7fff7b48800b9f7b39412802cfe2a]
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-dev-client-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: native-dev-client-${{ github.event.pull_request.number || inputs.source_commit }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  admit-accepted-source:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      checks: read
+      contents: read
+    outputs:
+      source: ${{ steps.source.outputs.source }}
+      version: ${{ steps.source.outputs.version }}
+      epoch: ${{ steps.source.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the pinned main ancestor and exact release gates
+        id: source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_COMMIT" = 5618696b65a7fff7b48800b9f7b39412802cfe2a
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$SOURCE_COMMIT" "$GITHUB_SHA"
+          PYTHONPATH=scripts/release python3 -c '
+          import os
+          from nightly_plan import REPOSITORY, wait_gates
+          gates = wait_gates({"repository": REPOSITORY, "event_name": "workflow_dispatch",
+                             "source": os.environ["SOURCE_COMMIT"]}, wait_seconds=0)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("Exact source {} passed release checks.\n\n".format(gates["source"]))
+              for name, check in gates["checks"].items():
+                  summary.write("- [{}]({})\n".format(name, check["url"]))
+          '
+          core="$(git show "$SOURCE_COMMIT:Cargo.toml" | python3 -c 'import re, sys, tomllib; value = tomllib.load(sys.stdin.buffer)["workspace"]["package"]["version"]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value); print(value)')"
+          version="$core-nightly.$(date -u +%Y%m%d).g${SOURCE_COMMIT:0:9}"
+          printf 'source=%s\nversion=%s\nepoch=%s\n' "$SOURCE_COMMIT" "$version" \
+            "$(git show -s --format=%ct "$SOURCE_COMMIT")" >> "$GITHUB_OUTPUT"
+
   mac-client:
-    if: github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'native-dev-artifact')
+    needs: admit-accepted-source
+    if: >-
+      always() && !cancelled() &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
+        contains(github.event.pull_request.labels.*.name, 'native-dev-artifact')) ||
+       (github.event_name == 'workflow_dispatch' && needs.admit-accepted-source.result == 'success'))
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_TERM_COLOR: always
       RUSTC_WRAPPER: ''
       TARGET: aarch64-apple-darwin
-      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
+      SOURCE_COMMIT: ${{ needs.admit-accepted-source.outputs.source || github.event.pull_request.head.sha }}
+      ACCEPTED_VERSION: ${{ needs.admit-accepted-source.outputs.version }}
+      ACCEPTED_EPOCH: ${{ needs.admit-accepted-source.outputs.epoch }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SOURCE_COMMIT }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Select the repository toolchain
         run: |
           rustup show active-toolchain
@@ -48,6 +108,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            export FOLDDB_BUILD_VERSION_OVERRIDE="$ACCEPTED_VERSION"
+          fi
           cargo build --release --locked --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd
           for binary in lastdb lastdbd; do
             path="target/$TARGET/release/$binary"
@@ -57,6 +120,7 @@ jobs:
             fi
           done
       - name: Save the client and source receipt
+        if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/native-dev-client"
@@ -70,8 +134,44 @@ jobs:
           (cd "$output/content" && shasum -a 256 bin/lastdb bin/lastdbd > SHA256SUMS)
           tar -czf "$output/lastdb-native-dev-arm64.tar.gz" -C "$output/content" .
       - uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request'
         with:
           name: lastdb-native-dev-arm64-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/native-dev-client/lastdb-native-dev-arm64.tar.gz
           retention-days: 3
           if-no-files-found: error
+      - name: Sign and package the matched accepted pair
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          bin="target/$TARGET/release"
+          for binary in lastdb lastdbd; do
+            codesign --force --sign - "$bin/$binary"
+            codesign --verify --strict "$bin/$binary"
+          done
+          python3 scripts/release/nightly_package.py --target "$TARGET" --bin-dir "$bin" \
+            --out-dir "$RUNNER_TEMP/native-accepted-client" --git-oid "$SOURCE_COMMIT" \
+            --expect-version "$ACCEPTED_VERSION" --source-epoch "$ACCEPTED_EPOCH"
+      - id: accepted-artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-native-accepted-arm64-${{ env.SOURCE_COMMIT }}
+          path: ${{ runner.temp }}/native-accepted-client
+          retention-days: 14
+          if-no-files-found: error
+      - name: Record accepted package provenance
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.accepted-artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.accepted-artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.accepted-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n[Matched accepted macOS package](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Source %s. Version %s. Artifact %s. ZIP SHA-256 %s.\n' \
+              "$SOURCE_COMMIT" "$ACCEPTED_VERSION" "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq '"Expires: " + .expires_at'
+          } >> "$GITHUB_STEP_SUMMARY"
