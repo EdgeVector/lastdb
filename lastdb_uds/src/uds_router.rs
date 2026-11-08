@@ -194,7 +194,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// script, or workflow called its local snapshot actions.
 /// This is an owner-only change, so `API_VERSION` stays `30` and
 /// `MIN_SUPPORTED_API_VERSION` stays `29`.
-pub const API_VERSION: u32 = 30;
+/// `31` removes the owner-only `GET /api/native-index/search` route.
+/// `MIN_SUPPORTED_API_VERSION` stays `29`.
+pub const API_VERSION: u32 = 31;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

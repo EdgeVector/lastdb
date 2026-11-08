@@ -17,11 +17,7 @@
 #   3b. First-run app path — POST /api/apps/declare-schema (catalog
 #      register/reuse/expand), then mutate/query by the returned canonical name
 #      (brain/kanban init path).
-#   4. Native search retired-route contract on the SHIPPED Mini binary —
-#      release builds have no owner-wide native-index search route. Assert HTTP
-#      404 with the retired JSON body — not empty 200/ok:true and not the
-#      retired fold #968 semantic-off 503 stub. Full semantic coverage rides
-#      the Search app plane and the separate non-shipping smoke lane.
+#   4. No FastEmbed model cache under the throwaway home.
 #   5. Restart persistence — kill the daemon, reboot the same home, re-query.
 #
 # It NEVER touches the primary brain, `~/.lastdb`, `~/.folddb`, or `$HOME`; it
@@ -151,31 +147,6 @@ assert_apps_declare_catalog_sync_payload() {
     )
     and (.identity_hash | type == "string" and test("^[0-9a-f]{64}$"))
   ' "$1" >/dev/null
-}
-
-# assert_native_index_search_retired_response <http-code> <body-file> — Mini no
-# longer exposes owner-wide `/api/native-index/search`. The handler returns
-# HTTP 404 and {"ok":false,"retired":true,"message":"native-index search route
-# removed; use LastSeek"}. Release run 41491941857 got that body and failed
-# because this check looked for the words "not found".
-assert_native_index_search_retired_response() {
-  local code body_file
-  code="$1"
-  body_file="$2"
-  if [ "$code" != "404" ]; then
-    printf 'native-index search expected HTTP 404 after route retirement, got %s (body: %s)\n' \
-      "${code:-transport-error}" "$(head -c 400 "$body_file" 2>/dev/null || true)" >&2
-    return 1
-  fi
-  if ! jq -e '
-    .ok == false
-    and .retired == true
-    and .message == "native-index search route removed; use LastSeek"
-  ' "$body_file" >/dev/null; then
-    printf '404 body is not the retired LastSeek response (body: %s)\n' \
-      "$(head -c 400 "$body_file" 2>/dev/null || true)" >&2
-    return 1
-  fi
 }
 
 # schema_ref_from_declare <file> — after POST /api/schemas/declare (catalog
@@ -558,23 +529,7 @@ jq -e '
 ' "$REPORT_DIR/apps-query.json" >/dev/null \
   || fail "query by apps/declare-schema canonical name did not return the record"
 
-# --- 4. Native search retired-route contract -------------------------------
-#
-# Owner-wide `/api/native-index/search` is intentionally absent from Mini now
-# that native-index search is retired in favor of the Search app plane and
-# scoped app-vector routes. Capture status without curl -f so the body is
-# available for the assertion. This keeps guarding against empty 200 + ok:true
-# and also rejects the stale semantic-off 503 `search_plane_required` stub.
-
-log "checking native-index search route is retired with HTTP 404 and the LastSeek body"
-SEARCH_CODE="$(
-  curl --unix-socket "$SOCKET" -sS -o "$REPORT_DIR/native-search.body" -w '%{http_code}' \
-    --max-time 30 \
-    "http://lastdb/api/native-index/search?q=new%20user%20boots%20the%20daemon%20and%20runs%20semantic%20search" \
-    || true
-)"
-assert_native_index_search_retired_response "$SEARCH_CODE" "$REPORT_DIR/native-search.body" \
-  || fail "native-index search retired-route assertion failed"
+# --- 4. No FastEmbed model cache --------------------------------------------
 
 log "asserting no FastEmbed model cache was created under the throwaway home"
 CACHE_DIR="$HOME_DIR/.fastembed_cache"
@@ -633,7 +588,7 @@ jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.record_i
   printf -- '- `lastdbd` booted on a pristine throwaway home with zero config: no prompt, `identity.key` auto-generated, owner socket up, `/health` ok, `lastdb status` sees it.\n'
   printf -- '- Data round-trip over the socket: `/api/schemas/declare` -> `mutation` -> `query` returned the record.\n'
   printf -- '- First-run app path: `/api/apps/declare-schema` catalog sync + mutation/query by canonical name (brain/kanban init).\n'
-  printf -- '- Owner-wide native-index search is retired: `GET /api/native-index/search?q=...` returned HTTP 404 with the LastSeek body; clients use the Search app plane or scoped app-vector routes.\n'
+  printf -- '- The throwaway home has no FastEmbed model cache.\n'
   printf -- '- The record survived a daemon restart on the same home.\n'
 } > "$REPORT_DIR/report.md"
 

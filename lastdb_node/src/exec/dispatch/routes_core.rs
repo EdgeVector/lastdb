@@ -50,7 +50,6 @@ pub(super) async fn dispatch_search_app(
         DataRoute::AutoIdentity => execute_auto_identity_route(host),
         DataRoute::BootIdentity => execute_boot_identity_route(host),
         DataRoute::BootLedger => execute_boot_ledger_route(host),
-        DataRoute::NativeIndexSearch => execute_native_index_search_route(req, ctx, host),
         DataRoute::SearchAppQuery => execute_search_app_query_route(req, ctx, host),
         DataRoute::AppSearch => execute_app_search_route(req, ctx, host),
         DataRoute::NativeIndexAppVectorPut => {
