@@ -51,7 +51,7 @@ class Automatic:
         proof = restored(destination, report, selected, replay, observe)
         inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
         proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
-        node = OwnedNode(destination, self.programs)
+        node = OwnedNode(destination, self.programs, cloud_credentials=self.credentials)
         operation.node = node
         reads = []
         lifecycle_reads = []

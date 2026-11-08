@@ -6,6 +6,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 import signal
 import socket
@@ -67,8 +68,11 @@ class Connection(http.client.HTTPConnection):
 
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
-                 account=ACCOUNT, *, isolated_copy=False):
+                 account=ACCOUNT, *, isolated_copy=False, cloud_credentials=None):
         self.home, self.programs = home, programs
+        # A restored device fetches a record's file from B2 on its first read,
+        # so it holds the account's saved credentials. Backup stays off there.
+        self.cloud_credentials = cloud_credentials
         require(isinstance(account, str) and len(account) == 32
                 and all(char in "0123456789abcdef" for char in account), "owned_account")
         self.account = account
@@ -113,13 +117,30 @@ class OwnedNode:
     def offline(self):
         if self.backup_source:
             return
-        require(not os.path.lexists(self.home / CREDENTIALS_FILE), "restored_home_cloud_off")
+        if self.cloud_credentials is None:
+            require(not os.path.lexists(self.home / CREDENTIALS_FILE), "restored_home_cloud_off")
         require(not os.path.lexists(self.home / "data/cloud-byte-backup-v2/active.json"),
                 "restored_no_active_backup")
         require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
+    def connect(self):
+        """Save the account credentials in a restored home, as a sign-in does."""
+        if self.cloud_credentials is None or os.path.lexists(self.home / CREDENTIALS_FILE):
+            return
+        target = self.home / CREDENTIALS_FILE
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copyfile(self.cloud_credentials / CREDENTIALS_FILE, target)
+        os.chmod(target, 0o600)
+
+    def disconnect(self):
+        """Remove the copied credentials once the daemon is down, so a retained
+        runner home never keeps an API key."""
+        if self.cloud_credentials is not None:
+            (self.home / CREDENTIALS_FILE).unlink(missing_ok=True)
+
     def start(self, *, shared_schema=None, storage_inventory=False):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
+        self.connect()
         self.offline()
         self.programs.verify()
         # Native timing requires isolated-copy admission. Only the retention
@@ -225,6 +246,7 @@ class OwnedNode:
         self.process = None
         self.start_ts, self.instance_id = None, None
         self.clean_stops += 1
+        self.disconnect()
         self.offline()
 
     def cleanup_stop(self):
@@ -241,6 +263,7 @@ class OwnedNode:
                 process.kill()
                 process.wait(timeout=10)
         self.process = None
+        self.disconnect()
 
     def exit_report(self):
         """Fixed fields only: the exit status (null while running) and crash report positions."""

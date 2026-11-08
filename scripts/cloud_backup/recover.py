@@ -187,6 +187,9 @@ class Operation:
             value["service_field"] = self.summary["service_field"]
         if "cli_refusal" in self.summary:
             value["cli_refusal"] = self.summary["cli_refusal"]
+        if "socket_refusal" in self.summary:
+            # Closed labels only: operation, HTTP status and a known reason.
+            value["socket_refusal"] = self.summary["socket_refusal"]
         if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
             value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
         if self.summary["schema"] == "lastdb.cloud-ci-preflight.v2":
