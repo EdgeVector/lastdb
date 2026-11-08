@@ -39,7 +39,8 @@ class Automatic:
                 "accepted_dependency_inspection")
         return report
 
-    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None, temporary=None):
+    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None,
+                temporary=None, file_released=False):
         operation = self.operation
         operation.summary["stage"] = name
         require(operation.node.process is None, "source_stays_stopped_for_restore")
@@ -58,7 +59,7 @@ class Automatic:
         temporary_reads = []
         for _number in range(2):
             node.start()
-            reads.append(node.verify_records(expected))
+            reads.append(node.verify_records(expected, file_released=file_released))
             if lifecycle is not None:
                 lifecycle_reads.append(lifecycle.verify(
                     node, initial, name in ("snapshot-recovery", "stopped-log-recovery")))
@@ -145,8 +146,11 @@ class Automatic:
         dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
                                   "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
         replay = {"base": snapshot["last_accepted_backup"], "minimum": written, "prefixes": minimums}
+        # The mutation log stage replaced the record's file, so the release
+        # deleted the version this first snapshot names from B2.
         base_restore = self.recover("base-recovery", initial, snapshot["last_accepted_backup"],
-                                    lifecycle=lifecycle, initial=True, temporary=temporary)
+                                    lifecycle=lifecycle, initial=True, temporary=temporary,
+                                    file_released=True)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
                                    lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
