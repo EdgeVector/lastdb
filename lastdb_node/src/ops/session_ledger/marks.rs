@@ -13,9 +13,6 @@ fn diagnostic_reason(reason: Option<&str>, fallback: &'static str) -> Option<Str
         if lower.contains("upgrade") {
             return "upgrade".to_string();
         }
-        if lower.contains("supersession") {
-            return "supersession".to_string();
-        }
         match reason {
             "startup_failed" => "startup_failed",
             "shutdown_started" | "signal (graceful shutdown started)" => "shutdown_started",
@@ -92,7 +89,7 @@ pub fn mark_startup_failed(home: &Path, pid: u32, reason: Option<&str>) -> std::
     Ok(())
 }
 
-/// [`mark_clean_shutdown`] carrying a finite exit category. First stamp wins: a
+/// [`mark_clean_shutdown_with_reason`] carrying a finite exit category. First stamp wins: a
 /// record already closed clean keeps its original reason, so a specific
 /// quit-path mark followed by a generic process-exit fallback never loses the
 /// specific reason.

@@ -8,7 +8,7 @@
 //! (no clean shutdown record) and a stale-lock takeover. Reconstructing the
 //! 6h15m outage took a multi-step forensic scan of `observability.jsonl` plus
 //! `pmset`/`last`/`sw_vers`. None of "previous session ended uncleanly", "down
-//! for 6h15m", or "prior shutdown cause" was recorded by FoldDB itself. This
+//! for 6h15m", or "prior shutdown cause" was recorded by the node itself. This
 //! module makes the node record exactly that, on every start.
 //!
 //! ## What it records
@@ -34,7 +34,7 @@
 //! 2. [`Ledger::heartbeat`] every ~60s (a [`Ledger::spawn_heartbeat`] thread is
 //!    the easy default) — rewrites `current-session.json` with a fresh
 //!    `last_heartbeat_ts`.
-//! 3. [`mark_clean_shutdown`] on graceful exit (Tauri tray Quit / SIGTERM) —
+//! 3. [`mark_clean_shutdown_with_reason`] on graceful exit (SIGTERM) —
 //!    stamps `end_ts` + `exit: "clean"` onto the current session's ledger line.
 //!
 //! Everything is best-effort: a node must never fail to start because the
@@ -98,8 +98,7 @@ fn rewrite_ledger(home: &Path, records: &[SessionRecord]) -> std::io::Result<()>
     std::fs::rename(&tmp, &path)
 }
 
-/// Human-readable duration: "6h15m", "45s", "2d3h". Compact, for log lines and
-/// the `folddb sessions` table.
+/// Human-readable duration: "6h15m", "45s", "2d3h". Compact, for log lines.
 pub fn format_duration(secs: u64) -> String {
     if secs == 0 {
         return "0s".to_string();

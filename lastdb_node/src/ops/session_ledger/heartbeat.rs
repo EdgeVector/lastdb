@@ -27,7 +27,7 @@ impl Ledger {
         let ledger = self.clone();
         let (stop_tx, stop_rx) = mpsc::channel();
         let thread = thread::Builder::new()
-            .name("folddb-session-heartbeat".to_string())
+            .name("lastdb-session-heartbeat".to_string())
             .spawn(move || {
                 while let Err(RecvTimeoutError::Timeout) = stop_rx.recv_timeout(interval) {
                     if let Err(error) = ledger.heartbeat() {
