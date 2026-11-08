@@ -28,7 +28,7 @@ impl SliceBuilder {
 
         let schema = db
             .schema_manager()
-            .get_schema_following_supersession(&leg.schema_name)
+            .resolve_schema(&leg.schema_name)
             .await?
             .ok_or_else(|| {
                 FoldDbError::Schema(crate::schema::types::SchemaError::InvalidData(format!(

@@ -105,9 +105,9 @@ pub fn unknown_fields_body(
 /// a mutation naming a field the schema doesn't carry gets the structured
 /// `unknown_fields` 400 instead of surfacing from deep inside the write path as
 /// an opaque (and, pre-gate, unlogged) 500 — the failure mode that stalled
-/// every fkanban board write after the 2026-07-12 minimal-node cutover (fbrain
-/// `papercut-lastdbd-post-cutover-board-mutation-500`). Follows the
-/// supersession chain so the gate agrees with the executor (#618). A schema
+/// every fkanban board write after the 2026-07-12 minimal-node cutover
+/// (`papercut-lastdbd-post-cutover-board-mutation-500`). Resolves the schema
+/// the way the executor does (#618). A schema
 /// lookup failure does NOT block the write — the write path stays authoritative
 /// for its own errors.
 pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
@@ -119,7 +119,7 @@ pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
     let Ok(Some(schema)) = host
         .fold_db()
         .schema_manager()
-        .get_schema_following_supersession(canonical)
+        .resolve_schema(canonical)
         .await
     else {
         return Ok(());

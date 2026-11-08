@@ -66,7 +66,7 @@ impl SchemaCore {
     ///
     /// Use this for *inspection* paths that report on the named schema as it
     /// stands. For any runtime/executor data path use
-    /// [`Self::get_schema_following_supersession`], which also refreshes a
+    /// [`Self::resolve_schema`], which also refreshes a
     /// stale cache from the database, so the gate and the executor agree on
     /// which schema's fields/owner are authoritative.
     pub fn get_schema_metadata(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
@@ -84,7 +84,7 @@ impl SchemaCore {
     }
 
     /// The named schema, or `Schema '{name}' not found`.
-    /// This uses the raw lookup and does not follow supersession.
+    /// This uses the raw lookup and does not refresh a stale cache from the database.
     pub(crate) fn require_schema_metadata(&self, schema_name: &str) -> Result<Schema, SchemaError> {
         self.get_schema_metadata(schema_name)?
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))

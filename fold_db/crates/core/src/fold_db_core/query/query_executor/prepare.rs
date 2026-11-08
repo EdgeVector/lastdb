@@ -14,7 +14,7 @@ impl QueryExecutor {
         // The record-space and alternate bundles load ahead of the read.
         let Some(schema) = self
             .schema_manager
-            .get_schema_following_supersession_for_read(&query.schema_name)
+            .resolve_schema_for_read(&query.schema_name)
             .await?
         else {
             return Ok(None);

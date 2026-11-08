@@ -5,7 +5,7 @@ use super::*;
 impl SchemaStore {
     /// Get a specific schema by name.
     ///
-    /// Query falls back here on a cache miss (`get_schema_following_supersession_for_read`).
+    /// Query falls back here on a cache miss (`resolve_schema_for_read`).
     /// A row that does not decode is an error.
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         if let Some(snapshot) = self.prepared_snapshot(schema_name)? {
