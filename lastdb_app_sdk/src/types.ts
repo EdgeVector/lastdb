@@ -665,7 +665,12 @@ interface CompleteRecord {
   /** Absence clears metadata and the file marker. Copy these from a full read when retaining them. */
   metadata?: RecordMetadata | null;
 }
-/** Omitted payload fields disappear. The SDK performs no read or field merge. */
+/**
+ * Omitted payload fields disappear. The SDK performs no read or field merge.
+ * When the client knows the definition this schema declared, `mutate` sends
+ * that id. On a shared schema, a full replace then keeps stored fields that
+ * definition does not declare.
+ */
 export type MutationOp = MutationTarget & (
   | (CompleteRecord & { mutationType: 'create'; expected: { type: 'absent' } })
   | (CompleteRecord & { mutationType: 'replace'; expected: { type: 'revision'; revision: string } })
@@ -677,6 +682,21 @@ export interface MutationResult {
   recordRevision: string;
   backgroundTasksDrained?: boolean;
   convergencePending?: boolean;
+}
+
+/** `POST /api/schemas/declare`. The node hashes the definition. The SDK does not. */
+export interface DeclareSchemaRequest {
+  namespace: string;
+  schema: Record<string, unknown>;
+  intent?: 'catalog_sync' | 'check';
+}
+
+/** The definition the declare response named, keyed later by `schemaName`. */
+export interface DeclareSchemaResult {
+  schemaName: string;
+  definitionId: string;
+  identityHash: string | null;
+  resolution: string | null;
 }
 
 /** Options for the durable, node-scoped app change feed. */

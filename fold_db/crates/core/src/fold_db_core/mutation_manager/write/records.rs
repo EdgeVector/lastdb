@@ -8,9 +8,11 @@ use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FileWrite, MutationType, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::format::metadata::DefinitionSet;
 use crate::storage::format::records::{PortableEffect, RecordAddress};
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::{InlineWrite, StoredRecord};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 impl MutationManager {
@@ -44,15 +46,22 @@ impl MutationManager {
             addresses.push(records.record_address(&schema, &key)?);
             keys.push(key);
         }
+        let declared = self.declared_fields_for(schema_name, &mutations).await?;
         let stored = read_write_preimages(records, &addresses, &mutations).await?;
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        for ((authored, key), (address, before)) in mutations
+        for ((authored, declared_fields), (key, (address, before))) in mutations
             .iter_mut()
-            .zip(&keys)
-            .zip(addresses.into_iter().zip(stored))
+            .zip(&declared)
+            .zip(keys.iter().zip(addresses.into_iter().zip(stored)))
         {
-            changes.push(prepare_record(&schema, authored, address, before)?);
+            changes.push(prepare_record(
+                &schema,
+                authored,
+                address,
+                before,
+                declared_fields.as_ref(),
+            )?);
             changed.push(ChangedRecord {
                 mutation: &authored.mutation,
                 key,
@@ -79,6 +88,73 @@ impl MutationManager {
             })?;
         }
         Ok(())
+    }
+
+    /// Field names of each mutation's named definition. `None` when the write
+    /// names no definition, or the schema is local. A shared write that names
+    /// an unknown or incompatible definition is refused before the record changes.
+    async fn declared_fields_for(
+        &self,
+        schema_name: &str,
+        mutations: &[AuthoredMutation],
+    ) -> Result<Vec<Option<BTreeSet<String>>>, SchemaError> {
+        let named = mutations
+            .iter()
+            .any(|item| item.shared_schema.is_some() && item.mutation.definition_id.is_some());
+        if !named {
+            return Ok(vec![None; mutations.len()]);
+        }
+        let sets = self.db_ops.metadata().portable_definition_sets().await?;
+        let set = sets.get(schema_name);
+        mutations
+            .iter()
+            .map(
+                |item| match (&item.shared_schema, item.mutation.definition_id.as_deref()) {
+                    (Some(_), Some(id)) => Ok(Some(declared_fields(schema_name, set, id)?)),
+                    _ => Ok(None),
+                },
+            )
+            .collect()
+    }
+}
+
+fn declared_fields(
+    schema_name: &str,
+    set: Option<&DefinitionSet>,
+    raw_id: &str,
+) -> Result<BTreeSet<String>, SchemaError> {
+    let unknown = || {
+        SchemaError::InvalidData(format!(
+            "schema '{schema_name}' names an unknown definition '{raw_id}'"
+        ))
+    };
+    let id = raw_id
+        .parse::<schema_types::PortableSchemaId>()
+        .map_err(|_| unknown())?;
+    let Some(set) = set else {
+        return Err(unknown());
+    };
+    let Some(named) = set.accepted.get(&id) else {
+        return Err(unknown());
+    };
+    let current = set.current.verify(set.current.id()).map_err(|error| {
+        SchemaError::InvalidData(format!(
+            "schema '{schema_name}' definition '{raw_id}' cannot be verified: {error}"
+        ))
+    })?;
+    let named_definition = named.verify(&id).map_err(|error| {
+        SchemaError::InvalidData(format!(
+            "schema '{schema_name}' definition '{raw_id}' cannot be verified: {error}"
+        ))
+    })?;
+    match current.extends(named_definition) {
+        Ok(true) => Ok(named_definition.fields.iter().flatten().cloned().collect()),
+        Ok(false) => Err(SchemaError::InvalidData(format!(
+            "schema '{schema_name}' names an incompatible definition '{raw_id}'"
+        ))),
+        Err(error) => Err(SchemaError::InvalidData(format!(
+            "schema '{schema_name}' names an incompatible definition '{raw_id}': {error}"
+        ))),
     }
 }
 
@@ -134,6 +210,7 @@ fn prepare_record(
     authored: &mut AuthoredMutation,
     address: RecordAddress,
     before: Option<Arc<StoredRecord>>,
+    declared_fields: Option<&BTreeSet<String>>,
 ) -> Result<RecordChange, SchemaError> {
     let AuthoredMutation {
         mutation,
@@ -159,7 +236,13 @@ fn prepare_record(
         PortableEffect::Local
     };
     check_expectation(mutation, before.as_deref())?;
-    let mut after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
+    let mut after = replace_record(
+        schema,
+        mutation,
+        stamp.clone(),
+        before.as_deref(),
+        declared_fields,
+    )?;
     // A live shared record keeps the definition its log entry names.
     if let Some(binding) = shared_schema.as_ref().filter(|_| after.is_live()) {
         after.definition_id = Some(
@@ -184,6 +267,7 @@ fn replace_record(
     mutation: &Mutation,
     stamp: Stamp,
     before: Option<&StoredRecord>,
+    declared_fields: Option<&BTreeSet<String>>,
 ) -> Result<StoredRecord, SchemaError> {
     if matches!(
         mutation.mutation_type,
@@ -191,7 +275,26 @@ fn replace_record(
     ) {
         return Ok(StoredRecord::erased(stamp));
     }
-    for (field, value) in &mutation.record_fields {
+    let mut fields: BTreeMap<String, serde_json::Value> = mutation
+        .record_fields
+        .iter()
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect();
+    // A shared replace that names its definition keeps stored fields that
+    // definition does not declare. A field it does declare, and the write
+    // omits, is still cleared. No named definition means today's replace.
+    if mutation.mutation_type == MutationType::Replace {
+        if let (Some(declared), Some(before)) =
+            (declared_fields, before.filter(|record| record.is_live()))
+        {
+            for (field, value) in &before.fields {
+                if !declared.contains(field) {
+                    fields.insert(field.clone(), value.clone());
+                }
+            }
+        }
+    }
+    for (field, value) in &fields {
         validate_field_value(&schema.name, schema, field, value)?;
     }
     let file = mutation.file.clone().or_else(|| {
@@ -211,7 +314,7 @@ fn replace_record(
     let replacement = RecordReplacement {
         target: mutation.target(),
         expected: mutation.expected.clone(),
-        fields: mutation.record_fields.clone().into_iter().collect(),
+        fields,
         metadata: if mutation.source_file_name.is_some() || mutation.metadata.is_some() {
             Some(RecordMetadata {
                 source_file_name: mutation.source_file_name.clone(),

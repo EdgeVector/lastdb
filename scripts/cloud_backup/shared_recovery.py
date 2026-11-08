@@ -215,20 +215,23 @@ class Operation:
         name = "CloudSharedProofAlias" if self.args.automatic_sync else "CloudSharedProof"
         return f"cloud-proof-{suffix}/{name}"
 
-    def define_schema(self, node, writer, namespace, name, description, *, extra=(), note_type="String"):
+    def define_schema(self, node, writer, namespace, name, description, *, extra=(), note_type="String",
+                      sort_fields=False):
         """Compute a typed definition locally. No schema service registers or serves it.
         A later definition of a name may add `extra` (field, description) string fields.
-        A `note_type` other than String changes an existing field."""
+        A `note_type` other than String changes an existing field.
+        `sort_fields` asks the node for the id of the field-name-sorted union."""
         fields = {
             IDENTIFIER: ("String", "Stable identifier for the generated record in a DEV shared storage recovery operation."),
             NOTE: (note_type, "Synthetic text that distinguishes versions of the generated DEV shared recovery record."),
             **{field: ("String", text) for field, text in extra},
         }
+        names = sorted(fields) if sort_fields else list(fields)
         declaration = self.root / f"declaration-{name}-{uuid.uuid4().hex}.json"
         save_json(declaration, {
             "name": name, "descriptive_name": description,
             "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-            "fields": list(fields), "field_types": {field: kind for field, (kind, _) in fields.items()},
+            "fields": names, "field_types": {field: kind for field, (kind, _) in fields.items()},
             "field_descriptions": {field: text for field, (_, text) in fields.items()},
         })
         identity = decode_json(self.writer(node, writer, "define-schema", "--namespace",

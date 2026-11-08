@@ -96,6 +96,8 @@ export type {
   MutationDurability,
   MutationOp,
   MutationResult,
+  DeclareSchemaRequest,
+  DeclareSchemaResult,
   ChangesOptions,
   ChangeEvent,
   ChangesResult,

@@ -62,6 +62,8 @@ import {
   ListResult,
   LoadedSchema,
   NodeVersion,
+  DeclareSchemaRequest,
+  DeclareSchemaResult,
   MutationOp,
   MutationResult,
   QueryAllOptions,
@@ -271,6 +273,8 @@ const QUERY_BATCH_MAX_ITEMS = 64;
 export class LastDbClient {
   private readonly verifyCapability: boolean;
   private readonly schemaResolver: SchemaResolver | null;
+  /** Definition ids from declare, keyed by the schema name `mutate` sends. */
+  private readonly definitionIds = new Map<string, string>();
 
   constructor(
     readonly appId: string,
@@ -800,6 +804,11 @@ export class LastDbClient {
     if (op.durability !== undefined) {
       body.durability = op.durability;
     }
+    const definitionId =
+      this.definitionIds.get(resolved.nodeSchemaName) ?? this.definitionIds.get(schemaName);
+    if (definitionId !== undefined) {
+      body.definition_id = definitionId;
+    }
     const res = await this.transport.send('POST', LASTDB_API_ROUTES.mutation, {
       headers: this.capabilityHeaders(),
       body,
@@ -829,6 +838,54 @@ export class LastDbClient {
       return result;
     }
     throw this.mapDataError('mutation', res.status, res.body);
+  }
+
+  /**
+   * Remember the definition id a declare response returned for `schemaName`.
+   * Later `mutate` calls for that schema send it. The id is the node's
+   * portable definition id. This client does not hash the declaration.
+   */
+  rememberDefinition(schemaName: string, definitionId: string): void {
+    if (!/^[0-9a-f]{64}$/.test(definitionId)) {
+      throw new UnexpectedResponseError(
+        'definition id must be a lowercase SHA-256',
+        0,
+        definitionId,
+      );
+    }
+    this.definitionIds.set(schemaName, definitionId);
+  }
+
+  /**
+   * `POST /api/schemas/declare` on the owner socket. Stores `definition_id`
+   * under the response schema name so the next `mutate` for that schema
+   * sends it.
+   */
+  async declareSchema(request: DeclareSchemaRequest): Promise<DeclareSchemaResult> {
+    const res = await this.transport.send('POST', LASTDB_API_ROUTES.schemasDeclare, {
+      body: request,
+    });
+    if (res.status !== 200 || !isObject(res.body)) {
+      throw new UnexpectedResponseError(
+        `declare schema returned ${res.status}`,
+        res.status,
+        res.body,
+      );
+    }
+    const definitionId = res.body['definition_id'];
+    const schemaName = res.body['schema'];
+    if (typeof definitionId !== 'string' || typeof schemaName !== 'string' || schemaName.length === 0) {
+      throw new UnexpectedResponseError('declare returned no definition id', res.status, res.body);
+    }
+    this.rememberDefinition(schemaName, definitionId);
+    const identity = res.body['identity_hash'];
+    const resolution = res.body['resolution'];
+    return {
+      schemaName,
+      definitionId,
+      identityHash: typeof identity === 'string' ? identity : null,
+      resolution: typeof resolution === 'string' ? resolution : null,
+    };
   }
 
   /**

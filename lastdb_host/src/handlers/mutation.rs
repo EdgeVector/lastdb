@@ -73,6 +73,8 @@ pub struct MutationComponents {
     pub file_write: Option<FileWrite>,
     /// Only a file executor sets the inline file; `None` keeps the current one.
     pub inline_write: Option<fold_db::record_value::InlineWrite>,
+    /// The definition the writer declared, when the request named one.
+    pub definition_id: Option<String>,
 }
 
 impl MutationComponents {
@@ -95,6 +97,7 @@ impl MutationComponents {
         mutation.file = self.file;
         mutation.file_write = self.file_write;
         mutation.inline_write = self.inline_write;
+        mutation.definition_id = self.definition_id;
         mutation.synchronous = Some(self.durability.waits_for_persist());
         mutation
     }
@@ -117,6 +120,7 @@ impl MutationComponents {
             expected,
             convergence,
             durability,
+            definition_id,
         } = operation;
         Self {
             schema,
@@ -132,6 +136,7 @@ impl MutationComponents {
             durability: durability.unwrap_or_default(),
             file_write: None,
             inline_write: None,
+            definition_id,
         }
     }
 }

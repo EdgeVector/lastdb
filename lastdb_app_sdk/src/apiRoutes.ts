@@ -12,6 +12,8 @@ export const LASTDB_API_ROUTES = {
   appChanges: '/api/app/changes',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',
+  /** Owner socket. The response `definition_id` is the definition the app declared. */
+  schemasDeclare: '/api/schemas/declare',
   /** The client↔node compatibility handshake. Both sockets, no node state. */
   version: '/api/version',
 } as const;

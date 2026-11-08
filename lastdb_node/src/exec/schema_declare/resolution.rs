@@ -27,14 +27,24 @@ impl DirectDeclareResolution {
 pub(crate) fn declare_resolution_payload(
     declare: &DirectDeclareProposal,
     resolution: &DirectDeclareResolution,
-) -> Value {
+) -> Result<Value, String> {
+    // The id of the definition the app sent, not the installed larger one.
+    let catalog_id = declare
+        .catalog_schema
+        .identity_hash
+        .clone()
+        .ok_or("declared schema has no catalog identity")?;
+    let definition = schema_types::PortableSchemaDefinition::from_catalog(
+        &catalog_id,
+        declare.catalog_schema.to_wire(),
+    )?;
     // Keep the adapter metadata for existing clients.
     let adapter = serde_json::json!({
         "kind": "owned_schema",
         "local_schema": declare.local_schema_id,
         "catalog_schema": resolution.runtime_schema,
     });
-    serde_json::json!({
+    Ok(serde_json::json!({
         "app_id": declare.namespace,
         "namespace": declare.namespace,
         "schema": declare.local_schema_id,
@@ -42,8 +52,9 @@ pub(crate) fn declare_resolution_payload(
         "descriptive_name": declare.catalog_schema.descriptive_name,
         "canonical": resolution.runtime_schema,
         "identity_hash": declare.catalog_schema.identity_hash,
+        "definition_id": definition.id().as_str(),
         "resolution": resolution.outcome(),
         "adapter": adapter,
         "adapters": [adapter],
-    })
+    }))
 }
