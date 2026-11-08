@@ -1,6 +1,7 @@
 //! Optional native mutation log. Durable commit bytes remain native encrypted files.
 mod capture;
 mod model;
+mod previous;
 mod recording;
 mod retention;
 mod store;
@@ -40,8 +41,8 @@ struct Cache {
     index: Option<Index>,
 }
 /// The version 2 log lives in its own directory inside the run home's log
-/// directory. A version 1 log (with CAS parts) is never read; its directory
-/// stays for the owner to remove.
+/// directory. A version 1 log (with CAS parts) is never read; the retirement
+/// of the previous automatic backup policy removes it (`previous.rs`).
 const LOG_ROOT: &str = "main-v2";
 
 pub(in crate::storage) struct MutationLog {
