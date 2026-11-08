@@ -22,7 +22,7 @@ pub fn health_response() -> UdsResponse {
 /// The capability flags both `/health` and `/api/version` advertise. One
 /// literal so the two routes cannot disagree; a flag is a fixed `&'static str`
 /// (never a caller byte).
-pub(super) const CAPABILITIES_JSON: &str = r#"{"alternate_keys_v1":true,"alternate_key_import_v1":true,"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true}"#;
+pub(super) const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true}"#;
 
 /// The process-lifetime instance id shared by `/health` and `/api/version`, so
 /// a client can pair a version answer with the liveness probe it followed.
@@ -37,9 +37,9 @@ pub(super) fn instance_id() -> &'static str {
 /// The version handshake for the control socket.
 ///
 /// ```json
-/// {"ok":true,"api_version":2,"build":"0.23.3-2068-g51fca83b2",
-///  "capabilities":{"alternate_keys_v1":true},"instance_id":"<pid-nanos>",
-///  "min_supported_api_version":1,"current_outbox_format_version":1,
+/// {"ok":true,"api_version":30,"build":"0.23.3-2068-g51fca83b2",
+///  "capabilities":{"owned_app_schemas_v1":true},"instance_id":"<pid-nanos>",
+///  "min_supported_api_version":29,"current_outbox_format_version":1,
 ///  "min_supported_outbox_format_version":1}
 /// ```
 ///
