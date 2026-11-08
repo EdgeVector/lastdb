@@ -17,7 +17,7 @@ use telemetry_phases::phase_timings;
 /// mutation is attributed to the owner).
 ///
 /// Every completed route is recorded into [`crate::request_telemetry`] using
-/// the self-reported `X-LastDB-Client` header (or `X-App-Id` fallback), then
+/// the self-reported `X-LastDB-Client` header, then
 /// the schema owner, then the UDS peer process — so an unlabeled caller is
 /// still nameable in `lastdb ops`.
 pub async fn execute_data_route(

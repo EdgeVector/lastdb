@@ -42,11 +42,6 @@ pub(crate) struct AlertCheckArgs {
     /// request at or above this is reported as a degradation.
     #[arg(long, default_value_t = 5000)]
     pub(crate) slowest_request_warn_ms: u64,
-    /// Skip the `/api/status` degradation probe and report liveness only.
-    /// Restores the pre-2026-10-04 behaviour, in which a node serving reads in
-    /// 23 s answered `ok`.
-    #[arg(long)]
-    pub(crate) no_degradation_probe: bool,
 }
 
 #[derive(Subcommand, Debug)]

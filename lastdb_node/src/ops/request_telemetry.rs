@@ -9,7 +9,6 @@
 //! Clients send a free-form identity on every request:
 //!
 //! - Preferred: `X-LastDB-Client: kanban` / `brain` / `lastgit` / …
-//! - Fallback: `X-App-Id` (legacy app-identity hint)
 //! - Still missing → the UDS peer process, as `peer:<comm>` (or
 //!   `peer:pid-<n>` when the name cannot be read)
 //! - Only when the kernel reports no peer pid → `"unknown"`
@@ -55,8 +54,6 @@ use serde::{Deserialize, Serialize};
 
 /// Preferred client self-ID header (case-insensitive on the wire).
 pub const CLIENT_HEADER: &str = "x-lastdb-client";
-/// Legacy fallback used by some app-identity paths.
-pub const CLIENT_HEADER_FALLBACK: &str = "x-app-id";
 /// Optional caller-minted correlation ID (case-insensitive on the wire).
 pub const REQUEST_ID_HEADER: &str = "x-lastdb-request-id";
 

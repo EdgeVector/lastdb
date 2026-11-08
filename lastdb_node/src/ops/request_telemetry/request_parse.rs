@@ -3,10 +3,7 @@ use super::*;
 /// Read and sanitize the self-reported client label from request headers.
 #[must_use]
 pub fn client_from_request(req: &UdsRequest) -> String {
-    let raw = req
-        .header(CLIENT_HEADER)
-        .or_else(|| req.header(CLIENT_HEADER_FALLBACK))
-        .unwrap_or("unknown");
+    let raw = req.header(CLIENT_HEADER).unwrap_or("unknown");
     sanitize_label(raw, MAX_CLIENT_LEN, "unknown")
 }
 
