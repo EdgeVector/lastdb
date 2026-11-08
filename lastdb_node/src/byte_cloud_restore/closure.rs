@@ -1,7 +1,7 @@
 use super::{download, inventory::Inventory};
 use super::{
-    ByteBackupClient, RecoveryKeys, RestoreError, RestoreReport, RestoreSession, Result,
-    VerifiedNativeContext,
+    keys::RecoveryDecryption, ByteBackupClient, RestoreError, RestoreReport, RestoreSession,
+    Result, VerifiedNativeContext,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
 use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
@@ -11,26 +11,27 @@ use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BY
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
+    identity_seed: &[u8; 32],
 ) -> Result<RestoreReport> {
     let (inventory, bytes) = load(session, client).await?;
-    let version = ClientRoot::version_of(&bytes, keys.content_key())
+    let version = ClientRoot::version_of(&bytes, decryption.content_key())
         .map_err(|_| RestoreError::Invalid("client native metadata"))?;
     if version == crate::byte_cloud_log::VERSION {
         let root = crate::byte_cloud_log::MutationLogRoot::decode(
             &bytes,
-            keys.content_key(),
+            decryption.content_key(),
             &session.accepted().begin,
         )
         .map_err(|_| RestoreError::Invalid("client mutation log root"))?;
         drop(inventory);
-        return super::logs::restore(session, client, keys, root).await;
+        return super::logs::restore(session, client, decryption, identity_seed, root).await;
     }
     let accepted = session.accepted();
-    let root = ClientRoot::decode(&bytes, keys.content_key(), &accepted.begin)
+    let root = ClientRoot::decode(&bytes, decryption.content_key(), &accepted.begin)
         .map_err(|_| RestoreError::Invalid("client native metadata"))?;
     root.recovery.validate_for(&accepted.job().stream.scope)?;
-    keys.validate_account(&root.recovery.account_public_key)?;
+    decryption.validate_account(&root.recovery.account_public_key)?;
     let context = VerifiedNativeContext {
         root: &session.root,
         destination: &session.selection.destination,
@@ -43,7 +44,7 @@ pub(super) async fn restore(
     if let Some(report) = context.published()? {
         return Ok(report);
     }
-    super::runs::restore(session, client, keys, &root, inventory).await
+    super::runs::restore(session, client, decryption, identity_seed, &root, inventory).await
 }
 
 pub(super) async fn load(

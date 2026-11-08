@@ -1,10 +1,10 @@
-use super::super::{local, native, NativeFileProof, RecoveryKeys};
+use super::super::{keys::RecoveryDecryption, local, native, NativeFileProof};
 use super::super::{RestoreError, RestoreSession, Result};
 use fold_db::storage::disk_pack::{byte_backup::ClientRoot, run_restore};
 
 pub(super) fn verify(
     session: &RestoreSession,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     root: &ClientRoot,
 ) -> Result<run_restore::RunRestoreGuard> {
     let data = session.root.join("home/data");
@@ -13,11 +13,11 @@ pub(super) fn verify(
     // their cloud paths on request, so the restored node starts with an
     // empty local blob store; the proof requires it to stay empty.
     if root.run.cas.is_none() {
-        run_restore::install_empty_cas_home(&data, keys.content_key())
+        run_restore::install_empty_cas_home(&data, decryption.content_key())
             .map_err(RestoreError::native_proof)?;
     }
     let profile = &root.run;
-    let proof = run_restore::verify(&data, profile, &root.native_root, keys.content_key())
+    let proof = run_restore::verify(&data, profile, &root.native_root, decryption.content_key())
         .map_err(RestoreError::native_proof)?;
     for file in proof.files() {
         let entry: NativeFileProof = local::read_json(

@@ -3,7 +3,9 @@ pub(super) mod coverage;
 mod install;
 
 use super::{download, inventory::Inventory, native};
-use super::{ByteBackupClient, NativeInventory, RecoveryKeys, RestoreError, RestoreReport};
+use super::{
+    keys::RecoveryDecryption, ByteBackupClient, NativeInventory, RestoreError, RestoreReport,
+};
 use super::{RestoreSession, Result, VerifiedNativeContext};
 use cloud_backup_protocol::v2::access::ReadSelector;
 use fold_db::storage::disk_pack::byte_backup::{ClientPage, ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
@@ -11,11 +13,12 @@ use fold_db::storage::disk_pack::byte_backup::{ClientPage, ClientRoot, CODEC_ENV
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
+    identity_seed: &[u8; 32],
     root: &ClientRoot,
     inventory: Inventory,
 ) -> Result<RestoreReport> {
-    let total = stage(session, client, keys, root, inventory).await?;
+    let total = stage(session, client, decryption, root, inventory).await?;
     let context = VerifiedNativeContext {
         root: &session.root,
         destination: &session.selection.destination,
@@ -25,14 +28,14 @@ pub(super) async fn restore(
         receipt_name: "byte-cloud-restore-receipt.json",
         receipt_version: 2,
     };
-    let proof = verify_stage(session, keys, root)?;
-    context.finish_run(keys, total, &proof)
+    let proof = verify_stage(session, decryption, root)?;
+    context.finish_run(identity_seed, total, &proof)
 }
 
 pub(super) async fn stage(
     session: &RestoreSession,
     client: &ByteBackupClient,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     root: &ClientRoot,
     mut inventory: Inventory,
 ) -> Result<NativeInventory> {
@@ -55,7 +58,7 @@ pub(super) async fn stage(
             let path = download::fetch(session, client, &grant, true).await?;
             let page = ClientPage::decode(
                 &crate::byte_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-                keys.content_key(),
+                decryption.content_key(),
                 &session.accepted().begin,
             )
             .map_err(|_| RestoreError::Invalid("run client page"))?;
@@ -88,10 +91,10 @@ pub(super) async fn stage(
 
 pub(super) fn verify_stage(
     session: &RestoreSession,
-    keys: &RecoveryKeys,
+    decryption: &RecoveryDecryption,
     root: &ClientRoot,
 ) -> Result<fold_db::storage::disk_pack::run_restore::RunRestoreGuard> {
-    install::verify(session, keys, root)
+    install::verify(session, decryption, root)
 }
 
 fn add_totals(total: &mut NativeInventory, page: &ClientPage, root: &ClientRoot) -> Result<()> {
