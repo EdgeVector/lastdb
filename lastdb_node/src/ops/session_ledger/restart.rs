@@ -57,9 +57,6 @@ pub(super) fn classify_restart_cause(
     if reason.contains("upgrade") {
         return "upgrade".to_string();
     }
-    if reason.contains("supersession") {
-        return "supersession".to_string();
-    }
     if previous_exit == Some(EXIT_CLEAN) || previous_exit == Some(EXIT_SHUTDOWN_STARTED) {
         return "operator".to_string();
     }

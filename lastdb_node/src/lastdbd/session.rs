@@ -19,7 +19,7 @@ fn promote_previous_crash(
 /// Record this session's start (reading the prior session for clean/unclean +
 /// downtime + OS shutdown cause). Best-effort; never blocks serving.
 pub(crate) fn record_start(home: &Path, pid: u32) -> Option<Ledger> {
-    if let Ok((ledger, summary)) = Ledger::record_start(home, pid, 0, None) {
+    if let Ok((ledger, summary)) = Ledger::record_start(home, pid) {
         if let Some(line) = summary.log_line() {
             if summary.prev_session_clean {
                 tracing::info!(target: "lastdbd::session_ledger", "{line}");

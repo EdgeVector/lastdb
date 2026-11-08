@@ -5,7 +5,7 @@ use super::*;
 /// Handle to a node's session ledger, scoped to a `$LASTDB_HOME` directory.
 ///
 /// Holds the current session's identity so [`Ledger::heartbeat`] and
-/// [`mark_clean_shutdown`] can target the right ledger line without re-reading
+/// [`mark_clean_shutdown_with_reason`] can target the right ledger line without re-reading
 /// it. Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct Ledger {
@@ -24,8 +24,6 @@ pub struct Ledger {
 struct SessionStart<'a> {
     pid: u32,
     start_ts: u64,
-    port: u16,
-    took_over_from_pid: Option<u32>,
     restart_cause: Option<String>,
     prev: Option<&'a SessionRecord>,
     prev_session_clean: bool,
@@ -52,9 +50,7 @@ impl SessionRecord {
             pid: start.pid,
             start_ts: start.start_ts,
             build_version,
-            port: start.port,
             restart_cause,
-            took_over_from_pid: start.took_over_from_pid,
             prev_session_clean: start.prev_session_clean,
             prev_session_exit_recorded: start.prev_session_exit_recorded,
             prev_downtime_secs: start.prev_downtime_secs,
@@ -90,12 +86,7 @@ impl Ledger {
     ///
     /// Best-effort: returns an `Err` (so the caller can WARN) but a node should
     /// treat any failure here as non-fatal.
-    pub fn record_start(
-        home: &Path,
-        pid: u32,
-        port: u16,
-        took_over_from_pid: Option<u32>,
-    ) -> std::io::Result<(Self, StartSummary)> {
+    pub fn record_start(home: &Path, pid: u32) -> std::io::Result<(Self, StartSummary)> {
         let start_ts = unix_secs();
         let prev = read_last_record(home);
         let current = read_current_session(home);
@@ -126,8 +117,6 @@ impl Ledger {
         let record = SessionRecord::for_start(SessionStart {
             pid,
             start_ts,
-            port,
-            took_over_from_pid,
             restart_cause: restart_intent.cause.clone(),
             prev: prev.as_ref(),
             prev_session_clean,

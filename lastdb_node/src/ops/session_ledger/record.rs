@@ -24,9 +24,9 @@ pub const RECENT_RECORD_LIMIT: usize = 64;
 /// One session's row in `sessions.jsonl`.
 ///
 /// Written once at start (no `end_ts`); the `end_ts`/`exit` fields are filled
-/// in by [`mark_clean_shutdown`] on graceful exit. `last_heartbeat_ts` is NOT
+/// in by [`mark_clean_shutdown_with_reason`] on graceful exit. `last_heartbeat_ts` is NOT
 /// stored here — it lives in `current-session.json` so we don't rewrite the
-/// whole ledger every minute — but a copy is folded back in at clean shutdown
+/// whole ledger every minute — but a copy is written back at clean shutdown
 /// so a fully-recorded clean session is self-describing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -36,9 +36,6 @@ pub struct SessionRecord {
     pub start_ts: u64,
     /// `FOLDDB_BUILD_VERSION` / crate version of the binary that started it.
     pub build_version: String,
-    /// HTTP port the node bound (best-effort — the canonical 9001 most of the
-    /// time, a fallback otherwise).
-    pub port: u16,
 
     /// Why this process started after the prior session. This is a stable
     /// canary-policy token, not a free-form diagnostic. It makes every boot
@@ -46,11 +43,6 @@ pub struct SessionRecord {
     /// one bounded read.
     #[serde(default = "unknown_restart_cause")]
     pub restart_cause: String,
-
-    /// If this session took over the database from another LastDB process, the
-    /// PID it took over from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub took_over_from_pid: Option<u32>,
 
     /// Whether the *previous* session ended cleanly (had an `end_ts`). `true`
     /// only when a prior session existed AND recorded a clean shutdown.
@@ -70,7 +62,7 @@ pub struct SessionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_shutdown_cause: Option<String>,
 
-    /// Unix epoch seconds of the clean shutdown, set by [`mark_clean_shutdown`].
+    /// Unix epoch seconds of the clean shutdown, set by [`mark_clean_shutdown_with_reason`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_ts: Option<u64>,
     /// Exit disposition (`"clean"`). Absent ⇒ the session never shut down
@@ -83,7 +75,7 @@ pub struct SessionRecord {
     /// Absent on records written before this field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_reason: Option<String>,
-    /// The last heartbeat timestamp folded in at clean shutdown, so a finished
+    /// The last heartbeat timestamp written in at clean shutdown, so a finished
     /// clean record carries its own liveness tail.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_heartbeat_ts: Option<u64>,
