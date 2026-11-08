@@ -140,8 +140,10 @@ def cli_refusal(stderr, exit_code, command=None):
             body = decode_json(routed[3])
         except OperationError:
             body = None
+        # A 4xx body is the plain message, or JSON with an `error` string.
         detail = body.get("error") if isinstance(body, dict) else None
-        result["error_head"] = error_head(detail.encode()) if isinstance(detail, str) else None
+        text = detail.encode() if isinstance(detail, str) else routed[3] if body is None else b""
+        result["error_head"] = error_head(text)
     snapshot_http = re.fullmatch(rb"shared snapshot returned HTTP/1.1 ([0-9]{3}) [^:]+: (.{1,4096})", message)
     if snapshot_http:
         result["snapshot_http_status"] = int(snapshot_http[1])
