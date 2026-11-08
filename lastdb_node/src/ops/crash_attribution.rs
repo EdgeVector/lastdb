@@ -1,8 +1,8 @@
 //! Daemon-side wiring for uptime + crash attribution.
 //!
-//! Ties together the two ported building blocks — [`crate::session_ledger`]
+//! Ties together [`crate::session_ledger`]
 //! (the uptime / clean-vs-unclean ledger) and [`crate::crash_telemetry`] (the
-//! Sentry promotion of crash evidence) — into the shapes the `lastdbd` boot
+//! Sentry promotion of crash evidence) into the shapes the `lastdbd` boot
 //! path and the `lastdb status` CLI actually call:
 //!
 //! - [`build_version`] — the release tag shared by crash reports, Sentry crash
@@ -84,24 +84,14 @@ pub fn install_baked_sentry_release() -> Option<String> {
 /// timestamp, OS, and architecture. Payloads, paths, backtraces, and log tails
 /// are excluded. Best-effort; call once after the node home is resolved.
 pub fn install_crash_hook(home: &Path) {
-    observability::install_crash_hook(observability::CrashContext::new(
-        home,
-        build_version(),
-        // Socket-only daemon — no HTTP port to record.
-        None,
-        None,
-    ));
+    observability::install_crash_hook(observability::CrashContext::new(home, build_version()));
 }
 
 /// Surface crash reports written since the last clean start (pruning old
-/// reports and refreshing the marker), minus any already shipped at crash
-/// time. Returned newest-first, the order
+/// reports and refreshing the marker). Returned newest-first, the order
 /// [`promote_previous_crash_evidence`] expects.
 pub fn scan_previous_crashes(home: &Path) -> Vec<PathBuf> {
     observability::scan_and_warn_previous_crashes(home)
-        .into_iter()
-        .filter(|p| !crate::crash_telemetry::is_report_sent(p))
-        .collect()
 }
 
 /// Promote previous-session crash evidence into Sentry: one event per surfaced

@@ -32,8 +32,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::layers::ring::RingHandle;
-
 /// Sub-directory under `$LASTDB_HOME` where crash reports are written.
 pub const CRASH_REPORTS_DIR: &str = "crash-reports";
 
@@ -47,14 +45,6 @@ pub const MAX_CRASH_REPORTS: usize = 20;
 /// the reports so a single `LASTDB_HOME` scopes both.
 const LAST_START_MARKER: &str = ".last-clean-start";
 
-/// Callback invoked (best-effort) right after a crash report is written to
-/// disk, with the report's path. The observability crate stays free of any
-/// telemetry dependency: a binary that wants to *ship* the report at crash
-/// time (rather than on the next launch) injects the sender here. Runs on the
-/// panicking thread inside the hook, so — like the hook itself — it must be
-/// panic-safe and time-bounded; it must never re-panic.
-pub type OnReportWritten = Arc<dyn Fn(&Path) + Send + Sync + 'static>;
-
 /// Immutable, bounded context captured once when the report hook is installed.
 #[derive(Clone)]
 pub struct CrashContext {
@@ -62,24 +52,14 @@ pub struct CrashContext {
     dir: PathBuf,
     /// Numeric package version, or the fixed `unknown` marker.
     version: Arc<str>,
-    /// Optional post-write hook — see [`OnReportWritten`]. `None` (the default)
-    /// preserves the write-only behaviour every existing caller relies on.
-    on_report_written: Option<OnReportWritten>,
 }
 
 impl CrashContext {
-    /// Build a context rooted at `folddb_home/crash-reports`.
-    /// Port and ring arguments remain for source compatibility and are ignored.
-    pub fn new(
-        folddb_home: impl AsRef<Path>,
-        version: &str,
-        _port: Option<u16>,
-        _ring: Option<RingHandle>,
-    ) -> Self {
+    /// Build a context rooted at `home/crash-reports`.
+    pub fn new(home: impl AsRef<Path>, version: &str) -> Self {
         Self {
-            dir: folddb_home.as_ref().join(CRASH_REPORTS_DIR),
+            dir: home.as_ref().join(CRASH_REPORTS_DIR),
             version: Arc::from(numeric_version(version).unwrap_or("unknown")),
-            on_report_written: None,
         }
     }
 
@@ -104,14 +84,7 @@ pub fn install_private_panic_hook() {
 pub fn install_crash_hook(ctx: CrashContext) {
     std::panic::set_hook(Box::new(move |info| {
         write_panic_marker();
-        // Best-effort report write. Never propagate an error out of the hook.
-        if let Ok(path) = write_crash_report(&ctx, info) {
-            // Optional delivery receives only the fixed-field report path.
-            // The callback must remain panic-safe and time-bounded.
-            if let Some(cb) = &ctx.on_report_written {
-                cb(&path);
-            }
-        }
+        let _ = write_crash_report(&ctx, info);
     }));
 }
 
@@ -282,10 +255,6 @@ fn write_marker_now(marker: &Path) {
         .map_or(0, |d| d.as_millis() as i64);
     let _ = fs::write(marker, now_ms.to_string());
 }
-
-// ---------------------------------------------------------------------------
-// CLI support helpers (`folddb crash-reports …`)
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // RFC3339 UTC formatting (dependency-free)
