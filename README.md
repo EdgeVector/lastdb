@@ -49,7 +49,7 @@ deleted the desktop node on **2026-07-12**.
 
 | Component | Where the source lives | Where it deploys |
 | --- | --- | --- |
-| LastDB Mini (`lastdb` + `lastdbd`) | `lastdb_node` | Homebrew `edgevector/lastdb/lastdb` via tag → [`.github/workflows/release.yml`](.github/workflows/release.yml) → `EdgeVector/homebrew-lastdb` |
+| LastDB Mini (`lastdb` + `lastdbd`) | `lastdb_node` | Homebrew `edgevector/lastdb/lastdb` via [`.github/workflows/stable-release.yml`](.github/workflows/stable-release.yml) → `EdgeVector/homebrew-lastdb` |
 | schema_service Lambda | `schema_service/crates/server_lambda` | schema registry via [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) (submodules this repo) |
 
 Releases: nightly GitHub prereleases from `.github/workflows/nightly-release.yml`. There is no DMG
