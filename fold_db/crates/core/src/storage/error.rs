@@ -42,6 +42,12 @@ pub enum StorageError {
     #[error("snapshot is waiting for native compaction")]
     SnapshotCompactionPending,
 
+    #[error("share publication is waiting for an unfinished edit")]
+    PublicationEditPending,
+
+    #[error("share publication supports inline files only")]
+    PublicationFile,
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 

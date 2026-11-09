@@ -1,8 +1,9 @@
 //! Owner capture of the main home (and, for a shared database, its CAS home).
 //! No second home owner or storage-format conversion.
 use super::{
-    invalid, model::State, protocol, run_source::RunSource, store::private_directory, store::Store,
-    ByteBackupCapture, Inner, PackRuntime, StorageResult, RUN_INTENT_FILE,
+    capture::PublicationGate, invalid, model::State, protocol, run_source::RunSource,
+    store::private_directory, store::Store, ByteBackupCapture, Inner, PackRuntime, StorageResult,
+    RUN_INTENT_FILE,
 };
 use cloud_backup_protocol::{bytes_sha256, v2::Begin, Digest, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ use std::sync::{
     Arc, Mutex,
 };
 mod ready;
+pub(super) use ready::held_root;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,21 +26,13 @@ struct Intent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
-/// A hold hard-links run files, so it lives in the run home directory.
-pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
-    runtime
-        .physical
-        .path()
-        .join(laststore::disk_run::home::BACKUP_DIR)
-        .join(super::HOLDS_DIR)
-        .join(id.to_string())
-}
 pub(super) async fn prepare(
     runtime: &Arc<PackRuntime>,
     begin: Begin,
     key: &[u8; 32],
     recovery: RecoveryDescriptor,
     renew_unmaterialized: bool,
+    publication_gate: Option<PublicationGate<'_>>,
 ) -> StorageResult<ByteBackupCapture> {
     runtime.require_ordinary_backup_home()?;
     begin.validate().map_err(protocol)?;
@@ -60,11 +54,20 @@ pub(super) async fn prepare(
             saved_cut(&source, &requested, &key_sha256)
         })
         .await?;
+    // Acquire app and native write locks in the same order as the app.
+    let edit = publication_gate
+        .filter(|_| !held)
+        .map(|acquire| acquire())
+        .transpose()?;
     let gate = if renew_unmaterialized && !held && runtime.serving.load(Ordering::Acquire) {
         super::snapshot_cleanup::enter_clean_cut(runtime).await?
     } else {
         runtime.enter_write().await
     };
+    if edit.is_some() && runtime.has_external_backup_files().await? {
+        return Err(crate::storage::StorageError::PublicationFile);
+    }
+    let gate = (gate, edit);
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);
     crate::storage::disk_pack::run_blocking(move || {

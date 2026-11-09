@@ -56,7 +56,10 @@ pub(in crate::byte_cloud_backup) async fn reconcile(
     // finish checks the exact client root before any accepted ledger write.
     // A locally cancelled, never-submitted job cannot supply a cloud terminal.
     super::finish(&capture, store, saved, &result)?;
-    crate::byte_cloud_backup::blobs::accepted(source, store, saved).await
+    if source.publication_stream.is_none() {
+        crate::byte_cloud_backup::blobs::accepted(source, store, saved).await?;
+    }
+    Ok(())
 }
 
 /// The Store file lock and captured source stay owned until this returns.

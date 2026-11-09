@@ -57,6 +57,7 @@ pub enum BackupError {
     WorkerPanic,
     Authority,
     PublicationFile,
+    PublicationEditPending,
     Cloud(BackupTransportError),
 }
 impl BackupError {
@@ -78,6 +79,7 @@ impl BackupError {
             Self::WorkerPanic => "native backup worker needs attention",
             Self::Authority => "native backup cloud authority needs attention",
             Self::PublicationFile => "share publication supports inline files only",
+            Self::PublicationEditPending => "share publication is waiting for an unfinished edit",
             Self::Cloud(error) => cloud_label(error),
         }
     }
@@ -157,6 +159,8 @@ impl From<fold_db::storage::StorageError> for BackupError {
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
             StorageError::SnapshotCompactionPending => Self::Compacting,
+            StorageError::PublicationEditPending => Self::PublicationEditPending,
+            StorageError::PublicationFile => Self::PublicationFile,
             _ => Self::Source,
         }
     }
@@ -185,7 +189,10 @@ impl BackupError {
             Self::Disk => P::Disk,
             Self::Source => P::Source,
             Self::Limit => P::ResourceLimit,
-            Self::Waiting | Self::Compacting | Self::AdmissionPending => P::Temporary,
+            Self::Waiting
+            | Self::Compacting
+            | Self::AdmissionPending
+            | Self::PublicationEditPending => P::Temporary,
             Self::Closing => P::Closing,
             Self::Shutdown => P::Shutdown,
             Self::WorkerPanic => P::WorkerPanic,

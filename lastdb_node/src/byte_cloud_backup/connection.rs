@@ -21,6 +21,9 @@ pub async fn connect_existing(
     host: &crate::host::Host,
     request: SensitiveConnectionRequest,
 ) -> Result<ManualConnectionStatus> {
+    if crate::share_publication::is_publication_home(&host.home)? {
+        return Err(BackupError::Identity);
+    }
     let identity_before = identity(host)?;
     let environment = environment(&request.environment)?;
     if request

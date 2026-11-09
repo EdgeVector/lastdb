@@ -18,6 +18,10 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) data_dir: Option<PathBuf>,
 
+    /// Publish changes in this share home using the existing owner home.
+    #[arg(long, requires = "data_dir")]
+    pub(crate) share_owner_home: Option<PathBuf>,
+
     /// Worker socket path. The default is `<home>/data/folddb.sock`.
     #[arg(long)]
     pub(crate) socket_path: Option<PathBuf>,

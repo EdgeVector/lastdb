@@ -3,19 +3,21 @@ use super::*;
 use std::fs::{self, File};
 
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
+    retire_at(&Store::base(&host.home), id)
+}
+
+pub(in crate::byte_cloud_backup) fn retire_at(base: &std::path::Path, id: &Id) -> Result<()> {
     if !super::reserved(id) {
         return Err(BackupError::Identity);
     }
-    let root = Store::base(&host.home).join("jobs").join(id.as_str());
-    let previous = store::state(&host.home, id)?;
-    if previous.is_none() && Store::active(&host.home)?.as_ref() != Some(id) {
+    let root = base.join("jobs").join(id.as_str());
+    let previous = store::state_at(base, id)?;
+    let active = Store::active_at(base)?;
+    if previous.is_none() && active.as_ref() != Some(id) {
         return remove_directory(&root);
     }
     let saved = previous.ok_or(BackupError::Missing)?;
-    if saved.automatic_revision.is_none()
-        || !saved.terminal()
-        || Store::active(&host.home)?.as_ref() == Some(id)
-    {
+    if saved.automatic_revision.is_none() || !saved.terminal() || active.as_ref() == Some(id) {
         return Err(BackupError::Identity);
     }
     // The blob plan has no page limit, so it goes by exact names before the

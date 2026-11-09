@@ -3,7 +3,10 @@ use super::{
     invalid, model::State, store::Store, ByteBackupCapture, Inner, PackRuntime, StorageResult,
 };
 use cloud_backup_protocol::v2::Begin;
+use std::fs::File;
 use std::sync::Arc;
+
+pub(super) type PublicationGate<'a> = &'a (dyn Fn() -> StorageResult<File> + Sync);
 
 impl PackRuntime {
     /// Save the exact cut and its named hold before hashing or external work.
@@ -25,6 +28,35 @@ impl PackRuntime {
     ) -> StorageResult<ByteBackupCapture> {
         prepare_capturing_local_files(self, begin, key, recovery, true).await
     }
+
+    /// Freeze an ordinary snapshot with no external file references.
+    pub async fn prepare_publication_backup_capture(
+        self: &Arc<Self>,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: cloud_backup_protocol::RecoveryDescriptor,
+        renew_unmaterialized: bool,
+        acquire_gate: impl Fn() -> StorageResult<File> + Sync,
+    ) -> StorageResult<ByteBackupCapture> {
+        super::run_capture::prepare(
+            self,
+            begin,
+            key,
+            recovery,
+            renew_unmaterialized,
+            Some(&acquire_gate),
+        )
+        .await
+    }
+
+    /// Reopen this publication's exact saved cut without materializing files.
+    pub async fn resume_publication_backup_capture(
+        self: &Arc<Self>,
+        key: &[u8; 32],
+    ) -> StorageResult<ByteBackupCapture> {
+        super::run_capture::resume(self, key).await
+    }
+
     /// Resume only the saved cut. A missing source still permits exact close.
     pub async fn resume_byte_backup_capture(
         self: &Arc<Self>,
@@ -53,7 +85,8 @@ async fn prepare_capturing_local_files(
 ) -> StorageResult<ByteBackupCapture> {
     let sealed = crate::storage::local_file_ref::materialize(runtime, key).await?;
     let prepared =
-        super::run_capture::prepare(runtime, begin, key, recovery, renew_unmaterialized).await;
+        super::run_capture::prepare(runtime, begin, key, recovery, renew_unmaterialized, None)
+            .await;
     if let Err(error) = crate::storage::local_file_ref::release(runtime, &sealed).await {
         tracing::error!(%error, "local file reference release after backup capture");
     }

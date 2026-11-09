@@ -33,9 +33,15 @@ impl Store {
     pub fn base(home: &Path) -> PathBuf {
         home.join("data/cloud-byte-backup-v2")
     }
+    pub fn publication_base(home: &Path) -> PathBuf {
+        home.join("data/cloud-share-backup-v2")
+    }
     pub fn write_configuration<T: Serialize>(home: &Path, name: &str, value: &T) -> Result<()> {
         let base = Self::base(home);
-        directory(&base)?;
+        Self::write_configuration_at(&base, name, value)
+    }
+    pub fn write_configuration_at<T: Serialize>(base: &Path, name: &str, value: &T) -> Result<()> {
+        directory(base)?;
         // Policy/disable uses the reserved control allowance, including while a
         // worker renames its separate checkpoints. No concurrent tree walk.
         let path = base.join(name);
@@ -44,7 +50,7 @@ impl Store {
                 .checked_add(size(&path.with_extension("pending"))?)
                 .ok_or(BackupError::Limit)?,
         );
-        write(&base.join(name), value, &bytes)
+        write(&path, value, &bytes)
     }
     pub fn active(home: &Path) -> Result<Option<Id>> {
         Self::active_at(&Self::base(home))

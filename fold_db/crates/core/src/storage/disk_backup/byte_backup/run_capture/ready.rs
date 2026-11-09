@@ -4,6 +4,20 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 
 const READY: &[u8] = b"ready-v1\n";
+
+/// A hold hard-links run files, so it lives in the run home directory.
+pub(in crate::storage::disk_backup::byte_backup) fn held_root(
+    runtime: &PackRuntime,
+    id: uuid::Uuid,
+) -> PathBuf {
+    runtime
+        .physical
+        .path()
+        .join(laststore::disk_run::home::BACKUP_DIR)
+        .join(super::super::HOLDS_DIR)
+        .join(id.to_string())
+}
+
 pub(super) fn publish(root: &Path) -> StorageResult<()> {
     // The child capture helpers already flush their directories. This barrier
     // includes the node link before the completion marker can become durable.

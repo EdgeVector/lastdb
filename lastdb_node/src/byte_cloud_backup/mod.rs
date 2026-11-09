@@ -1,5 +1,6 @@
 //! Explicit V2 byte backup. The native format remains a client responsibility.
 mod automatic;
+pub(crate) mod automatic_publication;
 mod blob_source;
 mod blobs;
 mod capture;
