@@ -93,12 +93,14 @@ class StoppedFinal:
             time.sleep(0.5)
         raise OperationError("stopped_backup_idle_automatic_owner")
 
-    def backup(self, before, written):
+    def backup(self, before, written, before_stopped_backup=None):
         """Stop cleanly, then back up the exact stopped session with automatic backup on."""
         source = self.source
         node = source.node
         pid, start = node.process.pid, node.start_ts
         node.stop()
+        if before_stopped_backup is not None:
+            before_stopped_backup()
         request = str(uuid.uuid4())
         require(not request.startswith("a17dbac2-"), "stopped_request_not_automatic")
         report = node.programs.command(node.home, ["cloud", "backup-v2", "start-stopped",
@@ -123,7 +125,7 @@ class StoppedFinal:
         source.bind_stopped(accepted)
         return report, stopped
 
-    def run(self):
+    def run(self, before_stopped_backup=None):
         source = self.source
         before = self.idle()
         policy = before["automatic_backup"]
@@ -134,7 +136,7 @@ class StoppedFinal:
         require(late["pending_request_id"] is None and late["revision"] == policy["revision"]
                 and frontiers(late["last_backed_up_frontiers"]) == backed
                 and covers(written, backed) and written != backed, "final_write_ahead_of_automatic_backup")
-        report, stopped = self.backup(before, written)
+        report, stopped = self.backup(before, written, before_stopped_backup=before_stopped_backup)
         self.expected, self.accepted = first, report["accepted_backup"]
         source.node.start()
         restarted = source.cloud("status")

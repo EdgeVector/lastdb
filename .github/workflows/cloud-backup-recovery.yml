@@ -10,14 +10,11 @@ name: Cloud backup recovery
 # Shared-multiwriter uses its own preadmitted seven-device DEV scope.
 # offline_conflicts selects independent same-key writes with opposite replay orders.
 # Shared-readback reuses only a completed operation's exact published cut.
-# Cleanup runs in cloud-backup-cleanup.yml. A recovery refuses admission
-# while cleanup is active.
 on:
   pull_request:
     paths:
       - '.github/workflows/cloud-backup-recovery.yml'
       - '.github/workflows/cloud-backup-build.yml'
-      - '.github/workflows/cloud-backup-cleanup.yml'
       - 'scripts/cloud_backup/**'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'

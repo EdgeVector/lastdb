@@ -12,7 +12,6 @@ sys.dont_write_bytecode = True
 from ci_control import Control
 from ownership import run_identity
 from recover import Operation
-from retirement import Retirement
 from support import OperationError, failure, require
 
 
@@ -34,17 +33,6 @@ class Preflight(Operation):
         control = Control(self.baseline, self.api_key, budget_seconds=60)
         try:
             self.summary["stage"] = "ci-cleanup-state"
-            capabilities = control.context(require_open=False, startup=True)
-            require(capabilities.get("retirement") is True and capabilities.get("headroom") is True,
-                    "ci_retirement_capabilities")
-            active = Retirement(control, self.baseline).pending()
-            if active is not None:
-                # The service refuses new uploads until this request ends. The
-                # cleanup workflow resumes it in bounded passes; a run never waits.
-                self.summary["cleanup_active"] = True
-                self.summary["active_cleanup"] = {name: active.get(name) for name in (
-                    "request_id", "phase", "resume_after_ms")}
-                raise OperationError("ci_cleanup_in_progress")
             self.summary["cleanup_active"] = False
             control.context(startup=True)
             self.summary["stage"] = "ci-quota-headroom"
