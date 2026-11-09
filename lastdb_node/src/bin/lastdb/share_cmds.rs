@@ -31,14 +31,14 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
                 "publisher": publisher,
                 "name": name,
             });
-            return database_request(data_dir, None, "/api/databases/accept", body);
+            database_request(data_dir, None, "/api/databases/accept", &body)
         }
         ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
             let sealed = read_file(&grant, 64 * 1024)?;
             let body = serde_json::json!({
                 "grant": base64::engine::general_purpose::STANDARD.encode(sealed),
             });
-            return database_request(data_dir, Some(&db), "/api/contributors", body);
+            database_request(data_dir, Some(&db), "/api/contributors", &body)
         }
         action => run_offline(data_dir, action),
     }
@@ -48,13 +48,13 @@ fn database_request(
     data_dir: Option<PathBuf>,
     selector: Option<&str>,
     path: &str,
-    body: serde_json::Value,
+    body: &serde_json::Value,
 ) -> Result<(), String> {
     let target = DatabaseTarget::open(data_dir, selector)?;
     let raw = post_json_with_timeout(
         &target.socket,
         &target.path(path),
-        &body,
+        body,
         Duration::from_secs(10),
     )?;
     println!("{}", parse_json_response(&raw, "database registration")?);

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import subprocess
 
 from node import Node
@@ -47,23 +48,26 @@ def check_addressing(command, cli, owner, publication, publication_id):
     require(read.returncode == 0 and json.loads(read.stdout)["results"][0]["fields"]["data"] == "ordinary write",
             "ordinary publisher read did not observe the committed record")
 
-    personal = ["--data-dir", owner.home, "--db", "personal"]
-    original = command(cli, *personal, "get", "RecordById", "--key-hash", "one", "--json")
+    original = command(cli, "--db", "personal", "get", "RecordById", "--key-hash", "one", "--json",
+                       node=owner)
     require(original.returncode == 0 and json.loads(original.stdout)["results"][0]["fields"]["value"] == "v3",
-            "explicit personal selection did not read the original record")
-    wrong = command(cli, "--data-dir", owner.home, "--db", publication_id,
-                    "get", "RecordById", "--key-hash", "one", "--json")
+            "explicit personal selection did not read the original record: " + original.stderr)
+    wrong = command(cli, "--db", publication_id, "get", "RecordById", "--key-hash", "one", "--json",
+                    node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
-            "an unknown database selector must never read the node's personal records")
-    wrong = command(cli, "--data-dir", owner.home, "--db", publication_id,
-                    "mutate", "--request-file", request)
+            "an unknown database selector must never read the node's personal records: " + wrong.stderr)
+    wrong = command(cli, "--db", publication_id, "mutate", "--request-file", request, node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
-            "an unknown database selector must refuse the mutation before dispatch")
+            "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
 
 
 def exercise(cli, owner, root):
-    def command(binary, *arguments):
-        return subprocess.run([binary, *arguments], capture_output=True, text=True, timeout=60)
+    def command(binary, *arguments, node=None):
+        environment = None if node is None else {
+            **os.environ, "LASTDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.socket),
+        }
+        return subprocess.run([binary, *arguments], capture_output=True, text=True, timeout=60,
+                              env=environment)
 
     def create(home, *options):
         result = command(cli, "--data-dir", owner.home, "share", "create",

@@ -3,14 +3,14 @@
 use super::*;
 
 /// Record-level data commands: mutate, get-keys, get.
-pub(super) fn record_command(target: DatabaseTarget, command: Command) -> Result<(), String> {
+pub(super) fn record_command(target: &DatabaseTarget, command: Command) -> Result<(), String> {
     match command {
         Command::Mutate {
             request_file,
             durable,
             mutation_id,
-        } => mutate_command(&target, &request_file, durable, mutation_id),
-        Command::GetKeys(args) => list_record_keys(&target, &args),
+        } => mutate_command(target, &request_file, durable, mutation_id),
+        Command::GetKeys(args) => list_record_keys(target, &args),
         Command::Get {
             schema,
             key_hash,
@@ -19,7 +19,7 @@ pub(super) fn record_command(target: DatabaseTarget, command: Command) -> Result
             hydrate,
             hydrate_inline,
         } => get_record(
-            &target,
+            target,
             &schema,
             key_hash.as_deref(),
             key_range.as_deref(),

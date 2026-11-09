@@ -183,7 +183,7 @@ fn run(cli: Cli) -> Result<(), String> {
         } => list_databases(cli.data_dir, json),
         Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
-            record_command(DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
+            record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }
         Command::Schema {
             action: SchemaInspectCommand::Show { name, json },
