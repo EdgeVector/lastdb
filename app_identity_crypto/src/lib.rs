@@ -1,11 +1,7 @@
 //! Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers.
 //!
-//! Lane A of the `app_identity` v3.1 design (see
-//! `exemem-workspace/docs/designs/app_identity.md`). This crate is the DRY
-//! foundation for every Ed25519/JCS signature in the workspace —
-//! schema_service, fold_db_node (including dev-mode), exemem-infra, and the
-//! client SDK port all delegate canonicalization and envelope handling
-//! here, so cross-environment signature interop is testable in one place.
+//! schema_service and lastdb_node use this crate for Ed25519 and JCS
+//! envelope signatures.
 //!
 //! Scope of `verify_envelope` is intentionally intrinsic: it checks alg,
 //! key_id, expiry, and the signature itself. Deployment-context checks
