@@ -18,6 +18,7 @@ mod session;
 mod spool;
 
 pub use keys::RecoveryKeys;
+pub(crate) use recipient::GuestReplayCache;
 pub use recipient::{StagedRecord, StagedRecordQuery};
 pub use report::RestoreReport;
 pub use session::RestoreSession;

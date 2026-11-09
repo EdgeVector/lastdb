@@ -8,16 +8,30 @@ use cloud_backup_protocol::v2::{AcceptedBackup, Stream, Version};
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use folddb_profile::endpoints::exemem_api_url_for;
 use reqwest::header::HeaderValue;
+use std::sync::OnceLock;
 
 pub(super) struct GuestAccess {
     stream: Stream,
     expires_ms: u64,
     pub(super) header: HeaderValue,
+    recovery: Option<OnceLock<bool>>,
 }
 
 impl ByteBackupReader {
     /// Use a signed stream permission with no Exemem account credentials.
     pub fn guest(permission: GuestReadPermission) -> Result<Self> {
+        Self::guest_with_mode(permission, None)
+    }
+
+    /// Follow the accepted recovery chain when the issuer supports Share logs.
+    pub fn guest_recovery(permission: GuestReadPermission) -> Result<Self> {
+        Self::guest_with_mode(permission, Some(OnceLock::new()))
+    }
+
+    fn guest_with_mode(
+        permission: GuestReadPermission,
+        recovery: Option<OnceLock<bool>>,
+    ) -> Result<Self> {
         let environment = permission.environment().registry();
         let mut header = HeaderValue::from_str(permission.authorization())
             .map_err(|_| BackupTransportError::Configuration("guest permission header"))?;
@@ -29,6 +43,7 @@ impl ByteBackupReader {
                 stream,
                 expires_ms,
                 header,
+                recovery,
             }),
         })
     }
@@ -41,17 +56,49 @@ impl ByteBackupReader {
         }
     }
 
-    /// Resolve the current independent accepted point for this permission.
+    /// Resolve the accepted head for this permission and reader mode.
     pub async fn guest_head(&self) -> Result<HeadReadResult> {
-        let stream = self
-            .guest_stream()
-            .ok_or(BackupTransportError::Configuration("guest reader"))?;
+        let ReadProof::Guest(access) = &self.proof else {
+            return Err(BackupTransportError::Configuration("guest reader"));
+        };
         let request = HeadReadRequest {
             version: Version::V2,
-            stream: stream.clone(),
+            stream: access.stream.clone(),
         };
         request.validate()?;
-        let result: HeadReadResult = match self.post("guest/head/read", &request).await {
+        if let Some(mode) = &access.recovery {
+            match mode.get() {
+                Some(true) => return self.read_guest_head(&request, true).await,
+                Some(false) => {}
+                None => match self.read_guest_head(&request, true).await {
+                    Err(error) if recovery_route_missing(&error) => {
+                        if *mode.get_or_init(|| false) {
+                            return Err(error);
+                        }
+                    }
+                    result => {
+                        let result = result?;
+                        if *mode.get_or_init(|| true) {
+                            return Ok(result);
+                        }
+                    }
+                },
+            }
+        }
+        self.read_guest_head(&request, false).await
+    }
+
+    async fn read_guest_head(
+        &self,
+        request: &HeadReadRequest,
+        recovery: bool,
+    ) -> Result<HeadReadResult> {
+        let operation = if recovery {
+            "guest/recovery/head/read"
+        } else {
+            "guest/head/read"
+        };
+        let result: HeadReadResult = match self.post(operation, request).await {
             Ok(response) => response,
             Err(BackupTransportError::Protocol(error))
                 if error.code == ErrorCode::NotFound && error.field == "stream" =>
@@ -60,12 +107,12 @@ impl ByteBackupReader {
             }
             Err(error) => return Err(error),
         };
-        result.validate_for(&request)?;
+        result.validate_for(request)?;
         if let HeadReadResult::Ok { response } = &result {
             if response.active_commit_id.is_some() {
                 return Err(BackupTransportError::InvalidResponse("guest active commit"));
             }
-            if let Some(accepted) = &response.accepted {
+            if let Some(accepted) = response.accepted.as_ref().filter(|_| !recovery) {
                 require_independent(accepted)?;
             }
         }
@@ -78,6 +125,18 @@ impl ByteBackupReader {
         request: &CommitStatusRequest,
     ) -> Result<CommitResponse> {
         access.validate_stream(&request.job.stream)?;
+        self.ensure_guest_mode(access).await?;
+        if access.use_recovery() {
+            let response: CommitResponse =
+                self.post("guest/recovery/commits/status", request).await?;
+            response.validate_for_status(request)?;
+            if !matches!(response, CommitResponse::Accepted { .. }) {
+                return Err(BackupTransportError::InvalidResponse(
+                    "guest accepted point",
+                ));
+            }
+            return Ok(response);
+        }
         let backup = match self.guest_head().await? {
             HeadReadResult::Ok { response } => response
                 .accepted
@@ -92,9 +151,26 @@ impl ByteBackupReader {
             backup: Box::new(backup),
         })
     }
+
+    pub(super) async fn ensure_guest_mode(&self, access: &GuestAccess) -> Result<()> {
+        if access
+            .recovery
+            .as_ref()
+            .is_some_and(|mode| mode.get().is_none())
+        {
+            self.guest_head().await?;
+        }
+        Ok(())
+    }
 }
 
 impl GuestAccess {
+    pub(super) fn use_recovery(&self) -> bool {
+        self.recovery
+            .as_ref()
+            .is_some_and(|mode| mode.get() != Some(&false))
+    }
+
     pub(super) fn validate_stream(&self, stream: &Stream) -> Result<()> {
         if &self.stream != stream {
             return Err(protocol(ErrorCode::Unauthorized, "guest.scope"));
@@ -110,6 +186,16 @@ impl GuestAccess {
             return Err(BackupTransportError::InvalidResponse("guest grant expiry"));
         }
         Ok(())
+    }
+}
+
+fn recovery_route_missing(error: &BackupTransportError) -> bool {
+    match error {
+        BackupTransportError::Authentication | BackupTransportError::Http(404) => true,
+        BackupTransportError::Protocol(error) => {
+            error.code == ErrorCode::NotFound && error.field == "http.route"
+        }
+        _ => false,
     }
 }
 

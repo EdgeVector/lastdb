@@ -10,6 +10,15 @@ pub(super) struct Plan {
     pub head: Digest,
     pub base: AcceptedBackup,
     pub links: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<CachedStart>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CachedStart {
+    pub accepted: AcceptedBackup,
+    pub position: LogPosition,
 }
 
 pub(super) async fn prepare(
@@ -17,6 +26,7 @@ pub(super) async fn prepare(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
+    cache: Option<&GuestReplayCache<'_>>,
 ) -> Result<Plan> {
     let path = session.root.join("chain/plan.json");
     if path.try_exists()? {
@@ -26,6 +36,16 @@ pub(super) async fn prepare(
             || plan.base != latest.base
             || plan.links == 0
             || plan.links > MAX_CHAIN
+            || plan.cached.as_ref().is_some_and(|start| {
+                cache.is_none_or(|cache| {
+                    start.accepted.head() != *cache.head
+                        || !cache
+                            .through
+                            .map_or(start.accepted == latest.base, |saved| {
+                                *saved == start.position
+                            })
+                })
+            })
         {
             return Err(RestoreError::Invalid("saved mutation restore plan"));
         }
@@ -34,7 +54,7 @@ pub(super) async fn prepare(
     let mut accepted = session.accepted().clone();
     let mut root = latest.clone();
     let mut count = 0;
-    loop {
+    let cached = loop {
         if count >= MAX_CHAIN {
             return Err(RestoreError::Limit("mutation restore chain"));
         }
@@ -58,8 +78,11 @@ pub(super) async fn prepare(
         }
         count += 1;
         super::cache::clear(session)?;
+        if let Some(cached) = cached_predecessor(cache, &root)? {
+            break Some(cached);
+        }
         if root.previous == latest.base {
-            break;
+            break None;
         }
         let ancestor = session.ancestor(root.previous.clone())?;
         let (_, bytes) = super::super::closure::load(&ancestor, client).await?;
@@ -70,15 +93,37 @@ pub(super) async fn prepare(
             .map_err(|_| RestoreError::Invalid("mutation ancestor prefix"))?;
         accepted = root.previous;
         root = previous;
-    }
+    };
     let plan = Plan {
         version: 1,
         head: session.accepted().commit_sha256.clone(),
         base: latest.base.clone(),
         links: count,
+        cached,
     };
     save(session, &path, &plan)?;
     Ok(plan)
+}
+
+fn cached_predecessor(
+    cache: Option<&GuestReplayCache<'_>>,
+    root: &MutationLogRoot,
+) -> Result<Option<CachedStart>> {
+    let Some(cache) = cache.filter(|cache| root.previous.head() == *cache.head) else {
+        return Ok(None);
+    };
+    if !cache
+        .through
+        .map_or(root.previous == root.base, |saved| *saved == root.from)
+    {
+        return Err(RestoreError::Invalid(
+            "cached mutation checkpoint predecessor",
+        ));
+    }
+    Ok(Some(CachedStart {
+        accepted: root.previous.clone(),
+        position: root.from.clone(),
+    }))
 }
 pub(super) fn link_path(session: &RestoreSession, index: u32) -> std::path::PathBuf {
     session.root.join(format!("chain/link-{index:08}.json"))

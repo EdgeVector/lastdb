@@ -1,27 +1,38 @@
 //! Stage one granted backup without creating an owner home.
 use super::session::{acquire_native_work, RestoreMode};
 use super::{
-    closure, keys::RecoveryDecryption, reader_error, runs, ByteBackupReader, RestoreError,
+    closure, keys::RecoveryDecryption, logs, reader_error, runs, ByteBackupReader, RestoreError,
     RestoreSession, Result,
 };
+use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::recovery::RecoveryProfile;
-use cloud_backup_protocol::v2::publication::HeadReadResult;
+use cloud_backup_protocol::v2::publication::{Head, HeadReadResult};
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::{Digest, NativeRoot, RecoveryDescriptor};
-use fold_db::storage::disk_pack::run_restore::RunRestoreGuard;
+use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore::RunRestoreGuard};
 use std::fs;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
 
+/// Read-only previous state while the cache holds its slot lock.
+pub(crate) struct GuestReplayCache<'a> {
+    pub(crate) data: &'a Path,
+    pub(crate) head: &'a Head,
+    pub(crate) native_root: &'a NativeRoot,
+    pub(crate) through: Option<&'a LogPosition>,
+}
+
+type RecipientStage<T> = (PathBuf, T, Option<LogPosition>);
+
 impl RestoreSession {
-    /// Select the current independent snapshot authorized by a guest permission.
+    /// Select the current accepted backup authorized by a guest permission.
     pub async fn begin_guest(destination: &Path, reader: &ByteBackupReader) -> Result<Self> {
-        Self::begin_recipient(destination, Self::guest_snapshot(reader).await?)
+        Self::begin_guest_at(destination, Self::guest_accepted(reader).await?)
     }
 
-    pub(crate) async fn guest_snapshot(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
+    pub(crate) async fn guest_accepted(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
         let stream = reader
             .guest_stream()
             .ok_or(RestoreError::Invalid("guest reader"))?;
@@ -38,8 +49,11 @@ impl RestoreSession {
         if &accepted.job().stream != stream {
             return Err(RestoreError::Invalid("guest stream"));
         }
-        require_independent(&accepted)?;
         Ok(accepted)
+    }
+
+    pub(crate) fn begin_guest_at(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
+        Self::begin_with_mode(destination, accepted, RestoreMode::Recipient)
     }
 
     /// Reserve a private workspace for an independent accepted snapshot.
@@ -48,7 +62,7 @@ impl RestoreSession {
         Self::begin_with_mode(destination, accepted, RestoreMode::Recipient)
     }
 
-    /// Verify and stage an exact granted snapshot. Supply the content key and
+    /// Verify and stage an exact granted backup. Supply the content key and
     /// publisher public key from the authenticated publication invitation.
     /// The returned path is private staging data, without an owner identity,
     /// credentials, or restore receipt.
@@ -58,25 +72,36 @@ impl RestoreSession {
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
     ) -> Result<PathBuf> {
-        let (data, ()) = self
-            .with_verified_recipient_stage(reader, content_key, publisher_public_key, |_, _| Ok(()))
+        let (data, (), _) = self
+            .with_verified_recipient_stage(
+                reader,
+                content_key,
+                publisher_public_key,
+                None,
+                |_, _| Ok(()),
+            )
             .await?;
         Ok(data)
     }
 
-    pub(crate) async fn stage_guest_snapshot(
+    pub(crate) async fn stage_guest_recovery(
         &mut self,
         reader: &ByteBackupReader,
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
-    ) -> Result<(PathBuf, NativeRoot)> {
-        self.with_verified_recipient_stage(reader, content_key, publisher_public_key, |proof, _| {
-            proof.native_root().map_err(RestoreError::native_proof)
-        })
+        cache: Option<GuestReplayCache<'_>>,
+    ) -> Result<RecipientStage<NativeRoot>> {
+        self.with_verified_recipient_stage(
+            reader,
+            content_key,
+            publisher_public_key,
+            cache,
+            |proof, _| proof.native_root().map_err(RestoreError::native_proof),
+        )
         .await
     }
 
-    /// Stage the exact guest snapshot and read one primary key from its held root.
+    /// Stage the exact guest recovery point and read one primary key from its held root.
     pub async fn stage_guest_record(
         &mut self,
         reader: &ByteBackupReader,
@@ -87,17 +112,20 @@ impl RestoreSession {
         if reader.guest_stream().is_none() {
             return Err(RestoreError::Invalid("guest reader"));
         }
-        self.with_verified_recipient_stage(
-            reader,
-            content_key,
-            publisher_public_key,
-            |proof, key| {
-                proof
-                    .read_staged_record(query, key)
-                    .map_err(RestoreError::native_proof)
-            },
-        )
-        .await
+        let (data, record, _) = self
+            .with_verified_recipient_stage(
+                reader,
+                content_key,
+                publisher_public_key,
+                None,
+                |proof, key| {
+                    proof
+                        .read_staged_record(query, key)
+                        .map_err(RestoreError::native_proof)
+                },
+            )
+            .await?;
+        Ok((data, record))
     }
 
     async fn with_verified_recipient_stage<T>(
@@ -105,8 +133,9 @@ impl RestoreSession {
         reader: &ByteBackupReader,
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
+        cache: Option<GuestReplayCache<'_>>,
         read: impl FnOnce(&RunRestoreGuard, &[u8; 32]) -> Result<T>,
-    ) -> Result<(PathBuf, T)> {
+    ) -> Result<RecipientStage<T>> {
         let accepted = self.accepted();
         if self.selection.mode != RestoreMode::Recipient
             || (reader.recipient_job() != Some(accepted.job())
@@ -114,7 +143,9 @@ impl RestoreSession {
         {
             return Err(RestoreError::Invalid("recipient restore session"));
         }
-        require_independent(accepted)?;
+        if reader.guest_stream().is_none() {
+            require_independent(accepted)?;
+        }
         let recovery = RecoveryDescriptor {
             profile: RecoveryProfile::MiniPortableV1,
             account_public_key: publisher_public_key,
@@ -126,23 +157,30 @@ impl RestoreSession {
         self.require_unactivated()?;
         self.authorize_read(reader).await?;
         let (inventory, bytes) = closure::load(self, reader).await?;
-        let root = closure::snapshot(self, &decryption, &bytes)?;
-        let total = runs::stage(self, reader, &decryption, &root, inventory).await?;
-        let proof = runs::verify_stage(self, &decryption, &root)?;
         let data = self.root.join("home/data");
-        proof
-            .validate_context(&data, &root.native_root)
-            .map_err(|_| RestoreError::Invalid("verified recipient stage"))?;
-        if proof
-            .totals()
-            .map_err(|_| RestoreError::Invalid("verified recipient totals"))?
-            != (total.files, total.bytes)
-        {
-            return Err(RestoreError::Invalid("verified recipient inventory"));
-        }
+        let (proof, through) = if self.accepted().begin.dependencies().is_empty() {
+            let root = closure::snapshot(self, &decryption, &bytes)?;
+            let total = runs::stage(self, reader, &decryption, &root, inventory).await?;
+            let proof = runs::verify_stage(self, &decryption, &root)?;
+            proof
+                .validate_context(&data, &root.native_root)
+                .map_err(RestoreError::native_proof)?;
+            if proof.totals().map_err(RestoreError::native_proof)? != (total.files, total.bytes) {
+                return Err(RestoreError::Invalid("verified recipient inventory"));
+            }
+            (proof, None)
+        } else {
+            let root =
+                MutationLogRoot::decode(&bytes, decryption.content_key(), &self.accepted().begin)
+                    .map_err(|_| RestoreError::Invalid("recipient mutation log root"))?;
+            drop(inventory);
+            let (proof, through) =
+                logs::stage_guest(self, reader, &decryption, root, cache).await?;
+            (proof, Some(through))
+        };
         self.require_unactivated()?;
         let result = read(&proof, decryption.content_key())?;
-        Ok((data, result))
+        Ok((data, result, through))
     }
 
     fn require_unactivated(&self) -> Result<()> {

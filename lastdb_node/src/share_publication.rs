@@ -294,7 +294,7 @@ async fn require_guest_head(permission: &GuestReadPermission) -> Result<(), Stri
     // independent-head check and the guest enablement of the selected issuer.
     let read_permission =
         GuestReadPermission::parse(permission.authorization()).map_err(|e| e.to_string())?;
-    let reader = ByteBackupReader::guest(read_permission).map_err(|e| e.to_string())?;
+    let reader = ByteBackupReader::guest_recovery(read_permission).map_err(|e| e.to_string())?;
     match reader.guest_head().await {
         Ok(HeadReadResult::Ok { response }) if response.accepted.is_some() => Ok(()),
         Ok(_) => Err("publish an independent backup before issuing a share invitation".into()),

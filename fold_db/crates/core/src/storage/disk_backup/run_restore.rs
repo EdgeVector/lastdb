@@ -8,6 +8,7 @@ mod node;
 mod proof;
 mod record;
 mod replay;
+mod replay_seed;
 
 use super::byte_backup::RunBackupProfile;
 use crate::storage::disk_pack::run_node;

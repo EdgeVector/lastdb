@@ -7,6 +7,7 @@ use crate::storage::format::{
     records::{inline_files, RecordAddress},
     FIELD_KEYS_NAMESPACE, RECORDS_COLLECTION, SCHEMAS_NAMESPACE,
 };
+use cloud_backup_protocol::Digest;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::{
     InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
@@ -57,6 +58,8 @@ pub struct StagedRecord {
     key: KeyValue,
     fields: BTreeMap<String, Value>,
     inline_file: Option<InlineFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    share_author: Option<Digest>,
 }
 
 impl StagedRecord {
@@ -78,7 +81,7 @@ impl RunRestoreGuard {
 }
 
 /// A read-only native root that matches the caller's authenticated stage proof.
-pub struct RunSnapshotReader(RunNodeGuard);
+pub struct RunSnapshotReader(pub(super) RunNodeGuard);
 
 impl RunSnapshotReader {
     pub fn open(
@@ -163,6 +166,10 @@ fn read_at_root(
         key: record.key,
         fields: record.fields,
         inline_file,
+        share_author: record
+            .meta
+            .and_then(|mut metadata| metadata.metadata.remove("share_author"))
+            .and_then(|author| Digest::try_from(author).ok()),
     }))
 }
 

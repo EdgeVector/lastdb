@@ -109,6 +109,24 @@ impl PackRuntime {
         })
     }
 
+    /// Freeze a complete Files edit and enforce the same inline-only rule as its snapshot.
+    pub async fn prepare_publication_mutation_log_capture(
+        self: &Arc<Self>,
+        begin: &Begin,
+        from: &LogPosition,
+        acquire_gate: impl FnOnce() -> StorageResult<File>,
+    ) -> StorageResult<MutationLogCapture> {
+        if self.mutation_log_capture_materialized(&begin.job.commit_id)? {
+            return self.prepare_mutation_log_capture(begin, from);
+        }
+        let _edit = acquire_gate()?;
+        let _write = self.enter_write().await;
+        if self.has_external_backup_files().await? {
+            return Err(crate::storage::StorageError::PublicationFile);
+        }
+        self.prepare_mutation_log_capture(begin, from)
+    }
+
     pub fn resume_mutation_log_capture(
         self: &Arc<Self>,
         request: &Id,

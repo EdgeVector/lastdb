@@ -120,11 +120,7 @@ impl Source {
     }
     pub fn validate(&self, saved: &Saved) -> Result<()> {
         saved.validate()?;
-        if saved.account != self.account
-            || saved.source_home != self.source_home
-            || (self.publication_stream.is_some()
-                && !matches!(saved.work, super::work::Work::Snapshot { .. }))
-        {
+        if saved.account != self.account || saved.source_home != self.source_home {
             return Err(BackupError::Identity);
         }
         if let Some(begin) = &saved.begin {
@@ -132,7 +128,7 @@ impl Source {
                 || self.publication_stream.as_ref().is_some_and(|id| {
                     &begin.job.stream.stream_id != id
                         || begin.r2_multipart.is_some()
-                        || !begin.recovery_dependencies.is_empty()
+                        || begin.recovery_dependencies != saved.work.recovery_dependencies()
                 })
             {
                 return Err(BackupError::Identity);
@@ -225,9 +221,16 @@ impl Source {
                 Ok(Capture::Snapshot(capture))
             }
             Work::MutationLog { context } => {
-                let core = self
-                    .runtime
-                    .prepare_mutation_log_capture(begin, &context.from)?;
+                let core = if let Some(home) = &self.publication_home {
+                    self.runtime
+                        .prepare_publication_mutation_log_capture(begin, &context.from, || {
+                            capture_share_edit_gate(home)
+                        })
+                        .await?
+                } else {
+                    self.runtime
+                        .prepare_mutation_log_capture(begin, &context.from)?
+                };
                 Ok(Capture::Log(Box::new(
                     super::log_capture::LogCapture::prepare(
                         core,
