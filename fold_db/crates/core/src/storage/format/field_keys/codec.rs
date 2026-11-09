@@ -76,7 +76,7 @@ pub(super) fn open_wrap(
         ));
     }
     // A generated bundle is one blind key. A wrap above this bound is not
-    // one that `make_wrap` wrote. Older wraps may also contain unused keys.
+    // one that `make_wrap` wrote.
     let plaintext = zeroize::Zeroizing::new(
         crate::crypto::at_rest::open_at_rest_bounded(
             wrapping_key,

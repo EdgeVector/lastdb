@@ -240,9 +240,9 @@ impl OrdinaryRange<'_> {
                     }
                 },
             };
-            // As in v1, a range that ends exactly at the key budget is
-            // exhausted, not over budget. A yielding page that has examined
-            // a key resumes after it.
+            // A range that ends exactly at the key budget is exhausted, not
+            // over budget. A yielding page that has examined a key resumes
+            // after it.
             if self.costs.examined_keys >= self.budget.keys {
                 self.held = Some((key, found));
                 if yielding.is_some() && last.is_some() {
