@@ -38,7 +38,7 @@ pub(crate) enum ShareCommand {
         #[arg(long, default_value_t = 24, value_parser = clap::value_parser!(u32).range(1..=168))]
         expires_in_hours: u32,
     },
-    /// Open an invitation and verify its current read-only snapshot.
+    /// Open an invitation and verify its current read-only recovery point.
     Accept {
         /// Encrypted invitation file.
         invitation: PathBuf,
@@ -48,7 +48,7 @@ pub(crate) enum ShareCommand {
         #[command(flatten)]
         selection: GuestStageSelection,
     },
-    /// Read an exact record from a locally verified share snapshot.
+    /// Read an exact record from the locally verified share.
     Get {
         #[command(flatten)]
         share: ShareFilesSelection,
@@ -108,7 +108,7 @@ pub(crate) enum ShareContributorCommand {
         #[arg(long)]
         expected_version: u64,
     },
-    /// Submit one encrypted mutation for the publisher to validate.
+    /// Upload one encrypted mutation for later validation by the publisher.
     Submit {
         /// Sealed contributor grant from the publisher.
         #[arg(long)]
@@ -143,7 +143,7 @@ pub(crate) enum ShareFilesCommand {
     Follow {
         #[command(flatten)]
         share: ShareFilesSelection,
-        /// Seconds between checks of the published snapshot.
+        /// Seconds between checks for a new accepted recovery point.
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=60))]
         interval_seconds: u64,
     },
