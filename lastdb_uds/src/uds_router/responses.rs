@@ -1,4 +1,4 @@
-//! Fixed control-socket responses, dispatch and the browser-pairing mint verb.
+//! Fixed control-socket responses and dispatch.
 
 use super::*;
 
@@ -99,28 +99,21 @@ pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
 /// and the connection's [`AccessContext`]. `lastdb_node` supplies
 /// `execute_data` with access to its live state.
 ///
-/// `socket` scopes the route table to the connection's [`SocketKind`]. On
-/// [`SocketKind::App`] the mint verb is never reachable (it classifies as
-/// [`ControlRoute::NotFound`]), so `mint_browser_pairing_code_response` cannot
-/// run for a jailed app — the structural no-mint guarantee (Option B).
-///
-/// `mint_pairing` supplies a browser-pairing mint callback. `lastdbd` passes
-/// [`no_pairing_mint`], so the mint verb answers `404`.
+/// `socket` scopes the route table to the connection's [`SocketKind`].
+/// Owner-only paths are [`ControlRoute::NotFound`] on [`SocketKind::App`].
 ///
 /// `version_params` provides the contract version ranges for the version
 /// handshake response (min_supported_api_version, current_outbox_format_version,
 /// min_supported_outbox_format_version).
-pub fn dispatch<F, M>(
+pub fn dispatch<F>(
     req: &UdsRequest,
     ctx: &AccessContext,
     socket: SocketKind,
     execute_data: F,
-    mint_pairing: M,
     version_params: (u32, u32, u32),
 ) -> UdsResponse
 where
     F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse,
-    M: FnOnce() -> Option<PairingMint>,
 {
     match route(req, socket) {
         ControlRoute::Health => health_response(),
@@ -128,66 +121,7 @@ where
             version_response(version_params.0, version_params.1, version_params.2)
         }
         ControlRoute::Data(data) => execute_data(data, req, ctx),
-        ControlRoute::MintBrowserPairingCode => {
-            mint_browser_pairing_code_response(ctx, mint_pairing)
-        }
         ControlRoute::NotFound => not_found_response(),
         ControlRoute::MethodNotAllowed { allow } => method_not_allowed_response(allow),
     }
-}
-
-/// A freshly minted browser-pairing code, produced by the binary's pairing
-/// registry and rendered by the router's mint verb.
-pub struct PairingMint {
-    /// The single-use pairing code handed to the socket peer (never logged).
-    pub code: String,
-    /// Seconds until the code expires.
-    pub expires_in_seconds: u64,
-}
-
-/// Stock `mint_pairing` callback for binaries with no browser-pairing surface:
-/// the mint verb answers a content-free `404` instead of minting.
-pub fn no_pairing_mint() -> Option<PairingMint> {
-    None
-}
-
-/// Answer the owner-channel mint verb (`browser_owner_attestation.md`).
-///
-/// The transport already attests a same-user caller (UDS peer creds), but a
-/// **code-signature-verified app** on this socket is precisely NOT the owner —
-/// it must not be able to mint a code, pair a browser it controls, and walk
-/// away with an owner-bypass session. Unverified same-user callers (the
-/// `folddb` CLI, launcher scripts) run with owner posture on this channel and
-/// may mint. The code goes only to the socket peer; it is never logged.
-pub(super) fn mint_browser_pairing_code_response<M>(
-    ctx: &AccessContext,
-    mint_pairing: M,
-) -> UdsResponse
-where
-    M: FnOnce() -> Option<PairingMint>,
-{
-    if ctx.is_verified() {
-        tracing::warn!(
-            target: "fold_node::uds",
-            "browser-pairing mint refused: code-signature-verified app attempted to mint"
-        );
-        return UdsResponse::new(
-            403,
-            "Forbidden",
-            br#"{"ok":false,"error":"app_cannot_mint_pairing_code"}"#.to_vec(),
-        )
-        .with_header("Content-Type", "application/json");
-    }
-    let Some(mint) = mint_pairing() else {
-        // This binary has no pairing surface — same content-free shape as an
-        // unrecognized route (I4: nothing about the surface is leaked).
-        return not_found_response();
-    };
-    let body = serde_json::json!({
-        "ok": true,
-        "pairing_code": mint.code,
-        "expires_in_seconds": mint.expires_in_seconds,
-    });
-    UdsResponse::new(200, "OK", body.to_string().into_bytes())
-        .with_header("Content-Type", "application/json")
 }

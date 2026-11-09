@@ -1,25 +1,18 @@
 // lint:file-size-ok moved verbatim out of a larger file; further splitting is follow-up work
 
-/// Which socket a request arrived on — the dimension that decides whether the
-/// owner-only control plane is even *reachable*.
+/// Which socket a request arrived on. Owner-only control routes are reachable
+/// only on [`SocketKind::Owner`].
 ///
-/// Option B (the decided design): a jailed app is denied the node data dir, so
-/// it cannot reach the **owner** socket (`<data_dir>/folddb.sock`) that serves
-/// the mint verb. Instead the node binds a SECOND socket OUTSIDE the data dir,
-/// the **app** socket, whose router serves ONLY the app data plane. The no-mint
-/// guarantee is structural: on [`SocketKind::App`], the route for
-/// `/control/browser-pairing-code` is classified [`ControlRoute::NotFound`] —
-/// the mint verb is not in the table at all, so a jailed app physically cannot
-/// reach it even though it can reach the socket. The owner socket keeps its full
-/// behavior under [`SocketKind::Owner`].
+/// A jailed app cannot reach the owner socket (`<data_dir>/folddb.sock`).
+/// The node binds a second socket outside the data dir. That app socket
+/// serves the app data plane. On [`SocketKind::App`], an owner-only path is
+/// [`ControlRoute::NotFound`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SocketKind {
-    /// The owner control socket inside the node data dir (`folddb.sock`). Serves
-    /// the full surface: data routes, health, and the owner-only mint verb.
+    /// The owner control socket inside the node data dir (`folddb.sock`).
     Owner,
-    /// The app data-plane socket bound outside the data dir, reachable by a
-    /// jailed app. Serves ONLY the data routes + health; the owner control plane
-    /// (the mint verb and anything else) is absent → [`ControlRoute::NotFound`].
+    /// The app data-plane socket bound outside the data dir. Owner-only
+    /// control routes are absent.
     App,
 }
 
