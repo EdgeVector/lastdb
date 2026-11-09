@@ -1,4 +1,4 @@
-"""Local LastDB Share setup, write modes, and Files import on generated CI homes."""
+"""Local LastDB Share setup, write modes, and Files operations on generated CI homes."""
 
 import hashlib
 import json
@@ -61,6 +61,29 @@ def check_addressing(command, cli, owner, publication, publication_id):
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
 
 
+def check_files(command, cli, publication, publication_id, other_id, source, manifest):
+    home = ["--data-dir", publication.home]
+    selected = [*home, "--db", publication_id, "share", "files"]
+    listed = command(cli, *selected, "list")
+    require(listed.returncode == 0, "selected Files list failed: " + listed.stderr)
+    listing = json.loads(listed.stdout)
+    require(listing["database"] == publication_id and listing["files"] == [manifest],
+            "selected Files list returned the wrong database or manifest")
+
+    output = publication.root / "saved-file.txt"
+    saved = command(cli, *selected, "save", "--file", manifest["id"], "--out", output)
+    require(saved.returncode == 0, "selected Files save failed: " + saved.stderr)
+    receipt = json.loads(saved.stdout)
+    require(receipt["database"] == publication_id and receipt["path"] == str(output),
+            "selected Files save returned the wrong database or path")
+    require(output.read_bytes() == source.read_bytes(), "selected Files save changed the file bytes")
+
+    refused = command(cli, *home, "--db", other_id, "share", "files", "list")
+    require(refused.returncode == 1 and "database is not registered" in refused.stderr,
+            "an unknown database selector must not fall back to the local Files catalog: "
+            + refused.stderr)
+
+
 def exercise(cli, owner, root):
     def command(binary, *arguments, node=None):
         environment = None if node is None else {
@@ -116,17 +139,21 @@ def exercise(cli, owner, root):
         require(ungranted.returncode == 1 and "contributor grant version conflict" in ungranted.stderr,
                 "the contributor mode must open its local policy and refuse an absent grant")
         publication.start()
-        payload = b"LastDB Files product operation\n"
+        # The pattern shifts at each 32 KiB chunk boundary and includes a short tail.
+        payload = bytes(range(251)) * 2100 + b"LastDB Files product operation\n"
         path = publication.root / "file.txt"
         path.write_bytes(payload)
         added = command(cli, "--data-dir", publication.home, "share", "files", "add", path)
         require(added.returncode == 0, "share files add failed: " + added.stderr)
         receipt = json.loads(added.stdout)
         require(receipt["name"] == path.name and receipt["size_bytes"] == len(payload)
+                and receipt["chunks"] > 16
                 and receipt["sha256"] == hashlib.sha256(payload).hexdigest(),
                 "share files add returned different file metadata")
         check_addressing(command, cli, owner, publication, files["publication_id"])
+        check_files(command, cli, publication, files["publication_id"],
+                    contributors["publication_id"], path, receipt)
     finally:
         publication.close()
-    print("LastDB Share: write modes, Files import, ordinary database addressing, and retired commands passed",
+    print("LastDB Share: write modes, multi-batch Files save, database addressing, and retired commands passed",
           flush=True)

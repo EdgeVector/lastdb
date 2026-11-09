@@ -1,6 +1,6 @@
 use super::{
     cloud_cmds::FreshHome, parse_json_response, post_json_with_timeout, DatabaseTarget,
-    ShareCommand, ShareContributorCommand,
+    ShareCommand, ShareContributorCommand, ShareFilesCommand,
 };
 use base64::Engine as _;
 use cloud_backup_client::byte_backup::ShareEnvironment;
@@ -18,21 +18,25 @@ mod contributors;
 #[path = "share_cmds/files/mod.rs"]
 mod files;
 
-pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
+pub(super) fn run(
+    data_dir: Option<PathBuf>,
+    db: Option<&str>,
+    action: ShareCommand,
+) -> Result<(), String> {
     match action {
         ShareCommand::Accept {
             invitation,
             publisher,
             name,
-        } => {
-            let sealed = read_file(&invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
-            let body = serde_json::json!({
-                "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
-                "publisher": publisher,
-                "name": name,
-            });
-            database_request(data_dir, None, "/api/databases/accept", &body)
         }
+        | ShareCommand::Files(ShareFilesCommand::Receive {
+            invitation,
+            publisher,
+            name,
+            cache: None,
+            ..
+        }) => accept(data_dir, &invitation, &publisher, name.as_deref()),
+        ShareCommand::Files(action) if db.is_some() => files::run_selected(data_dir, db, action),
         ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
             let sealed = read_file(&grant, 64 * 1024)?;
             let body = serde_json::json!({
@@ -42,6 +46,21 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
         }
         action => run_offline(data_dir, action),
     }
+}
+
+fn accept(
+    data_dir: Option<PathBuf>,
+    invitation: &Path,
+    publisher: &str,
+    name: Option<&str>,
+) -> Result<(), String> {
+    let sealed = read_file(invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
+    let body = serde_json::json!({
+        "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
+        "publisher": publisher,
+        "name": name,
+    });
+    database_request(data_dir, None, "/api/databases/accept", &body)
 }
 
 fn database_request(

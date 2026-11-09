@@ -1,5 +1,6 @@
+use super::selected::{query, QUERY_BATCH_PATH};
 use super::SCHEMAS;
-use crate::{get_query_body, parse_json_response, socket_client::post_json_admin};
+use crate::{parse_json_response, socket_client::post_json_admin};
 use fold_db::schema::types::KeyValue;
 use lastdb_node::byte_cloud_backup::share_write_gate;
 use lastdb_node::share_file::{self, CatalogRecord, FileManifest, CATALOG_HASH};
@@ -129,7 +130,7 @@ fn declare(socket: &Path, name: &str, field: &str, ranged: bool) -> Result<Strin
 
 fn load_catalog(socket: &Path) -> Result<Option<Value>, String> {
     let key = KeyValue::new(Some(CATALOG_HASH.to_owned()), None);
-    let mut rows = query(socket, SCHEMAS.catalog, &[key])?;
+    let mut rows = query(socket, QUERY_BATCH_PATH, SCHEMAS.catalog, &[key])?;
     Ok(rows.pop().flatten())
 }
 
@@ -149,7 +150,7 @@ fn catalog(row: Option<&Value>) -> Result<Option<CatalogRecord<'_>>, String> {
 }
 
 fn read_revisions(socket: &Path, keys: &[KeyValue]) -> Result<Vec<(KeyValue, String)>, String> {
-    let rows = query(socket, SCHEMAS.chunks, keys)?;
+    let rows = query(socket, QUERY_BATCH_PATH, SCHEMAS.chunks, keys)?;
     keys.iter()
         .zip(rows)
         .filter_map(|(key, row)| row.map(|row| (key, row)))
@@ -160,47 +161,6 @@ fn read_revisions(socket: &Path, keys: &[KeyValue]) -> Result<Vec<(KeyValue, Str
             Ok((key.clone(), revision.to_owned()))
         })
         .collect()
-}
-
-fn query(socket: &Path, schema: &str, keys: &[KeyValue]) -> Result<Vec<Option<Value>>, String> {
-    let queries = keys
-        .iter()
-        .map(|key| {
-            let hash = key
-                .hash
-                .as_deref()
-                .ok_or("file sharing requires a hash key")?;
-            Ok(get_query_body(schema, hash, key.range.as_deref()))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let value = post(socket, "/api/queries/batch", &json!({"queries":queries}))?;
-    let replies = value["results"]
-        .as_array()
-        .filter(|v| v.len() == keys.len())
-        .ok_or("file-sharing read returned incomplete results")?;
-    replies
-        .iter()
-        .zip(keys)
-        .map(|(reply, key)| exact_row(reply, key))
-        .collect()
-}
-
-fn exact_row(reply: &Value, key: &KeyValue) -> Result<Option<Value>, String> {
-    let response = &reply["response"];
-    if reply["status"].as_u64() != Some(200)
-        || response["ok"].as_bool() != Some(true)
-        || response["has_more"].as_bool() != Some(false)
-    {
-        return Err("file-sharing read did not return a complete result".into());
-    }
-    let rows = response["results"]
-        .as_array()
-        .ok_or("file-sharing read omitted its rows")?;
-    match rows.as_slice() {
-        [] => Ok(None),
-        [row] if row["key"] == json!(key) => Ok(Some(row.clone())),
-        _ => Err("file-sharing read returned a different key".into()),
-    }
 }
 
 fn write(

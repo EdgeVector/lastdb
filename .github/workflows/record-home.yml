@@ -125,7 +125,7 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Result: $RESULT"
             echo "Fresh generated home only. No primary access, local build, or benchmark."
-            echo "Share scope: local setup, write modes, contributor policy refusals, file import, and database addressing."
+            echo "Share scope: local setup, write modes, contributor policy refusals, database addressing, and Files import, list and save."
             echo "Artifact: $ARTIFACT_URL"
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
             echo "Expiration: 7 days after this run."

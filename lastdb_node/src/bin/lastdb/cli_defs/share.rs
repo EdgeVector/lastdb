@@ -109,20 +109,23 @@ pub(crate) enum ShareContributorCommand {
 pub(crate) enum ShareFilesCommand {
     /// Add a regular file to the running publication database in --data-dir.
     Add { file: PathBuf },
-    /// Accept a sealed invitation into a local read-only cache.
+    /// Register a sealed invitation as a database on this node.
     Receive {
         invitation: PathBuf,
         /// Publisher's public key obtained through a trusted channel.
         #[arg(long)]
         publisher: String,
-        /// An absolute, private cache directory.
+        /// Optional local name for use with --db.
+        #[arg(long, conflicts_with = "cache")]
+        name: Option<String>,
+        /// Use the legacy app-managed cache at this absolute private path.
         #[arg(long)]
-        cache: PathBuf,
-        /// Optional UUID to reuse after an interrupted first download.
-        #[arg(long)]
+        cache: Option<PathBuf>,
+        /// Optional UUID to reuse with a legacy cache.
+        #[arg(long, requires = "cache")]
         handle: Option<String>,
     },
-    /// Keep a received share current while this app is open.
+    /// Keep a legacy app-managed cache current.
     Follow {
         #[command(flatten)]
         share: ShareFilesSelection,
@@ -131,11 +134,11 @@ pub(crate) enum ShareFilesCommand {
         interval_seconds: u64,
     },
     /// List files from the locally verified copy, including while offline.
-    List(ShareFilesSelection),
+    List(ShareFilesReadSelection),
     /// Save and verify a file from the locally verified copy.
     Save {
         #[command(flatten)]
-        share: ShareFilesSelection,
+        share: ShareFilesReadSelection,
         /// File ID from the list command.
         #[arg(long)]
         file: String,
@@ -153,4 +156,14 @@ pub(crate) struct ShareFilesSelection {
     /// Share handle returned by receive.
     #[arg(long)]
     pub handle: String,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ShareFilesReadSelection {
+    /// Legacy absolute cache directory. Use --db for a registered database.
+    #[arg(long, requires = "handle")]
+    pub cache: Option<PathBuf>,
+    /// Legacy handle returned when receiving into --cache.
+    #[arg(long, requires = "cache")]
+    pub handle: Option<String>,
 }

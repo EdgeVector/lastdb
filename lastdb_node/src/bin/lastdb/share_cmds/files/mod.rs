@@ -1,13 +1,14 @@
 use super::{read_file, runtime, MAX_SEALED_INVITATION_BYTES};
-use crate::{ShareFilesCommand, ShareFilesSelection};
+use crate::{DatabaseTarget, ShareFilesCommand, ShareFilesReadSelection, ShareFilesSelection};
 use cloud_backup_protocol::{Digest, Id};
 use lastdb_node::share_cache::{ShareCache, ShareSnapshot};
 use lastdb_node::share_file::{self, FileShareSchemas};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod publisher;
+mod selected;
 
 const SCHEMAS: FileShareSchemas<'static> = FileShareSchemas {
     catalog: "lastdb-files/FileCatalog",
@@ -20,8 +21,9 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
         ShareFilesCommand::Receive {
             invitation,
             publisher,
-            cache,
+            cache: Some(cache),
             handle,
+            ..
         } => {
             let publisher =
                 Digest::try_from(publisher).map_err(|_| "invalid publisher public key")?;
@@ -36,6 +38,7 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
             print_snapshot(&handle, &snapshot);
             Ok(())
         }
+        ShareFilesCommand::Receive { .. } => unreachable!("managed receive is routed to the node"),
         ShareFilesCommand::Follow {
             share,
             interval_seconds,
@@ -48,7 +51,7 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
             ))
         }
         ShareFilesCommand::List(share) => {
-            let (cache, handle) = open(home, share)?;
+            let (cache, handle) = open(home, legacy(share)?)?;
             let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
             let files = share_file::list_files(&SCHEMAS, |q| {
                 reader.read_record(q).map_err(|e| e.to_string())
@@ -60,7 +63,7 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
             Ok(())
         }
         ShareFilesCommand::Save { share, file, out } => {
-            let (cache, handle) = open(home, share)?;
+            let (cache, handle) = open(home, legacy(share)?)?;
             let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
             share_file::get_file(&SCHEMAS, &id(file)?, &out, |q| {
                 reader.read_record(q).map_err(|e| e.to_string())
@@ -71,6 +74,38 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
             );
             Ok(())
         }
+    }
+}
+
+pub(super) fn run_selected(
+    data_dir: Option<PathBuf>,
+    db: Option<&str>,
+    action: ShareFilesCommand,
+) -> Result<(), String> {
+    match action {
+        ShareFilesCommand::List(share) => {
+            require_registered_selection(&share)?;
+            selected::list(&DatabaseTarget::open(data_dir, db)?)
+        }
+        ShareFilesCommand::Save { share, file, out } => {
+            require_registered_selection(&share)?;
+            selected::save(&DatabaseTarget::open(data_dir, db)?, file, &out)
+        }
+        _ => Err("--db requires Files list or save".into()),
+    }
+}
+
+fn require_registered_selection(share: &ShareFilesReadSelection) -> Result<(), String> {
+    if share.cache.is_some() || share.handle.is_some() {
+        return Err("--db cannot be combined with --cache or --handle".into());
+    }
+    Ok(())
+}
+
+fn legacy(share: ShareFilesReadSelection) -> Result<ShareFilesSelection, String> {
+    match (share.cache, share.handle) {
+        (Some(cache), Some(handle)) => Ok(ShareFilesSelection { cache, handle }),
+        _ => Err("select a registered database with --db, or pass --cache and --handle".into()),
     }
 }
 
