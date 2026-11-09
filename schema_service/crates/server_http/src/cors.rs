@@ -3,8 +3,6 @@
 const ALLOWED_ORIGINS: &[&str] = &[
     "https://exemem.com",
     "https://www.exemem.com",
-    "https://folddb.com",
-    "https://www.folddb.com",
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8080",
