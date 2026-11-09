@@ -1,8 +1,6 @@
 //! Local publication ownership. Cloud upload authority stays with the owner's home.
 use crate::byte_cloud_backup::connection::files::Directory;
-use crate::byte_cloud_backup::{
-    backup_publication_stopped, PublicationSource, StoppedBackupReport,
-};
+use crate::byte_cloud_backup::PublicationSource;
 use cloud_backup_client::byte_backup::{
     BackupTransportError, ByteBackupClient, ByteBackupReader, GuestReadPermission, ShareEnvironment,
 };
@@ -192,20 +190,6 @@ fn publication_client(
         credentials.api_key.as_str().to_owned(),
     ))
     .map_err(|e| e.to_string())
-}
-
-/// Publish this separate home using the owner's existing Backup V2 authority.
-pub async fn publish(
-    home: &Path,
-    owner_home: &Path,
-    request_id: Id,
-) -> Result<StoppedBackupReport, String> {
-    let identity = load(home, owner_home)?;
-    let client = identity.client(owner_home)?;
-    let source = identity.into_source();
-    backup_publication_stopped(home, request_id, source, client)
-        .await
-        .map_err(|error| error.to_string())
 }
 
 /// Mint a short-lived invitation only after Backup V2 has accepted this publication.

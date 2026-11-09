@@ -1,6 +1,6 @@
 use super::{admin_cmds::guest_stage, cloud_cmds::FreshHome, ShareCommand};
 use cloud_backup_client::byte_backup::ShareEnvironment;
-use cloud_backup_protocol::{Digest, Id};
+use cloud_backup_protocol::Digest;
 use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
 use lastdb_node::share_publication;
 use std::fs::{File, OpenOptions};
@@ -20,7 +20,6 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
         .map_err(|_| "share identity home must exist")?;
     match action {
         ShareCommand::Create { into, env } => create(&identity_home, &into, &env),
-        ShareCommand::Publish { home, request_id } => publish(&identity_home, &home, request_id),
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::Invite {
             home,
@@ -93,23 +92,6 @@ fn create(owner: &Path, into: &Path, env: &str) -> Result<(), String> {
         serde_json::json!({
             "home": into, "publication_id": prepared.marker.id, "publisher_public_key": prepared.marker.publisher,
             "environment": prepared.marker.environment,
-        })
-    );
-    Ok(())
-}
-
-fn publish(owner: &Path, home: &Path, request_id: String) -> Result<(), String> {
-    let request_id =
-        Id::try_from(request_id).map_err(|_| "invalid share publication request ID")?;
-    let report = runtime()?.block_on(share_publication::publish(home, owner, request_id))?;
-    let accepted = report.accepted_backup;
-    println!(
-        "{}",
-        serde_json::json!({
-            "publication_id": accepted.job().stream.stream_id,
-            "commit_id": accepted.job().commit_id,
-            "commit_sha256": accepted.commit_sha256,
-            "ordinal": accepted.ordinal,
         })
     );
     Ok(())

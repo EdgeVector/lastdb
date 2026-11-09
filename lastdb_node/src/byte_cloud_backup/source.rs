@@ -73,22 +73,10 @@ impl Source {
         })
     }
 
-    pub fn from_publication_stopped(
-        home: &std::path::Path,
-        identity: PublicationSource,
-    ) -> Result<Self> {
-        let runtime = fold_db::storage::disk_pack::open_backup_runtime(
-            &home.join("data"),
-            &identity.content_key,
-        )?;
-        Self::from_publication(home, runtime, identity, true)
-    }
-
     pub fn from_publication(
         home: &Path,
         runtime: Arc<PackRuntime>,
         identity: PublicationSource,
-        retain_source_manifest: bool,
     ) -> Result<Self> {
         Ok(Self {
             source_home: Id::try_from(runtime.native_home_id().to_string())?,
@@ -103,7 +91,7 @@ impl Source {
             key: identity.content_key,
             publication_stream: Some(identity.id),
             publication_home: Some(home.to_owned()),
-            retain_source_manifest,
+            retain_source_manifest: false,
         })
     }
     pub fn saved(&self, request_id: Id, endpoint: String) -> Saved {
@@ -185,9 +173,6 @@ impl Source {
     }
     pub fn runtime(&self) -> &PackRuntime {
         &self.runtime
-    }
-    pub async fn has_external_backup_files(&self) -> Result<bool> {
-        Ok(self.runtime.has_external_backup_files().await?)
     }
     pub async fn flush(&self) -> Result<()> {
         self.runtime.flush_native().await?;
