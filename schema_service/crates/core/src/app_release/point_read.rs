@@ -57,8 +57,8 @@ impl SchemaServiceState {
     ///
     /// Durable storage answers first. Memory is filled once at start, so a
     /// release published or revoked through another instance (another
-    /// Lambda) is absent or stale there. Memory answers only when the backend
-    /// keeps no per-record store. A durable record refreshes memory.
+    /// Lambda) is absent or stale there until a durable record refreshes it.
+    /// When durable storage has no row, memory answers.
     ///
     /// # Errors
     /// Returns the backend read failure or a lock-poison error.

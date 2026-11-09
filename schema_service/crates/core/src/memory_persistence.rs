@@ -210,6 +210,10 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
         Ok(self.read()?.apps.clone())
     }
 
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
+        Ok(self.read()?.apps.get(app_id).cloned())
+    }
+
     async fn save_release(&self, record: &ReleaseRecord) -> FoldDbResult<()> {
         self.write()?
             .releases
