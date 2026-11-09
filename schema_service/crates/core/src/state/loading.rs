@@ -118,7 +118,6 @@ impl SchemaServiceState {
             )),
             declared_field_writes: Arc::new(tokio::sync::Mutex::new(())),
             app_identity: Arc::new(RwLock::new(config.app_identity.clone())),
-            schema_match_telemetry: Arc::new(RwLock::new(SchemaMatchTelemetrySnapshot::default())),
             schema_mutation_gate_config: Arc::new(RwLock::new(config.mutation_gate.clone())),
             schema_mutation_gate_store,
             schema_config: Arc::new(config),

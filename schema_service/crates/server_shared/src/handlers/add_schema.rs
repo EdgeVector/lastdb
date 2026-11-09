@@ -181,8 +181,6 @@ pub async fn add_schema(
         return json_status(status, body);
     }
     let schema_name = request.schema.name.clone();
-    let telemetry_source = request.schema_match_source.clone();
-    let telemetry_reason = request.fallback_reason.clone();
 
     if let Err(response) = validate_add_schema_surface(&request) {
         return *response;
@@ -227,14 +225,7 @@ pub async fn add_schema(
     let reply = state
         .schema_add_reply(schema_to_add, mutation_mappers_to_add)
         .await;
-    add_schema_outcome_response(
-        &state,
-        reply,
-        &schema_name,
-        &telemetry_source,
-        telemetry_reason.as_deref(),
-        response_composition,
-    )
+    add_schema_outcome_response(reply, &schema_name, response_composition)
 }
 
 /// Build the success body shared by every non-conflict add-schema outcome.
@@ -260,21 +251,14 @@ fn add_schema_success_response(
     }
 }
 
-/// Record the match telemetry and build the HTTP response for one add-schema result.
+/// Build the HTTP response for one add-schema result.
 fn add_schema_outcome_response(
-    state: &SchemaServiceState,
     reply: SchemaAddReply,
     schema_name: &str,
-    telemetry_source: &str,
-    telemetry_reason: Option<&str>,
     response_composition: Option<SchemaRegistrationComposition>,
 ) -> HttpResponse {
-    let record = |outcome: &'static str| {
-        state.record_schema_match_outcome(outcome, telemetry_source, telemetry_reason);
-    };
     match reply.into_http() {
         Err((status, body, detail)) => {
-            record("rejected");
             tracing::error!(
                 target: "schema_service::schema",
                 "Failed to add schema '{}': {}",
@@ -284,22 +268,14 @@ fn add_schema_outcome_response(
             json_status(status, body)
         }
         Ok(outcome) => match *outcome {
-            SchemaAddOutcome::Added(schema, mutation_mappers) => {
-                record(if response_composition.is_some() {
-                    "residual_created"
-                } else {
-                    "created_new"
-                });
-                add_schema_success_response(
-                    true,
-                    (schema, mutation_mappers),
-                    None,
-                    response_composition.is_some(),
-                    response_composition,
-                )
-            }
+            SchemaAddOutcome::Added(schema, mutation_mappers) => add_schema_success_response(
+                true,
+                (schema, mutation_mappers),
+                None,
+                response_composition.is_some(),
+                response_composition,
+            ),
             SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
-                record("matched_existing");
                 add_schema_success_response(
                     false,
                     (schema, mutation_mappers),
@@ -309,7 +285,6 @@ fn add_schema_outcome_response(
                 )
             }
             SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
-                record("expanded_existing");
                 add_schema_success_response(
                     true,
                     (schema, mutation_mappers),
@@ -319,7 +294,6 @@ fn add_schema_outcome_response(
                 )
             }
             SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
-                record("rejected");
                 tracing::warn!(
                     target: "schema_service::schema",
                     descriptive_name = %conflict.descriptive_name,

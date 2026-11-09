@@ -17,8 +17,8 @@ use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::types::{
     AddSchemaRequest, AddSchemaResponse, AvailableSchemasResponse, BatchSchemaReuseRequest,
-    DeprecateSchemasRequest, ErrorResponse, HealthResponse, ReloadResponse, ResetRequest,
-    ResetResponse, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest, SchemasListResponse,
+    ErrorResponse, HealthResponse, ReloadResponse, ResetRequest, ResetResponse, SchemaAddOutcome,
+    SchemaEnvelope, SchemaResolveRequest, SchemasListResponse,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, validate_surface_metadata, SchemaMutationChallengeRequest,

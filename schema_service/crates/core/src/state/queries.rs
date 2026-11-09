@@ -72,35 +72,6 @@ impl SchemaServiceState {
         Ok(None)
     }
 
-    pub fn schema_match_telemetry_snapshot(&self) -> SchemaMatchTelemetrySnapshot {
-        self.schema_match_telemetry
-            .read()
-            .map(|snapshot| snapshot.clone())
-            .unwrap_or_default()
-    }
-
-    pub fn record_schema_match_outcome(
-        &self,
-        outcome: &'static str,
-        source: &str,
-        fallback_reason: Option<&str>,
-    ) {
-        let Ok(mut snapshot) = self.schema_match_telemetry.write() else {
-            return;
-        };
-        *snapshot.outcomes.entry(outcome.to_string()).or_insert(0) += 1;
-        *snapshot
-            .sources
-            .entry(safe_telemetry_label(source))
-            .or_insert(0) += 1;
-        if let Some(reason) = fallback_reason {
-            *snapshot
-                .fallback_reasons
-                .entry(safe_telemetry_label(reason))
-                .or_insert(0) += 1;
-        }
-    }
-
     /// Get all schema names (public accessor for Lambda integration)
     pub fn get_schema_names(&self) -> FoldDbResult<Vec<String>> {
         let schemas = read_lock(&self.schemas, "schemas")?;

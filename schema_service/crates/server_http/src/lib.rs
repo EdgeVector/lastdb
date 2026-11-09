@@ -135,7 +135,7 @@ fn v1_field_and_registry_routes(scope: actix_web::Scope) -> actix_web::Scope {
         .route("/registry/index", web::get().to(handlers::registry_index))
 }
 
-/// `/v1` snapshot, reset and admin routes.
+/// `/v1` snapshot and reset routes.
 fn v1_snapshot_and_admin_routes(scope: actix_web::Scope) -> actix_web::Scope {
     scope
         // Snapshot — local-only routes for the `--hydrate-from`
@@ -153,21 +153,6 @@ fn v1_snapshot_and_admin_routes(scope: actix_web::Scope) -> actix_web::Scope {
             web::post().to(handlers::snapshot_import),
         )
         .route("/system/reset", web::post().to(handlers::reset_database))
-        // Admin — one-shot dev cleanup for the duplicate-descriptive_name
-        // pile produced by the pre-409 cross-schema_type fall-through and
-        // by concurrent Lambda races. Idempotent.
-        .route(
-            "/admin/dedupe-descriptive-names",
-            web::post().to(handlers::dedupe_descriptive_names),
-        )
-        .route(
-            "/admin/deprecate-schemas",
-            web::post().to(handlers::deprecate_schemas),
-        )
-        .route(
-            "/admin/schema-match-telemetry",
-            web::get().to(handlers::schema_match_telemetry),
-        )
 }
 
 /// The `/v2` app release registry scope.

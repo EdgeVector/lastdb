@@ -12,7 +12,6 @@ pub(super) fn full_component_cover_response(
     if !composition.residue_fields.is_empty() {
         return None;
     }
-    state.record_schema_match_outcome("component_cover", &request.schema_match_source, None);
     if let Some(hash) = composition.matched_shared_schema_hash.as_deref() {
         match state.get_schema_by_name(hash) {
             Ok(Some(schema)) => {
