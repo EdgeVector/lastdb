@@ -30,27 +30,12 @@ fn check_outcome_rows(
         .map(|o| {
             let (resolution, detail) = match &o.coverage {
                 SchemaCoverage::Reuse { identity_hash } => ("reuse", identity_hash.clone()),
-                SchemaCoverage::Compose { components } => ("compose", components.join(",")),
-                SchemaCoverage::Register {
-                    identity_hash,
-                    expanded,
-                    ..
-                } => (
-                    if *expanded { "expand" } else { "register" },
-                    identity_hash.clone(),
-                ),
-                SchemaCoverage::WouldRegister {
-                    identity_hash,
-                    expanded,
-                    ..
-                } => (
-                    if *expanded {
-                        "would-expand"
-                    } else {
-                        "would-register"
-                    },
-                    identity_hash.clone(),
-                ),
+                SchemaCoverage::Register { identity_hash, .. } => {
+                    ("register", identity_hash.clone())
+                }
+                SchemaCoverage::WouldRegister { identity_hash, .. } => {
+                    ("would-register", identity_hash.clone())
+                }
                 SchemaCoverage::Novel { reason } => ("novel", reason.clone()),
             };
             let mut row = serde_json::json!({
@@ -96,34 +81,19 @@ fn print_check_outcomes_text(
             SchemaCoverage::Reuse { identity_hash } => {
                 println!("  {}\treuse\t{identity_hash}", o.schema_name);
             }
-            SchemaCoverage::Compose { components } => println!(
-                "  {}\tcompose\t{} component(s)",
-                o.schema_name,
-                components.len()
-            ),
             SchemaCoverage::Register {
                 identity_hash,
                 audit_event_id,
-                expanded,
             } => println!(
-                "  {}\t{}\t{} audit={}",
-                o.schema_name,
-                if *expanded { "expand" } else { "register" },
-                identity_hash,
-                audit_event_id
+                "  {}\tregister\t{} audit={}",
+                o.schema_name, identity_hash, audit_event_id
             ),
             SchemaCoverage::WouldRegister {
                 identity_hash,
-                expanded,
                 reason,
             } => println!(
-                "  {}\t{}\t{} (read-only check; nothing written{})",
+                "  {}\twould-register\t{} (read-only check; nothing written{})",
                 o.schema_name,
-                if *expanded {
-                    "would-expand"
-                } else {
-                    "would-register"
-                },
                 identity_hash,
                 reason
                     .as_deref()

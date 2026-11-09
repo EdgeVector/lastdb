@@ -29,8 +29,7 @@ pub(crate) async fn finish_declare_retention(
     let anchor = resolution.runtime_schema.as_str();
     let moved_from = follow_schema(host, req, ctx, declare, anchor).await?;
     let Some(retention) = declare.retention else {
-        let report =
-            unmanaged_report(host, declare, Some(anchor), moved_from.as_deref(), &[]).await?;
+        let report = unmanaged_report(host, declare, Some(anchor), moved_from.as_deref()).await?;
         // The pre-check ran under the same lock, so a refusal here means the
         // state changed under it: fail loudly, never a 200 with `blocked`.
         if let Some(blocked) = report
@@ -48,7 +47,7 @@ pub(crate) async fn finish_declare_retention(
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
     if let Some(reason) = assessment.refusal(declare, anchor, retention.confirmed()) {
         return Err(reason);
     }
@@ -178,12 +177,12 @@ pub(crate) async fn preview_declare_retention(
 ) -> Result<Option<Value>, String> {
     let anchor = resolution.runtime_schema.as_str();
     let Some(retention) = declare.retention else {
-        return unmanaged_report(host, declare, Some(anchor), None, &[]).await;
+        return unmanaged_report(host, declare, Some(anchor), None).await;
     };
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
     let current: Option<SchemaRetentionPolicy> = read_policy(host, binding).await?;
     let blocked = assessment.refusal(declare, anchor, retention.confirmed());
     Ok(Some(super::retention_reply::preview_report(
