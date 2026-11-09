@@ -51,12 +51,11 @@ pub(super) async fn restore(
     if let Some(report) = context(session, &base.root.native_root).published()? {
         return Ok(report);
     }
-    let cursor = match load_cursor(session, &plan)? {
-        Some(cursor) => cursor,
-        None => {
-            stage_base(base, client, decryption).await?;
-            start_cursor(session, &plan, &latest)?
-        }
+    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
+        cursor
+    } else {
+        stage_base(base, client, decryption).await?;
+        start_cursor(session, &plan, &latest)?
     };
     let proof = replay(session, client, decryption, &latest, cursor).await?;
     let root = proof.native_root().map_err(RestoreError::native_proof)?;
@@ -73,22 +72,21 @@ pub(super) async fn stage_guest(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: MutationLogRoot,
-    cache: Option<GuestReplayCache<'_>>,
+    cache: Option<&GuestReplayCache<'_>>,
 ) -> Result<(run_restore::RunRestoreGuard, LogPosition)> {
     decryption.validate_account(&latest.recovery.account_public_key)?;
-    let plan = plan::prepare(session, client, decryption, &latest, cache.as_ref()).await?;
-    let cursor = match load_cursor(session, &plan)? {
-        Some(cursor) => cursor,
-        None => {
-            if let Some(start) = &plan.cached {
-                let cache = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
-                seed_from_cache(session, decryption, &latest, cache, &start.position)?;
-            } else {
-                let base = load_base(session, client, decryption, &latest).await?;
-                stage_base(base, client, decryption).await?;
-            }
-            start_cursor(session, &plan, &latest)?
+    let plan = plan::prepare(session, client, decryption, &latest, cache).await?;
+    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
+        cursor
+    } else {
+        if let Some(start) = &plan.cached {
+            let cache = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
+            seed_from_cache(session, decryption, &latest, cache, &start.position)?;
+        } else {
+            let base = load_base(session, client, decryption, &latest).await?;
+            stage_base(base, client, decryption).await?;
         }
+        start_cursor(session, &plan, &latest)?
     };
     let proof = replay(session, client, decryption, &latest, cursor).await?;
     Ok((proof, latest.through))
@@ -98,7 +96,7 @@ fn seed_from_cache(
     session: &RestoreSession,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
-    cache: GuestReplayCache<'_>,
+    cache: &GuestReplayCache<'_>,
     position: &LogPosition,
 ) -> Result<()> {
     let data = session.root.join("home/data");

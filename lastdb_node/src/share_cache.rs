@@ -216,7 +216,7 @@ impl ShareCache {
                 &reader,
                 opened.publication_key,
                 registration.publisher.clone(),
-                cache,
+                cache.as_ref(),
             )
             .await?;
         let workspace = session.path().to_path_buf();

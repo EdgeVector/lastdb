@@ -89,7 +89,7 @@ impl RestoreSession {
         reader: &ByteBackupReader,
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
-        cache: Option<GuestReplayCache<'_>>,
+        cache: Option<&GuestReplayCache<'_>>,
     ) -> Result<RecipientStage<NativeRoot>> {
         self.with_verified_recipient_stage(
             reader,
@@ -133,7 +133,7 @@ impl RestoreSession {
         reader: &ByteBackupReader,
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
-        cache: Option<GuestReplayCache<'_>>,
+        cache: Option<&GuestReplayCache<'_>>,
         read: impl FnOnce(&RunRestoreGuard, &[u8; 32]) -> Result<T>,
     ) -> Result<RecipientStage<T>> {
         let accepted = self.accepted();

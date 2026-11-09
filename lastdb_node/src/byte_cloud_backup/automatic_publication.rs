@@ -120,16 +120,18 @@ impl Publisher {
                     }
                 }
             }
-            if retry.ready() && current.active.is_none() {
+            if retry.ready() {
                 retry.until = None;
-                let result = match capability.limit(self, client).await {
-                    Ok(limit) => self.tick(client, limit),
-                    Err(error) => Err(error),
-                };
-                match result {
-                    Ok(true) => continue,
-                    Ok(false) => {}
-                    Err(error) => retry.schedule(error),
+                if current.active.is_none() {
+                    let result = match capability.limit(self, client).await {
+                        Ok(limit) => self.tick(client, limit),
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(error) => retry.schedule(error),
+                    }
                 }
             }
             tokio::select! {
@@ -222,7 +224,7 @@ impl Publisher {
         let permit = Store::lock_at(&self.base)?;
         control::ensure_previous_at(&self.base, id)?;
         let store = Store::open_at(&self.base, id)?;
-        let existing = store.state()?;
+        let mut existing = store.state()?;
         let work = pending.work();
         if let Some(saved) = &existing {
             self.source.validate(saved)?;
@@ -279,6 +281,12 @@ impl Publisher {
                 worker::terminal_invocation(source, store, saved, permit, pause)
             })?;
             return Ok(false);
+        }
+        if let Some(saved) = existing
+            .as_mut()
+            .filter(|saved| saved.local_action.is_some())
+        {
+            return self.replace_unmaterialized(&store, saved, None);
         }
         let client = client().map_err(|_| BackupError::Authority)?;
         let endpoint = client.canonical_endpoint();

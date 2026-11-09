@@ -30,6 +30,9 @@ impl Capability {
         publisher: &Publisher,
         client: &Client,
     ) -> Result<Option<u8>> {
+        if !publisher.needs_limit()? {
+            return Ok(None);
+        }
         let client = client().map_err(|_| BackupError::Authority)?;
         let endpoint = client.canonical_endpoint();
         let stream = publisher.stream(&client).await?;
@@ -53,6 +56,22 @@ impl Capability {
 }
 
 impl Publisher {
+    /// Settle existing snapshots and saved terminal authority without capability I/O.
+    fn needs_limit(&self) -> Result<bool> {
+        if let Some(pending) = self.policy()?.pending {
+            return Ok(pending.log.is_some()
+                && store::state_at(&self.base, &pending.id)?.is_none_or(|saved| {
+                    !saved.begin_submitted && saved.local_action.is_none() && !saved.terminal()
+                }));
+        }
+        if let Some(id) = Store::active_at(&self.base)? {
+            return Ok(store::state_at(&self.base, &id)?
+                .ok_or(BackupError::Missing)?
+                .terminal());
+        }
+        Ok(true)
+    }
+
     async fn stream(&self, client: &ByteBackupClient) -> Result<Stream> {
         let stream_id = self
             .source
@@ -124,7 +143,9 @@ impl Publisher {
                     }
                 }
             }
-        } else if point.is_some_and(|point| point.frontiers.main == frontier) {
+        } else if point
+            .is_some_and(|point| point.base == point.accepted && point.frontiers.main == frontier)
+        {
             return Ok(None);
         }
         Ok(Some(Pending {
@@ -167,14 +188,12 @@ impl Publisher {
             return Ok(false);
         }
         let runtime = self.source.runtime();
-        let journal = runtime.mutation_log_status()?;
         let replacing = saved.local_action.is_some();
-        if !replacing
-            && limit.is_some()
-            && !journal.snapshot_required
-            && journal.anchor.as_ref() == Some(&context.anchor)
-        {
-            return Ok(false);
+        if !replacing && limit.is_some() {
+            let journal = runtime.mutation_log_status()?;
+            if !journal.snapshot_required && journal.anchor.as_ref() == Some(&context.anchor) {
+                return Ok(false);
+            }
         }
         if runtime.mutation_log_capture_materialized(&saved.request_id)? {
             if replacing {
