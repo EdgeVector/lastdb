@@ -108,7 +108,6 @@ impl SchemaServiceState {
             anti_field_embedding_cache: Arc::new(RwLock::new(None)),
             storage: SchemaStorage::External(backend),
             collection_name_anchors,
-            near_misses: Arc::new(RwLock::new(Vec::new())),
             state_version: Arc::new(AtomicU64::new(0)),
             schema_writes: Arc::new(AtomicU64::new(0)),
             apps: Arc::new(RwLock::new(HashMap::new())),
@@ -139,7 +138,6 @@ impl SchemaServiceState {
     pub(super) async fn load_all_from_external(&self) -> FoldDbResult<()> {
         self.load_schemas_and_name_embeddings().await?;
         self.load_canonical_fields_and_embeddings().await?;
-        self.load_near_misses_cache().await?;
         self.load_apps_cache().await?;
         self.load_releases_and_channels_cache().await?;
         self.load_declared_fields_cache().await?;
@@ -258,29 +256,6 @@ impl SchemaServiceState {
                 "Schema service loaded {} canonical fields + {} persisted embeddings from external backend",
                 fields.len(),
                 embeddings.len()
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Canonicalization near-misses.
-    async fn load_near_misses_cache(&self) -> FoldDbResult<()> {
-        let backend = self.storage.backend().clone();
-
-        // Near-misses (Phase C shadow-mode audit log). Backends that
-        // didn't opt in return an empty vec from the default trait impl,
-        // which is the correct degraded state — shadow observability is
-        // best-effort and must never fail startup.
-        let loaded_near_misses = backend.load_all_near_misses().await.unwrap_or_default();
-        {
-            let mut near_misses = write_lock(&self.near_misses, "near_misses")?;
-            let count = loaded_near_misses.len();
-            *near_misses = loaded_near_misses;
-            tracing::info!(
-                target: "schema_service::schema",
-                "Schema service loaded {} canonicalization near-misses from external backend",
-                count
             );
         }
 

@@ -2,8 +2,6 @@ use std::cmp::Ordering;
 
 use schema_types::Schema;
 
-use super::near_miss::NearMissDecision;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MatchSeam {
     IdentityHash,
@@ -21,24 +19,6 @@ impl MatchSeam {
             Self::NameSemantic => 2,
             Self::FieldOverlap => 3,
             Self::PurposeReuse => 4,
-        }
-    }
-
-    pub(super) fn single_signal_decision(self) -> NearMissDecision {
-        match self {
-            Self::IdentityHash => NearMissDecision::AlreadyExists,
-            Self::NameExact | Self::NameSemantic | Self::FieldOverlap | Self::PurposeReuse => {
-                NearMissDecision::Expanded
-            }
-        }
-    }
-
-    pub(super) fn veto_decision(self) -> NearMissDecision {
-        match self {
-            Self::IdentityHash => NearMissDecision::DescriptiveNameConflict,
-            Self::NameExact | Self::NameSemantic | Self::FieldOverlap | Self::PurposeReuse => {
-                NearMissDecision::Added
-            }
         }
     }
 }

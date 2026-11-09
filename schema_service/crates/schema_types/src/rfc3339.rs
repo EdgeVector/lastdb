@@ -13,13 +13,6 @@ pub fn secs_z(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-/// Subsecond precision. UTC offsets use `+00:00`.
-///
-/// Same bytes as `DateTime<Utc>::to_rfc3339`.
-pub fn subseconds(time: DateTime<Utc>) -> String {
-    time.to_rfc3339()
-}
-
 /// Accept any stamp `DateTime::parse_from_rfc3339` accepts.
 ///
 /// The error text is chrono's parse-error display.

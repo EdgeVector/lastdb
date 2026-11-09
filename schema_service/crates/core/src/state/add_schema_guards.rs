@@ -13,10 +13,7 @@ impl SchemaServiceState {
         let candidate_set = self.generate_canonicalization_candidates(schema, schema_name)?;
 
         if let Some(candidate) = rank_candidates(&candidate_set.candidates) {
-            match self
-                .canonicalization_gate_outcome(schema, schema_name, &candidate)
-                .await
-            {
+            match self.canonicalization_gate_outcome(schema, &candidate) {
                 CanonicalizationGateOutcome::Merge => {
                     if let Some(outcome) = self
                         .merge_into_candidate(schema, schema_name, mutation_mappers, candidate)

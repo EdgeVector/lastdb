@@ -122,9 +122,7 @@ impl SchemaServiceState {
             desc_name_owned.clone(),
             1.0,
         );
-        let race_gate = self
-            .canonicalization_gate_outcome(schema, schema_name, &race_candidate)
-            .await;
+        let race_gate = self.canonicalization_gate_outcome(schema, &race_candidate);
         if race_gate == CanonicalizationGateOutcome::Merge {
             if crate::state_expansion::is_cross_key_layout_expansion(schema, &existing) {
                 tracing::warn!(
@@ -154,13 +152,10 @@ impl SchemaServiceState {
                     .map(Some);
             }
         }
-        // Phase B dual-signal veto on the race-condition path:
-        // fall through to the final defense, which de-collides
-        // the descriptive_name so the genuinely-distinct
-        // same-name proposal registers as its OWN canonical
-        // instead of dead-ending at a 409. In shadow mode this
-        // branch is never taken — the helper returns true and
-        // the near-miss is recorded via the side effect.
+        // A purpose-gate veto on the race-condition path falls
+        // through to the final defense, which de-collides the
+        // descriptive_name so the distinct same-name proposal
+        // registers as its own canonical instead of a 409.
 
         Ok(None)
     }

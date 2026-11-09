@@ -9,7 +9,6 @@ use schema_types::Schema;
 use schema_types::{FoldDbError, FoldDbResult};
 
 use super::external_persistence::ExternalSchemaPersistence;
-use super::near_miss::{NearMissDecision, NearMissRecord};
 use super::schema_mutation_gate::{SchemaMutationGateConfig, SchemaMutationGateStore};
 use super::snapshot::AppRecord;
 use super::state_canonicalization::{
@@ -42,7 +41,6 @@ mod lifecycle;
 mod loading;
 mod lookup;
 mod mutation_gate;
-mod near_misses;
 mod persistence;
 mod resolve;
 mod telemetry_reply;
@@ -51,7 +49,6 @@ mod vocabulary_validation;
 pub use add_schema::SchemaAddReply;
 pub use lifecycle::{DedupeNamesReply, DeprecateSchemasReply};
 pub use lookup::{IdempotentRepostReply, SchemaByNameReply};
-pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};
 pub use resolve::{
     accepted_similarity_threshold, similarity_threshold_reply, BatchReuseReply, SchemaResolveReply,
     SimilarSchemasReply, SimilarityThresholdReply, MAX_SCHEMA_RESOLVE_PROPOSALS,
@@ -178,12 +175,6 @@ pub struct SchemaServiceState {
     /// Used to validate that incoming descriptive_names are proper collection names
     /// rather than AI-generated captions/descriptions.
     pub collection_name_anchors: Vec<Vec<f32>>,
-    /// Phase C shadow-mode audit log: registrations where the single-signal
-    /// and dual-signal canonicalization algorithms produced different
-    /// outcomes. Populated at startup from persistent storage and appended
-    /// on every disagreement when `SCHEMA_SHADOW_MODE=true`. Read by
-    /// `GET /v1/canonicalization-near-misses`.
-    pub near_misses: Arc<RwLock<Vec<NearMissRecord>>>,
     /// Monotonic state-version counter. Surfaced as `version` on
     /// `GET /v1/snapshot` so clients can detect mid-flight changes
     /// (app_identity v3.1, Lane B2a). Bumped via

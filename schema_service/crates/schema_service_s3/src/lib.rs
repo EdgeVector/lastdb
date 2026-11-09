@@ -5,7 +5,6 @@
 //! ```text
 //! s3://{bucket}/
 //! ├── definitions.json          # schemas, canonical fields and declarations
-//! ├── near_misses.json          # Phase C shadow audit log, keyed by registration_id
 //! ```
 //!
 //! ## Concurrency model
@@ -50,7 +49,6 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client as S3Client;
 use schema_service_core::declared_fields::DeclaredFieldRecord;
 use schema_service_core::external_persistence::ExternalSchemaPersistence;
-use schema_service_core::near_miss::NearMissRecord;
 use schema_service_core::snapshot::AppRecord;
 use schema_service_core::types::CanonicalField;
 use schema_service_core::{
@@ -64,7 +62,6 @@ use serde::{Deserialize, Serialize};
 // Blob keys inside the bucket.
 const SCHEMAS_KEY: &str = "schemas.json";
 const CANONICAL_FIELDS_KEY: &str = "canonical_fields.json";
-const NEAR_MISSES_KEY: &str = "near_misses.json";
 const APPS_KEY: &str = "apps.json";
 const DECLARED_FIELDS_KEY: &str = "declared_fields.json";
 
@@ -117,7 +114,7 @@ impl<T> Default for DomainBlob<T> {
 }
 
 /// Persist schema-service state in S3 domain blobs (`definitions.json`,
-/// `near_misses.json`, `apps.json`) and a
+/// `apps.json`) and a
 /// DynamoDB embeddings table. Implements `ExternalSchemaPersistence`
 /// so the fold_db schema service can delegate all persistence without
 /// knowing the split.

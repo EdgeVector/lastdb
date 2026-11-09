@@ -68,24 +68,6 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         self.query_embeddings(EMBEDDING_KIND_CANONICAL).await
     }
 
-    async fn append_near_miss(&self, record: &NearMissRecord) -> FoldDbResult<()> {
-        let id = record.registration_id.clone();
-        let record = record.clone();
-        self.update_blob::<NearMissRecord, _>(NEAR_MISSES_KEY, move |blob| {
-            // HashMap-keyed by registration_id gives idempotency for free —
-            // a second append with the same UUID is a no-op overwrite of
-            // identical bytes.
-            blob.items.insert(id.clone(), record.clone());
-            Ok(())
-        })
-        .await
-    }
-
-    async fn load_all_near_misses(&self) -> FoldDbResult<Vec<NearMissRecord>> {
-        let (blob, _) = self.get_blob::<NearMissRecord>(NEAR_MISSES_KEY).await?;
-        Ok(blob.items.into_values().collect())
-    }
-
     async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()> {
         let existing = self.load_app(&app.app_id).await?;
         if let Some(existing) = existing {

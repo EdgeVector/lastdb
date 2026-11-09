@@ -26,7 +26,6 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::declared_fields::DeclaredFieldRecord;
-use super::near_miss::NearMissRecord;
 use super::snapshot::AppRecord;
 use super::types::CanonicalField;
 use crate::CanonicalVocabularyWrite;
@@ -133,31 +132,6 @@ pub trait ExternalSchemaPersistence: Send + Sync {
 
     /// Load every persisted canonical field embedding.
     async fn load_canonical_field_embeddings(&self) -> FoldDbResult<HashMap<String, Vec<f32>>>;
-
-    // ============== Canonicalization near-misses (Phase C) ==============
-    //
-    // Shadow-mode observability for dual-signal schema canonicalization.
-    // Append-only audit log of registrations where the single-signal and
-    // dual-signal algorithms produced different outcomes. Surfaced via
-    // `GET /v1/canonicalization-near-misses` for τ_purpose tuning.
-    //
-    // Default impls are no-ops so a backend that hasn't opted in silently
-    // disables persistence (shadow mode is best-effort observability — it
-    // must never block a registration). Backends that care override both
-    // methods together.
-
-    /// Append a single near-miss record. Keyed by `registration_id`
-    /// (a UUID v4 generated at the call site); a second call with the
-    /// same id must be a no-op.
-    async fn append_near_miss(&self, _record: &NearMissRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
-
-    /// Load every persisted near-miss record. Called once at startup to
-    /// populate the in-memory cache that the audit endpoint reads.
-    async fn load_all_near_misses(&self) -> FoldDbResult<Vec<NearMissRecord>> {
-        Ok(Vec::new())
-    }
 
     // ============== Apps (canonical app registry, app_identity v3.1) =====
     //

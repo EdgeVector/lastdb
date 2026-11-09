@@ -91,52 +91,19 @@ The route is gated by `X-API-Key`. The key locator is
 Read the key from LastSecrets at point of use. Do not print it, commit it,
 or pass it as a CLI argument.
 
-## Canonicalization — dual-signal flag
+## Canonicalization
 
-`add_schema` consults two signals when deciding whether a proposal
-merges into an existing canonical:
+A structural candidate merges into an existing canonical only when the
+purpose signal passes. The purpose text is
+`"{descriptive_name} — {purpose_statement}"`. The threshold is
+τ_purpose = 0.88 (`state_matching::PURPOSE_SIMILARITY_THRESHOLD`).
+An embedder failure is a veto, and the proposal registers as its own
+canonical.
 
-- **Structural** — descriptive_name + schema_name embedding similarity
-  (τ_struct = 0.80 in
-  `state_matching::DESCRIPTIVE_NAME_SIMILARITY_THRESHOLD`).
-- **Purpose** — embedding of `"{descriptive_name} — {purpose_statement}"`,
-  thresholded at τ_purpose = 0.88 in
-  `state_matching::PURPOSE_SIMILARITY_THRESHOLD`. Tighter because purpose
-  statements are short and high-signal.
-
-A proposal merges only when BOTH signals agree above their thresholds;
-otherwise it registers as a new canonical. **Default on** as of the
-Phase E cutover (PR #303 / #306 / #309 / #311 / this PR). Gated by env
-var:
-
-| `SCHEMA_DUAL_SIGNAL_CANONICALIZATION` | Behavior |
-| ------------------------------------- | -------- |
-| unset (default), `1`, `true`, `TRUE`, `yes`, or anything else | Dual-signal: structural AND purpose must agree. |
-| `0` / `false` / `FALSE` / `no`         | Single-signal: legacy structural-only canonicalization. Operator escape hatch for rollback. |
-
-### Rollback
-
-The env-var escape hatch lets operators pin back to single-signal
-without a code change:
-
-**Dev (local actix binary).** Export the var before starting the dev
-binary:
-```bash
-export SCHEMA_DUAL_SIGNAL_CANONICALIZATION=false
-cargo run -p schema_service_server_http --bin schema_service -- \
-  --port 9102
-```
-
-**Prod (Lambda).** Set `SCHEMA_DUAL_SIGNAL_CANONICALIZATION=false` in
-the Lambda function's environment and redeploy. The CDK that owns the
-function lives in [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra)
-— this PR cannot touch it from here. See schema-infra's `README.md`
-for the env-var stanza.
-
-To re-enable dual-signal: remove the env var (or set it to anything
-that isn't an off value) and redeploy.
-
-See fbrain `dual-signal-schema-canonicalization` for the design.
+The descriptive-name embedding still runs on that path. A failure of
+that call is a veto even when the purpose embedding would succeed.
+A purpose-reuse candidate skips this gate. Different key layouts and
+same-app distinct names stay separate.
 
 ## HTTP surface (`/v1/*`)
 

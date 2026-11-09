@@ -83,11 +83,6 @@ fn v1_schema_routes(scope: actix_web::Scope) -> actix_web::Scope {
                 .route(web::get().to(handlers::get_portable_schema))
                 .route(web::put().to(handlers::pin_portable_schema)),
         )
-        // Phase C: shadow-mode canonicalization audit log.
-        .route(
-            "/canonicalization-near-misses",
-            web::get().to(handlers::list_near_misses),
-        )
 }
 
 /// `/v1` app registry routes (app_identity v3.1, Lane B2b). Register an app

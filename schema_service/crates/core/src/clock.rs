@@ -21,9 +21,6 @@ pub trait Clock: Send + Sync {
     /// RFC 3339 with second precision and a `Z` suffix.
     fn rfc3339_secs(&self) -> String;
 
-    /// RFC 3339 including subseconds. UTC offsets use `+00:00`.
-    fn rfc3339(&self) -> String;
-
     /// Whole seconds since the Unix epoch. A clock before the epoch reads as 0.
     fn unix_secs(&self) -> u64;
 

@@ -15,7 +15,6 @@ use crate::app_release::{channel_key, ChannelRecord, ReleaseRecord};
 use crate::declared_fields::DeclaredFieldRecord;
 use crate::external_persistence::ExternalSchemaPersistence;
 use crate::lock_helpers::{read_lock, write_lock};
-use crate::near_miss::NearMissRecord;
 use crate::snapshot::AppRecord;
 use crate::types::CanonicalField;
 use crate::CanonicalVocabularyWrite;
@@ -28,7 +27,6 @@ struct Registry {
     canonical_fields: HashMap<String, CanonicalField>,
     descriptive_name_embeddings: HashMap<String, Vec<f32>>,
     canonical_field_embeddings: HashMap<String, Vec<f32>>,
-    near_misses: HashMap<String, NearMissRecord>,
     apps: HashMap<String, AppRecord>,
     releases: HashMap<String, ReleaseRecord>,
     channels: HashMap<String, ChannelRecord>,
@@ -177,19 +175,6 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
 
     async fn load_canonical_field_embeddings(&self) -> FoldDbResult<HashMap<String, Vec<f32>>> {
         Ok(self.read()?.canonical_field_embeddings.clone())
-    }
-
-    async fn append_near_miss(&self, record: &NearMissRecord) -> FoldDbResult<()> {
-        // A repeated `registration_id` is a no-op (trait contract).
-        self.write()?
-            .near_misses
-            .entry(record.registration_id.clone())
-            .or_insert_with(|| record.clone());
-        Ok(())
-    }
-
-    async fn load_all_near_misses(&self) -> FoldDbResult<Vec<NearMissRecord>> {
-        Ok(self.read()?.near_misses.values().cloned().collect())
     }
 
     async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()> {

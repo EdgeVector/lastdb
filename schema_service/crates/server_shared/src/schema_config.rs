@@ -33,10 +33,6 @@ fn schema_config_from_env() -> SchemaConfig {
     SchemaConfig {
         app_identity: app_identity_from_env(),
         mutation_gate: mutation_gate_from_env(),
-        dual_signal_canonicalization: default_on_unless_exact_falsy(
-            "SCHEMA_DUAL_SIGNAL_CANONICALIZATION",
-        ),
-        shadow_mode: var_truthy("SCHEMA_SHADOW_MODE"),
         native_resolve_budget: native_budget_from_env(defaults.native_resolve_budget),
         registry_index_signing_key: registry_signing_key_from_env(),
     }
@@ -174,14 +170,6 @@ fn var_truthy(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         )
     })
-}
-
-/// Default-on. Exact byte match, no trim: `0`, `false`, `FALSE`, `no`.
-fn default_on_unless_exact_falsy(name: &str) -> bool {
-    let Ok(value) = std::env::var(name) else {
-        return true;
-    };
-    !matches!(value.as_str(), "0" | "false" | "FALSE" | "no")
 }
 
 fn native_budget_from_env(default: Duration) -> Duration {

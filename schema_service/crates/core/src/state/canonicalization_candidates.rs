@@ -18,10 +18,9 @@ impl SchemaServiceState {
         Ok(set)
     }
 
-    pub(super) async fn canonicalization_gate_outcome(
+    pub(super) fn canonicalization_gate_outcome(
         &self,
         incoming: &Schema,
-        incoming_hash: &str,
         candidate: &MatchCandidate,
     ) -> CanonicalizationGateOutcome {
         // Different keys always retain separate definitions. The Merge arm
@@ -50,17 +49,28 @@ impl SchemaServiceState {
         let strict_gate_allows_merge = if candidate.seam == MatchSeam::PurposeReuse {
             true
         } else {
-            self.shadow_aware_dual_signal_check(
-                incoming,
-                &candidate.existing,
-                incoming_hash,
-                &candidate.existing_hash,
-                candidate.seam.single_signal_decision(),
-                candidate.seam.veto_decision(),
-            )
-            .await
+            self.purpose_gate_allows_structural_merge(incoming, &candidate.existing)
         };
 
         gate_outcome_for_candidate(candidate, strict_gate_allows_merge)
+    }
+
+    /// Purpose gate for a structural canonicalization candidate.
+    ///
+    /// An embedder failure is a veto. A veto is logged and the caller
+    /// registers a separate canonical.
+    fn purpose_gate_allows_structural_merge(&self, incoming: &Schema, existing: &Schema) -> bool {
+        let dual_allows = self
+            .dual_signal_diagnostic(incoming, existing)
+            .unwrap_or(false);
+        if !dual_allows {
+            tracing::info!(
+                target: "schema_service::schema",
+                incoming_desc = %incoming.descriptive_name.as_deref().unwrap_or(""),
+                existing_desc = %existing.descriptive_name.as_deref().unwrap_or(""),
+                "Dual-signal veto: structural match rejected by purpose-signal gate — registering as new canonical",
+            );
+        }
+        dual_allows
     }
 }
