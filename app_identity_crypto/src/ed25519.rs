@@ -37,7 +37,7 @@ pub const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 /// signature verification against a small-order key fails at
 /// [`verify_strict`](VerifyingKey::verify_strict). Returning `Ok` for a
 /// key that can never verify anything is a lie: callers downstream
-/// (schema_service, fold_db_node) treat a successful parse as "this is
+/// (schema_service, lastdb_node) treat a successful parse as "this is
 /// the developer's usable identity," then see `BadSig` at every
 /// envelope check and have no way to attribute the failure to the key
 /// itself. Reject at parse time so the failure mode points at the

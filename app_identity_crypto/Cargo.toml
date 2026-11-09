@@ -4,7 +4,7 @@ name = "app_identity_crypto"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-description = "Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers for app_identity (Lane A foundation; consumed by schema_service, fold_db_node including dev-mode, exemem-infra)."
+description = "Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers for app_identity. Consumed by schema_service and lastdb_node."
 
 [dependencies]
 serde = { workspace = true }

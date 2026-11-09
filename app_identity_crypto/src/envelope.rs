@@ -17,7 +17,7 @@ pub const ENVELOPE_VERSION: u32 = 1;
 
 /// What an envelope is signing — pinned at sign time so a signature for
 /// one purpose (e.g. `app_register`) cannot be replayed as another
-/// (e.g. `capability_grant`).
+/// (e.g. `app_update`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Purpose {
@@ -47,10 +47,6 @@ pub enum Purpose {
     AppChannelSet,
     /// Signs a `POST /v2/apps/{app_id}/revocations` body.
     AppReleaseRevoke,
-    /// Purpose `capability_grant`.
-    CapabilityGrant,
-    /// Purpose `dev_cert`.
-    DevCert,
 }
 
 /// Deployment binding — `dev` envelopes must not verify in `prod` and

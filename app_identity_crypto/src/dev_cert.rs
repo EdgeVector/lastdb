@@ -109,7 +109,7 @@ pub fn root_key_id(root_spki_der: &[u8]) -> String {
 ///    forward-compat guard as `version`. ALL DevCerts have `purpose =
 ///    "dev_cert"` (no per-caller variation, unlike
 ///    [`verify_envelope`](crate::verify_envelope)'s `purpose: Purpose`
-///    which legitimately ranges across the five enum variants), so it is
+///    which legitimately ranges across the envelope purposes), so it is
 ///    a type-of-object discriminator and belongs in the intrinsic set,
 /// 3. `alg == ES256`,
 /// 4. `key_id` matches `sha256(root_spki_der)`,
