@@ -10,13 +10,11 @@ on:
       - '.github/workflows/stable-release.yml'
       - 'scripts/release/stable_*.py'
       - '.github/workflows/app-compatibility-publish.yml'
-      - '.github/workflows/api23-app-proofs.yml'
   pull_request:
     paths:
       - '.github/workflows/stable-release.yml'
       - 'scripts/release/stable_*.py'
       - '.github/workflows/app-compatibility-publish.yml'
-      - '.github/workflows/api23-app-proofs.yml'
       - 'scripts/release/nightly_*.py'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/app/lifecycle.rs'
@@ -297,16 +295,6 @@ jobs:
           else
             echo 'Publication requires at least 3600 uninterrupted seconds, health P95 <= 2 seconds, and all three app proofs.' >> "$GITHUB_STEP_SUMMARY"
           fi
-
-  api23-app-proofs:
-    needs: [plan, build]
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-    permissions:
-      contents: read
-      attestations: read
-    uses: ./.github/workflows/api23-app-proofs.yml
-    with:
-      source: ${{ needs.plan.outputs.source }}
 
   attest:
     needs: [plan, build, source-gates, qualify]

@@ -44,8 +44,7 @@ new app publisher. The same manifest consent rules still apply. A same-source
 publisher transition refreshes the managed receipt instead of silently returning
 the old receipt.
 
-Existing signed records are preserved, including API 23 and API 26. New CI
-publication starts at API 27 so older binaries keep their original catalogs.
+Existing signed records are preserved.
 When no records are missing, CI exercises the payload-bound authorization route
 without writing the lists. DEV proves a real owner-to-CI managed transition
 using the exact gated candidate before its first stable release. Once stable
@@ -66,11 +65,6 @@ Release notes state the proved home format and API and the need for explicit
 conversion of older homes.
 An already published source is skipped. Active qualifications are serialized
 and are never cancelled by another main update.
-
-The separate API 23 backfill job uses an attested historical package and the
-known Brain/LastSecrets commits on another generated CI home. It repairs
-missing listings without operating on the primary. It is app evidence, not
-the one-hour qualification of the new stable package.
 
 The registry deployment proves the CI signing route, signed lists, real managed
 installs, restart reads, unchanged ownership, withdrawal, and cleanup in DEV

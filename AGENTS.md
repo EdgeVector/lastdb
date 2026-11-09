@@ -101,9 +101,9 @@ primary unchanged."
 This authorizes the release qualification and app compatibility operations in
 `.github/workflows/stable-release.yml`, `.github/workflows/app-install-smoke.yml`,
 `scripts/release/stable_qualify.py`,
-`stable_apps.py`, `stable_api23.py`, and their existing packaged-program helper
+`stable_apps.py` and its existing packaged-program helper
 `nightly_probe.py`. They use only fresh generated CI homes and public packaged
-programs. The API 23 backfill must not operate on or copy a primary.
+programs.
 
 Keep all other test targets retired. No local LastDB builds, benchmarks, or
 runtime proofs. No primary upgrade, restart, reset, copy, or backup change.
