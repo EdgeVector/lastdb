@@ -13,11 +13,10 @@ pub fn offline_is_system_schema(schema: &Schema) -> bool {
 
 /// Project a full registry snapshot to the shared-only resolver dataset.
 ///
-/// Keeps [`crate::shared_surface::RegistrationClass::Shared`] and
-/// [`crate::shared_surface::RegistrationClass::SystemOwned`] active rows,
-/// drops private legacy bootstrap / unknown / superseded schemas, and
-/// trims descriptive-name and field embedding caches to surviving rows.
-/// Canonical-field registry + embeddings stay (they are shared vocabulary).
+/// Keeps a row when `superseded_by` is absent or blank after trim, and the
+/// row is system-owned or its source is `SystemSeed` or `StarterSeed`.
+/// Drops every other row, and trims descriptive-name and field embedding
+/// caches to surviving rows. Canonical-field registry and embeddings stay.
 ///
 /// `is_system` classifies each schema. Callers pass
 /// [`offline_is_system_schema`].
@@ -28,13 +27,12 @@ pub fn project_snapshot_shared_only<F>(
 where
     F: FnMut(&Schema) -> bool,
 {
-    use crate::shared_surface::{include_in_shared_only_projection, SharedSurfaceAttachment};
+    use crate::shared_surface::include_in_shared_only_projection;
     use std::collections::HashSet;
 
-    let attachment = SharedSurfaceAttachment::default();
     envelope
         .schemas
-        .retain(|schema| include_in_shared_only_projection(schema, is_system(schema), &attachment));
+        .retain(|schema| include_in_shared_only_projection(schema, is_system(schema)));
     envelope.schemas.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut kept_desc_names: HashSet<String> = HashSet::new();
@@ -121,8 +119,9 @@ impl SchemaServiceState {
     /// envelope is fully self-contained; no follow-up calls are required
     /// for an importer to reach a working state.
     ///
-    /// **Full registry** (includes private legacy bootstrap rows).
-    /// [`Self::export_shared_only_snapshot`] drops those rows.
+    /// **Full registry.** [`Self::export_shared_only_snapshot`] drops rows
+    /// that are not system-owned and whose source is not `SystemSeed` or
+    /// `StarterSeed`.
     pub fn export_snapshot(&self) -> FoldDbResult<SnapshotEnvelope> {
         let schemas = read_lock(&self.schemas, "schemas")?;
         let canonical_fields = read_lock(&self.canonical_fields, "canonical_fields")?;
@@ -170,8 +169,9 @@ impl SchemaServiceState {
     /// Capture a **shared-only** snapshot.
     ///
     /// Equivalent to [`Self::export_snapshot`] followed by
-    /// [`project_snapshot_shared_only`]. Private legacy bootstrap and
-    /// unknown rows never appear in the result.
+    /// [`project_snapshot_shared_only`]. A row appears only when it is not
+    /// superseded and it is system-owned or its source is `SystemSeed` or
+    /// `StarterSeed`.
     pub fn export_shared_only_snapshot(&self) -> FoldDbResult<SnapshotEnvelope> {
         let full = self.export_snapshot()?;
         Ok(project_snapshot_shared_only(full, offline_is_system_schema))

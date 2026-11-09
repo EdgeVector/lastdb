@@ -127,12 +127,10 @@ pub use schema_mutation_gate::{
     HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 pub use shared_surface::{
-    classify_legacy_schema_caller, classify_registration, include_in_shared_only_projection,
-    observe_legacy_schema_caller, validate_shared_surface_request, validate_surface_metadata,
-    LegacySchemaCallerKind, RegistrationClass, SharedSurfaceAttachment, SharedSurfaceCompatibility,
-    SharedSurfaceMetadata, SharedSurfaceProposal, SharedSurfaceProvenance,
-    SharedSurfacePublishAttachRequest, SharedSurfacePurpose, SharedSurfaceValidationError,
-    SharedSurfaceVisibility,
+    include_in_shared_only_projection, validate_shared_surface_request, validate_surface_metadata,
+    SharedSurfaceCompatibility, SharedSurfaceMetadata, SharedSurfaceProposal,
+    SharedSurfaceProvenance, SharedSurfacePublishAttachRequest, SharedSurfacePurpose,
+    SharedSurfaceValidationError, SharedSurfaceVisibility,
 };
 pub use snapshot::{
     offline_is_system_schema, project_snapshot_shared_only, AppArtifact, AppMetadata, AppRecord,

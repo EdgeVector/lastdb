@@ -22,10 +22,10 @@ use schema_service_core::types::{
     SchemasListResponse,
 };
 use schema_service_core::{
-    log_schema_mutation_gate_result, observe_legacy_schema_caller, validate_surface_metadata,
-    SchemaMutationChallengeRequest, SchemaMutationGateHeaders, HEADER_DEV_PUBKEY,
-    HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC,
-    HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
+    log_schema_mutation_gate_result, validate_surface_metadata, SchemaMutationChallengeRequest,
+    SchemaMutationGateHeaders, HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE,
+    HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
+    HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 
 /// Log an internal failure against `schema_service::schema` and return a

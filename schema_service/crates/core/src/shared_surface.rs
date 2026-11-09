@@ -6,16 +6,11 @@
 //!
 //! This module defines:
 //! - the explicit publish/attach request shape and validation;
-//! - inventory classification of existing registry rows;
-//! - the shared-only projection of system-owned and explicit shared schemas;
-//! - observe-mode telemetry for legacy callers that still use
-//!   `POST /v1/schemas` without a full shared-surface envelope.
+//! - the shared-only projection of system-owned schemas.
 //!
-//! Enforcement of "reject non-shared registrations" is **not** flipped on
-//! here — PR 0 lands the contract and measurement. Later PRs activate
-//! rejection after caller migration.
+//! `POST /v1/schemas` still accepts a registration. It rejects only a
+//! malformed shared-surface envelope.
 
-use schema_types::{Schema, SchemaSource};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
