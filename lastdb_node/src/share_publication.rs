@@ -16,9 +16,24 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
+use tracing::Instrument;
 use zeroize::Zeroizing;
 
 pub use crate::byte_cloud_backup::PUBLICATION_MARKER as MARKER_FILE;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriteMode {
+    #[default]
+    PublisherOnly,
+    PublisherValidated,
+}
+
+impl WriteMode {
+    fn is_publisher_only(&self) -> bool {
+        *self == Self::PublisherOnly
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,6 +42,8 @@ pub struct PublicationMarker {
     pub id: Id,
     pub publisher: Digest,
     pub environment: ShareEnvironment,
+    #[serde(default, skip_serializing_if = "WriteMode::is_publisher_only")]
+    pub write_mode: WriteMode,
 }
 
 pub struct PreparedPublication {
@@ -34,13 +51,14 @@ pub struct PreparedPublication {
     pub seed: Zeroizing<[u8; 32]>,
 }
 
-struct PublicationIdentity {
-    id: Id,
+pub(crate) struct PublicationIdentity {
+    pub(crate) id: Id,
     publisher: Digest,
-    account: AccountId,
+    pub(crate) account: AccountId,
     content_key: Zeroizing<[u8; 32]>,
-    environment: ShareEnvironment,
-    signer: Ed25519KeyPair,
+    pub(crate) environment: ShareEnvironment,
+    pub(crate) signer: Ed25519KeyPair,
+    pub(crate) write_mode: WriteMode,
 }
 
 /// Validated configuration for one running publication home. The owner's
@@ -50,6 +68,7 @@ pub struct AutomaticPublication {
     owner_home: PathBuf,
     environment: ShareEnvironment,
     source: PublicationSource,
+    inbox: Option<x25519_dalek::StaticSecret>,
 }
 
 pub fn prepare_automatic(home: &Path, owner_home: &Path) -> Result<AutomaticPublication, String> {
@@ -57,11 +76,18 @@ pub fn prepare_automatic(home: &Path, owner_home: &Path) -> Result<AutomaticPubl
     identity.client(owner_home)?;
     crate::byte_cloud_backup::automatic_publication::preflight(home).map_err(|e| e.to_string())?;
     let environment = identity.environment;
+    let inbox = if identity.write_mode == WriteMode::PublisherValidated {
+        let owner = owner_seed(owner_home)?;
+        Some(crate::share_contribution::inbox_key(&owner, &identity.id)?)
+    } else {
+        None
+    };
     Ok(AutomaticPublication {
         home: home.to_owned(),
         owner_home: owner_home.to_owned(),
         environment,
         source: identity.into_source(),
+        inbox,
     })
 }
 
@@ -80,13 +106,38 @@ impl AutomaticPublication {
             source,
             owner_home,
             environment,
+            inbox,
             ..
         } = self;
         let account = source.account.clone();
-        crate::byte_cloud_backup::automatic_publication::spawn(host, shutdown, source, move || {
-            publication_client(&owner_home, &account, environment)
-        })
-        .map_err(|e| e.to_string())
+        let publication = source.id.clone();
+        let backup_home = owner_home.clone();
+        let backup_account = account.clone();
+        let backup = crate::byte_cloud_backup::automatic_publication::spawn(
+            Arc::clone(&host),
+            Arc::clone(&shutdown),
+            source,
+            move || publication_client(&backup_home, &backup_account, environment),
+        )
+        .map_err(|e| e.to_string())?;
+        let Some(inbox) = inbox else {
+            return Ok(backup);
+        };
+        Ok(tokio::spawn(
+            async move {
+                let follow = crate::share_contribution::follow(
+                    host,
+                    shutdown,
+                    &owner_home,
+                    &account,
+                    &publication,
+                    &inbox,
+                    || publication_client(&owner_home, &account, environment),
+                );
+                let _ = tokio::join!(backup, follow);
+            }
+            .in_current_span(),
+        ))
     }
 }
 
@@ -94,6 +145,7 @@ impl AutomaticPublication {
 pub fn prepare(
     owner_home: &Path,
     environment: ShareEnvironment,
+    write_mode: WriteMode,
 ) -> Result<PreparedPublication, String> {
     let owner = owner_seed(owner_home)?;
     let signer = signer(&owner)?;
@@ -106,12 +158,13 @@ pub fn prepare(
             id,
             publisher: publisher(&signer)?,
             environment,
+            write_mode,
         },
         seed,
     })
 }
 
-fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
+pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
     crate::offline_home::refuse_primary(home)?;
     let directory = owned(home)?;
     let marker = directory
@@ -139,6 +192,7 @@ fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
         publisher: marker.publisher,
         account: AccountId::try_from(account).map_err(|_| "invalid share publisher account")?,
         environment: marker.environment,
+        write_mode: marker.write_mode,
         signer,
         content_key: Zeroizing::new(keys.encryption_key()),
     })
@@ -146,7 +200,7 @@ fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
 
 impl PublicationIdentity {
     /// Read the existing owner's credentials in place and pin their issuer.
-    fn client(&self, owner_home: &Path) -> Result<ByteBackupClient, String> {
+    pub(crate) fn client(&self, owner_home: &Path) -> Result<ByteBackupClient, String> {
         publication_client(owner_home, &self.account, self.environment)
     }
 
@@ -275,7 +329,7 @@ fn read_seed(directory: &Directory) -> Result<Zeroizing<[u8; 32]>, String> {
     Ok(Zeroizing::new(seed))
 }
 
-fn owner_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
+pub(crate) fn owner_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     let directory = owned(home)?;
     if directory
         .read(MARKER_FILE)
@@ -287,7 +341,7 @@ fn owner_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     read_seed(&directory)
 }
 
-fn signer(seed: &[u8; 32]) -> Result<Ed25519KeyPair, String> {
+pub(crate) fn signer(seed: &[u8; 32]) -> Result<Ed25519KeyPair, String> {
     Ed25519KeyPair::from_secret_key(seed).map_err(|_| "invalid share publisher key".into())
 }
 

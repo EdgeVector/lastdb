@@ -1,4 +1,4 @@
-//! Stream read permission signed by the publisher's LastDB account key.
+//! Scoped guest permissions signed by the publisher's LastDB account key.
 use super::{BackupTransportError, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::v2::Stream;
@@ -36,13 +36,25 @@ struct Claim {
     environment: ShareEnvironment,
     scope: CloudScope,
     stream_id: Id,
-    operation: String,
+    operation: Operation,
     expires_at: String,
     public_key: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Operation {
+    Read,
+    Append,
+}
+
 /// A bearer credential for encrypted bytes. The publication key is separate.
-pub struct GuestReadPermission {
+pub struct GuestReadPermission(GuestPermission);
+
+/// A bearer credential for append access to one private contribution stream.
+pub struct GuestAppendPermission(GuestPermission);
+
+struct GuestPermission {
     authorization: Zeroizing<String>,
     stream: Stream,
     environment: ShareEnvironment,
@@ -59,26 +71,125 @@ impl GuestReadPermission {
         account_public_key: [u8; 32],
         sign: impl FnOnce(&[u8]) -> [u8; 64],
     ) -> Result<Self> {
+        GuestPermission::sign(
+            Operation::Read,
+            stream,
+            environment,
+            expires_at,
+            account_public_key,
+            sign,
+        )
+        .map(Self)
+    }
+
+    /// Validate the wire form and signature without contacting Exemem.
+    pub fn parse(authorization: &str) -> Result<Self> {
+        GuestPermission::parse(authorization, Operation::Read).map(Self)
+    }
+
+    /// Exact Authorization header value. Keep it out of logs and URLs.
+    pub fn authorization(&self) -> &str {
+        &self.0.authorization
+    }
+
+    pub fn stream(&self) -> &Stream {
+        &self.0.stream
+    }
+
+    pub fn environment(&self) -> ShareEnvironment {
+        self.0.environment
+    }
+
+    pub fn publisher_public_key(&self) -> &Digest {
+        &self.0.publisher_public_key
+    }
+
+    /// Signed permission expiry in Unix milliseconds.
+    pub fn expires_ms(&self) -> u64 {
+        self.0.expires_ms
+    }
+
+    pub(super) fn into_read_scope(self) -> (Stream, u64) {
+        (self.0.stream, self.0.expires_ms)
+    }
+}
+
+impl GuestAppendPermission {
+    /// The callback signs the exact domain-separated bytes with the account key.
+    pub fn sign(
+        stream: Stream,
+        environment: ShareEnvironment,
+        expires_at: &str,
+        account_public_key: [u8; 32],
+        sign: impl FnOnce(&[u8]) -> [u8; 64],
+    ) -> Result<Self> {
+        GuestPermission::sign(
+            Operation::Append,
+            stream,
+            environment,
+            expires_at,
+            account_public_key,
+            sign,
+        )
+        .map(Self)
+    }
+
+    /// Validate the wire form and signature without contacting Exemem.
+    pub fn parse(authorization: &str) -> Result<Self> {
+        GuestPermission::parse(authorization, Operation::Append).map(Self)
+    }
+
+    /// Exact Authorization header value. Keep it out of logs and URLs.
+    pub fn authorization(&self) -> &str {
+        &self.0.authorization
+    }
+
+    pub fn stream(&self) -> &Stream {
+        &self.0.stream
+    }
+
+    pub fn environment(&self) -> ShareEnvironment {
+        self.0.environment
+    }
+
+    pub fn publisher_public_key(&self) -> &Digest {
+        &self.0.publisher_public_key
+    }
+
+    /// Signed permission expiry in Unix milliseconds.
+    pub fn expires_ms(&self) -> u64 {
+        self.0.expires_ms
+    }
+}
+
+impl GuestPermission {
+    fn sign(
+        operation: Operation,
+        stream: Stream,
+        environment: ShareEnvironment,
+        expires_at: &str,
+        account_public_key: [u8; 32],
+        sign: impl FnOnce(&[u8]) -> [u8; 64],
+    ) -> Result<Self> {
         let claim = Claim {
             version: 1,
             environment,
             scope: stream.scope,
             stream_id: stream.stream_id,
-            operation: "read".to_owned(),
+            operation,
             expires_at: expires_at.to_owned(),
             public_key: URL_SAFE_NO_PAD.encode(account_public_key),
         };
-        claim.validated()?;
+        claim.validated(operation)?;
         let payload = URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&claim).map_err(|_| invalid("guest permission"))?);
         let message = format!("{SIGNING_PREFIX}{payload}");
         let signature = URL_SAFE_NO_PAD.encode(sign(message.as_bytes()));
         let authorization = Zeroizing::new(format!("{SCHEME} {payload}.{signature}"));
-        Self::parse(&authorization)
+        Self::parse(&authorization, operation)
     }
 
-    /// Validate the wire form and signature without contacting Exemem.
-    pub fn parse(authorization: &str) -> Result<Self> {
+    fn parse(authorization: &str, operation: Operation) -> Result<Self> {
         let (scheme, token) = authorization
             .split_once(' ')
             .filter(|_| authorization.len() <= MAX_HEADER_BYTES)
@@ -94,7 +205,7 @@ impl GuestReadPermission {
             .map_err(|_| invalid("guest permission"))?;
         let claim: Claim =
             serde_json::from_slice(&json).map_err(|_| invalid("guest permission"))?;
-        let (expires_ms, key, publisher_public_key) = claim.validated()?;
+        let (expires_ms, key, publisher_public_key) = claim.validated(operation)?;
         let signature = decode_fixed::<64>(signature, "guest permission signature")?;
         let message = format!("{SIGNING_PREFIX}{payload}");
         UnparsedPublicKey::new(&ED25519, key)
@@ -111,37 +222,11 @@ impl GuestReadPermission {
             publisher_public_key,
         })
     }
-
-    /// Exact Authorization header value. Keep it out of logs and URLs.
-    pub fn authorization(&self) -> &str {
-        &self.authorization
-    }
-
-    pub fn stream(&self) -> &Stream {
-        &self.stream
-    }
-
-    pub fn environment(&self) -> ShareEnvironment {
-        self.environment
-    }
-
-    pub fn publisher_public_key(&self) -> &Digest {
-        &self.publisher_public_key
-    }
-
-    /// Signed permission expiry in Unix milliseconds.
-    pub fn expires_ms(&self) -> u64 {
-        self.expires_ms
-    }
-
-    pub(super) fn into_read_scope(self) -> (Stream, u64) {
-        (self.stream, self.expires_ms)
-    }
 }
 
 impl Claim {
-    fn validated(&self) -> Result<(u64, [u8; 32], Digest)> {
-        if self.version != 1 || self.operation != "read" {
+    fn validated(&self, operation: Operation) -> Result<(u64, [u8; 32], Digest)> {
+        if self.version != 1 || self.operation != operation {
             return Err(invalid("guest permission"));
         }
         let expires_ms = expires_ms(&self.expires_at)?;

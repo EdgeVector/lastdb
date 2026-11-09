@@ -1,6 +1,9 @@
-use super::{admin_cmds::guest_stage, cloud_cmds::FreshHome, ShareCommand};
+use super::{admin_cmds::guest_stage, cloud_cmds::FreshHome, ShareCommand, ShareFilesSelection};
 use cloud_backup_client::byte_backup::ShareEnvironment;
-use cloud_backup_protocol::Digest;
+use cloud_backup_protocol::{Digest, Id};
+use fold_db::schema::types::KeyValue;
+use lastdb_node::byte_cloud_restore::StagedRecordQuery;
+use lastdb_node::share_cache::ShareCache;
 use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
 use lastdb_node::share_publication;
 use std::fs::{File, OpenOptions};
@@ -8,6 +11,8 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+#[path = "share_cmds/contributors.rs"]
+mod contributors;
 #[path = "share_cmds/files/mod.rs"]
 mod files;
 
@@ -19,7 +24,18 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
         .canonicalize()
         .map_err(|_| "share identity home must exist")?;
     match action {
-        ShareCommand::Create { into, env } => create(&identity_home, &into, &env),
+        ShareCommand::Create {
+            into,
+            env,
+            write_mode,
+        } => {
+            let write_mode = match write_mode.as_str() {
+                "publisher-only" => share_publication::WriteMode::PublisherOnly,
+                "publisher-validated" => share_publication::WriteMode::PublisherValidated,
+                _ => return Err("invalid share write mode".into()),
+            };
+            create(&identity_home, &into, &env, write_mode)
+        }
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::Invite {
             home,
@@ -28,14 +44,7 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
             out,
             expires_in_hours,
         } => {
-            let bytes = read_file(&recipient, 512)?;
-            let text = std::str::from_utf8(&bytes).map_err(|_| "invalid share contact file")?;
-            let contact = ShareContact::parse(text.trim()).map_err(|e| e.to_string())?;
-            let expected =
-                Digest::try_from(recipient_key).map_err(|_| "invalid recipient public key")?;
-            if &expected != contact.identity_public_key() {
-                return Err("contact does not match the trusted recipient".into());
-            }
+            let contact = read_contact(&recipient, recipient_key)?;
             let sealed = runtime()?.block_on(share_publication::invite(
                 &home,
                 &identity_home,
@@ -65,11 +74,54 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
                 opened.publication_key,
             )
         }
+        ShareCommand::Get {
+            share,
+            schema,
+            key_hash,
+            key_range,
+        } => get(&identity_home, share, &schema, key_hash, key_range),
+        ShareCommand::Contributors(action) => contributors::run(&identity_home, action),
         ShareCommand::Files(action) => files::run(&identity_home, action),
     }
 }
 
-fn create(owner: &Path, into: &Path, env: &str) -> Result<(), String> {
+fn get(
+    home: &Path,
+    share: ShareFilesSelection,
+    schema: &str,
+    key_hash: String,
+    key_range: Option<String>,
+) -> Result<(), String> {
+    let handle = Id::try_from(share.handle).map_err(|_| "invalid share UUID")?;
+    let query = StagedRecordQuery::new(schema, KeyValue::new(Some(key_hash), key_range), false)
+        .map_err(|_| "invalid share record coordinates")?;
+    let cache = ShareCache::open(&share.cache, home).map_err(|e| e.to_string())?;
+    let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
+    let record = reader.read_record(&query).map_err(|e| e.to_string())?;
+    println!(
+        "{}",
+        serde_json::json!({"handle": handle, "snapshot": reader.snapshot(), "record": record})
+    );
+    Ok(())
+}
+
+fn read_contact(path: &Path, recipient_key: String) -> Result<ShareContact, String> {
+    let bytes = read_file(path, 512)?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "invalid share contact file")?;
+    let contact = ShareContact::parse(text.trim()).map_err(|e| e.to_string())?;
+    let expected = Digest::try_from(recipient_key).map_err(|_| "invalid recipient public key")?;
+    if &expected != contact.identity_public_key() {
+        return Err("contact does not match the trusted recipient".into());
+    }
+    Ok(contact)
+}
+
+fn create(
+    owner: &Path,
+    into: &Path,
+    env: &str,
+    write_mode: share_publication::WriteMode,
+) -> Result<(), String> {
     lastdb_node::offline_home::refuse_primary(into)?;
     if into.starts_with(owner) {
         return Err("publication home must be separate from the identity home".into());
@@ -80,7 +132,7 @@ fn create(owner: &Path, into: &Path, env: &str) -> Result<(), String> {
         "prod" => ShareEnvironment::Prod,
         _ => return Err("invalid share environment".into()),
     };
-    let prepared = share_publication::prepare(owner, environment)?;
+    let prepared = share_publication::prepare(owner, environment, write_mode)?;
     let marker =
         serde_json::to_vec(&prepared.marker).map_err(|_| "cannot encode publication marker")?;
     let mut target = target.create()?;
@@ -91,7 +143,7 @@ fn create(owner: &Path, into: &Path, env: &str) -> Result<(), String> {
         "{}",
         serde_json::json!({
             "home": into, "publication_id": prepared.marker.id, "publisher_public_key": prepared.marker.publisher,
-            "environment": prepared.marker.environment,
+            "environment": prepared.marker.environment, "write_mode": prepared.marker.write_mode,
         })
     );
     Ok(())

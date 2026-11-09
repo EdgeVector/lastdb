@@ -53,6 +53,25 @@ impl MutationManager {
                 .runtime
                 .record_read_stage("request-start", request.mutations.len());
             let mutations = request.mutations;
+            if let Some(admission) = mutations.iter().find_map(|item| item.contribution.as_ref()) {
+                if mutations.len() != 1 {
+                    return Err(SchemaError::InvalidData(
+                        "a contribution requires one native mutation".into(),
+                    ));
+                }
+                let replay = self
+                    .db_ops
+                    .metadata()
+                    .stage_contribution_receipt(&admission.receipt_id, &admission.intent_digest)
+                    .await?;
+                if replay {
+                    return Ok(NativeCommit {
+                        mutation_ids: vec![mutations[0].uuid.clone()],
+                        record_revisions: std::collections::BTreeMap::new(),
+                        operations: ResidentCommitOperations::default(),
+                    });
+                }
+            }
             let mut record_revisions = std::collections::BTreeMap::new();
             let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);

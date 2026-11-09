@@ -10,6 +10,9 @@ pub(crate) enum ShareCommand {
         /// Exemem environment of the publisher's account.
         #[arg(long, value_parser = ["dev", "prod"])]
         env: String,
+        /// Whether this share accepts privately submitted contributor mutations.
+        #[arg(long, default_value = "publisher-only", value_parser = ["publisher-only", "publisher-validated"])]
+        write_mode: String,
     },
     /// Export this LastDB identity's public contact code.
     Contact {
@@ -45,9 +48,78 @@ pub(crate) enum ShareCommand {
         #[command(flatten)]
         selection: GuestStageSelection,
     },
+    /// Read an exact record from a locally verified share snapshot.
+    Get {
+        #[command(flatten)]
+        share: ShareFilesSelection,
+        /// Canonical schema name in the share.
+        #[arg(long)]
+        schema: String,
+        /// Hash component of the record's primary key.
+        #[arg(long)]
+        key_hash: String,
+        /// Range component of a HashRange primary key.
+        #[arg(long)]
+        key_range: Option<String>,
+    },
+    /// Manage and submit privately routed contributor mutations.
+    #[command(subcommand)]
+    Contributors(ShareContributorCommand),
     /// Share files with the LastDB Files app.
     #[command(subcommand)]
     Files(ShareFilesCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ShareContributorCommand {
+    /// Authorize a recipient and write their sealed contributor grant.
+    Grant {
+        /// Absolute path of the publication home.
+        #[arg(long)]
+        home: PathBuf,
+        /// Contact file obtained from the intended recipient.
+        #[arg(long)]
+        recipient: PathBuf,
+        /// Recipient's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long)]
+        recipient_key: String,
+        /// File containing a JSON array of allowed write rules.
+        #[arg(long)]
+        rules: PathBuf,
+        /// Stable operation UUID for retries.
+        #[arg(long)]
+        operation_id: String,
+        /// Current grant version. Use zero for a writer who has never had a grant.
+        #[arg(long)]
+        expected_version: u64,
+        /// New path for the sealed contributor grant.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Revoke the recipient's write grant without changing their read invitation.
+    Revoke {
+        /// Absolute path of the publication home.
+        #[arg(long)]
+        home: PathBuf,
+        /// Contributor's Ed25519 public key in lowercase hex.
+        #[arg(long)]
+        recipient_key: String,
+        /// Current grant version.
+        #[arg(long)]
+        expected_version: u64,
+    },
+    /// Submit one encrypted mutation for the publisher to validate.
+    Submit {
+        /// Sealed contributor grant from the publisher.
+        #[arg(long)]
+        grant: PathBuf,
+        /// Publisher's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long)]
+        publisher: String,
+        /// File containing the JSON mutation request.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]

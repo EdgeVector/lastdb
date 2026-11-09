@@ -50,6 +50,10 @@ impl ShareRecipient {
         self.contact.clone()
     }
 
+    pub(crate) fn encryption_secret(&self) -> &StaticSecret {
+        &self.secret
+    }
+
     pub(crate) fn cache_key(
         &self,
         handle: &cloud_backup_protocol::Id,
@@ -90,6 +94,10 @@ impl ShareContact {
     /// The verified raw Ed25519 identity encoded as lowercase hex.
     pub fn identity_public_key(&self) -> &Digest {
         &self.identity_public_key
+    }
+
+    pub(crate) fn encryption_key(&self) -> PublicKey {
+        self.encryption
     }
 
     fn verified(identity: [u8; 32], encryption: PublicKey, signature: [u8; 64]) -> Result<Self> {

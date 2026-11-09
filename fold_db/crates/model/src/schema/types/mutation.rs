@@ -17,6 +17,14 @@ pub fn is_zero_u64(value: &u64) -> bool {
     *value == 0
 }
 
+/// Native preconditions supplied after verifying a signed share contribution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContributionAdmission {
+    pub definition_id: String,
+    pub receipt_id: [u8; 32],
+    pub intent_digest: [u8; 32],
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Mutation {
     pub uuid: String,
@@ -82,6 +90,9 @@ pub struct Mutation {
     /// the log entry is the stored record, and author signatures do not cover it.
     #[serde(skip)]
     pub definition_id: Option<String>,
+    /// Native-only authorization and replay identity, never decoded from an app mutation.
+    #[serde(skip)]
+    pub contribution: Option<ContributionAdmission>,
 }
 
 impl Mutation {
@@ -118,6 +129,7 @@ impl Mutation {
             file_write: None,
             inline_write: None,
             definition_id: None,
+            contribution: None,
         }
     }
 
@@ -163,7 +175,7 @@ impl Mutation {
             _ => {
                 return Err(invalid(
                     "create requires absent; replace/delete/purge require a record revision",
-                ))
+                ));
             }
         }
         if matches!(
