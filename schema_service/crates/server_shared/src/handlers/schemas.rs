@@ -77,7 +77,7 @@ pub async fn get_available_schemas(
         .filter(|(_, schema)| source.keeps(schema))
         .map(|(name, schema)| SchemaEnvelope {
             schema: schema.clone(),
-            system: state.is_system_schema(name),
+            system: false,
         })
         .collect();
 

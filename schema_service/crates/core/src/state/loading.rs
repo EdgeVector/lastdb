@@ -107,8 +107,6 @@ impl SchemaServiceState {
             embedder,
             anti_field_embedding_cache: Arc::new(RwLock::new(None)),
             storage: SchemaStorage::External(backend),
-            system_schema_hashes: Arc::new(RwLock::new(HashSet::new())),
-            seeding_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             collection_name_anchors,
             near_misses: Arc::new(RwLock::new(Vec::new())),
             state_version: Arc::new(AtomicU64::new(0)),

@@ -16,12 +16,11 @@ pub(super) fn full_component_cover_response(
     if let Some(hash) = composition.matched_shared_schema_hash.as_deref() {
         match state.get_schema_by_name(hash) {
             Ok(Some(schema)) => {
-                let system = state.is_system_schema(&schema.name);
                 return Some(HttpResponse::Ok().json(AddSchemaResponse {
                     schema,
                     mutation_mappers: request.mutation_mappers.clone(),
                     replaced_schema: None,
-                    system,
+                    system: false,
                     composed: false,
                     composition: Some(composition.clone()),
                 }));
@@ -35,12 +34,11 @@ pub(super) fn full_component_cover_response(
         Err(error) => return Some(internal_error("Cannot normalize covered schema", error)),
     };
     normalized.compute_identity_hash();
-    let system = state.is_system_schema(&normalized.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
         schema: normalized,
         mutation_mappers: request.mutation_mappers.clone(),
         replaced_schema: None,
-        system,
+        system: false,
         composed: true,
         composition: Some(composition.clone()),
     }))

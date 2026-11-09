@@ -44,19 +44,6 @@ impl SchemaServiceState {
         {
             return false;
         }
-        // Never reuse INTO a system/infrastructure schema. The Phase-1
-        // built-ins (Fingerprint, Edge, Identity, Persona, …) are
-        // authoritative and are seeded through this same `add_schema`
-        // path at startup; letting a fuzzy purpose match expand one
-        // built-in into another would (a) break the
-        // `builtin_schemas::seed` invariant that built-ins never expand
-        // an existing schema — aborting service start — and (b) dissolve
-        // a distinct system identity. A user schema that genuinely IS a
-        // built-in concept already merges via the exact/semantic-name
-        // seam upstream; this last-chance fuzzy path stays user→user.
-        if self.is_system_schema(&existing.name) {
-            return false;
-        }
         if super::super::state_expansion::is_cross_key_layout(incoming, existing) {
             return false;
         }

@@ -13,11 +13,9 @@ pub struct AddSchemaResponse {
     /// that was replaced. The node should remove the old schema and load the new one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replaced_schema: Option<String>,
-    /// True iff the returned schema is a system/infrastructure
-    /// schema. See `SchemaEnvelope` for background. Always `false`
-    /// for schemas added via this endpoint — the add-schema path is
-    /// the user-data entry point — but emitted explicitly so clients
-    /// don't need a second round-trip to classify.
+    /// Always `false`. The service does not classify a schema as
+    /// system. The field stays on the wire because clients deserialize
+    /// it as a bool.
     #[serde(default)]
     pub system: bool,
     /// True when native component cover marks the returned schema as a

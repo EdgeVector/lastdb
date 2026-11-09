@@ -42,9 +42,6 @@ impl SchemaServiceState {
         &self,
         incoming: &Schema,
     ) -> Option<(String, String)> {
-        if self.is_seeding_in_progress() {
-            return None;
-        }
         let inc_desc = strip_decollision_suffix(incoming.descriptive_name.as_deref()?);
         let field_fidelity = REUSE_FIELD_FIDELITY_FLOOR;
 
@@ -63,9 +60,6 @@ impl SchemaServiceState {
                 continue;
             }
             if normalize(existing.owner_app_id.as_deref()) != target_owner {
-                continue;
-            }
-            if self.is_system_schema(&existing.name) {
                 continue;
             }
             // Different lookup keys ⇒ multi-key sibling, not field-reuse merge target.
@@ -137,14 +131,6 @@ impl SchemaServiceState {
         incoming: &Schema,
         allow_same_name: bool,
     ) -> Option<(String, String)> {
-        // Authoritative seeding (built-ins, persona/schema.org seeds) must
-        // register its committed schemas EXACTLY — never fuzzy-merge one into a
-        // semantically-near committed neighbour. Skip the whole fuzzy path
-        // while a seeder is running (keeps `builtin_schemas::seed`'s "built-ins
-        // never expand" startup invariant and the deterministic seed registry).
-        if self.is_seeding_in_progress() {
-            return None;
-        }
         // A proposal with no descriptive_name has no structural signal to floor
         // against — leave it to register as new (it can't safely reuse).
         incoming.descriptive_name.as_deref()?;

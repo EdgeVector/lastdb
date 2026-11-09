@@ -124,9 +124,8 @@ impl SchemaServiceState {
     /// even in Lambda environments where fastembed can't fetch its
     /// ONNX weights.
     ///
-    /// fold_db_node always fetches Phase 1 built-ins by descriptive
-    /// name at startup, so this fallback is load-bearing for booting
-    /// any node against a fresh schema service.
+    /// Callers look up a schema by descriptive name, so this fallback
+    /// stays.
     pub fn get_schema_by_name(&self, name: &str) -> FoldDbResult<Option<Schema>> {
         let schemas = read_lock(&self.schemas, "schemas")?;
 
@@ -154,61 +153,5 @@ impl SchemaServiceState {
     /// Get schema count (public accessor for Lambda integration)
     pub fn get_schema_count(&self) -> usize {
         self.schemas.read().map_or(0, |s| s.len())
-    }
-
-    /// Record an identity hash as a system/infrastructure schema.
-    ///
-    /// Called by `builtin_schemas::seed()` during startup for each
-    /// Phase 1 built-in. Idempotent. See
-    /// [`SchemaServiceState::system_schema_hashes`] for background.
-    pub fn mark_system_schema(&self, identity_hash: String) {
-        if let Ok(mut set) = self.system_schema_hashes.write() {
-            set.insert(identity_hash);
-        }
-    }
-
-    /// Mark the start/end of an authoritative seed load. Wrap each committed
-    /// seeder body in `set_seeding_in_progress(true)` … `(false)` so the fuzzy
-    /// reuse-before-NEW path is disabled for those `add_schema` calls — seed
-    /// schemas must register exactly as committed, never fuzzily merge into a
-    /// near-neighbour. See [`Self::seeding_in_progress`].
-    pub fn set_seeding_in_progress(&self, on: bool) {
-        self.seeding_in_progress
-            .store(on, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Whether an authoritative seeder is currently loading committed schemas.
-    pub(crate) fn is_seeding_in_progress(&self) -> bool {
-        self.seeding_in_progress
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// True if the given schema is a system/infrastructure schema
-    /// (one of the Phase 1 built-ins such as Fingerprint, Edge,
-    /// Identity, Persona, etc.).
-    ///
-    /// Accepts either an identity hash (the canonical storage key)
-    /// or a descriptive_name (`"Persona"`, `"Fingerprint"`, …). This
-    /// matches `get_schema_by_name`'s lookup semantics so callers
-    /// can classify a schema by whatever key they already have.
-    pub fn is_system_schema(&self, schema_name_or_hash: &str) -> bool {
-        if let Ok(set) = self.system_schema_hashes.read() {
-            if set.contains(schema_name_or_hash) {
-                return true;
-            }
-        }
-
-        let resolved_hash = match self.descriptive_name_index.read() {
-            Ok(index) => index.get(schema_name_or_hash).cloned(),
-            Err(_) => return false,
-        };
-
-        if let Some(hash) = resolved_hash {
-            if let Ok(set) = self.system_schema_hashes.read() {
-                return set.contains(&hash);
-            }
-        }
-
-        false
     }
 }

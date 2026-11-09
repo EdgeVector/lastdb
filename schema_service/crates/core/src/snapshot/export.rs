@@ -2,9 +2,8 @@ use serde_json::Value;
 
 use super::*;
 
-/// Offline system-schema heuristic for snapshot projection when the live
-/// `system_schema_hashes` set is not available (e.g. pack publisher reading
-/// a JSON file). Matches seed sources that classify as system-owned.
+/// Offline system-schema heuristic for snapshot projection. A schema
+/// counts as system-owned when its source is `SystemSeed` or `StarterSeed`.
 pub fn offline_is_system_schema(schema: &Schema) -> bool {
     matches!(
         schema.source,
@@ -20,9 +19,8 @@ pub fn offline_is_system_schema(schema: &Schema) -> bool {
 /// trims descriptive-name and field embedding caches to surviving rows.
 /// Canonical-field registry + embeddings stay (they are shared vocabulary).
 ///
-/// `is_system` classifies system seeds the same way as
-/// [`SchemaServiceState::is_system_schema`] when available; pack publishers
-/// should pass [`offline_is_system_schema`].
+/// `is_system` classifies each schema. Callers pass
+/// [`offline_is_system_schema`].
 pub fn project_snapshot_shared_only<F>(
     mut envelope: SnapshotEnvelope,
     mut is_system: F,
@@ -176,15 +174,7 @@ impl SchemaServiceState {
     /// unknown rows never appear in the result.
     pub fn export_shared_only_snapshot(&self) -> FoldDbResult<SnapshotEnvelope> {
         let full = self.export_snapshot()?;
-        Ok(project_snapshot_shared_only(full, |schema| {
-            let key = schema
-                .identity_hash
-                .as_deref()
-                .unwrap_or(schema.name.as_str());
-            self.is_system_schema(key)
-                || self.is_system_schema(&schema.name)
-                || offline_is_system_schema(schema)
-        }))
+        Ok(project_snapshot_shared_only(full, offline_is_system_schema))
     }
 
     /// Classify [`Self::export_snapshot`] for the HTTP routers.

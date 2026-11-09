@@ -123,12 +123,6 @@ impl SchemaServiceState {
 
         let target_fields = collect_field_names(target);
 
-        let system_set: HashSet<String> = self
-            .system_schema_hashes
-            .read()
-            .map(|set| set.iter().cloned().collect())
-            .unwrap_or_default();
-
         let mut similar: Vec<SimilarSchemaEntry> = schemas
             .iter()
             .filter(|(k, _)| k.as_str() != name)
@@ -139,7 +133,7 @@ impl SchemaServiceState {
                     Some(SimilarSchemaEntry {
                         schema: SchemaEnvelope {
                             schema: schema.clone(),
-                            system: system_set.contains(schema_name),
+                            system: false,
                         },
                         similarity,
                     })
@@ -257,13 +251,12 @@ impl SchemaServiceState {
             }
             let is_superset = unmapped.is_empty();
 
-            let system = self.is_system_schema(&active_schema.name);
             results.insert(
                 entry.descriptive_name.clone(),
                 SchemaReuseMatch {
                     schema: SchemaEnvelope {
                         schema: active_schema,
-                        system,
+                        system: false,
                     },
                     matched_descriptive_name: matched_desc,
                     is_exact_match: is_exact,
