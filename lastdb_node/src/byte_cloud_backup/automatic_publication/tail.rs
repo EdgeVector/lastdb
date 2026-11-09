@@ -116,34 +116,33 @@ impl Publisher {
         }
         let mut minimum = Frontiers { main: frontier };
         let mut log = None;
-        if let Some(limit) = limit {
-            let journal = runtime.mutation_log_status()?;
-            if !journal.enabled {
-                runtime.configure_mutation_log(true)?;
+        let journal = runtime.mutation_log_status()?;
+        if !journal.enabled {
+            runtime.configure_mutation_log(true)?;
+        }
+        let anchored = point.as_ref().filter(|point| {
+            journal.enabled
+                && !journal.snapshot_required
+                && point.anchor.is_some()
+                && journal.anchor == point.anchor
+        });
+        if let (Some(limit), Some(point)) = (limit, anchored) {
+            if point.frontiers.main == frontier {
+                return Ok(None);
             }
-            if let Some(point) = point.as_ref().filter(|point| {
-                journal.enabled
-                    && !journal.snapshot_required
-                    && point.anchor.is_some()
-                    && journal.anchor == point.anchor
-            }) {
-                if point.frontiers.main == frontier {
-                    return Ok(None);
-                }
-                let checkpoints = point.accepted.ordinal.get() - point.base.ordinal.get();
-                if checkpoints < u64::from(limit) {
-                    let context = point.log_context()?;
-                    if journal
-                        .head
-                        .is_some_and(|head| head.sequence > context.from.sequence)
-                    {
-                        // A capture may split a large tail into several checkpoints.
-                        minimum.main = point.frontiers.main + 1;
-                        log = Some(Box::new(context));
-                    }
+            let checkpoints = point.accepted.ordinal.get() - point.base.ordinal.get();
+            if checkpoints < u64::from(limit) {
+                let context = point.log_context()?;
+                if journal
+                    .head
+                    .is_some_and(|head| head.sequence > context.from.sequence)
+                {
+                    // A capture may split a large tail into several checkpoints.
+                    minimum.main = point.frontiers.main + 1;
+                    log = Some(Box::new(context));
                 }
             }
-        } else if point
+        } else if anchored
             .is_some_and(|point| point.base == point.accepted && point.frontiers.main == frontier)
         {
             return Ok(None);
