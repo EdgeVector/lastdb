@@ -2,12 +2,13 @@
 //! [`UdsSocket::serve`] (invariant **I3a**).
 
 use super::*;
+use fold_db::access::CallerVerification;
 
 // --- Accept loop (I3a) ------------------------------------------------------
 //
 // The loop that runs on the bound listener: it accepts connections, evaluates
 // each one's peer credential (above), drops the rejected ones, and hands each
-// accepted connection — with its access posture — to a dispatch
+// accepted connection, with its verification, to a dispatch
 // callback. The caller supplies the verifier and the HTTP handler callback.
 // This loop owns accept, peer evaluation, dispatch, and graceful shutdown;
 // it does not parse HTTP.
@@ -237,7 +238,7 @@ impl UdsSocket {
     /// connection is dropped (its stream closed) and logged with numeric ids
     /// only — never any namespace data (the I4 concern). A
     /// [`UdsConnVerdict::Accepted`] one is handed to `on_accept` together with
-    /// the [`CallerTransport`] / [`CallerVerification`] it contributes to an
+    /// the [`CallerVerification`] it contributes to an
     /// [`AccessContext`](fold_db::access::AccessContext). The injected verifier
     /// can upgrade the base `Unverified` posture after the same-user gate.
     /// A connection whose peer-credential read errors is dropped and the
@@ -255,7 +256,7 @@ impl UdsSocket {
         mut on_accept: F,
     ) -> io::Result<()>
     where
-        F: FnMut(std::os::unix::net::UnixStream, CallerTransport, CallerVerification),
+        F: FnMut(std::os::unix::net::UnixStream, CallerVerification),
         V: Fn(Option<CallerHandle>) -> CallerVerification,
     {
         use std::os::unix::io::AsRawFd;
@@ -314,7 +315,7 @@ impl UdsSocket {
             }
             match evaluate_connection(&stream, owner_uid) {
                 Ok(verdict) => {
-                    if let Some((transport, _base)) = verdict.access_posture() {
+                    if verdict.is_accepted() {
                         // I3b: upgrade the base `Unverified` posture by running the
                         // code-signature check on the accepted caller handle — the
                         // audit token when reported (blocker B3: its pidversion
@@ -322,7 +323,7 @@ impl UdsSocket {
                         // OS-/feature-injected — the real macOS `SecCode` check in
                         // production, `Unverified` on platforms/builds without it.
                         let verification = verify_handle(verdict.candidate_handle());
-                        on_accept(stream, transport, verification);
+                        on_accept(stream, verification);
                     } else {
                         drop_rejected(stream, &verdict);
                     }

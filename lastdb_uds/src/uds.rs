@@ -282,23 +282,22 @@ impl Drop for UdsSocket {
 // boundary can act on. This is the *decision* layer of the accept loop. Two
 // further steps build on it:
 //   - the loop that spawns on the listener and dispatches accepted connections
-//     into the HTTP handler stack, threading the posture below into each
-//     request's `AccessContext`, and
+//     into the HTTP handler stack, threading verification into each request's
+//     `AccessContext`, and
 //   - the macOS code-signature check (I3b / B4) that promotes an accepted
 //     connection from `Unverified` to `CodeSignatureVerified`.
-// Until that code-signature check runs, an accepted same-user peer is
-// `UnixSocket` transport but still `Unverified` — the UDS transport establishes
-// *same-user*, never *app identity*.
+// Until that check runs, an accepted same-user peer stays unverified. The
+// same-user gate is not app identity.
 
-use fold_db::access::{AuditToken, CallerHandle, CallerTransport, CallerVerification};
+use fold_db::access::{AuditToken, CallerHandle};
 
 /// Verdict for a connection accepted on the control socket (invariant **I3a**).
 ///
 /// Carries only numeric ids (uid/pid) and the opaque audit-token words — never
 /// any namespace data — so logging or auditing a verdict cannot leak
 /// isolated-namespace content (the I4 concern). It mirrors the pure
-/// [`PeerCredVerdict`](fold_db::access::PeerCredVerdict) one transport layer up,
-/// adding the access posture the accept loop attaches to a request.
+/// [`PeerCredVerdict`](fold_db::access::PeerCredVerdict) one layer up, adding
+/// the same-user decision the accept loop uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsConnVerdict {
     /// Same-user peer. Dispatched only as `Unverified` until code-signature check.
@@ -329,21 +328,12 @@ impl UdsConnVerdict {
         }
     }
 
-    /// The transport + verification this connection contributes to an
-    /// [`AccessContext`](fold_db::access::AccessContext).
+    /// Whether this connection passed the same-user gate.
     ///
-    /// An accepted same-user peer is [`CallerTransport::UnixSocket`] but remains
-    /// [`CallerVerification::Unverified`] — the UDS transport establishes
-    /// *same-user*, not *app identity*; only the I3b code-signature check
-    /// upgrades it to `CodeSignatureVerified`. A rejected connection yields
-    /// `None`: it must be dropped, never turned into a request context.
-    pub fn access_posture(&self) -> Option<(CallerTransport, CallerVerification)> {
-        match self {
-            Self::Accepted { .. } => {
-                Some((CallerTransport::UnixSocket, CallerVerification::Unverified))
-            }
-            Self::Rejected { .. } => None,
-        }
+    /// A rejected connection is dropped and never becomes a request context.
+    /// An accepted peer stays unverified until the code-signature check.
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted { .. })
     }
 }
 

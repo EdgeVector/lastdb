@@ -6,20 +6,18 @@ use std::os::unix::net::UnixStream;
 pub(super) fn serve(
     server: &Server,
     stream: UnixStream,
-    transport: CallerTransport,
     verification: CallerVerification,
     completion: ConnectionWork,
 ) -> std::io::Result<()> {
     // Workers never wait for byte permits: queued responses must stay runnable.
     if let Some(body) = server.body_budget.try_reserve() {
-        return serve_reserved(server, stream, transport, verification, completion, body);
+        return serve_reserved(server, stream, verification, completion, body);
     }
     let server = server.clone();
     server.handle.clone().spawn(async move {
         match server.body_budget.reserve().await {
             Ok(body) => completion.resume(stream, move |stream, completion| {
-                let result =
-                    serve_reserved(&server, stream, transport, verification, completion, body);
+                let result = serve_reserved(&server, stream, verification, completion, body);
                 log_result(result);
                 collect_finished_request_heap();
             }),
@@ -32,7 +30,6 @@ pub(super) fn serve(
 fn serve_reserved(
     server: &Server,
     mut stream: UnixStream,
-    transport: CallerTransport,
     verification: CallerVerification,
     completion: ConnectionWork,
     mut body: body_budget::BodyLease,
@@ -41,7 +38,6 @@ fn serve_reserved(
         &mut stream,
         &server.host.user_hash,
         SocketKind::Owner,
-        transport,
         verification,
     )?
     else {

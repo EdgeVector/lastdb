@@ -2,32 +2,13 @@
 //!
 //! Enforcement of trust tiers / capabilities / payment is **not** performed
 //! on local query/mutation paths. These types remain for host/node request
-//! identity (`AccessContext`, transport, verification).
+//! identity (`AccessContext` and verification).
 //!
 //! The live local gate is OS peer-cred in [`super::peer_cred`].
 
 use serde::{Deserialize, Serialize};
 
-/// Transport channel a request arrived on (identity / audit metadata only).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CallerTransport {
-    /// TCP loopback — no OS peer identity.
-    #[default]
-    LoopbackTcp,
-    /// Unix-domain socket — OS peer credentials available.
-    UnixSocket,
-    /// Owner desktop UI (Tauri).
-    Tauri,
-    /// Owner browser session after pairing ceremony.
-    BrowserSession,
-    /// In-process call.
-    InProcess,
-    /// Message from another node (self-asserted identity only).
-    RemoteNode,
-}
-
-/// Whether the caller's app/node identity has been verified at the host edge.
+/// Whether the caller's app identity has been verified at the host edge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CallerVerification {
@@ -35,10 +16,6 @@ pub enum CallerVerification {
     Unverified,
     CodeSignatureVerified {
         app_id: String,
-    },
-    /// Peer node identity accepted by the host (no relationship ladder).
-    RemoteIdentityVerified {
-        node_pubkey: String,
     },
 }
 
@@ -49,9 +26,6 @@ pub struct AccessContext {
     pub user_id: String,
     /// Whether this is the data owner.
     pub is_owner: bool,
-    /// Transport this request arrived on.
-    #[serde(default)]
-    pub transport: CallerTransport,
     /// Host-accepted identity verification, if any.
     #[serde(default)]
     pub verification: CallerVerification,
@@ -70,7 +44,6 @@ impl AccessContext {
         Self {
             user_id: user_id.into(),
             is_owner: true,
-            transport: CallerTransport::default(),
             verification: CallerVerification::default(),
             peer_pid: None,
         }
@@ -81,19 +54,12 @@ impl AccessContext {
         Self {
             user_id: user_id.into(),
             is_owner: false,
-            transport: CallerTransport::default(),
             verification: CallerVerification::default(),
             peer_pid: None,
         }
     }
 
-    /// Record the transport this request arrived on (builder-style).
-    pub fn with_transport(mut self, transport: CallerTransport) -> Self {
-        self.transport = transport;
-        self
-    }
-
-    /// Record host-accepted app/node identity (builder-style).
+    /// Record host-accepted app identity (builder-style).
     pub fn with_verification(mut self, verification: CallerVerification) -> Self {
         self.verification = verification;
         self
@@ -117,9 +83,7 @@ impl AccessContext {
     pub fn verified_app_id(&self) -> Option<&str> {
         match &self.verification {
             CallerVerification::CodeSignatureVerified { app_id } => Some(app_id.as_str()),
-            CallerVerification::Unverified | CallerVerification::RemoteIdentityVerified { .. } => {
-                None
-            }
+            CallerVerification::Unverified => None,
         }
     }
 }
