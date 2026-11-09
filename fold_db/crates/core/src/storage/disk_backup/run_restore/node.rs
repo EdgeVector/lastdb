@@ -25,6 +25,13 @@ struct LocalRoot {
     profile: RunBackupHome,
 }
 
+#[derive(Clone, Copy)]
+enum NodeOpen {
+    Exclusive,
+    Replayed,
+    Snapshot,
+}
+
 impl LocalRoot {
     fn open(root: &Path, key: &[u8; 32], budget: u64) -> StorageResult<Self> {
         let name = run_node::PRIVATE_DIR;
@@ -99,26 +106,34 @@ impl RunNodeGuard {
     }
 
     pub(super) fn open(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_with_local(root, key, false)
+        Self::open_mode(root, key, NodeOpen::Exclusive)
     }
 
-    fn open_with_local(root: &Path, key: &[u8; 32], replayed: bool) -> StorageResult<Self> {
+    pub(super) fn open_snapshot(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
+        Self::open_mode(root, key, NodeOpen::Snapshot)
+    }
+
+    fn open_mode(root: &Path, key: &[u8; 32], mode: NodeOpen) -> StorageResult<Self> {
+        let shared = matches!(mode, NodeOpen::Snapshot);
         let directory = files::directory(root)?;
-        let marker = files::regular(&root.join(NODE_MARKER), true)?;
-        marker
-            .try_lock()
-            .map_err(|_| invalid("run restore node is owned"))?;
+        let marker = files::regular(&root.join(NODE_MARKER), !shared)?;
+        if shared {
+            marker.try_lock_shared()
+        } else {
+            marker.try_lock()
+        }
+        .map_err(|_| invalid("run restore node is owned"))?;
         files::node_marker(root)?;
         let version = files::profile_version(root)?
             .ok_or_else(|| invalid("run restore logical profile is absent"))?;
-        let with_private = replayed && version == crate::storage::format::SHARED_RECORD_PROFILE;
+        let with_private = matches!(mode, NodeOpen::Replayed)
+            && version == crate::storage::format::SHARED_RECORD_PROFILE;
         files::require_root_members(root, with_private)?;
         let homes = [
             files::prepare_home(root, run_node::RUN_DIR)?,
             files::prepare_home(root, run_node::CAS_DIR)?,
         ];
-        let (mut main, mut cas) =
-            super::open_paired_runs(root, key, "paired run metadata exceeds memory admission")?;
+        let (mut main, mut cas) = super::open_paired_runs(root, key, shared)?;
         let private = if with_private {
             let budget = lastdb_storage_policy::BACKUP_RESOURCES
                 .working_memory_bytes
@@ -167,7 +182,7 @@ pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunN
 
 /// Verify the rebuilt device-private state as well as the original shared roots.
 pub fn validate_replayed_shared_node(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    RunNodeGuard::open_with_local(root, key, true).map(|_| ())
+    RunNodeGuard::open_mode(root, key, NodeOpen::Replayed).map(|_| ())
 }
 
 fn check_home(

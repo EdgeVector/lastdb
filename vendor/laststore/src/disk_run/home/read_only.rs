@@ -2,6 +2,7 @@
 
 use super::{manifest::Manifest, read_descriptor, ReadBudget, RunRead, RunReadCosts};
 use crate::{Error, Result};
+use rustix::fs::FlockOperation;
 use std::fs::OpenOptions;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
@@ -59,7 +60,13 @@ impl RunRead {
     /// The existing owner lock excludes writers for the lifetime of this read.
     /// Missing descriptor, CURRENT, or LOCK is an error, never initialization.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
-        Self::open_existing_inner(root, key, budget, None)
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            None,
+            FlockOperation::NonBlockingLockExclusive,
+        )
     }
 
     /// Open an inactive root with explicit combined metadata-memory admission.
@@ -69,13 +76,37 @@ impl RunRead {
         budget: ReadBudget,
         maximum: u64,
     ) -> Result<Self> {
-        Self::open_existing_inner(root, key, budget, Some(maximum))
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            Some(maximum),
+            FlockOperation::NonBlockingLockExclusive,
+        )
     }
+
+    /// Open an existing root alongside other readers while excluding writers.
+    pub fn open_existing_shared_bounded(
+        root: &Path,
+        key: &[u8; 32],
+        budget: ReadBudget,
+        maximum: u64,
+    ) -> Result<Self> {
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            Some(maximum),
+            FlockOperation::NonBlockingLockShared,
+        )
+    }
+
     fn open_existing_inner(
         root: &Path,
         key: &[u8; 32],
         budget: ReadBudget,
         maximum: Option<u64>,
+        operation: FlockOperation,
     ) -> Result<Self> {
         let root = root.canonicalize()?;
         let lock = OpenOptions::new()
@@ -87,7 +118,7 @@ impl RunRead {
                 "disk run snapshot: LOCK is not a file".into(),
             ));
         }
-        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+        rustix::fs::flock(&lock, operation)
             .map_err(|_| Error::Config("disk run snapshot: another owner holds the home".into()))?;
         super::owner::require_path(&root, &lock)?;
         let identity = read_descriptor(&root)?;
