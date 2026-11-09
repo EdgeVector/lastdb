@@ -89,6 +89,9 @@ pub(crate) fn spawn(
         source,
     };
     publisher.policy()?;
+    if !publisher.source.runtime().mutation_log_status()?.enabled {
+        publisher.source.runtime().configure_mutation_log(true)?;
+    }
     Ok(tokio::spawn(
         async move {
             publisher.run(&shutdown, &client).await;
