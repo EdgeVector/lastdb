@@ -19,9 +19,7 @@ impl SchemaServiceState {
     /// Whether a resolve proposal and an existing schema describe the same
     /// data, by the register path's purpose gate: the same
     /// `"{descriptive_name} — {purpose}"` blob and threshold as
-    /// [`Self::dual_signal_diagnostic`], off only when
-    /// `SCHEMA_DUAL_SIGNAL_CANONICALIZATION` turns it off. An embedder failure
-    /// is a veto, as in the Phase B hot path.
+    /// [`Self::dual_signal_diagnostic`]. An embedder failure is a veto.
     ///
     /// Shared generic fields (`repo`, `oid`, `schema_version`, a composite key
     /// described the same way) are not evidence of the same data: every
@@ -63,9 +61,6 @@ impl SchemaServiceState {
         proposal: &SchemaResolveProposal,
         existing: &Schema,
     ) -> bool {
-        if !self.dual_signal_canonicalization_enabled() {
-            return true;
-        }
         let inc_blob = format!(
             "{} — {}",
             proposal.descriptive_name,

@@ -4,7 +4,7 @@ name = "schema_service_s3"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Shared S3 + DynamoDB persistence backend for schema_service. Implements `ExternalSchemaPersistence` against the canonical S3 layout (schemas.json / canonical_fields.json / near_misses.json / apps.json) and a DynamoDB embeddings table. Consumed by both the request-path Lambda (server_lambda) and the async compile worker (worker)."
+description = "Shared S3 + DynamoDB persistence backend for schema_service. Implements `ExternalSchemaPersistence` against the canonical S3 layout (schemas.json / canonical_fields.json / apps.json) and a DynamoDB embeddings table. Consumed by both the request-path Lambda (server_lambda) and the async compile worker (worker)."
 
 [dependencies]
 schema_service_core = { path = "../core", default-features = false }

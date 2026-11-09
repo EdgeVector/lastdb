@@ -84,35 +84,6 @@ pub async fn get_available_schemas(
     HttpResponse::Ok().json(AvailableSchemasResponse { schemas: envelopes })
 }
 
-/// `GET /v1/canonicalization-near-misses` — Phase C shadow-mode audit
-/// log. Reads from the in-memory cache populated at startup and
-/// appended to whenever the dual-signal algorithm would disagree with
-/// the single-signal one (only happens when `SCHEMA_SHADOW_MODE=true`
-/// at registration time, so an empty response on a server that has
-/// shadow mode disabled is expected).
-///
-/// Records are returned newest-first. Filtering happens before
-/// pagination: `total` is the count after `since`/`until` are applied,
-/// `next_offset` carries the cursor when more records remain.
-#[allow(
-    clippy::unused_async,
-    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
-)]
-pub async fn list_near_misses(
-    state: web::Data<SchemaServiceState>,
-    query: web::Query<NearMissesQuery>,
-) -> impl Responder {
-    use schema_service_core::state::DEFAULT_NEAR_MISSES_LIMIT;
-    let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(DEFAULT_NEAR_MISSES_LIMIT);
-    HttpResponse::Ok().json(state.near_misses_reply(
-        query.since.as_deref(),
-        query.until.as_deref(),
-        offset,
-        limit,
-    ))
-}
-
 pub async fn get_schema(
     path: web::Path<String>,
     state: web::Data<SchemaServiceState>,

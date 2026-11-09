@@ -31,34 +31,6 @@ pub struct AvailableSchemasResponse {
     pub schemas: Vec<SchemaEnvelope>,
 }
 
-/// Query string for `GET /v1/canonicalization-near-misses`. All four
-/// parameters are optional. `since`/`until` are RFC 3339 timestamps
-/// applied to `NearMissRecord::timestamp`; `limit`/`offset` paginate the
-/// filtered set, newest-first.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NearMissesQuery {
-    /// Inclusive lower bound on record timestamp (RFC 3339).
-    pub since: Option<String>,
-    /// Exclusive upper bound on record timestamp (RFC 3339).
-    pub until: Option<String>,
-    /// Page size. Defaults to 100, capped at 1000 server-side.
-    pub limit: Option<usize>,
-    /// Starting offset into the filtered, newest-first record list.
-    /// Defaults to 0.
-    pub offset: Option<usize>,
-}
-
-/// Response body for `GET /v1/canonicalization-near-misses`. `total` is
-/// the count of records matching the time-range filter (pre-pagination);
-/// `next_offset` is `Some(offset + limit)` when more records remain or
-/// `None` when the caller has reached the end of the filtered set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NearMissesResponse {
-    pub near_misses: Vec<crate::near_miss::NearMissRecord>,
-    pub total: usize,
-    pub next_offset: Option<usize>,
-}
-
 /// A schema entry with its similarity score. The `schema` field
 /// carries the system/user classification via `SchemaEnvelope` so
 /// similarity results can be filtered or labelled without a second

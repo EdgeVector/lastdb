@@ -47,11 +47,7 @@ impl S3BlobPersistence {
         };
         let is_definition = matches!(
             key,
-            "definitions.json"
-                | "schemas.json"
-                | "canonical_fields.json"
-                | "near_misses.json"
-                | "declared_fields.json"
+            "definitions.json" | "schemas.json" | "canonical_fields.json" | "declared_fields.json"
         ) || key.starts_with("releases/")
             || key.starts_with("channels/");
         if is_definition {

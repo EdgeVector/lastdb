@@ -112,27 +112,3 @@ pub(crate) async fn get_snapshot_shared_only(
 ) -> Result<Response<Body>, Error> {
     handle_snapshot_export_shared_only(event, state).await
 }
-
-// ============== Phase C: Canonicalization near-misses ==============
-//
-// Shadow-mode audit log. Populated when `SCHEMA_SHADOW_MODE=true`
-// on the writer and the dual-signal algorithm would have
-// disagreed with the single-signal one. Filter + paginate via
-// the shared core helper so behavior matches the actix wrapper
-// bit-for-bit.
-pub(crate) fn get_canonicalization_near_misses(
-    state: &SchemaServiceState,
-    event: &Request,
-) -> Result<Response<Body>, Error> {
-    let since = query_param(event, "since=").map(str::to_owned);
-    let until = query_param(event, "until=").map(str::to_owned);
-    let offset: usize = query_param(event, "offset=")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-    let limit: usize = query_param(event, "limit=")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(schema_service_core::state::DEFAULT_NEAR_MISSES_LIMIT);
-    let resp = state.near_misses_reply(since.as_deref(), until.as_deref(), offset, limit);
-    let body = serde_json::to_value(&resp).map_err(serialization_error)?;
-    json_response(200, &body)
-}

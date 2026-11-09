@@ -15,10 +15,6 @@ impl Clock for SystemClock {
         schema_types::rfc3339::secs_z(schema_types::clock::wall_time())
     }
 
-    fn rfc3339(&self) -> String {
-        schema_types::rfc3339::subseconds(schema_types::clock::wall_time())
-    }
-
     fn unix_secs(&self) -> u64 {
         // Same read as before: whole seconds, and 0 when the clock is before the epoch.
         schema_types::clock::unix_secs()

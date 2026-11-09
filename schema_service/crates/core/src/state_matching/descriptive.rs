@@ -166,40 +166,31 @@ impl SchemaServiceState {
         sim >= 0.85
     }
 
-    /// Compute the Phase B/C diagnostic for one (incoming, existing) pair:
-    /// both the structural descriptive_name similarity and the dual-signal
-    /// purpose similarity, plus the gate result. Returns `None` when any
-    /// required embedding fails — callers treat that as a veto (Phase B
-    /// hot path) or as "no near-miss data" (Phase C shadow). The
-    /// "embedder failure = veto" rule matches the original
-    /// `purpose_signal_passes`.
+    /// Purpose gate for one structural pair.
+    ///
+    /// `Some(true)` when the purpose cosine is at least
+    /// [`PURPOSE_SIMILARITY_THRESHOLD`]. `Some(false)` when it is below.
+    /// `None` when a required embedding fails. Callers treat `None` as a veto.
+    ///
+    /// The descriptive-name embedding runs first and its cosine is not a
+    /// threshold. A failure of that call is still a veto when the purpose
+    /// embedding would have passed. Identical names and identical purpose
+    /// blobs skip the embedder, including the idempotent re-publish path.
     pub(crate) fn dual_signal_diagnostic(
         &self,
         incoming: &Schema,
         existing: &Schema,
-    ) -> Option<DualSignalDiagnostic> {
+    ) -> Option<bool> {
         let inc_desc = incoming.descriptive_name.as_deref().unwrap_or("");
         let ex_desc = existing.descriptive_name.as_deref().unwrap_or("");
         let inc_purpose = incoming.purpose_statement.as_deref().unwrap_or("");
         let ex_purpose = existing.purpose_statement.as_deref().unwrap_or("");
 
-        // Structural signal — descriptive_name cosine. Exact-match
-        // short-circuit avoids the embedder trip and matches the
-        // exact-match arm in `find_matching_descriptive_name`.
-        let struct_similarity = if inc_desc.eq_ignore_ascii_case(ex_desc) {
-            1.0
-        } else {
-            let inc_vec = self.embedder.embed_text(inc_desc).ok()?;
-            let ex_vec = self.embedder.embed_text(ex_desc).ok()?;
-            cosine_similarity(&inc_vec, &ex_vec)
-        };
+        if !inc_desc.eq_ignore_ascii_case(ex_desc) {
+            self.embedder.embed_text(inc_desc).ok()?;
+            self.embedder.embed_text(ex_desc).ok()?;
+        }
 
-        // Purpose signal — identical formula to `purpose_signal_passes`.
-        // Identical blobs short-circuit to 1.0 without an embedder trip
-        // (cosine of a vector with itself), mirroring the struct-signal
-        // exact-match short-circuit above. This keeps the identity-hash
-        // dedup seam free of embedding calls on the idempotent re-publish
-        // hot path (same name, same fields, same purpose).
         let inc_blob = format!("{inc_desc} — {inc_purpose}");
         let ex_blob = format!("{ex_desc} — {ex_purpose}");
         let purpose_similarity = if inc_blob == ex_blob {
@@ -210,10 +201,6 @@ impl SchemaServiceState {
             cosine_similarity(&inc_vec, &ex_vec)
         };
 
-        Some(DualSignalDiagnostic {
-            struct_similarity,
-            purpose_similarity,
-            allows_merge: purpose_similarity >= PURPOSE_SIMILARITY_THRESHOLD,
-        })
+        Some(purpose_similarity >= PURPOSE_SIMILARITY_THRESHOLD)
     }
 }

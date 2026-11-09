@@ -27,10 +27,8 @@ pub(super) const SEMANTIC_RENAME_THRESHOLD: f32 = 0.84;
 
 /// τ_purpose — minimum cosine similarity between purpose-statement embeddings
 /// (formatted as `"{descriptive_name} — {purpose_statement}"`) to confirm a
-/// structural canonicalization match. Phase B of the fbrain
-/// `dual-signal-schema-canonicalization` design. Gated by
-/// `SCHEMA_DUAL_SIGNAL_CANONICALIZATION` on [`crate::SchemaConfig`]. Tighter
-/// than the structural gate because purpose statements are short and high-signal.
+/// structural canonicalization match. Tighter than the structural name
+/// threshold because purpose statements are short and high-signal.
 pub(super) const PURPOSE_SIMILARITY_THRESHOLD: f32 = 0.88;
 
 /// Default purpose-similarity threshold for the **reuse-before-NEW** check
@@ -128,27 +126,6 @@ pub const REUSE_STRUCT_FLOOR: f32 = 0.55;
 /// `camera_details` / `dimensions` structures absent from the candidate).
 /// Subset proposals (input ⊆ candidate) trivially clear it.
 pub(crate) const REUSE_FIELD_FIDELITY_FLOOR: f32 = 0.5;
-
-/// Per-comparison snapshot produced by
-/// [`SchemaServiceState::dual_signal_diagnostic`]. Field names line up with
-/// [`crate::near_miss::NearMissRecord`] so the shadow-mode call sites can
-/// copy them across without re-deriving anything.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DualSignalDiagnostic {
-    /// Cosine similarity between the two `descriptive_name` embeddings.
-    /// Short-circuits to `1.0` when the names match case-insensitively (no
-    /// embedder trip needed). When one side has an empty `descriptive_name`
-    /// the embedder is still consulted — `cosine_similarity` handles that
-    /// fine and the resulting low score is the right shadow signal.
-    pub struct_similarity: f32,
-    /// Cosine similarity between the two
-    /// `"{descriptive_name} — {purpose_statement}"` embeddings — the Phase B
-    /// purpose signal.
-    pub purpose_similarity: f32,
-    /// Whether the dual-signal gate would allow this merge:
-    /// `purpose_similarity >= PURPOSE_SIMILARITY_THRESHOLD`.
-    pub allows_merge: bool,
-}
 
 /// Strip the cross-schema_type **de-collision suffix** from a descriptive_name
 /// for the purpose of *semantic* comparison.

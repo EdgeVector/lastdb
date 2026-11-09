@@ -74,7 +74,6 @@ fn root_listing() -> serde_json::Value {
             "POST /v1/schemas/batch-check-reuse": "Batch lookup of reusable schemas by descriptive name + field list",
             "POST /v1/schemas/resolve": "Stateless read-only schema dedup for cache misses",
             "POST /v1/schemas/reload": "Reload schemas from storage",
-            "GET /v1/canonicalization-near-misses": "Shadow-mode audit log of single-signal vs dual-signal canonicalization disagreements",
             "GET /v1/snapshot": "Export the registry as a single JSON envelope (requires X-API-Key)",
             "GET /v1/snapshot/shared-only": "Export shared-only projection (requires X-API-Key)"
         }
@@ -234,7 +233,7 @@ async fn dispatch_fields(
     })
 }
 
-/// Admin, debug, snapshot, and near-miss audit routes.
+/// Admin, debug, and snapshot routes.
 async fn dispatch_admin(
     state: &SchemaServiceState,
     event: &Request,
@@ -265,9 +264,6 @@ async fn dispatch_admin(
         ("GET", "/v1/snapshot") => handle_snapshot_export(event, state).await,
         ("GET", "/v1/snapshot/shared-only") => {
             routes::admin::get_snapshot_shared_only(state, event).await
-        }
-        ("GET", "/v1/canonicalization-near-misses") => {
-            routes::admin::get_canonicalization_near_misses(state, event)
         }
         _ => return None,
     })

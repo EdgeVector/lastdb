@@ -33,7 +33,7 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
     let bucket = env::var("SCHEMA_STORE_BUCKET").map_err(|_| {
         Error::from(
             "SCHEMA_STORE_BUCKET env var is not set. The schema service Lambda requires \
-             an S3 bucket to persist schemas, canonical fields, apps, and near-misses. \
+             an S3 bucket to persist schemas, canonical fields, and apps. \
              See CDK: schema-stack.ts",
         )
     })?;
@@ -94,7 +94,7 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
                          Check that the bucket exists, the Lambda's IAM role has \
                          s3:GetObject and s3:PutObject on it (or the configured \
                          R2 token can read/write the bucket), and the domain blobs \
-                         (definitions.json, apps.json, near_misses.json) \
+                         (definitions.json, apps.json) \
                          are either absent or valid JSON."
                 ))
             })?;

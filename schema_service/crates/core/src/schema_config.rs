@@ -39,10 +39,6 @@ pub enum RegistryIndexSigningKey {
 pub struct SchemaConfig {
     pub app_identity: AppIdentityConfig,
     pub mutation_gate: SchemaMutationGateConfig,
-    /// `SCHEMA_DUAL_SIGNAL_CANONICALIZATION`. Default on.
-    pub dual_signal_canonicalization: bool,
-    /// `SCHEMA_SHADOW_MODE`. Default off.
-    pub shadow_mode: bool,
     /// `SCHEMA_NATIVE_RESOLVE_BUDGET_MS`.
     pub native_resolve_budget: Duration,
     pub registry_index_signing_key: RegistryIndexSigningKey,
@@ -53,8 +49,6 @@ impl Default for SchemaConfig {
         Self {
             app_identity: AppIdentityConfig::default(),
             mutation_gate: SchemaMutationGateConfig::default(),
-            dual_signal_canonicalization: true,
-            shadow_mode: false,
             native_resolve_budget: Duration::from_millis(DEFAULT_NATIVE_RESOLVE_BUDGET_MS),
             registry_index_signing_key: RegistryIndexSigningKey::Absent,
         }
@@ -62,14 +56,6 @@ impl Default for SchemaConfig {
 }
 
 impl SchemaServiceState {
-    pub(crate) fn dual_signal_canonicalization_enabled(&self) -> bool {
-        self.schema_config.dual_signal_canonicalization
-    }
-
-    pub(crate) fn shadow_mode_enabled(&self) -> bool {
-        self.schema_config.shadow_mode
-    }
-
     pub(crate) fn native_resolve_budget(&self) -> Duration {
         self.schema_config.native_resolve_budget
     }
