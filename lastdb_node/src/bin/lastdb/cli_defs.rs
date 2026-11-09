@@ -65,6 +65,10 @@ pub(super) struct Cli {
     #[arg(long)]
     pub(super) data_dir: Option<PathBuf>,
 
+    /// Database ID or local name. Defaults to the node's local database.
+    #[arg(long, value_name = "ID_OR_NAME")]
+    pub(super) db: Option<String>,
+
     #[command(subcommand)]
     pub(super) command: Option<Command>,
 }
@@ -79,6 +83,11 @@ pub(super) enum Command {
     /// Publish a separate database, invite readers, and manage contributor grants.
     #[command(subcommand)]
     Share(ShareCommand),
+    /// Discover databases on this node.
+    Db {
+        #[command(subcommand)]
+        action: DatabaseCommand,
+    },
     /// Diagnose, maintain, or recover a LastDB home.
     Admin {
         #[command(subcommand)]
@@ -124,6 +133,9 @@ pub(super) enum Command {
         request_file: PathBuf,
         #[arg(long)]
         durable: bool,
+        /// Stable UUID for retrying a submitted contribution.
+        #[arg(long)]
+        mutation_id: Option<uuid::Uuid>,
     },
     /// List one page of primary keys, or named alternate keys under --key-hash.
     GetKeys(RecordListArgs),
@@ -160,5 +172,15 @@ pub(super) enum Command {
     App {
         #[command(subcommand)]
         action: AppCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(super) enum DatabaseCommand {
+    /// List the local database and registered shares.
+    List {
+        /// Emit JSON instead of a short list.
+        #[arg(long)]
+        json: bool,
     },
 }

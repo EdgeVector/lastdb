@@ -35,7 +35,7 @@ impl Placement {
 /// Fetch one file of the queried record at the same revision and write it,
 /// checked against the marker in the query reply, to a new path.
 pub(super) fn hydrate(
-    socket: &Path,
+    target: &DatabaseTarget,
     schema: &str,
     value: &mut serde_json::Value,
     out: &Path,
@@ -72,13 +72,14 @@ pub(super) fn hydrate(
         "placement": placement.name(),
     }))
     .map_err(|error| format!("encode hydrate request: {error}"))?;
+    let path = target.path("/api/db/fetch-blob");
     let mut request = format!(
-        "POST /api/db/fetch-blob HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nAccept: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nAccept: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         client_headers(), body.len(),
     ).into_bytes();
     request.extend_from_slice(&body);
     let timeout = admin_scan_client_timeout();
-    let response = request_with_timeout_raw_bytes(socket, &request, timeout)
+    let response = request_with_timeout_raw_bytes(&target.socket, &request, timeout)
         .map_err(|(op, error, _)| format_socket_io_error(op, &error, timeout))?;
     let bytes = parse_binary_response(&response, "record hydration")?;
     if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {

@@ -34,7 +34,7 @@ fn serve_reserved(
     completion: ConnectionWork,
     mut body: body_budget::BodyLease,
 ) -> std::io::Result<()> {
-    let Some((request, context)) = uds_http::receive_connection(
+    let Some((mut request, context)) = uds_http::receive_connection(
         &mut stream,
         &server.host.user_hash,
         SocketKind::Owner,
@@ -43,11 +43,14 @@ fn serve_reserved(
     else {
         return Ok(());
     };
-    let route = uds_router::route(&request, SocketKind::Owner);
-    if let uds_router::ControlRoute::Data(
-        route @ (uds_router::DataRoute::Mutation | uds_router::DataRoute::MutationBatch),
-    ) = route
-    {
+    let route = match uds_router::route(&request, SocketKind::Owner) {
+        uds_router::ControlRoute::Data(
+            route @ (uds_router::DataRoute::Mutation | uds_router::DataRoute::MutationBatch),
+        ) => Some(MutationRoute::Default(route)),
+        _ if exec::is_deferred_database_mutation(&request) => Some(MutationRoute::Scoped),
+        _ => None,
+    };
+    if let Some(route) = route {
         if body.retain_request(&request) {
             defer(
                 server,
@@ -63,7 +66,7 @@ fn serve_reserved(
             return Ok(());
         }
     }
-    let response = route_request(&server.handle, &server.host, &request, &context);
+    let response = route_request(&server.handle, &server.host, &mut request, &context);
     uds_http::finish_connection(&mut stream, &response)
 }
 
@@ -75,7 +78,12 @@ struct Pending {
     completion: ConnectionWork,
 }
 
-fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute) {
+enum MutationRoute {
+    Default(uds_router::DataRoute),
+    Scoped,
+}
+
+fn defer(server: &Server, pending: Pending, route: MutationRoute) {
     let host = Arc::clone(&server.host);
     let replies = Arc::clone(&server.mutation_replies);
     let queued_at = std::time::Instant::now();
@@ -87,14 +95,22 @@ fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute) {
         };
         let Pending {
             stream,
-            request,
+            mut request,
             context,
             body,
             completion,
         } = pending;
+        let work = match route {
+            MutationRoute::Default(route) => {
+                exec::execute_deferred_mutation(route, &request, &context, &host)
+            }
+            MutationRoute::Scoped => {
+                exec::execute_deferred_database_mutation(&mut request, &context, &host)
+            }
+        };
         let response = exec::with_socket_queue_wait(
             completion.queue_wait().saturating_add(queued_at.elapsed()),
-            exec::execute_deferred_mutation(route, &request, &context, &host),
+            work,
         )
         .await;
         // Release frame bytes before scheduling the response. Parsers that wait

@@ -1,6 +1,7 @@
 //! Named alternate pages keep primary mutation keys and alternate page order.
 
 use super::*;
+use fold_db::fold_db_core::query::query_executor::AlternatePage;
 use std::collections::HashMap;
 
 pub(super) async fn execute<H: HostNode>(
@@ -48,6 +49,15 @@ pub(super) async fn execute<H: HostNode>(
         .await
         .map_err(HostError::from)?;
     let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
+    format_alternate_page(page, compact, limit)
+}
+
+/// Format a verified alternate page with the standard primary and matched keys.
+pub fn format_alternate_page(
+    page: AlternatePage,
+    compact: bool,
+    limit: usize,
+) -> Result<Value, HostError> {
     let mut rows = HashMap::new();
     for row in format_rows(page.values, compact) {
         let key: KeyValue = serde_json::from_value(row["key"].clone())

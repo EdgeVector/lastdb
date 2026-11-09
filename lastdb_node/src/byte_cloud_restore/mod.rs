@@ -19,6 +19,7 @@ mod spool;
 
 pub use keys::RecoveryKeys;
 pub(crate) use recipient::GuestReplayCache;
+pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
 pub use recipient::{StagedRecord, StagedRecordQuery};
 pub use report::RestoreReport;
 pub use session::RestoreSession;

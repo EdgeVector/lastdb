@@ -1,8 +1,11 @@
 //! Recipient-owned read-only recovery points of a registered Share.
 mod files;
+mod managed;
+mod read;
 
 use crate::byte_cloud_restore::{
     GuestReplayCache, RestoreError, RestoreSession, StagedRecord, StagedRecordQuery,
+    MANAGED_SHARE_DIRECTORY as MANAGED_DIRECTORY,
 };
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -21,6 +24,7 @@ pub use cloud_backup_protocol::v2::publication::Head as ShareSnapshot;
 pub struct ShareCache {
     root: PathBuf,
     recipient: ShareRecipient,
+    managed: bool,
 }
 
 /// Holds one verified version until the reader is dropped.
@@ -53,6 +57,8 @@ struct Registration {
     content_key: [u8; 32],
     invitation: String,
     active: Option<VerifiedSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    managed: Option<managed::ManagedRegistration>,
 }
 
 impl Drop for Registration {
@@ -77,7 +83,11 @@ impl ShareCache {
         let root = files::cache_root(cache_root, identity_home)?;
         let recipient = crate::share_publication::recipient(identity_home)
             .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
-        Ok(Self { root, recipient })
+        Ok(Self {
+            root,
+            recipient,
+            managed: false,
+        })
     }
 
     /// Register before fetching. A transient fetch failure leaves the handle
@@ -92,21 +102,16 @@ impl ShareCache {
         let entry = self.entry(handle, true)?;
         let _writer = entry.lock(Lock::Writer, true)?;
         let (registration, previous) = entry.load()?;
-        let mut registration = registration.unwrap_or_else(|| Registration {
-            version: 1,
-            publisher: publisher.clone(),
-            stream: opened.permission.stream().clone(),
-            environment: opened.permission.environment(),
-            content_key: *opened.publication_key,
-            invitation: String::new(),
-            active: None,
-        });
-        registration.require_binding(&opened, publisher)?;
-        registration.invitation = URL_SAFE_NO_PAD.encode(invitation);
-        let stored = {
-            let _gate = entry.lock(Lock::Pointer, true)?;
-            entry.publish(previous.as_deref().map(Vec::as_slice), &registration)?
-        };
+        if let Some(registration) = &registration {
+            self.require_management(registration)?;
+        }
+        let registration =
+            Registration::with_invitation(registration, &opened, publisher, invitation)?;
+        let stored = publish(
+            &entry,
+            previous.as_deref().map(Vec::as_slice),
+            &registration,
+        )?;
         self.fetch(&entry, opened, registration, &stored).await
     }
 
@@ -117,6 +122,7 @@ impl ShareCache {
         let _writer = entry.lock(Lock::Writer, true)?;
         let (registration, previous) = entry.load()?;
         let registration = registration.ok_or(ShareCacheError::Unavailable)?;
+        self.require_management(&registration)?;
         let previous = previous.ok_or(ShareCacheError::Unavailable)?;
         let invitation = URL_SAFE_NO_PAD
             .decode(&registration.invitation)
@@ -133,6 +139,7 @@ impl ShareCache {
             let _gate = entry.lock(Lock::Pointer, false)?;
             let (registration, _) = entry.load()?;
             let registration = registration.ok_or(ShareCacheError::Unavailable)?;
+            self.require_management(&registration)?;
             let active = registration
                 .active
                 .as_ref()
@@ -166,6 +173,13 @@ impl ShareCache {
             self.recipient.cache_key(handle)?,
             create,
         )
+    }
+
+    fn require_management(&self, registration: &Registration) -> Result<()> {
+        if registration.managed.is_some() != self.managed {
+            return Err(ShareCacheError::Invalid("registration owner"));
+        }
+        Ok(())
     }
 
     async fn fetch(
@@ -210,7 +224,11 @@ impl ShareCache {
                 native_root: &active.native_root,
                 through: active.through.as_ref(),
             });
-        let mut session = RestoreSession::begin_guest_at(&path.join("unactivated"), accepted)?;
+        let mut session = if self.managed {
+            RestoreSession::begin_managed_guest(&path, accepted)?
+        } else {
+            RestoreSession::begin_guest_at(&path.join("unactivated"), accepted)?
+        };
         let (data, native_root, through) = session
             .stage_guest_recovery(
                 &reader,
@@ -228,8 +246,7 @@ impl ShareCache {
             native_root,
             through,
         });
-        let _gate = entry.lock(Lock::Pointer, true)?;
-        entry.publish(Some(previous), &registration)?;
+        publish(entry, Some(previous), &registration)?;
         Ok(snapshot)
     }
 }
@@ -250,6 +267,27 @@ impl ShareReader {
 }
 
 impl Registration {
+    fn with_invitation(
+        registration: Option<Self>,
+        opened: &OpenedShareInvitation,
+        publisher: &Digest,
+        invitation: &[u8],
+    ) -> Result<Self> {
+        let mut registration = registration.unwrap_or_else(|| Self {
+            version: 1,
+            publisher: publisher.clone(),
+            stream: opened.permission.stream().clone(),
+            environment: opened.permission.environment(),
+            content_key: *opened.publication_key,
+            invitation: String::new(),
+            active: None,
+            managed: None,
+        });
+        registration.require_binding(opened, publisher)?;
+        registration.invitation = URL_SAFE_NO_PAD.encode(invitation);
+        Ok(registration)
+    }
+
     fn require_binding(&self, opened: &OpenedShareInvitation, publisher: &Digest) -> Result<()> {
         if &self.publisher != publisher
             || &self.stream != opened.permission.stream()
@@ -262,6 +300,11 @@ impl Registration {
         }
         Ok(())
     }
+}
+
+fn publish(entry: &Entry, previous: Option<&[u8]>, registration: &Registration) -> Result<Vec<u8>> {
+    let _gate = entry.lock(Lock::Pointer, true)?;
+    entry.publish(previous, registration)
 }
 
 impl std::fmt::Display for ShareCacheError {

@@ -72,6 +72,13 @@ export class UnexpectedResponseError extends LastDbError {
   }
 }
 
+/** Retry the same body with this UUID when the Share upload outcome is uncertain. */
+export class ShareSubmissionUncertainError extends LastDbError {
+  constructor(readonly mutationId: string, override readonly cause: unknown) {
+    super('Share submission outcome is unavailable. Retry with the same mutation ID and body.');
+  }
+}
+
 /**
  * The node's paginated `/api/query` response stopped making forward progress
  * or could not produce the unique row count it advertised. This is an SDK-side

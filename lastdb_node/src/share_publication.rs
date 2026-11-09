@@ -167,15 +167,7 @@ pub fn prepare(
 pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
     crate::offline_home::refuse_primary(home)?;
     let directory = owned(home)?;
-    let marker = directory
-        .read(MARKER_FILE)
-        .map_err(|e| e.to_string())?
-        .ok_or("share publication marker is missing")?;
-    let marker: PublicationMarker =
-        serde_json::from_slice(&marker).map_err(|_| "invalid share publication marker")?;
-    if marker.version != 1 {
-        return Err("unsupported share publication marker version".into());
-    }
+    let marker = read_marker(&directory)?.ok_or("share publication marker is missing")?;
     let owner = owner_seed(owner_home)?;
     let signer = signer(&owner)?;
     if publisher(&signer)? != marker.publisher {
@@ -196,6 +188,18 @@ pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity
         signer,
         content_key: Zeroizing::new(keys.encryption_key()),
     })
+}
+
+pub(crate) fn read_marker(directory: &Directory) -> Result<Option<PublicationMarker>, String> {
+    let Some(bytes) = directory.read(MARKER_FILE).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let marker: PublicationMarker =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid share publication marker")?;
+    if marker.version != 1 {
+        return Err("unsupported share publication marker version".into());
+    }
+    Ok(Some(marker))
 }
 
 impl PublicationIdentity {

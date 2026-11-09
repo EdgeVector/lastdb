@@ -11,6 +11,7 @@
  * CapabilityToken) and `X-Capability-Ts` (unix epoch seconds).
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   capabilityStoreKey,
   defaultCapabilityStore,
@@ -40,6 +41,8 @@ import {
   PermissionDeniedError,
   QueryPaginationError,
   RequestRejectedError,
+  ShareSubmissionUncertainError,
+  TransportError,
   UnexpectedResponseError,
   UnknownAppError,
 } from './errors.js';
@@ -64,7 +67,9 @@ import {
   DeclareSchemaRequest,
   DeclareSchemaResult,
   MutationOp,
+  MutationOptions,
   MutationResult,
+  ShareSubmissionResult,
   QueryAllOptions,
   QueryFilter,
   QueryPage,
@@ -140,6 +145,12 @@ function nowEpochSecs(): string {
   return String(Math.floor(Date.now() / 1000));
 }
 
+function isMutationId(id: string): boolean {
+  return id.length === 36 &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id) &&
+    id !== '00000000-0000-0000-0000-000000000000';
+}
+
 /**
  * Connect to a LastDB node over its Unix-domain socket. An explicit
  * `socketPath` is used verbatim. With no `socketPath`, discovery reads
@@ -148,7 +159,9 @@ function nowEpochSecs(): string {
  * exist. Attempts to auto-load a stored capability for `appId` unless one
  * is supplied inline.
  */
-export async function connect(options: ConnectOptions): Promise<LastDbClient> {
+export async function connect<DatabaseId extends string | undefined = undefined>(
+  options: ConnectOptions<DatabaseId>,
+): Promise<LastDbClient<DatabaseId>> {
   const { appId, socketPath } = options;
   // Self-reported client label for Mini op telemetry. Prefer explicit
   // clientId; otherwise use appId. Never clobber a caller-supplied header.
@@ -210,7 +223,7 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
       capability = null;
     }
   }
-  const client = new LastDbClient(
+  const client = new LastDbClient<DatabaseId>(
     appId,
     transport,
     store,
@@ -220,6 +233,7 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
     {
       verifyCapability,
       schemaResolver: options.schemaResolver,
+      databaseId: options.databaseId,
     },
   );
   // The compatibility handshake runs before any data request so an app that
@@ -233,20 +247,23 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
 }
 
 /** Behavior switches for {@link LastDbClient} (set via {@link ConnectOptions}). */
-export interface LastDbClientOptions {
+export interface LastDbClientOptions<DatabaseId extends string | undefined = undefined> {
   /** See `ConnectOptions.verifyCapability`. Default `false`. */
   verifyCapability?: boolean;
   /** See `ConnectOptions.schemaResolver`. Default pass-through. */
   schemaResolver?: SchemaResolver;
+  /** See `ConnectOptions.databaseId`. */
+  databaseId?: DatabaseId;
 }
 
 /** A connected LastDB app client. Construct via {@link connect}. */
 /** Most queries the node accepts in one `/api/queries/batch` request. */
 const QUERY_BATCH_MAX_ITEMS = 64;
 
-export class LastDbClient {
+export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   private readonly verifyCapability: boolean;
   private readonly schemaResolver: SchemaResolver | null;
+  private readonly databasePath: string | null;
   /** Definition ids from declare, keyed by the schema name `mutate` sends. */
   private readonly definitionIds = new Map<string, string>();
 
@@ -259,10 +276,18 @@ export class LastDbClient {
     private readonly storeKey: string,
     /** The canonical node target this client is bound to (transport `target`). */
     private readonly nodeTarget: string,
-    options: LastDbClientOptions = {},
+    options: LastDbClientOptions<DatabaseId> = {},
   ) {
     this.verifyCapability = options.verifyCapability ?? false;
     this.schemaResolver = options.schemaResolver ?? null;
+    const databaseId = options.databaseId;
+    if (databaseId !== undefined && (
+      typeof databaseId !== 'string' || databaseId.length === 0 ||
+      databaseId.length > 64 || /[^A-Za-z0-9_-]/.test(databaseId)
+    )) {
+      throw new RequestRejectedError('database_id', 'Invalid LastDB database ID or alias');
+    }
+    this.databasePath = databaseId === undefined ? null : `/api/databases/${databaseId}`;
   }
 
   /** Where this client is pointed (for diagnostics). */
@@ -496,7 +521,7 @@ export class LastDbClient {
     }
     const res = await this.transport.send(
       'GET',
-      `${LASTDB_API_ROUTES.list}?${params.toString()}`,
+      `${this.dataPath(LASTDB_API_ROUTES.list)}?${params.toString()}`,
       { headers: this.capabilityHeaders() },
     );
     if (res.status === 200) {
@@ -531,7 +556,7 @@ export class LastDbClient {
       // Mini hard-refuses unfiltered product scans without this admin opt-in.
       headers['X-LastDB-Allow-Full-Scan'] = '1';
     }
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.query, {
+    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.query), {
       headers,
       body,
     });
@@ -579,7 +604,7 @@ export class LastDbClient {
       const queries = chunk.map(({ item, resolved }) =>
         this.queryBody(resolved, item.filter ?? {}),
       );
-      const res = await this.transport.send('POST', LASTDB_API_ROUTES.queryBatch, {
+      const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.queryBatch), {
         headers: this.capabilityHeaders(),
         body: { queries },
       });
@@ -755,10 +780,19 @@ export class LastDbClient {
   }
 
   /**
-   * `POST /api/mutation`. Writes one row into `schemaName`. Auto-attaches the
-   * capability headers when one is loaded.
+   * `POST /api/mutation`. Writes one row into `schemaName`. A received Share
+   * returns a submission receipt. The publisher decides whether to apply it.
    */
-  async mutate(schemaName: string, op: MutationOp): Promise<MutationResult> {
+  async mutate(
+    schemaName: string,
+    op: MutationOp,
+    options?: DatabaseId extends string ? MutationOptions : never,
+  ): Promise<MutationResult | (DatabaseId extends string ? ShareSubmissionResult : never)>;
+  async mutate(
+    schemaName: string,
+    op: MutationOp,
+    options: MutationOptions = {},
+  ): Promise<MutationResult | ShareSubmissionResult> {
     const resolved = await this.resolveDataPathSchema(schemaName);
     const body: Record<string, unknown> = {
       type: 'mutation',
@@ -783,10 +817,42 @@ export class LastDbClient {
     if (definitionId !== undefined) {
       body.definition_id = definitionId;
     }
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.mutation, {
-      headers: this.capabilityHeaders(),
+    const mutationId = this.databasePath === null
+      ? undefined
+      : options.mutationId ?? randomUUID();
+    const headers = this.capabilityHeaders();
+    if (mutationId !== undefined) {
+      if (!isMutationId(mutationId)) {
+        throw new RequestRejectedError('mutation_id', 'Mutation ID must be a non-nil lowercase UUID');
+      }
+      headers['Idempotency-Key'] = mutationId;
+    }
+    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.mutation), {
+      headers,
       body,
+    }).catch((error: unknown) => {
+      const refused = error instanceof TransportError && error.status !== undefined &&
+        error.status >= 400 && error.status < 500;
+      if (mutationId !== undefined && !refused) {
+        throw new ShareSubmissionUncertainError(mutationId, error);
+      }
+      throw error;
     });
+    if (res.status === 202 && mutationId !== undefined) {
+      if (isObject(res.body)) {
+        const sequence = res.body['submission_sequence'];
+        if (
+          res.body['ok'] === true && res.body['status'] === 'submitted' &&
+          res.body['mutation_id'] === mutationId && typeof sequence === 'number' &&
+          Number.isSafeInteger(sequence) && sequence > 0
+        ) {
+          return { status: 'submitted', mutationId, submissionSequence: sequence };
+        }
+      }
+      throw new ShareSubmissionUncertainError(mutationId, new UnexpectedResponseError(
+        'mutation returned an invalid submission receipt', 202, res.body,
+      ));
+    }
     if (res.status === 200) {
       if (!isObject(res.body)) {
         throw new UnexpectedResponseError(
@@ -811,7 +877,11 @@ export class LastDbClient {
       }
       return result;
     }
-    throw this.mapDataError('mutation', res.status, res.body);
+    const error = this.mapDataError('mutation', res.status, res.body);
+    if (mutationId !== undefined && res.status >= 500) {
+      throw new ShareSubmissionUncertainError(mutationId, error);
+    }
+    throw error;
   }
 
   /**
@@ -836,7 +906,7 @@ export class LastDbClient {
    * sends it.
    */
   async declareSchema(request: DeclareSchemaRequest): Promise<DeclareSchemaResult> {
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.schemasDeclare, {
+    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.schemasDeclare), {
       body: request,
     });
     if (res.status !== 200 || !isObject(res.body)) {
@@ -872,7 +942,7 @@ export class LastDbClient {
     if (opts.since !== undefined) body.since_cursor = opts.since;
     if (opts.limit !== undefined) body.limit = opts.limit;
     if (opts.target !== undefined) body.target = opts.target;
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.appChanges, {
+    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.appChanges), {
       headers: this.capabilityHeaders(),
       body,
     });
@@ -911,7 +981,7 @@ export class LastDbClient {
     if (opts.target !== undefined) {
       body.target = opts.target;
     }
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.appSearch, {
+    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.appSearch), {
       headers: this.capabilityHeaders(),
       body,
     });
@@ -963,7 +1033,7 @@ export class LastDbClient {
    * without hand-parsing raw route JSON.
    */
   async listSchemas(): Promise<LoadedSchema[]> {
-    const res = await this.transport.send('GET', LASTDB_API_ROUTES.schemas);
+    const res = await this.transport.send('GET', this.dataPath(LASTDB_API_ROUTES.schemas));
     if (res.status === 200) {
       return parseSchemaListResponse(res.body);
     }
@@ -988,6 +1058,12 @@ export class LastDbClient {
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  private dataPath(route: string): string {
+    return this.databasePath === null
+      ? route
+      : `${this.databasePath}${route.slice('/api'.length)}`;
+  }
 
   /** The `/api/query` request body for one resolved schema and filter. */
   private queryBody(

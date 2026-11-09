@@ -60,3 +60,20 @@ pub fn resolve_schema_name<H: HostNode>(host: &H, name: &str) -> Result<Option<S
     }
     resolve_folded_alias(trimmed, &schemas)
 }
+
+/// Resolve aliases against an already captured schema directory. The caller
+/// checks canonical names against the full directory before excluding retired
+/// claims from this alias set.
+pub fn resolve_captured_schema_alias(
+    name: &str,
+    entries: &[fold_db::schema::SchemaWithState],
+) -> Result<Option<String>, HostError> {
+    if let Some(canonical) = resolve_exact_alias(name, entries)? {
+        return Ok(Some(canonical));
+    }
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    resolve_folded_alias(trimmed, entries)
+}

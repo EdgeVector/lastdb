@@ -70,7 +70,7 @@ pub(super) fn get_query_body(
 }
 
 pub(super) fn get_record(
-    data_dir: Option<PathBuf>,
+    target: &DatabaseTarget,
     schema_name: &str,
     key_hash: Option<&str>,
     key_range: Option<&str>,
@@ -81,16 +81,15 @@ pub(super) fn get_record(
     let Some(hash) = key_hash.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
     };
-    let schema = fetch_schema(data_dir.clone(), schema_name)?;
+    let schema = fetch_schema(target, schema_name)?;
     if schema_is_hash_range(&schema) && key_range.map(str::trim).filter(|s| !s.is_empty()).is_none()
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
     let body = get_query_body(schema_name, hash, key_range);
-    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let response = post_json_with_timeout(
-        &socket,
-        "/api/query",
+        &target.socket,
+        &target.path("/api/query"),
         &body,
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
@@ -98,7 +97,7 @@ pub(super) fn get_record(
     if let Some(out) = hydrate {
         let file_required = schema["file_required"].as_bool().unwrap_or(false);
         hydrate_cmds::hydrate(
-            &socket,
+            target,
             schema_name,
             &mut value,
             out,
@@ -108,7 +107,7 @@ pub(super) fn get_record(
     }
     if let Some(out) = hydrate_inline {
         hydrate_cmds::hydrate(
-            &socket,
+            target,
             schema_name,
             &mut value,
             out,

@@ -34,13 +34,13 @@ pub(super) fn is_media_type(header: Option<&str>, expected: &str) -> bool {
 pub(super) struct FileTarget {
     pub(super) schema: String,
     pub(super) key: KeyValue,
-    expected_revision: Option<String>,
+    pub(super) expected_revision: Option<String>,
     #[serde(default)]
-    placement: Placement,
+    pub(super) placement: Placement,
 }
 
 impl FileTarget {
-    fn parse(body: &[u8], route: &str) -> Result<Self, HostError> {
+    pub(super) fn parse(body: &[u8], route: &str) -> Result<Self, HostError> {
         let target: Self = serde_json::from_slice(body)
             .map_err(|error| HostError::new(400, format!("invalid {route} body: {error}")))?;
         target.require_hash()?;
@@ -111,7 +111,15 @@ pub(super) async fn execute_db_fetch_blob_route(
             )
         })
     };
-    let (marker, bytes) = match read.await {
+    render_file(req, ctx, read.await)
+}
+
+pub(super) fn render_file(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    file: Result<(fold_db::record_value::FileMarker, Vec<u8>), HostError>,
+) -> UdsResponse {
+    let (marker, bytes) = match file {
         Ok(file) => file,
         Err(error) => return render(Err(error), ctx),
     };

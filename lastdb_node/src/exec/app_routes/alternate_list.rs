@@ -43,30 +43,40 @@ async fn keyed_page(
         .get_schema_metadata(canonical)
         .map_err(HostError::from)?
         .ok_or_else(|| HostError::new(404, "schema is absent"))?;
+    let mut query = Query::new(canonical.to_owned());
+    query.key_name = Some(name.to_owned());
+    query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
+    let cursor = decode_cursor(request.cursor.as_deref())?;
+    let page =
+        handlers::execute_query(host, query, Some(request.limit), None, cursor, false).await?;
+    report(request, &schema, &page)
+}
+
+pub(in crate::exec) fn decode_cursor(raw: Option<&str>) -> Result<Option<QueryCursor>, HostError> {
+    raw.map(|encoded| {
+        let encoded = encoded
+            .strip_prefix("ak2_")
+            .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))?;
+        serde_json::from_slice::<QueryCursor>(&bytes)
+            .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
+    })
+    .transpose()
+}
+
+pub(in crate::exec) fn report(
+    request: &ListRecordKeysRequest,
+    schema: &Schema,
+    page: &Value,
+) -> Result<Value, HostError> {
+    let name = request.key_name.as_deref().expect("named branch");
     let definition = schema
         .require_record_keys()?
         .alternates
         .get(name)
         .ok_or_else(|| HostError::new(400, "alternate key is not declared"))?;
-    let mut query = Query::new(canonical.to_owned());
-    query.key_name = Some(name.to_owned());
-    query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
-    let cursor = request
-        .cursor
-        .as_deref()
-        .map(|encoded| {
-            let encoded = encoded
-                .strip_prefix("ak2_")
-                .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
-            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(encoded)
-                .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))?;
-            serde_json::from_slice::<QueryCursor>(&bytes)
-                .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
-        })
-        .transpose()?;
-    let page =
-        handlers::execute_query(host, query, Some(request.limit), None, cursor, false).await?;
     let rows = page["results"]
         .as_array()
         .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
@@ -90,9 +100,9 @@ async fn keyed_page(
         ))
     };
     Ok(
-        serde_json::json!({"schema": request.requested, "schema_id": canonical, "key_name": name,
+        serde_json::json!({"schema": request.requested, "schema_id": schema.name, "key_name": name,
         "key_definition": definition,
-        "hash_filter": hash, "field_key": fold_db::alternate_keys::field_key(&schema, name),
+        "hash_filter": request.hash_filter, "field_key": fold_db::alternate_keys::field_key(schema, name),
         "keys": keys, "primary_keys": primary_keys, "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next}),
     )
 }

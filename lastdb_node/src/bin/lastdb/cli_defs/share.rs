@@ -38,31 +38,18 @@ pub(crate) enum ShareCommand {
         #[arg(long, default_value_t = 24, value_parser = clap::value_parser!(u32).range(1..=168))]
         expires_in_hours: u32,
     },
-    /// Open an invitation and verify its current read-only recovery point.
+    /// Register an invitation as a database on this node and start recovery.
     Accept {
         /// Encrypted invitation file.
         invitation: PathBuf,
         /// Publisher's Ed25519 public key in lowercase hex from a trusted channel.
         #[arg(long)]
         publisher: String,
-        #[command(flatten)]
-        selection: GuestStageSelection,
+        /// Optional local database name.
+        #[arg(long)]
+        name: Option<String>,
     },
-    /// Read an exact record from the locally verified share.
-    Get {
-        #[command(flatten)]
-        share: ShareFilesSelection,
-        /// Canonical schema name in the share.
-        #[arg(long)]
-        schema: String,
-        /// Hash component of the record's primary key.
-        #[arg(long)]
-        key_hash: String,
-        /// Range component of a HashRange primary key.
-        #[arg(long)]
-        key_range: Option<String>,
-    },
-    /// Manage and submit privately routed contributor mutations.
+    /// Manage contributor grants for ordinary database mutations.
     #[command(subcommand)]
     Contributors(ShareContributorCommand),
     /// Share files with the LastDB Files app.
@@ -108,17 +95,13 @@ pub(crate) enum ShareContributorCommand {
         #[arg(long)]
         expected_version: u64,
     },
-    /// Upload one encrypted mutation for later validation by the publisher.
-    Submit {
+    /// Attach a contributor grant to a registered database.
+    Accept {
+        /// Registered database ID or local name.
+        db: String,
         /// Sealed contributor grant from the publisher.
         #[arg(long)]
         grant: PathBuf,
-        /// Publisher's Ed25519 public key in lowercase hex from a trusted channel.
-        #[arg(long)]
-        publisher: String,
-        /// File containing the JSON mutation request.
-        #[arg(long)]
-        request_file: PathBuf,
     },
 }
 

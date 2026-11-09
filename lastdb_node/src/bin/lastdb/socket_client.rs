@@ -34,9 +34,20 @@ pub(super) fn post_json_with_timeout(
     body: &serde_json::Value,
     timeout: Duration,
 ) -> Result<String, String> {
+    post_json_with_id(socket, path, body, timeout, None)
+}
+
+pub(super) fn post_json_with_id(
+    socket: &Path,
+    path: &str,
+    body: &serde_json::Value,
+    timeout: Duration,
+    id: Option<uuid::Uuid>,
+) -> Result<String, String> {
     let body = serde_json::to_vec(body).map_err(|e| format!("failed to encode JSON: {e}"))?;
+    let id_header = id.map_or_else(String::new, |id| format!("Idempotency-Key: {id}\r\n"));
     let mut request = format!(
-        "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}{id_header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         client_headers(),
         body.len()
     )

@@ -8,7 +8,7 @@ use state::State;
 
 pub use apply::{WriteRequest, WriteRule};
 pub(crate) use crypto::inbox_key;
-pub use outbox::submit;
+pub(crate) use outbox::{submit_registered, validate_grant, SubmitError};
 
 use crate::host::Host;
 use crate::share_invitation::ShareContact;

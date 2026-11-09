@@ -8,7 +8,7 @@ use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::publication::{Head, HeadReadResult};
 use cloud_backup_protocol::v2::AcceptedBackup;
-use cloud_backup_protocol::{Digest, NativeRoot, RecoveryDescriptor};
+use cloud_backup_protocol::{Digest, Id, NativeRoot, RecoveryDescriptor};
 use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore::RunRestoreGuard};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,6 +54,29 @@ impl RestoreSession {
 
     pub(crate) fn begin_guest_at(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
         Self::begin_with_mode(destination, accepted, RestoreMode::Recipient)
+    }
+
+    pub(crate) fn begin_managed_guest(slot: &Path, accepted: AcceptedBackup) -> Result<Self> {
+        let invalid = || RestoreError::Invalid("managed guest slot");
+        let entry = slot.parent().ok_or_else(invalid)?;
+        let registry = entry.parent().ok_or_else(invalid)?;
+        if !matches!(
+            slot.file_name().and_then(|name| name.to_str()),
+            Some("snapshot-0" | "snapshot-1")
+        ) || entry
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_none_or(|name| Id::try_from(name.to_owned()).is_err())
+            || registry.file_name().and_then(|name| name.to_str())
+                != Some(super::MANAGED_SHARE_DIRECTORY)
+            || slot.canonicalize()? != slot
+        {
+            return Err(invalid());
+        }
+        for path in [registry, entry, slot] {
+            super::local::directory(path)?;
+        }
+        Self::begin_in(&slot.join("unactivated"), accepted, RestoreMode::Recipient)
     }
 
     /// Reserve a private workspace for an independent accepted snapshot.

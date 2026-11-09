@@ -48,27 +48,10 @@ pub(super) async fn execute_query_batch_route(
     use futures::StreamExt as _;
 
     let parse_started = std::time::Instant::now();
-    let obj = match body_object(req) {
-        Ok(obj) => obj,
-        Err(resp) => return resp,
+    let queries = match parse_query_batch(req, ctx) {
+        Ok(queries) => queries,
+        Err(response) => return response,
     };
-    let queries = match serde_json::from_value::<QueryBatchRequest>(Value::Object(obj)) {
-        Ok(request) => request.queries,
-        Err(err) => return Reject::from_serde_error(&err, None).response(),
-    };
-    if queries.is_empty() {
-        return error_response(400, "Query batch must contain at least one query", ctx);
-    }
-    if queries.len() > QUERY_BATCH_MAX_QUERIES {
-        return error_response(
-            400,
-            &format!(
-                "Query batch carries {} queries; the limit is {QUERY_BATCH_MAX_QUERIES}",
-                queries.len()
-            ),
-            ctx,
-        );
-    }
     fold_db::request_phases::add_phase(
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
@@ -122,4 +105,32 @@ pub(super) async fn execute_query_batch_route(
         Ok(serde_json::json!({ "count": results.len(), "results": results })),
         ctx,
     )
+}
+
+pub(super) fn parse_query_batch(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+) -> Result<Vec<Value>, UdsResponse> {
+    let obj = body_object(req)?;
+    let queries = serde_json::from_value::<QueryBatchRequest>(Value::Object(obj))
+        .map_err(|error| Reject::from_serde_error(&error, None).response())?
+        .queries;
+    if queries.is_empty() {
+        return Err(error_response(
+            400,
+            "Query batch must contain at least one query",
+            ctx,
+        ));
+    }
+    if queries.len() > QUERY_BATCH_MAX_QUERIES {
+        return Err(error_response(
+            400,
+            &format!(
+                "Query batch carries {} queries; the limit is {QUERY_BATCH_MAX_QUERIES}",
+                queries.len()
+            ),
+            ctx,
+        ));
+    }
+    Ok(queries)
 }

@@ -1,11 +1,11 @@
 use super::*;
 
 pub(crate) fn schema_show_command(
-    data_dir: Option<PathBuf>,
+    target: &DatabaseTarget,
     name: &str,
     json_only: bool,
 ) -> Result<(), String> {
-    let schema = fetch_schema(data_dir, name)?;
+    let schema = fetch_schema(target, name)?;
     if json_only {
         println!(
             "{}",
@@ -18,18 +18,18 @@ pub(crate) fn schema_show_command(
 }
 
 pub(crate) fn fetch_schema(
-    data_dir: Option<PathBuf>,
+    target: &DatabaseTarget,
     name: &str,
 ) -> Result<serde_json::Value, String> {
-    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    if lastdb_node::health_alert::probe_health(&socket).is_err() {
+    let socket = &target.socket;
+    if lastdb_node::health_alert::probe_health(socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
             socket.display()
         ));
     }
     let path = format!("/api/schema/{}", percent_encode_query(name));
-    let response = get_path(&socket, &path, Duration::from_secs(10))?;
+    let response = get_path(socket, &target.path(&path), Duration::from_secs(10))?;
     let value = parse_json_response(&response, "schema")?;
     value
         .get("schema")

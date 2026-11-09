@@ -1,6 +1,6 @@
 //! Addresses minted by the existing format's typed key codecs.
 
-use crate::schema::types::KeyValue;
+use crate::schema::types::{field::HashRangeFilter, KeyValue};
 use crate::schema::SchemaError;
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
@@ -98,4 +98,47 @@ pub(crate) fn alternate_range_key(
             SchemaError::InvalidData("alternate key coordinate has an invalid type".into())
         })?;
     Ok(format!("{ALTERNATE_ENTRY_PREFIX}{encoded}"))
+}
+
+/// Storage bounds for a declared alternate key under exactly one hash.
+pub(crate) fn alternate_bounds(
+    codec: &FieldKeyCodec,
+    field_key: &str,
+    filter: &HashRangeFilter,
+) -> Result<(String, String), SchemaError> {
+    use lastdb_model::kind_partition::exact_prefix_bounds;
+    let invalid = |message: &str| SchemaError::InvalidData(message.into());
+    let encode = |hash: &str, range: &str| {
+        alternate_range_key(
+            codec,
+            field_key,
+            &KeyValue::new(Some(hash.to_owned()), Some(range.to_owned())),
+        )
+    };
+    match filter {
+        HashRangeFilter::HashRangeKey { hash, range } => {
+            let key = encode(hash, range)?;
+            Ok(exact_prefix_bounds(&format!("{key}\0")))
+        }
+        HashRangeFilter::HashKey(hash) => {
+            let prefix = codec
+                .api_hash_range_scan_prefix_for_hash(field_key, hash)
+                .map_err(|_| invalid("invalid alternate hash"))?;
+            Ok(exact_prefix_bounds(&format!(
+                "{ALTERNATE_ENTRY_PREFIX}{prefix}"
+            )))
+        }
+        HashRangeFilter::HashRangePrefix { hash, prefix } => {
+            codec
+                .require_text_range_prefix()
+                .map_err(|_| invalid("alternate range prefix requires a text field"))?;
+            Ok(exact_prefix_bounds(&encode(hash, prefix)?))
+        }
+        HashRangeFilter::HashRangeRange { hash, start, end } => {
+            Ok((encode(hash, start)?, encode(hash, end)?))
+        }
+        _ => Err(invalid(
+            "alternate reads require an exact key or a range under one hash",
+        )),
+    }
 }

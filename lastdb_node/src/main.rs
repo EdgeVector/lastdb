@@ -91,6 +91,7 @@ struct ShutdownInputs<'a> {
     sampler_task: tokio::task::JoinHandle<()>,
     automatic_backup_task: tokio::task::JoinHandle<()>,
     shared_sync_task: tokio::task::JoinHandle<()>,
+    received_shares_task: tokio::task::JoinHandle<()>,
 }
 
 /// The accept loop returned (a graceful SIGTERM/SIGINT shutdown): stop the
@@ -111,6 +112,7 @@ fn drain_and_prove_shutdown(
         sampler_task,
         automatic_backup_task,
         shared_sync_task,
+        received_shares_task,
     } = inputs;
     let mut shutdown_errors = Vec::new();
     if let Err(error) = accept_result {
@@ -129,6 +131,7 @@ fn drain_and_prove_shutdown(
         sampler_task,
         automatic_backup_task,
         shared_sync_task,
+        received_shares_task,
     ) {
         shutdown_errors.push(error);
     }
@@ -233,7 +236,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         worker_pool.clone(),
     );
 
-    let (sampler_task, automatic_backup_task, shared_sync_task) =
+    let (sampler_task, automatic_backup_task, shared_sync_task, received_shares_task) =
         background::spawn(&runtime, &host, &shutdown_flag, share).map_err(&note_fatal)?;
 
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
@@ -250,6 +253,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             sampler_task,
             automatic_backup_task,
             shared_sync_task,
+            received_shares_task,
         },
         accept_result,
     );

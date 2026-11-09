@@ -1,4 +1,4 @@
-use super::{Registration, Result, ShareCacheError};
+use super::{Registration, Result, ShareCacheError, MANAGED_DIRECTORY};
 use crate::byte_cloud_backup::connection::files::Directory;
 use cloud_backup_protocol::Id;
 use fold_db::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
@@ -34,7 +34,7 @@ pub(super) fn cache_root(path: &Path, identity_home: &Path) -> Result<PathBuf> {
     let parent = path.parent().ok_or_else(invalid)?.canonicalize()?;
     let path = parent.join(path.file_name().ok_or_else(invalid)?);
     let identity = identity_home.canonicalize()?;
-    if identity.starts_with(&path) {
+    if identity.starts_with(&path) || path.starts_with(identity.join(MANAGED_DIRECTORY)) {
         return Err(invalid());
     }
     crate::offline_home::refuse_primary(&path).map_err(|_| invalid())?;
@@ -169,7 +169,7 @@ pub(super) fn finish_slot(slot: &Path, data: &Path, workspace: &Path) -> Result<
     Ok(())
 }
 
-fn private_directory(path: &Path, create: bool) -> Result<Directory> {
+pub(super) fn private_directory(path: &Path, create: bool) -> Result<Directory> {
     let mut metadata = fs::symlink_metadata(path);
     if create
         && metadata

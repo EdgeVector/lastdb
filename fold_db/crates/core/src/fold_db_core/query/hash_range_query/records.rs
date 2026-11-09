@@ -11,7 +11,7 @@ use super::condition_rules::{matching_records, order_records, reject_unknown_con
 use super::*;
 use crate::db_operations::record_store::{KeyedRecord, WalkWindow, PAGE_READ_KEYS};
 use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
-use crate::fold_db_core::query::{QueryRecords, Record, RecordMetadata};
+use crate::fold_db_core::query::{QueryRecords, Record};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::SAMPLE_PEEK_CAP;
 use crate::schema::types::key_comparison::KeyComparisonContext;
@@ -219,39 +219,7 @@ fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
 fn to_records(rows: Vec<KeyedRecord>) -> QueryRecords {
     let mut out = QueryRecords::with_capacity(rows.len());
     for (key, record) in rows {
-        let fields = record.fields.clone().into_iter().collect();
-        let metadata = record_metadata(&record);
-        out.insert(
-            key,
-            Record {
-                revision: record.stamp.revision(),
-                alternates: record.alternates.clone(),
-                fields,
-                metadata,
-            },
-        );
+        out.insert(key, Record::from_stored(&record));
     }
     out
-}
-
-/// The one metadata block of a record (D7) with its file markers, or `None`
-/// when it has none of them.
-fn record_metadata(record: &StoredRecord) -> Option<RecordMetadata> {
-    let meta = record
-        .meta
-        .as_ref()
-        .filter(|meta| meta.source_file_name.is_some() || !meta.metadata.is_empty());
-    let file = record.file.clone();
-    let inline_file = record.inline_file.clone();
-    if meta.is_none() && file.is_none() && inline_file.is_none() {
-        return None;
-    }
-    Some(RecordMetadata {
-        source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
-        metadata: meta
-            .filter(|meta| !meta.metadata.is_empty())
-            .map(|meta| meta.metadata.clone().into_iter().collect()),
-        file,
-        inline_file,
-    })
 }

@@ -7,7 +7,11 @@ const PUT_BLOB_PATH: &str = "/api/db/put-blob";
 /// The raw HTTP request: the bytes are the body, so there is no base64 tax.
 /// The complete record and file description are a length-prefixed JSON
 /// segment before the raw bytes, so a record can exceed the header limit.
-fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8>, String> {
+fn put_blob_request(
+    path: &str,
+    bytes: &[u8],
+    metadata: &serde_json::Value,
+) -> Result<Vec<u8>, String> {
     admit_local_file_input(bytes.len() as u64)?;
     let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
     let body_length = json
@@ -15,7 +19,7 @@ fn put_blob_request(bytes: &[u8], metadata: &serde_json::Value) -> Result<Vec<u8
         .checked_add(bytes.len())
         .ok_or("local file request length overflow")?;
     let head = format!(
-        "POST {PUT_BLOB_PATH} HTTP/1.1\r\n\
+        "POST {path} HTTP/1.1\r\n\
          Host: localhost\r\n\
          {}Content-Type: application/octet-stream\r\n\
          X-LastDB-File-Blob-Metadata-Length: {}\r\n\
@@ -76,7 +80,7 @@ fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, Strin
 }
 
 pub(crate) fn put_record_file(
-    socket: &Path,
+    target: &DatabaseTarget,
     metadata: &serde_json::Value,
     source: &Path,
 ) -> Result<serde_json::Value, String> {
@@ -89,8 +93,8 @@ pub(crate) fn put_record_file(
             .len(),
     )?;
     let bytes = read_local_file_input(input)?;
-    let request = put_blob_request(&bytes, metadata)?;
+    let request = put_blob_request(&target.path(PUT_BLOB_PATH), &bytes, metadata)?;
     drop(bytes);
-    let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
+    let response = request_with_timeout(&target.socket, &request, admin_scan_client_timeout())?;
     parse_json_response(&response, PUT_BLOB_PATH)
 }

@@ -5,7 +5,7 @@ use lastdb_host::wire::query_value;
 const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;
 const LIST_RECORD_KEYS_MAX_LIMIT: usize = 1000;
 
-pub(super) struct ListRecordKeysRequest {
+pub(in crate::exec) struct ListRecordKeysRequest {
     pub requested: String,
     pub limit: usize,
     pub cursor: Option<String>,
@@ -14,7 +14,7 @@ pub(super) struct ListRecordKeysRequest {
 }
 
 impl ListRecordKeysRequest {
-    pub(super) fn parse(target: &str) -> Result<Self, &'static str> {
+    pub(in crate::exec) fn parse(target: &str) -> Result<Self, &'static str> {
         let requested = query_value(target, "schema")
             .filter(|schema| !schema.is_empty())
             .ok_or("schema query parameter is required")?;
