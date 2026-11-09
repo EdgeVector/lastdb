@@ -121,11 +121,12 @@ impl OpenGrant {
         .map_err(SubmitError::Invalid)?;
         let permission = GuestAppendPermission::parse(&invitation.authorization)
             .map_err(|error| SubmitError::Invalid(error.to_string()))?;
-        let writer = recipient.contact().identity_public_key().clone();
-        if invitation.writer != writer
+        let contact = recipient.contact();
+        let writer = contact.identity_public_key();
+        if &invitation.writer != writer
             || permission.publisher_public_key() != publisher
             || permission.stream().stream_id
-                != inbox_id(&invitation.publication, &writer).map_err(SubmitError::Invalid)?
+                != inbox_id(&invitation.publication, writer).map_err(SubmitError::Invalid)?
             || invitation.version == 0
         {
             return Err(SubmitError::Invalid(
@@ -153,8 +154,7 @@ impl OpenGrant {
     }
 
     fn require_live(&self) -> Result<(), SubmitError> {
-        let now = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or_default();
-        if self.permission.expires_ms() <= now {
+        if self.permission.expires_ms() <= fold_db::clock::unix_millis() {
             return Err(SubmitError::Forbidden);
         }
         Ok(())
@@ -238,7 +238,8 @@ async fn append(
         return Ok(sequence);
     }
     grant.require_live()?;
-    let client = GuestContributionWriter::new(&grant.permission).map_err(transport_error)?;
+    let client =
+        GuestContributionWriter::new(&grant.permission).map_err(|error| transport_error(&error))?;
     let sequence = outbox
         .through
         .checked_add(1)
@@ -275,7 +276,7 @@ async fn append(
     client
         .append(sequence, &ciphertext)
         .await
-        .map_err(transport_error)?;
+        .map_err(|error| transport_error(&error))?;
     if let Some(previous) = outbox.last.replace(pending) {
         outbox.recent.push_back(Sent {
             id: previous.id,
@@ -293,8 +294,8 @@ async fn append(
     Ok(sequence)
 }
 
-fn transport_error(error: BackupTransportError) -> SubmitError {
-    match &error {
+fn transport_error(error: &BackupTransportError) -> SubmitError {
+    match error {
         BackupTransportError::Authentication | BackupTransportError::Http(401 | 403) => {
             SubmitError::Forbidden
         }

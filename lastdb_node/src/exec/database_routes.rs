@@ -39,30 +39,116 @@ pub async fn execute_database_request(
         }
         _ => return content_free(404, "Not Found"),
     };
-    let Ok(id) = local_id(host) else {
-        return error_response(503, "local database identity is unavailable", ctx);
-    };
-    if id == selector {
-        return super::execute_data_route_with_timeout(route, req, ctx, host).await;
-    }
-    let share = match registered_share::resolve(&host.home, &selector) {
+    let share = match resolve_database(&selector, ctx, host) {
         Ok(Some(share)) => share,
-        Ok(None) => return error_response(404, "database is not registered on this node", ctx),
-        Err(crate::share_cache::ShareCacheError::Invalid("database name")) => {
-            return error_response(400, "invalid database selector", ctx);
+        Ok(None) => {
+            return super::execute_data_route_with_timeout(route, req, ctx, host).await;
         }
-        Err(_) => return error_response(503, "database registry is unavailable", ctx),
+        Err(response) => return response,
     };
     let work = async {
         match route {
-            DataRoute::Mutation => super::database_mutation::mutate(req, ctx, &share).await,
-            DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
+            DataRoute::Mutation | DataRoute::MutationBatch => {
+                received_mutation(route, req, ctx, &share).await
+            }
+            DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
             _ => super::database_read::read(route, req, ctx, &share),
         }
     };
     super::dispatch::execute_observed_route(route, req, ctx, host, work).await
+}
+
+/// Only bounded, Send mutation futures may leave the socket worker.
+pub fn is_deferred_database_mutation(req: &UdsRequest) -> bool {
+    scoped_mutation(req).is_some()
+}
+
+pub fn execute_deferred_database_mutation<'a>(
+    req: &'a mut UdsRequest,
+    ctx: &'a AccessContext,
+    host: &'a Host,
+) -> ErasedRoute<'a> {
+    Box::pin(async move {
+        if !ctx.is_owner {
+            return content_free(404, "Not Found");
+        }
+        let Some((selector, path, route)) = scoped_mutation(req) else {
+            return content_free(404, "Not Found");
+        };
+        let selector = selector.to_owned();
+        req.target = format!("/api/{path}");
+        match resolve_database(&selector, ctx, host) {
+            Ok(None) => execute_deferred_mutation(route, req, ctx, host).await,
+            Ok(Some(share)) => {
+                with_handler_timeout_budget(
+                    ctx,
+                    data_route_budget(route),
+                    super::dispatch::execute_observed_route(
+                        route,
+                        req,
+                        ctx,
+                        host,
+                        received_mutation(route, req, ctx, &share),
+                    ),
+                )
+                .await
+            }
+            Err(response) => response,
+        }
+    })
+}
+
+fn scoped_mutation(req: &UdsRequest) -> Option<(&str, &str, DataRoute)> {
+    if req.method != "POST" {
+        return None;
+    }
+    let (selector, path) = database_path::split(&req.target)?;
+    let route = match path.split(['?', '#']).next()? {
+        "mutation" => DataRoute::Mutation,
+        "mutations/batch" => DataRoute::MutationBatch,
+        _ => return None,
+    };
+    Some((selector, path, route))
+}
+
+/// `None` names the owner database served by this host.
+fn resolve_database(
+    selector: &str,
+    ctx: &AccessContext,
+    host: &Host,
+) -> Result<Option<RegisteredShare>, UdsResponse> {
+    let id = local_id(host)
+        .map_err(|_| error_response(503, "local database identity is unavailable", ctx))?;
+    if id == selector {
+        return Ok(None);
+    }
+    match registered_share::resolve(&host.home, selector) {
+        Ok(Some(share)) => Ok(Some(share)),
+        Ok(None) => Err(error_response(
+            404,
+            "database is not registered on this node",
+            ctx,
+        )),
+        Err(crate::share_cache::ShareCacheError::Invalid("database name")) => {
+            Err(error_response(400, "invalid database selector", ctx))
+        }
+        Err(_) => Err(error_response(503, "database registry is unavailable", ctx)),
+    }
+}
+
+async fn received_mutation(
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    share: &RegisteredShare,
+) -> UdsResponse {
+    if route == DataRoute::Mutation {
+        super::database_mutation::mutate(req, ctx, share).await
+    } else {
+        error_response(403, "operation is unavailable on a received database", ctx)
+    }
 }
 
 fn is_database_operation(route: DataRoute) -> bool {

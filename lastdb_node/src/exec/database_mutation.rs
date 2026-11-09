@@ -76,7 +76,7 @@ pub(super) async fn mutate(
     .await
     {
         Ok(sequence) => sequence,
-        Err(error) => return submission_error(error, ctx),
+        Err(error) => return submission_error(&error, ctx),
     };
     let response = envelope(
         &serde_json::json!({
@@ -106,7 +106,7 @@ fn mutation_id(req: &UdsRequest) -> Option<Id> {
     Id::try_from(value.to_owned()).ok()
 }
 
-fn submission_error(error: SubmitError, ctx: &AccessContext) -> UdsResponse {
+fn submission_error(error: &SubmitError, ctx: &AccessContext) -> UdsResponse {
     match error {
         SubmitError::Invalid(_) | SubmitError::Forbidden => error_response(
             403,

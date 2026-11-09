@@ -130,6 +130,9 @@ pub(super) fn mutate_command(
     } else {
         None
     };
+    if file.is_some() && mutation_id.is_some() {
+        return Err("--mutation-id applies to record submissions without file changes".into());
+    }
     if let Some(object) = body.as_object_mut().filter(|_| durable) {
         object.insert("durability".into(), serde_json::json!("durable"));
     }

@@ -55,6 +55,10 @@ def check_addressing(command, cli, owner, publication, publication_id):
                     "get", "RecordById", "--key-hash", "one", "--json")
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must never read the node's personal records")
+    wrong = command(cli, "--data-dir", owner.home, "--db", publication_id,
+                    "mutate", "--request-file", request)
+    require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
+            "an unknown database selector must refuse the mutation before dispatch")
 
 
 def exercise(cli, owner, root):

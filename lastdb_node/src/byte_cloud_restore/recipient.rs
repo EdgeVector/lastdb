@@ -66,7 +66,7 @@ impl RestoreSession {
         ) || entry
             .file_name()
             .and_then(|name| name.to_str())
-            .is_none_or(|name| Id::try_from(name).is_err())
+            .is_none_or(|name| Id::try_from(name.to_owned()).is_err())
             || registry.file_name().and_then(|name| name.to_str())
                 != Some(super::MANAGED_SHARE_DIRECTORY)
             || slot.canonicalize()? != slot
