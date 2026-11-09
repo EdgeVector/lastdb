@@ -25,13 +25,22 @@ pub(super) fn signed(value: &str, upload: bool) -> Result<Url> {
     )
 }
 
-pub(super) fn upload(value: &str, multipart_part: bool) -> Result<Url> {
-    let headers = if multipart_part {
-        "content-length;host"
-    } else {
-        "content-length;host;if-none-match"
+pub(super) fn upload(value: &str, multipart_part: bool) -> Result<(Url, bool)> {
+    let url = https(value)?;
+    let names: Vec<_> = url
+        .query_pairs()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("x-amz-signedheaders"))
+        .map(|(_, value)| value.into_owned())
+        .collect();
+    if names.len() != 1 {
+        return Err(BackupTransportError::InvalidResponse("signed headers"));
+    }
+    let if_none_match = match (multipart_part, names[0].as_str()) {
+        (true, "content-length;host") => false,
+        (false, "content-length;host;if-none-match") => true,
+        (false, "content-length;host") => false,
+        _ => return Err(BackupTransportError::InvalidResponse("signed headers")),
     };
-    let url = signed_headers(value, headers)?;
     let parts: Vec<_> = url.query_pairs().collect();
     let uploads: Vec<_> = parts.iter().filter(|(key, _)| key == "uploadId").collect();
     let numbers: Vec<_> = parts
@@ -47,7 +56,7 @@ pub(super) fn upload(value: &str, multipart_part: bool) -> Result<Url> {
         return Err(BackupTransportError::InvalidResponse("upload operation"));
     }
     drop(parts);
-    Ok(url)
+    Ok((url, if_none_match))
 }
 
 pub(super) fn signed_headers(value: &str, expected: &str) -> Result<Url> {

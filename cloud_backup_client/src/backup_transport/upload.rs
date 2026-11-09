@@ -34,7 +34,7 @@ impl BackupTransport {
         source: Box<dyn Read + Send>,
         multipart_part: bool,
     ) -> Result<UploadObservation> {
-        let url = urls::upload(grant.url, multipart_part)?;
+        let (url, if_none_match) = urls::upload(grant.url, multipart_part)?;
         let timeout = self.transfer_timeout(object.bytes, grant.expires_ms)?;
         let deadline = tokio::time::Instant::now() + timeout;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
@@ -49,7 +49,7 @@ impl BackupTransport {
             .http
             .put(url)
             .header(reqwest::header::CONTENT_LENGTH, object.bytes);
-        if !multipart_part {
+        if if_none_match {
             request = request.header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH);
         }
         let response = tokio::time::timeout_at(deadline, request.body(body).send()).await;
