@@ -30,7 +30,9 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
             let handle = id(handle.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))?;
             let snapshot = runtime()?
                 .block_on(cache.accept(&handle, &sealed, &publisher))
-                .map_err(|e| format!("share {handle} could not finish receiving: {e}"))?;
+                .map_err(|e| {
+                    format!("share {} could not finish receiving: {e}", handle.as_str())
+                })?;
             print_snapshot(&handle, &snapshot);
             Ok(())
         }
@@ -48,7 +50,7 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
         ShareFilesCommand::List(share) => {
             let (cache, handle) = open(home, share)?;
             let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
-            let files = file_share::list_files(&SCHEMAS, |q| {
+            let files = share_file::list_files(&SCHEMAS, |q| {
                 reader.read_record(q).map_err(|e| e.to_string())
             })?;
             println!(
@@ -60,7 +62,7 @@ pub(super) fn run(home: &Path, action: ShareFilesCommand) -> Result<(), String> 
         ShareFilesCommand::Save { share, file, out } => {
             let (cache, handle) = open(home, share)?;
             let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
-            file_share::get_file(&SCHEMAS, &id(file)?, &out, |q| {
+            share_file::get_file(&SCHEMAS, &id(file)?, &out, |q| {
                 reader.read_record(q).map_err(|e| e.to_string())
             })?;
             println!(

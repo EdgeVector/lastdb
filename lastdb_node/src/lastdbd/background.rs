@@ -4,12 +4,14 @@ use lastdb_node::host::Host;
 use std::sync::{atomic::AtomicBool, Arc};
 use tokio::task::JoinHandle;
 
+type BackgroundTasks = (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>);
+
 pub(crate) fn spawn(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     shutdown: &Arc<AtomicBool>,
     share: Option<lastdb_node::share_publication::AutomaticPublication>,
-) -> Result<(JoinHandle<()>, JoinHandle<()>, JoinHandle<()>), String> {
+) -> Result<BackgroundTasks, String> {
     let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
     let _runtime_guard = runtime.enter();
     // fetch-blob downloads a record file that is not local (after a restore)

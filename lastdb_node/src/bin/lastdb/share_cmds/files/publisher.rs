@@ -49,7 +49,7 @@ fn add_file(socket: &Path, input: &Path) -> Result<FileManifest, String> {
     let definitions = declare_schemas(socket)?;
     let mut row = load_catalog(socket)?;
     if let Some(catalog) = catalog(row.as_ref())? {
-        let recovered = file_share::recover_pending(
+        let recovered = share_file::recover_pending(
             &SCHEMAS,
             catalog,
             |keys| read_revisions(socket, keys),
@@ -59,7 +59,7 @@ fn add_file(socket: &Path, input: &Path) -> Result<FileManifest, String> {
             row = load_catalog(socket)?;
         }
     }
-    file_share::add_file(input, &SCHEMAS, catalog(row.as_ref())?, |operations| {
+    share_file::add_file(input, &SCHEMAS, catalog(row.as_ref())?, |operations| {
         write(socket, &definitions, operations)
     })
 }
@@ -67,7 +67,7 @@ fn add_file(socket: &Path, input: &Path) -> Result<FileManifest, String> {
 fn catalog_is_complete(socket: &Path) -> bool {
     load_catalog(socket).is_ok_and(|row| {
         catalog(row.as_ref()).is_ok_and(|value| {
-            file_share::require_complete_catalog(value.map(|v| v.entries)).is_ok()
+            share_file::require_complete_catalog(value.map(|v| v.entries)).is_ok()
         })
     })
 }
