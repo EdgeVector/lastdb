@@ -120,8 +120,20 @@ class Automatic:
                     for name in ("last_snapshot_at", "next_snapshot_at")),
                 "log_did_not_move_daily_snapshot_timer")
         revision = log["automatic_backup"]["revision"]
+        log_expected = copy.deepcopy(source.expected)
+        log_dependency = self.dependencies(log_expected, log["last_accepted_backup"])
+        replay = {"base": snapshot["last_accepted_backup"], "minimum": written, "prefixes": minimums}
         operation.summary["stage"] = "automatic-restart"
         source.node.stop()
+        # Verify the active snapshot and mutation-log recovery chain before the
+        # next full snapshot commits and immediately prunes superseded points.
+        base_restore = self.recover("base-recovery", initial, snapshot["last_accepted_backup"],
+                                    lifecycle=lifecycle, initial=True, temporary=temporary,
+                                    file_released=True)
+        log_restore = self.recover("log-recovery", log_expected, log["last_accepted_backup"], replay,
+                                   lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary,
+                                   sign_in_check=True)
+        operation.node = source.node
         source.node.start()
         policy = source.policy(source.cloud("status"))
         require(policy["revision"] == revision, "automatic_policy_survives_daemon_restart")
@@ -148,25 +160,25 @@ class Automatic:
         operation.summary["stage"] = "automatic-disable"
         source.configure()
         source.retired(restarted["request_id"])
+        later_expected = copy.deepcopy(source.expected)
+        snapshot_dependency = self.dependencies(later_expected, later["last_accepted_backup"])
+        snapshot_restore = None
+
+        def recover_later_before_stopped():
+            nonlocal snapshot_restore
+            snapshot_restore = self.recover("snapshot-recovery", later_expected,
+                                            later["last_accepted_backup"],
+                                            lifecycle=lifecycle, temporary=temporary)
+            operation.node = source.node
+
         operation.summary["stage"] = "stopped-backup-automatic-on"
         stopped = StoppedFinal(source)
-        final_stopped = stopped.run()
+        final_stopped = stopped.run(before_stopped_backup=recover_later_before_stopped)
         operation.summary["stage"] = "automatic-disable"
         source.disable()
         source.node.stop()
-        dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
-                                  "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
-        replay = {"base": snapshot["last_accepted_backup"], "minimum": written, "prefixes": minimums}
-        # The mutation log stage replaced the record's file, so the release
-        # deleted the version this first snapshot names from B2.
-        base_restore = self.recover("base-recovery", initial, snapshot["last_accepted_backup"],
-                                    lifecycle=lifecycle, initial=True, temporary=temporary,
-                                    file_released=True)
-        log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
-                                   lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary,
-                                   sign_in_check=True)
-        snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
-                                        lifecycle=lifecycle, temporary=temporary)
+        dependency_inspections = {"log": log_dependency,
+                                  "snapshot": snapshot_dependency}
         stopped_restore, final_restore = self.stopped_recoveries(stopped, lifecycle, temporary)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
                                        for value in (snapshot, log, later)])

@@ -7,17 +7,14 @@ import shared_daily_scopes as scopes
 from support import decode_json, require
 
 
-AWS_BUCKET = "exemem-native-backup-dev-us-west-2-152335099025"
 R2_SECRET = "arn:aws:secretsmanager:us-west-2:152335099025:secret:ExememR2Credentials-dev-ZkqnBw"
 B2_SECRET = "arn:aws:secretsmanager:us-west-2:152335099025:secret:ExememByteB2Credentials-dev-00448c3b20aa-J4sJI4"
 
 
 def validate_targets(targets):
-    require(isinstance(targets, list) and [t["name"] for t in targets] == ["aws", "r2", "b2"],
+    require(isinstance(targets, list) and [t["name"] for t in targets] == ["r2", "b2"],
             "shared_daily_provider_set")
-    a, r, b = targets
-    require(a == {"name": "aws", "bucket": AWS_BUCKET, "region": io.REGION,
-                  "endpoint": "https://s3.us-west-2.amazonaws.com"}, "shared_daily_aws_target")
+    r, b = targets
     require(r["bucket"] == "exemem-sync-dev" and r["region"] == "auto"
             and r["secret_arn"] == R2_SECRET and re.fullmatch(
                 r"https://[0-9a-f]{32}\.r2\.cloudflarestorage\.com", r["endpoint"]),
@@ -30,10 +27,7 @@ def validate_targets(targets):
 def configured_targets():
     stack = io.aws("cloudformation", "describe-stacks", {"StackName": "ExememNativeBackup-dev"})["Stacks"][0]
     parameters = {p["ParameterKey"]: p["ParameterValue"] for p in stack["Parameters"]}
-    require(parameters["CloudByteRoutingEnabled"] == "true", "shared_daily_routing_enabled")
     targets = [
-        {"name": "aws", "bucket": AWS_BUCKET, "region": io.REGION,
-         "endpoint": "https://s3.us-west-2.amazonaws.com"},
         {"name": "r2", "bucket": parameters["CloudByteR2Bucket"], "region": "auto",
          "endpoint": f"https://{parameters['CloudByteR2AccountId']}.r2.cloudflarestorage.com",
          "secret_arn": parameters["CloudByteR2SecretArn"]},
