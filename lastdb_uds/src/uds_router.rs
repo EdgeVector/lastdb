@@ -197,7 +197,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `32` removes the app SDK TCP exports `httpTransport` and
 /// `discoverTransport`, and `connect({ baseUrl })`. Apps connect over the
 /// Unix socket. No request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
-pub const API_VERSION: u32 = 32;
+/// `33` removes the app SDK export `LASTDB_UDS_SHARED_ROUTES` and renames
+/// the SDK base error `FoldDbError` to `LastDbError`. No request key changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `29`.
+pub const API_VERSION: u32 = 33;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

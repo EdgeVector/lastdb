@@ -17,5 +17,5 @@ module.exports = {
     '@typescript-eslint/explicit-module-boundary-types': 'off',
     'no-console': 'off',
   },
-  ignorePatterns: ['dist/', 'node_modules/', 'test/', 'e2e/', '*.cjs'],
+  ignorePatterns: ['dist/', 'node_modules/', '*.cjs'],
 };
