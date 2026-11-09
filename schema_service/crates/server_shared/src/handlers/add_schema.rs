@@ -23,25 +23,18 @@ fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), Bo
     }
 }
 
-/// Shared-surface migration observe: classify every legacy POST /v1/schemas
-/// caller. Does not reject yet — enforcement waits for caller migration.
-fn observe_shared_surface(request: &AddSchemaRequest) -> Result<(), Box<HttpResponse>> {
-    let has_shared_surface_envelope = request.shared_surface.is_some();
+/// Reject a malformed shared-surface envelope on `POST /v1/schemas`.
+///
+/// Absent metadata is accepted. Present metadata must pass
+/// `validate_surface_metadata`.
+fn validate_add_schema_surface(request: &AddSchemaRequest) -> Result<(), Box<HttpResponse>> {
     if let Some(surface) = &request.shared_surface {
-        // Transitional clients may attach the envelope on the legacy route;
-        // require well-formed governance metadata. Dedicated publish/attach
-        // lands later; private Mini declare never sets this field.
         if let Err(e) = validate_surface_metadata(surface) {
             return Err(Box::new(HttpResponse::BadRequest().json(ErrorResponse {
                 error: format!("Invalid shared_surface metadata: {e}"),
             })));
         }
     }
-    observe_legacy_schema_caller(
-        request.schema.owner_app_id.as_deref(),
-        request.offer_to_shared_discovery,
-        has_shared_surface_envelope,
-    );
     Ok(())
 }
 
@@ -191,7 +184,7 @@ pub async fn add_schema(
     let telemetry_source = request.schema_match_source.clone();
     let telemetry_reason = request.fallback_reason.clone();
 
-    if let Err(response) = observe_shared_surface(&request) {
+    if let Err(response) = validate_add_schema_surface(&request) {
         return *response;
     }
 

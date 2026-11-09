@@ -123,11 +123,9 @@ pub struct AddSchemaRequest {
     /// Optional explicit shared-surface envelope.
     ///
     /// When present, the request asserts intentional sharing with owner,
-    /// purpose, compatibility, and provenance. Prefer the dedicated
-    /// shared publish/attach path once it is mounted; this field lets the
-    /// legacy `POST /v1/schemas` route observe and (later) enforce the
-    /// same contract without a hard cutover. Private Mini declaration
-    /// never sets this field.
+    /// purpose, compatibility, and provenance. The metadata must pass
+    /// `validate_surface_metadata`. Private Mini declaration never sets
+    /// this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_surface: Option<SharedSurfaceMetadata>,
 }
