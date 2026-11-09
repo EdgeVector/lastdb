@@ -138,6 +138,31 @@ stdin. A record with a required file cannot be written without its file. A
 bare record replacement keeps the existing file. A replacement with
 `file: null` in the same envelope removes an optional file.
 
+### Share files
+
+LastDB Files is a command-line app for read-only sharing. On the publisher's
+device, create a publication with `lastdb --data-dir OWNER share create --into
+PUBLICATION --env dev`. Run `lastdbd --data-dir PUBLICATION --share-owner-home
+OWNER` to publish changes automatically. Use absolute paths for the homes.
+Add files with `lastdb --data-dir PUBLICATION share files add FILE`. The app
+accepts regular files of any type, up to 128 files and 256 MiB total per share.
+The file catalog also has a 32 KiB limit.
+
+The recipient exports a public contact with `lastdb --data-dir RECIPIENT share
+contact --out CONTACT`. The publisher verifies the recipient key and uses
+`lastdb --data-dir OWNER share invite --home PUBLICATION --recipient CONTACT
+--recipient-key RECIPIENT_KEY --out INVITATION`. The recipient verifies the
+publisher key and runs `lastdb --data-dir RECIPIENT share files receive
+INVITATION --publisher PUBLISHER_KEY --cache CACHE`. The command returns the
+local share handle.
+
+Keep `lastdb --data-dir RECIPIENT share files follow --cache CACHE --handle
+HANDLE` running for automatic catch-up after a lost connection. Use `files
+list` with the same cache and handle to see the verified local copy. Use
+`files save --file FILE_ID --out PATH` with those options to save a file,
+including while offline. A received share uses a local LastDB identity and
+its publisher's existing cloud backup.
+
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus
 service-owned Search/schema resolver surfaces.

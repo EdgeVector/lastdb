@@ -12,6 +12,7 @@ mod model;
 mod publication;
 mod recovery;
 mod retry;
+pub mod share_write_gate;
 mod source;
 mod stopped;
 mod store;

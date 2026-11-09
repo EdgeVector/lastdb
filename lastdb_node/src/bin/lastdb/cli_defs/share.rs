@@ -54,4 +54,57 @@ pub(crate) enum ShareCommand {
         #[command(flatten)]
         selection: GuestStageSelection,
     },
+    /// Share files with the LastDB Files app.
+    #[command(subcommand)]
+    Files(ShareFilesCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ShareFilesCommand {
+    /// Add a regular file to the running publication database in --data-dir.
+    Add { file: PathBuf },
+    /// Accept a sealed invitation into a local read-only cache.
+    Receive {
+        invitation: PathBuf,
+        /// Publisher's public key obtained through a trusted channel.
+        #[arg(long)]
+        publisher: String,
+        /// An absolute, private cache directory.
+        #[arg(long)]
+        cache: PathBuf,
+        /// Optional UUID to reuse after an interrupted first download.
+        #[arg(long)]
+        handle: Option<String>,
+    },
+    /// Keep a received share current while this app is open.
+    Follow {
+        #[command(flatten)]
+        share: ShareFilesSelection,
+        /// Seconds between checks of the published snapshot.
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=60))]
+        interval_seconds: u64,
+    },
+    /// List files from the locally verified copy, including while offline.
+    List(ShareFilesSelection),
+    /// Save and verify a file from the locally verified copy.
+    Save {
+        #[command(flatten)]
+        share: ShareFilesSelection,
+        /// File ID from the list command.
+        #[arg(long)]
+        file: String,
+        /// New path for the complete file.
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ShareFilesSelection {
+    /// Absolute path of the cache used by receive.
+    #[arg(long)]
+    pub cache: PathBuf,
+    /// Share handle returned by receive.
+    #[arg(long)]
+    pub handle: String,
 }
