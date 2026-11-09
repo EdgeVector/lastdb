@@ -164,16 +164,12 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     // First-write-wins, immutable. The in-memory registry enforces
     // first-write-wins before `save_app` is called; backends should make
     // `save_app` insert-if-absent so a cross-instance race can't clobber
-    // the winner. Default impls are no-ops / empty so a backend that
-    // predates Lane B2b silently runs without an app registry rather than
-    // failing startup.
+    // the winner.
 
     /// Persist a single app registration, keyed by `app.app_id`. Should be
     /// insert-if-absent (first-write-wins) — never overwrite an existing
     /// `app_id` with a different owner.
-    async fn save_app(&self, _app: &AppRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
+    async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()>;
 
     /// Persist an owner-authenticated metadata update to an existing app
     /// (app_identity v3.1 `PUT /v1/apps/{id}`). The in-memory registry
@@ -181,24 +177,17 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     /// `display_name` is unchanged; implementations must overwrite the
     /// stored record's `metadata` while preserving `owner_dev_pubkey`
     /// and `registered_at`.
-    async fn update_app(&self, _app: &AppRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
+    async fn update_app(&self, app: &AppRecord) -> FoldDbResult<()>;
 
     /// Load every registered app, keyed by `app_id`. Called once at
     /// startup to populate the in-memory registry.
-    async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
-        Ok(HashMap::new())
-    }
+    async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>>;
 
     /// Load a single app from durable storage by `app_id`. Used by the
     /// release and channel operations to verify ownership from the source
     /// of truth before any mutation. Returns `None` if the app does not
-    /// exist. Default: falls back to `load_all_apps` and filters.
-    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
-        let all = self.load_all_apps().await?;
-        Ok(all.get(app_id).cloned())
-    }
+    /// exist.
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>>;
 
     // ============== App releases + channels (`/v2` registry) ============
     //
@@ -207,55 +196,37 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     // body. The only field that ever changes on an existing row is the
     // revocation annotation, which is why upsert (not insert-if-absent) is
     // the right shape here.
-    //
-    // Default impls are no-ops / empty so a backend that predates the `/v2`
-    // registry runs without it rather than failing startup — the same
-    // opt-in shape as the app registry above.
 
     /// Persist one release, keyed by `record.release_id`.
-    async fn save_release(&self, _record: &crate::app_release::ReleaseRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
+    async fn save_release(&self, record: &crate::app_release::ReleaseRecord) -> FoldDbResult<()>;
 
     /// Load every published release, keyed by `release_id`.
     async fn load_all_releases(
         &self,
-    ) -> FoldDbResult<HashMap<String, crate::app_release::ReleaseRecord>> {
-        Ok(HashMap::new())
-    }
+    ) -> FoldDbResult<HashMap<String, crate::app_release::ReleaseRecord>>;
 
-    /// Read one release by its exact key. `None` means the release is absent,
-    /// or the backend keeps no per-record store.
+    /// Read one release by its exact key. `None` means the release is absent.
     async fn load_release(
         &self,
-        _release_id: &str,
-    ) -> FoldDbResult<Option<crate::app_release::ReleaseRecord>> {
-        Ok(None)
-    }
+        release_id: &str,
+    ) -> FoldDbResult<Option<crate::app_release::ReleaseRecord>>;
 
     /// Persist one channel, keyed by
     /// [`crate::app_release::channel_key`]`(app_id, channel)`.
-    async fn save_channel(&self, _record: &crate::app_release::ChannelRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
+    async fn save_channel(&self, record: &crate::app_release::ChannelRecord) -> FoldDbResult<()>;
 
     /// Load every channel, keyed by
     /// [`crate::app_release::channel_key`]`(app_id, channel)`.
     async fn load_all_channels(
         &self,
-    ) -> FoldDbResult<HashMap<String, crate::app_release::ChannelRecord>> {
-        Ok(HashMap::new())
-    }
+    ) -> FoldDbResult<HashMap<String, crate::app_release::ChannelRecord>>;
 
-    /// Read one channel by its exact key. `None` means the channel is absent,
-    /// or the backend keeps no per-record store.
+    /// Read one channel by its exact key. `None` means the channel is absent.
     async fn load_channel(
         &self,
-        _app_id: &str,
-        _channel: &str,
-    ) -> FoldDbResult<Option<crate::app_release::ChannelRecord>> {
-        Ok(None)
-    }
+        app_id: &str,
+        channel: &str,
+    ) -> FoldDbResult<Option<crate::app_release::ChannelRecord>>;
 
     // ============== Declared fields (coherence, not meaning) ============
     //
@@ -285,9 +256,7 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     /// Load every declaration. Called once at startup to rebuild both the
     /// id index and the `(owner, handle)` index that keeps re-declare
     /// idempotent across restarts.
-    async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
-        Ok(Vec::new())
-    }
+    async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>>;
 
     /// Clear all schemas from durable storage (dev reset). Default:
     /// unsupported (cloud backends own their own reset semantics).

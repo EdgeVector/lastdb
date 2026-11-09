@@ -291,9 +291,7 @@ impl SchemaServiceState {
     async fn load_apps_cache(&self) -> FoldDbResult<()> {
         let backend = self.storage.backend().clone();
 
-        // Apps (canonical app registry, app_identity v3.1 Lane B2b).
-        // Backends that predate the apps blob return an empty map from the
-        // default trait impl.
+        // A failed app-registry read starts the process with an empty registry.
         let loaded_apps = backend.load_all_apps().await.unwrap_or_default();
         {
             let mut apps = write_lock(&self.apps, "apps")?;
@@ -314,9 +312,7 @@ impl SchemaServiceState {
     async fn load_releases_and_channels_cache(&self) -> FoldDbResult<()> {
         let backend = self.storage.backend().clone();
 
-        // App releases + channels (`/v2` registry). Same opt-in shape: a
-        // backend that predates the release store returns empty maps, so the
-        // service starts with no published releases rather than failing.
+        // A failed release or channel read starts the process with empty maps.
         let loaded_releases = backend.load_all_releases().await.unwrap_or_default();
         let loaded_channels = backend.load_all_channels().await.unwrap_or_default();
         {
