@@ -127,6 +127,16 @@ impl MetadataStore {
         self.format.stage_author_clock(writer, state).await
     }
 
+    pub(crate) async fn stage_contribution_receipt(
+        &self,
+        receipt_id: &[u8; 32],
+        intent_digest: &[u8; 32],
+    ) -> Result<bool, SchemaError> {
+        self.format
+            .stage_contribution_receipt(receipt_id, intent_digest)
+            .await
+    }
+
     pub(crate) async fn stage_local_stamps(
         &self,
         schemas: &[&str],

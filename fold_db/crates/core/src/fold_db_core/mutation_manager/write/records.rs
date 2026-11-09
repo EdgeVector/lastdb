@@ -27,6 +27,12 @@ impl MutationManager {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self.load_schema_for_delta(schema_name).await?;
         require_current_binding(&schema, &mutations)?;
+        if let Some(admission) = mutations
+            .first()
+            .and_then(|item| item.mutation.contribution.as_ref())
+        {
+            require_contribution_definition(&schema, &admission.definition_id)?;
+        }
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut addresses = Vec::with_capacity(mutations.len());
@@ -186,6 +192,20 @@ async fn read_write_preimages(
         }
     }
     Ok(stored)
+}
+
+fn require_contribution_definition(schema: &Schema, expected: &str) -> Result<(), SchemaError> {
+    let wire = schema.to_wire();
+    let id = wire.identity_hash.clone();
+    let definition = id
+        .ok_or_else(|| "schema has no catalog identity".to_owned())
+        .and_then(|id| schema_types::PortableSchemaDefinition::from_catalog(&id, wire));
+    if definition.is_ok_and(|definition| definition.id().as_str() == expected) {
+        return Ok(());
+    }
+    Err(SchemaError::InvalidField(
+        "share contribution requires the exact installed schema definition".into(),
+    ))
 }
 
 fn require_current_binding(

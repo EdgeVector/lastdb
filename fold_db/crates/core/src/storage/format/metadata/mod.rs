@@ -99,6 +99,37 @@ impl Metadata {
         })
     }
 
+    /// Return true for a replay, or stage the opaque acceptance in this native request.
+    pub(crate) async fn stage_contribution_receipt(
+        &self,
+        receipt_id: &[u8; 32],
+        intent_digest: &[u8; 32],
+    ) -> Result<bool, SchemaError> {
+        self.require_scope().map_err(contribution_storage_error)?;
+        let key = format!(
+            "share-contribution-receipt:{}",
+            lastdb_model::hex::hex_lower(receipt_id)
+        );
+        let saved = self
+            .metadata_store
+            .get(key.as_bytes())
+            .await
+            .map_err(contribution_storage_error)?;
+        if let Some(saved) = saved {
+            if saved.as_slice() == intent_digest {
+                return Ok(true);
+            }
+            return Err(SchemaError::InvalidField("share mutation ID reused".into()));
+        }
+        self.stage(EncodedMetadata {
+            key,
+            bytes: intent_digest.to_vec(),
+        })
+        .await
+        .map_err(contribution_storage_error)?;
+        Ok(false)
+    }
+
     /// Grow the shared scope by aliases that no schema in this home uses yet.
     pub(crate) async fn stage_shared_aliases<'a>(
         &self,
@@ -164,5 +195,11 @@ impl Metadata {
         self.metadata_store
             .scan_range_yielding(&start, &end, PAGE, 1)
             .await
+    }
+}
+
+fn contribution_storage_error(error: StorageError) -> SchemaError {
+    SchemaError::StorageRead {
+        detail: error.to_string(),
     }
 }

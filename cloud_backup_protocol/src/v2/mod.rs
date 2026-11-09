@@ -4,6 +4,7 @@ pub mod access;
 pub mod blobs;
 mod common;
 pub mod context;
+pub mod contributions;
 pub mod discovery;
 pub mod hash;
 pub mod inventory;
