@@ -50,7 +50,7 @@ pub(crate) fn stage(
         .transpose()
         .map_err(|_| "invalid staged record coordinates")?;
     let read_record = query.is_some();
-    let reader = ByteBackupReader::guest(permission).map_err(|error| error.to_string())?;
+    let reader = ByteBackupReader::guest_recovery(permission).map_err(|error| error.to_string())?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

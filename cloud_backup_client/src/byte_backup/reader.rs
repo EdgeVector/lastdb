@@ -124,8 +124,13 @@ impl ByteBackupReader {
             }
             ReadProof::Guest(access) => {
                 access.validate_stream(&request.job.stream)?;
-                guest::require_independent(accepted)?;
-                "guest/objects/read"
+                self.ensure_guest_mode(access).await?;
+                if access.use_recovery() {
+                    "guest/recovery/objects/read"
+                } else {
+                    guest::require_independent(accepted)?;
+                    "guest/objects/read"
+                }
             }
         };
         let response: ReadGrantResponse = self.post(operation, request).await?;

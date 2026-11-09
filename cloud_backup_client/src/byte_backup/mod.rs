@@ -12,6 +12,7 @@ mod jobs;
 mod publication;
 mod reader;
 mod release;
+mod share_recovery;
 mod transfer;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};

@@ -310,6 +310,17 @@ async fn pull(
     inbox: &StaticSecret,
     client: &impl Fn() -> Result<ByteBackupClient, String>,
 ) -> Result<(), String> {
+    // Leave submissions queued until a native snapshot cut has anchored
+    // the publisher's journal. The first approval must have a log position.
+    let journal = host
+        .db
+        .db_ops()
+        .native_runtime()
+        .mutation_log_status()
+        .map_err(|error| error.to_string())?;
+    if !journal.enabled || journal.anchor.is_none() || journal.snapshot_required {
+        return Ok(());
+    }
     let state = State::open(owner, "contributor-policy", publication)?;
     let (mut policy, mut saved) = state.load::<Policy>()?;
     if policy.writers.is_empty() {

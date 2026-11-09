@@ -4,8 +4,8 @@ mod checkpoint;
 mod plan;
 mod routing;
 use super::{
-    keys::RecoveryDecryption, local, ByteBackupReader, RestoreError, RestoreReport, RestoreSession,
-    Result, VerifiedNativeContext,
+    inventory::Inventory, keys::RecoveryDecryption, local, recipient::GuestReplayCache,
+    ByteBackupReader, RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::v2::AcceptedBackup;
@@ -16,6 +16,7 @@ use fold_db::storage::disk_pack::{
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
+use std::path::PathBuf;
 
 pub(super) const MAX_CHAIN: u32 = 32768;
 
@@ -31,6 +32,12 @@ struct Cursor {
     part: usize,
 }
 
+struct BaseSnapshot {
+    session: RestoreSession,
+    root: ClientRoot,
+    inventory: Inventory,
+}
+
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupReader,
@@ -39,54 +46,166 @@ pub(super) async fn restore(
     latest: MutationLogRoot,
 ) -> Result<RestoreReport> {
     decryption.validate_account(&latest.recovery.account_public_key)?;
-    let plan = plan::prepare(session, client, decryption, &latest).await?;
-    let base = session.ancestor(plan.base.clone())?;
+    let plan = plan::prepare(session, client, decryption, &latest, None).await?;
+    let base = load_base(session, client, decryption, &latest).await?;
+    if let Some(report) = context(session, &base.root.native_root).published()? {
+        return Ok(report);
+    }
+    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
+        cursor
+    } else {
+        stage_base(base, client, decryption).await?;
+        start_cursor(session, &plan, &latest)?
+    };
+    let proof = replay(session, client, decryption, &latest, cursor).await?;
+    let root = proof.native_root().map_err(RestoreError::native_proof)?;
+    let (files, bytes) = proof.totals().map_err(RestoreError::native_proof)?;
+    context(session, &root).finish_run(
+        identity_seed,
+        super::NativeInventory { files, bytes },
+        &proof,
+    )
+}
+
+pub(super) async fn stage_guest(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+    latest: MutationLogRoot,
+    cache: Option<&GuestReplayCache<'_>>,
+) -> Result<(run_restore::RunRestoreGuard, LogPosition)> {
+    decryption.validate_account(&latest.recovery.account_public_key)?;
+    let plan = plan::prepare(session, client, decryption, &latest, cache).await?;
+    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
+        cursor
+    } else {
+        if let Some(start) = &plan.cached {
+            let cache = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
+            seed_from_cache(session, decryption, &latest, cache, &start.position)?;
+        } else {
+            let base = load_base(session, client, decryption, &latest).await?;
+            stage_base(base, client, decryption).await?;
+        }
+        start_cursor(session, &plan, &latest)?
+    };
+    let proof = replay(session, client, decryption, &latest, cursor).await?;
+    Ok((proof, latest.through))
+}
+
+fn seed_from_cache(
+    session: &RestoreSession,
+    decryption: &RecoveryDecryption,
+    latest: &MutationLogRoot,
+    cache: &GuestReplayCache<'_>,
+    position: &LogPosition,
+) -> Result<()> {
+    let data = session.root.join("home/data");
+    let key = decryption.content_key();
+    let reader = run_restore::RunSnapshotReader::open(cache.data, key, cache.native_root)
+        .map_err(RestoreError::native_proof)?;
+    reader
+        .seed_replay(&data, &latest.anchor, position)
+        .map_err(RestoreError::native_proof)?;
+    local::prepare_native_ephemera(&data)?;
+    run_restore::install_empty_cas_home(&data, key).map_err(RestoreError::native_proof)
+}
+
+async fn load_base(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+    latest: &MutationLogRoot,
+) -> Result<BaseSnapshot> {
+    let base = session.ancestor(latest.base.clone())?;
     let (inventory, bytes) = super::closure::load(&base, client).await?;
-    let snapshot = ClientRoot::decode(&bytes, decryption.content_key(), &base.accepted().begin)
-        .map_err(|_| RestoreError::Invalid("mutation base snapshot"))?;
-    let profile = &snapshot.run;
-    if snapshot.recovery != latest.recovery
+    let root = super::closure::snapshot(&base, decryption, &bytes)?;
+    let profile = &root.run;
+    if root.recovery != latest.recovery
         || profile.main.home_id != latest.anchor.main_home
         || profile.main.frontier.get() != latest.anchor.frontiers.main
         || profile.cas.is_some()
+        || !base.accepted().begin.dependencies().is_empty()
     {
         return Err(RestoreError::Invalid("mutation exact snapshot boundary"));
     }
-    if let Some(report) = context(session, &snapshot.native_root).published()? {
-        return Ok(report);
+    Ok(BaseSnapshot {
+        session: base,
+        root,
+        inventory,
+    })
+}
+
+async fn stage_base(
+    base: BaseSnapshot,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+) -> Result<()> {
+    let total = super::runs::stage(
+        &base.session,
+        client,
+        decryption,
+        &base.root,
+        base.inventory,
+    )
+    .await?;
+    let proof = super::runs::verify_stage(&base.session, decryption, &base.root)?;
+    if proof.totals().map_err(RestoreError::native_proof)? != (total.files, total.bytes) {
+        return Err(RestoreError::Invalid("mutation snapshot proof"));
     }
-    let cursor_path = session.root.join("chain/cursor.json");
-    let mut cursor: Cursor = if cursor_path.try_exists()? {
-        local::read_json(&cursor_path, 256 * 1024)?
-    } else {
-        let total = super::runs::stage(&base, client, decryption, &snapshot, inventory).await?;
-        let proof = super::runs::verify_stage(&base, decryption, &snapshot)?;
-        if proof
-            .totals()
-            .map_err(|_| RestoreError::Invalid("mutation snapshot proof"))?
-            != (total.files, total.bytes)
-        {
-            return Err(RestoreError::Invalid("mutation snapshot proof"));
-        }
-        drop(proof);
-        let cursor = Cursor {
-            version: 2,
-            head: plan.head.clone(),
-            remaining: plan.links,
-            previous: plan.base.clone(),
-            position: latest
-                .anchor
-                .position()
-                .map_err(|_| RestoreError::Invalid("mutation anchor"))?,
-            entry: 0,
-            part: 0,
-        };
-        plan::save(session, &cursor_path, &cursor)?;
-        cursor
-    };
+    Ok(())
+}
+
+fn cursor_path(session: &RestoreSession) -> PathBuf {
+    session.root.join("chain/cursor.json")
+}
+
+fn load_cursor(session: &RestoreSession, plan: &plan::Plan) -> Result<Option<Cursor>> {
+    let path = cursor_path(session);
+    if !path.try_exists()? {
+        return Ok(None);
+    }
+    let cursor: Cursor = local::read_json(&path, 256 * 1024)?;
     if cursor.version != 2 || cursor.head != plan.head || cursor.remaining > plan.links {
         return Err(RestoreError::Invalid("mutation replay cursor"));
     }
+    Ok(Some(cursor))
+}
+
+fn start_cursor(
+    session: &RestoreSession,
+    plan: &plan::Plan,
+    latest: &MutationLogRoot,
+) -> Result<Cursor> {
+    let (previous, position) = match &plan.cached {
+        Some(start) => (start.accepted.clone(), start.position.clone()),
+        None => (
+            plan.base.clone(),
+            latest
+                .anchor
+                .position()
+                .map_err(RestoreError::native_proof)?,
+        ),
+    };
+    let cursor = Cursor {
+        version: 2,
+        head: plan.head.clone(),
+        remaining: plan.links,
+        previous,
+        position,
+        entry: 0,
+        part: 0,
+    };
+    plan::save(session, &cursor_path(session), &cursor)?;
+    Ok(cursor)
+}
+
+async fn replay(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+    latest: &MutationLogRoot,
+    mut cursor: Cursor,
+) -> Result<run_restore::RunRestoreGuard> {
     let replay_files = session.root.join("replay-files");
     match fs::DirBuilder::new().mode(0o700).create(&replay_files) {
         Ok(()) => File::open(&session.root)?.sync_all()?,
@@ -95,18 +214,17 @@ pub(super) async fn restore(
     }
     local::directory(&replay_files)?;
     while cursor.remaining > 0 {
-        replay_checkpoint(session, client, decryption, &latest, &mut cursor).await?;
+        replay_checkpoint(session, client, decryption, latest, &mut cursor).await?;
     }
-    finish(session, decryption, identity_seed, &latest, &cursor)
+    verify_complete(session, decryption, latest, &cursor)
 }
 
-fn finish(
+fn verify_complete(
     session: &RestoreSession,
     decryption: &RecoveryDecryption,
-    identity_seed: &[u8; 32],
     latest: &MutationLogRoot,
     cursor: &Cursor,
-) -> Result<RestoreReport> {
+) -> Result<run_restore::RunRestoreGuard> {
     if cursor.previous != *session.accepted() || cursor.position != latest.through {
         return Err(RestoreError::Invalid("mutation complete selected prefix"));
     }
@@ -120,24 +238,13 @@ fn finish(
         .settle()
         .map_err(|_| RestoreError::Invalid("final native replay compaction"))?;
     drop(replay);
-    let proof = run_restore::verify_replayed(
+    run_restore::verify_replayed(
         &session.root.join("home/data"),
         &latest.anchor,
         &latest.through,
         decryption.content_key(),
     )
-    .map_err(RestoreError::native_proof)?;
-    let root = proof
-        .native_root()
-        .map_err(|_| RestoreError::Invalid("replayed native root"))?;
-    let (files, bytes) = proof
-        .totals()
-        .map_err(|_| RestoreError::Invalid("replayed native totals"))?;
-    context(session, &root).finish_run(
-        identity_seed,
-        super::NativeInventory { files, bytes },
-        &proof,
-    )
+    .map_err(RestoreError::native_proof)
 }
 
 async fn replay_checkpoint(

@@ -1,13 +1,15 @@
-//! Recipient-owned read-only snapshots of a registered Share.
+//! Recipient-owned read-only recovery points of a registered Share.
 mod files;
 
-use crate::byte_cloud_restore::{RestoreError, RestoreSession, StagedRecord, StagedRecordQuery};
+use crate::byte_cloud_restore::{
+    GuestReplayCache, RestoreError, RestoreSession, StagedRecord, StagedRecordQuery,
+};
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_client::byte_backup::{ByteBackupReader, ShareEnvironment};
 use cloud_backup_protocol::{v2::Stream, Digest, Id, NativeRoot};
 use files::{Entry, Lock};
-use fold_db::storage::disk_pack::run_restore::RunSnapshotReader;
+use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore::RunSnapshotReader};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -65,6 +67,8 @@ struct VerifiedSnapshot {
     slot: u8,
     snapshot: ShareSnapshot,
     native_root: NativeRoot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    through: Option<LogPosition>,
 }
 
 impl ShareCache {
@@ -106,7 +110,7 @@ impl ShareCache {
         self.fetch(&entry, opened, registration, &stored).await
     }
 
-    /// Fetch and verify the current exact independent snapshot. Callers may
+    /// Fetch and verify the current exact accepted point. Callers may
     /// retry this operation whenever the network returns.
     pub async fn refresh(&self, handle: &Id) -> Result<ShareSnapshot> {
         let entry = self.entry(handle, false)?;
@@ -122,7 +126,7 @@ impl ShareCache {
         self.fetch(&entry, opened, registration, &previous).await
     }
 
-    /// Open the most recent verified snapshot without network or invite checks.
+    /// Open the most recent verified point without network or invite checks.
     pub fn reader(&self, handle: &Id) -> Result<ShareReader> {
         let entry = self.entry(handle, false)?;
         let (registration, slot) = {
@@ -171,9 +175,9 @@ impl ShareCache {
         mut registration: Registration,
         previous: &[u8],
     ) -> Result<ShareSnapshot> {
-        let reader = ByteBackupReader::guest(opened.permission)
+        let reader = ByteBackupReader::guest_recovery(opened.permission)
             .map_err(|_| ShareCacheError::Invalid("guest reader configuration"))?;
-        let accepted = RestoreSession::guest_snapshot(&reader).await?;
+        let accepted = RestoreSession::guest_accepted(&reader).await?;
         let snapshot = accepted.head();
         let slot = if let Some(active) = &registration.active {
             if snapshot == active.snapshot {
@@ -188,12 +192,31 @@ impl ShareCache {
         };
         let _slot = entry.lock(Lock::Slot(slot), true)?;
         let path = entry.reset_slot(slot)?;
-        let mut session = RestoreSession::begin_recipient(&path.join("unactivated"), accepted)?;
-        let (data, native_root) = session
-            .stage_guest_snapshot(
+        let active = registration
+            .active
+            .as_ref()
+            .filter(|_| !accepted.begin.dependencies().is_empty());
+        let cached_slot = active
+            .map(|active| {
+                let held = entry.lock(Lock::Slot(active.slot), false)?;
+                Ok::<_, ShareCacheError>((held, entry.snapshot_data(active.slot)?))
+            })
+            .transpose()?;
+        let cache = active
+            .zip(cached_slot.as_ref())
+            .map(|(active, (_, data))| GuestReplayCache {
+                data,
+                head: &active.snapshot,
+                native_root: &active.native_root,
+                through: active.through.as_ref(),
+            });
+        let mut session = RestoreSession::begin_guest_at(&path.join("unactivated"), accepted)?;
+        let (data, native_root, through) = session
+            .stage_guest_recovery(
                 &reader,
                 opened.publication_key,
                 registration.publisher.clone(),
+                cache.as_ref(),
             )
             .await?;
         let workspace = session.path().to_path_buf();
@@ -203,6 +226,7 @@ impl ShareCache {
             slot,
             snapshot: snapshot.clone(),
             native_root,
+            through,
         });
         let _gate = entry.lock(Lock::Pointer, true)?;
         entry.publish(Some(previous), &registration)?;

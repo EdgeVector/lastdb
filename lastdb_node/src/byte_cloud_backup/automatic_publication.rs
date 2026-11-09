@@ -1,11 +1,10 @@
-//! Independent Backup V2 snapshots of one running publication home.
+//! Backup V2 recovery points for one running publication home.
 use super::{
     automatic, control, invocation,
     model::Saved,
-    recovery::RecoveryPoint,
     source::{PublicationSource, Source},
     store::{self, Store},
-    work::Work,
+    work::{LogContext, Work},
     worker, BackupError, Phase, Result,
 };
 use crate::backup_runtime::{InvocationOutcome, RunOrigin};
@@ -22,6 +21,8 @@ use std::sync::{
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::Instrument;
+
+mod tail;
 
 const POLICY: &str = "share-automatic.json";
 const REVISION: u64 = 1;
@@ -42,6 +43,21 @@ struct Policy {
 struct Pending {
     id: Id,
     minimum: Frontiers,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    log: Option<Box<LogContext>>,
+}
+
+impl Pending {
+    fn work(&self) -> Work {
+        match &self.log {
+            Some(context) => Work::MutationLog {
+                context: context.clone(),
+            },
+            None => Work::Snapshot {
+                minimum: Some(self.minimum),
+            },
+        }
+    }
 }
 
 struct Publisher {
@@ -73,6 +89,9 @@ pub(crate) fn spawn(
         source,
     };
     publisher.policy()?;
+    if !publisher.source.runtime().mutation_log_status()?.enabled {
+        publisher.source.runtime().configure_mutation_log(true)?;
+    }
     Ok(tokio::spawn(
         async move {
             publisher.run(&shutdown, &client).await;
@@ -86,6 +105,7 @@ impl Publisher {
         let mut jobs = self.host.byte_backup.subscribe();
         let mut writes = self.source.runtime().subscribe_durable_writes();
         let mut retry = Retry::default();
+        let mut capability = tail::Capability::default();
         let mut last_completion = 0;
         loop {
             let current = jobs.borrow_and_update().clone();
@@ -105,10 +125,16 @@ impl Publisher {
             }
             if retry.ready() {
                 retry.until = None;
-                match self.tick(client) {
-                    Ok(true) => continue,
-                    Ok(false) => {}
-                    Err(error) => retry.schedule(error),
+                if current.active.is_none() {
+                    let result = match capability.limit(self, client).await {
+                        Ok(limit) => self.tick(client, limit),
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(error) => retry.schedule(error),
+                    }
                 }
             }
             tokio::select! {
@@ -121,7 +147,7 @@ impl Publisher {
         }
     }
 
-    fn tick(&self, client: &Client) -> Result<bool> {
+    fn tick(&self, client: &Client, limit: Option<u8>) -> Result<bool> {
         let runtime = &self.host.byte_backup;
         let _transition = runtime.transition()?;
         runtime.check_admission()?;
@@ -143,7 +169,7 @@ impl Publisher {
             self.save(&policy)?;
         }
         if policy.pending.is_some() {
-            return self.advance(&mut policy, active.as_ref(), client);
+            return self.advance(&mut policy, active.as_ref(), client, limit);
         }
         if let Some(id) = &active {
             let saved = store::state_at(&self.base, id)?.ok_or(BackupError::Missing)?;
@@ -152,19 +178,10 @@ impl Publisher {
                 return self.close_legacy(saved, client);
             }
         }
-        let frontier = self.source.runtime().durable_main_frontier();
-        if let Some(point) = self.point()? {
-            if point.frontiers.main > frontier {
-                return Err(BackupError::Identity);
-            }
-            if point.frontiers.main == frontier {
-                return Ok(false);
-            }
-        }
-        policy.pending = Some(Pending {
-            id: automatic::request_id()?,
-            minimum: Frontiers { main: frontier },
-        });
+        let Some(pending) = self.next_pending(limit)? else {
+            return Ok(false);
+        };
+        policy.pending = Some(pending);
         policy.cleanup = active.filter(automatic::reserved);
         self.save(&policy)?;
         Ok(true)
@@ -198,16 +215,20 @@ impl Publisher {
         Ok(false)
     }
 
-    fn advance(&self, policy: &mut Policy, active: Option<&Id>, client: &Client) -> Result<bool> {
+    fn advance(
+        &self,
+        policy: &mut Policy,
+        active: Option<&Id>,
+        client: &Client,
+        limit: Option<u8>,
+    ) -> Result<bool> {
         let pending = policy.pending.as_ref().ok_or(BackupError::Missing)?;
         let id = &pending.id;
         let permit = Store::lock_at(&self.base)?;
         control::ensure_previous_at(&self.base, id)?;
         let store = Store::open_at(&self.base, id)?;
-        let existing = store.state()?;
-        let work = Work::Snapshot {
-            minimum: Some(pending.minimum),
-        };
+        let mut existing = store.state()?;
+        let work = pending.work();
         if let Some(saved) = &existing {
             self.source.validate(saved)?;
             if saved.automatic_revision != Some(REVISION) || saved.work != work {
@@ -227,6 +248,7 @@ impl Publisher {
                         }
                         true
                     }
+                    Phase::Closed if saved.local_action.is_some() => true,
                     Phase::Closed => {
                         let terminal: JobResult =
                             store.read("terminal.json")?.ok_or(BackupError::Missing)?;
@@ -263,6 +285,12 @@ impl Publisher {
             })?;
             return Ok(false);
         }
+        if let Some(saved) = existing
+            .as_mut()
+            .filter(|saved| saved.local_action.is_some())
+        {
+            return self.replace_unmaterialized(&store, saved, None);
+        }
         let client = client().map_err(|_| BackupError::Authority)?;
         let endpoint = client.canonical_endpoint();
         let mut saved = existing.unwrap_or_else(|| {
@@ -274,6 +302,9 @@ impl Publisher {
         if saved.endpoint != endpoint {
             return Err(BackupError::Identity);
         }
+        if self.replace_unmaterialized(&store, &mut saved, limit)? {
+            return Ok(true);
+        }
         saved.blocked_reason = None;
         store.save(&saved)?;
         store.select(&id)?;
@@ -281,22 +312,6 @@ impl Publisher {
             invocation::run(source, store, saved, client, permit, pause)
         })?;
         Ok(false)
-    }
-
-    fn point(&self) -> Result<Option<RecoveryPoint>> {
-        let point: Option<RecoveryPoint> = store::read(&self.base.join("recovery.json"))?;
-        if let Some(point) = &point {
-            point.validate()?;
-            let stream = &point.accepted.job().stream;
-            if Some(&stream.stream_id) != self.source.publication_stream.as_ref()
-                || stream.scope.account_id != self.source.account
-                || point.base != point.accepted
-                || !point.accepted.begin.recovery_dependencies.is_empty()
-            {
-                return Err(BackupError::Identity);
-            }
-        }
-        Ok(point)
     }
 
     fn policy(&self) -> Result<Policy> {
