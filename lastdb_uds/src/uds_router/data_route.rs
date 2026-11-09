@@ -3,17 +3,12 @@
 /// Which socket a request arrived on. Owner-only control routes are reachable
 /// only on [`SocketKind::Owner`].
 ///
-/// A jailed app cannot reach the owner socket (`<data_dir>/folddb.sock`).
-/// The node binds a second socket outside the data dir. That app socket
-/// serves the app data plane. On [`SocketKind::App`], an owner-only path is
-/// [`ControlRoute::NotFound`].
+/// The node binds that owner socket (`<data_dir>/folddb.sock`). `route` still
+/// classifies an owner-only path only when `socket` is [`SocketKind::Owner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SocketKind {
     /// The owner control socket inside the node data dir (`folddb.sock`).
     Owner,
-    /// The app data-plane socket bound outside the data dir. Owner-only
-    /// control routes are absent.
-    App,
 }
 
 /// An app-facing data route the control socket exposes.
@@ -110,8 +105,8 @@ pub enum DataRoute {
     /// hash, the identity probe the loopback route serves unauthenticated.
     ///
     /// **OWNER socket only** ([`SocketKind::Owner`]): classified solely on the
-    /// owner socket, so a jailed app on the [`SocketKind::App`] socket sees
-    /// `NotFound` and can never read the node identity. Needs node state (the
+    /// owner socket. Any other classification is `NotFound` and cannot read
+    /// the node identity. Needs node state (the
     /// node's keypair), so it goes through the executor like the other data
     /// routes; it reaches the executor only after the owner is resolved, so the
     /// node is provisioned by construction. Added so the CLI startup preflight

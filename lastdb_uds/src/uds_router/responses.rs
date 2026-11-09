@@ -100,7 +100,8 @@ pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
 /// `execute_data` with access to its live state.
 ///
 /// `socket` scopes the route table to the connection's [`SocketKind`].
-/// Owner-only paths are [`ControlRoute::NotFound`] on [`SocketKind::App`].
+/// Owner-only paths are [`ControlRoute::NotFound`] unless `socket` is
+/// [`SocketKind::Owner`].
 ///
 /// `version_params` provides the contract version ranges for the version
 /// handshake response (min_supported_api_version, current_outbox_format_version,

@@ -277,7 +277,7 @@ fn path_only(target: &str) -> &str {
 /// with the wrong method is [`ControlRoute::MethodNotAllowed`]; an unrecognized
 /// path is [`ControlRoute::NotFound`]. No node state, no side effects, no caller
 /// bytes retained. Owner-only paths classify only on [`SocketKind::Owner`].
-/// On [`SocketKind::App`] those paths are [`ControlRoute::NotFound`].
+/// Any other classification is [`ControlRoute::NotFound`].
 pub fn route(req: &UdsRequest, socket: SocketKind) -> ControlRoute {
     let path = path_only(&req.target);
     let method = req.method.as_str();

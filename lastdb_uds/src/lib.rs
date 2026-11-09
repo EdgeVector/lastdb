@@ -1,6 +1,6 @@
 //! Unix-domain-socket transport for the LastDB Mini daemon (`lastdb_node`).
 //!
-//! The daemon (`lastdbd`) uses these modules for its owner and app sockets.
+//! The daemon (`lastdbd`) uses these modules for its owner socket.
 //! The former desktop node (`fold_db_node`) was removed in the Mini-only
 //! cutover; it no longer re-exports this crate.
 //!
