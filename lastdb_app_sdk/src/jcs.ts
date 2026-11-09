@@ -3,7 +3,7 @@
  *
  * This is the TypeScript port of the Rust `app_identity_crypto::canonicalize`
  * (which wraps the `json_canon` crate). The two MUST produce byte-identical
- * output: a capability token minted + signed by `fold_db_node` is verified
+ * output: a capability token the node mints and signs is verified
  * against bytes the node canonicalized with the Rust implementation, and the
  * envelope's `payload_hash` is `sha256(JCS(payload))`. Any drift here breaks
  * every client-side integrity check.

@@ -47,7 +47,7 @@ import { CapabilityNotFoundError } from './errors.js';
 /**
  * Options for a {@link CapabilityStore.load}. `expectedNode` is the canonical
  * target string of the connection asking for the capability (the transport's
- * `target`, e.g. `http://127.0.0.1:9101` or `unix:/path/to.sock`). When set,
+ * `target`, e.g. `unix:/Users/me/.lastdb/data/folddb.sock`). When set,
  * a stored capability whose `boundNode` differs is treated as absent — the
  * wrong-node guard.
  */
@@ -153,7 +153,7 @@ function spawnSecurityRunner(args: string[]): SecurityRunResult {
  * key stays a safe, bounded identifier regardless of the node URL/socket-path
  * shape, while remaining stable for the same (appId, nodeTarget) pair.
  *
- * Example: `capabilityStoreKey('fbrain', 'http://127.0.0.1:9101')` →
+ * Example: `capabilityStoreKey('my-app', 'unix:/Users/me/.lastdb/data/folddb.sock')` →
  * `fbrain@<16-hex>`.
  */
 export function capabilityStoreKey(appId: string, nodeTarget: string): string {

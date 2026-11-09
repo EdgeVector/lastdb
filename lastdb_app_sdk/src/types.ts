@@ -170,27 +170,15 @@ export interface QueryRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Connection options. Provide exactly ONE of `baseUrl` (HTTP transport) or
- * `socketPath` (Unix-domain-socket transport) — the transport is chosen by
- * which one is present.
+ * Connection options. Pass `socketPath` to use that Unix socket verbatim.
+ * Omit it to discover `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
+ * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`.
  */
 export interface ConnectOptions {
-  /** Canonical app id this client acts as (e.g. `"fbrain"`). */
+  /** Canonical app id this client acts as. */
   appId: string;
-  /** HTTP base URL of the node, e.g. `http://127.0.0.1:9101`. */
-  baseUrl?: string;
   /** Path to the node's Unix-domain control socket. */
   socketPath?: string;
-  /**
-   * Socket-first discovery for the `baseUrl` (local-node) case. Default
-   * `true`: `connect` prefers the node's Unix-domain data-plane socket and
-   * falls back to `baseUrl`'s TCP listener only when no socket file is found
-   * (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` → `<data_dir>/folddb.sock` →
-   * TCP). Set `false`
-   * to force the TCP listener (e.g. a remote/non-local node). Ignored when
-   * `socketPath` is given (an explicit socket is always used verbatim).
-   */
-  discoverSocket?: boolean;
   /**
    * Headers attached to EVERY request this client sends (consent flow + data
    * path), under a per-call header of the same name (which wins).

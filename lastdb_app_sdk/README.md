@@ -24,18 +24,15 @@ node, scoped to what they consented to.
 > is documented in **[CONTRACT.md](CONTRACT.md)**. This README is the full API
 > reference; CONTRACT.md is the boundary guarantee.
 
-> **Primary node: Mini `lastdbd` over UDS.** The supported local data plane is
-> the Mini binary (`lastdbd` / brew `lastdb`) on a Unix-domain socket — typically
-> `~/.lastdb/data/folddb.sock` (alias env: `LASTDB_SOCKET_PATH` /
-> `FOLDDB_SOCKET_PATH`). Connect with **`socketPath`**, not a deleted
-> `fold_db_node` crate or TCP `:9101` as the primary path. Optional loopback
-> TCP (`baseUrl`) remains a discovery fallback for remote/browser-style
-> clients; it is not how local apps should talk to the primary brain.
+> **Primary node: Mini `lastdbd` over the Unix socket.** The supported local
+> data plane is the Mini binary (`lastdbd` / brew `lastdb`) on
+> `~/.lastdb/data/folddb.sock`. `connect` uses an explicit `socketPath`, or
+> discovers `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
+> `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The discovered file must exist.
 >
 > **Local CLI/dev.** Prefer an installed Mini (`lastdb` / `folddb` on your
-> PATH). Do **not** instruct `cargo build -p fold_db_node` — that package is
-> gone from the product tree. For ephemeral app-trust loops, use the current
-> `folddb` / Mini tooling from `main` or a post-Mini release.
+> PATH). For ephemeral app-trust loops, use the current `folddb` / Mini tooling
+> from `main`.
 
 ## Install
 
@@ -50,7 +47,7 @@ import { connect } from '@lastdb/app-sdk';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-// Primary: Mini owner/app UDS (lastdbd). Prefer socketPath over TCP baseUrl.
+// Mini owner/app socket (lastdbd). Omit socketPath to use the discovery order.
 const fold = await connect({
   socketPath: process.env.LASTDB_SOCKET_PATH
     ?? process.env.FOLDDB_SOCKET_PATH
@@ -119,8 +116,8 @@ try {
 
 ## Choosing a socket: your own apps vs published apps
 
-Before the transport question (`baseUrl` vs `socketPath`, below) there is a
-prior one: **which access posture your app runs under.** A LastDB node exposes
+Before the socket question below there is a prior one: **which access posture
+your app runs under.** A LastDB node exposes
 two connection surfaces, and which one your app talks decides whether it runs as
 the node owner or as an attributed third-party app. Pick by *who runs the app*,
 not by how it connects.
@@ -179,21 +176,21 @@ An app you write yourself connects to your node's **owner socket** and runs as
 is how LastDB's own tools (fbrain, fkanban, fsituations, lastsecrets) run —
 same user, owner socket. `ownerClient` is synchronous and keychain-free (it
 never mints, stores, or replays a capability); it authenticates by the OS user
-(the socket's kernel peer credentials over UDS, or an `X-User-Hash` header on a
-loopback TCP fallback).
+(the socket's kernel peer credentials). The `socketPath` file must exist.
 
 ```ts
 import { ownerClient } from '@lastdb/app-sdk';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 // Owner socket: NodeOwner, no consent, no namespace jail.
 // LASTDB_SOCKET_PATH names the node's owner socket (the same variable the
-// `lastdb` CLI reads; default ~/.lastdb/data/folddb.sock). Over UDS, peer
-// credentials authenticate you, so no X-User-Hash header is needed.
+// `lastdb` CLI reads; default ~/.lastdb/data/folddb.sock). Peer credentials
+// authenticate you.
 const db = ownerClient({
   appId: 'fbrain',
-  socketPath: process.env.LASTDB_SOCKET_PATH,
-  // baseUrl: 'http://127.0.0.1:9001',  // loopback TCP fallback; then pass
-  // defaultHeaders: { 'X-User-Hash': userHash }  // (from autoIdentity())
+  socketPath: process.env.LASTDB_SOCKET_PATH
+    ?? join(homedir(), '.lastdb', 'data', 'folddb.sock'),
 });
 
 // Full read/write across any schema — device trust, no write-own restriction.
@@ -220,10 +217,10 @@ request-consent → await-grant flow and stores the resulting capability):
 ```ts
 import { connect } from '@lastdb/app-sdk';
 
-// App socket: attributed app on the consumer's node. See "Transports" below:
-// socketPath (the node's UDS) is the local path; baseUrl first tries socket
-// discovery, then TCP.
-const db = await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'my-app' });
+// App socket: attributed app on the consumer's node. Omit socketPath to
+// discover LASTDB_SOCKET_PATH, then FOLDDB_SOCKET_PATH, then
+// <LASTDB_HOME or ~/.lastdb>/data/folddb.sock. The file must exist.
+const db = await connect({ appId: 'my-app' });
 
 if (!db.hasCapability) {                                  // first run: no capability yet
   const { requestId } = await db.requestConsent('wildcard');
@@ -267,7 +264,6 @@ mapping: each schema owns its values.
 
 ```ts
 const db = await connect({
-  baseUrl: 'http://127.0.0.1:9001',
   appId: 'my-app',
   schemaResolver: async (schemaName) => {
     if (schemaName !== 'LocalNote') return undefined;
@@ -301,77 +297,39 @@ own schema.
 
 ## Transports
 
-Pass exactly one of `baseUrl` (HTTP) or `socketPath` (the node's Unix-domain
-control socket); the transport is chosen by which is present. **Local Mini
-nodes should always use `socketPath`** (or let socket-first discovery land on
-`~/.lastdb/data/folddb.sock`).
+`connect` speaks HTTP over the node's Unix-domain socket (`folddb.sock`).
+Pass `socketPath` to use that path verbatim. Omit it and `connect` discovers
+the socket. The `lastdb` CLI reads the same `LASTDB_SOCKET_PATH` override.
 
-```ts
-// Explicit UDS — preferred for Mini / lastdbd:
-await connect({ socketPath: join(homedir(), '.lastdb', 'data', 'folddb.sock'), appId: 'fbrain' });
-
-// Optional: TCP baseUrl triggers socket-first discovery, then TCP fallback:
-await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain' });
-```
-
-### Socket-first discovery (the default app path)
-
-When you pass `baseUrl` — typically a loopback HTTP URL — the SDK **prefers the
-node's Unix-domain data-plane socket** and falls back to the `baseUrl` TCP
-listener only when no socket file is present. The socket is the normal app path
-(`folddb.sock`, peer-credential authenticated); TCP is the optional fallback for
-remote or non-Unix clients. The `lastdb` CLI reads the same
-`LASTDB_SOCKET_PATH` override, so a TypeScript app and the CLI agree on where
-the socket lives:
-
-1. **`LASTDB_SOCKET_PATH`** — canonical explicit socket-path override. Used
-   when the file exists; a missing path falls through.
+1. **`LASTDB_SOCKET_PATH`** — canonical explicit socket-path override.
 2. **`FOLDDB_SOCKET_PATH`** — second explicit override, read when
    `LASTDB_SOCKET_PATH` is unset.
-3. **`<data_dir>/folddb.sock`** — the default the node binds:
-   `<home>/data/folddb.sock`. The home is `LASTDB_HOME` when it is set,
-   else `~/.lastdb`. The SDK uses this path only when the file exists.
-4. **Loopback TCP at `baseUrl`** — the fallback when no socket file exists (a
-   pre-data-plane node, or one whose socket bind failed).
+3. **`<home>/data/folddb.sock`** — the default the node binds. The home is
+   `LASTDB_HOME` when it is set, else `~/.lastdb`.
+
+The discovered file must exist. A missing socket throws `TransportError` with
+kind `connect` and names the path. An explicit `socketPath` is used as given.
+`ownerClient` always requires an explicit `socketPath` whose file exists.
+`fold.target` is `unix:<socket>`.
 
 ```ts
-// Prefer the socket; fall back to TCP if no node serves one. Discovery is
-// silent — `fold.target` reports where it landed (`unix:…` or `http://…`).
-const fold = await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain' });
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-// Force the TCP listener (e.g. a remote node, or a browser-style HTTP path):
-await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain', discoverSocket: false });
-
-// An explicit socket is always used verbatim — no discovery, no fallback:
-await connect({ socketPath: '/path/to/<session>.sock', appId: 'fbrain' });
-```
-
-`discoverTransport({ fallbackBaseUrl, defaultHeaders?, timeoutMs?, env? })` is
-also exported directly for callers that build their own transport (it returns a
-`Transport` pointed at the discovered socket or the TCP fallback). On non-Unix
-platforms there is no UDS transport, so discovery always yields TCP.
-
-## Default headers (production-node identity)
-
-A **Mini / production `lastdbd` TCP HTTP surface** (when enabled) is
-stateless: it resolves the calling user from an `X-User-Hash` header on
-*every* request and answers `401 MISSING_USER_CONTEXT` when it is absent.
-Pass `defaultHeaders` to attach such a header to every request the client
-sends (consent flow + data path):
-
-```ts
 await connect({
-  baseUrl: 'http://127.0.0.1:9001',
-  appId: 'fbrain',
-  defaultHeaders: { 'X-User-Hash': userHash },
+  socketPath: join(homedir(), '.lastdb', 'data', 'folddb.sock'),
+  appId: 'my-app',
 });
+
+// Discovery. The file at the resolved path must exist.
+await connect({ appId: 'my-app' });
 ```
 
-A per-call header of the same name wins. This applies to the **optional TCP
-HTTP surface**. The **UDS control socket** (the primary Mini path) authenticates
-via kernel peer credentials and ignores `X-User-Hash`, so setting it is always
-safe. Prefer `socketPath` for local Mini; see
-[below](#what-the-dev-node-supports-vs-production) for app-surface notes.
+`defaultHeaders` attach to every request. A per-call header of the same name
+wins. The SDK sets `X-LastDB-Client` from `clientId` or `appId` when the caller
+does not. The transport mints `x-lastdb-request-id` per request when neither
+seam already carries one. The socket authenticates the caller with kernel peer
+credentials.
 
 ## Request timeout
 
@@ -379,7 +337,7 @@ Every transport request has a 30s timeout by default, so a hung or wedged node
 cannot leave SDK calls pending forever. Override it per client when needed:
 
 ```ts
-await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain', timeoutMs: 5000 });
+await connect({ appId: 'my-app', timeoutMs: 5000 });
 ```
 
 ## Capability storage
@@ -813,9 +771,8 @@ verified posture, so the app never names its own scope.
 owner/host-context helpers. They cover the two node endpoints LastDB owner apps
 kept hand-rolling while using the SDK for the app data plane:
 
-- `GET /api/system/auto-identity` returns the local owner identity used for
-  `X-User-Hash`; the node's canonical 503 becomes
-  `{ provisioned: false, reason, next }`.
+- `GET /api/system/auto-identity` returns the local owner identity. The node's
+  canonical 503 becomes `{ provisioned: false, reason, next }`.
 - `GET /api/schemas` lists loaded schemas; `resolveSchema({ ownerAppId,
   descriptiveName, fields })` resolves the app's own descriptor to the
   loaded canonical `identityHash`/`name` without each app re-parsing raw JSON.

@@ -44,8 +44,7 @@ import {
   UnknownAppError,
 } from './errors.js';
 import {
-  discoverTransport,
-  httpTransport,
+  openDiscoveredSocket,
   udsTransport,
   type Transport,
 } from './transport.js';
@@ -142,27 +141,15 @@ function nowEpochSecs(): string {
 }
 
 /**
- * Connect to a LastDB node. Provide exactly one of `baseUrl` (HTTP) or
- * `socketPath` (Unix-domain socket) — the transport is chosen by which is
- * present. Attempts to auto-load a stored capability for `appId` unless one
+ * Connect to a LastDB node over its Unix-domain socket. An explicit
+ * `socketPath` is used verbatim. With no `socketPath`, discovery reads
+ * `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
+ * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The discovered file must
+ * exist. Attempts to auto-load a stored capability for `appId` unless one
  * is supplied inline.
- *
- * **Socket-first discovery.** When you pass `baseUrl` (the local-node case),
- * the SDK PREFERS the node's Unix-domain data-plane socket and falls back to
- * the `baseUrl` TCP listener only when no socket file is present
- * (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` → `<data_dir>/folddb.sock` →
- * TCP), making the socket the normal app path. Opt out
- * with `connect({ baseUrl, discoverSocket: false })` to force the TCP listener
- * (e.g. against a remote/non-local node, or a browser-style HTTP path). An
- * explicit `socketPath` always uses that socket verbatim with no discovery.
  */
 export async function connect(options: ConnectOptions): Promise<LastDbClient> {
-  const { appId, baseUrl, socketPath } = options;
-  if ((baseUrl && socketPath) || (!baseUrl && !socketPath)) {
-    throw new Error(
-      'connect requires exactly one of { baseUrl } or { socketPath }',
-    );
-  }
+  const { appId, socketPath } = options;
   // Self-reported client label for Mini op telemetry. Prefer explicit
   // clientId; otherwise use appId. Never clobber a caller-supplied header.
   const defaultHeaders: Record<string, string> = {
@@ -178,31 +165,18 @@ export async function connect(options: ConnectOptions): Promise<LastDbClient> {
       defaultHeaders['X-LastDB-Client'] = clientLabel;
     }
   }
-  const discoverSocket = options.discoverSocket ?? true;
-  let transport: Transport;
-  if (socketPath) {
-    // An explicit socket: use it verbatim, no discovery.
-    transport = udsTransport(socketPath, defaultHeaders, {
-      timeoutMs: options.timeoutMs,
-    });
-  } else if (discoverSocket) {
-    // Local-node case: prefer the data-plane socket, fall back to the
-    // supplied TCP base URL when no socket file exists.
-    transport = discoverTransport({
-      fallbackBaseUrl: baseUrl as string,
-      defaultHeaders,
-      timeoutMs: options.timeoutMs,
-    });
-  } else {
-    transport = httpTransport(baseUrl as string, defaultHeaders, {
-      timeoutMs: options.timeoutMs,
-    });
-  }
+  const transport: Transport = socketPath
+    ? udsTransport(socketPath, defaultHeaders, {
+        timeoutMs: options.timeoutMs,
+      })
+    : openDiscoveredSocket({
+        defaultHeaders,
+        timeoutMs: options.timeoutMs,
+      });
 
   // The capability store keys by (appId, nodeTarget) so a capability minted
-  // by one node is never replayed against another (gap #2). The transport's
-  // `target` is the canonical node string (`http://…` for TCP, `unix:…` for
-  // a control socket).
+  // by one node is never replayed against another. The transport's `target`
+  // is `unix:<socket>`.
   const nodeTarget = transport.target;
   const store =
     options.capabilityStore ??
@@ -952,8 +926,8 @@ export class LastDbClient {
   // -------------------------------------------------------------------------
 
   /**
-   * `GET /api/system/auto-identity`. Resolves the local owner identity a
-   * host-context app uses for `X-User-Hash`. A not-yet-provisioned node returns
+   * `GET /api/system/auto-identity`. Resolves the local owner identity.
+   * A not-yet-provisioned node returns
    * `{ provisioned: false }` for the node's canonical 503, so callers can pivot
    * to bootstrap without treating it as a transport failure.
    */

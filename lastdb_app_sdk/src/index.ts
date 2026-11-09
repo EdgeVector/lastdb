@@ -62,8 +62,6 @@ export type {
 } from './capabilityToken.js';
 
 export {
-  discoverTransport,
-  httpTransport,
   udsTransport,
   REQUEST_ID_HEADER,
 } from './transport.js';
