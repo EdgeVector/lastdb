@@ -38,7 +38,6 @@ const fn row(path: &'static str, scope: Scope, method: &'static str, route: Data
 pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/schemas", Scope::Both, "GET", DataRoute::ListSchemas),
     row("/api/list", Scope::Both, "GET", DataRoute::ListRecordKeys),
-    row("/api/db/list", Scope::Both, "GET", DataRoute::ListRecordKeys),
     row("/api/schemas/declare", Scope::Owner, "POST", DataRoute::DeclareSchema),
     row("/api/schemas/seed-system", Scope::Owner, "POST", DataRoute::SeedSystemSchema),
     row("/api/schemas/retire-name-claim", Scope::Owner, "POST", DataRoute::RetireSchemaNameClaim),
