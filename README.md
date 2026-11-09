@@ -208,7 +208,10 @@ Run the recipient's daemon and accept the invitation into that node. The
 node registers the database immediately and marks it ready once it has
 verified the first recovery point. It follows updates automatically while
 running. Accept a replacement invitation on the same node to renew access.
-Readers can use the last verified copy offline.
+Readers can use the last verified copy offline. A received database serves
+primary and named alternate keys, ascending ranges under one hash, and
+revision-checked inline files. The replica refuses scans, descending queries,
+and queries that filter records after key lookup.
 
 ```sh
 lastdb share accept INVITATION --publisher PUBLISHER_KEY --name trip
@@ -241,9 +244,10 @@ snapshots to establish or replace a recovery base.
 
 Required CI exercises local publication setup in both write modes, ordinary
 database selection, and file import with the built CLI and daemon. Separate
-DEV operations verified automatic Files updates and three-node recovery of accepted writes with
-private contribution streams. [Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
-[Contributor DEV proof](https://github.com/EdgeVector/lastdb/pull/1437)
+DEV operations verified automatic Files updates and three-node recovery of
+accepted writes with private contribution streams.
+[Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
+[Accepted journal DEV proof](https://github.com/EdgeVector/lastdb/pull/1437)
 
 Immediate read revocation, interrupted import recovery, and Org sharing remain
 separate work.

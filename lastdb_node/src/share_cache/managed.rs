@@ -110,15 +110,13 @@ impl ShareCache {
         }
         let mut registration =
             Registration::with_invitation(registration, &opened, publisher, invitation)?;
-        let state = registration
-            .managed
-            .get_or_insert_with(|| ManagedRegistration {
-                name: None,
-                expires_ms: 0,
-                grant: None,
-                grant_version: None,
-                grant_expires_ms: None,
-            });
+        let state = registration.managed.get_or_insert(ManagedRegistration {
+            name: None,
+            expires_ms: 0,
+            grant: None,
+            grant_version: None,
+            grant_expires_ms: None,
+        });
         if let Some(name) = name {
             state.name = Some(name.to_owned());
         }
