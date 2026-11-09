@@ -35,6 +35,16 @@ pub(crate) use stopped::backup_publication_stopped;
 pub use stopped::{backup_stopped, StoppedBackupReport, StoppedBackupRequest};
 pub type Result<T> = std::result::Result<T, BackupError>;
 
+pub const PUBLICATION_MARKER: &str = "share-publication.json";
+
+pub(crate) fn is_publication_home(home: &std::path::Path) -> std::io::Result<bool> {
+    match std::fs::symlink_metadata(home.join(PUBLICATION_MARKER)) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn require_enabled() -> Result<()> {
     if env_flag::var_truthy("LASTDB_BYTE_BACKUP_V2_ENABLED") {
         Ok(())

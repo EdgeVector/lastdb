@@ -18,7 +18,7 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
     if matches!(action, ByteBackupRequest::Status) {
         return status(host);
     }
-    if crate::share_publication::is_publication_home(&host.home)? {
+    if super::is_publication_home(&host.home)? {
         return Err(BackupError::Identity);
     }
     if crate::shared_sync::status(host)?.is_some() {

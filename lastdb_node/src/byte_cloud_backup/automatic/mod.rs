@@ -52,7 +52,7 @@ fn tick(host: &crate::host::Host) -> Result<()> {
     let Some(mut policy) = policy::load(host)? else {
         return Ok(());
     };
-    if crate::share_publication::is_publication_home(&host.home)? {
+    if super::is_publication_home(&host.home)? {
         return Err(BackupError::Identity);
     }
     let runtime = native(host)?;

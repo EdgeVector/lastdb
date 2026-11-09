@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
 use zeroize::Zeroizing;
 
-pub const MARKER_FILE: &str = "share-publication.json";
+pub use crate::byte_cloud_backup::PUBLICATION_MARKER as MARKER_FILE;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -89,14 +89,6 @@ impl AutomaticPublication {
             publication_client(&owner_home, &account, environment)
         })
         .map_err(|e| e.to_string())
-    }
-}
-
-pub(crate) fn is_publication_home(home: &Path) -> std::io::Result<bool> {
-    match std::fs::symlink_metadata(home.join(MARKER_FILE)) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
     }
 }
 
