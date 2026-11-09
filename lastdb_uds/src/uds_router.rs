@@ -200,7 +200,9 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `33` removes the app SDK export `LASTDB_UDS_SHARED_ROUTES` and renames
 /// the SDK base error `FoldDbError` to `LastDbError`. No request key changed;
 /// `MIN_SUPPORTED_API_VERSION` stays `29`.
-pub const API_VERSION: u32 = 33;
+/// `34` removes the unused `GET /api/db/list` alias of `GET /api/list`.
+/// No request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
+pub const API_VERSION: u32 = 34;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
