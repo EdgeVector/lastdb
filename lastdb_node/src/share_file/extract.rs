@@ -12,12 +12,21 @@ pub fn list_files(
     schemas: &FileShareSchemas<'_>,
     mut read: impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
 ) -> Result<Vec<FileManifest>, String> {
-    let query = StagedRecordQuery::new(schemas.catalog, catalog_key(), false)
-        .map_err(|_| "invalid file share catalog coordinates")?;
-    let Some(record) = read(&query)? else {
-        return Ok(Vec::new());
+    list_files_by_key(schemas, |schema, keys, field| {
+        read_staged_fields(&mut read, schema, keys, field)
+    })
+}
+
+/// Read the catalog through exact database keys.
+pub fn list_files_by_key(
+    schemas: &FileShareSchemas<'_>,
+    mut read: impl FnMut(&str, &[KeyValue], &str) -> Result<Vec<Option<String>>, String>,
+) -> Result<Vec<FileManifest>, String> {
+    let records = read(schemas.catalog, &[catalog_key()], CATALOG_ENTRIES_FIELD)?;
+    let [entries] = records.as_slice() else {
+        return Err("file share catalog read returned the wrong number of records".into());
     };
-    let catalog = Catalog::read(Some(string_field(&record, CATALOG_ENTRIES_FIELD)?))?;
+    let catalog = Catalog::read(entries.as_deref())?;
     if catalog.pending.is_some() {
         return Err("file share snapshot contains an incomplete import".into());
     }
@@ -32,32 +41,41 @@ pub fn get_file(
     output: &Path,
     mut read: impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
 ) -> Result<FileManifest, String> {
-    let manifest = list_files(schemas, &mut read)?
+    get_file_by_key(schemas, id, output, |schema, keys, field| {
+        read_staged_fields(&mut read, schema, keys, field)
+    })
+}
+
+/// Verify and install a whole file using bounded exact-key batches. The reader
+/// returns the requested field for each key in order.
+pub fn get_file_by_key(
+    schemas: &FileShareSchemas<'_>,
+    id: &Id,
+    output: &Path,
+    mut read: impl FnMut(&str, &[KeyValue], &str) -> Result<Vec<Option<String>>, String>,
+) -> Result<FileManifest, String> {
+    let manifest = list_files_by_key(schemas, &mut read)?
         .into_iter()
         .find(|file| &file.id == id)
         .ok_or("file is absent from the share catalog")?;
     let pending = PendingOutput::new(output)?;
     let mut sha256 = Sha256::new();
     let mut writer = &pending.file;
-    for index in 0..manifest.chunks {
-        let query = StagedRecordQuery::new(schemas.chunks, chunk_key(id, index), false)
-            .map_err(|_| "invalid share file chunk coordinates")?;
-        let record = read(&query)?.ok_or("share file chunk is absent")?;
-        let encoded = string_field(&record, CHUNK_DATA_FIELD)?;
-        let size = chunk_size(manifest.size_bytes, index);
-        if encoded.len() != size.div_ceil(3) * 4 {
-            return Err("share file chunk differs from its expected size".into());
+    for first in (0..manifest.chunks).step_by(CHUNK_BATCH) {
+        let end = (first + CHUNK_BATCH as u64).min(manifest.chunks);
+        let keys: Vec<_> = (first..end).map(|index| chunk_key(id, index)).collect();
+        let records = read(schemas.chunks, &keys, CHUNK_DATA_FIELD)?;
+        if records.len() != keys.len() {
+            return Err("share file chunk read returned the wrong number of records".into());
         }
-        let bytes = STANDARD
-            .decode(encoded)
-            .map_err(|_| "invalid share file chunk encoding")?;
-        if bytes.len() != size {
-            return Err("share file chunk differs from its expected size".into());
+        for (index, encoded) in (first..end).zip(records) {
+            let encoded = encoded.ok_or("share file chunk is absent")?;
+            let bytes = decode_chunk(&encoded, chunk_size(manifest.size_bytes, index))?;
+            sha256.update(&bytes);
+            writer
+                .write_all(&bytes)
+                .map_err(|_| "cannot write share file output")?;
         }
-        sha256.update(&bytes);
-        writer
-            .write_all(&bytes)
-            .map_err(|_| "cannot write share file output")?;
     }
     if fold_db::hex::hex_lower(sha256.finalize()) != manifest.sha256.as_str() {
         return Err("share file digest differs from its manifest".into());
@@ -66,12 +84,41 @@ pub fn get_file(
     Ok(manifest)
 }
 
-fn string_field<'a>(record: &'a StagedRecord, field: &str) -> Result<&'a str, String> {
-    record
-        .fields()
-        .get(field)
-        .and_then(Value::as_str)
-        .ok_or_else(|| "file share record is missing its data field".into())
+fn decode_chunk(encoded: &str, size: usize) -> Result<Vec<u8>, String> {
+    if encoded.len() != size.div_ceil(3) * 4 {
+        return Err("share file chunk differs from its expected size".into());
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "invalid share file chunk encoding")?;
+    if bytes.len() != size {
+        return Err("share file chunk differs from its expected size".into());
+    }
+    Ok(bytes)
+}
+
+fn read_staged_fields(
+    read: &mut impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
+    schema: &str,
+    keys: &[KeyValue],
+    field: &str,
+) -> Result<Vec<Option<String>>, String> {
+    keys.iter()
+        .map(|key| {
+            let query = StagedRecordQuery::new(schema, key.clone(), false)
+                .map_err(|_| "invalid file share record coordinates")?;
+            read(&query)?
+                .map(|record| {
+                    record
+                        .fields()
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .ok_or_else(|| "file share record is missing its data field".into())
+                })
+                .transpose()
+        })
+        .collect()
 }
 
 struct PendingOutput {

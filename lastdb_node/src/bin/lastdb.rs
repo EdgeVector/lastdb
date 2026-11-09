@@ -163,9 +163,12 @@ fn run(cli: Cli) -> Result<(), String> {
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
                 | Command::Schema { .. }
+                | Command::Share(ShareCommand::Files(
+                    ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
+                ))
         )
     {
-        return Err("--db requires get, get-keys, mutate, or schema show".into());
+        return Err("--db requires get, get-keys, mutate, schema show, or Files list/save".into());
     }
     match command {
         Command::Status {
@@ -177,7 +180,7 @@ fn run(cli: Cli) -> Result<(), String> {
             StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
         },
         Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
-        Command::Share(action) => share_cmds::run(cli.data_dir, action),
+        Command::Share(action) => share_cmds::run(cli.data_dir, cli.db.as_deref(), action),
         Command::Db {
             action: DatabaseCommand::List { json },
         } => list_databases(cli.data_dir, json),

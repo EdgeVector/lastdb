@@ -142,7 +142,7 @@ bare record replacement keeps the existing file. A replacement with
 ### Share files
 
 LastDB Files shares a separate encrypted database with read-only recipients.
-Use absolute paths for `OWNER`, `PUBLICATION`, `RECIPIENT`, and `CACHE`.
+Use absolute paths for `OWNER`, `PUBLICATION`, and `RECIPIENT`.
 `OWNER` is an existing home with saved Exemem credentials for the selected
 environment. Create the publication at a new path with an existing parent
 outside that home using `lastdb --data-dir OWNER share create --into
@@ -163,22 +163,26 @@ invitation with
 `lastdb --data-dir OWNER share invite --home PUBLICATION --recipient CONTACT
 --recipient-key RECIPIENT_KEY --out INVITATION`. If the daemon is still
 publishing its first backup, wait and retry. The recipient verifies the
-publisher key from `share create` through a trusted channel and runs `lastdb
---data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY
---cache CACHE`. Use a private cache directory with an existing parent you own.
-Save the local handle returned by `receive`.
+publisher key from `share create` through a trusted channel. Run
+`lastdbd --data-dir RECIPIENT` and accept the invitation into that node.
 
-Keep `lastdb --data-dir RECIPIENT share files follow --cache CACHE --handle
-HANDLE` running for automatic catch-up after a lost connection. Use `files
-list` with the same cache and handle to confirm the expected file arrived. Use
-`files save --file FILE_ID --out PATH` with those options to save to a new path.
-Both commands work offline, including after the invitation expires.
+```sh
+lastdb --data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY --name trip
+lastdb --data-dir RECIPIENT db list
+lastdb --data-dir RECIPIENT --db trip share files list
+lastdb --data-dir RECIPIENT --db trip share files save --file FILE_ID --out PATH
+```
+
+The daemon follows the publication automatically. Once `db list` shows it
+as ready, use its local name or the database ID returned by `receive`.
+`share accept` registers the same database. List and save use the latest
+verified data while offline, including after the invitation expires.
 
 Invitations authorize downloads for 24 hours by default. Set `share invite
 --expires-in-hours` to 1–168 hours when issuing one. To resume updates after
-expiry, stop `follow`, accept a new invitation for the same publication with
-`files receive` and the original `--cache CACHE --handle HANDLE`, then restart
-`follow`.
+expiry, accept a fresh invitation for the same publication on the same node.
+Existing app-managed caches still support their explicit `--cache` and
+`--handle` workflow. Reaccept the invitation to register one for `--db`.
 
 ### Share with restricted contributors
 
@@ -243,7 +247,8 @@ access. LastDB owns encryption and write validation. The publisher uses
 snapshots to establish or replace a recovery base.
 
 Required CI exercises local publication setup in both write modes, ordinary
-database selection, and file import with the built CLI and daemon. Separate
+database selection, and importing, listing and saving a multi-chunk file
+with the built CLI and daemon. Separate
 DEV operations verified automatic Files updates and three-node recovery of
 accepted writes with private contribution streams.
 [Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·

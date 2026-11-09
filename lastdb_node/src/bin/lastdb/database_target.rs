@@ -28,6 +28,10 @@ impl DatabaseTarget {
     pub(crate) fn is_explicit(&self) -> bool {
         self.selector.is_some()
     }
+
+    pub(crate) fn selector(&self) -> Option<&str> {
+        self.selector.as_deref()
+    }
 }
 
 fn resolve(socket: &Path, selector: &str) -> Result<String, String> {
