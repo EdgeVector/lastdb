@@ -154,11 +154,10 @@ impl UploadGrant {
         input.validate()?;
         if !matches!(
             (input.object.destination, self.transfer_mode),
-            (Destination::R2 | Destination::B2, None)
-                | (
-                    Destination::R2 | Destination::B2,
-                    Some(TransferMode::MultipartPart)
-                )
+            (
+                Destination::R2 | Destination::B2,
+                None | Some(TransferMode::MultipartPart)
+            )
         ) {
             return Err(ProtocolError::invalid("v2.upload_grant.transfer_mode"));
         }
