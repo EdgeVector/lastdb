@@ -1,6 +1,7 @@
 //! Independent Backup V2 snapshots of one running publication home.
 use super::{
     automatic, control, invocation,
+    model::Saved,
     recovery::RecoveryPoint,
     source::{PublicationSource, Source},
     store::{self, Store},
@@ -59,22 +60,13 @@ pub(crate) fn preflight(home: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn has_pending(base: &Path) -> Result<bool> {
-    Ok(store::read::<Policy>(&base.join(POLICY))?.is_some_and(|policy| policy.pending.is_some()))
-}
-
 pub(crate) fn spawn(
     host: Arc<Host>,
     shutdown: Arc<AtomicBool>,
     identity: PublicationSource,
     client: impl Fn() -> std::result::Result<ByteBackupClient, String> + Send + Sync + 'static,
 ) -> Result<tokio::task::JoinHandle<()>> {
-    let source = Source::from_publication(
-        &host.home,
-        host.db.db_ops().native_runtime(),
-        identity,
-        false,
-    )?;
+    let source = Source::from_publication(&host.home, host.db.db_ops().native_runtime(), identity)?;
     let publisher = Publisher {
         base: Store::publication_base(&host.home),
         host,
@@ -157,7 +149,7 @@ impl Publisher {
             let saved = store::state_at(&self.base, id)?.ok_or(BackupError::Missing)?;
             self.source.validate(&saved)?;
             if !saved.terminal() {
-                return Err(BackupError::Busy);
+                return self.close_legacy(saved, client);
             }
         }
         let frontier = self.source.runtime().durable_main_frontier();
@@ -176,6 +168,34 @@ impl Publisher {
         policy.cleanup = active.filter(automatic::reserved);
         self.save(&policy)?;
         Ok(true)
+    }
+
+    /// Settle an old stopped job without uploading its saved cut.
+    fn close_legacy(&self, saved: Saved, client: &Client) -> Result<bool> {
+        let id = saved.request_id.clone();
+        if automatic::reserved(&id) || saved.automatic_revision.is_some() {
+            return Err(BackupError::Busy);
+        }
+        let permit = Store::lock_at(&self.base)?;
+        let store = Store::open_at(&self.base, &id)?;
+        let source = self.source.clone();
+        let runtime = &self.host.byte_backup;
+        if let Some(terminal) = store.read::<JobResult>("terminal.json")? {
+            worker::validate_terminal(&saved, &terminal)?;
+            runtime.start(id, RunOrigin::Manual, move |pause| {
+                worker::terminal_invocation(source, store, saved, permit, pause)
+            })?;
+        } else {
+            let client = client().map_err(|_| BackupError::Authority)?;
+            if saved.endpoint != client.canonical_endpoint() {
+                return Err(BackupError::Identity);
+            }
+            store::close_at(&self.base, &id)?;
+            runtime.start(id, RunOrigin::Manual, move |pause| {
+                invocation::run(source, store, saved, client, permit, pause)
+            })?;
+        }
+        Ok(false)
     }
 
     fn advance(&self, policy: &mut Policy, active: Option<&Id>, client: &Client) -> Result<bool> {

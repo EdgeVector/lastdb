@@ -1,5 +1,4 @@
 //! A final backup of a clean, stopped home through the ordinary V2 worker.
-use super::source::PublicationSource;
 use super::{
     capture::Capture, model::Saved, source::Source, store::Store, BackupError, Phase, Result,
 };
@@ -42,36 +41,6 @@ pub struct StoppedBackupReport {
     pub automatic_backup_enabled: bool,
 }
 
-pub async fn backup_stopped(
-    home: &Path,
-    request: StoppedBackupRequest,
-) -> Result<StoppedBackupReport> {
-    run_stopped(home, &Store::base(home), request, ordinary_source).await
-}
-
-/// Publish a cleanly stopped publication home through the ordinary V2 snapshot worker.
-pub(crate) async fn backup_publication_stopped(
-    home: &Path,
-    request_id: Id,
-    identity: PublicationSource,
-    client: ByteBackupClient,
-) -> Result<StoppedBackupReport> {
-    let session = crate::session_ledger::read_last_record(home).ok_or(BackupError::Missing)?;
-    let request = StoppedBackupRequest {
-        request_id,
-        account_id: identity.account.clone(),
-        stopped_pid: session.pid,
-        stopped_start_ts: session.start_ts,
-    };
-    // The ordinary local writer has a different identity from the cloud owner.
-    // Keep its personal backup status and saved jobs separate from publication.
-    let base = Store::publication_base(home);
-    run_stopped(home, &base, request, |home, _| {
-        Ok((Source::from_publication_stopped(home, identity)?, client))
-    })
-    .await
-}
-
 fn ordinary_source(
     home: &Path,
     request: &StoppedBackupRequest,
@@ -93,26 +62,20 @@ fn ordinary_source(
     Ok((source, client))
 }
 
-async fn run_stopped(
+pub async fn backup_stopped(
     home: &Path,
-    base: &Path,
     request: StoppedBackupRequest,
-    open: impl FnOnce(&Path, &StoppedBackupRequest) -> Result<(Source, ByteBackupClient)>,
 ) -> Result<StoppedBackupReport> {
     let ownership = guard::admit(home, &request)?;
     if super::automatic::reserved(&request.request_id) {
         return Err(BackupError::Invalid);
     }
-    let permit = Store::lock_at(base)?;
-    super::control::ensure_previous_at(base, &request.request_id)?;
-    let (source, client) = open(home, &request)?;
+    let permit = Store::lock(home)?;
+    super::control::ensure_previous(home, &request.request_id)?;
+    let (source, client) = ordinary_source(home, &request)?;
     let endpoint = client.canonical_endpoint();
-    if source.publication_stream.is_some() {
-        check_stopped_publication(home, base, &source).await?;
-    } else {
-        super::automatic::check_stopped(home, &source, &endpoint)?;
-    }
-    let store = Store::open_at(base, &request.request_id)?;
+    super::automatic::check_stopped(home, &source, &endpoint)?;
+    let store = Store::open(home, &request.request_id)?;
     manifest::same(&store, "stopped-session.json", &request)?;
     let mut saved: Saved = store
         .state()?
@@ -154,17 +117,13 @@ async fn run_stopped(
     if point.accepted != accepted {
         return Err(BackupError::Identity);
     }
-    let automatic_backup_enabled = if source.publication_stream.is_some() {
-        false
-    } else {
-        super::automatic::record_stopped(
-            home,
-            &source.account,
-            &source.source_home,
-            &endpoint,
-            point.frontiers,
-        )?
-    };
+    let automatic_backup_enabled = super::automatic::record_stopped(
+        home,
+        &source.account,
+        &source.source_home,
+        &endpoint,
+        point.frontiers,
+    )?;
     let report = StoppedBackupReport {
         version: 1,
         request,
@@ -183,14 +142,4 @@ async fn run_stopped(
     drop(permit);
     drop(ownership);
     Ok(report)
-}
-
-async fn check_stopped_publication(home: &Path, base: &Path, source: &Source) -> Result<()> {
-    if super::automatic_publication::has_pending(base)? {
-        return Err(BackupError::Busy);
-    }
-    if source.has_external_backup_files().await? {
-        return Err(BackupError::PublicationFile);
-    }
-    super::automatic_publication::preflight(home)
 }

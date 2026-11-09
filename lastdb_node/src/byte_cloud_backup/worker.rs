@@ -347,7 +347,10 @@ async fn close(
         return Err(BackupError::Identity);
     }
     close_capture(&capture, store, saved, client, pause).await?;
-    super::blobs::accepted(source, store, saved).await
+    if source.publication_stream.is_none() {
+        super::blobs::accepted(source, store, saved).await?;
+    }
+    Ok(())
 }
 
 async fn close_capture(

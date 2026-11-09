@@ -11,15 +11,6 @@ pub(crate) enum ShareCommand {
         #[arg(long, value_parser = ["dev", "prod"])]
         env: String,
     },
-    /// Publish a snapshot of a cleanly stopped publication home.
-    Publish {
-        /// Absolute path of the publication home.
-        #[arg(long)]
-        home: PathBuf,
-        /// UUID for this publication attempt. Repeat it to resume the same job.
-        #[arg(long)]
-        request_id: String,
-    },
     /// Export this LastDB identity's public contact code.
     Contact {
         /// New path for the public contact file.
