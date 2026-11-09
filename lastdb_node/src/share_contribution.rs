@@ -1,27 +1,27 @@
 //! Private submission grants and publisher-side intake for ordinary Share.
 mod apply;
 mod crypto;
+mod outbox;
+mod state;
+
+use state::State;
 
 pub use apply::{WriteRequest, WriteRule};
 pub(crate) use crypto::inbox_key;
+pub use outbox::submit;
 
-use crate::byte_cloud_backup::connection::files::Directory;
 use crate::host::Host;
 use crate::share_invitation::ShareContact;
 use crate::share_publication::{self, PublicationIdentity, WriteMode};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use cloud_backup_client::byte_backup::{
-    ByteBackupClient, GuestAppendPermission, GuestContributionWriter,
-};
+use cloud_backup_client::byte_backup::{ByteBackupClient, GuestAppendPermission};
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest, contributions::ReadAudience, Stream, Version,
 };
 use cloud_backup_protocol::{AccountId, Digest, Id};
 use fold_db::canonical::CanonicalWriter;
-use rustix::fs::{flock, FlockOperation};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
-use std::fs::File;
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -29,12 +29,9 @@ use std::sync::{
 };
 use std::time::Duration;
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroizing;
 
 const MAX_WRITERS: usize = 12;
 const MAX_RULES: usize = 8;
-const MAX_REQUEST_BYTES: usize = 8 * 1024;
-const MAX_GRANT_BYTES: usize = 4096;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,23 +69,6 @@ struct Submission {
     version: u64,
     sequence: u64,
     request: WriteRequest,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Outbox {
-    through: u64,
-    last: Option<Pending>,
-    pending: Option<Pending>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Pending {
-    id: Id,
-    fingerprint: String,
-    // The sent marker has no ciphertext. The pending entry keeps the exact bytes.
-    ciphertext: Option<String>,
 }
 
 /// App request to grant one verified writer a complete set of rules.
@@ -278,92 +258,6 @@ async fn public_stream(
     })
 }
 
-/// Save the exact signed envelope locally before uploading, so retries are safe.
-pub async fn submit(
-    identity_home: &Path,
-    sealed_grant: &[u8],
-    publisher: &Digest,
-    request: WriteRequest,
-) -> Result<u64, String> {
-    let encoded = serde_json::to_vec(&request).map_err(|_| "invalid contribution request")?;
-    if encoded.len() > MAX_REQUEST_BYTES || sealed_grant.len() > MAX_GRANT_BYTES {
-        return Err("contribution exceeds its size limit".into());
-    }
-    let recipient = share_publication::recipient(identity_home)?;
-    let invitation: Invitation = crypto::open(
-        sealed_grant,
-        recipient.encryption_secret(),
-        publisher,
-        crypto::GRANT,
-    )?;
-    let permission =
-        GuestAppendPermission::parse(&invitation.authorization).map_err(|e| e.to_string())?;
-    if invitation.writer != *recipient.contact().identity_public_key()
-        || permission.publisher_public_key() != publisher
-        || invitation.version == 0
-    {
-        return Err("contributor invitation binding differs".into());
-    }
-    let stream = permission.stream().clone();
-    let client = GuestContributionWriter::new(permission).map_err(|e| e.to_string())?;
-    let state = State::open(identity_home, "contributor-outbox", &stream.stream_id)?;
-    let (mut outbox, mut saved) = state.load::<Outbox>()?;
-    let fingerprint = hex::encode(Sha256::digest(&encoded));
-    let id = request.mutation_id.clone();
-    if let Some(last) = outbox.last.as_ref().filter(|last| last.id == id) {
-        if last.fingerprint != fingerprint {
-            return Err("contribution mutation ID conflict".into());
-        }
-        return Ok(outbox.through);
-    }
-    let sequence = outbox
-        .through
-        .checked_add(1)
-        .ok_or("contribution sequence limit")?;
-    if let Some(pending) = &outbox.pending {
-        if pending.id != id || pending.fingerprint != fingerprint {
-            return Err("retry the pending contribution before submitting another".into());
-        }
-    } else {
-        let signed = Submission {
-            publication: invitation.publication,
-            stream,
-            version: invitation.version,
-            sequence,
-            request,
-        };
-        let signer = share_publication::signer(&share_publication::owner_seed(identity_home)?)?;
-        let ciphertext = URL_SAFE_NO_PAD.encode(crypto::seal(
-            &signed,
-            &PublicKey::from(invitation.inbox_key),
-            &signer,
-            crypto::MUTATION,
-        )?);
-        outbox.pending = Some(Pending {
-            id,
-            fingerprint,
-            ciphertext: Some(ciphertext),
-        });
-        saved = Some(state.save(&outbox, saved.as_deref().map(Vec::as_slice))?);
-    }
-    let mut pending = outbox
-        .pending
-        .take()
-        .ok_or("missing pending contribution")?;
-    let ciphertext = pending
-        .ciphertext
-        .take()
-        .ok_or("missing pending ciphertext")?;
-    client
-        .append(sequence, &ciphertext)
-        .await
-        .map_err(|e| e.to_string())?;
-    outbox.through = sequence;
-    outbox.last = Some(pending);
-    state.save(&outbox, saved.as_deref().map(Vec::as_slice))?;
-    Ok(sequence)
-}
-
 pub(crate) async fn follow(
     host: Arc<Host>,
     shutdown: Arc<AtomicBool>,
@@ -463,55 +357,4 @@ async fn pull(
         }
     }
     Ok(())
-}
-
-struct State {
-    directory: Directory,
-    name: String,
-    _lock: File,
-}
-
-impl State {
-    fn open(home: &Path, kind: &str, id: &Id) -> Result<Self, String> {
-        let directory = Directory::open(home).map_err(|e| e.to_string())?;
-        let name = format!("share-{kind}-{}", id.as_str());
-        let lock = directory
-            .open_lock(&format!("{name}.lock"))
-            .map_err(|e| e.to_string())?;
-        flock(&lock, FlockOperation::NonBlockingLockExclusive)
-            .map_err(|_| "share contribution state is busy")?;
-        Ok(Self {
-            directory,
-            name,
-            _lock: lock,
-        })
-    }
-
-    fn load<T: DeserializeOwned + Default>(
-        &self,
-    ) -> Result<(T, Option<Zeroizing<Vec<u8>>>), String> {
-        let previous = self.directory.read(&self.name).map_err(|e| e.to_string())?;
-        let value = previous
-            .as_ref()
-            .map(|bytes| {
-                serde_json::from_slice(bytes).map_err(|_| "invalid local share contribution state")
-            })
-            .transpose()?
-            .unwrap_or_default();
-        Ok((value, previous))
-    }
-
-    fn save<T: Serialize>(
-        &self,
-        value: &T,
-        previous: Option<&[u8]>,
-    ) -> Result<Zeroizing<Vec<u8>>, String> {
-        let bytes = Zeroizing::new(
-            serde_json::to_vec(value).map_err(|_| "invalid local share contribution state")?,
-        );
-        self.directory
-            .publish(&self.name, previous, &bytes)
-            .map_err(|e| e.to_string())?;
-        Ok(bytes)
-    }
 }

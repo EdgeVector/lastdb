@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
+use tracing::Instrument;
 use zeroize::Zeroizing;
 
 pub use crate::byte_cloud_backup::PUBLICATION_MARKER as MARKER_FILE;
@@ -119,18 +120,21 @@ impl AutomaticPublication {
         let Some(inbox) = inbox else {
             return Ok(backup);
         };
-        Ok(tokio::spawn(async move {
-            let follow = crate::share_contribution::follow(
-                host,
-                shutdown,
-                &owner_home,
-                &account,
-                &publication,
-                &inbox,
-                || publication_client(&owner_home, &account, environment),
-            );
-            let _ = tokio::join!(backup, follow);
-        }))
+        Ok(tokio::spawn(
+            async move {
+                let follow = crate::share_contribution::follow(
+                    host,
+                    shutdown,
+                    &owner_home,
+                    &account,
+                    &publication,
+                    &inbox,
+                    || publication_client(&owner_home, &account, environment),
+                );
+                let _ = tokio::join!(backup, follow);
+            }
+            .in_current_span(),
+        ))
     }
 }
 
