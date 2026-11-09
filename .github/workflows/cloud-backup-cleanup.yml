@@ -10,11 +10,6 @@ name: Cloud backup cleanup
 # The later passes resume it through the night. A completed request restores
 # the kept latest CI snapshot with the exact main client.
 on:
-  schedule:
-    - cron: '7 22 * * *'
-    - cron: '15,30,45 22 * * *'
-    - cron: '*/15 23 * * *'
-    - cron: '*/30 0-9 * * *'
   workflow_dispatch:
     inputs:
       create:
