@@ -76,7 +76,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: BackupCommand,
     },
-    /// Publish a separate database and exchange read-only invitations.
+    /// Publish a separate database, invite readers, and manage contributor grants.
     #[command(subcommand)]
     Share(ShareCommand),
     /// Diagnose, maintain, or recover a LastDB home.

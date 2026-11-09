@@ -109,7 +109,7 @@ pub(crate) enum AdminBackupCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminSharedCommand {
-    /// Verify, stage and optionally read an encrypted snapshot using a guest permission.
+    /// Verify, stage and optionally read an encrypted recovery point using a guest permission.
     StageGuest(GuestStageArgs),
     /// Upload a frozen DEV database snapshot, then upload the writer’s queued changes.
     Snapshot(SnapshotArgs),
@@ -144,7 +144,7 @@ pub(crate) struct GuestStageSelection {
     /// Emit the verified stage receipt as JSON.
     #[arg(long)]
     pub json: bool,
-    /// Exact schema name in the staged snapshot.
+    /// Exact schema name in the staged recovery point.
     #[arg(long, requires_all = ["json", "key_hash"])]
     pub schema: Option<String>,
     /// Exact primary hash key of the staged record.

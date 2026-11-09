@@ -128,7 +128,7 @@ CLI has nine entry points.
 | `mutate` | Submit a conditional write and supply the record’s file when needed. |
 | `app` | Browse the signed registry and manage apps. |
 | `backup` | Configure backup and restore an accepted recovery point. |
-| `share` | Set up a separate publication and exchange read-only invitations. |
+| `share` | Create a publication, invite readers, and optionally grant restricted contributor writes. |
 | `admin` | Diagnose or maintain a home. |
 
 Supply file bytes in the same `mutate --request-file` operation as the record.
@@ -162,7 +162,7 @@ Verify the returned recipient key through a trusted channel and issue an
 invitation with
 `lastdb --data-dir OWNER share invite --home PUBLICATION --recipient CONTACT
 --recipient-key RECIPIENT_KEY --out INVITATION`. If the daemon is still
-publishing its first snapshot, wait and retry. The recipient verifies the
+publishing its first backup, wait and retry. The recipient verifies the
 publisher key from `share create` through a trusted channel and runs `lastdb
 --data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY
 --cache CACHE`. Use a private cache directory with an existing parent you own.
@@ -180,12 +180,52 @@ expiry, stop `follow`, accept a new invitation for the same publication with
 `files receive` and the original `--cache CACHE --handle HANDLE`, then restart
 `follow`.
 
-The DEV run verified automatic publication, offline reads, catch-up after
-reconnect, and concurrent reads. Required CI checks local setup and the
-supported Share commands. Safe recovery from interrupted imports, recipient
-revocation, and Org sharing with restricted writes are open.
-[DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
-[Stopped publisher removal](https://github.com/EdgeVector/lastdb/pull/1423)
+### Share with restricted contributors
+
+The app decides which records go into the publication and which recipients can
+contribute to each schema. Create the publication with
+`share create --write-mode publisher-validated` and run the same automatic
+publisher as above. The default mode, `publisher-only`, gives the publisher
+exclusive write access.
+
+Read invitations and write grants are separate. To let a verified recipient
+add comments, give `share contributors grant` a JSON rules file like this one,
+using the installed schema's exact definition ID.
+
+```json
+[
+  {
+    "schema": "photos/Comments",
+    "definition_id": "<64-character schema definition ID>",
+    "action": "create"
+  }
+]
+```
+
+The recipient calls `share contributors submit` with the sealed grant and a
+mutation request. The receipt confirms upload to the publisher's private
+inbox. The publisher checks the current grant and creates the record only if
+the key is absent. `share contributors revoke` stops future acceptance under
+that grant. The read invitation and any issued upload permission expire on
+their own schedules.
+
+The publisher records approved changes in its own mutation journal and
+automatically publishes encrypted Backup V2 checkpoints when Exemem supports
+them. Readers can catch up through `share files receive` and `share files follow`,
+then use `share get` to read an exact key from the verified cache. The accepted
+record carries the verified contributor key in `record.share_author`. Exemem
+serves the encrypted backup and restricts stream access. LastDB owns
+encryption and write validation. The publisher uses snapshots to establish
+or replace a recovery base.
+
+Required CI exercises local publication setup in both write modes and file
+import with the built CLI and daemon. The separate DEV operations verified
+automatic Files updates and three-node recovery of accepted writes with
+private contribution streams. [Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
+[Contributor DEV proof](https://github.com/EdgeVector/lastdb/pull/1437)
+
+Immediate read revocation, interrupted import recovery, and Org sharing remain
+separate work.
 
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus
