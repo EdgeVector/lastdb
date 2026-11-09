@@ -50,7 +50,7 @@ def source_for(node, plan, app, output, environment, cli):
     return source, False
 
 
-def prove(node, plan, output, prepare_cli=None):
+def prove(node, plan, output):
     observed = node.call("/api/version")
     environment = {**os.environ, **node.environment,
                    "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"),
@@ -63,7 +63,7 @@ def prove(node, plan, output, prepare_cli=None):
     results = {}
     for app in APPS:
         source, installed = source_for(node, plan, app, output, environment,
-                                       prepare_cli or node.binaries / "lastdb")
+                                       node.binaries / "lastdb")
         manifest = json.loads((source / "lastdb-app.json").read_text())
         if manifest["app_id"] != app:
             raise ValueError("App source identity differs")
@@ -101,7 +101,7 @@ def prove(node, plan, output, prepare_cli=None):
                 raise RuntimeError("Search did not query the real database changes")
             run(["status", "--last-db-home", str(node.home)], "status")
         statement = output / (app + ".declaration.json")
-        command([str(prepare_cli or node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
+        command([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
                  "--manifest", str(source / "lastdb-app.json"), "--channel", "stable",
                  "--prepare", str(statement)], environment, source, output, app + "-declaration")
         declaration = json.loads(statement.read_text())

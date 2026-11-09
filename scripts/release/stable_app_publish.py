@@ -115,8 +115,6 @@ def missing_declarations(proved):
                     or (channel == "stable" and (existing.get("sha") != declaration["sha"]
                                                   or existing.get("app_version") != declaration["app_version"]))):
                 raise ValueError("An existing app interface changed or needs a new API; preserve its publisher")
-    if missing and proved["api_version"] <= 26:
-        raise ValueError("Legacy API catalogs retain their person publisher; CI publication starts at the next API")
     return missing
 
 
