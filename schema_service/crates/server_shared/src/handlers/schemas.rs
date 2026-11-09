@@ -75,7 +75,7 @@ pub async fn get_available_schemas(
     let envelopes: Vec<SchemaEnvelope> = schemas
         .iter()
         .filter(|(_, schema)| source.keeps(schema))
-        .map(|(name, schema)| SchemaEnvelope {
+        .map(|(_, schema)| SchemaEnvelope {
             schema: schema.clone(),
             system: false,
         })
