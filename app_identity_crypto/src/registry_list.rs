@@ -158,12 +158,6 @@ impl ListEntry {
         fields
     }
 
-    /// True when the publisher limited this entry to a private audience.
-    #[must_use]
-    pub fn is_private(&self) -> bool {
-        self.audience.as_deref() == Some("private")
-    }
-
     /// Verify the publisher signature over [`ListEntry::signed_fields`].
     ///
     /// # Errors
