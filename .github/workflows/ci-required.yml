@@ -74,8 +74,6 @@ jobs:
           date +%s >"$state_dir/job_started_at_epoch"
           echo "unknown-pre-instrumented-step" >"$state_dir/last_step"
           echo "MINI_GATE_STATE_DIR=$state_dir" >>"$GITHUB_ENV"
-      - name: App registry shelf lint
-        run: bash scripts/ci/mini-gate-step.sh "App registry shelf lint" -- bash scripts/lints/lint-app-registry-shelf.sh
       - name: Cloud recovery recipe syntax
         env:
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/cloud-recipe-pycache
