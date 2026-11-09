@@ -52,6 +52,21 @@ impl DatabaseRead<'_> {
     }
 
     fn query(&self, request: QueryRequest) -> Result<Value, HostError> {
+        let schema = self.queryable_schema(&request.query.schema_name)?;
+        let query = &request.query;
+        if query.requires_post_key_work()
+            || query.rehydrate_depth.is_some()
+            || query.include_tombstones
+            || matches!(query.sort_order, Some(SortOrder::Desc))
+        {
+            return Err(HostError::new(
+                400,
+                "Share queries support ascending keyed reads without record conditions",
+            ));
+        }
+        if query.key_name.is_some() {
+            return self.alternate_query(schema, request);
+        }
         let QueryRequest {
             mut query,
             limit,
@@ -59,19 +74,7 @@ impl DatabaseRead<'_> {
             cursor,
             response_format,
         } = request;
-        let schema = self.queryable_schema(&query.schema_name)?;
         let comparison = KeyComparisonContext::for_schema(schema)?;
-        if query.key_name.is_some()
-            || query.requires_post_key_work()
-            || query.rehydrate_depth.is_some()
-            || query.include_tombstones
-            || matches!(query.sort_order, Some(SortOrder::Desc))
-        {
-            return Err(HostError::new(
-                400,
-                "Share queries support ascending primary-key reads without record conditions",
-            ));
-        }
         query.filter = comparison.canonical_filter(query.filter)?;
         let filter = query
             .filter

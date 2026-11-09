@@ -19,6 +19,10 @@ pub(super) struct ManagedRegistration {
     name: Option<String>,
     expires_ms: u64,
     grant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grant_version: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grant_expires_ms: Option<u64>,
 }
 
 impl ShareCache {
@@ -87,6 +91,11 @@ impl ShareCache {
     ) -> Result<RegisteredShare> {
         let opened = self.recipient.open(invitation, publisher)?;
         let id = &opened.permission.stream().stream_id;
+        if crate::registered_share::local_publication_id(home)?.as_ref() == Some(id) {
+            return Err(ShareCacheError::Invalid(
+                "invitation names the local publication",
+            ));
+        }
         let directory = files::private_directory(&self.root, false)?;
         let lock = directory
             .open_lock(REGISTRY_LOCK)
@@ -107,6 +116,8 @@ impl ShareCache {
                 name: None,
                 expires_ms: 0,
                 grant: None,
+                grant_version: None,
+                grant_expires_ms: None,
             });
         if let Some(name) = name {
             state.name = Some(name.to_owned());
@@ -149,7 +160,7 @@ impl ShareCache {
         let (registration, previous) = entry.load()?;
         let mut registration = registration.ok_or(ShareCacheError::Unavailable)?;
         self.require_management(&registration)?;
-        crate::share_contribution::validate_grant(
+        let binding = crate::share_contribution::validate_grant(
             home,
             sealed,
             &registration.publisher,
@@ -157,11 +168,21 @@ impl ShareCache {
             registration.environment,
         )
         .map_err(|_| ShareCacheError::Invalid("contributor grant"))?;
-        registration
+        let state = registration
             .managed
             .as_mut()
-            .ok_or(ShareCacheError::Invalid("managed registration"))?
-            .grant = Some(URL_SAFE_NO_PAD.encode(sealed));
+            .ok_or(ShareCacheError::Invalid("managed registration"))?;
+        if state
+            .grant_version
+            .is_some_and(|version| version > binding.version)
+        {
+            return Err(ShareCacheError::Invalid(
+                "contributor grant version regressed",
+            ));
+        }
+        state.grant = Some(URL_SAFE_NO_PAD.encode(sealed));
+        state.grant_version = Some(binding.version);
+        state.grant_expires_ms = Some(binding.expires_ms);
         publish(
             &entry,
             previous.as_deref().map(Vec::as_slice),
@@ -196,5 +217,6 @@ fn describe(home: &Path, id: &Id, registration: &Registration) -> Result<Registe
         stream: registration.stream.clone(),
         environment: registration.environment,
         contributor_grant,
+        contributor_expires_ms: state.grant_expires_ms,
     })
 }

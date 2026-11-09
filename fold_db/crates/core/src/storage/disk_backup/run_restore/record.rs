@@ -21,7 +21,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+mod alternate;
 mod database;
+pub use alternate::SnapshotAlternatePage;
 pub use database::{SnapshotRecordPage, SnapshotSchema};
 
 /// One schema and primary key to read after the staged snapshot verifies.
@@ -155,8 +157,16 @@ fn record_codec(
     let profile = primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
-    let space = record_space_uuid(&schema.name);
-    let rows = node_bundle_storage_keys(&space)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
+    key_codec(read, &record_space_uuid(&schema.name), profile, account_key)
+}
+
+fn key_codec(
+    read: &mut RunRead,
+    field: &str,
+    profile: schema_types::field_range_profile::FieldRangeProfile,
+    account_key: &[u8; 32],
+) -> StorageResult<FieldKeyCodec> {
+    let rows = node_bundle_storage_keys(field)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
     let rows = read
         .get_many_bounded(&rows, NODE_KEY_ROW_MAX_BYTES)
         .map_err(map)?
@@ -167,7 +177,7 @@ fn record_codec(
         return Err(invalid("staged record key bundle batch"));
     };
     let bundle = open_frozen_typed_bundle(
-        &space,
+        field,
         profile,
         account_key,
         metadata.as_deref(),

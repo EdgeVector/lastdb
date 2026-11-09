@@ -195,7 +195,7 @@ impl RunSnapshotReader {
             .transpose()
     }
 
-    fn lookup(&self, keys: usize) -> StorageResult<RunRead> {
+    pub(super) fn lookup(&self, keys: usize) -> StorageResult<RunRead> {
         let mut budget = super::super::read_budget();
         budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
         budget.keys = keys as u64;
@@ -225,19 +225,13 @@ fn page_record(
     Ok(Some(record))
 }
 
-fn checked_address(
+pub(super) fn checked_address(
     schema: &Schema,
     codec: &FieldKeyCodec,
     key: &KeyValue,
 ) -> StorageResult<RecordAddress> {
-    schema
-        .require_record_keys()
-        .map_err(|_| bad_request("schema has no primary record key"))?
-        .primary
-        .validate_coordinates(key.hash.as_deref(), key.range.as_deref())
-        .map_err(|_| bad_request("record key differs from its schema"))?;
-    RecordAddress::new(codec, &record_space_uuid(&schema.name), key)
-        .map_err(|_| bad_request("invalid record key"))
+    record_address(schema, codec, key)
+        .map_err(|_| bad_request("record key differs from its schema"))
 }
 
 fn page_bounds(
@@ -286,11 +280,11 @@ fn page_bounds(
     }
 }
 
-fn bad_request(message: &str) -> StorageError {
+pub(super) fn bad_request(message: &str) -> StorageError {
     StorageError::InvalidOperation(message.to_string())
 }
 
-fn resource_limit(message: &str) -> StorageError {
+pub(super) fn resource_limit(message: &str) -> StorageError {
     StorageError::ReadResourceLimit {
         detail: message.to_string(),
     }

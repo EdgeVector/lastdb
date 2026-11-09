@@ -8,6 +8,7 @@ use std::sync::{
 use std::time::Duration;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 const POLL: Duration = Duration::from_secs(5);
 const SHUTDOWN_CHECK: Duration = Duration::from_millis(250);
@@ -36,7 +37,7 @@ pub fn spawn(home: PathBuf, shutdown: Arc<AtomicBool>) -> JoinHandle<()> {
             last_failure = failure;
             tokio::time::sleep(POLL).await;
         }
-    })
+    }.in_current_span())
 }
 
 fn refresh(runtime: &Handle, home: &Path, shutdown: &AtomicBool) -> Result<(), ShareCacheError> {

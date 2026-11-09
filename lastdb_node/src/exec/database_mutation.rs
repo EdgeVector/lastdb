@@ -103,7 +103,7 @@ fn mutation_id(req: &UdsRequest) -> Option<Id> {
     if headers.next().is_some() {
         return None;
     }
-    Id::try_from(value.as_str()).ok()
+    Id::try_from(value.to_owned()).ok()
 }
 
 fn submission_error(error: SubmitError, ctx: &AccessContext) -> UdsResponse {

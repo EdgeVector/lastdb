@@ -163,11 +163,15 @@ pub(in crate::handlers) fn format_rows(
 ) -> Vec<Value> {
     records
         .into_iter()
-        .map(|(key, record)| format_row(key, record, compact))
+        .map(|(key, record)| format_row(&key, record, compact))
         .collect()
 }
 
-fn format_row(key: KeyValue, record: fold_db::fold_db_core::query::Record, compact: bool) -> Value {
+fn format_row(
+    key: &KeyValue,
+    record: fold_db::fold_db_core::query::Record,
+    compact: bool,
+) -> Value {
     let mut row = serde_json::Map::new();
     row.insert("key".into(), serde_json::json!(key));
     row.insert("revision".into(), Value::String(record.revision));
@@ -197,7 +201,7 @@ pub fn verified_query_page(
     };
     let rows = records
         .into_iter()
-        .map(|(key, record)| format_row(key, record, compact))
+        .map(|(key, record)| format_row(&key, record, compact))
         .collect();
     let mut payload = page_payload(rows, total_count, limit, offset, has_more, flags);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);

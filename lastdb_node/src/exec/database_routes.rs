@@ -2,7 +2,6 @@
 use super::*;
 use crate::registered_share::{self, RegisteredShare};
 use crate::share_invitation::MAX_SEALED_INVITATION_BYTES;
-use crate::share_publication::{PublicationMarker, MARKER_FILE};
 use cloud_backup_protocol::Digest;
 use lastdb_uds::database_path::{self, DATABASES_PATH};
 use lastdb_uds::uds_router::{self, ControlRoute, SocketKind};
@@ -10,6 +9,8 @@ use serde_json::json;
 
 const ACCEPT_PATH: &str = "/api/databases/accept";
 
+/// Dispatch a database registry operation or route an ordinary record request
+/// to the explicitly selected database on the owner socket.
 pub async fn execute_database_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
@@ -38,7 +39,10 @@ pub async fn execute_database_request(
         }
         _ => return content_free(404, "Not Found"),
     };
-    if local_id(host).is_ok_and(|id| id == selector) {
+    let Ok(id) = local_id(host) else {
+        return error_response(503, "local database identity is unavailable", ctx);
+    };
+    if id == selector {
         return super::execute_data_route_with_timeout(route, req, ctx, host).await;
     }
     let share = match registered_share::resolve(&host.home, &selector) {
@@ -55,7 +59,7 @@ pub async fn execute_database_request(
             DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
-            _ => super::database_read::read(route, req, ctx, &share).await,
+            _ => super::database_read::read(route, req, ctx, &share),
         }
     };
     super::dispatch::execute_observed_route(route, req, ctx, host, work).await
@@ -77,15 +81,9 @@ fn is_database_operation(route: DataRoute) -> bool {
     )
 }
 
-fn local_id(host: &Host) -> Result<String, ()> {
-    use crate::byte_cloud_backup::connection::files::Directory;
-    let directory = Directory::open(&host.home).map_err(|_| ())?;
-    match directory.read(MARKER_FILE).map_err(|_| ())? {
-        Some(bytes) => serde_json::from_slice::<PublicationMarker>(&bytes)
-            .map(|marker| marker.id.to_string())
-            .map_err(|_| ()),
-        None => Ok("personal".to_owned()),
-    }
+fn local_id(host: &Host) -> Result<String, crate::share_cache::ShareCacheError> {
+    Ok(registered_share::local_publication_id(&host.home)?
+        .map_or_else(|| "personal".to_owned(), |id| id.as_str().to_owned()))
 }
 
 fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
@@ -105,7 +103,7 @@ fn database(share: &RegisteredShare) -> Value {
     } else {
         "restoring"
     });
-    value["access"] = json!(if share.contributor_grant().is_some() {
+    value["access"] = json!(if share.has_unexpired_contributor_grant() {
         "contributor"
     } else {
         "reader"

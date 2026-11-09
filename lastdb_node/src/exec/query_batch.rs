@@ -111,14 +111,10 @@ pub(super) fn parse_query_batch(
     req: &UdsRequest,
     ctx: &AccessContext,
 ) -> Result<Vec<Value>, UdsResponse> {
-    let obj = match body_object(req) {
-        Ok(obj) => obj,
-        Err(resp) => return Err(resp),
-    };
-    let queries = match serde_json::from_value::<QueryBatchRequest>(Value::Object(obj)) {
-        Ok(request) => request.queries,
-        Err(err) => return Err(Reject::from_serde_error(&err, None).response()),
-    };
+    let obj = body_object(req)?;
+    let queries = serde_json::from_value::<QueryBatchRequest>(Value::Object(obj))
+        .map_err(|error| Reject::from_serde_error(&error, None).response())?
+        .queries;
     if queries.is_empty() {
         return Err(error_response(
             400,

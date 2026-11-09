@@ -2,6 +2,7 @@
 mod worker;
 
 use crate::share_cache::{ShareCache, ShareCacheError, ShareReader, ShareSnapshot};
+use crate::{byte_cloud_backup::connection::files::Directory, share_publication};
 use cloud_backup_client::byte_backup::ShareEnvironment;
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use serde::Serialize;
@@ -28,6 +29,8 @@ pub struct RegisteredShare {
     pub(crate) environment: ShareEnvironment,
     #[serde(skip)]
     pub(crate) contributor_grant: Option<Vec<u8>>,
+    #[serde(skip)]
+    pub(crate) contributor_expires_ms: Option<u64>,
 }
 
 impl RegisteredShare {
@@ -57,6 +60,24 @@ impl RegisteredShare {
     pub fn contributor_grant(&self) -> Option<&[u8]> {
         self.contributor_grant.as_deref()
     }
+
+    /// Whether this node holds a contributor grant whose signed expiry is in the future.
+    pub fn has_unexpired_contributor_grant(&self) -> bool {
+        self.contributor_grant.is_some()
+            && self
+                .contributor_expires_ms
+                .is_some_and(|expiry| expiry > fold_db::clock::unix_millis())
+    }
+}
+
+/// Read the immutable local publication ID. An ordinary personal home has no marker.
+pub fn local_publication_id(home: &Path) -> Result<Option<Id>> {
+    let home = home.canonicalize()?;
+    let invalid = || ShareCacheError::Invalid("local publication marker");
+    let directory = Directory::open(&home).map_err(|_| invalid())?;
+    share_publication::read_marker(&directory)
+        .map(|marker| marker.map(|marker| marker.id))
+        .map_err(|_| invalid())
 }
 
 /// Save a verified invitation and stable database handle before cloud work.

@@ -20,7 +20,8 @@ use std::path::Path;
 
 pub use node::{validate_replayed_shared_node, validate_restored_node, RunNodeGuard};
 pub use record::{
-    RunSnapshotReader, SnapshotRecordPage, SnapshotSchema, StagedRecord, StagedRecordQuery,
+    RunSnapshotReader, SnapshotAlternatePage, SnapshotRecordPage, SnapshotSchema, StagedRecord,
+    StagedRecordQuery,
 };
 pub use replay::{verify_replayed, MutationReplay};
 

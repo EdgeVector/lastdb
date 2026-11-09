@@ -12,9 +12,10 @@ use fold_db::storage::disk_pack::run_restore::SnapshotSchema;
 use fold_db::storage::StorageError;
 use serde_json::json;
 
+mod alternate;
 mod query;
 
-pub(super) async fn read(
+pub(super) fn read(
     route: DataRoute,
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -146,13 +147,10 @@ impl DatabaseRead<'_> {
     fn list_keys(&self, target: &str) -> Result<Value, HostError> {
         let request = super::app_routes::list_rules::ListRecordKeysRequest::parse(target)
             .map_err(|message| HostError::new(400, message))?;
-        if request.key_name.is_some() {
-            return Err(HostError::new(
-                400,
-                "Share key listing supports the primary key",
-            ));
-        }
         let schema = self.queryable_schema(&request.requested)?;
+        if request.key_name.is_some() {
+            return self.alternate_list(schema, &request);
+        }
         let key_definition = schema.require_record_keys()?.primary.clone();
         let filter = request
             .hash_filter

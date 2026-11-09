@@ -34,7 +34,7 @@ fn resolve(socket: &Path, selector: &str) -> Result<String, String> {
     if !database_path::valid_selector(selector) {
         return Err("invalid database ID or name".into());
     }
-    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector).is_ok() {
+    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
         return Ok(selector.to_owned());
     }
     let response = read_databases(socket)?;
@@ -42,7 +42,7 @@ fn resolve(socket: &Path, selector: &str) -> Result<String, String> {
         .iter()
         .find(|database| database["name"].as_str() == Some(selector))
         .and_then(|database| database["id"].as_str())
-        .filter(|id| cloud_backup_protocol::Id::try_from(*id).is_ok())
+        .filter(|id| cloud_backup_protocol::Id::try_from((*id).to_owned()).is_ok())
         .ok_or("database is not registered on this node")?;
     Ok(id.to_owned())
 }
@@ -52,9 +52,10 @@ fn read_databases(socket: &Path) -> Result<serde_json::Value, String> {
     parse_json_response(&raw, "database list")
 }
 
-fn databases(response: &serde_json::Value) -> Result<&Vec<serde_json::Value>, String> {
+fn databases(response: &serde_json::Value) -> Result<&[serde_json::Value], String> {
     response["databases"]
         .as_array()
+        .map(Vec::as_slice)
         .ok_or("missing database list".into())
 }
 

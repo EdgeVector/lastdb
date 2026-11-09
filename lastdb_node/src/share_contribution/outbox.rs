@@ -47,6 +47,40 @@ struct Pending {
     ciphertext: Option<String>,
 }
 
+impl Pending {
+    fn seal(
+        identity_home: &Path,
+        grant: &OpenGrant,
+        sequence: u64,
+        request: WriteRequest,
+        fingerprint: String,
+    ) -> Result<Self, SubmitError> {
+        let id = request.mutation_id.clone();
+        let signed = Submission {
+            publication: grant.invitation.publication.clone(),
+            stream: grant.permission.stream().clone(),
+            version: grant.invitation.version,
+            sequence,
+            request,
+        };
+        let seed =
+            share_publication::owner_seed(identity_home).map_err(SubmitError::Unavailable)?;
+        let signer = share_publication::signer(&seed).map_err(SubmitError::Unavailable)?;
+        let ciphertext = crypto::seal(
+            &signed,
+            &PublicKey::from(grant.invitation.inbox_key),
+            &signer,
+            crypto::MUTATION,
+        )
+        .map_err(SubmitError::Unavailable)?;
+        Ok(Self {
+            id,
+            fingerprint,
+            ciphertext: Some(URL_SAFE_NO_PAD.encode(ciphertext)),
+        })
+    }
+}
+
 pub(crate) enum SubmitError {
     Invalid(String),
     TooLarge,
@@ -127,20 +161,29 @@ impl OpenGrant {
     }
 }
 
+pub(crate) struct GrantBinding {
+    pub version: u64,
+    pub expires_ms: u64,
+}
+
 /// Verify a private append invitation against the registered read invitation.
-pub fn validate_grant(
+pub(crate) fn validate_grant(
     identity_home: &Path,
     sealed: &[u8],
     publisher: &Digest,
     publication: &Stream,
     environment: ShareEnvironment,
-) -> Result<(), String> {
-    (|| {
-        let grant = OpenGrant::open(identity_home, sealed, publisher)?;
-        grant.require_publication(publication, environment)?;
-        grant.require_live()
-    })()
-    .map_err(|error| error.to_string())
+) -> Result<GrantBinding, String> {
+    OpenGrant::open(identity_home, sealed, publisher)
+        .and_then(|grant| {
+            grant.require_publication(publication, environment)?;
+            grant.require_live()?;
+            Ok(GrantBinding {
+                version: grant.invitation.version,
+                expires_ms: grant.permission.expires_ms(),
+            })
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Save the exact signed envelope locally before uploading, so retries are safe.
@@ -154,12 +197,12 @@ pub(crate) async fn submit_registered(
 ) -> Result<u64, SubmitError> {
     let grant = OpenGrant::open(identity_home, sealed_grant, publisher)?;
     grant.require_publication(publication, environment)?;
-    append(identity_home, grant, request).await
+    append(identity_home, &grant, request).await
 }
 
 async fn append(
     identity_home: &Path,
-    grant: OpenGrant,
+    grant: &OpenGrant,
     request: WriteRequest,
 ) -> Result<u64, SubmitError> {
     let encoded = serde_json::to_vec(&request)
@@ -167,22 +210,25 @@ async fn append(
     if encoded.len() > MAX_REQUEST_BYTES {
         return Err(SubmitError::TooLarge);
     }
-    let stream = grant.permission.stream().clone();
-    let state = State::open(identity_home, "contributor-outbox", &stream.stream_id)
-        .map_err(SubmitError::Unavailable)?;
+    let state = State::open(
+        identity_home,
+        "contributor-outbox",
+        &grant.permission.stream().stream_id,
+    )
+    .map_err(SubmitError::Unavailable)?;
     let (mut outbox, mut saved) = state.load::<Outbox>().map_err(SubmitError::Unavailable)?;
     let fingerprint = hex::encode(Sha256::digest(&encoded));
-    let id = request.mutation_id.clone();
+    let id = &request.mutation_id;
     let previous = outbox
         .last
         .as_ref()
-        .filter(|last| last.id == id)
+        .filter(|last| &last.id == id)
         .map(|last| (&last.fingerprint, outbox.through))
         .or_else(|| {
             outbox
                 .recent
                 .iter()
-                .find(|entry| entry.id == id)
+                .find(|entry| &entry.id == id)
                 .map(|entry| (&entry.fingerprint, entry.sequence))
         });
     if let Some((previous_fingerprint, sequence)) = previous {
@@ -199,36 +245,19 @@ async fn append(
         .filter(|sequence| *sequence <= MAX_CONTRIBUTION_SEQUENCE)
         .ok_or(SubmitError::Conflict("contribution sequence limit"))?;
     if let Some(pending) = &outbox.pending {
-        if pending.id != id || pending.fingerprint != fingerprint {
+        if &pending.id != id || pending.fingerprint != fingerprint {
             return Err(SubmitError::Conflict(
                 "retry the pending contribution before submitting another",
             ));
         }
     } else {
-        let signed = Submission {
-            publication: grant.invitation.publication,
-            stream,
-            version: grant.invitation.version,
+        outbox.pending = Some(Pending::seal(
+            identity_home,
+            grant,
             sequence,
             request,
-        };
-        let seed =
-            share_publication::owner_seed(identity_home).map_err(SubmitError::Unavailable)?;
-        let signer = share_publication::signer(&seed).map_err(SubmitError::Unavailable)?;
-        let ciphertext = URL_SAFE_NO_PAD.encode(
-            crypto::seal(
-                &signed,
-                &PublicKey::from(grant.invitation.inbox_key),
-                &signer,
-                crypto::MUTATION,
-            )
-            .map_err(SubmitError::Unavailable)?,
-        );
-        outbox.pending = Some(Pending {
-            id,
             fingerprint,
-            ciphertext: Some(ciphertext),
-        });
+        )?);
         saved = Some(
             state
                 .save(&outbox, saved.as_deref().map(Vec::as_slice))

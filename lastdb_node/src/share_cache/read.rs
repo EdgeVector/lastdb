@@ -1,11 +1,14 @@
 //! Ordinary database reads from one verified cache slot.
 
 use super::ShareReader;
+use fold_db::alternate_keys::AlternateEntry;
 use fold_db::error::FoldDbError;
 use fold_db::record_value::{FileMarker, StoredRecord};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{KeyValue, Schema};
-use fold_db::storage::disk_pack::run_restore::{SnapshotRecordPage, SnapshotSchema};
+use fold_db::storage::disk_pack::run_restore::{
+    SnapshotAlternatePage, SnapshotRecordPage, SnapshotSchema,
+};
 use fold_db::storage::StorageError;
 
 impl ShareReader {
@@ -30,6 +33,18 @@ impl ShareReader {
     ) -> Result<SnapshotRecordPage, StorageError> {
         self.native
             .record_page(schema, filter, after, limit, &self.content_key)
+    }
+
+    pub(crate) fn alternate_page(
+        &self,
+        schema: &Schema,
+        name: &str,
+        filter: &HashRangeFilter,
+        after: Option<&AlternateEntry>,
+        limit: usize,
+    ) -> Result<SnapshotAlternatePage, StorageError> {
+        self.native
+            .alternate_page(schema, name, filter, after, limit, &self.content_key)
     }
 
     pub(crate) fn inline_file(

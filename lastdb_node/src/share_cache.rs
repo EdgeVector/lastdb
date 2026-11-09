@@ -5,6 +5,7 @@ mod read;
 
 use crate::byte_cloud_restore::{
     GuestReplayCache, RestoreError, RestoreSession, StagedRecord, StagedRecordQuery,
+    MANAGED_SHARE_DIRECTORY as MANAGED_DIRECTORY,
 };
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -19,22 +20,11 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub use cloud_backup_protocol::v2::publication::Head as ShareSnapshot;
 
-const MANAGED_DIRECTORY: &str = "received-shares-v1";
-
 /// A stable app-owned registry. Handles are chosen and retained by the app.
 pub struct ShareCache {
     root: PathBuf,
     recipient: ShareRecipient,
     managed: bool,
-}
-
-/// A private staging directory allocated by the node-managed recipient cache.
-pub(crate) struct ManagedShareSlot<'a>(&'a Path);
-
-impl ManagedShareSlot<'_> {
-    pub(crate) fn path(&self) -> &Path {
-        self.0
-    }
 }
 
 /// Holds one verified version until the reader is dropped.
@@ -235,7 +225,7 @@ impl ShareCache {
                 through: active.through.as_ref(),
             });
         let mut session = if self.managed {
-            RestoreSession::begin_managed_guest(&ManagedShareSlot(&path), accepted)?
+            RestoreSession::begin_managed_guest(&path, accepted)?
         } else {
             RestoreSession::begin_guest_at(&path.join("unactivated"), accepted)?
         };

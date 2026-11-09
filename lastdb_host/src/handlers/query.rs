@@ -5,6 +5,7 @@ use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use std::sync::Arc;
 
 mod alternate;
+pub use alternate::format_alternate_page;
 mod rows;
 pub(in crate::handlers) use self::rows::*;
 mod response;

@@ -3,6 +3,7 @@
 use super::*;
 use crate::db_operations::record_store::RecordStore;
 use crate::schema::types::field::HashRangeFilter;
+use crate::storage::format::records::alternate_bounds;
 
 impl RecordStore {
     pub(crate) async fn select_alternate_entries(
@@ -16,7 +17,9 @@ impl RecordStore {
         if limit > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate page exceeds 4096 entries"));
         }
-        let (mut start, end) = alternate_bounds(self, schema, name, filter)?;
+        let field_key = field_key(schema, name);
+        let codec = self.key_codec_for_field_key(&field_key)?;
+        let (mut start, end) = alternate_bounds(&codec, &field_key, filter)?;
         if let Some(after) = after {
             let cursor = storage_key(self, schema, name, &after.matched, &after.primary)?;
             if cursor < start || cursor >= end {
@@ -43,51 +46,5 @@ impl RecordStore {
             entries.push(entry);
         }
         Ok(entries)
-    }
-}
-
-fn alternate_bounds(
-    records: &RecordStore,
-    schema: &Schema,
-    name: &str,
-    filter: &HashRangeFilter,
-) -> Result<(String, String), SchemaError> {
-    let field_key = field_key(schema, name);
-    let codec = records.key_codec_for_field_key(&field_key)?;
-    let encode = |hash: &str, range: Option<&str>| {
-        range_key(
-            records,
-            schema,
-            name,
-            &KeyValue::new(Some(hash.to_string()), range.map(str::to_owned)),
-        )
-    };
-    match filter {
-        HashRangeFilter::HashRangeKey { hash, range } => {
-            let key = encode(hash, Some(range))?;
-            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&format!(
-                "{key}\0"
-            )))
-        }
-        HashRangeFilter::HashKey(hash) => {
-            let prefix = codec
-                .api_hash_range_scan_prefix_for_hash(&field_key, hash)
-                .map_err(|_| invalid("invalid alternate hash"))?;
-            let prefix = format!("{PREFIX}{prefix}");
-            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&prefix))
-        }
-        HashRangeFilter::HashRangePrefix { hash, prefix } => {
-            codec
-                .require_text_range_prefix()
-                .map_err(|_| invalid("alternate range prefix requires a text field"))?;
-            let prefix = encode(hash, Some(prefix))?;
-            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&prefix))
-        }
-        HashRangeFilter::HashRangeRange { hash, start, end } => {
-            Ok((encode(hash, Some(start))?, encode(hash, Some(end))?))
-        }
-        _ => Err(invalid(
-            "alternate reads require an exact key or a range under one hash",
-        )),
     }
 }
