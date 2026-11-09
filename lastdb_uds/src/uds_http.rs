@@ -282,18 +282,7 @@ fn read_request_with_owner_blob<R: BufRead>(
 ///   local caller on the owner control socket with no verified app identity.
 ///   Under device trust that caller is the data owner, so the context is
 ///   [`AccessContext::owner`].
-/// * [`SocketKind::App`] + [`CallerVerification::Unverified`] — a **jailed app**
-///   reaching the node over its per-app socket (fold#826). It is a scoped,
-///   **non-owner** principal and MUST NOT inherit the owner short-circuit: a
-///   read/write it drives must run under the scoped (unverified) identity so the
-///   I3c read gate / I2 write guard engage and fail closed for a governed /
-///   cross-app namespace, instead of being owner-bypassed. So the context is
-///   [`AccessContext::remote`] (`is_owner = false`) even though no app identity
-///   was code-signature verified — fail-closed pin (security-critical). Its
-///   `user_id` stays the owner's hash (apps act on the owner's data), so data
-///   attribution is unchanged; with no verified `app_id` the ACL denies it any
-///   governed namespace while leaving un-governed data on the device-trust path.
-/// * [`CallerVerification::CodeSignatureVerified`] (either socket) — a verified
+/// * [`CallerVerification::CodeSignatureVerified`] — a verified
 ///   app acting on the owner's node. It is a **non-owner** principal
 ///   ([`AccessContext::remote`], `is_owner = false`) so the I3c read gate
 ///   consults the namespace ACL against its verified `app_id` instead of
@@ -307,13 +296,9 @@ pub fn uds_access_context(
     verification: CallerVerification,
 ) -> AccessContext {
     // The caller is the data owner ONLY when an unverified same-user caller
-    // arrives on the OWNER control socket. Every other case is a non-owner
-    // principal:
-    //   * a code-signature-verified app (either socket) — gated by its app_id;
-    //   * an UNVERIFIED caller on the per-app socket — a jailed app (fold#826).
-    //     The owner short-circuit MUST NOT apply to it, so the namespace ACL /
-    //     write guard engage and fail closed for governed data instead of the
-    //     data plane running as the owner. This is the fail-closed pin.
+    // arrives on the OWNER control socket. A code-signature-verified app is a
+    // non-owner principal, gated by its app_id. The owner short-circuit MUST
+    // NOT apply to it. This is the fail-closed pin.
     let is_owner_principal =
         matches!(verification, CallerVerification::Unverified) && socket_kind == SocketKind::Owner;
     let base = if is_owner_principal {
