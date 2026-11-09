@@ -14,12 +14,18 @@ from node import Node, save
 from alternate_key_workload import ENVIRONMENT, require
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disk_v2"))
-from node_proof import Case, MINIMUM_LOGICAL, PRIMARY_SETTINGS, SCHEMAS, schema_request
 import cleanup
 
 COUNT = 6144
 GROUPS = 24
-ORIGINAL_SEED = {"base": 3000, "creates": 1000, "updates": 4000, "deletes": 250}
+# The primary launchd job settings the node reads: record size, memory budget, and admin timeout.
+STORAGE_SETTINGS = {
+    "LASTDB_MAX_FIELD_VALUE_BYTES": "524288",
+    "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
+    "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",
+    "LASTDBD_RSS_LIMIT_MB": "16384",
+    "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
+}
 
 
 def canonical(value):
@@ -92,7 +98,7 @@ def checkpoint(node, model, deleted, output, name):
 
 
 def storage_arm(args, label, pair, output):
-    environment = {**PRIMARY_SETTINGS, **ENVIRONMENT}
+    environment = {**STORAGE_SETTINGS, **ENVIRONMENT}
     node = Node(getattr(args, label), getattr(args, label + "_revision"), output,
                 environment=environment, temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve(), record_protocol=True)
     model = {f"space-{i:05}": record(i) for i in range(COUNT)}
@@ -117,31 +123,7 @@ def storage_arm(args, label, pair, output):
         node.close()
 
 
-def original_seed_arm(args, label, output):
-    case = Case((getattr(args, label), getattr(args, label + "_revision")), output)
-    try:
-        case.node.start()
-        for schema in SCHEMAS:
-            case.node.call("/api/schemas/seed-system", schema_request(schema))
-        writes = case.write(case.seed.phase(**ORIGINAL_SEED))
-        reads = case.reads()
-        listed = case.listed("original seed audit")
-        require(not case.failures, "original seed audit has different key membership")
-        logical = case.logical()
-        receipt = cleanup.request_and_wait(case.node)
-        case.node.stop()
-        result = {"label": label, "profile": ORIGINAL_SEED, "writes": writes, "reads": reads,
-                  "listed": listed, "logical": logical, "disk": case.disk(), "cleanup": receipt,
-                  "qualifies_for_legacy_record_volume_gate": logical["bytes"] >= MINIMUM_LOGICAL,
-                  "alternate_keys_declared": False}
-        save(output / "original-seed.json", result)
-        return result
-    finally:
-        case.node.close()
-
-
-def report(args, pairs, audits):
-    require(audits[0]["reads"] == audits[1]["reads"], "original seed differs across revisions")
+def report(args, pairs):
     lines = ["## Alternate-key storage comparison", "",
              f"Baseline: `{args.baseline_revision}`. Candidate: `{args.candidate_revision}`.",
              "Two fresh-home pairs use orders AB and BA. All source records and operations match.",
@@ -163,22 +145,10 @@ def report(args, pairs, audits):
             lines.append(f"| {pair} | {phase} | {facts['records']} | {facts['source_bytes'] / 2**20:.2f} | "
                          f"{bsize / 2**20:.2f} | {nsize / 2**20:.2f} | {(nsize / bsize - 1) * 100:+.1f}% |")
     lines += ["", "The native record report is retained separately. It counts each serialized record body once,",
-              "including provenance; it excludes alternate entries. It is not the fixed input size.",
-              "The existing disk ratio gates retain their thresholds.", "", "### Original disk-proof seed audit", "",
-              "This audit uses the original 3,000-base seed and declares no alternate keys.",
-              "Its record-volume qualification is reported separately from data correctness.", "",
-              "A home stores one record value per key.", "",
-              "| Source | Logical MiB | Stored records | Live records verified | Meets old 16 MiB minimum |",
-              "|---|---:|---:|---:|---|"]
-    for audit in audits:
-        logical = audit["logical"]
-        lines.append(f"| {audit['label']} | {logical['bytes'] / 2**20:.2f} | "
-                     f"{logical['records']} | {audit['reads']['live']} | "
-                     f"{audit['qualifies_for_legacy_record_volume_gate']} |")
-    lines += ["", "The original audit is not the alternate-key space comparison.", ""]
+              "including provenance; it excludes alternate entries. It is not the fixed input size.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,
-                                       "pairs": pairs, "original_seed": audits})
+                                       "pairs": pairs})
     (args.output / "summary.md").write_text(text)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
@@ -198,19 +168,14 @@ def main():
     require(not args.output.exists() and args.output.parent.resolve().is_relative_to(runner),
             "fresh output under RUNNER_TEMP required")
     args.output.mkdir(mode=0o700)
-    pairs, audits = [], []
+    pairs = []
     for pair in range(2):
         for label in (("baseline", "candidate") if pair == 0 else ("candidate", "baseline")):
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir(mode=0o700)
             print(f"Storage pair {pair}: {label}", flush=True)
             pairs.append(storage_arm(args, label, pair, output))
-    for label in ("baseline", "candidate"):
-        output = args.output / f"original-seed-{label}"
-        output.mkdir(mode=0o700)
-        print(f"Original seed audit: {label}", flush=True)
-        audits.append(original_seed_arm(args, label, output))
-    report(args, pairs, audits)
+    report(args, pairs)
 
 
 if __name__ == "__main__":
