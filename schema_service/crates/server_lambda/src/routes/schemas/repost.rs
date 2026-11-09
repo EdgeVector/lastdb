@@ -16,9 +16,8 @@ pub(super) async fn idempotent_repost_response(
         Ok(None) => return None,
         Err((status, body)) => return Some(json_response(status, &body)),
     };
-    let system = state.is_system_schema(&existing.name);
     Some(json_response(
         200,
-        &super::schema_add_body(&existing, mutation_mappers, None, system),
+        &super::schema_add_body(&existing, mutation_mappers, None, false),
     ))
 }

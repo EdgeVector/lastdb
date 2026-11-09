@@ -18,9 +18,6 @@ impl SchemaServiceState {
         let Some(fields) = schema.fields.as_ref().filter(|fields| !fields.is_empty()) else {
             return Ok(None);
         };
-        if let Some(template_cover) = self.try_starter_template_cover_registration(schema)? {
-            return Ok(Some(template_cover));
-        }
         let proposal = SchemaResolveProposal {
             descriptive_name: schema
                 .descriptive_name
@@ -67,103 +64,6 @@ impl SchemaServiceState {
             .collect::<HashMap<_, _>>();
 
         Ok(registration_composition_from_output(output, &field_by_id))
-    }
-
-    pub(super) fn try_starter_template_cover_registration(
-        &self,
-        schema: &Schema,
-    ) -> FoldDbResult<Option<SchemaRegistrationComposition>> {
-        let Some(proposal_fields) = schema.fields.as_ref().filter(|fields| !fields.is_empty())
-        else {
-            return Ok(None);
-        };
-
-        let schemas = read_lock(&self.schemas, "schemas_cache")?;
-        let mut best: Option<TemplateCoverCandidate> = None;
-
-        for (identity, template) in schemas.iter() {
-            if template.superseded_by.is_some() || !is_app_starter_template(template) {
-                continue;
-            }
-            let template_fields = template.fields.clone().unwrap_or_default();
-            if template_fields.is_empty() {
-                continue;
-            }
-
-            let mut covered = Vec::new();
-            for field in proposal_fields {
-                if template_fields
-                    .iter()
-                    .any(|template_field| template_field == field)
-                {
-                    covered.push(field.clone());
-                }
-            }
-
-            let coverage = covered.len() as f32 / proposal_fields.len() as f32;
-            if coverage < STARTER_TEMPLATE_COVER_MIN_FIELDS {
-                continue;
-            }
-
-            let schema_id = template
-                .identity_hash
-                .clone()
-                .unwrap_or_else(|| identity.clone());
-            let candidate = TemplateCoverCandidate {
-                schema_id,
-                covered,
-                coverage,
-                template_field_count: template_fields.len(),
-            };
-            if best
-                .as_ref()
-                .is_none_or(|current| candidate.better_than(current))
-            {
-                best = Some(candidate);
-            }
-        }
-
-        let Some(best) = best else {
-            return Ok(None);
-        };
-
-        let covered_set: HashSet<String> = best.covered.iter().cloned().collect();
-        let residue_fields = proposal_fields
-            .iter()
-            .filter(|field| !covered_set.contains(*field))
-            .cloned()
-            .collect::<Vec<_>>();
-        let covered_count = covered_set.len();
-        let covered_components = best
-            .covered
-            .into_iter()
-            .map(|field| SchemaRegistrationComponent {
-                field,
-                shared_schema_hash: best.schema_id.clone(),
-                confidence: best.coverage,
-            })
-            .collect::<Vec<_>>();
-
-        tracing::info!(
-            target: "schema_service::schema",
-            template_schema = %best.schema_id,
-            field_coverage = best.coverage,
-            residue_fields = residue_fields.len(),
-            "starter_template_match: covered proposal through templates owner namespace"
-        );
-
-        Ok(Some(SchemaRegistrationComposition {
-            matched_shared_schema_hash: None,
-            covered_components,
-            residue_fields,
-            field_coverage: FieldCoverageEvidence {
-                covered_fields: covered_count as u32,
-                total_fields: proposal_fields.len() as u32,
-                required_fields_covered: covered_count as u32,
-                required_fields_total: proposal_fields.len() as u32,
-            },
-            confidence: Some(best.coverage),
-        }))
     }
 
     /// Build the residual schema that should be minted for a partial component

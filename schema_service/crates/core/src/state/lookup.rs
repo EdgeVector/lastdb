@@ -157,17 +157,16 @@ impl SchemaServiceState {
 
     /// The same call as [`Self::lookup_schema_by_name`], classified for HTTP.
     ///
-    /// `Ready` carries the envelope. `system` follows [`Self::is_system_schema`]
-    /// for the stored schema name. An empty lookup stays HTTP 404. Any other
-    /// error stays HTTP 500. The lookup method stays public. Each router still
-    /// writes its response.
+    /// `Ready` carries the envelope. `system` is `false`. An empty lookup
+    /// stays HTTP 404. Any other error stays HTTP 500. The lookup method
+    /// stays public. Each router still writes its response.
     #[must_use]
     pub async fn schema_by_name_reply(&self, name: &str) -> SchemaByNameReply {
         match self.lookup_schema_by_name(name).await {
-            Ok(Some(schema)) => {
-                let system = self.is_system_schema(&schema.name);
-                SchemaByNameReply::Ready(Box::new(SchemaEnvelope { schema, system }))
-            }
+            Ok(Some(schema)) => SchemaByNameReply::Ready(Box::new(SchemaEnvelope {
+                schema,
+                system: false,
+            })),
             Ok(None) => SchemaByNameReply::Missing {
                 body: crate::error_only_body("Schema not found"),
             },

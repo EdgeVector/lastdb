@@ -15,12 +15,6 @@ impl SchemaServiceState {
     /// collections out of sync — the dev binary tolerates this because the
     /// remedy is a restart, which starts again from the seeds.
     /// Production never imports.
-    ///
-    /// **`system_schema_hashes` is not modified.** It was populated by
-    /// `seed_builtins()` at boot and reflects which identity hashes the
-    /// local binary classifies as system. The snapshot has no opinion on
-    /// system-vs-user classification (it's a per-binary policy), so
-    /// import leaves the set as-is.
     pub fn import_snapshot(
         &self,
         envelope: SnapshotEnvelope,

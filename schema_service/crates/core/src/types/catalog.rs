@@ -7,21 +7,16 @@ pub struct SchemasListResponse {
     pub schemas: Vec<String>,
 }
 
-/// A schema plus its system/user classification, as returned over
-/// `/v1/*` endpoints that surface schema definitions.
+/// A schema plus a `system` flag, as returned over `/v1/*` endpoints
+/// that surface schema definitions.
 ///
-/// `system = true` marks infrastructure schemas that the schema
-/// service ships with itself (`Fingerprint`, `Edge`, `Identity`,
-/// `Persona`, …). Everything a client has proposed is
-/// `system = false`. UIs (notably fold_db_node's schema list) use
-/// the flag to group or hide the built-ins so users only see their
-/// own data-bearing schemas by default.
+/// `system` is always `false`. The service does not ship a built-in
+/// schema seed. The flag stays on the wire because clients deserialize
+/// it as a required bool.
 ///
 /// Serialized with `#[serde(flatten)]` on `schema`, so the JSON
 /// layout is the Schema's own fields plus a top-level `system`
-/// boolean — existing clients that deserialize into `Schema` keep
-/// working (they just ignore `system`), and new clients read the
-/// flag without another HTTP round-trip.
+/// boolean.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaEnvelope {
     #[serde(flatten)]

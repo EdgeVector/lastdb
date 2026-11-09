@@ -10,14 +10,13 @@ pub(super) use std::time::{Duration, Instant};
 
 use schema_core_resolver::{
     evaluate_native, resolve as resolve_native, ComponentResolution, EmbeddingVectorRecord,
-    FieldCoverageEvidence, NativeResolverInput, ProposalEmbeddings, ProposalFieldMetadata,
-    ProposalMetadata, RegistryCanonicalFieldHandle, RegistryEmbeddings, RegistryFieldHandle,
-    RegistryMetadata, RegistrySchemaHandle, ResolveVerdict, ResolverConfig, ResolverDecision,
+    NativeResolverInput, ProposalEmbeddings, ProposalFieldMetadata, ProposalMetadata,
+    RegistryCanonicalFieldHandle, RegistryEmbeddings, RegistryFieldHandle, RegistryMetadata,
+    RegistrySchemaHandle, ResolveVerdict, ResolverConfig, ResolverDecision,
     SCHEMA_RESOLVER_ABI_VERSION,
 };
 use schema_types::{FoldDbResult, Schema};
 
-use super::builtin_schemas::is_app_starter_template;
 use super::lock_helpers::read_lock;
 use super::state::SchemaServiceState;
 use super::types::{
@@ -26,7 +25,6 @@ use super::types::{
 };
 
 const REGISTRATION_COMPONENT_COVER_MIN_FIELDS: f32 = 0.90;
-const STARTER_TEMPLATE_COVER_MIN_FIELDS: f32 = 0.60;
 
 /// Field-context text aligned with pack publisher / local Mini resolver.
 pub fn field_context_text(
@@ -54,25 +52,6 @@ pub(super) struct BuiltNativeInput {
 pub(super) struct MemoStats {
     hits: usize,
     misses: usize,
-}
-
-pub(super) struct TemplateCoverCandidate {
-    schema_id: String,
-    covered: Vec<String>,
-    coverage: f32,
-    template_field_count: usize,
-}
-
-impl TemplateCoverCandidate {
-    fn better_than(&self, other: &Self) -> bool {
-        self.coverage
-            .partial_cmp(&other.coverage)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| self.covered.len().cmp(&other.covered.len()))
-            .then_with(|| other.template_field_count.cmp(&self.template_field_count))
-            .then_with(|| other.schema_id.cmp(&self.schema_id))
-            .is_gt()
-    }
 }
 
 pub(super) fn registration_components_from_resolutions(

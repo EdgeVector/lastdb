@@ -174,29 +174,6 @@ pub struct SchemaServiceState {
     /// next check tries again. The memo is per state, with the embedder.
     pub(crate) anti_field_embedding_cache: Arc<RwLock<Option<Vec<Vec<f32>>>>>,
     pub storage: SchemaStorage,
-    /// Identity hashes of schemas classified as system/infrastructure
-    /// (the Phase 1 fingerprint built-ins: Fingerprint, Edge, Identity,
-    /// Persona, IdentityReceipt, Mention, etc.). Populated by
-    /// `builtin_schemas::seed()` at startup. Everything else — i.e.
-    /// user-proposed schemas — is treated as `system = false`.
-    ///
-    /// Rebuilt on every boot because `seed()` is idempotent and
-    /// re-runs on every Lambda cold start / actix binary start, so
-    /// the set doesn't need to be persisted.
-    pub system_schema_hashes: Arc<RwLock<HashSet<String>>>,
-    /// True while an authoritative seeder (`builtin_schemas::seed`) is loading
-    /// its committed schemas at startup. Gates OFF the fuzzy
-    /// **reuse-before-NEW** path ([`crate::state_matching::SchemaServiceState::find_purpose_reuse_target`])
-    /// so an authoritative schema can never be silently expanded into a
-    /// semantically-near committed seed/built-in — which would both break the
-    /// `builtin_schemas::seed` "built-ins never expand" startup invariant and
-    /// corrupt the deterministic seed registry that federation depends on.
-    /// Reuse-before-NEW is a USER-data dedup feature; seeding is authoritative.
-    /// Sequential at startup, so a plain atomic is sufficient (no lock).
-    /// `Arc`-wrapped so a cloned `SchemaServiceState` (the type is `Clone`)
-    /// shares the same flag — the seeders flip it on one handle while
-    /// `add_schema` reads it on another.
-    pub seeding_in_progress: Arc<std::sync::atomic::AtomicBool>,
     /// Pre-computed embeddings for reference collection names (anchor set).
     /// Used to validate that incoming descriptive_names are proper collection names
     /// rather than AI-generated captions/descriptions.

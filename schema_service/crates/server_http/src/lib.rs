@@ -221,7 +221,7 @@ pub struct SchemaServiceServer {
 
 impl SchemaServiceServer {
     /// Construct a server backed by the in-memory registry (nothing
-    /// survives a restart). Does NOT seed built-in schemas — see
+    /// survives a restart). Does not seed canonical fields — see
     /// `new_with_builtins` for the production constructor.
     fn new(bind_address: &str, runtime: Arc<dyn BlockingRuntime>) -> FoldDbResult<Self> {
         let embedder = default_embedder();
@@ -241,8 +241,7 @@ impl SchemaServiceServer {
         })
     }
 
-    /// Construct a server, seed Phase 1 SystemSeed fingerprint schemas,
-    /// and seed the Schema.org StarterSeed canonical fields + schemas.
+    /// Construct a server and seed the curated canonical fields.
     /// Idempotent.
     pub async fn new_with_builtins(
         bind_address: &str,
@@ -253,20 +252,17 @@ impl SchemaServiceServer {
         Ok(server)
     }
 
-    /// Seed every pool the service ships with:
-    ///   * curated canonical fields (`builtin_canonical_fields`)
-    ///   * built-in schemas (`builtin_schemas`; the boot list is empty)
+    /// Seed the curated canonical fields (`builtin_canonical_fields`).
     ///
     /// Schema.org types and Schema.org property rows are **not** seeded
     /// (`preference-schema-org-not-live-language`).
     ///
-    /// Ordering matters — canonical fields go in before any schema load so
-    /// the schema-add path's per-field canonical lookup hits cached entries
-    /// instead of the Anthropic classifier.
+    /// Canonical fields go in before any schema load so the schema-add
+    /// path's per-field canonical lookup hits cached entries instead of
+    /// the Anthropic classifier.
     async fn seed_builtins(&self) -> FoldDbResult<()> {
         let state = self.state.as_ref();
         schema_service_core::builtin_canonical_fields::seed(state).await?;
-        schema_service_core::builtin_schemas::seed(state).await?;
         Ok(())
     }
 

@@ -69,12 +69,11 @@ async fn idempotent_repost_response(
         Ok(None) => return None,
         Err((status, body)) => return Some(json_status(status, body)),
     };
-    let system = state.is_system_schema(&existing.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
         schema: existing,
         mutation_mappers: request.mutation_mappers.clone(),
         replaced_schema: None,
-        system,
+        system: false,
         composed: false,
         composition: None,
     }))
@@ -247,19 +246,17 @@ pub async fn add_schema(
 
 /// Build the success body shared by every non-conflict add-schema outcome.
 fn add_schema_success_response(
-    state: &SchemaServiceState,
     created: bool,
     (schema, mutation_mappers): (Schema, std::collections::HashMap<String, String>),
     replaced_schema: Option<String>,
     composed: bool,
     composition: Option<SchemaRegistrationComposition>,
 ) -> HttpResponse {
-    let system = state.is_system_schema(&schema.name);
     let body = AddSchemaResponse {
         schema,
         mutation_mappers,
         replaced_schema,
-        system,
+        system: false,
         composed,
         composition,
     };
@@ -301,7 +298,6 @@ fn add_schema_outcome_response(
                     "created_new"
                 });
                 add_schema_success_response(
-                    state,
                     true,
                     (schema, mutation_mappers),
                     None,
@@ -312,7 +308,6 @@ fn add_schema_outcome_response(
             SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
                 record("matched_existing");
                 add_schema_success_response(
-                    state,
                     false,
                     (schema, mutation_mappers),
                     None,
@@ -323,7 +318,6 @@ fn add_schema_outcome_response(
             SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
                 record("expanded_existing");
                 add_schema_success_response(
-                    state,
                     true,
                     (schema, mutation_mappers),
                     Some(old_name),

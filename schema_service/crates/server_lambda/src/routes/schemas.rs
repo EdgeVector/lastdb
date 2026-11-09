@@ -56,7 +56,7 @@ pub(crate) fn get_schemas_available(
                 .into_iter()
                 .filter(|schema| source.keeps(schema))
                 .map(|schema| SchemaEnvelope {
-                    system: state.is_system_schema(&schema.name),
+                    system: false,
                     schema,
                 })
                 .collect();
@@ -250,27 +250,18 @@ async fn add_schema_response(
     {
         Err((status, body, _)) => json_response(status, &body),
         Ok(outcome) => match *outcome {
-            SchemaAddOutcome::Added(schema, mutation_mappers) => {
-                let system = state.is_system_schema(&schema.name);
-                json_response(
-                    201,
-                    &schema_add_body(&schema, &mutation_mappers, None, system),
-                )
-            }
-            SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
-                let system = state.is_system_schema(&schema.name);
-                json_response(
-                    200,
-                    &schema_add_body(&schema, &mutation_mappers, None, system),
-                )
-            }
-            SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
-                let system = state.is_system_schema(&schema.name);
-                json_response(
-                    201,
-                    &schema_add_body(&schema, &mutation_mappers, Some(old_name.as_str()), system),
-                )
-            }
+            SchemaAddOutcome::Added(schema, mutation_mappers) => json_response(
+                201,
+                &schema_add_body(&schema, &mutation_mappers, None, false),
+            ),
+            SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => json_response(
+                200,
+                &schema_add_body(&schema, &mutation_mappers, None, false),
+            ),
+            SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => json_response(
+                201,
+                &schema_add_body(&schema, &mutation_mappers, Some(old_name.as_str()), false),
+            ),
             SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
                 tracing::warn!(
                     descriptive_name = %conflict.descriptive_name,

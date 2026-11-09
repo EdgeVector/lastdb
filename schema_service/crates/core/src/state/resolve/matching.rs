@@ -190,12 +190,11 @@ impl SchemaServiceState {
             .cloned()
             .collect();
         let is_superset = unmapped_fields.is_empty();
-        let system = self.is_system_schema(&active_schema.name);
 
         SchemaReuseMatch {
             schema: SchemaEnvelope {
                 schema: active_schema,
-                system,
+                system: false,
             },
             matched_descriptive_name,
             is_exact_match,

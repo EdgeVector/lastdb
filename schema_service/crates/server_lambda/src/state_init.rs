@@ -107,15 +107,14 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
 }
 
 /// Apply the env-driven gates to a freshly loaded state, then seed the
-/// service-owned canonical fields and built-in schemas.
+/// service-owned canonical fields.
 async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
     // App identity and the mutation gate were loaded once in
     // `SchemaConfig::from_env` before state construction. With no trusted
     // roots, new app, schema, and field registrations fail closed.
 
-    // Seed the curated canonical field registry BEFORE seeding
-    // schemas, so that schema field classification hits the
-    // pre-populated entries on the first pass and skips the
+    // Seed the curated canonical field registry before any schema load so
+    // field classification hits the pre-populated entries and skips the
     // Anthropic LLM round-trip per field.
     schema_service_core::builtin_canonical_fields::seed(state)
         .await
@@ -125,16 +124,7 @@ async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
             ))
         })?;
 
-    // Seed service-owned built-in schemas. Idempotent:
-    // already-present schemas are skipped by identity_hash match.
-    schema_service_server_shared::builtin_schemas::seed(state)
-        .await
-        .map_err(|e| Error::from(format!("Failed to seed built-in schemas: {e}.")))?;
-
-    tracing::info!(
-        "Schema service initialized and built-ins seeded ({} descriptive names)",
-        schema_service_server_shared::builtin_schemas::PHASE_1_DESCRIPTIVE_NAMES.len()
-    );
+    tracing::info!("Schema service initialized and canonical fields seeded");
     Ok(())
 }
 

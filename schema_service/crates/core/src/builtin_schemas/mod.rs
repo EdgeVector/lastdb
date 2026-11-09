@@ -1,14 +1,8 @@
-//! Boot seed for built-in schemas.
+//! Built-in schema classification.
 //!
-//! Cold start does not install starter templates. Canonical field seed is
-//! separate and still runs.
-//!
-//! `seed(&state)` still walks `all_phase_1_schemas()`. That list is empty,
-//! so boot adds nothing. An identity that is already stored stays stored.
-
-mod seed;
-
-pub use seed::seed;
+//! Cold start does not install schemas. Canonical field seed is separate
+//! and still runs. Starter-template identity stays so Schema.org leftovers
+//! stay out of the default available list.
 
 use schema_types::Schema;
 use schema_types::SchemaSource;
@@ -68,15 +62,3 @@ impl AvailableSource {
         }
     }
 }
-
-// ────────────────────────────────────────────────────────────────────
-//  Registration order
-// ────────────────────────────────────────────────────────────────────
-
-/// Schemas installed at boot. Empty: cold start adds no schema.
-pub fn all_phase_1_schemas() -> Vec<Schema> {
-    Vec::new()
-}
-
-/// Descriptive names of schemas installed at boot. Empty.
-pub const PHASE_1_DESCRIPTIVE_NAMES: &[&str] = &[];

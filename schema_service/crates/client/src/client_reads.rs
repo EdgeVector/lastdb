@@ -40,12 +40,8 @@ impl SchemaServiceClient {
 
     /// Get all available schemas with their full definitions from the schema service.
     ///
-    /// Each returned envelope carries a `system: bool` flag —
-    /// `true` for infrastructure schemas seeded by the service
-    /// (`Fingerprint`, `Edge`, `Identity`, `Persona`, …),
-    /// `false` for everything user-proposed. Downstream UIs
-    /// (fold_db_node's schema list) use the flag to group or hide
-    /// system schemas.
+    /// Each returned envelope carries a `system: bool` flag. The
+    /// service always sets that flag to `false`.
     pub async fn get_available_schemas(&self) -> FoldDbResult<Vec<SchemaEnvelope>> {
         #[derive(Deserialize)]
         struct AvailableSchemasResponse {
