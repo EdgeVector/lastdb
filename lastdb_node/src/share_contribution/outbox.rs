@@ -83,7 +83,8 @@ pub async fn submit(
             sequence,
             request,
         };
-        let signer = share_publication::signer(&share_publication::owner_seed(identity_home)?)?;
+        let seed = share_publication::owner_seed(identity_home)?;
+        let signer = share_publication::signer(&seed)?;
         let ciphertext = URL_SAFE_NO_PAD.encode(crypto::seal(
             &signed,
             &PublicKey::from(invitation.inbox_key),

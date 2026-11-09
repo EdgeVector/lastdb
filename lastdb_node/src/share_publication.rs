@@ -76,9 +76,12 @@ pub fn prepare_automatic(home: &Path, owner_home: &Path) -> Result<AutomaticPubl
     identity.client(owner_home)?;
     crate::byte_cloud_backup::automatic_publication::preflight(home).map_err(|e| e.to_string())?;
     let environment = identity.environment;
-    let inbox = (identity.write_mode == WriteMode::PublisherValidated)
-        .then(|| crate::share_contribution::inbox_key(&owner_seed(owner_home)?, &identity.id))
-        .transpose()?;
+    let inbox = if identity.write_mode == WriteMode::PublisherValidated {
+        let owner = owner_seed(owner_home)?;
+        Some(crate::share_contribution::inbox_key(&owner, &identity.id)?)
+    } else {
+        None
+    };
     Ok(AutomaticPublication {
         home: home.to_owned(),
         owner_home: owner_home.to_owned(),

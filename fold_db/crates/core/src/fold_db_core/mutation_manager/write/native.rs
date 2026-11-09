@@ -67,7 +67,7 @@ impl MutationManager {
                 if replay {
                     return Ok(NativeCommit {
                         mutation_ids: vec![mutations[0].uuid.clone()],
-                        record_revisions: Default::default(),
+                        record_revisions: std::collections::BTreeMap::new(),
                         operations: ResidentCommitOperations::default(),
                     });
                 }

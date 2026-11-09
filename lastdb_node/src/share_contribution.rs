@@ -171,7 +171,8 @@ fn seal_grant(
     contact: &ShareContact,
     grant: &Grant,
 ) -> Result<Vec<u8>, String> {
-    let inbox = inbox_key(&share_publication::owner_seed(owner_home)?, &identity.id)?;
+    let owner = share_publication::owner_seed(owner_home)?;
+    let inbox = inbox_key(&owner, &identity.id)?;
     let permission = GuestAppendPermission::sign(
         grant.stream.clone(),
         identity.environment,
@@ -217,7 +218,8 @@ pub fn revoke(
         .ok_or("contributor version limit")?;
     grant.operation = None;
     grant.rules.clear();
-    state.save(&policy, saved.as_deref().map(Vec::as_slice))
+    state.save(&policy, saved.as_deref().map(Vec::as_slice))?;
+    Ok(())
 }
 
 fn require_validated(identity: &PublicationIdentity) -> Result<(), String> {
@@ -236,7 +238,8 @@ fn inbox_id(publication: &Id, writer: &Digest) -> Result<Id, String> {
     let hash = Sha256::digest(encoded);
     let mut id = [0; 16];
     id.copy_from_slice(&hash[..16]);
-    Id::try_from(uuid::Uuid::from_bytes(id).to_string()).map_err(|_| "invalid inbox ID".into())
+    Id::try_from(uuid::Builder::from_random_bytes(id).into_uuid().to_string())
+        .map_err(|_| "invalid inbox ID".into())
 }
 
 async fn public_stream(

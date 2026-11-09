@@ -105,7 +105,8 @@ impl Metadata {
         receipt_id: &[u8; 32],
         intent_digest: &[u8; 32],
     ) -> Result<bool, SchemaError> {
-        self.require_scope().map_err(contribution_storage_error)?;
+        self.require_scope()
+            .map_err(|error| contribution_storage_error(&error))?;
         let key = format!(
             "share-contribution-receipt:{}",
             lastdb_model::hex::hex_lower(receipt_id)
@@ -114,7 +115,7 @@ impl Metadata {
             .metadata_store
             .get(key.as_bytes())
             .await
-            .map_err(contribution_storage_error)?;
+            .map_err(|error| contribution_storage_error(&error))?;
         if let Some(saved) = saved {
             if saved.as_slice() == intent_digest {
                 return Ok(true);
@@ -126,7 +127,7 @@ impl Metadata {
             bytes: intent_digest.to_vec(),
         })
         .await
-        .map_err(contribution_storage_error)?;
+        .map_err(|error| contribution_storage_error(&error))?;
         Ok(false)
     }
 
@@ -198,7 +199,7 @@ impl Metadata {
     }
 }
 
-fn contribution_storage_error(error: StorageError) -> SchemaError {
+fn contribution_storage_error(error: &StorageError) -> SchemaError {
     SchemaError::StorageRead {
         detail: error.to_string(),
     }
