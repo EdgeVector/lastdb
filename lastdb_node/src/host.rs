@@ -80,6 +80,8 @@ pub struct Host {
     /// append a newer row there
     /// (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     pub own_boot_identity: OnceLock<crate::session_ledger::SessionRecord>,
+    /// Mutation ids for owner-socket writes. The daemon passes this into [`Self::boot`].
+    ids: Arc<dyn lastdb_host::IdGen>,
 }
 
 /// Derive the canonical user hash from a base64 Ed25519 public key. Canonical
@@ -88,6 +90,8 @@ pub struct Host {
 pub use lastdb_identity::{load_or_generate_seed_with_meta, user_hash_from_pubkey};
 
 mod boot;
+mod ids;
+pub use ids::SystemIds;
 
 impl Host {
     /// True while a node task can still write after the sampler stops.
@@ -95,7 +99,8 @@ impl Host {
         self.self_metrics.background_writes_in_flight()
     }
     /// Boot the minimal host under `home` (the node-home directory; data
-    /// lives at `<home>/data`).
+    /// lives at `<home>/data`). `ids` assigns mutation ids. The handler asks
+    /// this generator and does not mint them.
     ///
     /// **Decrypt-failure contract** (incident-lastdbd-0226-wrong-key-fresh-db):
     /// if the data dir already holds an initialized store and decryption fails,
@@ -103,7 +108,7 @@ impl Host {
     /// untouched. It never falls back to serving a fresh empty DB over existing
     /// data, and never uses cloud bootstrap as a heal for a local decrypt
     /// failure.
-    pub async fn boot(home: &Path) -> Result<Self, String> {
+    pub async fn boot(home: &Path, ids: Arc<dyn lastdb_host::IdGen>) -> Result<Self, String> {
         let data_path = Self::prepare_boot_home(home)?;
         let search_outbox_inbox =
             fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
@@ -159,6 +164,7 @@ impl Host {
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
             own_boot_identity: OnceLock::new(),
+            ids,
         })
     }
 
@@ -180,10 +186,10 @@ impl Host {
 
 /// The minimal daemon drives the SAME shared owner-socket handlers
 /// (`lastdb_host::handlers`) the full node does. Its [`HostNode`] surface is the
-/// core DB + identity plus the QoS admission gate that keeps bulk blob traffic
-/// (lastgit pack clone+push) from starving interactive fbrain/fkanban traffic:
-/// [`acquire_op_permit`](HostNode::acquire_op_permit) admits through
-/// [`Host::qos`].
+/// core DB, identity, the injected id generator, and the QoS admission gate that
+/// keeps bulk blob traffic (lastgit pack clone+push) from starving interactive
+/// fbrain/fkanban traffic: [`acquire_op_permit`](HostNode::acquire_op_permit)
+/// admits through [`Host::qos`].
 #[async_trait::async_trait]
 impl lastdb_host::HostNode for Host {
     type OpPermit = lastdb_host::QosPermit;
@@ -194,6 +200,10 @@ impl lastdb_host::HostNode for Host {
 
     fn public_key(&self) -> String {
         self.keypair.public_key_base64()
+    }
+
+    fn ids(&self) -> &dyn lastdb_host::IdGen {
+        self.ids.as_ref()
     }
 
     async fn acquire_op_permit(

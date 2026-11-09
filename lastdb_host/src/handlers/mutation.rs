@@ -18,6 +18,7 @@ use fold_db::schema::types::{FileWrite, KeyValue, Mutation, MutationType, Schema
 use serde_json::Value;
 
 use crate::host_node::HostNode;
+use crate::ids::IdGen;
 use crate::qos::Lane;
 use crate::HostError;
 
@@ -78,14 +79,14 @@ pub struct MutationComponents {
 }
 
 impl MutationComponents {
-    fn into_mutation(self, canonical: String, public_key: String) -> Mutation {
+    fn into_mutation(self, canonical: String, public_key: String, ids: &dyn IdGen) -> Mutation {
         let target = fold_db::record_replacement::RecordTarget {
             schema: canonical,
             key: self.key_value,
             alternates: self.alternates,
         };
         let mut mutation = Mutation::new(
-            uuid::Uuid::new_v4().to_string(),
+            ids.fresh_uuid_v4().to_string(),
             target,
             self.record_fields,
             public_key,
@@ -237,7 +238,7 @@ async fn commit_mutation<H: HostNode>(
     canonical: String,
     payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
-    let mutations = vec![components.into_mutation(canonical, host.public_key())];
+    let mutations = vec![components.into_mutation(canonical, host.public_key(), host.ids())];
     let admission_started = std::time::Instant::now();
     let permit = host
         .acquire_op_permit(Lane::for_write_bytes(payload_bytes))

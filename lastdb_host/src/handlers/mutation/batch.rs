@@ -49,7 +49,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
 
         payload_bytes =
             payload_bytes.saturating_add(fields_payload_bytes(&components.record_fields));
-        mutations.push(components.into_mutation(canonical, host.public_key()));
+        mutations.push(components.into_mutation(canonical, host.public_key(), host.ids()));
     }
 
     let count = mutations.len();
