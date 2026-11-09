@@ -377,8 +377,6 @@ schema_core_resolver = { path = "schema_service/crates/schema_core_resolver" }
 schema_types = { path = "schema_service/crates/schema_types" }
 schema_service_core = { path = "schema_service/crates/core" }
 schema_service_client = { path = "schema_service/crates/client" }
-schema_service_server_shared = { path = "schema_service/crates/server_shared" }
-schema_service_s3 = { path = "schema_service/crates/schema_service_s3" }
 app_identity_crypto = { path = "app_identity_crypto" }
 folddb_profile = { path = "folddb_profile" }
 env_flag = { path = "env_flag" }
@@ -446,7 +444,9 @@ thiserror = "1"
 # omits `default-features = false` turns the old connector back on for the
 # whole resolve. Use `workspace = true` for these crates.
 #
-# Keep aws-sdk-s3, aws-sdk-dynamodb, aws-sdk-sqs, and aws-config on one smithy release.
+# Keep aws-sdk-s3, aws-sdk-dynamodb, and aws-sdk-sqs on one smithy release.
+# aws-config has no workspace key. schema_service/crates/server_lambda/Cargo.toml
+# declares it directly, and Cargo.lock keeps it on the same smithy release.
 # They publish together; updating one crate's lock entry without the others
 # duplicates aws-smithy-http, aws-smithy-json, and the HTTP stack under them.
 # `http-1x` selects the http 1 types. `http-02x` is the optional http 0.2
@@ -477,7 +477,6 @@ aws-sdk-sqs = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
 async-trait = "0.1"
 sha2 = "0.10"
 blake3 = "1"
