@@ -12,10 +12,15 @@ const MAX_BYTES: u64 = 16 * 1024;
 pub(crate) struct Directory {
     path: PathBuf,
     file: File,
+    max_bytes: u64,
 }
 
 impl Directory {
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_with_limit(path, MAX_BYTES)
+    }
+
+    pub(crate) fn open_with_limit(path: &Path, max_bytes: u64) -> Result<Self> {
         if !path.is_absolute()
             || path
                 .components()
@@ -40,6 +45,7 @@ impl Directory {
         Ok(Self {
             path: path.to_owned(),
             file,
+            max_bytes,
         })
     }
 
@@ -63,7 +69,7 @@ impl Directory {
         )
         .map_err(std::io::Error::from)?;
         let file = File::from(descriptor);
-        private(&file.metadata()?)?;
+        private(&file.metadata()?, MAX_BYTES)?;
         Ok(file)
     }
 
@@ -91,9 +97,11 @@ impl Directory {
         };
         let mut file = File::from(descriptor);
         let before = file.metadata()?;
-        private(&before)?;
+        private(&before, self.max_bytes)?;
         let mut bytes = Zeroizing::new(Vec::new());
-        (&mut file).take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+        (&mut file)
+            .take(self.max_bytes.saturating_add(1))
+            .read_to_end(&mut bytes)?;
         let after = file.metadata()?;
         let current = File::from(
             fs::openat(
@@ -117,7 +125,7 @@ impl Directory {
     /// read: `None` requires that `name` is still absent; any other current
     /// content refuses.
     pub fn publish(&self, name: &str, expected: Option<&[u8]>, bytes: &[u8]) -> Result<()> {
-        if bytes.len() as u64 > MAX_BYTES {
+        if bytes.len() as u64 > self.max_bytes {
             return Err(BackupError::Limit);
         }
         let current = self.read(name)?;
@@ -165,12 +173,12 @@ impl Directory {
     }
 }
 
-fn private(info: &Metadata) -> Result<()> {
+fn private(info: &Metadata, max_bytes: u64) -> Result<()> {
     if !info.is_file()
         || info.uid() != unsafe { libc::geteuid() }
         || info.mode() & 0o777 != 0o600
         || info.nlink() != 1
-        || info.len() > MAX_BYTES
+        || info.len() > max_bytes
     {
         return Err(BackupError::Identity);
     }

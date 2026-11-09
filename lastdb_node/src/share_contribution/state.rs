@@ -7,6 +7,9 @@ use std::fs::File;
 use std::path::Path;
 use zeroize::Zeroizing;
 
+// The policy can contain twelve writers with eight rules each.
+const MAX_STATE_BYTES: u64 = 128 * 1024;
+
 type Loaded<T> = (T, Option<Zeroizing<Vec<u8>>>);
 
 pub(super) struct State {
@@ -17,7 +20,8 @@ pub(super) struct State {
 
 impl State {
     pub(super) fn open(home: &Path, kind: &str, id: &Id) -> Result<Self, String> {
-        let directory = Directory::open(home).map_err(|e| e.to_string())?;
+        let directory =
+            Directory::open_with_limit(home, MAX_STATE_BYTES).map_err(|e| e.to_string())?;
         let name = format!("share-{kind}-{}", id.as_str());
         let lock = directory
             .open_lock(&format!("{name}.lock"))

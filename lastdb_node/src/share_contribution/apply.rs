@@ -44,6 +44,9 @@ pub struct WriteRequest {
     pub action: MutationType,
     pub key: KeyValue,
     pub record: BTreeMap<String, Value>,
+    /// Explicit alternate addresses. Omitted optional addresses stay absent.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub alternates: BTreeMap<String, Option<KeyValue>>,
 }
 
 pub(super) async fn apply(
@@ -73,15 +76,16 @@ pub(super) async fn apply(
     let Ok(keys) = schema.require_record_keys() else {
         return Ok(false);
     };
+    let mut alternates = request.alternates.clone();
+    for (name, definition) in &keys.alternates {
+        if definition.allow_absent {
+            alternates.entry(name.clone()).or_insert(None);
+        }
+    }
     let target = RecordTarget {
         schema: request.schema.clone(),
         key: request.key.clone(),
-        alternates: keys
-            .alternates
-            .keys()
-            .cloned()
-            .map(|name| (name, None))
-            .collect(),
+        alternates,
     };
     let fields = schema.fields.as_deref().unwrap_or_default();
     if target.validate(keys).is_err()
