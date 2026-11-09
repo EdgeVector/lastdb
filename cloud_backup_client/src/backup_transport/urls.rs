@@ -36,9 +36,8 @@ pub(super) fn upload(value: &str, multipart_part: bool) -> Result<(Url, bool)> {
         return Err(BackupTransportError::InvalidResponse("signed headers"));
     }
     let if_none_match = match (multipart_part, names[0].as_str()) {
-        (true, "content-length;host") => false,
         (false, "content-length;host;if-none-match") => true,
-        (false, "content-length;host") => false,
+        (true | false, "content-length;host") => false,
         _ => return Err(BackupTransportError::InvalidResponse("signed headers")),
     };
     let parts: Vec<_> = url.query_pairs().collect();
