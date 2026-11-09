@@ -4,33 +4,20 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppIndexCommand {
-    /// Sign an index file: writes `<index>.sig` (or `--out`).
-    Sign {
-        #[arg(long)]
-        index: PathBuf,
-        /// Ed25519 signing key file (base64 32-byte secret, `dev-init` format).
-        /// Default: $LASTDB_REGISTRY_SIGNING_KEY, then <home>/registry-index-signing.key.
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-        #[arg(long)]
-        out: Option<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Verify an index file against its detached signature.
+    /// Verify a registry list file against its detached signature.
     Verify {
         #[arg(long)]
         index: PathBuf,
         /// Signature file (default: `<index>.sig`).
         #[arg(long)]
         sig: Option<PathBuf>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        /// Trusted verifying key (base64 or file). Default: the pinned registry list key.
         #[arg(long)]
         trust_key: Option<String>,
         #[arg(long)]
         json: bool,
     },
-    /// Print the pinned release verifying key this binary trusts.
+    /// Print the pinned registry list verifying key this binary trusts.
     TrustKey,
 }
 

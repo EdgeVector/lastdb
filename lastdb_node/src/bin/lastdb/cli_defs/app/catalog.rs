@@ -19,13 +19,13 @@ pub(crate) enum AppCatalogCommand {
         /// or $LASTDB_REGISTRY_INDEX).
         #[arg(long)]
         index: Option<String>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        /// Trusted verifying key (base64 or file). Default: the pinned registry list key.
         #[arg(long)]
         trust_key: Option<String>,
         #[arg(long)]
         json: bool,
     },
-    /// Sign, verify, or show a static index file.
+    /// Verify a signed interface list, or show its trust key.
     #[command(subcommand)]
     Index(AppIndexCommand),
     /// Install apps from the signed list for this node's exact API version.
@@ -39,7 +39,7 @@ pub(crate) enum AppCatalogCommand {
         /// Index location: URL base or directory.
         #[arg(long)]
         index: Option<String>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        /// Trusted verifying key (base64 or file). Default: the pinned registry list key.
         #[arg(long)]
         trust_key: Option<String>,
         /// Approve the pinned source install steps and command links.
@@ -69,7 +69,7 @@ pub(crate) enum AppCatalogCommand {
         /// Index location: URL base or directory.
         #[arg(long)]
         index: Option<String>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        /// Trusted verifying key (base64 or file). Default: the pinned registry list key.
         #[arg(long)]
         trust_key: Option<String>,
         /// Emit raw JSON only. Managed upgrade always prints JSON.

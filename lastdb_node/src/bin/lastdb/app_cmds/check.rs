@@ -156,7 +156,7 @@ pub(crate) fn print_check_outcomes(
     }
 }
 
-/// Say so when the trusted index key is not the pinned release key. A test
+/// Say so when the trusted list key is not the pinned registry list key. A test
 /// index is fine; a silent override is not.
 pub(crate) fn warn_trust_override(source: &lastdb_node::app_registry_index::TrustSource) {
     use lastdb_node::app_registry_index::TrustSource;

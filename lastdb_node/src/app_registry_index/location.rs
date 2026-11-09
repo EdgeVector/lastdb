@@ -9,9 +9,9 @@ use super::{validate_channel, DEFAULT_INDEX_BASE_URL, HTTP_TIMEOUT, INDEX_LOCATI
 /// Where a channel's index files live.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexLocation {
-    /// `<base>/<channel>.json` over HTTP(S).
+    /// `<base>/<channel>/api/<api>.json` over HTTP(S).
     Url(String),
-    /// `<dir>/<channel>.json` on the local filesystem.
+    /// `<dir>/<channel>/api/<api>.json` on the local filesystem.
     Dir(PathBuf),
 }
 
@@ -61,7 +61,7 @@ impl IndexLocation {
             }
         }
     }
-    /// `--index` flag, then `$LASTDB_REGISTRY_INDEX`, then the public tap.
+    /// `--index` flag, then `$LASTDB_REGISTRY_INDEX`, then the public registry list base.
     /// A value that names an existing directory or starts with `file://` is a
     /// directory; an `http://` or `https://` value is a URL base.
     ///

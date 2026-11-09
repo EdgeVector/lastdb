@@ -39,7 +39,7 @@ pub fn install_pinned(
 ) -> Result<PinnedInstallOutcome, String> {
     if !resolution.sha.chars().all(|c| c.is_ascii_hexdigit()) || resolution.sha.len() != 40 {
         return Err(format!(
-            "compat row sha '{}' is not a git commit",
+            "source sha '{}' is not a git commit",
             resolution.sha
         ));
     }
