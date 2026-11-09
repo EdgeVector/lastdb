@@ -126,7 +126,7 @@ impl SchemaServiceState {
         let mut similar: Vec<SimilarSchemaEntry> = schemas
             .iter()
             .filter(|(k, _)| k.as_str() != name)
-            .filter_map(|(schema_name, schema)| {
+            .filter_map(|(_, schema)| {
                 let other_fields = collect_field_names(schema);
                 let similarity = jaccard_index(&target_fields, &other_fields);
                 if similarity >= threshold {
