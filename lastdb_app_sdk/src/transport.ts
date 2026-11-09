@@ -32,10 +32,7 @@ export interface RawResponse {
   body: unknown;
 }
 
-/**
- * The transport contract the client depends on. Tests inject a mock
- * implementation to exercise the error taxonomy without a live node.
- */
+/** The transport contract the client depends on. */
 export interface Transport {
   /** A short description of where this transport points (for diagnostics). */
   readonly target: string;

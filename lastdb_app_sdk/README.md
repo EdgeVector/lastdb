@@ -717,7 +717,7 @@ interface MutationResult {
 }
 
 // CAS precondition failure — mutation 409 {error:"cas_conflict"}
-class CasConflictError extends FoldDbError {
+class CasConflictError extends LastDbError {
   readonly schema: string | null      // the schema the write targeted
   readonly field: string | null       // the field the precondition checked
   readonly key: string | null         // the record key (rendered)

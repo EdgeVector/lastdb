@@ -27,7 +27,7 @@
  */
 
 /** Base class for every error this SDK raises. */
-export class FoldDbError extends Error {
+export class LastDbError extends Error {
   constructor(message: string) {
     super(message);
     this.name = new.target.name;
@@ -43,7 +43,7 @@ export class FoldDbError extends Error {
 export type TransportErrorKind = 'timeout' | 'protocol' | 'connect';
 
 /** A network/transport failure (socket error, connection refused, DNS, etc.). */
-export class TransportError extends FoldDbError {
+export class TransportError extends LastDbError {
   readonly kind: TransportErrorKind;
   readonly status?: number;
 
@@ -62,7 +62,7 @@ export class TransportError extends FoldDbError {
  * The node answered with an HTTP status the SDK has no specific class for.
  * Carries the status and the parsed body so the caller can still react.
  */
-export class UnexpectedResponseError extends FoldDbError {
+export class UnexpectedResponseError extends LastDbError {
   constructor(
     message: string,
     readonly status: number,
@@ -78,7 +78,7 @@ export class UnexpectedResponseError extends FoldDbError {
  * guard around the known-unstable offset pagination path; callers should retry
  * later or narrow the query instead of trusting a partial drain.
  */
-export class QueryPaginationError extends FoldDbError {
+export class QueryPaginationError extends LastDbError {
   constructor(
     readonly reason:
       | 'stalled_page'
@@ -129,7 +129,7 @@ function queryPaginationMessage(
  * `allowFullScan: true` when a full drain is genuinely required (admin/offline
  * tooling, migrations).
  */
-export class FullScanNotAllowedError extends FoldDbError {
+export class FullScanNotAllowedError extends LastDbError {
   constructor(readonly schemaName: string) {
     super(
       `queryAll('${schemaName}') has no filter and allowFullScan is not set — ` +
@@ -147,7 +147,7 @@ export class FullScanNotAllowedError extends FoldDbError {
  * `request-consent` → `404`. The app id is not in the canonical app registry
  * the node knows about (publish the app to schema_service first).
  */
-export class UnknownAppError extends FoldDbError {
+export class UnknownAppError extends LastDbError {
   constructor(readonly appId: string) {
     super(`app '${appId}' is not registered with the node's schema service`);
   }
@@ -159,7 +159,7 @@ export class UnknownAppError extends FoldDbError {
  * app's `owner_dev_pubkey`) may install it. Promote the app to `live` to lift
  * the gate.
  */
-export class AppInSandboxError extends FoldDbError {
+export class AppInSandboxError extends LastDbError {
   constructor(readonly appId: string) {
     super(
       `app '${appId}' is in sandbox tier; only the owner-developer can install it`,
@@ -168,13 +168,13 @@ export class AppInSandboxError extends FoldDbError {
 }
 
 /** `request-consent` → `400`. The requested scope string was malformed. */
-export class InvalidScopeError extends FoldDbError {}
+export class InvalidScopeError extends LastDbError {}
 
 /**
  * The owner denied the consent request (`consent-status` → `403 {status:
  * "denied"}`). Terminal: do not auto-re-prompt.
  */
-export class ConsentDeniedError extends FoldDbError {
+export class ConsentDeniedError extends LastDbError {
   constructor(readonly requestId: string) {
     super(`consent request '${requestId}' was denied by the node owner`);
   }
@@ -185,7 +185,7 @@ export class ConsentDeniedError extends FoldDbError {
  * "revoked"}`). Per the design's app-side caching table: discard the cached
  * token and surface "access revoked" — do NOT auto-re-prompt.
  */
-export class CapabilityRevokedError extends FoldDbError {
+export class CapabilityRevokedError extends LastDbError {
   constructor(readonly requestId: string) {
     super(`the capability for request '${requestId}' was revoked`);
   }
@@ -195,14 +195,14 @@ export class CapabilityRevokedError extends FoldDbError {
  * The consent request passed its 5-minute window (`consent-status` → `408
  * {status: "expired"}`). The app must call `requestConsent` again.
  */
-export class ConsentExpiredError extends FoldDbError {
+export class ConsentExpiredError extends LastDbError {
   constructor(readonly requestId: string) {
     super(`consent request '${requestId}' expired before it was granted`);
   }
 }
 
 /** `consent-status` → `404 {status: "unknown"}`. No request with that id. */
-export class ConsentRequestNotFoundError extends FoldDbError {
+export class ConsentRequestNotFoundError extends LastDbError {
   constructor(readonly requestId: string) {
     super(`no consent request found for id '${requestId}'`);
   }
@@ -213,7 +213,7 @@ export class ConsentRequestNotFoundError extends FoldDbError {
  * Distinct from {@link ConsentExpiredError}: the node's record may still be
  * `pending`; this is the SDK's own client-side timeout.
  */
-export class ConsentTimeoutError extends FoldDbError {
+export class ConsentTimeoutError extends LastDbError {
   constructor(
     readonly requestId: string,
     readonly timeoutMs: number,
@@ -242,7 +242,7 @@ export type PermissionCategory =
   | 'capability_denied'
   | 'unknown';
 
-export class PermissionDeniedError extends FoldDbError {
+export class PermissionDeniedError extends LastDbError {
   readonly category: PermissionCategory;
 
   constructor(
@@ -257,8 +257,7 @@ export class PermissionDeniedError extends FoldDbError {
 /**
  * Best-effort classification of the node's discriminated permission-denied
  * reason string into a {@link PermissionCategory}. The reason text is the
- * stable contract (see `uds_isolation_test.rs` assertions); we match on its
- * documented substrings.
+ * stable contract. Match on its documented substrings.
  */
 export function classifyPermissionReason(reason: string): PermissionCategory {
   const r = reason.toLowerCase();
@@ -450,7 +449,7 @@ export function capabilityDenialReaction(
  * token is bound to a different `app_id`), or `integrity_mismatch`
  * (`envelope.payload_hash != sha256(JCS(token-minus-envelope))`).
  */
-export class CapabilityVerificationError extends FoldDbError {
+export class CapabilityVerificationError extends LastDbError {
   constructor(
     readonly problem: 'malformed' | 'audience_mismatch' | 'integrity_mismatch',
     readonly appId: string,
@@ -481,7 +480,7 @@ export type AuthenticationRequiredReason = 'session_expired' | 'auth_failed';
  * Apps should catch this separately from capability-denied errors and start
  * their re-authentication flow instead of treating it as an unexpected crash.
  */
-export class AuthenticationRequiredError extends FoldDbError {
+export class AuthenticationRequiredError extends LastDbError {
   constructor(
     readonly reason: AuthenticationRequiredReason,
     message: string,
@@ -502,7 +501,7 @@ export class AuthenticationRequiredError extends FoldDbError {
  * node's detail (e.g. its `message` field). The body is surfaced verbatim,
  * the same way the 403 {@link CapabilityDeniedError} surfaces its `detail`.
  */
-export class RequestRejectedError extends FoldDbError {
+export class RequestRejectedError extends LastDbError {
   constructor(
     readonly kind: string,
     message: string,
@@ -612,7 +611,7 @@ export interface CasConflictDetail {
  * {@link UnexpectedResponseError}) precisely so an app can branch on it and
  * retry rather than treat it as a hard failure.
  */
-export class CasConflictError extends FoldDbError {
+export class CasConflictError extends LastDbError {
   /** The schema the conflicting write targeted, or `null`. */
   readonly schema: string | null;
   /** The row key (rendered) the write targeted, or `null`. */
@@ -651,7 +650,7 @@ function casConflictMessage(detail: CasConflictDetail): string {
 // ---------------------------------------------------------------------------
 
 /** No capability is stored under the requested app id (`loadCapability`). */
-export class CapabilityNotFoundError extends FoldDbError {
+export class CapabilityNotFoundError extends LastDbError {
   constructor(readonly appId: string) {
     super(`no stored capability for app '${appId}'`);
   }

@@ -8,10 +8,6 @@
  * envelope's `payload_hash` is `sha256(JCS(payload))`. Any drift here breaks
  * every client-side integrity check.
  *
- * The 12 golden vectors that pin cross-implementation agreement live at
- * `fold/app_identity_crypto/tests/golden_vectors.rs`; `test/jcs.test.ts`
- * reproduces them byte-for-byte against this module.
- *
  * RFC 8785 rules implemented:
  *   - Object keys sorted lexicographically by UTF-16 code unit.
  *   - No insignificant whitespace.

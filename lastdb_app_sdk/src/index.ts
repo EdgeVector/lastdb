@@ -22,7 +22,6 @@ export type { AwaitConsentOptions, LastDbClientOptions } from './client.js';
 export {
   LASTDB_API_ROUTES,
   LASTDB_SDK_API_VERSION,
-  LASTDB_UDS_SHARED_ROUTES,
 } from './apiRoutes.js';
 
 export { ownerClient } from './ownerClient.js';
@@ -113,7 +112,7 @@ export type {
 } from './types.js';
 
 export {
-  FoldDbError,
+  LastDbError,
   AuthenticationRequiredError,
   TransportError,
   UnexpectedResponseError,
