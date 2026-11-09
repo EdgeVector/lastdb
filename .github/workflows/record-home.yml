@@ -1,7 +1,7 @@
 name: Record home product proof
 
 # ci-required calls this workflow. A product diff runs the fresh-home proof
-# in the current format.
+# in the current format and exercises local Share setup and file import.
 # Any other pull request or main push skips that build and still reports success.
 on:
   workflow_call:
@@ -87,11 +87,12 @@ jobs:
           shared-key: schema-node-operations-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the product in CI
-        run: cargo build --locked -p lastdb_node --bin lastdbd
+        run: cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
       - name: Exercise the actual daemon on a fresh generated home
         run: |
           set -euo pipefail
           python3 scripts/operations/record_home.py --daemon "$PWD/target/debug/lastdbd" \
+            --cli "$PWD/target/debug/lastdb" \
             --revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/record-home" 2>&1 | tee "$RUNNER_TEMP/record-home.log"
       - uses: actions/upload-artifact@v7
@@ -116,6 +117,7 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Result: $RESULT"
             echo "Fresh generated home only. No primary access, local build, or benchmark."
+            echo "Share scope: local setup, file import, and CLI command availability."
             echo "Artifact: $ARTIFACT_URL"
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
             echo "Expiration: 7 days after this run."
