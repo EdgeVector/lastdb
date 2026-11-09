@@ -167,8 +167,8 @@ pub struct ManifestRetentionOutcome {
 /// to it, and every record it holds, whoever wrote it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RetentionSharing {
-    /// Other loaded schemas bound to the catalog schema (or to a schema it was
-    /// expanded from), by retention alias or by a field key that it holds.
+    /// Other loaded schemas bound to the catalog schema, by retention alias or
+    /// by a field key that it holds.
     /// The declared manifest name is not listed.
     pub shared_with: Vec<String>,
     /// Schemas in the catalog schema's chain that another app owns.

@@ -47,8 +47,9 @@ use fold_db::schema::ManifestRetention;
 ///   write.
 /// - Write one record for each entry and never edit it: a rewrite of a
 ///   HashRange or Range record does not reset its age.
-/// - Give schemas with different lifecycles different shapes: two schemas of
-///   one shape can resolve to one catalog schema and then share one dataset.
+/// - Give schemas with different lifecycles different shapes: two schemas
+///   with the same descriptive name (or the same identity) resolve to one
+///   installed schema and share its records.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppManifest {
     pub app_id: String,

@@ -202,6 +202,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `MIN_SUPPORTED_API_VERSION` stays `29`.
 /// `34` removes the unused `GET /api/db/list` alias of `GET /api/list`.
 /// No request key changed; `MIN_SUPPORTED_API_VERSION` stays `29`.
+/// The owner-only replies for `POST /api/apps/declare-schema` and
+/// `POST /api/schemas/declare` no longer include `adapter` or `adapters`.
+/// `resolution` is `reuse` or `register`. No request key changed.
+/// `API_VERSION` stays `34` and `MIN_SUPPORTED_API_VERSION` stays `29`.
 pub const API_VERSION: u32 = 34;
 
 /// The build string `GET /api/version` reports, installed once by the binary.

@@ -7,13 +7,13 @@ use super::*;
 ///
 /// Request: `{ "app_id": "<namespace>", "schema": <DeclarativeSchemaDefinition>,
 /// "intent"?: "catalog_sync" | "check" }`
-/// Response envelope: `{ app_id, schema, canonical, resolution: "reuse", adapter }`
+/// Response envelope: `{ app_id, schema, canonical, resolution: "reuse" | "register" }`
 ///
 /// `intent` defaults to `catalog_sync` (described below). `check` is the
 /// read-only plan: see [`execute_catalog_schema_check`].
 ///
-/// Every declaration owns its values. Schema Service supplies the exact
-/// canonical definition. Existing data requires an explicit conversion before
+/// Every declaration owns its values. The node builds the canonical
+/// definition locally. Existing data requires an explicit conversion before
 /// any incompatible declaration.
 ///
 /// Served on the owner socket so Mini
@@ -89,7 +89,7 @@ pub(crate) async fn execute_declare_schema_route(
                 &DeclareRequestFacts::from_body(&req.body),
                 ctx,
                 host,
-                "schemas_declare_compat",
+                "schemas_declare",
                 400,
                 &format!("invalid /api/schemas/declare body: {e}"),
             )
@@ -104,7 +104,7 @@ pub(crate) async fn execute_declare_schema_route(
                 &DeclareRequestFacts::from_body(&req.body),
                 ctx,
                 host,
-                "schemas_declare_compat",
+                "schemas_declare",
                 400,
                 &e,
             )
@@ -112,7 +112,7 @@ pub(crate) async fn execute_declare_schema_route(
     };
     match body.intent {
         SchemaSyncIntent::CatalogSync => {
-            execute_catalog_schema_sync(req, ctx, host, "schemas_declare_compat", declare).await
+            execute_catalog_schema_sync(req, ctx, host, "schemas_declare", declare).await
         }
         SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
     }

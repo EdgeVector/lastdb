@@ -13,12 +13,11 @@ pub(super) async fn policies_in_reach(
     host: &Host,
     binding: &str,
     anchor: &str,
-    predecessors: &[String],
 ) -> Result<RetentionReach, String> {
     host.db
         .db_ops()
         .schemas()
-        .retention_policies_in_reach(binding, anchor, predecessors)
+        .retention_policies_in_reach(binding, anchor)
         .await
         .map_err(|e| e.to_string())
 }
@@ -53,9 +52,8 @@ pub(super) fn bind_refusal(binding: &str, anchor: &str, hits: &[RetentionPolicyI
 /// Refuse a manifest TTL before the declare binds the schema. Writes nothing.
 ///
 /// A schema declared WITHOUT a retention is refused when it would JOIN a
-/// catalog schema that a TTL reaches: a TTL on the catalog schema, on a schema
-/// it was expanded from, or on any schema bound to either. The TTL would delete
-/// its records too.
+/// catalog schema that a TTL reaches: a TTL on the catalog schema, or on any
+/// schema bound to it. The TTL would delete its records too.
 pub(crate) async fn precheck_declare_retention(
     host: &Host,
     declare: &DirectDeclareProposal,
@@ -63,7 +61,7 @@ pub(crate) async fn precheck_declare_retention(
 ) -> Result<(), String> {
     let Some(retention) = declare.retention else {
         let binding = declare.local_schema_id.as_str();
-        let reach = policies_in_reach(host, binding, anchor, &[]).await?;
+        let reach = policies_in_reach(host, binding, anchor).await?;
         return if reach.policies.is_empty() {
             Ok(())
         } else {
@@ -73,7 +71,7 @@ pub(crate) async fn precheck_declare_retention(
     let Some((ttl_seconds, layout)) = validate_declare_retention(declare)? else {
         return Ok(());
     };
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
     match assessment.refusal(declare, anchor, retention.confirmed()) {
         Some(reason) => Err(reason),
         None => Ok(()),
@@ -89,7 +87,6 @@ pub(super) async fn unmanaged_report(
     declare: &DirectDeclareProposal,
     anchor: Option<&str>,
     moved_from: Option<&str>,
-    predecessors: &[String],
 ) -> Result<Option<Value>, String> {
     let store = host.db.db_ops().schemas();
     let binding = declare.local_schema_id.as_str();
@@ -121,7 +118,7 @@ pub(super) async fn unmanaged_report(
              Run `lastdb admin retention clear --schema {binding}` to remove it"
         ));
     } else if let (true, Some(anchor)) = (own_anchor == binding, anchor) {
-        let reach = policies_in_reach(host, binding, anchor, predecessors).await?;
+        let reach = policies_in_reach(host, binding, anchor).await?;
         if let Some(first) = reach.policies.first() {
             status = "shares_retained_schema";
             ttl_seconds = Some(first.policy.ttl_seconds);

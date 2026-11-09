@@ -15,7 +15,7 @@
 #      owner socket up, `/health` ok, `lastdb ... status` sees it.
 #   3. Data round-trip over the socket — /api/schemas/declare -> mutation -> query.
 #   3b. First-run app path — POST /api/apps/declare-schema (catalog
-#      register/reuse/expand), then mutate/query by the returned canonical name
+#      register or reuse), then mutate/query by the returned canonical name
 #      (brain/kanban init path).
 #   4. No FastEmbed model cache under the throwaway home.
 #   5. Restart persistence — kill the daemon, reboot the same home, re-query.
@@ -129,8 +129,8 @@ assert_work_root_safe() {
 # name. .identity_hash is the catalog definition hash and is not the write
 # address. Release run 41488809179 returned canonical
 # "validation/AppCatalogProbe"; the old length-64 check rejected it.
-# Mini may reuse an existing catalog identity or register/expand through Schema
-# Service. bind_eligible and audit_event_id prove the sync completed.
+# Mini may reuse an existing catalog identity or register one.
+# bind_eligible and audit_event_id prove the sync completed.
 assert_apps_declare_catalog_sync_payload() {
   jq -e '
     .ok == true
@@ -138,8 +138,7 @@ assert_apps_declare_catalog_sync_payload() {
     and .bind_eligible == true
     and (.audit_event_id | type == "string" and length > 0)
     and (.resolution == "register"
-         or .resolution == "reuse"
-         or .resolution == "expand")
+         or .resolution == "reuse")
     and .canonical == "validation/AppCatalogProbe"
     and (
       .schema == "validation/AppCatalogProbe"
@@ -149,14 +148,9 @@ assert_apps_declare_catalog_sync_payload() {
   ' "$1" >/dev/null
 }
 
-# schema_ref_from_declare <file> — after POST /api/schemas/declare (catalog
-# register/reuse/compose), the daemon persists the schema under
-# its content-addressed identity hash. GET /api/schemas lists it by that hash,
-# not by the human-readable "namespace/Name" string. Mutation and query MUST
-# use .canonical (falling back to .identity_hash), or every call 404s with
-# "Schema not found: validation/MiniFreshInstall" — the same class that kept
-# the GitHub Release gate red for 7+ days (2026-07-15..21) and the restore-
-# probe fix in 294c07d7f.
+# schema_ref_from_declare <file> — after POST /api/schemas/declare.
+# .canonical is the runtime name namespace/Name. Mutation and query use it.
+# A call that uses the proposal name instead 404s with "Schema not found".
 schema_ref_from_declare() {
   local ref
   ref="$(jq -r '.canonical // .identity_hash // empty' "$1")"

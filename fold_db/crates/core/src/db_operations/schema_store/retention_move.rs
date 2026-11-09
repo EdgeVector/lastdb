@@ -33,9 +33,7 @@ impl SchemaStore {
             return Ok(None);
         }
         if self.read_retention_policy(&current).await?.is_some() {
-            let sharing = self
-                .retention_sharing(binding, anchor, owner_app, &[])
-                .await?;
+            let sharing = self.retention_sharing(binding, anchor, owner_app).await?;
             if let Some(reason) = sharing.refusal(binding, anchor, owner_app) {
                 return Err(SchemaError::InvalidData(format!(
                     "the retention policy cannot follow {binding} from {current} to {anchor}: \

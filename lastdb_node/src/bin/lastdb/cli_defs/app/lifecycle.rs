@@ -15,13 +15,13 @@ pub(crate) enum AppLifecycleCommand {
     /// By default this is read-only. For each manifest schema it posts
     /// `/api/apps/declare-schema` with intent `check` to the node that
     /// `--data-dir` / LASTDB_HOME names. The node reports what a sync would do
-    /// (reuse, compose, register, or expand) and any error a sync would hit,
-    /// such as an invalid field mapper. It registers nothing, binds nothing,
-    /// and writes no audit event.
+    /// (reuse or register) and any error a sync would hit, such as an invalid
+    /// field mapper. It registers nothing, binds nothing, and writes no audit
+    /// event.
     ///
     /// CAUTION: `--sync` is a WRITE. It uses intent `catalog_sync`: the node
-    /// can register or expand schemas, bind them, and write schema-sync audit
-    /// events. Only `--sync` reports audited, bind-eligible coverage.
+    /// can register schemas, bind them, and write schema-sync audit events.
+    /// Only `--sync` reports audited, bind-eligible coverage.
     ///
     /// A schema entry may carry `retention: {ttl_days | ttl_seconds}`. The read-only
     /// check prints the policy it would apply, every change or removal of a
@@ -41,7 +41,7 @@ pub(crate) enum AppLifecycleCommand {
         #[arg(long)]
         json: bool,
         /// Write: synchronize the schemas (intent `catalog_sync`) instead of
-        /// the read-only check. Can register or expand schemas on the node.
+        /// the read-only check. Can register schemas on the node.
         #[arg(long)]
         sync: bool,
         /// Confirm that records which already exist may expire. A manifest

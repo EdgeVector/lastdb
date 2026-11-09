@@ -45,47 +45,34 @@ impl SchemaStore {
     /// `binding` is the manifest name that declares the TTL. It and the anchor
     /// are the two names of one manifest entry, so they are not reported.
     /// Another schema counts as bound to the anchor when a retention alias
-    /// points at it, or at a schema bound to it. A schema the anchor was
-    /// expanded from is the same
-    /// app's earlier version and is not reported, unless another app owns it.
-    ///
-    /// `predecessors` seeds the expansion chain with schemas the anchor will be
-    /// expanded from: a read-only check of a declare that the Schema Service
-    /// would expand.
+    /// points at it, or at a schema bound to it. The reach chain is the anchor
+    /// alone.
     pub async fn retention_sharing(
         &self,
         binding: &str,
         anchor: &str,
         owner_app: &str,
-        predecessors: &[String],
     ) -> Result<RetentionSharing, SchemaError> {
         let schemas = self.get_all_schemas().await?;
         let aliases = self.retention_aliases().await?;
         Ok(compute_sharing(
-            &schemas,
-            &aliases,
-            binding,
-            anchor,
-            owner_app,
-            predecessors,
+            &schemas, &aliases, binding, anchor, owner_app,
         ))
     }
 
     /// The retention policies whose sweep would delete records of a schema
-    /// bound to `anchor`: a policy on the anchor, on a schema it was expanded
-    /// from, or on any schema bound to either. This is the same closure as
-    /// [`Self::retention_sharing`], so a plain declare is checked as widely as
-    /// a declare with a TTL. A policy that only `binding` itself declared is its
-    /// own and is not reported.
+    /// bound to `anchor`: a policy on the anchor, or on any schema bound to
+    /// it. This is the same closure as [`Self::retention_sharing`], so a plain
+    /// declare is checked as widely as a declare with a TTL. A policy that
+    /// only `binding` itself declared is its own and is not reported.
     pub async fn retention_policies_in_reach(
         &self,
         binding: &str,
         anchor: &str,
-        predecessors: &[String],
     ) -> Result<RetentionReach, SchemaError> {
         let schemas = self.get_all_schemas().await?;
         let aliases = self.retention_aliases().await?;
-        let reach = compute_reach(&schemas, &aliases, binding, anchor, predecessors);
+        let reach = compute_reach(&schemas, &aliases, binding, anchor);
         let names: Vec<String> = reach.chain.into_iter().chain(reach.shared).collect();
         let keys: Vec<String> = names
             .iter()
@@ -123,13 +110,13 @@ impl SchemaStore {
     }
 }
 
-/// The schemas a TTL sweep through an anchor reaches: the anchor's expansion
-/// chain, and every schema bound to the chain.
+/// The schemas a TTL sweep through an anchor reaches: the anchor, and every
+/// schema bound to it.
 struct Reach {
-    /// The anchor and the schemas it was expanded from.
+    /// The anchor alone.
     chain: BTreeSet<String>,
-    /// Other schemas bound to the chain by a retention alias, transitively.
-    /// Neither `binding` nor the chain.
+    /// Other schemas bound to the anchor by a retention alias, transitively.
+    /// Neither `binding` nor the anchor.
     shared: BTreeSet<String>,
 }
 
@@ -138,11 +125,9 @@ fn compute_reach(
     aliases: &[(String, String)],
     binding: &str,
     anchor: &str,
-    predecessors: &[String],
 ) -> Reach {
-    // The anchor and the schemas it was expanded from: the same data's history.
-    let mut chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
-    chain.extend(predecessors.iter().cloned());
+    // The anchor is the schema the sweep reads.
+    let chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
     let mut reach = chain.clone();
     reach.insert(binding.to_string());
     let mut shared: BTreeSet<String> = BTreeSet::new();
@@ -174,9 +159,8 @@ fn compute_sharing(
     binding: &str,
     anchor: &str,
     owner_app: &str,
-    predecessors: &[String],
 ) -> RetentionSharing {
-    let reach = compute_reach(schemas, aliases, binding, anchor, predecessors);
+    let reach = compute_reach(schemas, aliases, binding, anchor);
     let foreign_owners: Vec<String> = reach
         .chain
         .iter()

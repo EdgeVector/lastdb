@@ -94,7 +94,7 @@ impl SchemaStore {
             ));
         }
         let sharing = self
-            .retention_sharing(schema_name, anchor, owner_app, &[])
+            .retention_sharing(schema_name, anchor, owner_app)
             .await?;
         if let Some(reason) = sharing.refusal(schema_name, anchor, owner_app) {
             return Err(SchemaError::InvalidData(reason));

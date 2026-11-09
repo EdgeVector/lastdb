@@ -22,7 +22,6 @@ pub struct SchemaSyncAuditEvent {
     pub intent: String,
     pub outcome: String,
     pub catalog_hashes: Vec<String>,
-    pub predecessor_hashes: Vec<String>,
     pub bind_eligible: bool,
     pub error: Option<String>,
 }
@@ -47,7 +46,6 @@ impl SchemaSyncAuditEvent {
             intent: "catalog_sync".to_string(),
             outcome: "rejected".to_string(),
             catalog_hashes: Vec::new(),
-            predecessor_hashes: Vec::new(),
             bind_eligible: false,
             error: None,
         }

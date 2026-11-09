@@ -1,31 +1,26 @@
-//! Schema coverage checks and novel schema registration.
+//! Schema coverage checks for local schema declaration.
 
 use super::*;
 
 /// Catalog coverage for one manifest schema, per the Mini declare route.
 #[derive(Debug, Clone)]
 pub enum SchemaCoverage {
-    /// One catalog schema covers the proposal.
+    /// One installed schema covers the proposal.
     Reuse { identity_hash: String },
-    /// Multiple catalog components cover the proposal (Mini-local compose).
-    Compose { components: Vec<String> },
-    /// Mini registered or expanded one catalog identity and returned the
-    /// audit proof required before an app can bind it.
+    /// The node registered one schema and returned the audit proof required
+    /// before an app can bind it.
     Register {
         identity_hash: String,
         audit_event_id: String,
-        expanded: bool,
     },
-    /// Read-only check only: a sync would register or expand this schema.
+    /// Read-only check only: a sync would register this schema.
     /// Nothing was written, so this is not a bind proof. `identity_hash` is
-    /// the proposal identity; Schema Service can store a different canonical.
+    /// the proposal identity.
     WouldRegister {
         identity_hash: String,
-        expanded: bool,
         reason: Option<String>,
     },
-    /// Not covered by the shared catalog (`local_mint`, or the node refused
-    /// the declare). Publishing MUST reject these.
+    /// The node refused the declare. Publishing rejects these.
     Novel { reason: String },
 }
 
@@ -73,8 +68,8 @@ pub fn missing_field_descriptions(raw: &Value) -> Vec<String> {
 pub enum CheckMode {
     /// Intent `check`: resolve and validate only. The node writes nothing.
     ReadOnly,
-    /// Intent `catalog_sync`: the node can register or expand schemas, bind
-    /// them, and write schema-sync audit events.
+    /// Intent `catalog_sync`: the node can register schemas, bind them, and
+    /// write schema-sync audit events.
     Sync,
 }
 
@@ -100,7 +95,7 @@ pub struct CheckOutcome {
 /// Declare every manifest schema on the local node and classify coverage.
 ///
 /// [`CheckMode::ReadOnly`] changes nothing on the node. [`CheckMode::Sync`]
-/// can register, expand, and bind schemas and writes audit events.
+/// can register and bind schemas and writes audit events.
 ///
 /// `confirm_expire_existing` is the caller's confirmation that records which
 /// already exist may expire (`--confirm-expire-existing`). The node refuses a
@@ -202,7 +197,7 @@ pub fn catalog_collisions(outcomes: &[CheckOutcome]) -> Vec<(String, Vec<String>
 }
 
 /// Classify a read-only `check` declare response. It carries no audit event
-/// and is never bind-eligible; a `register` / `expand` plan is reported as
+/// and is never bind-eligible; a `register` plan is reported as
 /// [`SchemaCoverage::WouldRegister`].
 pub(super) fn classify_check_response(status: u16, payload: &Value) -> SchemaCoverage {
     if status != 200 {
@@ -226,28 +221,8 @@ pub(super) fn classify_check_response(status: u16, payload: &Value) -> SchemaCov
         .map(str::to_string);
     match (resolution, identity_hash) {
         ("reuse", Some(identity_hash)) => SchemaCoverage::Reuse { identity_hash },
-        ("compose", _) => {
-            let components: Vec<String> = payload
-                .get("component_catalog_hashes")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_default();
-            if components.is_empty() {
-                SchemaCoverage::Novel {
-                    reason: "compose result lacks component catalog hashes".into(),
-                }
-            } else {
-                SchemaCoverage::Compose { components }
-            }
-        }
-        ("register" | "expand", Some(identity_hash)) => SchemaCoverage::WouldRegister {
+        ("register", Some(identity_hash)) => SchemaCoverage::WouldRegister {
             identity_hash,
-            expanded: resolution == "expand",
             reason: payload
                 .get("register_reason")
                 .and_then(Value::as_str)
@@ -290,26 +265,7 @@ pub(super) fn classify_declare_response(status: u16, payload: &Value) -> SchemaC
                     reason: "reuse result lacks identity_hash".into(),
                 },
             },
-            "compose" => {
-                let components: Vec<String> = payload
-                    .get("component_catalog_hashes")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if components.is_empty() {
-                    SchemaCoverage::Novel {
-                        reason: "compose result lacks component catalog hashes".into(),
-                    }
-                } else {
-                    SchemaCoverage::Compose { components }
-                }
-            }
-            "register" | "expand" => match payload
+            "register" => match payload
                 .get("identity_hash")
                 .and_then(Value::as_str)
                 .filter(|value| !value.is_empty())
@@ -317,14 +273,10 @@ pub(super) fn classify_declare_response(status: u16, payload: &Value) -> SchemaC
                 Some(identity_hash) => SchemaCoverage::Register {
                     identity_hash: identity_hash.to_string(),
                     audit_event_id,
-                    expanded: resolution == "expand",
                 },
                 None => SchemaCoverage::Novel {
-                    reason: format!("{resolution} result lacks identity_hash"),
+                    reason: "register result lacks identity_hash".into(),
                 },
-            },
-            "local_mint" => SchemaCoverage::Novel {
-                reason: "not covered by the shared catalog (local_mint)".into(),
             },
             other => SchemaCoverage::Novel {
                 reason: format!("unrecognized declare resolution '{other}'"),
@@ -343,5 +295,3 @@ pub(super) fn classify_declare_response(status: u16, payload: &Value) -> SchemaC
         }
     }
 }
-
-// ─── Step 2: register novel schemas with the schema service ───────────────
