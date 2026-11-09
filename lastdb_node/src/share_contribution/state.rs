@@ -7,6 +7,8 @@ use std::fs::File;
 use std::path::Path;
 use zeroize::Zeroizing;
 
+type Loaded<T> = (T, Option<Zeroizing<Vec<u8>>>);
+
 pub(super) struct State {
     directory: Directory,
     name: String,
@@ -29,9 +31,7 @@ impl State {
         })
     }
 
-    pub(super) fn load<T: DeserializeOwned + Default>(
-        &self,
-    ) -> Result<(T, Option<Zeroizing<Vec<u8>>>), String> {
+    pub(super) fn load<T: DeserializeOwned + Default>(&self) -> Result<Loaded<T>, String> {
         let previous = self.directory.read(&self.name).map_err(|e| e.to_string())?;
         let value = previous
             .as_ref()
