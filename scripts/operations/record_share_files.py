@@ -17,6 +17,46 @@ def subcommands(result):
     return {line.split()[0] for line in result.stdout.splitlines() if line.strip()}
 
 
+def check_addressing(command, cli, owner, publication, publication_id):
+    catalog = "lastdb-files/FileCatalog"
+    listed = command(cli, "--data-dir", publication.home, "db", "list", "--json")
+    require(listed.returncode == 0, "database list failed: " + listed.stderr)
+    databases = json.loads(listed.stdout)["databases"]
+    require(len(databases) == 1 and databases[0]["id"] == publication_id,
+            "the publication did not expose its own database ID")
+    selected = ["--data-dir", publication.home, "--db", publication_id]
+    keys = command(cli, *selected, "get-keys", catalog, "--json")
+    require(keys.returncode == 0, "selected database key list failed: " + keys.stderr)
+    require([key["hash"] for key in json.loads(keys.stdout)["keys"]] == ["files-v1"],
+            "wrong database catalog key")
+    read = command(cli, *selected, "get", catalog, "--key-hash", "files-v1", "--json")
+    require(read.returncode == 0, "selected database read failed: " + read.stderr)
+    require(len(json.loads(read.stdout)["results"]) == 1, "selected database lost the file catalog")
+    request = publication.root / "ordinary-create.json"
+    request.write_text(json.dumps({
+        "type": "mutation", "schema": "lastdb-files/FileChunk",
+        "key_value": {"hash": "local-operation", "range": "0000"},
+        "alternates": {}, "record": {"data": "ordinary write"},
+        "mutation_type": "create", "expected": {"type": "absent"},
+    }))
+    written = command(cli, *selected, "mutate", "--request-file", request)
+    require(written.returncode == 0 and "record_revision" in json.loads(written.stdout),
+            "ordinary publisher mutation failed: " + written.stderr)
+    read = command(cli, *selected, "get", "lastdb-files/FileChunk", "--key-hash",
+                   "local-operation", "--key-range", "0000", "--json")
+    require(read.returncode == 0 and json.loads(read.stdout)["results"][0]["fields"]["data"] == "ordinary write",
+            "ordinary publisher read did not observe the committed record")
+
+    personal = ["--data-dir", owner.home, "--db", "personal"]
+    original = command(cli, *personal, "get", "RecordById", "--key-hash", "one", "--json")
+    require(original.returncode == 0 and json.loads(original.stdout)["results"][0]["fields"]["value"] == "v3",
+            "explicit personal selection did not read the original record")
+    wrong = command(cli, "--data-dir", owner.home, "--db", publication_id,
+                    "get", "RecordById", "--key-hash", "one", "--json")
+    require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
+            "an unknown database selector must never read the node's personal records")
+
+
 def exercise(cli, owner, root):
     def command(binary, *arguments):
         return subprocess.run([binary, *arguments], capture_output=True, text=True, timeout=60)
@@ -34,15 +74,16 @@ def exercise(cli, owner, root):
     daemon_help = command(owner.binary, "--help")
     require(daemon_help.returncode == 0 and "--share-owner-home" in daemon_help.stdout,
             "the automatic Share publisher flag is missing")
-    require({"get", "contributors"} <= subcommands(command(cli, "share", "--help")),
-            "the Share record and contributor commands are missing")
-    require({"grant", "revoke", "submit"} <= subcommands(command(cli, "share", "contributors", "--help")),
+    require({"accept", "contributors"} <= subcommands(command(cli, "share", "--help")),
+            "the Share invitation and contributor commands are missing")
+    require({"grant", "revoke", "accept"} <= subcommands(command(cli, "share", "contributors", "--help")),
             "the Share contributor command group is incomplete")
     require({"add", "receive", "follow", "list", "save"} <= subcommands(command(cli, "share", "files", "--help")),
             "the Files CLI command group is incomplete")
-    stopped_publish = command(cli, "share", "publish", "--help")
-    require(stopped_publish.returncode == 2 and "unrecognized subcommand" in stopped_publish.stderr,
-            "the retired stopped Share command should be refused")
+    for retired in ["get", "publish"]:
+        result = command(cli, "share", retired, "--help")
+        require(result.returncode == 2 and "unrecognized subcommand" in result.stderr,
+                f"the retired share {retired} command should be refused")
 
     evidence = owner.output / "share"
     evidence.mkdir(mode=0o700)
@@ -76,6 +117,8 @@ def exercise(cli, owner, root):
         require(receipt["name"] == path.name and receipt["size_bytes"] == len(payload)
                 and receipt["sha256"] == hashlib.sha256(payload).hexdigest(),
                 "share files add returned different file metadata")
+        check_addressing(command, cli, owner, publication, files["publication_id"])
     finally:
         publication.close()
-    print("LastDB Share: local write modes, contributor policy refusals, and Files import passed", flush=True)
+    print("LastDB Share: write modes, Files import, ordinary database addressing, and retired commands passed",
+          flush=True)

@@ -9,6 +9,7 @@ mod rows;
 pub(in crate::handlers) use self::rows::*;
 mod response;
 pub(in crate::handlers) use self::response::*;
+pub use response::verified_query_page;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
 mod execute;

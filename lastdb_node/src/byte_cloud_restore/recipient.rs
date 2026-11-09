@@ -56,6 +56,15 @@ impl RestoreSession {
         Self::begin_with_mode(destination, accepted, RestoreMode::Recipient)
     }
 
+    pub(crate) fn begin_managed_guest(
+        slot: &crate::share_cache::ManagedShareSlot<'_>,
+        accepted: AcceptedBackup,
+    ) -> Result<Self> {
+        let path = slot.path();
+        super::local::directory(path)?;
+        Self::begin_in(&path.join("unactivated"), accepted, RestoreMode::Recipient)
+    }
+
     /// Reserve a private workspace for an independent accepted snapshot.
     pub fn begin_recipient(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
         require_independent(&accepted)?;

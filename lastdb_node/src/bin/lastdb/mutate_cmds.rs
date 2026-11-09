@@ -74,11 +74,19 @@ pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
 
 /// Write the exact JSON body of the node's mutation receipt.
 pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), String> {
-    parse_json_response(response, "mutation")?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
         .ok_or_else(|| "mutation response had no body".to_string())?;
+    if response.starts_with("HTTP/1.1 202 ") {
+        let receipt: serde_json::Value =
+            serde_json::from_str(body).map_err(|_| "invalid mutation submission receipt")?;
+        if receipt["status"] != "submitted" || receipt["mutation_id"].as_str().is_none() {
+            return Err("invalid mutation submission receipt".into());
+        }
+    } else {
+        parse_json_response(response, "mutation")?;
+    }
     output
         .write_all(body.as_bytes())
         .map_err(|e| format!("write mutation receipt: {e}"))?;
@@ -93,10 +101,14 @@ pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> 
 }
 
 pub(super) fn mutate_command(
-    data_dir: Option<PathBuf>,
+    target: &DatabaseTarget,
     request_file: &std::path::Path,
     durable: bool,
+    mutation_id: Option<uuid::Uuid>,
 ) -> Result<(), String> {
+    if mutation_id.is_some() && !target.is_explicit() {
+        return Err("--mutation-id requires --db".into());
+    }
     let text = if request_file == std::path::Path::new("-") {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)
@@ -127,7 +139,7 @@ pub(super) fn mutate_command(
             .as_slice(),
     )
     .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
-    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
+    let socket = &target.socket;
     let base = request_file.parent().unwrap_or_else(|| Path::new(""));
     let (route, body) = match file {
         Some((Some(file), placement)) => {
@@ -150,8 +162,8 @@ pub(super) fn mutate_command(
                     "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
                 });
                 let raw = post_json_with_timeout(
-                    &socket,
-                    "/api/db/put-blob",
+                    socket,
+                    &target.path("/api/db/put-blob"),
                     &metadata,
                     admin_scan_client_timeout(),
                 )?;
@@ -164,7 +176,7 @@ pub(super) fn mutate_command(
                 "placement": placement,
                 "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
             });
-            let receipt = put_record_file(&socket, &metadata, &source)?;
+            let receipt = put_record_file(target, &metadata, &source)?;
             println!("{receipt}");
             return Ok(());
         }
@@ -174,7 +186,30 @@ pub(super) fn mutate_command(
         ),
         None => ("/api/mutation", body),
     };
-    let raw = post_json_with_timeout(&socket, route, &body, mutate_client_timeout(durable))?;
+    send_mutation(target, route, &body, durable, mutation_id)
+}
+
+fn send_mutation(
+    target: &DatabaseTarget,
+    route: &str,
+    body: &serde_json::Value,
+    durable: bool,
+    mutation_id: Option<uuid::Uuid>,
+) -> Result<(), String> {
+    let id = (target.is_explicit() && route == "/api/mutation")
+        .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
+    let describe_error = |error| match id {
+        Some(id) => format!("{error} (mutation ID {id})"),
+        None => error,
+    };
+    let raw = post_json_with_id(
+        &target.socket,
+        &target.path(route),
+        body,
+        mutate_client_timeout(durable),
+        id,
+    )
+    .map_err(describe_error)?;
     let mut stdout = std::io::stdout().lock();
-    write_mutate_receipt(&mut stdout, &raw)
+    write_mutate_receipt(&mut stdout, &raw).map_err(describe_error)
 }

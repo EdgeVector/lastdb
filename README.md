@@ -116,8 +116,7 @@ brew services start lastdb   # runs lastdbd
 lastdb status
 ```
 
-Use `lastdb --help` to see the commands in the installed release. The grouped
-CLI has nine entry points.
+Use `lastdb --help` to see the commands in the installed release.
 
 | Command | Use |
 |---|---|
@@ -129,6 +128,7 @@ CLI has nine entry points.
 | `app` | Browse the signed registry and manage apps. |
 | `backup` | Configure backup and restore an accepted recovery point. |
 | `share` | Create a publication, invite readers, and optionally grant restricted contributor writes. |
+| `db` | List the local database and accepted shares. |
 | `admin` | Diagnose or maintain a home. |
 
 Supply file bytes in the same `mutate --request-file` operation as the record.
@@ -202,25 +202,46 @@ using the installed schema's exact definition ID.
 ]
 ```
 
-The recipient calls `share contributors submit` with the sealed grant and a
-mutation request. The receipt confirms upload to the publisher's private
-inbox. The publisher checks the current grant and creates the record only if
-the key is absent. `share contributors revoke` stops future acceptance under
-that grant. The read invitation and any issued upload permission expire on
-their own schedules.
+### Address a shared database
 
-The publisher records approved changes in its own mutation journal and
-automatically publishes encrypted Backup V2 checkpoints when Exemem supports
-them. Readers can catch up through `share files receive` and `share files follow`,
-then use `share get` to read an exact key from the verified cache. The accepted
-record carries the verified contributor key in `record.share_author`. Exemem
-serves the encrypted backup and restricts stream access. LastDB owns
-encryption and write validation. The publisher uses snapshots to establish
-or replace a recovery base.
+Run the recipient's daemon and accept the invitation into that node. The
+node registers the database immediately and marks it ready once it has
+verified the first recovery point. It follows updates automatically while
+running. Accept a replacement invitation on the same node to renew access.
+Readers can use the last verified copy offline.
 
-Required CI exercises local publication setup in both write modes and file
-import with the built CLI and daemon. The separate DEV operations verified
-automatic Files updates and three-node recovery of accepted writes with
+```sh
+lastdb share accept INVITATION --publisher PUBLISHER_KEY --name trip
+lastdb db list
+lastdb --db trip get photos/Comments --key-hash photo-42 --key-range comment-7
+lastdb --db trip get-keys photos/Comments --key-hash photo-42
+```
+
+`--data-dir` selects the daemon home. `--db` selects its database by ID or
+local name. Omitting it keeps the daemon's ordinary default. The publisher
+continues to run the publication daemon for its separate home and can use
+the publication ID there. An unknown database selector fails the request.
+Accept the invitation again to register an existing Files share. If the
+invitation has expired, use a fresh one from the publisher.
+
+Attach a write grant once with `lastdb share contributors accept trip --grant
+GRANT`, then use `lastdb --db trip mutate --request-file MUTATION`. Supply the
+schema definition ID in the ordinary mutation JSON. The contributor grant
+allows conditional create at an absent key for the named schema. A
+`submitted` receipt confirms upload to the publisher's private inbox. To retry
+the same request after a transport failure, pass the same `--mutation-id`.
+The publisher checks the current grant and commits allowed writes to its own
+mutation journal, retaining the verified contributor key. `share contributors
+revoke` stops future acceptance under that grant. Read invitations and issued
+upload permissions expire independently.
+
+Exemem serves encrypted Backup V2 recovery points and restricts stream
+access. LastDB owns encryption and write validation. The publisher uses
+snapshots to establish or replace a recovery base.
+
+Required CI exercises local publication setup in both write modes, ordinary
+database selection, and file import with the built CLI and daemon. Separate
+DEV operations verified automatic Files updates and three-node recovery of accepted writes with
 private contribution streams. [Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
 [Contributor DEV proof](https://github.com/EdgeVector/lastdb/pull/1437)
 

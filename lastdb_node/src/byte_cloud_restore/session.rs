@@ -55,9 +55,17 @@ impl RestoreSession {
         accepted: AcceptedBackup,
         mode: RestoreMode,
     ) -> Result<Self> {
-        accepted.validate()?;
         crate::offline_home::refuse_primary(destination)
             .map_err(|_| RestoreError::Invalid("destination"))?;
+        Self::begin_in(destination, accepted, mode)
+    }
+
+    pub(super) fn begin_in(
+        destination: &Path,
+        accepted: AcceptedBackup,
+        mode: RestoreMode,
+    ) -> Result<Self> {
+        accepted.validate()?;
         let parent = destination
             .parent()
             .ok_or(RestoreError::Invalid("destination parent"))?

@@ -174,11 +174,13 @@ export interface QueryRow {
  * Omit it to discover `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
  * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`.
  */
-export interface ConnectOptions {
+export interface ConnectOptions<DatabaseId extends string | undefined = undefined> {
   /** Canonical app id this client acts as. */
   appId: string;
   /** Path to the node's Unix-domain control socket. */
   socketPath?: string;
+  /** Database ID or local alias registered on this node. Omit for the default database. */
+  databaseId?: DatabaseId;
   /**
    * Headers attached to EVERY request this client sends (consent flow + data
    * path), under a per-call header of the same name (which wins).
@@ -670,6 +672,18 @@ export interface MutationResult {
   recordRevision: string;
   backgroundTasksDrained?: boolean;
   convergencePending?: boolean;
+}
+
+export interface MutationOptions {
+  /** UUID for a database-scoped submission. Reuse it with the same body on retry. */
+  mutationId?: string;
+}
+
+/** An append receipt from Exemem. The publisher may still reject the mutation. */
+export interface ShareSubmissionResult {
+  status: 'submitted';
+  mutationId: string;
+  submissionSequence: number;
 }
 
 /** `POST /api/schemas/declare`. The node hashes the definition. The SDK does not. */

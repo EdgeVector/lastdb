@@ -25,7 +25,7 @@ pub struct KeyComparisonContext {
 }
 
 impl KeyComparisonContext {
-    pub(crate) fn for_schema(schema: &Schema) -> Result<Self, SchemaError> {
+    pub fn for_schema(schema: &Schema) -> Result<Self, SchemaError> {
         let keys = schema.require_record_keys()?;
         let range_type = keys
             .primary

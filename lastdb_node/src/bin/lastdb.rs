@@ -18,6 +18,9 @@ use record_get_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
 use db_cmds::*;
+#[path = "lastdb/database_target.rs"]
+mod database_target;
+use database_target::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
 #[path = "lastdb/share_cmds.rs"]
@@ -148,11 +151,23 @@ fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
-    match cli.command.unwrap_or(Command::Status {
+    let command = cli.command.unwrap_or(Command::Status {
         json: false,
         contract: false,
         timeout: None,
-    }) {
+    });
+    if cli.db.is_some()
+        && !matches!(
+            &command,
+            Command::Get { .. }
+                | Command::GetKeys(_)
+                | Command::Mutate { .. }
+                | Command::Schema { .. }
+        )
+    {
+        return Err("--db requires get, get-keys, mutate, or schema show".into());
+    }
+    match command {
         Command::Status {
             json,
             contract,
@@ -163,13 +178,20 @@ fn run(cli: Cli) -> Result<(), String> {
         },
         Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
         Command::Share(action) => share_cmds::run(cli.data_dir, action),
+        Command::Db {
+            action: DatabaseCommand::List { json },
+        } => list_databases(cli.data_dir, json),
         Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
-            record_command(cli.data_dir, cmd)
+            record_command(DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }
         Command::Schema {
             action: SchemaInspectCommand::Show { name, json },
-        } => schema_show_command(cli.data_dir, &name, json),
+        } => schema_show_command(
+            &DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?,
+            &name,
+            json,
+        ),
         Command::App { action } => app_command(cli.data_dir, action),
     }
 }

@@ -34,3 +34,28 @@ pub struct Record {
 
 /// The reply of one record query: each stored record, by its API key.
 pub type QueryRecords = HashMap<KeyValue, Record>;
+
+impl Record {
+    /// Project the stored record to the ordinary query row.
+    pub fn from_stored(record: &lastdb_model::record_value::StoredRecord) -> Self {
+        let meta = record
+            .meta
+            .as_ref()
+            .filter(|meta| meta.source_file_name.is_some() || !meta.metadata.is_empty());
+        let metadata = (meta.is_some() || record.file.is_some() || record.inline_file.is_some())
+            .then(|| RecordMetadata {
+                source_file_name: meta.and_then(|meta| meta.source_file_name.clone()),
+                metadata: meta
+                    .filter(|meta| !meta.metadata.is_empty())
+                    .map(|meta| meta.metadata.clone().into_iter().collect()),
+                file: record.file.clone(),
+                inline_file: record.inline_file.clone(),
+            });
+        Self {
+            revision: record.stamp.revision(),
+            alternates: record.alternates.clone(),
+            fields: record.fields.clone().into_iter().collect(),
+            metadata,
+        }
+    }
+}

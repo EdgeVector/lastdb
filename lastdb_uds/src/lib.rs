@@ -18,6 +18,7 @@
 //! [`uds_router::dispatch`]'s `execute_data` callback.
 #![warn(missing_docs)]
 
+pub mod database_path;
 pub mod uds;
 pub mod uds_http;
 pub mod uds_router;

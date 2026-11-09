@@ -11,7 +11,8 @@ pub(super) fn read(
 ) -> Result<Vec<u8>, UdsHttpError> {
     let raw_blob = allow_owner_blob
         && method == "POST"
-        && target == "/api/db/put-blob"
+        && (target == "/api/db/put-blob"
+            || crate::database_path::split(target).is_some_and(|(_, path)| path == "db/put-blob"))
         && headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))

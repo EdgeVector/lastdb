@@ -150,6 +150,10 @@ macro_rules! heap_route_ctx_host {
 mod admin_routes;
 mod app_routes;
 mod batch_mutation_routes;
+mod database_mutation;
+mod database_read;
+mod database_routes;
+pub use database_routes::execute_database_request;
 mod db_compact_routes;
 mod deferred_mutation;
 mod dispatch;

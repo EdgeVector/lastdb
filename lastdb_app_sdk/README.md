@@ -74,6 +74,44 @@ for (const row of rows) {
 }
 ```
 
+## Work with a registered Share
+
+Pass the database ID or alias shown by `lastdb db list` to `connect` on the
+recipient's owner socket. `list`, `query`, `queryBatch`, `listSchemas`, and
+`mutate` use that database. `queryAll` uses the same database through `query`.
+Search, changes, and schema declaration are unavailable on the selected route.
+
+```ts
+import { randomUUID } from 'node:crypto';
+import { connect } from '@lastdb/app-sdk';
+
+const share = await connect({ appId: 'photos', databaseId: 'family-photos' });
+const comments = await share.query('photos/Comment', { filter: { HashKey: 'photo-7' } });
+
+// Attach the contributor grant on this node before submitting a write.
+// Remember the definition ID the app and publisher use for this schema.
+share.rememberDefinition('photos/Comment', commentDefinitionId);
+const mutationId = randomUUID();
+const receipt = await share.mutate('photos/Comment', {
+  mutationType: 'create',
+  expected: { type: 'absent' },
+  alternates: {},
+  key: { hash: 'photo-7', range: mutationId },
+  record: { text: 'Great photo' },
+}, { mutationId });
+if ('status' in receipt && receipt.status === 'submitted') {
+  console.log(`Submitted ${receipt.mutationId} at ${receipt.submissionSequence}`);
+}
+```
+
+A submission receipt confirms that Exemem accepted the private submission.
+LastDB on the publisher's node checks the grant and writes approved records.
+The receiver reads an approved record after the publisher publishes it and
+the receiver catches up. For a received Share, retry an uncertain submission
+with the same body and mutation ID. The SDK generates an ID if omitted and
+exposes it on `ShareSubmissionUncertainError` when the outcome is uncertain.
+Calls without `databaseId` retain the ordinary committed mutation receipt.
+
 ## Version handshake: is this node new enough for my app?
 
 Every strict request type on the node is `deny_unknown_fields`. Before this

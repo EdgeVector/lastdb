@@ -163,21 +163,43 @@ pub(in crate::handlers) fn format_rows(
 ) -> Vec<Value> {
     records
         .into_iter()
-        .map(|(key, record)| {
-            let mut row = serde_json::Map::new();
-            row.insert("key".into(), serde_json::json!(key));
-            row.insert("revision".into(), Value::String(record.revision));
-            row.insert("alternates".into(), serde_json::json!(record.alternates));
-            // These values already own their JSON. Serializing them through
-            // json! would recursively copy them before discarding the originals.
-            row.insert(
-                "fields".into(),
-                Value::Object(record.fields.into_iter().collect()),
-            );
-            if !compact {
-                row.insert("metadata".into(), serde_json::json!(record.metadata));
-            }
-            Value::Object(row)
-        })
+        .map(|(key, record)| format_row(key, record, compact))
         .collect()
+}
+
+fn format_row(key: KeyValue, record: fold_db::fold_db_core::query::Record, compact: bool) -> Value {
+    let mut row = serde_json::Map::new();
+    row.insert("key".into(), serde_json::json!(key));
+    row.insert("revision".into(), Value::String(record.revision));
+    row.insert("alternates".into(), serde_json::json!(record.alternates));
+    row.insert(
+        "fields".into(),
+        Value::Object(record.fields.into_iter().collect()),
+    );
+    if !compact {
+        row.insert("metadata".into(), serde_json::json!(record.metadata));
+    }
+    Value::Object(row)
+}
+
+/// Render an already ordered page read from one verified database view.
+pub fn verified_query_page(
+    records: Vec<(KeyValue, fold_db::fold_db_core::query::Record)>,
+    compact: bool,
+    total_count: Option<usize>,
+    limit: usize,
+    offset: usize,
+    has_more: bool,
+    next_cursor: Option<QueryCursor>,
+) -> Value {
+    let flags = PageFlags {
+        key_form: (!records.is_empty()).then_some(fold_db::db_operations::KeyForm::Api),
+    };
+    let rows = records
+        .into_iter()
+        .map(|(key, record)| format_row(key, record, compact))
+        .collect();
+    let mut payload = page_payload(rows, total_count, limit, offset, has_more, flags);
+    payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
+    payload
 }

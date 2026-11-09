@@ -3,7 +3,7 @@ use super::*;
 mod change_rules;
 use change_rules::AppChangesRequest;
 mod alternate_list;
-mod list_rules;
+pub(in crate::exec) mod list_rules;
 use list_rules::ListRecordKeysRequest;
 
 #[derive(Deserialize)]

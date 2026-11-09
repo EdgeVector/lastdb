@@ -4,7 +4,12 @@ use lastdb_node::host::Host;
 use std::sync::{atomic::AtomicBool, Arc};
 use tokio::task::JoinHandle;
 
-type BackgroundTasks = (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>);
+type BackgroundTasks = (
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+);
 
 pub(crate) fn spawn(
     runtime: &tokio::runtime::Runtime,
@@ -31,5 +36,6 @@ pub(crate) fn spawn(
         ),
         backup,
         lastdb_node::shared_sync::spawn_automatic(Arc::clone(host), Arc::clone(shutdown)),
+        lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
     ))
 }

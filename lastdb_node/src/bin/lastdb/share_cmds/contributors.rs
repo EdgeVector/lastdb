@@ -1,7 +1,7 @@
 use super::{read_contact, read_file, runtime, write_file};
 use crate::ShareContributorCommand;
 use cloud_backup_protocol::{Digest, Id};
-use lastdb_node::share_contribution::{self, GrantRequest, WriteRequest, WriteRule};
+use lastdb_node::share_contribution::{self, GrantRequest, WriteRule};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::path::Path;
@@ -43,23 +43,8 @@ pub(super) fn run(identity_home: &Path, action: ShareContributorCommand) -> Resu
             share_contribution::revoke(&home, identity_home, &writer, expected_version)?;
             println!("{}", json!({"revoked": true}));
         }
-        ShareContributorCommand::Submit {
-            grant,
-            publisher,
-            request_file,
-        } => {
-            let publisher =
-                Digest::try_from(publisher).map_err(|_| "invalid publisher public key")?;
-            let sealed = read_file(&grant, MAX_INPUT_BYTES)?;
-            let request: WriteRequest =
-                read_json(&request_file, "invalid contributor write request")?;
-            let sequence = runtime()?.block_on(share_contribution::submit(
-                identity_home,
-                &sealed,
-                &publisher,
-                request,
-            ))?;
-            println!("{}", json!({"sequence": sequence, "status": "uploaded"}));
+        ShareContributorCommand::Accept { .. } => {
+            unreachable!("grant attachment is routed to the node")
         }
     }
     Ok(())

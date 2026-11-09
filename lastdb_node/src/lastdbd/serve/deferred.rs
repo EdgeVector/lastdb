@@ -34,7 +34,7 @@ fn serve_reserved(
     completion: ConnectionWork,
     mut body: body_budget::BodyLease,
 ) -> std::io::Result<()> {
-    let Some((request, context)) = uds_http::receive_connection(
+    let Some((mut request, context)) = uds_http::receive_connection(
         &mut stream,
         &server.host.user_hash,
         SocketKind::Owner,
@@ -63,7 +63,7 @@ fn serve_reserved(
             return Ok(());
         }
     }
-    let response = route_request(&server.handle, &server.host, &request, &context);
+    let response = route_request(&server.handle, &server.host, &mut request, &context);
     uds_http::finish_connection(&mut stream, &response)
 }
 

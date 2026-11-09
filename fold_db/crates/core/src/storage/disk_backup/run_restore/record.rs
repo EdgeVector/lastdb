@@ -8,10 +8,10 @@ use crate::storage::format::{
     FIELD_KEYS_NAMESPACE, RECORDS_COLLECTION, SCHEMAS_NAMESPACE,
 };
 use cloud_backup_protocol::Digest;
-use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::{
     InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
 };
+use lastdb_model::{field_key_codec::FieldKeyCodec, record_space::record_space_uuid};
 use lastdb_storage_policy::backup_decode::{
     NATIVE_STREAM_LOOKUP_READ_BYTES, RECORD_BODY_MAX_BYTES,
 };
@@ -20,6 +20,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
+
+mod database;
+pub use database::{SnapshotRecordPage, SnapshotSchema};
 
 /// One schema and primary key to read after the staged snapshot verifies.
 pub struct StagedRecordQuery<'a> {
@@ -115,17 +118,44 @@ fn read_at_root(
     budget.keys = 5;
     let mut read = native.main.fork_bounded(budget).map_err(map)?;
     let schema = schema(&mut read, query.schema)?;
+    let codec = record_codec(&mut read, &schema, account_key)?;
+    let address = record_address(&schema, &codec, &query.key)?;
+    let Some(record) = read_record(&mut read, &address)? else {
+        return Ok(None);
+    };
+    check_record_address(&schema, &codec, &record, address.as_str())?;
+    if !record.is_live() {
+        return Err(invalid("staged record payload differs from its key"));
+    }
+    let inline_file = if query.include_inline {
+        read_inline(&mut read, &address, &record)?
+    } else {
+        None
+    };
+    Ok(Some(StagedRecord {
+        key: record.key,
+        fields: record.fields,
+        inline_file,
+        share_author: record
+            .meta
+            .and_then(|mut metadata| metadata.metadata.remove("share_author"))
+            .and_then(|author| Digest::try_from(author).ok()),
+    }))
+}
+
+fn record_codec(
+    read: &mut RunRead,
+    schema: &Schema,
+    account_key: &[u8; 32],
+) -> StorageResult<FieldKeyCodec> {
     let primary = &schema
         .require_record_keys()
         .map_err(|_| invalid("staged schema has no record keys"))?
         .primary;
-    primary
-        .validate_coordinates(query.key.hash.as_deref(), query.key.range.as_deref())
-        .map_err(|_| invalid("staged record key differs from its schema"))?;
     let profile = primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
-    let space = record_space_uuid(query.schema);
+    let space = record_space_uuid(&schema.name);
     let rows = node_bundle_storage_keys(&space)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
     let rows = read
         .get_many_bounded(&rows, NODE_KEY_ROW_MAX_BYTES)
@@ -143,34 +173,34 @@ fn read_at_root(
         metadata.as_deref(),
         wrap.as_deref(),
     )?;
-    let codec = bundle.key_codec(profile);
-    let address = RecordAddress::new(&codec, &space, &query.key)
-        .map_err(|_| invalid("staged record address"))?;
-    let Some(record) = read_record(&mut read, &address)? else {
-        return Ok(None);
-    };
-    primary
-        .validate_coordinates(record.key.hash.as_deref(), record.key.range.as_deref())
-        .map_err(|_| invalid("staged record payload coordinates"))?;
-    let stored_address = RecordAddress::new(&codec, &space, &record.key)
-        .map_err(|_| invalid("staged record payload address"))?;
-    if !record.is_live() || stored_address != address {
+    Ok(bundle.key_codec(profile))
+}
+
+fn record_address(
+    schema: &Schema,
+    codec: &FieldKeyCodec,
+    key: &KeyValue,
+) -> StorageResult<RecordAddress> {
+    schema
+        .require_record_keys()
+        .map_err(|_| invalid("staged schema has no record keys"))?
+        .primary
+        .validate_coordinates(key.hash.as_deref(), key.range.as_deref())
+        .map_err(|_| invalid("staged record key differs from its schema"))?;
+    RecordAddress::new(codec, &record_space_uuid(&schema.name), key)
+        .map_err(|_| invalid("staged record address"))
+}
+
+fn check_record_address(
+    schema: &Schema,
+    codec: &FieldKeyCodec,
+    record: &StoredRecord,
+    stored: &str,
+) -> StorageResult<()> {
+    if record_address(schema, codec, &record.key)?.as_str() != stored {
         return Err(invalid("staged record payload differs from its key"));
     }
-    let inline_file = if query.include_inline {
-        read_inline(&mut read, &address, &record)?
-    } else {
-        None
-    };
-    Ok(Some(StagedRecord {
-        key: record.key,
-        fields: record.fields,
-        inline_file,
-        share_author: record
-            .meta
-            .and_then(|mut metadata| metadata.metadata.remove("share_author"))
-            .and_then(|author| Digest::try_from(author).ok()),
-    }))
+    Ok(())
 }
 
 fn schema(read: &mut RunRead, name: &str) -> StorageResult<Schema> {

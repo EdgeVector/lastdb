@@ -68,9 +68,16 @@ fn route_app_verb(
 fn route_request(
     handle: &tokio::runtime::Handle,
     host: &Arc<Host>,
-    req: &UdsRequest,
+    req: &mut UdsRequest,
     ctx: &AccessContext,
 ) -> UdsResponse {
+    if req.target == lastdb_uds::database_path::DATABASES_PATH
+        || req
+            .target
+            .starts_with(lastdb_uds::database_path::DATABASE_SCOPE_PREFIX)
+    {
+        return exec::block_on_route(handle, ctx, exec::execute_database_request(req, ctx, host));
+    }
     let path = req.target.split(['?', '#']).next();
     if req.method == "GET" && path == Some("/health") {
         return storage_health_response(host);

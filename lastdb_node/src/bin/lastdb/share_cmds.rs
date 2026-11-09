@@ -1,15 +1,17 @@
-use super::{admin_cmds::guest_stage, cloud_cmds::FreshHome, ShareCommand, ShareFilesSelection};
+use super::{
+    cloud_cmds::FreshHome, parse_json_response, post_json_with_timeout, DatabaseTarget,
+    ShareCommand, ShareContributorCommand,
+};
+use base64::Engine as _;
 use cloud_backup_client::byte_backup::ShareEnvironment;
-use cloud_backup_protocol::{Digest, Id};
-use fold_db::schema::types::KeyValue;
-use lastdb_node::byte_cloud_restore::StagedRecordQuery;
-use lastdb_node::share_cache::ShareCache;
+use cloud_backup_protocol::Digest;
 use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
 use lastdb_node::share_publication;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[path = "share_cmds/contributors.rs"]
 mod contributors;
@@ -17,6 +19,49 @@ mod contributors;
 mod files;
 
 pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
+    match action {
+        ShareCommand::Accept {
+            invitation,
+            publisher,
+            name,
+        } => {
+            let sealed = read_file(&invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
+            let body = serde_json::json!({
+                "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
+                "publisher": publisher,
+                "name": name,
+            });
+            return database_request(data_dir, None, "/api/databases/accept", body);
+        }
+        ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
+            let sealed = read_file(&grant, 64 * 1024)?;
+            let body = serde_json::json!({
+                "grant": base64::engine::general_purpose::STANDARD.encode(sealed),
+            });
+            return database_request(data_dir, Some(&db), "/api/contributors", body);
+        }
+        action => run_offline(data_dir, action),
+    }
+}
+
+fn database_request(
+    data_dir: Option<PathBuf>,
+    selector: Option<&str>,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<(), String> {
+    let target = DatabaseTarget::open(data_dir, selector)?;
+    let raw = post_json_with_timeout(
+        &target.socket,
+        &target.path(path),
+        &body,
+        Duration::from_secs(10),
+    )?;
+    println!("{}", parse_json_response(&raw, "database registration")?);
+    Ok(())
+}
+
+fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
     let identity_home = data_dir
         .filter(|p| p.is_absolute())
         .ok_or("share requires an explicit absolute --data-dir identity home")?;
@@ -55,54 +100,10 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(),
             println!("{}", serde_json::json!({"invitation": out}));
             Ok(())
         }
-        ShareCommand::Accept {
-            invitation,
-            publisher,
-            selection,
-        } => {
-            let publisher =
-                Digest::try_from(publisher).map_err(|_| "invalid publisher public key")?;
-            let sealed = read_file(&invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
-            let recipient = share_publication::recipient(&identity_home)?;
-            let opened = recipient
-                .open(&sealed, &publisher)
-                .map_err(|e| e.to_string())?;
-            guest_stage::stage(
-                selection,
-                opened.permission,
-                publisher,
-                opened.publication_key,
-            )
-        }
-        ShareCommand::Get {
-            share,
-            schema,
-            key_hash,
-            key_range,
-        } => get(&identity_home, share, &schema, key_hash, key_range),
+        ShareCommand::Accept { .. } => unreachable!("accept is routed to the node"),
         ShareCommand::Contributors(action) => contributors::run(&identity_home, action),
         ShareCommand::Files(action) => files::run(&identity_home, action),
     }
-}
-
-fn get(
-    home: &Path,
-    share: ShareFilesSelection,
-    schema: &str,
-    key_hash: String,
-    key_range: Option<String>,
-) -> Result<(), String> {
-    let handle = Id::try_from(share.handle).map_err(|_| "invalid share UUID")?;
-    let query = StagedRecordQuery::new(schema, KeyValue::new(Some(key_hash), key_range), false)
-        .map_err(|_| "invalid share record coordinates")?;
-    let cache = ShareCache::open(&share.cache, home).map_err(|e| e.to_string())?;
-    let reader = cache.reader(&handle).map_err(|e| e.to_string())?;
-    let record = reader.read_record(&query).map_err(|e| e.to_string())?;
-    println!(
-        "{}",
-        serde_json::json!({"handle": handle, "snapshot": reader.snapshot(), "record": record})
-    );
-    Ok(())
 }
 
 fn read_contact(path: &Path, recipient_key: String) -> Result<ShareContact, String> {

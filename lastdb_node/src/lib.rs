@@ -23,6 +23,7 @@ pub mod log_rotation;
 pub mod offline_home;
 pub mod offline_recount;
 pub mod ops;
+pub mod registered_share;
 pub mod retention_audit;
 pub mod schema_resolver_host;
 pub mod schema_sync_audit;

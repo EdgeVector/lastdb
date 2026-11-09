@@ -14,11 +14,11 @@ pub(crate) fn percent_encode_query(value: &str) -> String {
 }
 
 pub(crate) fn list_record_keys(
-    data_dir: Option<PathBuf>,
+    target: &DatabaseTarget,
     args: &crate::cli_defs::RecordListArgs,
 ) -> Result<(), String> {
-    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    if lastdb_node::health_alert::probe_health(&socket).is_err() {
+    let socket = &target.socket;
+    if lastdb_node::health_alert::probe_health(socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
             socket.display()
@@ -42,8 +42,8 @@ pub(crate) fn list_record_keys(
         path.push_str(&percent_encode_query(cursor));
     }
     let response = get_path(
-        &socket,
-        &path,
+        socket,
+        &target.path(&path),
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
     let value = parse_json_response(&response, "list")?;
