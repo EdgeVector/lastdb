@@ -4,9 +4,11 @@ use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{AccountId, Digest, Id, RecoveryDescriptor};
 use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::PackRuntime;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+#[derive(Clone)]
 pub(super) struct Source {
     runtime: Arc<PackRuntime>,
     pub account: AccountId,
@@ -14,6 +16,7 @@ pub(super) struct Source {
     pub recovery: RecoveryDescriptor,
     pub key: Zeroizing<[u8; 32]>,
     pub publication_stream: Option<Id>,
+    publication_home: Option<PathBuf>,
     pub retain_source_manifest: bool,
 }
 
@@ -41,6 +44,7 @@ impl Source {
             runtime,
             key: Zeroizing::new(keys.encryption_key()),
             publication_stream: None,
+            publication_home: None,
             retain_source_manifest: false,
         })
     }
@@ -64,6 +68,7 @@ impl Source {
             },
             key: Zeroizing::new(keys.encryption_key()),
             publication_stream: None,
+            publication_home: None,
             retain_source_manifest: true,
         })
     }
@@ -76,6 +81,15 @@ impl Source {
             &home.join("data"),
             &identity.content_key,
         )?;
+        Self::from_publication(home, runtime, identity, true)
+    }
+
+    pub fn from_publication(
+        home: &Path,
+        runtime: Arc<PackRuntime>,
+        identity: PublicationSource,
+        retain_source_manifest: bool,
+    ) -> Result<Self> {
         Ok(Self {
             source_home: Id::try_from(runtime.native_home_id().to_string())?,
             runtime,
@@ -88,7 +102,8 @@ impl Source {
             },
             key: identity.content_key,
             publication_stream: Some(identity.id),
-            retain_source_manifest: true,
+            publication_home: Some(home.to_owned()),
+            retain_source_manifest,
         })
     }
     pub fn saved(&self, request_id: Id, endpoint: String) -> Saved {
@@ -117,13 +132,19 @@ impl Source {
     }
     pub fn validate(&self, saved: &Saved) -> Result<()> {
         saved.validate()?;
-        if saved.account != self.account || saved.source_home != self.source_home {
+        if saved.account != self.account
+            || saved.source_home != self.source_home
+            || (self.publication_stream.is_some()
+                && !matches!(saved.work, super::work::Work::Snapshot { .. }))
+        {
             return Err(BackupError::Identity);
         }
         if let Some(begin) = &saved.begin {
             if begin.required_destinations != [Destination::R2, Destination::B2]
                 || self.publication_stream.as_ref().is_some_and(|id| {
-                    &begin.job.stream.stream_id != id || begin.r2_multipart.is_some()
+                    &begin.job.stream.stream_id != id
+                        || begin.r2_multipart.is_some()
+                        || !begin.recovery_dependencies.is_empty()
                 })
             {
                 return Err(BackupError::Identity);
@@ -182,7 +203,17 @@ impl Source {
         saved.work.validate(Some(begin))?;
         match &saved.work {
             Work::Snapshot { minimum } => {
-                let capture = if saved.begin_submitted {
+                let capture = if let Some(home) = &self.publication_home {
+                    self.runtime
+                        .prepare_publication_backup_capture(
+                            begin.clone(),
+                            &self.key,
+                            self.recovery.clone(),
+                            !saved.begin_submitted,
+                            || capture_share_edit_gate(home),
+                        )
+                        .await?
+                } else if saved.begin_submitted {
                     self.runtime
                         .prepare_record_backup_capture(
                             begin.clone(),
@@ -230,9 +261,16 @@ impl Source {
         store: &super::store::Store,
     ) -> Result<super::capture::Capture> {
         match &saved.work {
-            super::work::Work::Snapshot { .. } => Ok(super::capture::Capture::Snapshot(
-                self.runtime.resume_byte_backup_capture(&self.key).await?,
-            )),
+            super::work::Work::Snapshot { .. } => {
+                let capture = if self.publication_stream.is_some() {
+                    self.runtime
+                        .resume_publication_backup_capture(&self.key)
+                        .await?
+                } else {
+                    self.runtime.resume_byte_backup_capture(&self.key).await?
+                };
+                Ok(super::capture::Capture::Snapshot(capture))
+            }
             super::work::Work::MutationLog { context } => {
                 let core = self
                     .runtime
@@ -272,4 +310,11 @@ impl Source {
             .cancel_unmaterialized_mutation_log_capture(&saved.request_id)?;
         Ok(())
     }
+}
+
+fn capture_share_edit_gate(home: &Path) -> fold_db::storage::error::StorageResult<std::fs::File> {
+    use fold_db::storage::StorageError;
+    super::share_write_gate::try_capture(home)
+        .map_err(|_| StorageError::InvalidOperation("cannot open the share edit gate".into()))?
+        .ok_or(StorageError::PublicationEditPending)
 }

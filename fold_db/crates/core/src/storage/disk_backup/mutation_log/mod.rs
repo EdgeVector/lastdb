@@ -279,6 +279,11 @@ fn frontiers(v2: &V2Home) -> Frontiers {
 }
 
 impl PackRuntime {
+    /// Durable main-home position, independent of whether the log is enabled.
+    pub fn durable_main_frontier(&self) -> u64 {
+        frontiers(&self.physical).main
+    }
+
     pub fn configure_mutation_log(&self, enabled: bool) -> StorageResult<()> {
         self.mutation_log.configure(enabled)
     }

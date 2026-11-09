@@ -189,6 +189,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         session_ledger,
         session_heartbeat,
         socket_path,
+        share,
     } = run;
     let note_fatal =
         |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
@@ -233,7 +234,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     );
 
     let (sampler_task, automatic_backup_task, shared_sync_task) =
-        background::spawn(&runtime, &host, &shutdown_flag);
+        background::spawn(&runtime, &host, &shutdown_flag, share).map_err(&note_fatal)?;
 
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
@@ -293,6 +294,11 @@ fn run() -> Result<(), String> {
     let socket_path = cli.socket_path;
 
     let home = host::resolve_home(cli.data_dir)?;
+    let share = cli
+        .share_owner_home
+        .as_deref()
+        .map(|owner| lastdb_node::share_publication::prepare_automatic(&home, owner))
+        .transpose()?;
     let data_dir = home.join("data");
     init_core_warm_bytes()?;
 
@@ -336,5 +342,6 @@ fn run() -> Result<(), String> {
         session_ledger,
         session_heartbeat,
         socket_path,
+        share,
     })
 }

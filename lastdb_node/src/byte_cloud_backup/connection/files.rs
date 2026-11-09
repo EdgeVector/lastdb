@@ -53,6 +53,30 @@ impl Directory {
         Ok(())
     }
 
+    pub(crate) fn open_lock(&self, name: &str) -> Result<File> {
+        self.check()?;
+        let descriptor = fs::openat(
+            &self.file,
+            name,
+            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::from_bits_truncate(0o600),
+        )
+        .map_err(std::io::Error::from)?;
+        let file = File::from(descriptor);
+        private(&file.metadata()?)?;
+        Ok(file)
+    }
+
+    pub(crate) fn remove_exact(&self, name: &str, expected: &[u8]) -> Result<()> {
+        let current = self.read(name)?;
+        if current.as_deref().map(Vec::as_slice) != Some(expected) {
+            return Err(BackupError::Identity);
+        }
+        fs::unlinkat(&self.file, name, AtFlags::empty()).map_err(std::io::Error::from)?;
+        self.file.sync_all()?;
+        Ok(())
+    }
+
     pub fn read(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
         self.check()?;
         let descriptor = match fs::openat(

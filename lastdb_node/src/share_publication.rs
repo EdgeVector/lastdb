@@ -16,10 +16,11 @@ use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{atomic::AtomicBool, Arc};
 use zeroize::Zeroizing;
 
-pub const MARKER_FILE: &str = "share-publication.json";
+pub use crate::byte_cloud_backup::PUBLICATION_MARKER as MARKER_FILE;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +43,53 @@ struct PublicationIdentity {
     content_key: Zeroizing<[u8; 32]>,
     environment: ShareEnvironment,
     signer: Ed25519KeyPair,
+}
+
+/// Validated configuration for one running publication home. The owner's
+/// signing key is used to prepare this binding and is not kept in the daemon.
+pub struct AutomaticPublication {
+    home: PathBuf,
+    owner_home: PathBuf,
+    environment: ShareEnvironment,
+    source: PublicationSource,
+}
+
+pub fn prepare_automatic(home: &Path, owner_home: &Path) -> Result<AutomaticPublication, String> {
+    let identity = load(home, owner_home)?;
+    identity.client(owner_home)?;
+    crate::byte_cloud_backup::automatic_publication::preflight(home).map_err(|e| e.to_string())?;
+    let environment = identity.environment;
+    Ok(AutomaticPublication {
+        home: home.to_owned(),
+        owner_home: owner_home.to_owned(),
+        environment,
+        source: identity.into_source(),
+    })
+}
+
+impl AutomaticPublication {
+    pub fn spawn(
+        self,
+        host: Arc<crate::host::Host>,
+        shutdown: Arc<AtomicBool>,
+    ) -> Result<tokio::task::JoinHandle<()>, String> {
+        let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+        let keys = E2eKeys::from_ed25519_seed(&seed).map_err(|_| "invalid live publication key")?;
+        if host.home != self.home || keys.encryption_key() != *self.source.content_key {
+            return Err("running database differs from the prepared publication".into());
+        }
+        let Self {
+            source,
+            owner_home,
+            environment,
+            ..
+        } = self;
+        let account = source.account.clone();
+        crate::byte_cloud_backup::automatic_publication::spawn(host, shutdown, source, move || {
+            publication_client(&owner_home, &account, environment)
+        })
+        .map_err(|e| e.to_string())
+    }
 }
 
 /// Prepare a new ordinary database identity, separate from the owner's identity.
@@ -101,34 +149,49 @@ fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
 impl PublicationIdentity {
     /// Read the existing owner's credentials in place and pin their issuer.
     fn client(&self, owner_home: &Path) -> Result<ByteBackupClient, String> {
-        let bytes = owned(owner_home)?
-            .read(crate::cloud::CLOUD_CREDENTIALS_FILE)
-            .map_err(|e| e.to_string())?
-            .ok_or("share publisher has no saved Exemem credentials")?;
-        let credentials = crate::cloud::SavedCredentials::parse(&bytes)
-            .map_err(|_| "invalid publisher cloud credentials")?;
-        let environment = match self.environment {
-            ShareEnvironment::Dev => Environment::Dev,
-            ShareEnvironment::Prod => Environment::Prod,
-        };
-        let endpoint = exemem_api_url_for(environment);
-        if credentials.api_url != endpoint
-            || credentials.api_key.is_empty()
-            || credentials
-                .connection
-                .as_ref()
-                .is_some_and(|c| c.account_id != self.account)
-        {
-            return Err(
-                "saved credentials do not match the share publisher and environment".into(),
-            );
-        }
-        ByteBackupClient::from_auth(AuthClient::new(
-            endpoint.to_owned(),
-            credentials.api_key.as_str().to_owned(),
-        ))
-        .map_err(|e| e.to_string())
+        publication_client(owner_home, &self.account, self.environment)
     }
+
+    fn into_source(self) -> PublicationSource {
+        PublicationSource {
+            id: self.id,
+            publisher: self.publisher,
+            account: self.account,
+            content_key: self.content_key,
+        }
+    }
+}
+
+fn publication_client(
+    owner_home: &Path,
+    account: &AccountId,
+    environment: ShareEnvironment,
+) -> Result<ByteBackupClient, String> {
+    let bytes = owned(owner_home)?
+        .read(crate::cloud::CLOUD_CREDENTIALS_FILE)
+        .map_err(|e| e.to_string())?
+        .ok_or("share publisher has no saved Exemem credentials")?;
+    let credentials = crate::cloud::SavedCredentials::parse(&bytes)
+        .map_err(|_| "invalid publisher cloud credentials")?;
+    let environment = match environment {
+        ShareEnvironment::Dev => Environment::Dev,
+        ShareEnvironment::Prod => Environment::Prod,
+    };
+    let endpoint = exemem_api_url_for(environment);
+    if credentials.api_url != endpoint
+        || credentials.api_key.is_empty()
+        || credentials
+            .connection
+            .as_ref()
+            .is_some_and(|c| &c.account_id != account)
+    {
+        return Err("saved credentials do not match the share publisher and environment".into());
+    }
+    ByteBackupClient::from_auth(AuthClient::new(
+        endpoint.to_owned(),
+        credentials.api_key.as_str().to_owned(),
+    ))
+    .map_err(|e| e.to_string())
 }
 
 /// Publish this separate home using the owner's existing Backup V2 authority.
@@ -139,12 +202,7 @@ pub async fn publish(
 ) -> Result<StoppedBackupReport, String> {
     let identity = load(home, owner_home)?;
     let client = identity.client(owner_home)?;
-    let source = PublicationSource {
-        id: identity.id,
-        publisher: identity.publisher,
-        account: identity.account,
-        content_key: identity.content_key,
-    };
+    let source = identity.into_source();
     backup_publication_stopped(home, request_id, source, client)
         .await
         .map_err(|error| error.to_string())

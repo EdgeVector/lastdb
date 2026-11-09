@@ -1,5 +1,5 @@
 //! An exact record read from the same inactive native root as the restore proof.
-use super::{invalid, map, RunRestoreGuard, StorageResult};
+use super::{invalid, map, RunNodeGuard, RunRestoreGuard, StorageResult};
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
 use crate::storage::format::{
@@ -18,6 +18,7 @@ use laststore::disk_run::{home::RunRead, MAX_RUN_KEY_BYTES};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// One schema and primary key to read after the staged snapshot verifies.
 pub struct StagedRecordQuery<'a> {
@@ -58,6 +59,13 @@ pub struct StagedRecord {
     inline_file: Option<InlineFile>,
 }
 
+impl StagedRecord {
+    /// The authenticated fields of this exact primary record.
+    pub fn fields(&self) -> &BTreeMap<String, Value> {
+        &self.fields
+    }
+}
+
 impl RunRestoreGuard {
     /// Read one primary key while the verified native root remains locked.
     pub fn read_staged_record(
@@ -65,65 +73,97 @@ impl RunRestoreGuard {
         query: &StagedRecordQuery<'_>,
         account_key: &[u8; 32],
     ) -> StorageResult<Option<StagedRecord>> {
-        // One catalog row, two key bundle rows, one record and one inline row.
-        let mut budget = super::read_budget();
-        budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
-        budget.keys = 5;
-        let mut read = self.native.main.fork_bounded(budget).map_err(map)?;
-        let schema = schema(&mut read, query.schema)?;
-        let primary = &schema
-            .require_record_keys()
-            .map_err(|_| invalid("staged schema has no record keys"))?
-            .primary;
-        primary
-            .validate_coordinates(query.key.hash.as_deref(), query.key.range.as_deref())
-            .map_err(|_| invalid("staged record key differs from its schema"))?;
-        let profile = primary
-            .range_profile()
-            .map_err(|_| invalid("staged schema range profile"))?;
-        let space = record_space_uuid(query.schema);
-        let rows = node_bundle_storage_keys(&space)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
-        let rows = read
-            .get_many_bounded(&rows, NODE_KEY_ROW_MAX_BYTES)
-            .map_err(map)?
-            .into_iter()
-            .collect::<laststore::Result<Vec<_>>>()
-            .map_err(map)?;
-        let [metadata, wrap] = rows.as_slice() else {
-            return Err(invalid("staged record key bundle batch"));
-        };
-        let bundle = open_frozen_typed_bundle(
-            &space,
-            profile,
-            account_key,
-            metadata.as_deref(),
-            wrap.as_deref(),
-        )?;
-        let codec = bundle.key_codec(profile);
-        let address = RecordAddress::new(&codec, &space, &query.key)
-            .map_err(|_| invalid("staged record address"))?;
-        let Some(record) = read_record(&mut read, &address)? else {
-            return Ok(None);
-        };
-        primary
-            .validate_coordinates(record.key.hash.as_deref(), record.key.range.as_deref())
-            .map_err(|_| invalid("staged record payload coordinates"))?;
-        let stored_address = RecordAddress::new(&codec, &space, &record.key)
-            .map_err(|_| invalid("staged record payload address"))?;
-        if !record.is_live() || stored_address != address {
-            return Err(invalid("staged record payload differs from its key"));
-        }
-        let inline_file = if query.include_inline {
-            read_inline(&mut read, &address, &record)?
-        } else {
-            None
-        };
-        Ok(Some(StagedRecord {
-            key: record.key,
-            fields: record.fields,
-            inline_file,
-        }))
+        read_at_root(&self.native, query, account_key)
     }
+}
+
+/// A read-only native root that matches the caller's authenticated stage proof.
+pub struct RunSnapshotReader(RunNodeGuard);
+
+impl RunSnapshotReader {
+    pub fn open(
+        path: &Path,
+        account_key: &[u8; 32],
+        verified_root: &cloud_backup_protocol::NativeRoot,
+    ) -> StorageResult<Self> {
+        let native = RunNodeGuard::open(path, account_key)?;
+        native.profile.validate_root(verified_root)?;
+        native.require_empty_local_cas()?;
+        Ok(Self(native))
+    }
+
+    pub fn read_record(
+        &self,
+        query: &StagedRecordQuery<'_>,
+        account_key: &[u8; 32],
+    ) -> StorageResult<Option<StagedRecord>> {
+        read_at_root(&self.0, query, account_key)
+    }
+}
+
+fn read_at_root(
+    native: &RunNodeGuard,
+    query: &StagedRecordQuery<'_>,
+    account_key: &[u8; 32],
+) -> StorageResult<Option<StagedRecord>> {
+    // One catalog row, two key bundle rows, one record and one inline row.
+    let mut budget = super::read_budget();
+    budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
+    budget.keys = 5;
+    let mut read = native.main.fork_bounded(budget).map_err(map)?;
+    let schema = schema(&mut read, query.schema)?;
+    let primary = &schema
+        .require_record_keys()
+        .map_err(|_| invalid("staged schema has no record keys"))?
+        .primary;
+    primary
+        .validate_coordinates(query.key.hash.as_deref(), query.key.range.as_deref())
+        .map_err(|_| invalid("staged record key differs from its schema"))?;
+    let profile = primary
+        .range_profile()
+        .map_err(|_| invalid("staged schema range profile"))?;
+    let space = record_space_uuid(query.schema);
+    let rows = node_bundle_storage_keys(&space)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
+    let rows = read
+        .get_many_bounded(&rows, NODE_KEY_ROW_MAX_BYTES)
+        .map_err(map)?
+        .into_iter()
+        .collect::<laststore::Result<Vec<_>>>()
+        .map_err(map)?;
+    let [metadata, wrap] = rows.as_slice() else {
+        return Err(invalid("staged record key bundle batch"));
+    };
+    let bundle = open_frozen_typed_bundle(
+        &space,
+        profile,
+        account_key,
+        metadata.as_deref(),
+        wrap.as_deref(),
+    )?;
+    let codec = bundle.key_codec(profile);
+    let address = RecordAddress::new(&codec, &space, &query.key)
+        .map_err(|_| invalid("staged record address"))?;
+    let Some(record) = read_record(&mut read, &address)? else {
+        return Ok(None);
+    };
+    primary
+        .validate_coordinates(record.key.hash.as_deref(), record.key.range.as_deref())
+        .map_err(|_| invalid("staged record payload coordinates"))?;
+    let stored_address = RecordAddress::new(&codec, &space, &record.key)
+        .map_err(|_| invalid("staged record payload address"))?;
+    if !record.is_live() || stored_address != address {
+        return Err(invalid("staged record payload differs from its key"));
+    }
+    let inline_file = if query.include_inline {
+        read_inline(&mut read, &address, &record)?
+    } else {
+        None
+    };
+    Ok(Some(StagedRecord {
+        key: record.key,
+        fields: record.fields,
+        inline_file,
+    }))
 }
 
 fn schema(read: &mut RunRead, name: &str) -> StorageResult<Schema> {

@@ -7,7 +7,7 @@ use super::{
 use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::publication::HeadReadResult;
 use cloud_backup_protocol::v2::AcceptedBackup;
-use cloud_backup_protocol::{Digest, RecoveryDescriptor};
+use cloud_backup_protocol::{Digest, NativeRoot, RecoveryDescriptor};
 use fold_db::storage::disk_pack::run_restore::RunRestoreGuard;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,10 @@ pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQue
 impl RestoreSession {
     /// Select the current independent snapshot authorized by a guest permission.
     pub async fn begin_guest(destination: &Path, reader: &ByteBackupReader) -> Result<Self> {
+        Self::begin_recipient(destination, Self::guest_snapshot(reader).await?)
+    }
+
+    pub(crate) async fn guest_snapshot(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
         let stream = reader
             .guest_stream()
             .ok_or(RestoreError::Invalid("guest reader"))?;
@@ -34,7 +38,8 @@ impl RestoreSession {
         if &accepted.job().stream != stream {
             return Err(RestoreError::Invalid("guest stream"));
         }
-        Self::begin_recipient(destination, accepted)
+        require_independent(&accepted)?;
+        Ok(accepted)
     }
 
     /// Reserve a private workspace for an independent accepted snapshot.
@@ -57,6 +62,18 @@ impl RestoreSession {
             .with_verified_recipient_stage(reader, content_key, publisher_public_key, |_, _| Ok(()))
             .await?;
         Ok(data)
+    }
+
+    pub(crate) async fn stage_guest_snapshot(
+        &mut self,
+        reader: &ByteBackupReader,
+        content_key: Zeroizing<[u8; 32]>,
+        publisher_public_key: Digest,
+    ) -> Result<(PathBuf, NativeRoot)> {
+        self.with_verified_recipient_stage(reader, content_key, publisher_public_key, |proof, _| {
+            proof.native_root().map_err(RestoreError::native_proof)
+        })
+        .await
     }
 
     /// Stage the exact guest snapshot and read one primary key from its held root.

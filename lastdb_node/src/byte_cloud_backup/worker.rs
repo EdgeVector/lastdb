@@ -43,7 +43,9 @@ pub(super) async fn run(
         return close(source, store, saved, client, pause).await;
     }
     setup(source, store, saved, client, pause).await?;
-    super::blobs::plan_releases(source, store, saved).await?;
+    if source.publication_stream.is_none() {
+        super::blobs::plan_releases(source, store, saved).await?;
+    }
     let capture = source.prepare(saved, store).await?;
     refresh(&capture, store, saved)?;
     if source.retain_source_manifest {
@@ -55,7 +57,10 @@ pub(super) async fn run(
     match result {
         Ok(result) => {
             finish(&capture, store, saved, &result)?;
-            super::blobs::accepted(source, store, saved).await
+            if source.publication_stream.is_none() {
+                super::blobs::accepted(source, store, saved).await?;
+            }
+            Ok(())
         }
         Err(BackupError::Closing) => {
             drop(capture);
@@ -85,7 +90,9 @@ async fn setup(
     })
     .await?;
     if !context.new_work_allowed {
-        if saved.automatic_revision.is_some() && stream::same_scope(source, store, &context.scope)?
+        if source.publication_stream.is_some()
+            || (saved.automatic_revision.is_some()
+                && stream::same_scope(source, store, &context.scope)?)
         {
             return Err(BackupError::AdmissionPending);
         }
@@ -213,7 +220,9 @@ async fn upload_and_publish(
     saved.phase = Phase::Uploading;
     store.save(saved)?;
     // Record blobs go to their own paths before the job's inventory objects.
-    super::blobs::upload(source, store, saved, client, pause).await?;
+    if source.publication_stream.is_none() {
+        super::blobs::upload(source, store, saved, client, pause).await?;
+    }
     let parallelism = capture
         .recommended_parallelism()?
         .min(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS);
@@ -269,7 +278,9 @@ async fn upload_and_publish(
             return Err(error);
         }
     }
-    super::blobs::release(store, saved, client, pause).await?;
+    if source.publication_stream.is_none() {
+        super::blobs::release(store, saved, client, pause).await?;
+    }
     source.validate(saved)?;
     publication::publish(capture, store, saved, client, pause).await
 }

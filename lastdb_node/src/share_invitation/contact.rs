@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 const CONTACT_PREFIX: &str = "lastdb-share-contact-v1.";
 const CONTACT_DOMAIN: &[u8] = b"lastdb:share-contact:v1";
 const RECIPIENT_KEY_INFO: &[u8] = b"lastdb:share-recipient-x25519:v1";
+const CACHE_KEY_DOMAIN: &[u8] = b"lastdb:share-recipient-cache:v1";
 const CONTACT_BODY_BYTES: usize = 32 + 32 + 64;
 const CONTACT_ENCODED_BYTES: usize = (CONTACT_BODY_BYTES * 4).div_ceil(3);
 
@@ -47,6 +48,17 @@ impl ShareRecipient {
 
     pub fn contact(&self) -> ShareContact {
         self.contact.clone()
+    }
+
+    pub(crate) fn cache_key(
+        &self,
+        handle: &cloud_backup_protocol::Id,
+    ) -> Result<Zeroizing<[u8; 32]>> {
+        let mut key = Zeroizing::new([0u8; 32]);
+        Hkdf::<Sha256>::new(Some(CACHE_KEY_DOMAIN), self.secret.as_bytes())
+            .expand(handle.as_str().as_bytes(), &mut *key)
+            .map_err(|_| ShareInvitationError("cannot derive local share cache key"))?;
+        Ok(key)
     }
 }
 

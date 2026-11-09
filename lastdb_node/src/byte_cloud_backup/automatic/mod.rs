@@ -11,6 +11,7 @@ use super::{
     BackupError, Phase, Result,
 };
 use crate::backup_runtime::{Disposition, PauseReason, PauseState};
+pub(super) use cleanup::retire_at;
 use cloud_backup_protocol::v2::jobs::JobResult;
 use cloud_backup_protocol::Id;
 pub use policy::AutomaticBackupStatus;
@@ -51,6 +52,9 @@ fn tick(host: &crate::host::Host) -> Result<()> {
     let Some(mut policy) = policy::load(host)? else {
         return Ok(());
     };
+    if super::is_publication_home(&host.home)? {
+        return Err(BackupError::Identity);
+    }
     let runtime = native(host)?;
     if runtime.mutation_log_status()?.enabled != policy.state.enabled {
         runtime.configure_mutation_log(policy.state.enabled)?;
@@ -297,7 +301,7 @@ pub(super) fn reserved(id: &Id) -> bool {
     id.as_str().starts_with("a17dbac2-")
 }
 
-fn request_id() -> Result<Id> {
+pub(super) fn request_id() -> Result<Id> {
     let mut bytes = *uuid::Uuid::new_v4().as_bytes();
     bytes[..4].copy_from_slice(&[0xa1, 0x7d, 0xba, 0xc2]);
     Ok(Id::try_from(uuid::Uuid::from_bytes(bytes).to_string())?)

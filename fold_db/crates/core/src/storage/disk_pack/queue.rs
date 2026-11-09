@@ -31,6 +31,12 @@ impl WriteQueue {
 }
 
 impl PackRuntime {
+    /// Wake consumers after a durable write. Use the actual frontier to
+    /// decide whether work changed across restarts or failed writes.
+    pub fn subscribe_durable_writes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.completed.subscribe()
+    }
+
     /// A sealed prefix excludes new preparation until its durable result.
     pub(super) async fn enter_prepare(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
         loop {

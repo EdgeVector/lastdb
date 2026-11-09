@@ -65,7 +65,7 @@ pub(crate) async fn backup_publication_stopped(
     };
     // The ordinary local writer has a different identity from the cloud owner.
     // Keep its personal backup status and saved jobs separate from publication.
-    let base = home.join("data/cloud-share-backup-v2");
+    let base = Store::publication_base(home);
     run_stopped(home, &base, request, |home, _| {
         Ok((Source::from_publication_stopped(home, identity)?, client))
     })
@@ -108,16 +108,7 @@ async fn run_stopped(
     let (source, client) = open(home, &request)?;
     let endpoint = client.canonical_endpoint();
     if source.publication_stream.is_some() {
-        if source.has_external_backup_files().await? {
-            return Err(BackupError::PublicationFile);
-        }
-        if super::store::read::<serde_json::Value>(
-            &Store::base(home).join(super::store::AUTOMATIC_FILE),
-        )?
-        .is_some()
-        {
-            return Err(BackupError::Identity);
-        }
+        check_stopped_publication(home, base, &source).await?;
     } else {
         super::automatic::check_stopped(home, &source, &endpoint)?;
     }
@@ -192,4 +183,14 @@ async fn run_stopped(
     drop(permit);
     drop(ownership);
     Ok(report)
+}
+
+async fn check_stopped_publication(home: &Path, base: &Path, source: &Source) -> Result<()> {
+    if super::automatic_publication::has_pending(base)? {
+        return Err(BackupError::Busy);
+    }
+    if source.has_external_backup_files().await? {
+        return Err(BackupError::PublicationFile);
+    }
+    super::automatic_publication::preflight(home)
 }
