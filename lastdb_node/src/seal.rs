@@ -15,7 +15,8 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::Serialize;
 use sha2::Sha256;
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
+use zeroize::Zeroizing;
 
 const SIGNED_ENVELOPE_MESSAGE_TYPE: &str = "signed_envelope";
 const SIGNED_ENVELOPE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
@@ -78,14 +79,11 @@ pub fn encrypt_to_x25519<T: Serialize>(
     let ephemeral_public = PublicKey::from(&ephemeral_secret);
     let shared = ephemeral_secret.diffie_hellman(&target_pk);
 
-    let hk = Hkdf::<Sha256>::new(None, shared.as_bytes());
-    let mut aes_key = [0u8; 32];
-    hk.expand(HKDF_INFO, &mut aes_key)
-        .map_err(|e| format!("HKDF expand failed: {e}"))?;
-
-    let plaintext = serde_json::to_vec(payload).map_err(|e| format!("serialize: {e}"))?;
+    let aes_key = sealed_box_key(&shared, HKDF_INFO)?;
+    let plaintext =
+        Zeroizing::new(serde_json::to_vec(payload).map_err(|e| format!("serialize: {e}"))?);
     let cipher =
-        Aes256Gcm::new_from_slice(&aes_key).map_err(|e| format!("Invalid AES key: {e}"))?;
+        Aes256Gcm::new_from_slice(&*aes_key).map_err(|e| format!("Invalid AES key: {e}"))?;
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let ciphertext = cipher
@@ -97,6 +95,20 @@ pub fn encrypt_to_x25519<T: Serialize>(
     output.extend_from_slice(&nonce_bytes);
     output.extend_from_slice(&ciphertext);
     Ok(output)
+}
+
+pub(crate) fn sealed_box_key(
+    shared: &SharedSecret,
+    context: &[u8],
+) -> Result<Zeroizing<[u8; 32]>, &'static str> {
+    if !shared.was_contributory() {
+        return Err("non-contributory X25519 key");
+    }
+    let hk = Hkdf::<Sha256>::new(None, shared.as_bytes());
+    let mut key = Zeroizing::new([0u8; 32]);
+    hk.expand(context, &mut *key)
+        .map_err(|_| "sealed box key derivation failed")?;
+    Ok(key)
 }
 
 /// Seal + encrypt in one step (node → recipient messaging key).

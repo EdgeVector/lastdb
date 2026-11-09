@@ -23,8 +23,10 @@
 use super::super::traits::{KvMutation, KvStore};
 use super::physical::CAS_COLLECTION;
 use super::*;
+use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
 use crate::storage::format::{
-    PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX, RELEASED_FILE_PREFIX,
+    METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
+    RELEASED_FILE_PREFIX,
 };
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::Id;
@@ -142,6 +144,32 @@ impl PackRuntime {
             runtime: Arc::clone(self),
             namespace: CAS_COLLECTION.into(),
         })
+    }
+
+    /// A guest snapshot can carry inline files only. The main reference index
+    /// also detects a local-path or restored reference whose CAS bytes are absent.
+    pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
+        let metadata = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: METADATA_NAMESPACE.into(),
+        };
+        let cas = self.blob_store()?;
+        for (store, prefix) in [
+            (&metadata, FILE_REFERENCE_PREFIX),
+            (&cas, PENDING_UPLOAD_PREFIX),
+            (&cas, RECORD_FILE_UPLOADED_PREFIX),
+            (&cas, RELEASED_FILE_PREFIX),
+            (&cas, RECORD_FILE_PREFIX),
+        ] {
+            if !store
+                .scan_prefix_paged(prefix.as_bytes(), 1)
+                .await?
+                .is_empty()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Queue every local `fb:` row that has neither an `fu:` nor an `fp:` row.

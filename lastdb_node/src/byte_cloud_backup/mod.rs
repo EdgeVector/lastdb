@@ -28,6 +28,8 @@ pub use control::request;
 pub(crate) use control::status;
 pub use credentials::client_from_home;
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
+pub(crate) use source::PublicationSource;
+pub(crate) use stopped::backup_publication_stopped;
 pub use stopped::{backup_stopped, StoppedBackupReport, StoppedBackupRequest};
 pub type Result<T> = std::result::Result<T, BackupError>;
 

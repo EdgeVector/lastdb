@@ -18,6 +18,8 @@ mod cloud;
 mod db;
 #[path = "cli_defs/schema.rs"]
 mod schema;
+#[path = "cli_defs/share.rs"]
+mod share;
 
 pub(super) use admin::*;
 pub(super) use app::*;
@@ -25,6 +27,7 @@ pub(super) use backup::*;
 pub(super) use cloud::*;
 pub(super) use db::*;
 pub(super) use schema::*;
+pub(super) use share::*;
 #[path = "cli_defs/args.rs"]
 mod args;
 pub(super) use args::*;
@@ -73,6 +76,9 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: BackupCommand,
     },
+    /// Publish a separate database and exchange read-only invitations.
+    #[command(subcommand)]
+    Share(ShareCommand),
     /// Diagnose, maintain, or recover a LastDB home.
     Admin {
         #[command(subcommand)]

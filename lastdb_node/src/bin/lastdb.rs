@@ -20,6 +20,8 @@ mod db_cmds;
 use db_cmds::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
+#[path = "lastdb/share_cmds.rs"]
+mod share_cmds;
 #[path = "lastdb/snapshot_cmd.rs"]
 mod snapshot_cmd;
 use cloud_cmds::*;
@@ -160,6 +162,7 @@ fn run(cli: Cli) -> Result<(), String> {
             StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
         },
         Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
+        Command::Share(action) => share_cmds::run(cli.data_dir, action),
         Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
             record_command(cli.data_dir, cmd)

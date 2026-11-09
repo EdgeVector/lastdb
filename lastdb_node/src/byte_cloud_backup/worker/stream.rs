@@ -1,4 +1,4 @@
-//! A dedicated CI stream can acquire ownership before its first cloud upload.
+//! Bind a native source to its ordinary, publication, or dedicated CI stream.
 use super::super::{model::StreamRecord, source::Source, store::Store, BackupError, Result};
 use super::Saved;
 use cloud_backup_protocol::v2::Stream;
@@ -7,6 +7,9 @@ use cloud_backup_protocol::{CloudScope, Id};
 const CI_ACCOUNT: &str = "2a81c95623f2445854a794b5b48471d6";
 
 fn expected(source: &Source) -> Result<Option<Id>> {
+    if let Some(id) = &source.publication_stream {
+        return Ok(Some(id.clone()));
+    }
     let value = match std::env::var("LASTDB_CLOUD_CI_STREAM_ID") {
         Ok(value) => value,
         Err(std::env::VarError::NotPresent) => return Ok(None),

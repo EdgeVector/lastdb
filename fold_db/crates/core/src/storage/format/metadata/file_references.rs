@@ -6,7 +6,7 @@ use crate::storage::error::{StorageError, StorageResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-const REFERENCE_PREFIX: &str = "portable-file-reference:";
+pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
 pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
 pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 
@@ -46,7 +46,9 @@ impl Metadata {
             self.stage_file_retention(&FileRetention::Uninitialized)
                 .await?;
         }
-        let page = self.rejoin_prefix_page(REFERENCE_PREFIX, after).await?;
+        let page = self
+            .rejoin_prefix_page(FILE_REFERENCE_PREFIX, after)
+            .await?;
         if !page.rows.is_empty() {
             self.stage_deletes(page.rows.into_iter().map(|(key, _)| key).collect())
                 .await?;
@@ -139,7 +141,7 @@ impl Metadata {
 }
 
 fn reference_key(path: &str) -> String {
-    format!("{REFERENCE_PREFIX}{path}")
+    format!("{FILE_REFERENCE_PREFIX}{path}")
 }
 
 fn invalid(detail: impl std::fmt::Display) -> StorageError {

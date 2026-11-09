@@ -122,19 +122,25 @@ pub(crate) enum AdminSharedCommand {
 }
 
 #[derive(Args, Debug)]
-#[command(group(clap::ArgGroup::new("guest_target").required(true).args(["into", "resume"])))]
 pub(crate) struct GuestStageArgs {
+    /// Read trusted JSON from stdin with authorization, publisher_public_key,
+    /// and content_key. The keys are 32-byte hex strings. Authorization is the
+    /// complete LastDBShare header value. Use a publication-specific content key.
+    #[arg(long, required = true)]
+    pub permission_stdin: bool,
+    #[command(flatten)]
+    pub selection: GuestStageSelection,
+}
+
+#[derive(Args, Debug)]
+#[command(group(clap::ArgGroup::new("guest_target").required(true).args(["into", "resume"])))]
+pub(crate) struct GuestStageSelection {
     /// Absent absolute path. A private workspace is created next to it.
     #[arg(long)]
     pub into: Option<PathBuf>,
     /// Absolute path of a private workspace. Resume uses its exact saved point.
     #[arg(long)]
     pub resume: Option<PathBuf>,
-    /// Read trusted JSON from stdin with authorization, publisher_public_key,
-    /// and content_key. The keys are 32-byte hex strings. Authorization is the
-    /// complete LastDBShare header value. Use a publication-specific content key.
-    #[arg(long, required = true)]
-    pub permission_stdin: bool,
     /// Emit the verified stage receipt as JSON.
     #[arg(long)]
     pub json: bool,

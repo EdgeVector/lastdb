@@ -1,4 +1,4 @@
-use super::GuestStageArgs;
+use super::{GuestStageArgs, GuestStageSelection};
 use cloud_backup_client::byte_backup::{ByteBackupReader, GuestReadPermission};
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::KeyValue;
@@ -21,6 +21,16 @@ pub(super) fn run(args: GuestStageArgs) -> Result<(), String> {
     if !args.permission_stdin {
         return Err("stage-guest requires --permission-stdin".into());
     }
+    let (permission, publisher, content_key) = read_input()?;
+    stage(args.selection, permission, publisher, content_key)
+}
+
+pub(crate) fn stage(
+    args: GuestStageSelection,
+    permission: GuestReadPermission,
+    publisher: Digest,
+    content_key: Zeroizing<[u8; 32]>,
+) -> Result<(), String> {
     for path in args.into.iter().chain(args.resume.iter()) {
         if !path.is_absolute() {
             return Err("guest stage requires an absolute path".into());
@@ -40,7 +50,6 @@ pub(super) fn run(args: GuestStageArgs) -> Result<(), String> {
         .transpose()
         .map_err(|_| "invalid staged record coordinates")?;
     let read_record = query.is_some();
-    let (permission, publisher, content_key) = read_input()?;
     let reader = ByteBackupReader::guest(permission).map_err(|error| error.to_string())?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

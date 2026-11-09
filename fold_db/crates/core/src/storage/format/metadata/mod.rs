@@ -17,7 +17,9 @@ mod file_references;
 mod portable_author;
 pub(in crate::storage) const NATIVE_SHARED_SCOPE_KEY: &str = "native-shared-schema-scope";
 pub(crate) use file_references::{FileReferenceChange, FileRetention};
-pub(in crate::storage) use file_references::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
+pub(in crate::storage) use file_references::{
+    FILE_REFERENCE_PREFIX, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY,
+};
 pub(in crate::storage) use portable_author::{
     initial_local_author, shared_metadata_key, validate_local_author, LOCAL_AUTHOR_KEY,
 };

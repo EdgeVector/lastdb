@@ -129,6 +129,11 @@ impl GuestReadPermission {
         &self.publisher_public_key
     }
 
+    /// Signed permission expiry in Unix milliseconds.
+    pub fn expires_ms(&self) -> u64 {
+        self.expires_ms
+    }
+
     pub(super) fn into_read_scope(self) -> (Stream, u64) {
         (self.stream, self.expires_ms)
     }

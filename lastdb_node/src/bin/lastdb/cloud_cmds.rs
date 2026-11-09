@@ -13,6 +13,8 @@ mod shared_restore;
 #[path = "cloud_cmds/shared_writer.rs"]
 mod shared_writer;
 
+pub(super) use recovery_home::files::FreshHome;
+
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
         CloudCommand::SharedWriter(selection) => {

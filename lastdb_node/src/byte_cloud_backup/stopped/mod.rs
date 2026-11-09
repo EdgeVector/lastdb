@@ -1,7 +1,9 @@
 //! A final backup of a clean, stopped home through the ordinary V2 worker.
+use super::source::PublicationSource;
 use super::{
     capture::Capture, model::Saved, source::Source, store::Store, BackupError, Phase, Result,
 };
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::storage::disk_pack::byte_backup::RunBackupProfile;
@@ -44,12 +46,36 @@ pub async fn backup_stopped(
     home: &Path,
     request: StoppedBackupRequest,
 ) -> Result<StoppedBackupReport> {
-    let ownership = guard::admit(home, &request)?;
-    if super::automatic::reserved(&request.request_id) {
-        return Err(BackupError::Invalid);
-    }
-    let permit = Store::lock(home)?;
-    super::control::ensure_previous(home, &request.request_id)?;
+    run_stopped(home, &Store::base(home), request, ordinary_source).await
+}
+
+/// Publish a cleanly stopped publication home through the ordinary V2 snapshot worker.
+pub(crate) async fn backup_publication_stopped(
+    home: &Path,
+    request_id: Id,
+    identity: PublicationSource,
+    client: ByteBackupClient,
+) -> Result<StoppedBackupReport> {
+    let session = crate::session_ledger::read_last_record(home).ok_or(BackupError::Missing)?;
+    let request = StoppedBackupRequest {
+        request_id,
+        account_id: identity.account.clone(),
+        stopped_pid: session.pid,
+        stopped_start_ts: session.start_ts,
+    };
+    // The ordinary local writer has a different identity from the cloud owner.
+    // Keep its personal backup status and saved jobs separate from publication.
+    let base = home.join("data/cloud-share-backup-v2");
+    run_stopped(home, &base, request, |home, _| {
+        Ok((Source::from_publication_stopped(home, identity)?, client))
+    })
+    .await
+}
+
+fn ordinary_source(
+    home: &Path,
+    request: &StoppedBackupRequest,
+) -> Result<(Source, ByteBackupClient)> {
     let seed = super::connection::identity_seed(home)?;
     let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| BackupError::Identity)?;
@@ -62,15 +88,40 @@ pub async fn backup_stopped(
         fold_db::crypto::E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
     let node_key = zeroize::Zeroizing::new(keys.encryption_key());
     let runtime = fold_db::storage::disk_pack::open_backup_runtime(&home.join("data"), &node_key)?;
-    let source = Source::from_stopped(
-        std::sync::Arc::clone(&runtime),
-        &pair,
-        request.account_id.clone(),
-    )?;
+    let source = Source::from_stopped(runtime, &pair, request.account_id.clone())?;
     let client = super::connection::client_for_stopped(home, &source.account, &source.source_home)?;
+    Ok((source, client))
+}
+
+async fn run_stopped(
+    home: &Path,
+    base: &Path,
+    request: StoppedBackupRequest,
+    open: impl FnOnce(&Path, &StoppedBackupRequest) -> Result<(Source, ByteBackupClient)>,
+) -> Result<StoppedBackupReport> {
+    let ownership = guard::admit(home, &request)?;
+    if super::automatic::reserved(&request.request_id) {
+        return Err(BackupError::Invalid);
+    }
+    let permit = Store::lock_at(base)?;
+    super::control::ensure_previous_at(base, &request.request_id)?;
+    let (source, client) = open(home, &request)?;
     let endpoint = client.canonical_endpoint();
-    super::automatic::check_stopped(home, &source, &endpoint)?;
-    let store = Store::open(home, &request.request_id)?;
+    if source.publication_stream.is_some() {
+        if source.has_external_backup_files().await? {
+            return Err(BackupError::PublicationFile);
+        }
+        if super::store::read::<serde_json::Value>(
+            &Store::base(home).join(super::store::AUTOMATIC_FILE),
+        )?
+        .is_some()
+        {
+            return Err(BackupError::Identity);
+        }
+    } else {
+        super::automatic::check_stopped(home, &source, &endpoint)?;
+    }
+    let store = Store::open_at(base, &request.request_id)?;
     manifest::same(&store, "stopped-session.json", &request)?;
     let mut saved: Saved = store
         .state()?
@@ -112,13 +163,17 @@ pub async fn backup_stopped(
     if point.accepted != accepted {
         return Err(BackupError::Identity);
     }
-    let automatic_backup_enabled = super::automatic::record_stopped(
-        home,
-        &source.account,
-        &source.source_home,
-        &endpoint,
-        point.frontiers,
-    )?;
+    let automatic_backup_enabled = if source.publication_stream.is_some() {
+        false
+    } else {
+        super::automatic::record_stopped(
+            home,
+            &source.account,
+            &source.source_home,
+            &endpoint,
+            point.frontiers,
+        )?
+    };
     let report = StoppedBackupReport {
         version: 1,
         request,
@@ -134,7 +189,6 @@ pub async fn backup_stopped(
     };
     manifest::same(&store, "stopped-report.json", &report)?;
     drop(source);
-    drop(runtime);
     drop(permit);
     drop(ownership);
     Ok(report)
