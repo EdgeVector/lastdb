@@ -46,8 +46,7 @@ http = { workspace = true }
 # validation on `GET /v1/snapshot`; SQS for release verifier jobs).
 # Diet cut #5: drop aws-config default features that pull SSO / external
 # credential-process clients — Lambda uses the execution role + env only.
-# Not `workspace = true`: Cargo refuses to turn off workspace-dep defaults
-# from a member unless the workspace entry itself has default-features=false.
+# The member declares aws-config itself with default-features = false.
 aws-config = { version = "1", default-features = false, features = [
     "behavior-version-latest",
     "rt-tokio",
