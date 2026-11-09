@@ -1,15 +1,17 @@
 //! Host services used by the generic owner-socket handlers.
 //!
-//! Mini's `lastdb_node::Host` supplies core database access, identity, and QoS
-//! admission. Handlers receive an access context and use core's guarded query
-//! and mutation paths. The host's concrete admission guard stays alive for the
-//! operation and releases its slot on drop.
+//! Mini's `lastdb_node::Host` supplies core database access, identity, QoS
+//! admission, and the id generator the daemon injected at boot. Handlers
+//! receive an access context and use core's guarded query and mutation paths.
+//! The host's concrete admission guard stays alive for the operation and
+//! releases its slot on drop.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use fold_db::fold_db_core::FoldDB;
 
+use crate::ids::IdGen;
 use crate::qos::Lane;
 
 /// Outcome of failing to acquire a read slot before the host's timeout: the
@@ -38,6 +40,9 @@ pub trait HostNode: Send + Sync {
     /// The node's public key (base64). Used only by the auto-identity route;
     /// never echoed into a caller-visible error.
     fn public_key(&self) -> String;
+
+    /// Ids this process assigns. Handlers ask this generator; they do not mint.
+    fn ids(&self) -> &dyn IdGen;
 
     /// Acquire a QoS admission slot for `lane`, queueing up to the host's
     /// per-lane deadline.

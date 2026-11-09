@@ -197,7 +197,9 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let note_fatal =
         |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
 
-    let mut host = runtime.block_on(Host::boot(&home)).map_err(&note_fatal)?;
+    let mut host = runtime
+        .block_on(Host::boot(&home, Arc::new(host::SystemIds)))
+        .map_err(&note_fatal)?;
     // Capture this process's own boot identity once, from the ledger entry
     // this same process just wrote — not from a re-read of the shared
     // per-home ledger file, which a different process sharing this home can
