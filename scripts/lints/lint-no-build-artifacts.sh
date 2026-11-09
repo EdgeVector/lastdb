@@ -47,7 +47,6 @@ forbidden_path() {
     *.rlib|*.rmeta|*.rlib.bc|*.o) return 0 ;;
     *.pyc|__pycache__/*|*/__pycache__/*) return 0 ;;
     .fastembed_cache/*|*/.fastembed_cache/*) return 0 ;;
-    .semantic-search-fastembed-cache/*|*/.semantic-search-fastembed-cache/*) return 0 ;;
   esac
   # CACHEDIR.TAG only matters as a cargo-target marker; still never commit it.
   case "$p" in

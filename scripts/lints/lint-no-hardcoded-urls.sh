@@ -2,10 +2,9 @@
 # lint-no-hardcoded-urls.sh
 #
 # Enforces the cross-environment URL registry: all gateway hostnames must
-# live in folddb_profile/environments.json (the single source of truth —
-# moved there from the deleted fold_db_node crate in the Mini-only cutover,
-# 2026-07-12). Any hardcoded occurrence elsewhere — Rust, shell, JSON,
-# Markdown — is drift waiting to happen. folddb_profile/build.rs generates
+# live in folddb_profile/environments.json (the single source of truth).
+# Any hardcoded occurrence elsewhere — Rust, shell, JSON, Markdown — is
+# drift waiting to happen. folddb_profile/build.rs generates
 # the per-(env, key) constants in OUT_DIR; Rust callers go through
 # `folddb_profile::endpoints::*`.
 #
@@ -43,8 +42,6 @@ HOSTNAMES=$(
 #   .git/                — git internals
 #   .claude/worktrees/   — sibling worktrees of this same repo (other
 #                          checkouts of the same files)
-#   docs/dogfood/*.md    — historical run reports; immutable record of
-#                          past sessions, not live config
 
 ALLOW_PATHS=(
     './folddb_profile/environments.json'
@@ -52,11 +49,8 @@ ALLOW_PATHS=(
     './scripts/lints/lint-no-hardcoded-urls.sh'
     './.git/'
     './.claude/worktrees/'
-    './docs/dogfood/'
-    './snapshots/'
     # OpenAPI spec: its `servers:` block deliberately documents the live
-    # gateway URLs for API consumers. (Newly in scope 2026-07-12 when this
-    # lint moved from the fold_db_node subtree to repo-wide.)
+    # gateway URLs for API consumers.
     './schema_service/openapi.yaml'
 )
 
