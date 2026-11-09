@@ -117,7 +117,7 @@ lastdb status
 ```
 
 Use `lastdb --help` to see the commands in the installed release. The grouped
-CLI has eight entry points:
+CLI has nine entry points.
 
 | Command | Use |
 |---|---|
@@ -128,6 +128,7 @@ CLI has eight entry points:
 | `mutate` | Submit a conditional write and supply the record’s file when needed. |
 | `app` | Browse the signed registry and manage apps. |
 | `backup` | Configure backup and restore an accepted recovery point. |
+| `share` | Set up a separate publication and exchange read-only invitations. |
 | `admin` | Diagnose or maintain a home. |
 
 Supply file bytes in the same `mutate --request-file` operation as the record.
@@ -140,28 +141,51 @@ bare record replacement keeps the existing file. A replacement with
 
 ### Share files
 
-LastDB Files is a command-line app for read-only sharing. On the publisher's
-device, create a publication with `lastdb --data-dir OWNER share create --into
-PUBLICATION --env dev`. Run `lastdbd --data-dir PUBLICATION --share-owner-home
-OWNER` to publish changes automatically. Use absolute paths for the homes.
-Add files with `lastdb --data-dir PUBLICATION share files add FILE`. The app
-accepts regular files of any type, up to 128 files and 256 MiB total per share.
-The file catalog also has a 32 KiB limit.
+LastDB Files shares a separate encrypted database with read-only recipients.
+Use absolute paths for `OWNER`, `PUBLICATION`, `RECIPIENT`, and `CACHE`.
+`OWNER` is an existing home with saved Exemem credentials for the selected
+environment. Create the publication at a new path with an existing parent
+outside that home using `lastdb --data-dir OWNER share create --into
+PUBLICATION --env dev`. Run
+`lastdbd --data-dir PUBLICATION --share-owner-home OWNER` to publish
+automatically. Stopping that daemon pauses publication.
 
-The recipient exports a public contact with `lastdb --data-dir RECIPIENT share
-contact --out CONTACT`. The publisher verifies the recipient key and uses
+In another terminal, add a file with `lastdb --data-dir PUBLICATION share files
+add FILE`. The app accepts regular files of any type, up to 128 files and
+256 MiB total per share, with a 32 KiB file catalog.
+
+The recipient needs only a local LastDB identity. In DEV, create one at a new path
+with an existing parent using `lastdb admin backup init --into RECIPIENT
+--recovery-phrase-out RECIPIENT/recovery-phrase.txt`. The recipient exports a
+public contact with `lastdb --data-dir RECIPIENT share contact --out CONTACT`.
+Verify the returned recipient key through a trusted channel and issue an
+invitation with
 `lastdb --data-dir OWNER share invite --home PUBLICATION --recipient CONTACT
---recipient-key RECIPIENT_KEY --out INVITATION`. The recipient verifies the
-publisher key and runs `lastdb --data-dir RECIPIENT share files receive
-INVITATION --publisher PUBLISHER_KEY --cache CACHE`. The command returns the
-local share handle.
+--recipient-key RECIPIENT_KEY --out INVITATION`. If the daemon is still
+publishing its first snapshot, wait and retry. The recipient verifies the
+publisher key from `share create` through a trusted channel and runs `lastdb
+--data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY
+--cache CACHE`. Use a private cache directory with an existing parent you own.
+Save the local handle returned by `receive`.
 
 Keep `lastdb --data-dir RECIPIENT share files follow --cache CACHE --handle
 HANDLE` running for automatic catch-up after a lost connection. Use `files
-list` with the same cache and handle to see the verified local copy. Use
-`files save --file FILE_ID --out PATH` with those options to save a file,
-including while offline. A received share uses a local LastDB identity and
-its publisher's existing cloud backup.
+list` with the same cache and handle to confirm the expected file arrived. Use
+`files save --file FILE_ID --out PATH` with those options to save to a new path.
+Both commands work offline, including after the invitation expires.
+
+Invitations authorize downloads for 24 hours by default. Set `share invite
+--expires-in-hours` to 1–168 hours when issuing one. To resume updates after
+expiry, stop `follow`, accept a new invitation for the same publication with
+`files receive` and the original `--cache CACHE --handle HANDLE`, then restart
+`follow`.
+
+The DEV run verified automatic publication, offline reads, catch-up after
+reconnect, and concurrent reads. Required CI checks local setup and the
+supported Share commands. Safe recovery from interrupted imports, recipient
+revocation, and Org sharing with restricted writes are open.
+[DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
+[Stopped publisher removal](https://github.com/EdgeVector/lastdb/pull/1423)
 
 Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
 FastEmbed semantic-search path; local runs use exact matching plus

@@ -10,7 +10,8 @@ unfiltered cursor pages and records the time of each page, reads past a run
 of more deleted records than one request examines, lets the TTL sweep read
 past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
 expiry tracking spans more than one native batch (`record_drop_tracking.py`). Blob and
-inline files survive a restart (`record_inline_files.py`).
+inline files survive a restart (`record_inline_files.py`). LastDB Files imports
+a file into a separate local publication home using the built CLI.
 It runs no test runner or benchmark. The home contains generated data only and
 never reads or copies a primary.
 """
@@ -30,6 +31,7 @@ import record_runs  # noqa: E402
 from record_requests import mutation as native_mutation, conditioned  # noqa: E402
 import record_drop_tracking  # noqa: E402
 import record_inline_files  # noqa: E402
+import record_share_files  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -427,6 +429,7 @@ def unfiltered_pages(node):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, required=True)
+    parser.add_argument("--cli", type=Path, required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -479,6 +482,7 @@ def main():
                 "a delete or a write after a delete changed across the restart")
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
+        record_share_files.exercise(args.cli.resolve(strict=True), node, root)
     finally:
         node.close()
 
