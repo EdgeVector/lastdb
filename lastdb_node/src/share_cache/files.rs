@@ -17,6 +17,7 @@ pub(super) struct Entry {
     key: Zeroizing<[u8; 32]>,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum Lock {
     Writer,
     Pointer,
@@ -177,7 +178,7 @@ fn private_directory(path: &Path, create: bool) -> Result<Directory> {
     {
         match fs::DirBuilder::new().mode(0o700).create(path) {
             Ok(()) => {
-                File::open(path.parent().ok_or(ShareCacheError::Invalid("parent"))?)?.sync_all()?
+                File::open(path.parent().ok_or(ShareCacheError::Invalid("parent"))?)?.sync_all()?;
             }
             Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),

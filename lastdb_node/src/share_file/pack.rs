@@ -97,8 +97,8 @@ fn pack_chunks(
         sha256.update(&*bytes);
         batch.push(record_mutation(
             schema,
-            chunk_key(&manifest.id, index),
-            json!({CHUNK_DATA_FIELD: STANDARD.encode(bytes)}),
+            &chunk_key(&manifest.id, index),
+            &json!({CHUNK_DATA_FIELD: STANDARD.encode(bytes)}),
             Edit::Create,
         ));
         if batch.len() == CHUNK_BATCH {
@@ -142,8 +142,8 @@ pub fn recover_pending(
             }
             purges.push(record_mutation(
                 schemas.chunks,
-                key.clone(),
-                json!({}),
+                key,
+                &json!({}),
                 Edit::Purge(revision),
             ));
         }

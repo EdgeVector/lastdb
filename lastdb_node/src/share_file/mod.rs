@@ -125,8 +125,8 @@ impl Catalog {
     fn mutation(&self, schema: &str, revision: Option<&str>) -> Result<Value, String> {
         Ok(record_mutation(
             schema,
-            catalog_key(),
-            json!({CATALOG_ENTRIES_FIELD: self.encode()?}),
+            &catalog_key(),
+            &json!({CATALOG_ENTRIES_FIELD: self.encode()?}),
             revision.map_or(Edit::Create, Edit::Replace),
         ))
     }
@@ -158,13 +158,14 @@ fn valid_name(value: &str) -> bool {
         && !value.chars().any(char::is_control)
 }
 
+#[derive(Clone, Copy)]
 enum Edit<'a> {
     Create,
     Replace(&'a str),
     Purge(&'a str),
 }
 
-fn record_mutation(schema: &str, key: KeyValue, record: Value, edit: Edit<'_>) -> Value {
+fn record_mutation(schema: &str, key: &KeyValue, record: &Value, edit: Edit<'_>) -> Value {
     let (kind, expected) = match edit {
         Edit::Create => ("create", json!({"type": "absent"})),
         Edit::Replace(revision) => ("replace", json!({"type": "revision", "revision": revision})),

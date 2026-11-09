@@ -20,6 +20,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::time::Instant;
+use tracing::Instrument;
 
 const POLICY: &str = "share-automatic.json";
 const REVISION: u64 = 1;
@@ -80,9 +81,12 @@ pub(crate) fn spawn(
         source,
     };
     publisher.policy()?;
-    Ok(tokio::spawn(async move {
-        publisher.run(&shutdown, &client).await;
-    }))
+    Ok(tokio::spawn(
+        async move {
+            publisher.run(&shutdown, &client).await;
+        }
+        .in_current_span(),
+    ))
 }
 
 impl Publisher {
@@ -102,7 +106,7 @@ impl Publisher {
                     match completion.outcome {
                         InvocationOutcome::Complete => retry = Retry::default(),
                         InvocationOutcome::Paused(state) => {
-                            retry.schedule(format_args!("{:?}", state.reason))
+                            retry.schedule(format_args!("{:?}", state.reason));
                         }
                     }
                 }
@@ -334,7 +338,7 @@ impl Retry {
         if let Some(at) = self.until {
             tokio::time::sleep_until(at).await;
         } else {
-            std::future::pending().await
+            std::future::pending::<()>().await;
         }
     }
 }
