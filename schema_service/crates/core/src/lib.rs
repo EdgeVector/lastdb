@@ -113,9 +113,6 @@ pub use resolver_config::{
     NATIVE_COMPONENT_COVER_ALGORITHM_VERSION, RESOLVER_CONFIG_FORMAT_VERSION,
 };
 pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
-pub use schema_core_resolver::{
-    resolve as resolve_schema, verdict_from_output, ResolveVerdict, Unresolvable,
-};
 pub use schema_mutation_gate::{
     catalog_size_difficulty_bits, log_schema_mutation_gate_result,
     max_difficulty_bits_for_challenge_ttl, node_signature_payload, pow_input, pow_satisfies,

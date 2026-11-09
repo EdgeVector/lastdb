@@ -1,11 +1,9 @@
 //! Live schema resolution with stable proposal IDs and explicit shared publishing.
 //!
-//! Pack publication and consumption remain separate core/tooling facilities.
 //! This client adapter always uses the live schema service.
 
 use std::collections::{HashMap, HashSet};
 
-use schema_service_core::schema_resolver_abi::ResolverDecision;
 use schema_service_core::types::{
     SchemaResolveOutcome, SchemaResolveProposal, SchemaResolveResponse, SchemaResolveResult,
 };
@@ -70,10 +68,7 @@ impl LiveSchemaResolver {
                 proposal_id: p.proposal_id,
                 result: live,
                 path: FacadePath::Live,
-                local_decision: None,
                 fallback_reason: Some("live_only"),
-                pack_format_version: None,
-                config_format_version: None,
             });
         }
         Ok(out)

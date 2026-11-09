@@ -1,4 +1,4 @@
-//! Signed declarative configuration for `native_component_cover@1`.
+//! Native resolver configuration for `native_component_cover@1`.
 //!
 //! Empirical thresholds draw from the embedding-beam component-cover eval
 //! ([[local-schema-field-embedding-component-cover-2026-07-06]]).
@@ -10,7 +10,7 @@ pub const RESOLVER_CONFIG_FORMAT_VERSION: u32 = 1;
 pub const NATIVE_COMPONENT_COVER_ALGORITHM_ID: &str = "native_component_cover";
 pub const NATIVE_COMPONENT_COVER_ALGORITHM_VERSION: u32 = 1;
 
-/// Compiled hard ceilings. Downloaded config may only request lower values.
+/// Compiled ceilings. `validate` rejects a config value above these limits.
 pub const HARD_MAX_PROPOSAL_FIELDS: u32 = 512;
 pub const HARD_MAX_REGISTRY_SCHEMAS: u32 = 100_000;
 pub const HARD_MAX_EMBEDDING_DIMENSIONS: u32 = 2048;
@@ -30,7 +30,6 @@ pub struct ResolverConfig {
     pub resolver_contract_version: u32,
     pub algorithm: AlgorithmSelector,
     pub policy_version: String,
-    pub rollout: RolloutConfig,
     pub candidate_generation: CandidateGenerationConfig,
     pub scoring: ScoringConfig,
     pub permissions: PermissionsConfig,
@@ -42,20 +41,6 @@ pub struct ResolverConfig {
 pub struct AlgorithmSelector {
     pub id: String,
     pub version: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RolloutConfig {
-    pub requested_mode: RolloutMode,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RolloutMode {
-    Disabled,
-    Shadow,
-    Enforce,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -185,10 +170,9 @@ impl fmt::Display for ResolverConfigError {
 impl std::error::Error for ResolverConfigError {}
 
 impl ResolverConfig {
-    /// Conservative embedding-beam-inspired defaults for fixtures / shadow mode.
+    /// Embedding-beam defaults for the native component-cover resolver.
     ///
-    /// Not production-calibrated enforcement thresholds — those require the
-    /// disagreement/evaluation gates in the engineering plan.
+    /// The name stays. `state_native_resolve` calls this constructor.
     pub fn embedding_beam_shadow_defaults() -> Self {
         Self {
             format_version: RESOLVER_CONFIG_FORMAT_VERSION,
@@ -198,9 +182,6 @@ impl ResolverConfig {
                 version: NATIVE_COMPONENT_COVER_ALGORITHM_VERSION,
             },
             policy_version: "embedding-beam-shadow-2026-07-06".to_string(),
-            rollout: RolloutConfig {
-                requested_mode: RolloutMode::Shadow,
-            },
             candidate_generation: CandidateGenerationConfig {
                 // Eval used top candidates; keep bounded for native work units.
                 schema_candidates: 80,
@@ -238,7 +219,6 @@ impl ResolverConfig {
             },
             permissions: PermissionsConfig {
                 use_existing: true,
-                // Component cover is the point of embedding-beam; enable in shadow.
                 use_components: true,
                 expand_existing: false,
                 create_canonical_schema: false,

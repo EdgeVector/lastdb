@@ -15,8 +15,8 @@ pub fn offline_is_system_schema(schema: &Schema) -> bool {
 ///
 /// Keeps a row when `superseded_by` is absent or blank after trim, and the
 /// row is system-owned or its source is `SystemSeed` or `StarterSeed`.
-/// Drops every other row, and trims descriptive-name and field embedding
-/// caches to surviving rows. Canonical-field registry and embeddings stay.
+/// Drops every other row. Canonical-field registry stays. HTTP routes strip
+/// embeddings with `without_embeddings` after this projection.
 ///
 /// `is_system` classifies each schema. Callers pass
 /// [`offline_is_system_schema`].
@@ -28,41 +28,11 @@ where
     F: FnMut(&Schema) -> bool,
 {
     use crate::shared_surface::include_in_shared_only_projection;
-    use std::collections::HashSet;
 
     envelope
         .schemas
         .retain(|schema| include_in_shared_only_projection(schema, is_system(schema)));
     envelope.schemas.sort_by(|a, b| a.name.cmp(&b.name));
-
-    let mut kept_desc_names: HashSet<String> = HashSet::new();
-    let mut kept_schema_names: HashSet<String> = HashSet::new();
-    for schema in &envelope.schemas {
-        kept_schema_names.insert(schema.name.clone());
-        if let Some(d) = schema.descriptive_name.as_ref() {
-            kept_desc_names.insert(d.clone());
-        }
-        kept_desc_names.insert(schema.name.clone());
-        // Namespaced descriptive-name keys used by the pack publisher.
-        if let Some(owner) = schema.owner_app_id.as_deref() {
-            if let Some(d) = schema.descriptive_name.as_ref() {
-                kept_desc_names.insert(format!("{owner}/{d}"));
-            }
-        }
-    }
-
-    envelope
-        .embeddings
-        .descriptive_names
-        .retain(|k, _| kept_desc_names.contains(k) || kept_schema_names.contains(k));
-
-    // Field embedding keys are `{descriptive_name}:{field_name}:{desc_hash}`
-    // (see pack publisher `field_embedding_cache_key`). Keep any key whose
-    // first segment matches a surviving schema descriptive name.
-    envelope.embeddings.fields.retain(|k, _| {
-        let head = k.split(':').next().unwrap_or(k);
-        kept_desc_names.contains(head) || kept_schema_names.contains(head)
-    });
 
     envelope
 }
