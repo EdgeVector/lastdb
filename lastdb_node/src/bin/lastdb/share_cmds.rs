@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-#[path = "share_cmds/files.rs"]
+#[path = "share_cmds/files/mod.rs"]
 mod files;
 
 pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
