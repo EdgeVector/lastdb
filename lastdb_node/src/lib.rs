@@ -29,6 +29,7 @@ pub mod schema_sync_audit;
 pub mod seal;
 pub mod service_home;
 pub mod share_cache;
+pub mod share_file;
 pub mod share_invitation;
 pub mod share_publication;
 pub mod shared_peer;

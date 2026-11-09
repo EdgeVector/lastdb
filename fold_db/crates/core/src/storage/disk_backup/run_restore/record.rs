@@ -59,6 +59,13 @@ pub struct StagedRecord {
     inline_file: Option<InlineFile>,
 }
 
+impl StagedRecord {
+    /// The authenticated fields of this exact primary record.
+    pub fn fields(&self) -> &BTreeMap<String, Value> {
+        &self.fields
+    }
+}
+
 impl RunRestoreGuard {
     /// Read one primary key while the verified native root remains locked.
     pub fn read_staged_record(
