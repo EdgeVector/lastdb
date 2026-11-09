@@ -1,6 +1,6 @@
 //! # schema_core_resolver
 //!
-//! Encapsulated schema **match** engine shared by Schema Service and Schema Mini.
+//! Native schema match engine for Schema Service.
 //!
 //! ## Scope
 //!
@@ -38,9 +38,8 @@ pub use abi::{
 };
 pub use config::{
     AlgorithmSelector, CandidateGenerationConfig, LimitsConfig, PermissionsConfig, ResolverConfig,
-    ResolverConfigError, RolloutConfig, RolloutMode, ScoringConfig,
-    NATIVE_COMPONENT_COVER_ALGORITHM_ID, NATIVE_COMPONENT_COVER_ALGORITHM_VERSION,
-    RESOLVER_CONFIG_FORMAT_VERSION,
+    ResolverConfigError, ScoringConfig, NATIVE_COMPONENT_COVER_ALGORITHM_ID,
+    NATIVE_COMPONENT_COVER_ALGORITHM_VERSION, RESOLVER_CONFIG_FORMAT_VERSION,
 };
 pub use embedding::{cosine_similarity, EmbeddingVectorRecord};
 pub use engine::{evaluate_native, NativeResolverError, NativeResolverInput};

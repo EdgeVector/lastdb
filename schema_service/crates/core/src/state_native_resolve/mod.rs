@@ -26,7 +26,7 @@ use super::types::{
 
 const REGISTRATION_COMPONENT_COVER_MIN_FIELDS: f32 = 0.90;
 
-/// Field-context text aligned with pack publisher / local Mini resolver.
+/// Field-context text for one proposal field.
 pub fn field_context_text(
     descriptive_name: &str,
     field_name: &str,

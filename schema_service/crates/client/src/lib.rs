@@ -17,11 +17,10 @@
 pub mod live_resolver;
 
 pub use live_resolver::{
-    match_live_result, DisagreementClass, FacadePath, FacadeProposal, FacadeResolveItem,
-    LiveSchemaResolver, LocalShadowSummary, SharedSurfaceAttachmentRecord,
-    SharedSurfacePublishOutcome, SharedSurfacePublishRequest, SharedSurfacePublishResult,
+    FacadePath, FacadeProposal, FacadeResolveItem, LiveSchemaResolver,
+    SharedSurfaceAttachmentRecord, SharedSurfacePublishOutcome, SharedSurfacePublishRequest,
+    SharedSurfacePublishResult,
 };
-pub use schema_service_core::{field_context_text, proposal_field_id};
 
 use app_identity_crypto::{
     compute_payload_hash, key_id, sign_envelope, Env, Purpose, SignatureEnvelope, SigningKey,

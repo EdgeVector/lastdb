@@ -34,11 +34,6 @@ pub enum Purpose {
     /// as a shared-discovery schema offer — and a distinct purpose, so a
     /// schema-claim signature can never be replayed as a field declaration.
     FieldDeclare,
-    /// Signs a schema resolver pack release manifest. The payload is the
-    /// manifest JSON without its `signature` field; the manifest binds the
-    /// resolver WASM, schema snapshot, registry embeddings, policy, ABI,
-    /// embedder, environment, and artifact format version.
-    SchemaResolverPack,
     /// Signs a `POST /v2/apps/{app_id}/releases` body. The payload is
     /// `{ "manifest": <release manifest> }`; the manifest binds the locked
     /// schema identities, the source commit, and the signed artifact digest.

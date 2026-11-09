@@ -6,46 +6,11 @@ use super::*;
 // Resolution-path metadata
 // ---------------------------------------------------------------------------
 
-/// Resolution-path metadata. The live adapter emits only `Live`; historical
-/// variants remain readable without changing the response contract.
+/// Resolution path. Publish-attach serializes this as `{"kind":"live"}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum FacadePath {
-    Local,
     Live,
-    Shadow {
-        local: Option<LocalShadowSummary>,
-        /// Boxed: `SchemaResolveResult` is large (full reuse match payload).
-        live: Box<SchemaResolveResult>,
-        disagreement: DisagreementClass,
-    },
-}
-
-/// Bounded local-side summary for shadow comparison (no proposal content).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LocalShadowSummary {
-    pub decision: ResolverDecision,
-    pub confidence: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matched_schema_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub component_schema_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub route: Option<String>,
-}
-
-/// Classification of local vs live disagreement (telemetry only).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DisagreementClass {
-    None,
-    /// Local reuse, live novel or different identity.
-    UnsafeLocalReuse,
-    /// Local miss/fallback, live reuse.
-    MissedReuse,
-    /// Both reuse-ish but different ids/components.
-    EquivalentDifferentPlan,
-    Other,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,15 +31,7 @@ pub struct FacadeResolveItem {
     pub result: SchemaResolveResult,
     pub path: FacadePath,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_decision: Option<ResolverDecision>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<&'static str>,
-    /// Pack format version when a pack was active (no proposal content).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pack_format_version: Option<u32>,
-    /// Resolver config format version when a pack was active.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config_format_version: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
