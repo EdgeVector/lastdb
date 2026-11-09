@@ -108,7 +108,7 @@ jobs:
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/alternate-key-comparison"
-      - name: Compare disk space with equal source records and audit the original seed
+      - name: Compare disk space with equal source records
         run: |
           python3 driver/scripts/benchmarks/alternate_key_storage.py \
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
