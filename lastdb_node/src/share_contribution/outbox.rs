@@ -56,7 +56,7 @@ pub async fn submit(
         return Err("contributor invitation binding differs".into());
     }
     let stream = permission.stream().clone();
-    let client = GuestContributionWriter::new(permission).map_err(|e| e.to_string())?;
+    let client = GuestContributionWriter::new(&permission).map_err(|e| e.to_string())?;
     let state = State::open(identity_home, "contributor-outbox", &stream.stream_id)?;
     let (mut outbox, mut saved) = state.load::<Outbox>()?;
     let fingerprint = hex::encode(Sha256::digest(&encoded));

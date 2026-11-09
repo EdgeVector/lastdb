@@ -123,7 +123,7 @@ pub struct GuestContributionWriter {
 
 impl GuestContributionWriter {
     /// Open the pinned environment with the guest credential and no account session.
-    pub fn new(permission: GuestAppendPermission) -> Result<Self> {
+    pub fn new(permission: &GuestAppendPermission) -> Result<Self> {
         let endpoint = exemem_api_url_for(permission.environment().registry());
         let mut header = HeaderValue::from_str(permission.authorization())
             .map_err(|_| BackupTransportError::Configuration("guest permission header"))?;
