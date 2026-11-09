@@ -4,7 +4,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use fold_db::access::{AccessContext, CallerTransport, CallerVerification};
+use fold_db::access::{AccessContext, CallerVerification};
 use lastdb_node::exec;
 use lastdb_node::host::Host;
 use lastdb_uds::uds::UdsSocket;
@@ -149,18 +149,12 @@ impl Server {
         }
     }
 
-    fn on_accept(
-        &self,
-        stream: std::os::unix::net::UnixStream,
-        transport: CallerTransport,
-        verification: CallerVerification,
-    ) {
+    fn on_accept(&self, stream: std::os::unix::net::UnixStream, verification: CallerVerification) {
         let server = self.clone();
         let submitted =
             self.worker_pool
                 .try_submit_owned_connection(stream, move |stream, completion| {
-                    let result =
-                        deferred::serve(&server, stream, transport, verification, completion);
+                    let result = deferred::serve(&server, stream, verification, completion);
                     deferred::log_result(result);
                     collect_finished_request_heap();
                 });
@@ -185,8 +179,8 @@ impl Server {
             owner_uid,
             shutdown,
             |_handle| CallerVerification::Unverified,
-            |stream, transport, verification| {
-                self.on_accept(stream, transport, verification);
+            |stream, verification| {
+                self.on_accept(stream, verification);
             },
         )
     }

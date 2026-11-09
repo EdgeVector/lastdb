@@ -7,10 +7,10 @@
 //!
 //! What remains:
 //! - [`peer_cred`] — live same-user gate for Unix sockets
-//! - [`AccessContext`] / transport / verification — request identity plumbing
+//! - [`AccessContext`] and verification — request identity plumbing
 
 pub mod peer_cred;
 pub mod types;
 
 pub use peer_cred::{process_name, AuditToken, CallerHandle, PeerCredVerdict, PeerCredential};
-pub use types::{AccessContext, CallerTransport, CallerVerification};
+pub use types::{AccessContext, CallerVerification};

@@ -1,4 +1,4 @@
-//! Split bounded framing from handler work without changing access posture.
+//! Split bounded framing from handler work.
 use super::*;
 
 /// Parse one request with the connection deadline and the context gates.
@@ -7,14 +7,12 @@ pub fn receive_connection(
     stream: &mut std::os::unix::net::UnixStream,
     owner_user_id: &str,
     socket_kind: SocketKind,
-    transport: CallerTransport,
     verification: CallerVerification,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
     receive_with_budget(
         stream,
         owner_user_id,
         socket_kind,
-        transport,
         verification,
         UDS_CONN_BUDGET,
     )
@@ -24,13 +22,12 @@ pub(super) fn receive_with_budget(
     stream: &mut std::os::unix::net::UnixStream,
     owner_user_id: &str,
     socket_kind: SocketKind,
-    transport: CallerTransport,
     verification: CallerVerification,
     budget: std::time::Duration,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
     let read_half = stream.try_clone()?;
     let deadline = std::time::Instant::now() + budget;
-    let base = uds_access_context(owner_user_id, socket_kind, transport, verification);
+    let base = uds_access_context(owner_user_id, socket_kind, verification);
     // Only the authenticated owner may stream a large local file upload.
     // Preserve that framing rule for both immediate and deferred handlers.
     let request = match read_request_with_owner_blob(

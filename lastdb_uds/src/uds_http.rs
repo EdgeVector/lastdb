@@ -2,7 +2,7 @@
 //! `exemem-workspace/docs/designs/app_security_model.md`).
 //!
 //! [`super::uds::UdsSocket::serve`] accepts a same-user stream and supplies
-//! its [`CallerTransport`] and [`CallerVerification`] posture. This module
+//! its [`CallerVerification`]. This module
 //! parses the [`UdsRequest`], builds its [`AccessContext`], and calls the
 //! daemon's route handler. The accept path reads kernel peer credentials before
 //! this parser sees request bytes.
@@ -17,7 +17,7 @@
 
 use std::io::{self, BufRead, Read, Write};
 
-use fold_db::access::{AccessContext, CallerTransport, CallerVerification};
+use fold_db::access::{AccessContext, CallerVerification};
 
 use super::uds_router::SocketKind;
 
@@ -270,8 +270,8 @@ fn read_request_with_owner_blob<R: BufRead>(
 }
 
 /// Build the [`AccessContext`] for a request that arrived over the control
-/// socket, from the accept loop's transport + verification posture **and the
-/// [`SocketKind`] it arrived on**.
+/// socket, from the accept loop's verification **and the [`SocketKind`] it
+/// arrived on**.
 ///
 /// A connection accepted on the control socket has passed the I3a same-user
 /// peer-credential gate ([`super::uds::UdsConnVerdict::Accepted`]), so the caller
@@ -280,9 +280,8 @@ fn read_request_with_owner_blob<R: BufRead>(
 ///
 /// * [`SocketKind::Owner`] + [`CallerVerification::Unverified`] — a same-user
 ///   local caller on the owner control socket with no verified app identity.
-///   Under device-trust such a caller *is* the data owner (the loopback posture
-///   today), so the context is [`AccessContext::owner`] and the I3c read gate
-///   short-circuits on an attesting transport.
+///   Under device trust that caller is the data owner, so the context is
+///   [`AccessContext::owner`].
 /// * [`SocketKind::App`] + [`CallerVerification::Unverified`] — a **jailed app**
 ///   reaching the node over its per-app socket (fold#826). It is a scoped,
 ///   **non-owner** principal and MUST NOT inherit the owner short-circuit: a
@@ -305,12 +304,11 @@ fn read_request_with_owner_blob<R: BufRead>(
 pub fn uds_access_context(
     owner_user_id: &str,
     socket_kind: SocketKind,
-    transport: CallerTransport,
     verification: CallerVerification,
 ) -> AccessContext {
     // The caller is the data owner ONLY when an unverified same-user caller
-    // arrives on the OWNER control socket (device-trust loopback posture). Every
-    // other case is a non-owner principal:
+    // arrives on the OWNER control socket. Every other case is a non-owner
+    // principal:
     //   * a code-signature-verified app (either socket) — gated by its app_id;
     //   * an UNVERIFIED caller on the per-app socket — a jailed app (fold#826).
     //     The owner short-circuit MUST NOT apply to it, so the namespace ACL /
@@ -323,8 +321,7 @@ pub fn uds_access_context(
     } else {
         AccessContext::remote(owner_user_id)
     };
-    base.with_transport(transport)
-        .with_verification(verification)
+    base.with_verification(verification)
 }
 
 /// Best-effort peer pid from a connected UDS stream (ops attribution).
