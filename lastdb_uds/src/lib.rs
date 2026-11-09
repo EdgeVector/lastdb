@@ -15,8 +15,7 @@
 //!   its hardcoded data-route allowlist ([`uds_router::DataRoute`]).
 //!
 //! The data-route executor lives in `lastdb_node`, which supplies
-//! [`uds_router::dispatch`]'s `execute_data` callback. The daemon passes
-//! [`uds_router::no_pairing_mint`] for the browser-pairing route.
+//! [`uds_router::dispatch`]'s `execute_data` callback.
 #![warn(missing_docs)]
 
 pub mod uds;

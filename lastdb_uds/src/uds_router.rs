@@ -238,12 +238,6 @@ pub enum ControlRoute {
     /// A recognized app-facing data route, to be executed against node state by
     /// the dispatcher. Inert in this slice — no executor is wired yet.
     Data(DataRoute),
-    /// Mint a one-time browser pairing code (`browser_owner_attestation.md`).
-    /// Exists ONLY on this owner-attested channel — deliberately absent from
-    /// the TCP router, so a co-resident app on the loopback port cannot reach
-    /// it at all. Answered in [`dispatch`] (needs the connection's
-    /// verification posture, but no node state).
-    MintBrowserPairingCode,
     /// The target path is a recognized control-socket path, but not for this
     /// method.
     MethodNotAllowed {
@@ -270,15 +264,8 @@ fn path_only(target: &str) -> &str {
 /// Pure: matches `(method, path)` against the fixed allowlist. A recognized path
 /// with the wrong method is [`ControlRoute::MethodNotAllowed`]; an unrecognized
 /// path is [`ControlRoute::NotFound`]. No node state, no side effects, no caller
-/// bytes retained.
-///
-/// **The no-mint guarantee (Option B).** The owner-only mint verb
-/// (`/control/browser-pairing-code`) is classified ONLY on [`SocketKind::Owner`].
-/// On [`SocketKind::App`] — the socket a jailed app reaches — that exact path
-/// falls through to [`ControlRoute::NotFound`]: the route is not in the table, so
-/// a confined app physically cannot mint an owner-bypass pairing code regardless
-/// of its method or any header it sends. The app-facing data plane and health
-/// route on both sockets; owner data routes remain absent from the app socket.
+/// bytes retained. Owner-only paths classify only on [`SocketKind::Owner`].
+/// On [`SocketKind::App`] those paths are [`ControlRoute::NotFound`].
 pub fn route(req: &UdsRequest, socket: SocketKind) -> ControlRoute {
     let path = path_only(&req.target);
     let method = req.method.as_str();
@@ -302,7 +289,7 @@ fn single_method(method: &str, allow: &'static str, route: ControlRoute) -> Cont
     }
 }
 
-/// Paths with state-free answers, several methods, or an owner-only mint verb.
+/// Paths with state-free answers or several methods.
 fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> {
     let route = match path {
         "/health" => single_method(method, "GET", ControlRoute::Health),
@@ -320,12 +307,6 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
-        // Owner control plane: present ONLY on the owner socket. On the app
-        // socket the path is unrecognized → NotFound (the structural no-mint
-        // guarantee — the route simply does not exist for a jailed app).
-        "/control/browser-pairing-code" if owner => {
-            single_method(method, "POST", ControlRoute::MintBrowserPairingCode)
-        }
         _ => return None,
     };
     Some(route)

@@ -92,9 +92,6 @@ fn route_request(
         ctx,
         SocketKind::Owner,
         |route, request, context| exec::block_on_data_route(handle, route, request, context, host),
-        // No browser-pairing surface in the minimal daemon: the mint verb
-        // answers 404.
-        uds_router::no_pairing_mint,
         (
             lastdb_node::version::MIN_SUPPORTED_API_VERSION,
             lastdb_node::version::CURRENT_OUTBOX_FORMAT_VERSION,

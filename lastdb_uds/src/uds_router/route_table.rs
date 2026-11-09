@@ -4,7 +4,7 @@
 //! after its few hand-written arms (health, version, multi-method and
 //! prefix-matched paths). A row with [`Scope::Owner`] exists only on the owner
 //! socket: on the app socket the path is unrecognized and falls through to
-//! `NotFound`, the structural no-mint guarantee for owner-only verbs.
+//! `NotFound`. Owner-only rows are absent on the app socket.
 
 use super::DataRoute;
 
