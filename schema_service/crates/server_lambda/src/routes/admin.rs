@@ -1,11 +1,9 @@
-//! Admin, debug, snapshot and telemetry routes.
+//! Admin, debug, and snapshot routes.
 
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::SchemaMatchTelemetryReply;
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::types::DeprecateSchemasRequest;
 use serde_json::json;
 
 pub(crate) fn post_debug_field_match_probe(
@@ -64,46 +62,6 @@ pub(crate) async fn post_admin_warm_embeddings(
             },
         }),
     )
-}
-
-// One-shot dev cleanup. Walks the registry, picks the active schema
-// with the largest field set per `descriptive_name` as the survivor,
-// marks the rest `superseded_by` the survivor. Idempotent — a clean
-// registry returns an empty array. See state.rs:dedupe_descriptive_names
-// for the rationale and the historical cross-schema_type fall-through.
-//
-// Intentionally NOT auth-gated for now — the action is reversible
-// (data isn't deleted, only superseded) and the dev API gateway is
-// already loopback/internal. If the same endpoint ever ships to prod,
-// require X-API-Key like /v1/snapshot.
-pub(crate) async fn post_admin_dedupe_descriptive_names(
-    state: &SchemaServiceState,
-) -> Result<Response<Body>, Error> {
-    let (status, body, _) = state.dedupe_names_reply().await.into_http();
-    json_response(status, &body)
-}
-
-// Surgical cleanup for polluted registry entries. Marks schemas
-// inactive (`superseded_by`) and removes their descriptive-name index
-// entry without deleting immutable records.
-pub(crate) async fn post_admin_deprecate_schemas(
-    state: &SchemaServiceState,
-    event: &Request,
-) -> Result<Response<Body>, Error> {
-    let request: DeprecateSchemasRequest =
-        match typed_json_body(event, "Invalid deprecate-schemas request") {
-            Ok(request) => request,
-            Err(response) => return response,
-        };
-    let (status, body, _) = state.deprecate_schemas_reply(request).await.into_http();
-    json_response(status, &body)
-}
-
-pub(crate) fn get_admin_schema_match_telemetry(
-    state: &SchemaServiceState,
-) -> Result<Response<Body>, Error> {
-    let SchemaMatchTelemetryReply { status, body } = state.schema_match_telemetry_reply();
-    json_response(status, &body)
 }
 
 pub(crate) async fn get_snapshot_shared_only(

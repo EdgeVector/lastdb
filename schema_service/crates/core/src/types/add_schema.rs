@@ -32,53 +32,6 @@ pub struct DescriptiveNameConflict {
     pub reason: String,
 }
 
-/// One entry in the `POST /v1/admin/dedupe-descriptive-names` response.
-/// Reports a `descriptive_name` that had multiple active schemas before the
-/// dedupe ran, names the survivor (largest field set wins), and lists the
-/// hashes now marked `superseded_by` the survivor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DescriptiveNameDedupeGroup {
-    /// The colliding human-readable name.
-    pub descriptive_name: String,
-    /// `identity_hash` of the schema kept as the active canonical.
-    pub survivor: String,
-    /// Field count on the survivor — useful for an operator scanning the
-    /// audit log to confirm "largest field set wins" picked the right one.
-    pub survivor_field_count: usize,
-    /// `identity_hash`es of the schemas that were marked superseded by the
-    /// survivor. Their data isn't deleted — `resolve_active_schema` will
-    /// redirect future lookups to `survivor`.
-    pub superseded: Vec<String>,
-}
-
-/// Request body for `POST /v1/admin/deprecate-schemas`.
-///
-/// Accepts direct schema identity hashes and/or descriptive names. Descriptive
-/// names are scoped to `owner_app_id` when provided; otherwise they target the
-/// legacy/unowned namespace.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct DeprecateSchemasRequest {
-    #[serde(default)]
-    pub schema_names: Vec<String>,
-    #[serde(default)]
-    pub descriptive_names: Vec<String>,
-    #[serde(default)]
-    pub owner_app_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeprecatedSchemaEntry {
-    pub schema_name: String,
-    pub descriptive_name: Option<String>,
-    pub already_deprecated: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeprecateSchemasResponse {
-    pub deprecated: Vec<DeprecatedSchemaEntry>,
-    pub not_found: Vec<String>,
-}
-
 /// Error response structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -90,18 +43,15 @@ pub struct ErrorResponse {
 pub struct AddSchemaRequest {
     pub schema: Schema,
     pub mutation_mappers: HashMap<String, String>,
-    /// Low-cardinality caller/source label for schema-match telemetry.
+    /// Low-cardinality caller label. Mini still sends this on `POST /v1/schemas`.
     ///
-    /// `direct` is the default for legacy clients. Local nodes that already
-    /// ran their offline matcher before falling back to the live service send
-    /// `local_matcher_fallback`, which lets operators separate local misses
-    /// from first-party direct callers without high-cardinality labels.
+    /// `direct` is the default when a client omits the field. A node that
+    /// already ran its offline matcher sends `local_matcher_fallback`.
     #[serde(default = "default_schema_match_source")]
     pub schema_match_source: String,
-    /// Low-cardinality fallback reason when `schema_match_source` is
-    /// `local_matcher_fallback`. Free-form user/schema details are forbidden;
-    /// clients should use stable enum-like strings such as
-    /// `no_candidate_schema` or `insufficient_field_coverage`.
+    /// Low-cardinality reason paired with `schema_match_source` when that
+    /// label is `local_matcher_fallback`. Clients should use stable strings
+    /// such as `no_candidate_schema` or `insufficient_field_coverage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
     /// Whether this registration OFFERS the schema into the shared

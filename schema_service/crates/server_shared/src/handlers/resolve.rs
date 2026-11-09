@@ -13,26 +13,7 @@ pub async fn batch_check_reuse(
     let request = payload.into_inner();
 
     match state.batch_reuse_reply(&request.schemas).into_http() {
-        Ok(response) => {
-            for entry in &request.schemas {
-                match response.matches.get(&entry.descriptive_name) {
-                    Some(m) if m.is_superset => {
-                        state.record_schema_match_outcome("matched_existing", "batch_reuse", None);
-                    }
-                    Some(_) => state.record_schema_match_outcome(
-                        "low_confidence_fallback",
-                        "batch_reuse",
-                        Some("insufficient_field_coverage"),
-                    ),
-                    None => state.record_schema_match_outcome(
-                        "no_match",
-                        "batch_reuse",
-                        Some("no_candidate_schema"),
-                    ),
-                }
-            }
-            HttpResponse::Ok().json(response)
-        }
+        Ok(response) => HttpResponse::Ok().json(response),
         Err((status, body, message)) => {
             tracing::error!(target: "schema_service::schema", "{message}");
             json_status(status, body)

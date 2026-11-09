@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Observe-mode classification for `POST /v1/schemas` mutation gate rollout.
 ///
@@ -67,11 +66,4 @@ impl SchemaMutationGateObservation {
             .collect::<Vec<_>>()
             .join(",")
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SchemaMatchTelemetrySnapshot {
-    pub outcomes: HashMap<String, u64>,
-    pub fallback_reasons: HashMap<String, u64>,
-    pub sources: HashMap<String, u64>,
 }

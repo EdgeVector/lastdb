@@ -102,26 +102,9 @@ impl SchemaServiceState {
             // declaring schemas the catalog already holds must not pay
             // for it (2026-09-13: every fresh install timed out here and
             // then burned its add-schema quota on registers).
-            let outcome = match exact.outcome {
-                SchemaResolveOutcome::Reuse => "matched_existing",
-                SchemaResolveOutcome::CandidateEquivalent => "component_cover",
-                SchemaResolveOutcome::Novel => "no_match",
-                SchemaResolveOutcome::Refresh => "refresh",
-            };
-            self.record_schema_match_outcome(outcome, "exact_catalog_row", None);
             exact
         } else if let Some(native) = self.try_native_component_cover_resolve(proposal)? {
             // embedding-beam / native_component_cover@1 (preferred live path)
-            self.record_schema_match_outcome(
-                match native.outcome {
-                    SchemaResolveOutcome::Reuse => "matched_existing",
-                    SchemaResolveOutcome::CandidateEquivalent => "component_cover",
-                    SchemaResolveOutcome::Novel => "no_match",
-                    SchemaResolveOutcome::Refresh => "refresh",
-                },
-                "native_component_cover",
-                None,
-            );
             native
         } else if let Some(reuse_match) = self.resolve_schema_proposal_match(proposal)? {
             let shared_hash = reuse_match

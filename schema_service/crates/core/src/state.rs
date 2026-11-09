@@ -19,12 +19,10 @@ use super::state_matching::collect_field_names;
 pub use super::state_matching::jaccard_index;
 use super::types::SchemaResolveOutcome;
 use super::types::{
-    DeprecateSchemasRequest, DeprecateSchemasResponse, DeprecatedSchemaEntry,
-    DescriptiveNameDedupeGroup, SchemaAddOutcome, SchemaEnvelope, SchemaLookupEntry,
-    SchemaMatchTelemetrySnapshot, SchemaMutationGateIntent, SchemaMutationGateObservation,
-    SchemaMutationGateRequirement, SchemaResolveProposal, SchemaResolveRequest,
-    SchemaResolveResponse, SchemaResolveResult, SchemaReuseMatch, SimilarSchemaEntry,
-    SimilarSchemasResponse,
+    SchemaAddOutcome, SchemaEnvelope, SchemaLookupEntry, SchemaMutationGateIntent,
+    SchemaMutationGateObservation, SchemaMutationGateRequirement, SchemaResolveProposal,
+    SchemaResolveRequest, SchemaResolveResponse, SchemaResolveResult, SchemaReuseMatch,
+    SimilarSchemaEntry, SimilarSchemasResponse,
 };
 
 mod add_schema;
@@ -37,23 +35,19 @@ mod canonical_field;
 mod canonicalization_candidates;
 mod collection_names;
 mod idempotent_repost;
-mod lifecycle;
 mod loading;
 mod lookup;
 mod mutation_gate;
 mod persistence;
 mod resolve;
-mod telemetry_reply;
 mod vocabulary_validation;
 
 pub use add_schema::SchemaAddReply;
-pub use lifecycle::{DedupeNamesReply, DeprecateSchemasReply};
 pub use lookup::{IdempotentRepostReply, SchemaByNameReply};
 pub use resolve::{
     accepted_similarity_threshold, similarity_threshold_reply, BatchReuseReply, SchemaResolveReply,
     SimilarSchemasReply, SimilarityThresholdReply, MAX_SCHEMA_RESOLVE_PROPOSALS,
 };
-pub use telemetry_reply::SchemaMatchTelemetryReply;
 pub use vocabulary_validation::FieldVocabularyReply;
 
 /// Compose the key used in `descriptive_name_index` (and
@@ -79,25 +73,6 @@ pub(crate) fn descriptive_name_key(owner_app_id: Option<&str>, descriptive_name:
         Some(app_id) => format!("{app_id}/{descriptive_name}"),
         None => descriptive_name.to_string(),
     }
-}
-
-fn normalize_owner(owner_app_id: Option<&str>) -> Option<&str> {
-    owner_app_id.filter(|s| !s.is_empty())
-}
-
-fn safe_telemetry_label(raw: &str) -> String {
-    let label = raw.trim();
-    if label.is_empty() {
-        return "unknown".to_string();
-    }
-    if label.len() > 64
-        || !label
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-    {
-        return "other".to_string();
-    }
-    label.to_string()
 }
 
 /// Truncate `s` to at most `max_bytes`, snapping the cut down to the nearest
@@ -224,9 +199,6 @@ pub struct SchemaServiceState {
     /// deployment env, revoked dev pubkeys). The default is empty
     /// (enforcement inactive — see `app_identity` module docs).
     pub app_identity: Arc<RwLock<crate::app_identity::AppIdentityConfig>>,
-    /// Low-cardinality schema matching counters for operators. Labels are
-    /// stable enums controlled by code, never schema names or user data.
-    pub schema_match_telemetry: Arc<RwLock<SchemaMatchTelemetrySnapshot>>,
     /// Feature-flagged enforcement config for unowned shared schema
     /// mutations. Defaults to observe-only; startup config can enable it via
     /// `SCHEMA_MUTATION_GATE_ENFORCE=true`.

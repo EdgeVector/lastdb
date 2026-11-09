@@ -247,15 +247,6 @@ async fn dispatch_admin(
         ("POST", "/v1/admin/warm-embeddings") => {
             routes::admin::post_admin_warm_embeddings(state).await
         }
-        ("POST", "/v1/admin/dedupe-descriptive-names") => {
-            routes::admin::post_admin_dedupe_descriptive_names(state).await
-        }
-        ("POST", "/v1/admin/deprecate-schemas") => {
-            routes::admin::post_admin_deprecate_schemas(state, event).await
-        }
-        ("GET", "/v1/admin/schema-match-telemetry") => {
-            routes::admin::get_admin_schema_match_telemetry(state)
-        }
         // `GET /v1/snapshot` is auth-gated by X-API-Key (validated
         // against the exemem ApiKeys DynamoDB table). The dev-only
         // `POST /v1/snapshot/import` route is intentionally NOT
