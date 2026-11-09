@@ -155,10 +155,15 @@ fn map(error: laststore::Error) -> StorageError {
 fn open_paired_runs(
     root: &Path,
     key: &[u8; 32],
-    admission_detail: &'static str,
+    shared: bool,
 ) -> StorageResult<(RunRead, RunRead)> {
+    let open = if shared {
+        RunRead::open_existing_shared_bounded
+    } else {
+        RunRead::open_existing_bounded
+    };
     let maximum = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
-    let main = RunRead::open_existing_bounded(
+    let main = open(
         &root.join(run_node::RUN_DIR),
         &run_node::home_key(key),
         read_budget(),
@@ -167,8 +172,8 @@ fn open_paired_runs(
     .map_err(map)?;
     let remaining = maximum
         .checked_sub(main.retained_bytes())
-        .ok_or_else(|| invalid(admission_detail))?;
-    let cas = RunRead::open_existing_bounded(
+        .ok_or_else(|| invalid("paired run metadata exceeds memory admission"))?;
+    let cas = open(
         &root.join(run_node::CAS_DIR),
         &run_node::cas_key(key),
         read_budget(),

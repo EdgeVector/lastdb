@@ -86,7 +86,7 @@ impl RunSnapshotReader {
         account_key: &[u8; 32],
         verified_root: &cloud_backup_protocol::NativeRoot,
     ) -> StorageResult<Self> {
-        let native = RunNodeGuard::open(path, account_key)?;
+        let native = RunNodeGuard::open_snapshot(path, account_key)?;
         native.profile.validate_root(verified_root)?;
         native.require_empty_local_cas()?;
         Ok(Self(native))
