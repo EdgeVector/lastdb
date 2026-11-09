@@ -19,22 +19,22 @@ change shape underneath the app without a documented contract change.
 ### 1. Connect + identity
 
 ```ts
-const app = await connect({ appId, socketPath });     // dev node: UDS-only
-const app = await connect({ appId, baseUrl });        // production: TCP + consent
+const app = await connect({ appId, socketPath });     // explicit socket
+const app = await connect({ appId });                 // discover folddb.sock
 ```
 
 - **`appId`** is the app's identity. Every capability, every stored token, and
   every scoped read/write is keyed by it. The node decides an app's access
   scope `S(A)` from the *verified* `app_id` on the capability — the app never
   names or widens its own scope.
-- **Transport** is chosen by which of `socketPath` / `baseUrl` you pass. A local
-  node is reached over its **Unix-domain data-plane socket** by default (the
-  `baseUrl` case socket-discovers it; see the README's "Socket-first
-  discovery"). An external app-like caller connecting over that socket is the
-  primary path.
-- **`defaultHeaders`** carries a production node's required `X-User-Hash`
-  identity header on every request. A UDS caller does not need it (the socket
-  carries kernel peer credentials).
+- **Transport** is the node's Unix-domain socket. Pass `socketPath` to use that
+  path verbatim. Omit it and `connect` reads `LASTDB_SOCKET_PATH`, then
+  `FOLDDB_SOCKET_PATH`, then `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`.
+  The discovered file must exist; otherwise `connect` throws `TransportError`
+  kind `connect` and names the path.
+- **`defaultHeaders`** attach to every request. A per-call header of the same
+  name wins. The SDK sets `X-LastDB-Client` from `clientId` or `appId`. The
+  socket carries kernel peer credentials.
 - **`timeoutMs`** bounds each transport request (default 30s), including data
   path calls, so a wedged node rejects with `TransportError` instead of hanging.
 - **`requireApiVersion`** is the node request-grammar version the app needs.
@@ -122,7 +122,7 @@ These helpers cover owner-context endpoints that host apps need during setup
 and diagnostics but that are not part of the capability-scoped data plane:
 
 - **`autoIdentity`** wraps `GET /api/system/auto-identity` and returns either
-  the local owner `userHash` (for `X-User-Hash`) or the node's canonical
+  the local owner identity or the node's canonical
   not-provisioned 503 as `{ provisioned: false, reason, next }`.
 - **`listSchemas`** wraps `GET /api/schemas` and normalizes loaded schema
   entries (`name`, `identityHash`, `ownerAppId`, `descriptiveName`, `fields`).
@@ -192,10 +192,9 @@ discovers a wire drift in production.
 
 The wire shapes follow `origin/main` Mini / `lastdbd` data-plane
 behavior: consent + capability write gate, `/api/query` + `/api/mutation` +
-`/api/app/search` over UDS, and the discriminated 403 reasons under
+`/api/app/search` over the Unix socket, and the discriminated 403 reasons under
 `fold_db/crates/core/src/access/capability_denial.rs` (when present in-tree).
-Do not treat a deleted `fold_db_node` crate path as the product surface —
-local apps use Mini owner/app sockets (`socketPath` / `~/.lastdb/data/folddb.sock`).
+Local apps use Mini owner/app sockets (`socketPath` / `~/.lastdb/data/folddb.sock`).
 
 ---
 

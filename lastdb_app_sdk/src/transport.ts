@@ -1,11 +1,9 @@
 /**
- * HTTP transport over either a TCP base URL or a Unix-domain socket.
+ * HTTP/1.1 transport over the node's Unix-domain socket.
  *
- * Both transports speak the same HTTP/1.1 dialect. `lastdbd` serves its route
- * table (`lastdb_uds` `uds_router::route_table`) over its Unix-domain sockets.
- * Node's built-in `http` client handles UDS natively via the `socketPath`
- * request option, so one implementation covers both — the only difference is
- * whether we pass `host`/`port` or `socketPath`.
+ * `lastdbd` serves its route table (`lastdb_uds` `uds_router::route_table`)
+ * on `folddb.sock`. Node's built-in `http` client reaches that socket through
+ * the `socketPath` request option.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -54,21 +52,7 @@ export interface Transport {
   ): Promise<RawResponse>;
 }
 
-interface HttpTargetTcp {
-  kind: 'tcp';
-  host: string;
-  port: number;
-  protocol: 'http:' | 'https:';
-}
-
-interface HttpTargetUds {
-  kind: 'uds';
-  socketPath: string;
-}
-
-type HttpTarget = HttpTargetTcp | HttpTargetUds;
-
-/** Per-transport behavior shared by TCP and Unix-domain-socket HTTP. */
+/** Per-request options for the Unix-domain socket transport. */
 export interface TransportOptions {
   /**
    * Per-request timeout in milliseconds. Defaults to 30s so a wedged node
@@ -80,37 +64,10 @@ export interface TransportOptions {
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Build a {@link Transport} for a TCP base URL (e.g.
- * `http://127.0.0.1:9101`). Throws on a non-http(s) URL. `defaultHeaders` are
- * attached to every request this transport sends (under a per-call header of
- * the same name, which wins) — used to carry a node-required identity header
- * such as `X-User-Hash` that the production `fold_db_node` reads to resolve the
- * caller (its HTTP server is stateless: identity comes from the header).
- */
-export function httpTransport(
-  baseUrl: string,
-  defaultHeaders: Record<string, string> = {},
-  options: TransportOptions = {},
-): Transport {
-  const url = new URL(baseUrl);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new TransportError(
-      `baseUrl must be http:// or https://, got '${url.protocol}'`,
-      'protocol',
-    );
-  }
-  const target: HttpTarget = {
-    kind: 'tcp',
-    host: url.hostname,
-    port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
-    protocol: url.protocol,
-  };
-  return new NodeHttpTransport(target, baseUrl, defaultHeaders, options);
-}
-
-/**
- * Build a {@link Transport} that speaks HTTP over a Unix-domain socket. See
- * {@link httpTransport} for the `defaultHeaders` contract.
+ * Build a {@link Transport} that speaks HTTP over a Unix-domain socket.
+ *
+ * `defaultHeaders` are attached to every request (a per-call header of the
+ * same name wins). Callers use them for `X-LastDB-Client` and the request id.
  */
 export function udsTransport(
   socketPath: string,
@@ -118,7 +75,7 @@ export function udsTransport(
   options: TransportOptions = {},
 ): Transport {
   return new NodeHttpTransport(
-    { kind: 'uds', socketPath },
+    socketPath,
     `unix:${socketPath}`,
     defaultHeaders,
     options,
@@ -187,54 +144,34 @@ function resolveSocketPath(env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * Discover which transport an app should use against a local node. The
- * `lastdb` CLI reads the same `LASTDB_SOCKET_PATH` override, so a TypeScript
- * app and the CLI agree on where the socket lives.
+ * Open the discovered data-plane socket.
  *
- * Order (highest priority first):
- * 1. `LASTDB_SOCKET_PATH` — canonical explicit socket-path override.
- * 2. `FOLDDB_SOCKET_PATH` — second explicit override, read when
- *    `LASTDB_SOCKET_PATH` is unset.
- * 3. `<data_dir>/folddb.sock` — the default the node binds, resolved via
- *    {@link resolveSocketPath} (`LASTDB_HOME`, else `~/.lastdb`).
- * 4. Loopback TCP at `fallbackBaseUrl` — the fallback when no socket exists.
- *
- * A socket path is only chosen when the file actually EXISTS, so a node that
- * binds no socket (a pre-data-plane node, or one whose bind failed)
- * transparently falls back to TCP. `defaultHeaders` are attached to whichever
- * transport is built (see {@link httpTransport}); a UDS caller does not need
- * the `X-User-Hash` identity header — the socket carries kernel peer
- * credentials — but passing it is harmless.
- *
- * On a non-Unix platform there is no UDS transport, so this always returns the
- * TCP transport (matching the Rust `#[cfg(not(unix))]` discovery).
+ * Order: `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
+ * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The file must exist.
  */
-export function discoverTransport(options: {
-  fallbackBaseUrl: string;
+export function openDiscoveredSocket(options: {
   defaultHeaders?: Record<string, string>;
   timeoutMs?: number;
-  /** Override the environment read for discovery (defaults to `process.env`). */
   env?: NodeJS.ProcessEnv;
 }): Transport {
-  const { fallbackBaseUrl, defaultHeaders = {}, timeoutMs } = options;
+  const { defaultHeaders = {}, timeoutMs } = options;
   const env = options.env ?? process.env;
-
-  if (process.platform !== 'win32') {
-    const resolved = resolveSocketPath(env);
-    if (resolved !== null && existsSync(resolved)) {
-      return udsTransport(resolved, defaultHeaders, { timeoutMs });
-    }
+  const resolved = resolveSocketPath(env);
+  if (resolved === null || !existsSync(resolved)) {
+    throw new TransportError(
+      `no LastDB socket at ${resolved ?? '(unresolved path)'}; set LASTDB_SOCKET_PATH or pass socketPath`,
+      'connect',
+    );
   }
-
-  return httpTransport(fallbackBaseUrl, defaultHeaders, { timeoutMs });
+  return udsTransport(resolved, defaultHeaders, { timeoutMs });
 }
 
-/** Node `http`-backed transport shared by the TCP and UDS variants. */
+/** Node `http` transport for one Unix-domain socket. */
 class NodeHttpTransport implements Transport {
   private readonly timeoutMs: number;
 
   constructor(
-    private readonly t: HttpTarget,
+    private readonly socketPath: string,
     readonly target: string,
     private readonly defaultHeaders: Record<string, string> = {},
     options: TransportOptions = {},
@@ -288,24 +225,13 @@ class NodeHttpTransport implements Transport {
       headers['content-length'] = String(Buffer.byteLength(payload));
     }
 
-    const requestOptions =
-      this.t.kind === 'tcp'
-        ? {
-            host: this.t.host,
-            port: this.t.port,
-            protocol: this.t.protocol,
-            method,
-            path,
-            headers,
-            timeout: timeoutMs,
-          }
-        : {
-            socketPath: this.t.socketPath,
-            method,
-            path,
-            headers,
-            timeout: timeoutMs,
-          };
+    const requestOptions = {
+      socketPath: this.socketPath,
+      method,
+      path,
+      headers,
+      timeout: timeoutMs,
+    };
 
     return new Promise<RawResponse>((resolve, reject) => {
       const req = httpRequest(requestOptions, (res: IncomingMessage) => {
