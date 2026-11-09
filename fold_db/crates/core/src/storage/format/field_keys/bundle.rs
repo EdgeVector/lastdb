@@ -1,8 +1,4 @@
 //! One blind key per record-space or alternate bundle.
-//!
-//! Older sealed bundles also carry `content_dek` and `ope_key`. Decode ignores
-//! those fields. A stored record is plain JSON, and no range is order-preserving
-//! encoded, so a newly minted bundle writes only `blind_key`.
 
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use rand::{rngs::OsRng, RngCore};
