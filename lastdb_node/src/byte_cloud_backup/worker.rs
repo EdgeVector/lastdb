@@ -133,22 +133,12 @@ async fn setup(
         HeadReadResult::Error { error } => return Err(transfer::cloud_error(error)),
     };
     let recovery_dependencies = saved.work.recovery_dependencies();
-    let covered_logs = if recovery_dependencies.is_empty() {
-        predecessor
-            .as_ref()
-            .map(|head| CoveredLog {
-                user_id: source.account.clone(),
-                device_id: source.source_home.clone(),
-                stream_id: stream.stream_id.clone(),
-                through_commit_id: head.commit_id.clone(),
-                through_ordinal: head.ordinal,
-                through_sha256: head.commit_sha256.clone(),
-            })
-            .into_iter()
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let covered_logs = covered_logs(
+        source,
+        &stream.stream_id,
+        predecessor.as_ref(),
+        &recovery_dependencies,
+    );
     let begin = Begin {
         version: Version::V2,
         job: Job {
@@ -170,6 +160,28 @@ async fn setup(
     store.save(saved)?;
     source.flush().await?;
     Ok(())
+}
+
+fn covered_logs(
+    source: &Source,
+    stream_id: &Id,
+    predecessor: Option<&cloud_backup_protocol::v2::Head>,
+    recovery_dependencies: &[cloud_backup_protocol::v2::Head],
+) -> Vec<CoveredLog> {
+    if !recovery_dependencies.is_empty() {
+        return Vec::new();
+    }
+    predecessor
+        .map(|head| CoveredLog {
+            user_id: source.account.clone(),
+            device_id: source.source_home.clone(),
+            stream_id: stream_id.clone(),
+            through_commit_id: head.commit_id.clone(),
+            through_ordinal: head.ordinal,
+            through_sha256: head.commit_sha256.clone(),
+        })
+        .into_iter()
+        .collect()
 }
 
 async fn drive(
