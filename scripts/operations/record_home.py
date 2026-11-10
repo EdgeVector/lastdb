@@ -5,7 +5,9 @@ Every new home uses the record model. The script writes and reads records with t
 selectors that the brain and LastSecrets apps use, checks that repeated reads
 by key come from the record warm set, lets the TTL sweep
 delete an expired record, reads the delete audit, then restarts the daemon and
-reads again. It also drains a schema of more than 10,000 records with
+reads again. Before that restart it copies the stopped home and requires a
+second daemon to refuse both a wrong node marker and a marker that claims an
+older format. It also drains a schema of more than 10,000 records with
 unfiltered cursor pages and records the time of each page, reads past a run
 of more deleted records than one request examines, lets the TTL sweep read
 past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
@@ -27,6 +29,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node, marker_format, UnixConnection  # noqa: E402
+import record_format_refusal  # noqa: E402
 import record_runs  # noqa: E402
 from record_requests import mutation as native_mutation, conditioned  # noqa: E402
 import record_drop_tracking  # noqa: E402
@@ -468,6 +471,7 @@ def main():
             {"id": "four", "bucket": "b5"})])[0]
         acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
         node.stop()
+        record_format_refusal.exercise(node)
         node.start()
         refused(lambda: node.call("/api/mutation", retry), "HTTP 409")
         require(query(node, "RecordById", {"HashKey": "four"})[0]["revision"] == acknowledged,
