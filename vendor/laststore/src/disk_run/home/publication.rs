@@ -53,7 +53,7 @@ impl RunHome {
         }
         let _root = timing::stage("v2_root_install_us");
         let next = Arc::new(next);
-        *self.current.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&next);
+        self.install_current(&next)?;
         timing::count("v2_current_publications", 1);
         Ok(next)
     }

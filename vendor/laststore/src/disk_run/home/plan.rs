@@ -281,9 +281,8 @@ impl RunHome {
         )?;
         let records = pieces.iter().flatten().map(|run| run.meta.records).sum();
         let run_bytes = pieces.iter().flatten().map(|run| run.meta.file_bytes).sum();
-        let _publish = crate::commit_timing::during("v2_publish_lock_wait_us", || {
-            self.publish.lock().unwrap_or_else(|e| e.into_inner())
-        });
+        let _publish =
+            crate::commit_timing::during("v2_publish_lock_wait_us", || self.publish_lock())?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;

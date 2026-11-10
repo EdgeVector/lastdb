@@ -31,14 +31,8 @@ impl RunHome {
             .merge
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let _commit = self
-            .commit
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let _publish = self
-            .publish
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _commit = self.commit_lock()?;
+        let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let current = self.held();
         let held: Vec<_> = {
