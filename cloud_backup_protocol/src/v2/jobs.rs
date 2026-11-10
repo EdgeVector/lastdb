@@ -1,12 +1,52 @@
 //! Begin, status, and close messages for one stream commit.
 
 use super::{hash, limits, AcceptedBackup, ClientDescriptor, Destination, Head, Job, Version};
-use crate::{DecimalU64, Digest, ProtocolError};
+use crate::{AccountId, DecimalU64, Digest, Id, ProtocolError};
 use serde::{Deserialize, Serialize};
+
+/// Maximum writer streams covered by one snapshot marker.
+pub const MAX_COVERED_LOGS: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Open one commit on a stream: descriptor, destinations, predecessor, and recovery dependencies.
+/// Exact mutation-log prefix from one `(user_id, device_id)` stream included in a snapshot.
+pub struct CoveredLog {
+    /// User account that owns the covered writer stream.
+    pub user_id: AccountId,
+    /// Device or home identity of the covered writer.
+    pub device_id: Id,
+    /// Mutation-log stream id covered through `through_commit_id`.
+    pub stream_id: Id,
+    /// Most recent commit id on `stream_id` absorbed into this snapshot.
+    pub through_commit_id: Id,
+    /// 1-based ordinal of `through_commit_id` on `stream_id`. Zero is rejected.
+    pub through_ordinal: DecimalU64,
+    /// SHA-256 of the commit input for `through_commit_id`.
+    pub through_sha256: Digest,
+}
+impl CoveredLog {
+    /// Reject ordinal zero.
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        if self.through_ordinal.get() == 0 {
+            return Err(ProtocolError::invalid("v2.covered_log.ordinal"));
+        }
+        Ok(())
+    }
+
+    /// Head formed from `through_commit_id`, `through_sha256`, and `through_ordinal`.
+    #[must_use]
+    pub fn head(&self) -> Head {
+        Head {
+            commit_id: self.through_commit_id.clone(),
+            commit_sha256: self.through_sha256.clone(),
+            ordinal: self.through_ordinal,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+/// Open one commit on a stream: descriptor, destinations, predecessor, recovery dependencies, and covered logs.
 pub struct Begin {
     /// Protocol version. V2 serializes this field as the JSON integer 2.
     pub version: Version,
@@ -25,9 +65,13 @@ pub struct Begin {
     /// Exact recovery dependencies, separate from publication order. An empty
     /// list declares an independent recovery base.
     pub recovery_dependencies: Vec<Head>,
+    /// Flat `(user_id, device_id)` log heads included in an independent snapshot,
+    /// sorted strictly by `(user_id, device_id, stream_id)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covered_logs: Vec<CoveredLog>,
 }
 impl Begin {
-    /// Reject `r2_multipart: false`, a bad job or descriptor, a bad predecessor or dependency list, or oversized JSON.
+    /// Reject `r2_multipart: false`, a bad job or descriptor, a bad predecessor, dependency, or covered-log list, or oversized JSON.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         super::common::validate_destinations(&self.required_destinations)?;
         if self.required_destinations.is_empty() {
@@ -45,7 +89,36 @@ impl Begin {
             }
         }
         self.validate_dependencies()?;
+        self.validate_covered_logs()?;
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
+    }
+
+    fn validate_covered_logs(&self) -> Result<(), ProtocolError> {
+        let logs = &self.covered_logs;
+        if logs.is_empty() {
+            return Ok(());
+        }
+        if !self.recovery_dependencies.is_empty() {
+            return Err(ProtocolError::invalid("v2.begin.covered_logs"));
+        }
+        if logs.len() > MAX_COVERED_LOGS {
+            return Err(ProtocolError::limit("v2.begin.covered_logs"));
+        }
+        for (offset, covered) in logs.iter().enumerate() {
+            covered.validate()?;
+            if covered.through_commit_id == self.job.commit_id {
+                return Err(ProtocolError::invalid("v2.begin.covered_logs"));
+            }
+            if offset > 0 {
+                let prev = &logs[offset - 1];
+                let prev_key = (&prev.user_id, &prev.device_id, &prev.stream_id);
+                let next_key = (&covered.user_id, &covered.device_id, &covered.stream_id);
+                if prev_key >= next_key || prev.stream_id == covered.stream_id {
+                    return Err(ProtocolError::invalid("v2.begin.covered_logs"));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_dependencies(&self) -> Result<(), ProtocolError> {

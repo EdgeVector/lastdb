@@ -132,6 +132,9 @@ async fn setup(
         }
         HeadReadResult::Error { error } => return Err(transfer::cloud_error(error)),
     };
+    let covered_logs = saved
+        .work
+        .covered_logs(source, &stream.stream_id, predecessor.as_ref());
     let begin = Begin {
         version: Version::V2,
         job: Job {
@@ -145,6 +148,7 @@ async fn setup(
         // Declared so the service can retire points that no kept point needs.
         // Every deployed V2 service package accepts this field.
         recovery_dependencies: saved.work.recovery_dependencies(),
+        covered_logs,
     };
     begin.validate()?;
     saved.begin = Some(begin);

@@ -121,6 +121,12 @@ class StoppedFinal:
                 and begin["job"]["commit_id"] == request
                 and isinstance(predecessor, dict)
                 and predecessor["commit_sha256"] == before["last_accepted_backup"]["commit_sha256"]
+                and len(begin.get("covered_logs", [])) == 1
+                and begin["covered_logs"][0]["user_id"] == ACCOUNT
+                and begin["covered_logs"][0]["stream_id"] == begin["job"]["stream"]["stream_id"]
+                and begin["covered_logs"][0]["through_commit_id"] == predecessor["commit_id"]
+                and begin["covered_logs"][0]["through_ordinal"] == predecessor["ordinal"]
+                and begin["covered_logs"][0]["through_sha256"] == predecessor["commit_sha256"]
                 and covers(stopped, written), "stopped_backup_with_automatic_on")
         source.bind_stopped(accepted)
         return report, stopped

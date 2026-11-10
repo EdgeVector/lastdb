@@ -6,8 +6,8 @@ Status: active. Superseded recovery points are deleted immediately when a new co
 
 When the service accepts a new commit on a backup stream (`commits/accept`), it immediately prunes superseded recovery points on that stream (`commits/prune`):
 
-1. **Snapshot commits** (`recovery_dependencies: []`) supersede all earlier snapshots and mutation-log commits on the same stream.
-2. **Mutation-log commits** (`recovery_dependencies: [base_snapshot, previous_log]`) retain their base snapshot and immediate predecessor while pruning any older points outside that dependency closure.
+1. **Snapshot commits** (`recovery_dependencies: []`) declare `covered_logs` — a flat array sorted by `(user_id, device_id, stream_id)` naming the most recent commit (`through_commit_id`, `through_ordinal`, `through_sha256`) included from each covered `(user_id, device_id)` writer stream. Accepting an independent snapshot immediately prunes all superseded snapshots and all covered mutation-log commits with `ordinal <= through_ordinal` across every covered `(user_id, device_id)` stream.
+2. **Mutation-log commits** (`recovery_dependencies: [base_snapshot, previous_log]`, `covered_logs: []`) retain their full active log chain (`Ln -> Ln-1 -> ... -> L1 -> S`) until an independent full snapshot supersedes them.
 3. For every superseded point, the service deletes any R2 objects (hot database runs, mutation logs, inline files, and metadata pages/index/root) that are not referenced by a retained point, and removes the superseded `accepted#`, `submission#`, and `job#` records from `ExememCloudControl`.
 4. Any pending cold blob releases (`blobs/release`) are deleted from B2 immediately on commit, and the account's R2 and B2 byte counters in `ExememBilling` are reconciled by prefix (`ListObjectsV2`).
 
