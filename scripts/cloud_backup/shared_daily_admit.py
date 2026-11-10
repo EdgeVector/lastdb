@@ -11,8 +11,8 @@ from support import OperationError, require
 
 
 def wait_for_gates(source):
-    # Push runs start alongside CI. Wait only here, before any DEV credentials.
-    budget = 3600 if os.environ.get("GITHUB_EVENT_NAME") == "push" else 480
+    # Daily work can start while main CI is still running. Never bypass its gates.
+    budget = 480 if os.environ["SELECTED_OPERATION"] == "cleanup" else 3600
     deadline = time.monotonic() + budget
     while time.monotonic() < deadline:
         waiting = []
@@ -37,16 +37,22 @@ def wait_for_gates(source):
 def main():
     identity = owner(os.environ.get("GITHUB_SHA", ""))
     selected = os.environ["SELECTED_OPERATION"]
-    require(selected in ("suite", "automatic", "cleanup", *MANUAL_CASES), "shared_daily_operation_selection")
+    require(selected in ("suite", "cleanup", *MANUAL_CASES), "shared_daily_operation_selection")
     if selected in MANUAL_CASES:
         require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
                 "shared_daily_manual_dispatch")
-    if os.environ.get("GITHUB_EVENT_NAME") == "push":
-        require(selected == "automatic", "shared_continuous_operation_selection")
-    wait_for_gates(identity["source"])
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+        summary.write(f"## Shared DEV source admission\n\nOperation `{selected}`; "
+                      f"LastDB source `{identity['source']}`.\n\n")
+        try:
+            wait_for_gates(identity["source"])
+        except OperationError as error:
+            summary.write(f"Admission blocked: `{error}`. No cloud operations were admitted.\n")
+            raise
+        summary.write("Both exact-source CI gates passed.\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("operation=" + selected + "\n")
-        cases = (selected,) if selected in ("automatic", *MANUAL_CASES) else CASES
+        cases = (selected,) if selected in MANUAL_CASES else CASES
         output.write("cases=" + json.dumps(cases) + "\n")
     print("Accepted source gates passed")
 

@@ -1,8 +1,7 @@
 name: Daily shared DEV operations
 
 on:
-  push:
-    branches: [main]
+  # One full LastDB–ExeMem DEV integration run daily; hourly cleanup only.
   schedule:
     - cron: '53 10 * * *'
     - cron: '17 * * * *'
@@ -10,28 +9,26 @@ on:
     inputs:
       operation:
         type: choice
-        options: [suite, automatic, cleanup, reclamation, abandoned]
+        options: [suite, cleanup, reclamation, abandoned]
         default: suite
 
 permissions:
   contents: read
 
 env:
-  # One six-device automatic sync and source-free restore per accepted main push.
-  # The full four-case suite still runs daily; manual qualification stays manual.
-  SELECTED_OPERATION: ${{ github.event_name == 'push' && 'automatic' || github.event.schedule == '17 * * * *' && 'cleanup' || inputs.operation || 'suite' }}
+  SELECTED_OPERATION: ${{ github.event.schedule == '17 * * * *' && 'cleanup' || inputs.operation || 'suite' }}
 
 concurrency:
   group: cloud-shared-daily
   cancel-in-progress: false
-  # Preserve pending main revisions instead of replacing all but the latest.
+  # Hourly cleanup must not replace a daily suite waiting behind another run.
   queue: max
 
 jobs:
   admission:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # Admission has no cloud credentials; main CI/build gates may take 45 minutes.
+    # Wait for exact-source CI gates without receiving cloud credentials.
     timeout-minutes: 65
     permissions:
       contents: read
@@ -62,8 +59,7 @@ jobs:
     needs: admission
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    # Two bounded cleanup passes plus at most one credential-free retirement drain.
-    timeout-minutes: 90
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -79,63 +75,17 @@ jobs:
           aws-region: us-west-2
           role-session-name: shared-cleanup-${{ github.run_id }}
       - name: Advance bounded retirement after the full drain
-        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           python3 scripts/cloud_backup/shared_daily_suite.py --cleanup
           --source "$GITHUB_SHA" --output "$RUNNER_TEMP/shared-daily-cleanup.json"
-      - name: Plan capacity for all selected cases
-        id: capacity
-        timeout-minutes: 3
-        env:
-          OPERATION: ${{ needs.admission.outputs.operation }}
-        run: python3 scripts/cloud_backup/shared_daily_capacity.py --operation "$OPERATION"
-      - name: Clear the first cleanup role session before waiting
-        if: steps.capacity.outputs.wait_seconds != '0' && steps.capacity.outputs.wait_seconds != ''
-        run: |
-          set -euo pipefail
-          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN; do
-            printf '%s=\n' "$name" >> "$GITHUB_ENV"
-            unset "$name"
-          done
-      - name: Wait without cloud credentials for already-fenced scope capacity
-        if: steps.capacity.outputs.wait_seconds != '0' && steps.capacity.outputs.wait_seconds != ''
-        timeout-minutes: 62
-        env:
-          WAIT_SECONDS: ${{ steps.capacity.outputs.wait_seconds }}
-        run: python3 scripts/cloud_backup/shared_daily_capacity.py --wait-seconds "$WAIT_SECONDS"
-      - uses: aws-actions/configure-aws-credentials@v4
-        if: steps.capacity.outputs.wait_seconds != '0' && steps.capacity.outputs.wait_seconds != ''
-        with:
-          unset-current-credentials: true
-          role-to-assume: arn:aws:iam::152335099025:role/LastDBSharedDailyDev
-          aws-region: us-west-2
-          role-session-name: shared-cleanup-drained-${{ github.run_id }}
-      - name: Reclaim the drained scopes with the fresh role session
-        if: steps.capacity.outputs.wait_seconds != '0' && steps.capacity.outputs.wait_seconds != ''
-        timeout-minutes: 10
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test ! -e "$RUNNER_TEMP/shared-daily-cleanup-initial.json"
-          mv "$RUNNER_TEMP/shared-daily-cleanup.json" "$RUNNER_TEMP/shared-daily-cleanup-initial.json"
-          python3 scripts/cloud_backup/shared_daily_suite.py --cleanup \
-            --source "$GITHUB_SHA" --output "$RUNNER_TEMP/shared-daily-cleanup.json"
-      - name: Require capacity before any case can enroll
-        timeout-minutes: 3
-        env:
-          OPERATION: ${{ needs.admission.outputs.operation }}
-        run: python3 scripts/cloud_backup/shared_daily_capacity.py --operation "$OPERATION" --check
       - uses: actions/upload-artifact@v7
         if: always()
         id: evidence
         with:
           name: shared-daily-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/shared-daily-cleanup.json
-            ${{ runner.temp }}/shared-daily-cleanup-initial.json
+          path: ${{ runner.temp }}/shared-daily-cleanup.json
           if-no-files-found: error
           retention-days: 90
       - name: Record result provenance

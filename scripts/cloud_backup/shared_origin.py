@@ -19,7 +19,7 @@ def owner(source):
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REPOSITORY") == "EdgeVector/lastdb"
             and os.environ.get("GITHUB_REF") == "refs/heads/main"
-            and os.environ.get("GITHUB_EVENT_NAME") in ("workflow_dispatch", "schedule", "push")
+            and os.environ.get("GITHUB_EVENT_NAME") in ("workflow_dispatch", "schedule")
             and re.fullmatch(r"[0-9a-f]{40}", source) and os.environ.get("GITHUB_SHA") == source,
             "shared_daily_origin")
     values = {name: os.environ.get(variable, "") for name, variable in (

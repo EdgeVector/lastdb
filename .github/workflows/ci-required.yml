@@ -17,8 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # PR updates supersede their old run; every main revision keeps its own gate.
-  group: ci-required-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-required-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

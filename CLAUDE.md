@@ -74,8 +74,9 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 ## CI checks
 
 **Unrelated tests stay retired** (Tom, 2026-10-09). On 2026-11-10 Tom requested
-continuous sharing tests. The sole explicit `share_invitation_ci` target now
-checks real encrypted invitations and local acceptance in CI, alongside the
+sharing checks in CI and daily live integration. The sole explicit
+`share_invitation_ci` target now checks real encrypted invitations and local
+acceptance in CI, alongside the
 existing fresh-home Share/Files operation. See the scoped extension in
 `AGENTS.md`. Do not run it locally or restore other test targets.
 The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
