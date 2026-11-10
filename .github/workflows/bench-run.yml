@@ -291,9 +291,7 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/benchmark-artifact-metadata.json"
           python3 driver/scripts/benchmarks/artifact.py \
-            --metadata "$RUNNER_TEMP/benchmark-artifact-metadata.json" \
             --output "$RUNNER_TEMP/benchmark-download-receipt"
 
       - name: Retain the compact download receipt

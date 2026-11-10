@@ -232,9 +232,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/v2-sustained-artifact-metadata.json"
           python3 candidate/scripts/benchmarks/artifact.py \
-            --metadata "$RUNNER_TEMP/v2-sustained-artifact-metadata.json" \
             --output "$RUNNER_TEMP/v2-sustained-download-receipt-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 
       - name: Retain the verified download receipt
