@@ -436,3 +436,15 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
               --jq '"Shared recovery artifact expires: " + .expires_at'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    name: Notify on failure
+    needs: [recipe-syntax, ownership-readback, build-client, baseline-writer-check, recover-dev, recover-shared-dev]
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: cloud-backup-recovery.yml
+      job_results: ${{ needs.recipe-syntax.result }} ${{ needs.ownership-readback.result }} ${{ needs.build-client.result }} ${{ needs.baseline-writer-check.result }} ${{ needs.recover-dev.result }} ${{ needs.recover-shared-dev.result }}

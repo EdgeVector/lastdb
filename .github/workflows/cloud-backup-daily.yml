@@ -28,3 +28,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/cloud_backup/daily_driver.py
+
+  notify:
+    name: Notify on failure
+    needs: recovery-freshness
+    if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: cloud-backup-daily.yml
+      job_results: ${{ needs.recovery-freshness.result }}
