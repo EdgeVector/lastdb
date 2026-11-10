@@ -1,0 +1,43 @@
+name: Retry gated shared DEV admission
+
+# A slow but successful main benchmark must not permanently strand sharing CI.
+# This controller can only retry a prior exact-source push run that never reached
+# a cloud job. Product failures and runs that used DEV authority are not retried.
+on:
+  workflow_run:
+    workflows: [CI required, LastDB benchmarks, Daily shared DEV operations]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-admission-retry-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  retry:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      ((contains(fromJSON('["CI required","LastDB benchmarks"]'), github.event.workflow_run.name) &&
+        github.event.workflow_run.conclusion == 'success') ||
+       (github.event.workflow_run.name == 'Daily shared DEV operations' &&
+        contains(fromJSON('["failure","timed_out"]'), github.event.workflow_run.conclusion))) &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retry only admission that never received DEV credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/cloud_backup/shared_admission_retry.py

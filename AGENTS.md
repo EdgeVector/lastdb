@@ -107,6 +107,11 @@ DEV automatic sharing and source-free restore case, after the exact revision's
 required gates pass. The complete four-case DEV suite keeps its daily cadence.
 Cloud work stays serialized with queued runs, isolated from pull-request code,
 and within the existing owned-scope, credential, retirement and cleanup limits.
+Capacity backpressure waits only for already-fenced scopes to complete that
+existing drain, clears credentials while waiting, and refreshes the same role
+before exact cleanup. The separate admission-retry controller retries at most
+once after both source gates pass, only when the exact main-push run failed
+before any cloud job executed. It never retries a failed product operation.
 These checks do not substitute native multiwriter sync for app invitation proof.
 No local builds, runtime proofs, primary changes or unrelated test restoration.
 
