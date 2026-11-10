@@ -73,11 +73,16 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 
 ## CI checks
 
-**The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
+**Unrelated tests stay retired** (Tom, 2026-10-09). On 2026-11-10 Tom requested
+sharing checks in CI and daily live integration. The sole explicit
+`share_invitation_ci` target now checks real encrypted invitations and local
+acceptance in CI, alongside the
+existing fresh-home Share/Files operation. See the scoped extension in
+`AGENTS.md`. Do not run it locally or restore other test targets.
 The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
-secret scan (`scripts/lints/lint-secrets.py`), and builds only, and the repo
-has no test suite to run. CI and the lints do not require tests or test
-coverage.
+secret scan (`scripts/lints/lint-secrets.py`), builds and the mandatory
+record/Share operation with that one sharing target. No coverage threshold or
+unrelated test suite is required.
 
 Open or update a PR after the source changes. Read the required checks and
 the `LastDB benchmarks` summary in GitHub. Product changes require completed

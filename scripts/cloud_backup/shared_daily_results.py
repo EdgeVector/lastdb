@@ -39,10 +39,16 @@ def main():
         rows.append(case)
     require(not binaries or all(value == binaries[0] for value in binaries), "shared_daily_one_binary_pair")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-        summary.write(f"## Shared DEV daily result\n\nSource `{identity['source']}`.\n\n")
+        summary.write(f"## Shared DEV daily result\n\nLastDB source `{identity['source']}`.\n\n")
         summary.write("| Operation | Result |\n| --- | --- |\n")
         for case in rows:
             summary.write(f"| {case} | passed |\n")
+        if args.operation == "cleanup":
+            summary.write("\nCleanup-only run: no product sharing scenarios executed.\n")
+        else:
+            summary.write("\nLive native sharing against the currently deployed ExeMem DEV service. "
+                          "The serving ExeMem code revision is not exposed by the current API or CI permissions. "
+                          "This does not qualify the full app invitation-to-cloud recovery journey.\n")
         summary.write("\nPhysical cleanup follows the one-hour drain for fenced scopes; "
                       "the ownership ledger and scope cap remain enforced.\n")
     print(json.dumps({"result": "passed", "source": identity["source"], "operations": rows}))
