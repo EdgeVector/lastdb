@@ -25,7 +25,9 @@ def gate_runs(source, name):
 
 
 def wait_for_gates(source):
-    deadline = time.monotonic() + 480
+    # Cleanup stays short. A daily suite can start while its source gates are still running.
+    budget = 480 if os.environ["SELECTED_OPERATION"] == "cleanup" else 3600
+    deadline = time.monotonic() + budget
     while time.monotonic() < deadline:
         waiting = []
         for name in ("ci-required", "benchmark-complete"):
@@ -42,7 +44,7 @@ def wait_for_gates(source):
         remaining = deadline - time.monotonic()
         if remaining > 0:
             print("Waiting for exact-source gates: " + ", ".join(waiting), flush=True)
-            time.sleep(min(15, remaining))
+            time.sleep(min(30, remaining))
     raise OperationError("shared_daily_accepted_source_gate_deadline")
 
 
@@ -53,7 +55,15 @@ def main():
     if selected in MANUAL_CASES:
         require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
                 "shared_daily_manual_dispatch")
-    wait_for_gates(identity["source"])
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+        summary.write(f"## Shared DEV source admission\n\nOperation `{selected}`; "
+                      f"LastDB source `{identity['source']}`.\n\n")
+        try:
+            wait_for_gates(identity["source"])
+        except OperationError as error:
+            summary.write(f"Admission blocked: `{error}`. No cloud operations were admitted.\n")
+            raise
+        summary.write("Both exact-source CI gates passed.\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("operation=" + selected + "\n")
         cases = (selected,) if selected in MANUAL_CASES else CASES
