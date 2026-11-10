@@ -1,6 +1,7 @@
 name: Daily shared DEV operations
 
 on:
+  # One full LastDB–ExeMem DEV integration run daily; hourly cleanup only.
   schedule:
     - cron: '53 10 * * *'
     - cron: '17 * * * *'
@@ -20,12 +21,15 @@ env:
 concurrency:
   group: cloud-shared-daily
   cancel-in-progress: false
+  # Hourly cleanup must not replace a daily suite waiting behind another run.
+  queue: max
 
 jobs:
   admission:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Wait for exact-source CI gates without receiving cloud credentials.
+    timeout-minutes: 65
     permissions:
       contents: read
       checks: read

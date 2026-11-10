@@ -70,10 +70,14 @@ impl SharedObjectClient {
                 return self.complete(request, deadline_ms, sign).await;
             }
         };
+        // The service stores R2 and B2 with a direct presigned PUT and settles
+        // the bytes in complete(). Only a URL that still names one UploadPart
+        // uses the multipart client. A 404 on that part can mean the service
+        // already closed it; a direct PUT 404 means the bytes were not stored.
+        let multipart = BackupTransport::upload_is_multipart(grant.url.as_str())?;
         match self.put_grant(request, source, deadline_ms, grant).await {
             Ok(()) => {}
-            Err(BackupTransportError::Http(404))
-                if destination(request) == Some(Destination::B2) => {}
+            Err(BackupTransportError::Http(404)) if multipart => {}
             Err(error) => return Err(error),
         }
         self.complete(request, deadline_ms, sign).await
@@ -95,17 +99,13 @@ impl SharedObjectClient {
             url: grant.url.as_str(),
             expires_ms: grant.expires_at_ms.get().min(deadline_ms),
         };
-        match destination(request) {
-            Some(Destination::B2) => {
-                require_provider(grant.url, Destination::B2)?;
-                self.transport.upload_part(object, grant, source).await?;
-            }
-            destination => {
-                if let Some(destination) = destination {
-                    require_provider(grant.url, destination)?;
-                }
-                self.transport.upload(object, grant, source).await?;
-            }
+        if let Some(destination) = destination(request) {
+            require_provider(grant.url, destination)?;
+        }
+        if BackupTransport::upload_is_multipart(grant.url)? {
+            self.transport.upload_part(object, grant, source).await?;
+        } else {
+            self.transport.upload(object, grant, source).await?;
         }
         Ok(())
     }

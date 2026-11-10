@@ -1,19 +1,10 @@
 name: Record home product proof
 
-# ci-required calls this workflow. A product diff runs the fresh-home proof
-# in the current format and exercises local Share setup and database addressing.
-# Any other pull request or main push skips that build and still reports success.
+# Required on every PR, main push and manual CI run, including docs-only changes.
+# Share/Files operations run against fresh generated homes without cloud secrets.
+# Authenticated multi-device sync and restore have their own accepted-main DEV lane.
 on:
   workflow_call:
-    inputs:
-      base_sha:
-        description: Base SHA. A pull request passes its base. A main push passes the previous commit.
-        type: string
-        default: ""
-      head_sha:
-        description: Head SHA. A pull request passes its head. A main push passes the new commit.
-        type: string
-        default: ""
   workflow_dispatch:
 
 permissions:
@@ -24,62 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  select:
-    name: Select record home proof
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.plan.outputs.run }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Run the proof only for a product diff
-        id: plan
-        shell: bash
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
-          HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          run=true
-          if [ "$EVENT" = "pull_request" ] || [ "$EVENT" = "push" ]; then
-            if [ -z "$BASE" ] || [ -z "$HEAD" ] || [[ "$BASE" =~ ^0+$ ]] || [[ "$HEAD" =~ ^0+$ ]]; then
-              echo "SHAs were not passed; run the proof"
-            else
-              merge_base="$(git merge-base "$BASE" "$HEAD" 2>/dev/null || true)"
-              if [ -z "$merge_base" ]; then
-                echo "merge-base failed; run the proof"
-              else
-                run=false
-                while IFS= read -r path; do
-                  [ -z "$path" ] && continue
-                  case "$path" in
-                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|schema_service/crates/schema_types/*|\
-                    cloud_backup_client/*|cloud_backup_protocol/*|cloud_backup_plan/*|\
-                    app_identity_crypto/*|lastdb_identity/*|lastdb_storage_policy/*|folddb_profile/*|env_flag/*|\
-                    vendor/laststore/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|\
-                    scripts/operations/record_requests.py|scripts/benchmarks/node.py|\
-                    scripts/benchmarks/record_protocol.py|scripts/benchmarks/home_format.py|\
-                    scripts/operations/record_home.py|scripts/operations/record_runs.py|\
-                    scripts/operations/record_drop_tracking.py|scripts/operations/record_inline_files.py|\
-                    scripts/operations/record_share_files.py|.github/workflows/record-home.yml)
-                      run=true
-                      ;;
-                  esac
-                done < <(git diff --name-only "$merge_base" "$HEAD")
-              fi
-            fi
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "Record home proof selected: $run"
-
   records:
     name: Fresh home records
-    needs: select
-    if: needs.select.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -96,6 +33,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the product in CI
         run: cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Exercise encrypted Share invitations and local acceptance
+        run: cargo test --locked -p lastdb_node --test share_invitation_ci
       - name: Exercise the actual daemon on a fresh generated home
         run: |
           set -euo pipefail
@@ -112,7 +51,7 @@ jobs:
             ${{ runner.temp }}/record-home
             ${{ runner.temp }}/record-home.log
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Publish the result
         if: always()
         env:
@@ -125,7 +64,9 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Result: $RESULT"
             echo "Fresh generated home only. No primary access, local build, or benchmark."
-            echo "Share scope: local setup, write modes, contributor policy refusals, database addressing, and Files import, list and save."
+            echo "Share scope: real encrypted invitation roundtrip, recipient/publisher/tamper/expiry refusals, local acceptance and persistence, aliases, repeated acceptance and key conflicts."
+            echo "Daemon scope: local setup, write modes, contributor policy refusals, database addressing, and Files import, list and save."
+            echo "Cloud app publication/invitation/recovery is not exercised here; native multiwriter sync is a separate accepted-main DEV check."
             echo "Artifact: $ARTIFACT_URL"
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
             echo "Expiration: 7 days after this run."
@@ -134,29 +75,19 @@ jobs:
   report:
     name: Record home proof result
     needs:
-      - select
       - records
-    if: always() && needs.select.result == 'success'
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require success or a deliberate skip
+      - name: Require executed Share and record operations
         env:
           RECORDS: ${{ needs.records.result }}
-          SELECTED: ${{ needs.select.outputs.run }}
         run: |
-          echo "records result: $RECORDS"
-          echo "selected: $SELECTED"
-          case "$SELECTED:$RECORDS" in
-            true:success|false:skipped)
-              {
-                echo "## Record home proof result"
-                echo "Records job: $RECORDS"
-                echo "Selected: $SELECTED"
-              } >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            *)
-              echo "record home proof did not pass"
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
+          echo "Records and Share operations: $RECORDS"
+          if [ "$RECORDS" != success ]; then
+            echo "::error::The mandatory fresh-home Share and record operations did not pass"
+            exit 1
+          fi
+          echo "Fresh-home Share and record operations passed for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
