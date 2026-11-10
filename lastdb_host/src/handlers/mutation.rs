@@ -30,9 +30,18 @@ pub use fields::{mutation_unknown_fields, mutation_writable_field_names, unknown
 mod batch;
 pub use batch::execute_mutations_batch;
 
+/// The query read scope returns this same text as HTTP 503. `InvalidData`
+/// would tell the client the mutation was bad.
+const POISONED_READ_VIEW: &str = "Storage backend error: native read view lock is poisoned; restart the process to reopen the home";
+
 /// Keep a typed status. A true 500 keeps the historical prefix.
-fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
-    let mapped = error.into();
+fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {
+    if let SchemaError::InvalidData(message) = &error {
+        if message == POISONED_READ_VIEW {
+            return HostError::new(503, message.clone());
+        }
+    }
+    let mapped = HostError::from(error);
     if mapped.status == 500 {
         HostError::internal(format!("{failed}: {}", mapped.message))
     } else {
