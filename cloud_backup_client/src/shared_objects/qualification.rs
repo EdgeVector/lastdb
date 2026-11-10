@@ -19,6 +19,9 @@ impl SharedObjectClient {
         let SharedObjectPrepare::Upload { grant } = prepare else {
             return Err(BackupTransportError::Integrity("new DEV B2 part"));
         };
+        if !crate::backup_transport::BackupTransport::upload_is_multipart(grant.url.as_str())? {
+            return Err(BackupTransportError::InvalidResponse("shared B2 part"));
+        }
         self.put_grant(request, source, deadline_ms, grant).await
     }
 

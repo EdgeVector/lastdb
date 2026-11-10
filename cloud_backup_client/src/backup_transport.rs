@@ -89,6 +89,14 @@ impl BackupTransport {
         self.api_endpoint(operation).to_string()
     }
 
+    /// True when the presigned URL is one multipart UploadPart.
+    /// A direct R2 or B2 PUT has neither `uploadId` nor `partNumber`.
+    pub(crate) fn upload_is_multipart(
+        url: &str,
+    ) -> std::result::Result<bool, BackupTransportError> {
+        urls::is_multipart(url)
+    }
+
     pub async fn post<Q: Serialize, R: DeserializeOwned>(
         &self,
         operation: &str,
