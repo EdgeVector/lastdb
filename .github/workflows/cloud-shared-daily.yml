@@ -1,6 +1,8 @@
 name: Daily shared DEV operations
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '53 10 * * *'
     - cron: '17 * * * *'
@@ -8,24 +10,29 @@ on:
     inputs:
       operation:
         type: choice
-        options: [suite, cleanup, reclamation, abandoned]
+        options: [suite, automatic, cleanup, reclamation, abandoned]
         default: suite
 
 permissions:
   contents: read
 
 env:
-  SELECTED_OPERATION: ${{ github.event.schedule == '17 * * * *' && 'cleanup' || inputs.operation || 'suite' }}
+  # One six-device automatic sync and source-free restore per accepted main push.
+  # The full four-case suite still runs daily; manual qualification stays manual.
+  SELECTED_OPERATION: ${{ github.event_name == 'push' && 'automatic' || github.event.schedule == '17 * * * *' && 'cleanup' || inputs.operation || 'suite' }}
 
 concurrency:
   group: cloud-shared-daily
   cancel-in-progress: false
+  # Preserve pending main revisions instead of replacing all but the latest.
+  queue: max
 
 jobs:
   admission:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Admission has no cloud credentials; main CI/build gates may take 45 minutes.
+    timeout-minutes: 65
     permissions:
       contents: read
       checks: read

@@ -92,6 +92,20 @@ Keep all other test targets retired. No local LastDB builds, benchmarks or
 runtime proofs. No primary lifecycle, format, installed-binary or backup change;
 no PROD or retained manual-scope cleanup.
 
+### Scoped extension: continuous sharing CI (Tom, 2026-11-10)
+
+Tom requested: "update CI so that it's always testing for the sharing feature.
+It should always test to make sure that share works."
+
+The fresh-home record/Share/Files proof now runs on every required CI invocation,
+without a path-based skip. Every main push also runs the existing six-device
+DEV automatic sharing and source-free restore case, after the exact revision's
+required gates pass. The complete four-case DEV suite keeps its daily cadence.
+Cloud work stays serialized with queued runs, isolated from pull-request code,
+and within the existing owned-scope, credential, retirement and cleanup limits.
+These checks do not substitute native multiwriter sync for app invitation proof.
+No local builds, runtime proofs, primary changes or unrelated test restoration.
+
 ### Scoped extension: stable release qualification (Tom, 2026-11-03)
 
 Tom explicitly requested: "Move the release flow into CI, fix the missing app

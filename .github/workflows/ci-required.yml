@@ -16,7 +16,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-required-${{ github.event_name }}-${{ github.ref }}
+  # PR updates supersede their old run; every main revision keeps its own gate.
+  group: ci-required-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -272,9 +273,6 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/record-home.yml
-    with:
-      base_sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-      head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
 
   ci-required:
     name: ci-required
