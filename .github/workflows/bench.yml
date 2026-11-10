@@ -57,7 +57,8 @@ jobs:
       profile: ${{ github.event_name == 'schedule' && 'nightly' || 'standard' }}
 
   benchmark-complete:
-    name: benchmark-complete
+    # The nightly schedule is advisory. Its result must not replace the merge and admission gate.
+    name: ${{ github.event_name == 'schedule' && 'benchmark-nightly' || 'benchmark-complete' }}
     needs: [plan, benchmark]
     if: always()
     runs-on: ubuntu-24.04
@@ -78,3 +79,16 @@ jobs:
             *) echo "::error::Required benchmark or upload did not complete: $BENCHMARK_RESULT"; exit 1 ;;
           esac
           echo "$REASON" >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    name: Notify on failure
+    needs: [plan, benchmark, benchmark-complete]
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'push')
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: bench.yml
+      job_results: ${{ needs.plan.result }} ${{ needs.benchmark.result }} ${{ needs.benchmark-complete.result }}
+

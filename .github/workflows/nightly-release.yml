@@ -382,3 +382,15 @@ jobs:
             test "$ATTEST" = skipped
             test "$PUBLISH" = skipped
           fi
+
+  notify:
+    name: Notify on failure
+    needs: [plan, source-gates, build, assemble, attest, publish, nightly-complete]
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: nightly-release.yml
+      job_results: ${{ needs.plan.result }} ${{ needs.source-gates.result }} ${{ needs.build.result }} ${{ needs.assemble.result }} ${{ needs.attest.result }} ${{ needs.publish.result }} ${{ needs.nightly-complete.result }}

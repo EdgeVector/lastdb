@@ -114,9 +114,16 @@ class NoRedirect(HTTPRedirectHandler):
         raise OperationError("shared_daily_github_redirect_refused")
 
 
+# Ask for one check name and follow its pages. An unfiltered first page drops
+# ci-required after enough hourly runs land on one quiet main commit.
+GITHUB_PATH = re.compile(
+    r"(?:actions/(?:runs|artifacts)/[1-9][0-9]{0,19}"
+    r"|commits/[0-9a-f]{40}/check-runs\?check_name=(?:ci-required|benchmark-complete)"
+    r"&filter=all&per_page=100&page=[1-5])")
+
+
 def github(path):
-    require(re.fullmatch(r"(?:actions/(?:runs|artifacts)/[1-9][0-9]{0,19}|commits/[0-9a-f]{40}/check-runs\?per_page=100)",
-                         path), "shared_daily_github_path")
+    require(GITHUB_PATH.fullmatch(path), "shared_daily_github_path")
     request = Request("https://api.github.com/repos/EdgeVector/lastdb/" + path,
                       headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
                                "Accept": "application/vnd.github+json"})

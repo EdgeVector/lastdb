@@ -134,6 +134,5 @@ jobs:
           ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/alternate-artifact.json"
           python3 driver/scripts/benchmarks/artifact.py \
-            --metadata "$RUNNER_TEMP/alternate-artifact.json" --output "$RUNNER_TEMP/alternate-artifact-receipt"
+            --output "$RUNNER_TEMP/alternate-artifact-receipt"

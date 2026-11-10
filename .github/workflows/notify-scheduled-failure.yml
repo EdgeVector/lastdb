@@ -1,0 +1,36 @@
+name: Notify scheduled failure
+
+# One issue per workflow, assigned to shiba4life. The next success closes it.
+# Callers pass the default GITHUB_TOKEN. This workflow does not take a PAT.
+on:
+  workflow_call:
+    inputs:
+      workflow_file:
+        description: Workflow file name under .github/workflows
+        required: true
+        type: string
+      job_results:
+        description: Space-separated results of the caller jobs
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  issue:
+    name: Open, update, or close the workflow issue
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Update the one tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: ${{ inputs.workflow_file }}
+          JOB_RESULTS: ${{ inputs.job_results }}
+        run: python3 scripts/ci/notify_scheduled_failure.py

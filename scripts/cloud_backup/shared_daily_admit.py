@@ -10,13 +10,27 @@ from shared_origin import owner
 from support import OperationError, require
 
 
+def gate_runs(source, name):
+    require(name in ("ci-required", "benchmark-complete"), "shared_daily_accepted_source_gate")
+    found = []
+    for page in range(1, 6):
+        payload = github(f"commits/{source}/check-runs?check_name={name}&filter=all&per_page=100&page={page}")
+        rows, total = payload["check_runs"], payload["total_count"]
+        require(isinstance(rows, list) and len(rows) <= 100 and type(total) is int and 0 <= total <= 500,
+                "shared_daily_accepted_source_gate_page")
+        found.extend(rows)
+        if len(found) >= total or not rows:
+            return found
+    raise OperationError("shared_daily_accepted_source_gate_pages")
+
+
 def wait_for_gates(source):
     deadline = time.monotonic() + 480
     while time.monotonic() < deadline:
-        checks = github(f"commits/{source}/check-runs?per_page=100")["check_runs"]
         waiting = []
         for name in ("ci-required", "benchmark-complete"):
-            matching = [c for c in checks if c["name"] == name and c["head_sha"] == source
+            matching = [c for c in gate_runs(source, name)
+                        if c["name"] == name and c["head_sha"] == source
                         and c["app"]["slug"] == "github-actions"]
             latest = max(matching, key=lambda check: check["id"], default=None)
             if latest is None or latest["status"] != "completed":

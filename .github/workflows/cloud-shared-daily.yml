@@ -178,3 +178,15 @@ jobs:
         run: >-
           python3 scripts/cloud_backup/shared_daily_results.py --operation "$SELECTED_OPERATION"
           --directory "$RUNNER_TEMP/shared-daily-results"
+
+  notify:
+    name: Notify on failure
+    needs: [admission, build, cleanup, cases, complete]
+    if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: cloud-shared-daily.yml
+      job_results: ${{ needs.admission.result }} ${{ needs.build.result }} ${{ needs.cleanup.result }} ${{ needs.cases.result }} ${{ needs.complete.result }}
