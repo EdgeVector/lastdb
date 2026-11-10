@@ -98,7 +98,11 @@ Tom requested: "update CI so that it's always testing for the sharing feature.
 It should always test to make sure that share works."
 
 The fresh-home record/Share/Files proof now runs on every required CI invocation,
-without a path-based skip. Every main push also runs the existing six-device
+without a path-based skip. Its explicit `share_invitation_ci` Rust target in
+`lastdb_node/operations/` also exercises real encrypted invitation roundtrips,
+trust/refusal cases and local registration on private generated CI homes. Only
+this sharing target is re-enabled; it needs no cloud credentials or mocks.
+Every main push also runs the existing six-device
 DEV automatic sharing and source-free restore case, after the exact revision's
 required gates pass. The complete four-case DEV suite keeps its daily cadence.
 Cloud work stays serialized with queued runs, isolated from pull-request code,

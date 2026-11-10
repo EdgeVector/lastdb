@@ -2,7 +2,8 @@ name: CI required
 
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
-# this tree. Tests stay retired. The gate keeps fmt, clippy, lints, the
+# this tree. Only the explicit Share invitation target is re-enabled.
+# The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
 # secret scan, the cargo-deny supply-chain check, the cargo-machete unused
 # dependency check, builds, and the record home product proof.

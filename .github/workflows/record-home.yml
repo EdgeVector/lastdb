@@ -33,6 +33,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the product in CI
         run: cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Exercise encrypted Share invitations and local acceptance
+        run: cargo test --locked -p lastdb_node --test share_invitation_ci
       - name: Exercise the actual daemon on a fresh generated home
         run: |
           set -euo pipefail
@@ -62,7 +64,9 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Result: $RESULT"
             echo "Fresh generated home only. No primary access, local build, or benchmark."
-            echo "Share scope: local setup, write modes, contributor policy refusals, database addressing, and Files import, list and save."
+            echo "Share scope: real encrypted invitation roundtrip, recipient/publisher/tamper/expiry refusals, local acceptance and persistence, aliases, repeated acceptance and key conflicts."
+            echo "Daemon scope: local setup, write modes, contributor policy refusals, database addressing, and Files import, list and save."
+            echo "Cloud app publication/invitation/recovery is not exercised here; native multiwriter sync is a separate accepted-main DEV check."
             echo "Artifact: $ARTIFACT_URL"
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
             echo "Expiration: 7 days after this run."
