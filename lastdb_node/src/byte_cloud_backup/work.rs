@@ -1,6 +1,7 @@
 //! A saved request keeps its recovery base and exact log predecessor across every retry.
-use super::{BackupError, Result};
-use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Head};
+use super::{source::Source, BackupError, Result};
+use cloud_backup_protocol::v2::{AcceptedBackup, Begin, CoveredLog, Head};
+use cloud_backup_protocol::Id;
 use fold_db::storage::disk_pack::mutation_log::{Frontiers, LogAnchor, LogPosition};
 use serde::{Deserialize, Serialize};
 
@@ -47,6 +48,24 @@ impl Work {
                 }
                 heads
             }
+        }
+    }
+    pub fn covered_logs(
+        &self,
+        source: &Source,
+        stream_id: &Id,
+        predecessor: Option<&Head>,
+    ) -> Vec<CoveredLog> {
+        match (self, predecessor) {
+            (Self::Snapshot { .. }, Some(head)) => vec![CoveredLog {
+                user_id: source.account.clone(),
+                device_id: source.source_home.clone(),
+                stream_id: stream_id.clone(),
+                through_commit_id: head.commit_id.clone(),
+                through_ordinal: head.ordinal,
+                through_sha256: head.commit_sha256.clone(),
+            }],
+            _ => Vec::new(),
         }
     }
     pub fn validate(&self, begin: Option<&Begin>) -> Result<()> {
