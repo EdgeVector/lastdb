@@ -119,10 +119,9 @@ written:
 A dedicated shared home is left alone: only its policy file and its
 `recovery.json` and `active.json` are replaced, as before.
 
-Cloud points that the previous program published stay on the service until
-normal point retention removes them: after the first version 3 snapshot is
-accepted, the older points are no longer needed by any kept point and expire
-on the usual schedule. The upgrade does not delete cloud points itself.
+Cloud points that the previous program published are pruned immediately when
+the first version 3 snapshot is accepted on the stream (`commits/prune`),
+removing superseded R2 objects and control records on commit.
 
 An older cloud backup carries the CAS home and is restored only by the
 program that wrote it. The first snapshot of the new program is the first

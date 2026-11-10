@@ -37,13 +37,8 @@ impl<'a> Context<'a> {
         input: &cloud_backup_protocol::v2::transfer::TransferInput,
         grant: &cloud_backup_protocol::v2::transfer::UploadGrant,
     ) -> Result<()> {
-        use cloud_backup_protocol::v2::{transfer::TransferMode, Destination};
         let begin = self.saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-        if begin.job != input.job
-            || (begin.r2_multipart == Some(true)
-                && input.object.destination == Destination::R2
-                && grant.transfer_mode != Some(TransferMode::MultipartPart))
-        {
+        if begin.job != input.job || grant.transfer_mode.is_some() {
             return Err(BackupError::Identity);
         }
         Ok(())
