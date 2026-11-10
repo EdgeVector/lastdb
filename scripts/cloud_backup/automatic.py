@@ -157,6 +157,15 @@ class Automatic:
         temporary.verify_absent(source.node)
         require(later["automatic_backup"]["last_snapshot_at"] > snapshot["automatic_backup"]["last_snapshot_at"],
                 "changed_interval_produced_a_later_snapshot")
+        later_covered = later["last_accepted_backup"]["begin"].get("covered_logs", [])
+        restarted_accepted = restarted["last_accepted_backup"]
+        require(len(later_covered) == 1
+                and later_covered[0]["user_id"] == source.node.account
+                and later_covered[0]["stream_id"] == restarted_accepted["begin"]["job"]["stream"]["stream_id"]
+                and later_covered[0]["through_commit_id"] == restarted_accepted["begin"]["job"]["commit_id"]
+                and later_covered[0]["through_ordinal"] == restarted_accepted["ordinal"]
+                and later_covered[0]["through_sha256"] == restarted_accepted["commit_sha256"],
+                "later_snapshot_declares_covered_logs")
         operation.summary["stage"] = "automatic-disable"
         source.configure()
         source.retired(restarted["request_id"])

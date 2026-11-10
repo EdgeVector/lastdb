@@ -17,6 +17,6 @@ pub mod usage;
 mod version;
 
 pub use common::{ClientDescriptor, Destination, Job, Object, Stream};
-pub use jobs::Begin;
+pub use jobs::{Begin, CoveredLog};
 pub use publication::{AcceptedBackup, Commit, Head};
 pub use version::Version;

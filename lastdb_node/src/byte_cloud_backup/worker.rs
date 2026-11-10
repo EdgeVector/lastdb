@@ -8,7 +8,7 @@ use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
 use cloud_backup_protocol::v2::{
-    AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
+    AcceptedBackup, Begin, ClientDescriptor, CoveredLog, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
 use std::sync::atomic::AtomicBool;
@@ -132,6 +132,23 @@ async fn setup(
         }
         HeadReadResult::Error { error } => return Err(transfer::cloud_error(error)),
     };
+    let recovery_dependencies = saved.work.recovery_dependencies();
+    let covered_logs = if recovery_dependencies.is_empty() {
+        predecessor
+            .as_ref()
+            .map(|head| CoveredLog {
+                user_id: source.account.clone(),
+                device_id: source.source_home.clone(),
+                stream_id: stream.stream_id.clone(),
+                through_commit_id: head.commit_id.clone(),
+                through_ordinal: head.ordinal,
+                through_sha256: head.commit_sha256.clone(),
+            })
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let begin = Begin {
         version: Version::V2,
         job: Job {
@@ -144,7 +161,8 @@ async fn setup(
         predecessor,
         // Declared so the service can retire points that no kept point needs.
         // Every deployed V2 service package accepts this field.
-        recovery_dependencies: saved.work.recovery_dependencies(),
+        recovery_dependencies,
+        covered_logs,
     };
     begin.validate()?;
     saved.begin = Some(begin);
