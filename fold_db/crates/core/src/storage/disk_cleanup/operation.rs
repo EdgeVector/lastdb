@@ -40,7 +40,7 @@ impl PackRuntime {
         ];
         let private = self.physical.private_home().map(|home| (home, &cas_policy));
         for (home, policy) in homes.into_iter().chain(private) {
-            self.adopt_merged_root();
+            self.adopt_merged_root()?;
             if home.retired_bytes() > 0 {
                 status.phase = NativeCleanupPhase::WaitingForReads;
                 continue;
@@ -48,7 +48,7 @@ impl PackRuntime {
             if home.cleanup_step_with_space(policy).map_err(map)?.is_some() {
                 status.merge_steps_since_resume = status.merge_steps_since_resume.saturating_add(1);
                 self.cleanup_job.set(status.clone());
-                self.adopt_merged_root();
+                self.adopt_merged_root()?;
             }
         }
         self.update_cleanup_progress(&mut status);
@@ -59,7 +59,7 @@ impl PackRuntime {
     fn finish_cleanup(&self) -> StorageResult<NativeCleanupStatus> {
         self.require_cleanup_safe()?;
         crate::storage::disk_pack::cas_delete::require_clear(&self.physical)?;
-        self.adopt_merged_root();
+        self.adopt_merged_root()?;
         let mut status = self.cleanup_job.get();
         self.update_cleanup_progress(&mut status);
         if status.needs_merge() {
@@ -73,7 +73,7 @@ impl PackRuntime {
             .private_home()
             .map(|home| home.cleanup_files().map_err(map))
             .transpose()?;
-        self.adopt_merged_root();
+        self.adopt_merged_root()?;
         status.main = progress(
             &self.physical.home,
             status.main.removed_files.saturating_add(main.removed_files),

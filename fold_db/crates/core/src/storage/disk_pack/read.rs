@@ -65,7 +65,7 @@ impl ReadContext {
         } else {
             (Arc::new(Vec::new()), false)
         };
-        runtime.adopt_merged_root();
+        runtime.adopt_merged_root()?;
         // Keep the root selector locked until its file lifetime hold exists.
         // Runtime maintenance must replace this selector before reclaim.
         let view = runtime.view.read().expect("native complete read view");

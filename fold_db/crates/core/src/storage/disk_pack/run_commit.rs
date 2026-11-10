@@ -150,12 +150,30 @@ impl PackRuntime {
 
     /// Replace the readable root with a merged root of the same frontier.
     /// It never waits: a busy view keeps its root until the next capture.
-    pub(in crate::storage) fn adopt_merged_root(&self) {
-        let replaced = self.view.try_write().ok().and_then(|mut view| {
-            let latest = self.physical.current_root();
-            adopt(&mut view, latest, &self.last_root)
-        });
+    /// A poisoned view lock is not busy. The holder panicked inside the
+    /// update, so this process stops serving and must be restarted.
+    pub(in crate::storage) fn adopt_merged_root(&self) -> StorageResult<()> {
+        let mut view = match self.view.try_write() {
+            Ok(view) => view,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                self.failed.store(true, Ordering::Release);
+                tracing::error!(
+                    "native read view lock is poisoned; restart the process to reopen the home"
+                );
+                return Err(StorageError::BackendError(
+                    "native read view lock is poisoned; restart the process to reopen the home"
+                        .into(),
+                ));
+            }
+        };
+        let latest = self.physical.current_root();
+        let replaced = adopt(&mut view, latest, &self.last_root);
+        // Drop the guard before the replaced root. The root's last drop
+        // deletes retired run files, and that must not run under the view lock.
+        drop(view);
         drop(replaced);
+        Ok(())
     }
 }
 
