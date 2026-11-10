@@ -307,7 +307,7 @@ log "booting lastdbd on the pristine home (zero config, no prompts)"
 # 41485157480). DEV registration is open. This gate uses that service.
 (
   cd "$WORK_ROOT"
-  env \
+  exec env \
     HOME="$HOME_DIR" \
     EXEMEM_ENV=dev \
     RUST_LOG="${RUST_LOG:-info}" \
@@ -540,7 +540,7 @@ DAEMON_PID=""
 
 (
   cd "$WORK_ROOT"
-  env HOME="$HOME_DIR" RUST_LOG="${RUST_LOG:-info}" \
+  exec env HOME="$HOME_DIR" RUST_LOG="${RUST_LOG:-info}" \
     "$LASTDBD" --data-dir "$HOME_DIR" </dev/null
 ) >>"$SERVER_LOG" 2>&1 &
 DAEMON_PID="$!"
@@ -566,6 +566,10 @@ C -H 'Content-Type: application/json' \
 jq -e '.ok == true and (.results | length) == 1 and (.results[0].fields.record_id == "mini-1")' \
   "$REPORT_DIR/query-after-restart.json" >/dev/null \
   || fail "record did not persist across a daemon restart"
+
+# Finish shutdown and owned-directory removal before reporting success.
+cleanup
+trap - EXIT
 
 # --- Report -----------------------------------------------------------------
 

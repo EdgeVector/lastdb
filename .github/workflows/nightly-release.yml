@@ -225,8 +225,7 @@ jobs:
           CANDIDATE_SHA: ${{ env.SOURCE_SHA }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/nightly-metadata.json"
-          python3 scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/nightly-metadata.json" --output "$RUNNER_TEMP/nightly-evidence/upload"
+          python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-evidence/upload"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -285,8 +284,7 @@ jobs:
           CANDIDATE_SHA: ${{ needs.plan.outputs.source }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/nightly-metadata.json"
-          python3 scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/nightly-metadata.json" --output "$RUNNER_TEMP/nightly-receipt"
+          python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-receipt"
 
   attest:
     needs: [plan, assemble]
