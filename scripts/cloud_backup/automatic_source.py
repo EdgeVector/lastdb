@@ -249,7 +249,7 @@ class Source:
         if self.node.ci_stream_id is not None:
             require(job["stream"]["stream_id"] == self.node.ci_stream_id, "accepted_owned_ci_stream")
         if self.node.terminal_r2:
-            require(accepted["begin"].get("r2_multipart") is True, "accepted_terminal_r2_mode")
+            require(accepted["begin"].get("r2_multipart") is None, "accepted_direct_r2_mode")
         if self.completed:
             first = next(iter(self.completed.values()))
             require(job["stream"] == first["begin"]["job"]["stream"], "one_owned_automatic_stream")

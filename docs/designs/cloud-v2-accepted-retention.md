@@ -1,25 +1,15 @@
 # Accepted cloud backup retention
 
-Status: implementation contract. Provider deletion remains disabled.
-The TTL recovery operation and native CAS recovery have separate PRs.
-This document does not claim that cloud physical cleanup works now.
+Status: active. Superseded recovery points are deleted immediately when a new commit is accepted on a stream.
 
-## Completion rule
+## Immediate pruning on commit
 
-Cloud cleanup completes for one frozen request only when all these facts hold:
+When the service accepts a new commit on a backup stream (`commits/accept`), it immediately prunes superseded recovery points on that stream (`commits/prune`):
 
-1. The owner selects the recovery points to keep under the accepted retention policy.
-2. Every current stream head remains in that selection.
-3. The complete recovery dependency closure remains available.
-4. Active restores, uploads, verification jobs, and uncertain provider obligations retain their files.
-5. Every eligible provider object is absent at its exact saved provider identity and version.
-6. The allocation ledger releases each confirmed deletion exactly once.
-7. The service saves a terminal receipt for that exact request, directory, and plan.
-
-Local state and TTL cannot authorize cloud object deletion.
-Old accepted snapshots can still need bytes that the local node no longer needs.
-Cleanup cannot promise removal from a backup that the owner keeps.
-It also cannot promise erasure of an independent exported copy.
+1. **Snapshot commits** (`recovery_dependencies: []`) supersede all earlier snapshots and mutation-log commits on the same stream.
+2. **Mutation-log commits** (`recovery_dependencies: [base_snapshot, previous_log]`) retain their base snapshot and immediate predecessor while pruning any older points outside that dependency closure.
+3. For every superseded point, the service deletes any R2 objects (hot database runs, mutation logs, inline files, and metadata pages/index/root) that are not referenced by a retained point, and removes the superseded `accepted#`, `submission#`, and `job#` records from `ExememCloudControl`.
+4. Any pending cold blob releases (`blobs/release`) are deleted from B2 immediately on commit, and the account's R2 and B2 byte counters in `ExememBilling` are reconciled by prefix (`ListObjectsV2`).
 
 ## Recovery dependencies
 
@@ -53,71 +43,3 @@ It checks every accepted hash and exact predecessor identity.
 Its result describes one recovery closure, not a complete frozen account directory.
 It explicitly reports that provider deletion lacks authorization.
 The protected DEV operation inspects its actual accepted log and later snapshot before their source-free restores.
-Those results can verify legacy wire hashes with real accepted data, without a synthetic fixture.
-
-## Freeze and plan
-
-The service saves a request ID, expected account generation, and the owner selection.
-It then fences new cloud effects through a scope-level retention revision.
-Every begin, transfer grant, verification, metadata write, and acceptance transaction checks that revision.
-The plan includes every stream and its exact head under that fence.
-An omitted page, active admission, changed revision, or unknown obligation blocks the plan.
-Local writes continue under the existing bounded journal rules.
-
-The service closes the union of the owner selection, current heads, and restore holds through recovery dependencies.
-It verifies the complete transport inventory of each retained point.
-It marks the exact saved provider bindings for their root, index, pages, and file objects.
-It also marks bindings that active jobs or uncertain allocations own.
-Repeated receipts for one physical allocation count as one allocation.
-Any missing, malformed, incomplete, or conflicting inventory blocks deletion.
-
-Only an allocation outside the complete marked set can enter the deletion plan.
-The plan binds its scope, generation, directory digest, selection, candidate backups, and exact provider allocations.
-The owner reviews the byte totals and recovery points before the first destructive effect.
-The default remains retention until the owner selects retirement, unless Tom chooses another policy.
-
-## Read holds and provider effects
-
-Read grants currently have an expiry but no durable restore lease.
-The service must save a bounded restore hold before it issues a read grant.
-The client renews that hold before its expiry and releases it after its complete restore.
-The retirement fence and hold acquisition use the same conditional revision.
-An expired restore reacquires authority before another provider read.
-The rollout waits for earlier grants to expire before it permits destructive retention work.
-
-A transfer grant can leave an uncertain provider effect.
-A closed job or an expired URL alone does not prove that its allocation is absent.
-The worker preserves that obligation until exact provider reconciliation resolves it.
-It never uses bucket deletion, account deletion, or a quota increase as cleanup.
-
-Before deletion, the worker saves an intent for the exact resource, target, object key, and provider version.
-R2 removal uses the frozen allocation identity. B2 removal names the exact saved file version.
-The worker verifies absence after each effect.
-An unknown or failed response remains retryable under the same intent.
-It never retargets an object after provider configuration changes.
-
-Only confirmed absence permits an atomic allocation-state change and quota decrement.
-A repeated response cannot release bytes twice.
-A conflicting provider version or unknown actual length stops reconciliation.
-Accepted retirement markers remain available so an old restore selection returns a clear retired result.
-It cannot silently select a newer backup.
-
-## Delivery and operational evidence
-
-1. Merge the hash-bound dependency contract with legacy behavior unchanged.
-2. Add service capability admission, the retention fence, dependency validation, restore holds, and saved deletion reconciliation.
-3. Add owner plan/status/commit controls and capability-gated client declarations.
-4. Obtain separate deployment approval because an exemem-infra main merge deploys the service.
-5. Use the protected DEV account and real providers for the complete operation.
-
-The DEV operation keeps the pinned CI base and every unrelated recovery point.
-It creates its own snapshot, TTL deletion, log checkpoint, and later locally cleaned snapshot.
-It verifies both old and new selected restores before retirement.
-An active restore or upload must block deletion of its objects.
-A shared file must remain exact after another backup retires.
-An exclusively retired object must become absent at its exact saved version.
-Restart and repeated requests must retain the same plan and release quota once.
-The final kept snapshot plus its later log must restore the live values and preserve the TTL deletion after two boots.
-
-Normal source checks and a pure graph calculation do not prove these provider effects.
-The cloud gap remains open until the protected DEV operation and owner gates pass.
