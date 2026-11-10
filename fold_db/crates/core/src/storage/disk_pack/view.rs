@@ -167,7 +167,7 @@ impl PackRuntime {
         laststore::commit_timing::during("memory_old_root_release_us", || drop(replaced));
         // A merge can publish between the caller's read of `current` and
         // this install; take its root now, not at the next read.
-        laststore::commit_timing::during("memory_merge_adoption_us", || self.adopt_merged_root());
+        laststore::commit_timing::during("memory_merge_adoption_us", || self.adopt_merged_root())?;
         Ok(())
     }
 

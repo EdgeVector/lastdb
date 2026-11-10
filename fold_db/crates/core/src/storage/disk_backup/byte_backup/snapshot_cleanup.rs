@@ -47,7 +47,7 @@ fn merge_round(runtime: &PackRuntime) -> StorageResult<()> {
                 .map_err(map)?
                 .is_some()
         {
-            runtime.adopt_merged_root();
+            runtime.adopt_merged_root()?;
         }
     }
     Ok(())
