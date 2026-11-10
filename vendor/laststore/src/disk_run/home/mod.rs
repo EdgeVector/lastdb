@@ -46,6 +46,7 @@ mod diagnostic_cursor;
 mod diagnostic_files;
 mod diagnostic_inventory;
 mod keys;
+mod lock;
 mod maintenance;
 mod manifest;
 mod mutation_counts;
@@ -175,7 +176,8 @@ pub struct RunHome {
     /// The runs that merges replaced. A run's file stays until the last
     /// root or read that names it ends; a dead handle is pruned.
     retired: Mutex<Vec<Weak<RunFile>>>,
-    /// Set when a publish fails after its rename: the durable state is unknown.
+    /// Set when a publish fails after its rename, or when a commit or
+    /// publication lock is poisoned: the durable state is unknown.
     poisoned: AtomicBool,
     /// The owner lock. Each read holds a clone, so no other owner can open
     /// the home and remove runs while a read still names them.
@@ -273,7 +275,8 @@ impl RunHome {
         self.identity
     }
 
-    /// True after a failed publish. The owner must reopen the home.
+    /// True after a failed publish or a poisoned commit or publication lock.
+    /// This process still owns the home, so recovery is a restart and open.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.load(Ordering::Acquire)
     }
@@ -328,7 +331,8 @@ impl RunHome {
     fn refuse_if_poisoned(&self) -> Result<()> {
         if self.is_poisoned() {
             return Err(Error::WriteCapacity(
-                "disk run home: an earlier publish failed; reopen the home".into(),
+                "disk run home: an earlier publish failed; restart the process to reopen the home"
+                    .into(),
             ));
         }
         Ok(())

@@ -33,9 +33,14 @@ impl RunHome {
                 Ok(worker) => worker,
                 Err(_) => return None,
             };
-            let _publish = timing::during("v2_publish_lock_wait_us", || {
-                self.publish.lock().unwrap_or_else(|e| e.into_inner())
-            });
+            let _publish = match timing::during("v2_publish_lock_wait_us", || self.publish_lock()) {
+                Ok(guard) => guard,
+                Err(error) => {
+                    // Drop joins this worker. A panic there would hide the lock error.
+                    let _ = worker.join();
+                    return Some(Err(error));
+                }
+            };
             let from = Instant::now();
             let staged = timing::during("v2_current_staging_us", || self.stage_new_run(&file));
             let until = Instant::now();
@@ -69,9 +74,7 @@ impl RunHome {
                 // serial path without adding a foreground availability failure.
                 timing::count("v2_parallel_worker_fallbacks", 1);
                 run.take().expect("unclaimed private run").finish()?;
-                let _publish = timing::during("v2_publish_lock_wait_us", || {
-                    self.publish.lock().unwrap_or_else(|e| e.into_inner())
-                });
+                let _publish = timing::during("v2_publish_lock_wait_us", || self.publish_lock())?;
                 let (next, path) = self.stage_new_run(&file)?;
                 self.publish_staged(next, &path)
             }

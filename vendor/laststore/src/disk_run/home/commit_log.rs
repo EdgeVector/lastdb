@@ -55,14 +55,8 @@ impl RunHome {
         let summary = reader.verified_summary(source)?;
         let run_id = summary.run_id;
         let run = meta(summary)?;
-        let _commit = self
-            .commit
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let _publish = self
-            .publish
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _commit = self.commit_lock()?;
+        let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let held = self.held();
         if held.frontier == after {

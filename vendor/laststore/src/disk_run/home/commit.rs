@@ -128,9 +128,7 @@ impl RunHome {
         records.dedup_by(|later, first| later.0 == first.0);
         drop(sort_timing);
         super::mutation_counts::record(&records);
-        let _commit = timing::during("v2_commit_lock_wait_us", || {
-            self.commit.lock().unwrap_or_else(|e| e.into_inner())
-        });
+        let _commit = timing::during("v2_commit_lock_wait_us", || self.commit_lock())?;
         let run_timing = timing::stage("v2_run_build_us");
         let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
         for (key, body) in &records {
@@ -231,9 +229,7 @@ impl RunHome {
                 let output_bytes = output.as_ref().map_or(0, |run| run.record_bytes);
                 hidden.saturating_sub(input_bytes.saturating_sub(output_bytes))
             });
-        let _publish = timing::during("v2_publish_lock_wait_us", || {
-            self.publish.lock().unwrap_or_else(|e| e.into_inner())
-        });
+        let _publish = timing::during("v2_publish_lock_wait_us", || self.publish_lock())?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
