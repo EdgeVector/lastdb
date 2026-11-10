@@ -5,7 +5,8 @@ name: CI required
 # this tree. Tests stay retired. The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
 # secret scan, the cargo-deny supply-chain check, the cargo-machete unused
-# dependency check, builds, and the record home product proof.
+# dependency check, builds, the record home product proof, and the
+# cloud_backup_protocol check against the exemem-infra main fold pin.
 # No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
@@ -276,6 +277,25 @@ jobs:
       base_sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
 
+  # Compares cloud_backup_protocol with the fold gitlink on exemem-infra main.
+  # No cloud credentials. The default token is tried first. GH_PAT is the
+  # fallback when that token cannot see the repository. A missing pin fails closed.
+  protocol_pin:
+    name: cloud protocol vs deployed storage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Install tree-sitter
+        run: python3 -m pip install --quiet tree-sitter==0.23.2 tree-sitter-rust==0.23.2
+      - name: Deployed storage must accept this protocol
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python3 scripts/lints/lint-cloud-protocol-pin.py
+
   ci-required:
     name: ci-required
     needs:
@@ -286,6 +306,7 @@ jobs:
       - secret_scan
       - supply_chain
       - record_home
+      - protocol_pin
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -297,7 +318,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi
