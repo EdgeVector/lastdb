@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from shared_daily_io import CASES, MANUAL_CASES
+import shared_daily_revision as revision
 from shared_origin import owner
 from support import OperationError, require
 
@@ -26,7 +27,7 @@ def main():
     if args.operation != "cleanup":
         require(os.environ["BUILD_RESULT"] == "success" and os.environ["CASES_RESULT"] == "success",
                 "shared_daily_required_product_jobs")
-    rows, binaries = [], []
+    rows, binaries, services = [], [], []
     for case in expected:
         path = args.directory / f"shared-daily-{case}.json"
         require(path.is_file() and path.stat().st_size <= 1024 * 1024, "shared_daily_result_artifact")
@@ -36,8 +37,10 @@ def main():
         if case != "cleanup":
             require(result["case"] == case and result["phase"] == "fenced", "shared_daily_case_retirement")
             binaries.append(result["proof"]["binaries"])
+            services.append(result["service"])
         rows.append(case)
     require(not binaries or all(value == binaries[0] for value in binaries), "shared_daily_one_binary_pair")
+    service = revision.combined(services) if services else None
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
         summary.write(f"## Shared DEV daily result\n\nLastDB source `{identity['source']}`.\n\n")
         summary.write("| Operation | Result |\n| --- | --- |\n")
@@ -47,10 +50,11 @@ def main():
             summary.write("\nCleanup-only run: no product sharing scenarios executed.\n")
         else:
             summary.write("\nLive native sharing against the currently deployed ExeMem DEV service. "
-                          "The serving ExeMem code revision is not exposed by the current API or CI permissions. "
                           "This does not qualify the full app invitation-to-cloud recovery journey.\n")
+            revision.write_summary(summary, service)
         summary.write("\nPhysical cleanup follows the one-hour drain for fenced scopes; "
                       "the ownership ledger and scope cap remain enforced.\n")
+    require(service is None or service["result"] == "stable", "shared_service_revision_deployment_changed")
     print(json.dumps({"result": "passed", "source": identity["source"], "operations": rows}))
 
 

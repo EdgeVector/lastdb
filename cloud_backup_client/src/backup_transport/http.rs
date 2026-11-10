@@ -49,10 +49,14 @@ impl BackupTransport {
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(bytes);
         let request = self.apply_auth(request);
+        let capture = super::service_identity::begin()?;
         let response = observability::propagation::inject_w3c(request)
             .send()
             .await
             .map_err(|_| BackupTransportError::Transport)?;
+        if let Some(capture) = capture {
+            capture.finish(&response)?;
+        }
         let status = response.status();
         let body = bounded(response, maximum).await?;
         if status == reqwest::StatusCode::UNAUTHORIZED {
