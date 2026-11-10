@@ -16,6 +16,7 @@ import shared_abandoned
 import shared_daily_cleanup as cleanup
 import shared_daily_io as io
 import shared_daily_scopes as scopes
+import shared_daily_revision as revision
 import shared_reclamation_observer
 from shared_origin import owner
 from support import OperationError, failure, require, save_json
@@ -84,9 +85,11 @@ def case(args):
     scope, seeds = scopes.create(identity, args.case, targets)
     root = Path(os.environ["RUNNER_TEMP"]).resolve() / ("shared-daily-work-" + args.case)
     root.mkdir(mode=0o700)
+    receipt = revision.prepare(root)
     environment = dict(os.environ, RUNNER_TEMP=str(root),
                        LASTDB_CLOUD_DEV_SHARED_SCOPE=json.dumps(scope),
-                       LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS=json.dumps(seeds))
+                       LASTDB_CLOUD_DEV_SHARED_DEVICE_SEEDS=json.dumps(seeds),
+                       **{revision.VARIABLE: str(receipt)})
     for name in list(environment):
         if name.startswith("AWS_") or name.startswith("ACTIONS_ID_TOKEN_") or name in (
                 "GH_TOKEN", "GITHUB_TOKEN", "GITHUB_STEP_SUMMARY"):
@@ -124,7 +127,7 @@ def case(args):
     require(path.is_file() and path.stat().st_size < 1024 * 1024, "shared_daily_case_summary")
     proof = json.loads(path.read_text())
     summary = {"source": args.source, "owner": identity, "case": args.case, "proof": proof,
-               "phase": "active", "result": "failed"}
+               "phase": "active", "result": "failed", "service": revision.collect(receipt)}
     try:
         # Only a confirmed stopped/removed source permits immediate authority fencing.
         require(proof.get("cleanup") == "owned runner data removed", "shared_daily_owned_case_cleanup")
@@ -133,11 +136,15 @@ def case(args):
         require(observation_failure is None, observation_failure)
         require(exit_code == 0, "shared_daily_product_case_failed")
         verify_case(args.case, proof, args.source, scope)
+        require(summary["service"]["result"] == "stable",
+                "shared_service_revision_" + summary["service"]["result"])
         summary["result"] = "passed"
     except OperationError as error:
         summary.update(failure(error))
     if proof.get("cleanup") == "owned runner data removed":
         shutil.rmtree(root)
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as step:
+        revision.write_summary(step, summary["service"])
     return summary
 
 

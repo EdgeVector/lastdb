@@ -22,10 +22,14 @@ impl BackupTransport {
             .body(bytes);
         let request = self.apply_auth(request);
         tokio::time::timeout(self.timeout, async {
+            let capture = super::service_identity::begin()?;
             let response = observability::propagation::inject_w3c(request)
                 .send()
                 .await
                 .map_err(|_| BackupTransportError::Transport)?;
+            if let Some(capture) = capture {
+                capture.finish(&response)?;
+            }
             read_reply(response, batch).await
         })
         .await

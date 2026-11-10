@@ -210,7 +210,7 @@ def dev_endpoint():
 
 def child_environment(root):
     # The allowlist prevents inherited CI, AWS, GitHub and product credentials.
-    return {
+    environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C", "TZ": "UTC",
         "HOME": str(root / "os-home"), "TMPDIR": str(root / "tmp"),
         "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev",
@@ -221,3 +221,6 @@ def child_environment(root):
         "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
         "EXEMEM_API_URL": "http://127.0.0.1:9",
     }
+    from shared_daily_revision import child_capture
+    child_capture(environment)
+    return environment
