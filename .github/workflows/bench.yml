@@ -57,7 +57,8 @@ jobs:
       profile: ${{ github.event_name == 'schedule' && 'nightly' || 'standard' }}
 
   benchmark-complete:
-    name: benchmark-complete
+    # The nightly schedule is advisory. Its result must not replace the merge and admission gate.
+    name: ${{ github.event_name == 'schedule' && 'benchmark-nightly' || 'benchmark-complete' }}
     needs: [plan, benchmark]
     if: always()
     runs-on: ubuntu-24.04
