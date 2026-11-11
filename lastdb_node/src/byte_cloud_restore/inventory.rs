@@ -24,19 +24,15 @@ pub(super) struct RecoveryDecryption {
 impl RecoveryKeys {
     /// Derive locally before the opaque encrypted root is available.
     pub fn from_scope_phrase(phrase: &str, account_id: &AccountId) -> Result<Self> {
-        let keys = Self::from_phrase(phrase)?;
-        if keys.account_id != *account_id {
-            return Err(RestoreError::Invalid("recovery account"));
-        }
-        Ok(keys)
-    }
-
-    fn from_phrase(phrase: &str) -> Result<Self> {
         let seed = Zeroizing::new(
             crate::cloud::seed_from_phrase(phrase)
                 .map_err(|_| RestoreError::Invalid("recovery phrase"))?,
         );
-        Self::from_seed(seed)
+        let keys = Self::from_seed(seed)?;
+        if keys.account_id != *account_id {
+            return Err(RestoreError::Invalid("recovery account"));
+        }
+        Ok(keys)
     }
 
     pub(crate) fn from_seed(seed: Zeroizing<[u8; 32]>) -> Result<Self> {
@@ -214,7 +210,7 @@ impl Inventory {
     }
 }
 
-fn digest_bytes(id: &Digest) -> Result<[u8; 32]> {
+pub(super) fn digest_bytes(id: &Digest) -> Result<[u8; 32]> {
     hex::decode(id.as_str())
         .map_err(|_| RestoreError::Invalid("digest"))?
         .try_into()

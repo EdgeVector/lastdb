@@ -2,7 +2,6 @@ use super::work::{self, Capture};
 use super::{
     model::Saved, publication, source::Source, store::Store, transfer, BackupError, Phase, Result,
 };
-use crate::backup_runtime::InvocationOutcome;
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
@@ -11,31 +10,16 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
-use std::fs::File;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::atomic::AtomicBool;
 
 pub(super) use publication::{source_unavailable, validate_terminal};
-
-pub(super) fn terminal_invocation(
-    source: Source,
-    store: Store,
-    saved: Saved,
-    permit: File,
-    pause: Arc<AtomicBool>,
-) -> InvocationOutcome {
-    super::invocation::execute(source, store, saved, None, permit, pause)
-}
 
 pub(super) async fn reconcile(source: &Source, store: &Store, saved: &mut Saved) -> Result<()> {
     source.validate(saved)?;
     let result: JobResult = store.read("terminal.json")?.ok_or(BackupError::Missing)?;
     validate_terminal(saved, &result)?;
     let capture = source.resume(saved, store).await?;
-    finish(&capture, store, saved, &result)?;
-    if source.publication_stream.is_none() {
-        super::blobs::accepted(source, store, saved).await?;
-    }
-    Ok(())
+    finish(source, &capture, store, saved, &result).await
 }
 
 pub(super) async fn run(
@@ -73,13 +57,7 @@ pub(super) async fn run(
     let result = drive(source, &capture, store, saved, client, pause).await;
     source.validate(saved)?;
     match result {
-        Ok(result) => {
-            finish(&capture, store, saved, &result)?;
-            if source.publication_stream.is_none() {
-                super::blobs::accepted(source, store, saved).await?;
-            }
-            Ok(())
-        }
+        Ok(result) => finish(source, &capture, store, saved, &result).await,
         Err(BackupError::Closing) => {
             drop(capture);
             close(source, store, saved, client, pause).await
@@ -170,7 +148,7 @@ async fn setup(
     saved.begin = Some(begin);
     saved.phase = Phase::Capturing;
     store.save(saved)?;
-    source.flush().await?;
+    source.runtime().flush_native().await?;
     Ok(())
 }
 
@@ -238,8 +216,8 @@ async fn upload_and_publish(
     if source.publication_stream.is_none() {
         super::blobs::upload(source, store, saved, client, pause).await?;
     }
-    let parallelism = capture
-        .recommended_parallelism()?
+    let parallelism = fold_db::storage_policy::BACKUP_RESOURCES
+        .concurrent_streams
         .min(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS);
     let mut next = 0;
     while next < capture.object_count()? {
@@ -259,32 +237,15 @@ async fn upload_and_publish(
             continue;
         }
         let inputs: Vec<_> = batch.iter().map(|(_, input)| input.clone()).collect();
-        let prepared = transfer::prepare(client, &inputs, pause).await?;
-        if let Some(error) = prepared.error {
-            for ((index, _), item) in batch.iter().zip(prepared.items) {
-                if let Ok(Some(receipt)) = transfer::verified(item) {
-                    capture.confirm(*index, &receipt)?;
-                }
-            }
-            refresh(capture, store, saved)?;
-            return Err(error);
-        }
         let context = work::Context::new(store, saved, pause);
-        let mut futures = Vec::new();
-        for ((index, input), prepared) in batch.iter().zip(prepared.items) {
-            let reader = capture.reader(*index)?;
-            futures.push(transfer::complete(
-                client, input, prepared, reader, &context,
-            ));
-        }
-        let results = futures::future::join_all(futures).await;
-        let mut failure = None;
-        for ((index, _), result) in batch.iter().zip(results) {
-            match result {
-                Ok(receipt) => capture.confirm(*index, &receipt)?,
-                Err(error) => work::record_error(&mut failure, error),
-            }
-        }
+        let failure = transfer::upload_batch(
+            client,
+            &inputs,
+            &context,
+            |pos| capture.reader(batch[pos].0),
+            |pos, receipt| capture.confirm(batch[pos].0, &receipt),
+        )
+        .await?;
         refresh(capture, store, saved)?;
         if let Some(error) = failure {
             return Err(error);
@@ -308,7 +269,13 @@ fn refresh(capture: &Capture, store: &Store, saved: &mut Saved) -> Result<()> {
     store.save(saved)
 }
 
-fn finish(capture: &Capture, store: &Store, saved: &mut Saved, result: &JobResult) -> Result<()> {
+async fn finish(
+    source: &Source,
+    capture: &Capture,
+    store: &Store,
+    saved: &mut Saved,
+    result: &JobResult,
+) -> Result<()> {
     validate_terminal(saved, result)?;
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
@@ -333,7 +300,11 @@ fn finish(capture: &Capture, store: &Store, saved: &mut Saved, result: &JobResul
         JobStatus::Active => return Err(BackupError::Invalid),
     };
     saved.blocked_reason = None;
-    refresh(capture, store, saved)
+    refresh(capture, store, saved)?;
+    if source.publication_stream.is_none() {
+        super::blobs::accepted(source, store, saved).await?;
+    }
+    Ok(())
 }
 
 async fn close(
@@ -343,22 +314,19 @@ async fn close(
     client: &ByteBackupClient,
     pause: &AtomicBool,
 ) -> Result<()> {
-    if saved.begin.is_none() {
-        saved.phase = Phase::Closed;
-        saved.retained_source_bytes = Some(0);
-        return store.save(saved);
-    }
-    if !saved.begin_submitted {
-        source.cancel(saved).await?;
+    if saved.begin.is_none() || !saved.begin_submitted {
+        if saved.begin.is_some() {
+            source.cancel(saved).await?;
+        }
         saved.phase = Phase::Closed;
         saved.retained_source_bytes = Some(0);
         return store.save(saved);
     }
     let capture = source.resume(saved, store).await?;
-    if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
+    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    if capture.begin()? != *begin {
         return Err(BackupError::Identity);
     }
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let request = JobCloseRequest {
         version: Version::V2,
         job: begin.job.clone(),
@@ -369,9 +337,5 @@ async fn close(
         Ok(client.close(&request).await?)
     })
     .await?;
-    finish(&capture, store, saved, &result)?;
-    if source.publication_stream.is_none() {
-        super::blobs::accepted(source, store, saved).await?;
-    }
-    Ok(())
+    finish(source, &capture, store, saved, &result).await
 }

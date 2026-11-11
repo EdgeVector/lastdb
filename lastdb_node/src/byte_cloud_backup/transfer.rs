@@ -13,16 +13,43 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 
-pub(super) struct PreparedBatch {
-    pub items: Vec<TransferItemResult>,
-    pub error: Option<BackupError>,
+pub(super) async fn upload_batch(
+    client: &ByteBackupClient,
+    inputs: &[TransferInput],
+    context: &work::Context<'_>,
+    mut open_reader: impl FnMut(usize) -> Result<Box<dyn Read + Send>>,
+    mut on_receipt: impl FnMut(usize, ObjectReceipt) -> Result<()>,
+) -> Result<Option<BackupError>> {
+    let (items, error) = prepare(client, inputs, context.pause).await?;
+    if let Some(error) = error {
+        for (pos, item) in items.into_iter().enumerate() {
+            if let Ok(Some(receipt)) = verified(item) {
+                on_receipt(pos, receipt)?;
+            }
+        }
+        return Ok(Some(error));
+    }
+    let mut futures = Vec::with_capacity(inputs.len());
+    for (pos, (input, item)) in inputs.iter().zip(items).enumerate() {
+        futures.push(complete(client, input, item, open_reader(pos)?, context));
+    }
+    let results = futures::future::join_all(futures).await;
+    let mut failure = None;
+    for (pos, (input, result)) in inputs.iter().zip(results).enumerate() {
+        match result {
+            Ok(receipt) if receipt.object == input.object => on_receipt(pos, receipt)?,
+            Ok(_) => work::record_error(&mut failure, BackupError::Identity),
+            Err(error) => work::record_error(&mut failure, error),
+        }
+    }
+    Ok(failure)
 }
 
-pub(super) async fn prepare(
+async fn prepare(
     client: &ByteBackupClient,
     inputs: &[TransferInput],
     pause: &AtomicBool,
-) -> Result<PreparedBatch> {
+) -> Result<(Vec<TransferItemResult>, Option<BackupError>)> {
     let request = TransferPrepareRequest {
         version: Version::V2,
         items: inputs.to_vec(),
@@ -36,14 +63,14 @@ pub(super) async fn prepare(
     })
     .await;
     match result {
-        Ok(items) => Ok(PreparedBatch { items, error: None }),
-        Err(error) => match observed.into_inner() {
-            Some(items) => Ok(PreparedBatch {
-                items,
-                error: Some(error),
-            }),
-            None => Err(error),
-        },
+        Ok(items) => Ok((items, None)),
+        Err(error) => {
+            if let Some(items) = observed.into_inner() {
+                Ok((items, Some(error)))
+            } else {
+                Err(error)
+            }
+        }
     }
 }
 
@@ -89,7 +116,7 @@ fn remember(
 }
 
 /// An explicit invocation makes at most one conditional PUT for this frozen input.
-pub(super) async fn complete(
+async fn complete(
     client: &ByteBackupClient,
     input: &TransferInput,
     prepared: TransferItemResult,
@@ -114,7 +141,14 @@ async fn complete_one(
         return Ok(receipt);
     }
     context.check()?;
-    let resumed = resume_with_retry(client, input, context).await?;
+    let resumed = work::control("transfer_resume", pause, || async {
+        context.check()?;
+        match client.resume(input).await? {
+            TransferResumeResult::Error { error, .. } => Err(cloud_error(error)),
+            result => Ok(result),
+        }
+    })
+    .await?;
     match resumed {
         TransferResumeResult::Grant { response } => {
             context.check()?;
@@ -133,8 +167,7 @@ async fn complete_one(
     }
     check_pause(pause)?;
     let completed = work::control("transfer_complete", pause, || async {
-        let item = client.complete(input).await?;
-        match item {
+        match client.complete(input).await? {
             TransferItemResult::Error { error, .. } => Err(cloud_error(error)),
             item => Ok(item),
         }
@@ -157,23 +190,7 @@ async fn complete_one(
     .await
 }
 
-async fn resume_with_retry(
-    client: &ByteBackupClient,
-    input: &TransferInput,
-    context: &work::Context<'_>,
-) -> Result<TransferResumeResult> {
-    work::control("transfer_resume", context.pause, || async {
-        context.check()?;
-        let result = client.resume(input).await;
-        match result? {
-            TransferResumeResult::Error { error, .. } => Err(cloud_error(error)),
-            result => Ok(result),
-        }
-    })
-    .await
-}
-
-pub(super) fn verified(value: TransferItemResult) -> Result<Option<ObjectReceipt>> {
+fn verified(value: TransferItemResult) -> Result<Option<ObjectReceipt>> {
     match value {
         TransferItemResult::Ok { transfer } => match transfer.state {
             TransferStatus::Verified { receipt } => Ok(Some(receipt)),
@@ -226,7 +243,7 @@ impl RecordBlobSource for SignInRequired {
 }
 
 fn blob_source(host: &crate::host::Host) -> std::result::Result<CloudBlobSource, String> {
-    let client = super::credentials::client_for_recovery(&host.home)?;
+    let client = super::client_from_home(&host.home)?;
     let account = AccountId::try_from(host.user_hash.clone())
         .map_err(|_| "the node account id is not a cloud account id".to_owned())?;
     Ok(CloudBlobSource {

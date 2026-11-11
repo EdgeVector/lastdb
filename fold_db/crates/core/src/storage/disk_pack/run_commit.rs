@@ -1,8 +1,8 @@
-//! Commit, background merge worker, and equivalent-root adoption on a v2 run home.
+//! Commit admission, publication, background merge worker, and root adoption.
 
 use super::physical::{PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
 use super::*;
-use laststore::disk_run::home::RunHome;
+use laststore::disk_run::home::{CheckpointKind, RunHome};
 use laststore::space::SpacePolicy;
 
 const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
@@ -11,47 +11,72 @@ const MIN_HELD_BYTES: u64 = 1 << 20;
 const HELD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
 
+pub(super) struct PreparedCommit {
+    pub(super) operations: Vec<HomeMutation>,
+    pub(super) batch_bytes: u64,
+    pub(super) space: SpaceReservation,
+}
+
 impl PackRuntime {
-    pub(in crate::storage::disk_pack) fn prepare_run(
+    pub(super) fn commit(&self, operations: Vec<HomeMutation>) -> StorageResult<()> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+        let prepared = self.prepare_commit(operations, None)?;
+        let changes: Vec<_> = prepared
+            .operations
+            .iter()
+            .map(|op| (op.collection.clone(), op.key.clone()))
+            .collect();
+        self.commit_prepared(prepared, &changes, &[])
+    }
+
+    pub(super) fn prepare_commit(
         &self,
-        v2: &V2Home,
         operations: Vec<HomeMutation>,
-        previous: Option<&write::PreparedCommit>,
-    ) -> StorageResult<write::PreparedCommit> {
+        previous: Option<&PreparedCommit>,
+    ) -> StorageResult<PreparedCommit> {
+        self.validate_initialization_write(&operations)?;
+        if self.failed.load(Ordering::Acquire) {
+            return Err(StorageError::BackendError(
+                "native writer requires a snapshot reopen after a failed publication".into(),
+            ));
+        }
         RunHome::check_mutations(&operations).map_err(map)?;
-        let limit = self.batch_operation_limit();
-        let batch_bytes = write::prefix_batch_bytes(previous, &operations, limit)?;
+        let batch_bytes = prefix_batch_bytes(previous, &operations, self.batch_operation_limit())?;
         let intent_keys = cas_delete::key_bytes(&operations)?
             + previous
-                .map(write::PreparedCommit::cas_delete_key_bytes)
+                .map(|p| cas_delete::key_bytes(&p.operations))
                 .transpose()?
                 .unwrap_or(0);
-        let intent_bytes = cas_delete::space(intent_keys)?;
-        let reserved_bytes = batch_bytes.saturating_add(intent_bytes);
+        let reserved_bytes = batch_bytes.saturating_add(cas_delete::space(intent_keys)?);
+        let v2 = &self.physical;
         let space = match previous {
-            Some(previous) => previous
-                .space()
+            Some(prev) => prev
+                .space
                 .reserve_extension(&self.space_policy, reserved_bytes),
             None => {
                 laststore::space::reserve_space(v2.home.path(), &self.space_policy, reserved_bytes)
             }
         }
         .map_err(map)?;
-        Ok(write::PreparedCommit::for_run(
+        Ok(PreparedCommit {
             operations,
             batch_bytes,
             space,
-        ))
+        })
     }
 
-    pub(in crate::storage::disk_pack) fn commit_run(
+    pub(super) fn commit_prepared(
         &self,
-        v2: &V2Home,
-        operations: Vec<HomeMutation>,
-        space: SpaceReservation,
+        prepared: PreparedCommit,
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
+        let PreparedCommit {
+            operations, space, ..
+        } = prepared;
+        let v2 = &self.physical;
         let result = (|| {
             cas_delete::require_clear(v2)?;
             let mut journal = operations
@@ -85,7 +110,7 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(in crate::storage::disk_pack) fn resume_merges(&self) {
+    pub(super) fn resume_merges(&self) {
         let v2 = &self.physical;
         if v2.home.needs_merge() || v2.cas.needs_merge() {
             start_merges(
@@ -112,12 +137,37 @@ impl PackRuntime {
                 ));
             }
         };
-        let latest = self.physical.current_root();
-        let replaced = adopt(&mut view, latest, &self.last_root);
+        let replaced = adopt(&mut view, self.physical.current_root(), &self.last_root);
         drop(view);
         drop(replaced);
         Ok(())
     }
+}
+
+fn prefix_batch_bytes(
+    previous: Option<&PreparedCommit>,
+    incoming: &[HomeMutation],
+    limit: usize,
+) -> StorageResult<u64> {
+    let bytes = transaction::batch_bytes(incoming, limit)?;
+    let Some(previous) = previous else {
+        return Ok(bytes);
+    };
+    let operations = previous.operations.len().checked_add(incoming.len());
+    let bytes = previous
+        .batch_bytes
+        .checked_add(bytes)
+        .and_then(|b| b.checked_sub(256));
+    if operations.is_none_or(|count| count > limit)
+        || bytes
+            .is_none_or(|b| b > lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES)
+    {
+        return Err(StorageError::WriteResourceLimit {
+            detail: "native accepted prefix reached its operation or byte limit; retry after flush"
+                .into(),
+        });
+    }
+    Ok(bytes.expect("checked native prefix bytes"))
 }
 
 fn adopt(
@@ -168,7 +218,9 @@ fn commit_split(
         v2.cas
             .commit(blob_backup::with_releases(deletes))
             .map_err(map)?;
-        v2.home.clear_cas_delete_checkpoint().map_err(map)?;
+        v2.home
+            .clear_checkpoint(CheckpointKind::CasDelete)
+            .map_err(map)?;
     }
     Ok(())
 }
@@ -187,16 +239,25 @@ fn start_merges(
     if waiting || v2.merging.swap(true, Ordering::AcqRel) {
         return;
     }
-    let homes = vec![Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
-    let merging = Arc::clone(&v2.merging);
-    let stop = Arc::clone(&v2.stop);
-    let retry_after = Arc::clone(&v2.retry_after);
-    let policy = policy.clone();
+    let homes = [Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
+    let (merging, stop, retry_after, policy) = (
+        Arc::clone(&v2.merging),
+        Arc::clone(&v2.stop),
+        Arc::clone(&v2.retry_after),
+        policy.clone(),
+    );
     match std::thread::Builder::new()
         .name("lastdb-run-merge".into())
         .spawn(move || {
-            let adopted = Adopted { view, last_root };
-            merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after, &policy);
+            merge_until_settled(
+                &homes,
+                &view,
+                &last_root,
+                &merging,
+                &stop,
+                &retry_after,
+                &policy,
+            );
         }) {
         Ok(handle) => {
             if let Some(earlier) = v2
@@ -215,32 +276,10 @@ fn start_merges(
     }
 }
 
-struct Adopted {
-    view: Arc<RwLock<view::NativeReadView>>,
-    last_root: Arc<view::LastRoot>,
-}
-
-impl Adopted {
-    fn install(&self, homes: &[std::sync::Weak<RunHome>]) {
-        let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) else {
-            return;
-        };
-        let latest = V2Root {
-            main: main.current_root(),
-            cas: cas.current_root(),
-        };
-        let replaced = self
-            .view
-            .write()
-            .ok()
-            .and_then(|mut view| adopt(&mut view, latest, &self.last_root));
-        drop(replaced);
-    }
-}
-
 fn merge_until_settled(
-    homes: &[std::sync::Weak<RunHome>],
-    adopted: &Adopted,
+    homes: &[std::sync::Weak<RunHome>; 2],
+    view: &RwLock<view::NativeReadView>,
+    last_root: &view::LastRoot,
     merging: &AtomicBool,
     stop: &AtomicBool,
     retry_after: &Mutex<Option<std::time::Instant>>,
@@ -258,7 +297,17 @@ fn merge_until_settled(
                 match home.merge_step_with_space(space) {
                     Ok(true) => {
                         drop(home);
-                        adopted.install(homes);
+                        if let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) {
+                            let latest = V2Root {
+                                main: main.current_root(),
+                                cas: cas.current_root(),
+                            };
+                            drop(
+                                view.write()
+                                    .ok()
+                                    .and_then(|mut v| adopt(&mut v, latest, last_root)),
+                            );
+                        }
                         wait_for_held_runs(weak, stop);
                         merged = true;
                     }
@@ -280,7 +329,7 @@ fn merge_until_settled(
         let needed = !stop.load(Ordering::Acquire)
             && homes
                 .iter()
-                .any(|home| home.upgrade().is_some_and(|home| home.needs_merge()));
+                .any(|h| h.upgrade().is_some_and(|h| h.needs_merge()));
         if !needed || merging.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -292,7 +341,7 @@ fn wait_for_held_runs(home: &std::sync::Weak<RunHome>, stop: &AtomicBool) {
     let mut limit = None;
     while let Some(home) = home.upgrade() {
         let budget = *limit
-            .get_or_insert_with(|| (home.status().file_bytes() / HELD_SHARE).max(MIN_HELD_BYTES));
+            .get_or_insert_with(|| (home.status().file_bytes / HELD_SHARE).max(MIN_HELD_BYTES));
         if home.retired_bytes() <= budget
             || stop.load(Ordering::Acquire)
             || std::time::Instant::now() >= until

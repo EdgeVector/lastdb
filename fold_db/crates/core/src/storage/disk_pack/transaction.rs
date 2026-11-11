@@ -1,10 +1,12 @@
+//! Pending batch staging, write request scopes, and post-commit callbacks.
+
 use super::record_warm::WrittenRecord;
 use super::*;
 use std::collections::BTreeMap;
 
 pub(crate) mod publication;
-mod request;
-pub(crate) use request::{background_scope, blocked, request_scope};
+pub(in crate::storage) use publication::batch_bytes;
+pub(crate) use publication::blocked;
 
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
@@ -68,7 +70,7 @@ impl PendingBatch {
             .filter(|batch| batch.identity == runtime.home_identity())
     }
 
-    pub(in crate::storage::disk_pack::transaction) fn is_empty(&self) -> StorageResult<bool> {
+    fn is_empty(&self) -> StorageResult<bool> {
         let unchanged = self
             .data
             .lock()
@@ -93,7 +95,7 @@ impl PendingBatch {
             let Some(bytes) = staged
                 .bytes
                 .checked_add(record.bytes())
-                .filter(|bytes| *bytes <= limit)
+                .filter(|&b| b <= limit)
             else {
                 break;
             };
@@ -135,7 +137,7 @@ impl PendingBatch {
             .filter(|((name, key), _)| {
                 name == collection && key.as_bytes() >= start && key.as_bytes() < end
             })
-            .map(|(_, at)| Arc::clone(&data.operations[*at]))
+            .map(|(_, &at)| Arc::clone(&data.operations[at]))
             .collect()
     }
 
@@ -144,11 +146,10 @@ impl PendingBatch {
         crate::storage::format::records::require_final_record_sizes(
             data.max_body_bytes,
             data.latest.values().filter_map(|&at| {
-                let record = &data.operations[at];
-                record
-                    .body
+                let r = &data.operations[at];
+                r.body
                     .as_ref()
-                    .map(|body| (record.collection.as_str(), record.key.as_str(), body.len()))
+                    .map(|body| (r.collection.as_str(), r.key.as_str(), body.len()))
             }),
         )
     }
@@ -162,14 +163,14 @@ impl PendingBatch {
                 "native accepted batch is immutable".into(),
             ));
         }
-        validate(&operations, self.operation_limit)
+        batch_bytes(&operations, self.operation_limit)
             .map_err(|error| self.remember_preparation_limit(error))?;
         let mut data = self.data.lock().expect("native pending batch");
         let count = data
             .operations
             .len()
             .checked_add(operations.len())
-            .filter(|count| *count <= self.operation_limit)
+            .filter(|&c| c <= self.operation_limit)
             .ok_or_else(|| {
                 self.remember_preparation_limit(publication::refusal(
                     &data,
@@ -180,17 +181,13 @@ impl PendingBatch {
         publication::record_stage(&data, &operations, self.operation_limit);
         let mut bytes = data.bytes;
         let mut max_body_bytes = data.max_body_bytes;
-        for operation in &operations {
-            let body_bytes = operation.body.as_ref().map_or(0, Vec::len);
+        let cap = lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES - 256;
+        for op in &operations {
+            let body_bytes = op.body.as_ref().map_or(0, Vec::len);
             max_body_bytes = max_body_bytes.max(body_bytes);
             bytes = bytes
-                .checked_add(
-                    (160 + operation.collection.len() + 2 * operation.key.len() + body_bytes)
-                        as u64,
-                )
-                .filter(|bytes| {
-                    *bytes <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES - 256
-                })
+                .checked_add((160 + op.collection.len() + 2 * op.key.len() + body_bytes) as u64)
+                .filter(|&b| b <= cap)
                 .ok_or_else(|| {
                     self.remember_preparation_limit(StorageError::MutationLimit {
                         detail: "complete native mutation exceeds pending memory allowance".into(),
@@ -201,14 +198,14 @@ impl PendingBatch {
         data.operations
             .try_reserve(additional)
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
-        for operation in operations {
+        for op in operations {
             let at = data.operations.len();
             data.latest
-                .insert((operation.collection.clone(), operation.key.clone()), at);
+                .insert((op.collection.clone(), op.key.clone()), at);
             data.operations.push(Arc::new(PendingRecord {
-                collection: operation.collection,
-                key: operation.key,
-                body: operation.body,
+                collection: op.collection,
+                key: op.key,
+                body: op.body,
             }));
         }
         data.bytes = bytes;
@@ -216,26 +213,29 @@ impl PendingBatch {
         Ok(())
     }
 
-    pub(in crate::storage::disk_pack::transaction) fn freeze_operations(
-        &self,
-    ) -> Vec<HomeMutation> {
+    fn freeze_operations(&self) -> Vec<HomeMutation> {
         self.frozen.store(true, Ordering::Release);
         self.data
             .lock()
             .expect("native pending batch")
             .operations
             .iter()
-            .map(|record| HomeMutation {
-                collection: record.collection.clone(),
-                key: record.key.clone(),
-                body: record.body.clone(),
+            .map(|r| HomeMutation {
+                collection: r.collection.clone(),
+                key: r.key.clone(),
+                body: r.body.clone(),
             })
             .collect()
     }
 
     pub(in crate::storage::disk_pack) fn changed_coordinates(&self) -> Vec<(String, String)> {
-        let data = self.data.lock().expect("native pending changes");
-        data.latest.keys().cloned().collect()
+        self.data
+            .lock()
+            .expect("native pending changes")
+            .latest
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub(in crate::storage::disk_pack) fn note_flush_blocked(&self, took: std::time::Duration) {
@@ -245,7 +245,7 @@ impl PendingBatch {
         );
     }
 
-    pub(in crate::storage::disk_pack::transaction) fn flush_blocked(&self) -> std::time::Duration {
+    fn flush_blocked(&self) -> std::time::Duration {
         std::time::Duration::from_micros(self.flush_blocked_us.load(Ordering::Acquire))
     }
 
@@ -254,9 +254,8 @@ impl PendingBatch {
     }
 
     pub(in crate::storage::disk_pack) async fn deliver(&self) -> StorageResult<()> {
-        let actions =
-            std::mem::take(&mut *self.after_commit.lock().expect("native post-commit work"));
-        let mut actions: std::collections::VecDeque<_> = actions.into();
+        let mut actions: std::collections::VecDeque<_> =
+            std::mem::take(&mut *self.after_commit.lock().expect("native post-commit work")).into();
         while let Some(action) = actions.pop_front() {
             if let Err(error) = action.await {
                 self.after_commit
@@ -270,42 +269,6 @@ impl PendingBatch {
     }
 }
 
-fn validate(operations: &[HomeMutation], operation_limit: usize) -> StorageResult<()> {
-    batch_bytes(operations, operation_limit).map(|_| ())
-}
-
-pub(in crate::storage) fn batch_bytes(
-    operations: &[HomeMutation],
-    operation_limit: usize,
-) -> StorageResult<u64> {
-    if operations.len() > operation_limit {
-        return Err(StorageError::MutationLimit {
-            detail: format!("complete native batch exceeds {operation_limit} operations"),
-        });
-    }
-    let mut bytes = 256u64;
-    for operation in operations {
-        if operation.collection.len() > 65531 || operation.key.len() > 65535 {
-            return Err(StorageError::InvalidOperation(
-                "native collection or key exceeds format bounds".into(),
-            ));
-        }
-        bytes = bytes
-            .checked_add(
-                (160 + operation.collection.len()
-                    + 2 * operation.key.len()
-                    + operation.body.as_ref().map_or(0, Vec::len)) as u64,
-            )
-            .filter(|bytes| {
-                *bytes <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES
-            })
-            .ok_or_else(|| StorageError::MutationLimit {
-                detail: "complete native batch exceeds pending memory allowance".into(),
-            })?;
-    }
-    Ok(bytes)
-}
-
 pub(crate) async fn scope<T, E>(
     runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -313,7 +276,85 @@ pub(crate) async fn scope<T, E>(
 where
     E: From<StorageError>,
 {
-    request_scope(runtime, future).await
+    scope_inner(runtime, future, false).await
+}
+
+pub(crate) async fn request_scope<T, E>(
+    runtime: Arc<PackRuntime>,
+    future: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, E>
+where
+    E: From<StorageError>,
+{
+    scope_inner(runtime, future, false).await
+}
+
+pub(crate) async fn background_scope<T, E>(
+    runtime: Arc<PackRuntime>,
+    future: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, E>
+where
+    E: From<StorageError>,
+{
+    scope_inner(runtime, future, true).await
+}
+
+async fn scope_inner<T, E>(
+    runtime: Arc<PackRuntime>,
+    future: impl std::future::Future<Output = Result<T, E>>,
+    background: bool,
+) -> Result<T, E>
+where
+    E: From<StorageError>,
+{
+    if PendingBatch::current(&runtime).is_some() {
+        return future.await;
+    }
+    let gate = runtime.enter_prepare().await;
+    let held_from = std::time::Instant::now();
+    let pending = Arc::new(PendingBatch::new(&runtime));
+    let result = read::write_scope(
+        Arc::clone(&runtime),
+        Arc::clone(&pending),
+        WRITE.scope(Arc::clone(&pending), future),
+    )
+    .await;
+    if !pending.is_empty().unwrap_or(false) {
+        blocked::opened();
+    }
+    if let Some(error) = pending.preparation_limit() {
+        return Err(error.into());
+    }
+    let result = result??;
+    pending.require_final_format()?;
+    if pending.is_empty()? {
+        let target = runtime.seal_queue();
+        drop(gate);
+        publication::note_gate_hold(held_from, 0, 0, &[]);
+        runtime.wait_for_queue(target).await?;
+        blocked::note(held_from.elapsed());
+        return Ok(result);
+    }
+    let operations = pending.freeze_operations();
+    let operations_len = operations.len();
+    let pub_gate = Arc::clone(&runtime.write_gate).lock_owned().await;
+    let owner = Arc::clone(&runtime);
+    let (prepared, gate, pub_gate, hold) = run_blocking(move || {
+        let shape = publication::BatchShape::of(&operations);
+        Ok((owner.prepare_queued(operations)?, gate, pub_gate, shape))
+    })
+    .await?;
+    let pending_timing = Arc::clone(&pending);
+    let sequence = runtime.accept_queued(pending, prepared)?;
+    drop((pub_gate, gate));
+    let held = hold.log(held_from, operations_len, sequence);
+    runtime.wait_for_queue(sequence).await?;
+    blocked::note(if background {
+        held.saturating_add(pending_timing.flush_blocked())
+    } else {
+        held_from.elapsed()
+    });
+    Ok(result)
 }
 
 pub(crate) fn after_commit(

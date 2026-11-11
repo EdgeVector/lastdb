@@ -36,21 +36,20 @@ impl Footer {
         out[40..48].copy_from_slice(&self.records.to_le_bytes());
         out[48..52].copy_from_slice(&self.max_payload.to_le_bytes());
         out[52..56].copy_from_slice(&self.data_blocks.to_le_bytes());
-        let crc = crc32fast::hash(&out[..60]);
-        out[60..64].copy_from_slice(&crc.to_le_bytes());
+        let crc = crc32fast::hash(&out[..60]).to_le_bytes();
+        out[60..64].copy_from_slice(&crc);
         out
     }
 
     pub(super) fn decode(bytes: &[u8; FOOTER_BYTES]) -> Result<Self> {
-        let crc = u32::from_le_bytes(bytes[60..64].try_into().expect("4 bytes"));
-        if bytes[0..8] != MAGIC || crc != crc32fast::hash(&bytes[..60]) {
+        let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4"));
+        let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8"));
+        if bytes[0..8] != MAGIC || u32_at(60) != crc32fast::hash(&bytes[..60]) {
             return Err(corrupt("bad footer"));
         }
-        if u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes")) != VERSION {
+        if u32_at(8) != VERSION {
             return Err(corrupt("unknown run version"));
         }
-        let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8"));
-        let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4"));
         Ok(Self {
             run_id: Uuid::from_slice(&bytes[12..28]).expect("16 bytes"),
             top_offset: u64_at(28),
@@ -80,10 +79,6 @@ pub(super) fn put_refs(out: &mut Vec<u8>, refs: &[BlockRef]) {
         put_varint(out, u64::from(block.len));
         prev = &block.first_key;
     }
-}
-
-pub(super) fn get_refs(bytes: &[u8], at: &mut usize) -> Result<Vec<BlockRef>> {
-    get_refs_bounded(bytes, at, u64::MAX)
 }
 
 pub(super) fn get_refs_bounded(
@@ -137,7 +132,7 @@ fn admit(used: u64, bytes: usize, maximum: u64) -> Result<u64> {
         .ok_or(Error::ReadBudgetExceeded)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Top {
     pub(super) records: u64,
     pub(super) data_blocks: u64,
@@ -156,10 +151,6 @@ impl Top {
         put_varint(&mut out, self.last_key.len() as u64);
         out.extend_from_slice(&self.last_key);
         out
-    }
-
-    pub(super) fn decode(bytes: &[u8]) -> Result<Self> {
-        Self::decode_bounded(bytes, u64::MAX)
     }
 
     pub(super) fn decode_bounded(bytes: &[u8], maximum: u64) -> Result<Self> {

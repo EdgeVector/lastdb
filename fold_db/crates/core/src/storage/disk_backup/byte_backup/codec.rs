@@ -34,8 +34,9 @@ pub struct ClientPage {
 
 impl ClientPage {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
-        context(
+        validate_metadata_context(
             self.version,
+            CLIENT_VERSION,
             &self.begin_sha256,
             &self.descriptor_sha256,
             begin,
@@ -55,11 +56,11 @@ impl ClientPage {
             }
             previous = Some(file.path.as_str());
         }
-        encode(self).map(|_| ())
+        encode_metadata(self).map(|_| ())
     }
 
     pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> StorageResult<Self> {
-        let value: Self = decode(bytes, key)?;
+        let value: Self = decode_metadata(bytes, key)?;
         value.validate_for(begin)?;
         Ok(value)
     }
@@ -86,8 +87,9 @@ impl ClientRoot {
                 "a full snapshot cannot declare recovery dependencies",
             ));
         }
-        context(
+        validate_metadata_context(
             self.version,
+            CLIENT_VERSION,
             &self.begin_sha256,
             &self.descriptor_sha256,
             begin,
@@ -105,16 +107,11 @@ impl ClientRoot {
         {
             return Err(invalid("byte root identity or bounds"));
         }
-        let files = profile
-            .main
-            .files
-            .checked_add(profile.cas.as_ref().map_or(0, |cas| cas.files))
-            .and_then(|n| n.checked_add(1));
+        let files = profile.main.files.checked_add(1);
         let bytes = profile
             .main
             .bytes
-            .checked_add(profile.cas.as_ref().map_or(0, |cas| cas.bytes))
-            .and_then(|n| n.checked_add(profile.node_marker().ok()?.len() as u64));
+            .checked_add(profile.node_marker()?.len() as u64);
         if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
             return Err(invalid("run root exact native totals"));
         }
@@ -126,7 +123,7 @@ impl ClientRoot {
                 return Err(invalid("byte root page bounds"));
             }
         }
-        encode(self).map(|_| ())
+        encode_metadata(self).map(|_| ())
     }
 
     pub fn validate_page(&self, page: &ClientPage) -> StorageResult<()> {
@@ -141,7 +138,7 @@ impl ClientRoot {
     }
 
     pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> StorageResult<Self> {
-        let value: Self = decode(bytes, key)?;
+        let value: Self = decode_metadata(bytes, key)?;
         value.validate_for(begin)?;
         Ok(value)
     }
@@ -151,13 +148,19 @@ impl ClientRoot {
         struct Version {
             version: u16,
         }
-        decode::<Version>(bytes, key).map(|value| value.version)
+        decode_metadata::<Version>(bytes, key).map(|value| value.version)
     }
 }
 
-fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> StorageResult<()> {
+pub fn validate_metadata_context(
+    version: u16,
+    expected_version: u16,
+    digest: &Digest,
+    descriptor: &Digest,
+    begin: &Begin,
+) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;
-    if version != CLIENT_VERSION
+    if version != expected_version
         || !begin.descriptor.as_value().is_null()
         || *digest != begin.input_sha256().map_err(protocol)?
         || *descriptor != begin.descriptor.commitment().map_err(protocol)?
@@ -167,17 +170,17 @@ fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) ->
     Ok(())
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn encode(
-    value: &impl Serialize,
-) -> StorageResult<Vec<u8>> {
-    let bytes = serde_json::to_vec(value).map_err(|_| invalid("byte metadata encoding"))?;
+pub fn encode_metadata(value: &impl Serialize) -> StorageResult<zeroize::Zeroizing<Vec<u8>>> {
+    let bytes = zeroize::Zeroizing::new(
+        serde_json::to_vec(value).map_err(|_| invalid("byte metadata encoding"))?,
+    );
     if bytes.len() as u64 > CODEC_PLAINTEXT_MAX_BYTES {
         return Err(invalid("byte metadata bound"));
     }
     Ok(bytes)
 }
 
-fn decode<T: DeserializeOwned>(bytes: &[u8], key: &[u8; 32]) -> StorageResult<T> {
+pub fn decode_metadata<T: DeserializeOwned>(bytes: &[u8], key: &[u8; 32]) -> StorageResult<T> {
     if bytes.len() as u64 > CODEC_ENVELOPE_MAX_BYTES {
         return Err(invalid("byte metadata envelope bound"));
     }
@@ -208,8 +211,6 @@ pub struct RunBackupHome {
 pub struct RunBackupProfile {
     pub version: u16,
     pub main: RunBackupHome,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cas: Option<RunBackupHome>,
 }
 
 impl RunBackupProfile {
@@ -221,28 +222,14 @@ impl RunBackupProfile {
         }
     }
 
-    pub(crate) fn carries_cas(_version: u16) -> bool {
-        false
-    }
-
     pub fn validate(&self) -> StorageResult<()> {
         self.node_marker()?;
-        if Self::carries_cas(self.version) != self.cas.is_some()
-            || self
-                .cas
-                .as_ref()
-                .is_some_and(|cas| cas.home_id == self.main.home_id)
+        if self.main.generation.get() == 0
+            || self.main.frontier.get() > self.main.generation.get()
+            || self.main.files < 2
+            || self.main.bytes < 64
         {
-            return Err(invalid("run backup profile identity"));
-        }
-        for home in std::iter::once(&self.main).chain(self.cas.as_ref()) {
-            if home.generation.get() == 0
-                || home.frontier.get() > home.generation.get()
-                || home.files < 2
-                || home.bytes < 64
-            {
-                return Err(invalid("run backup home bounds"));
-            }
+            return Err(invalid("run backup home bounds"));
         }
         Ok(())
     }
@@ -270,7 +257,7 @@ impl RunBackupProfile {
 
 /// Native V2 paths are a fixed client-owned allowlist, never cloud metadata.
 pub fn run_backup_destination(path: &str) -> StorageResult<cloud_backup_protocol::v2::Destination> {
-    use crate::storage::disk_pack::{CAS_DIR, NODE_MARKER, RUN_DIR};
+    use crate::storage::disk_pack::{NODE_MARKER, RUN_DIR};
     use cloud_backup_protocol::v2::Destination;
     use laststore::disk_run::home::{CURRENT, RUNS, RUN_HOME_MARKER};
     if path == NODE_MARKER {
@@ -279,7 +266,7 @@ pub fn run_backup_destination(path: &str) -> StorageResult<cloud_backup_protocol
     let (home, tail) = path
         .split_once('/')
         .ok_or_else(|| invalid("run backup path"))?;
-    if home != RUN_DIR && home != CAS_DIR {
+    if home != RUN_DIR {
         return Err(invalid("run backup home path"));
     }
     if tail == CURRENT || tail == RUN_HOME_MARKER {
@@ -294,9 +281,5 @@ pub fn run_backup_destination(path: &str) -> StorageResult<cloud_backup_protocol
     if parsed.is_nil() || parsed.to_string() != id {
         return Err(invalid("run backup canonical file identity"));
     }
-    Ok(if home == CAS_DIR {
-        Destination::B2
-    } else {
-        Destination::R2
-    })
+    Ok(Destination::R2)
 }

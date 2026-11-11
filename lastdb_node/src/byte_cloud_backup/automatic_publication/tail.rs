@@ -1,117 +1,57 @@
-use super::{
-    automatic, store, BackupError, Client, Pending, Phase, Publisher, Result, Saved, Store,
-};
-use crate::byte_cloud_backup::{
-    model::{LocalAction, StreamRecord},
+//! Pending work selection, terminal checks, policy store, and retry timer for publication.
+use super::super::{
+    automatic,
+    model::Saved,
     recovery::RecoveryPoint,
+    store::{self, Store},
     work::Work,
+    worker, BackupError, Phase, Result,
 };
-use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-use cloud_backup_protocol::v2::{context::ContextReadRequest, Destination, Stream, Version};
+use super::{Pending, Policy, Publisher, POLICY};
+use cloud_backup_protocol::v2::jobs::JobResult;
+use cloud_backup_protocol::Id;
 use fold_db::storage::disk_pack::mutation_log::Frontiers;
 use std::time::Duration;
 use tokio::time::Instant;
 
-const CAPABILITY_TTL: Duration = Duration::from_secs(15);
-
-struct CapabilityResult {
-    stream: Stream,
-    endpoint: String,
-    limit: Option<u8>,
-    expires: Instant,
-}
-
-#[derive(Default)]
-pub(super) struct Capability(Option<CapabilityResult>);
-
-impl Capability {
-    pub(super) async fn limit(
-        &mut self,
-        publisher: &Publisher,
-        client: &Client,
-    ) -> Result<Option<u8>> {
-        if !publisher.needs_limit()? {
-            return Ok(None);
-        }
-        let client = client().map_err(|_| BackupError::Authority)?;
-        let endpoint = client.canonical_endpoint();
-        let stream = publisher.stream(&client).await?;
-        if let Some(result) = &self.0 {
-            if result.stream == stream
-                && result.endpoint == endpoint
-                && Instant::now() < result.expires
-            {
-                return Ok(result.limit);
-            }
-        }
-        let limit = client.share_recovery_limit(&stream).await?;
-        self.0 = Some(CapabilityResult {
-            stream,
-            endpoint,
-            limit,
-            expires: Instant::now() + CAPABILITY_TTL,
-        });
-        Ok(limit)
-    }
-}
-
 impl Publisher {
-    /// Settle existing snapshots and saved terminal authority without capability I/O.
-    fn needs_limit(&self) -> Result<bool> {
-        if let Some(pending) = self.policy()?.pending {
-            return Ok(pending.log.is_some()
-                && store::state_at(&self.base, &pending.id)?.is_none_or(|saved| {
-                    !saved.begin_submitted && saved.local_action.is_none() && !saved.terminal()
-                }));
-        }
-        if let Some(id) = Store::active_at(&self.base)? {
-            return Ok(store::state_at(&self.base, &id)?
-                .ok_or(BackupError::Missing)?
-                .terminal());
-        }
-        Ok(true)
-    }
-
-    async fn stream(&self, client: &ByteBackupClient) -> Result<Stream> {
-        let stream_id = self
-            .source
-            .publication_stream
-            .as_ref()
-            .ok_or(BackupError::Identity)?;
-        let stream =
-            if let Some(record) = store::read::<StreamRecord>(&self.base.join("stream.json"))? {
-                if record.source_home != self.source.source_home {
+    pub(super) fn verify_terminal(
+        &self,
+        saved: &Saved,
+        store: &Store,
+        minimum: Frontiers,
+    ) -> Result<bool> {
+        match saved.phase {
+            Phase::Published => {
+                let point = self.point()?.ok_or(BackupError::Missing)?;
+                if saved.accepted.as_ref() != Some(&point.accepted)
+                    || point.frontiers.main < minimum.main
+                {
                     return Err(BackupError::Identity);
                 }
-                record.stream
-            } else {
-                let context = client
-                    .context(&ContextReadRequest {
-                        version: Version::V2,
-                        account_id: self.source.account.clone(),
-                        required_destinations: vec![Destination::R2, Destination::B2],
-                    })
-                    .await?;
-                Stream {
-                    scope: context.scope,
-                    stream_id: stream_id.clone(),
+                Ok(true)
+            }
+            Phase::Closed if saved.local_action.is_some() => Ok(true),
+            Phase::Closed => {
+                let terminal: JobResult =
+                    store.read("terminal.json")?.ok_or(BackupError::Missing)?;
+                worker::validate_terminal(saved, &terminal)?;
+                if !worker::source_unavailable(&terminal)
+                    || store.read::<Id>("close.json")?.is_some()
+                {
+                    return Err(BackupError::Authority);
                 }
-            };
-        stream.validate()?;
-        if &stream.stream_id != stream_id || stream.scope.account_id != self.source.account {
-            return Err(BackupError::Identity);
+                Ok(false)
+            }
+            _ => Err(BackupError::Invalid),
         }
-        Ok(stream)
     }
 
     pub(super) fn next_pending(&self, limit: Option<u8>) -> Result<Option<Pending>> {
         let runtime = self.source.runtime();
         let frontier = runtime.durable_main_frontier();
         let point = self.point()?;
-        if point
-            .as_ref()
-            .is_some_and(|point| point.frontiers.main > frontier)
-        {
+        if point.as_ref().is_some_and(|p| p.frontiers.main > frontier) {
             return Err(BackupError::Identity);
         }
         let mut minimum = Frontiers { main: frontier };
@@ -120,31 +60,27 @@ impl Publisher {
         if !journal.enabled {
             runtime.configure_mutation_log(true)?;
         }
-        let anchored = point.as_ref().filter(|point| {
+        let anchored = point.as_ref().filter(|p| {
             journal.enabled
                 && !journal.snapshot_required
-                && point.anchor.is_some()
-                && journal.anchor == point.anchor
+                && p.anchor.is_some()
+                && journal.anchor == p.anchor
         });
         if let (Some(limit), Some(point)) = (limit, anchored) {
             if point.frontiers.main == frontier {
                 return Ok(None);
             }
-            let checkpoints = point.accepted.ordinal.get() - point.base.ordinal.get();
-            if checkpoints < u64::from(limit) {
+            if point.accepted.ordinal.get() - point.base.ordinal.get() < u64::from(limit) {
                 let context = point.log_context()?;
                 if journal
                     .head
                     .is_some_and(|head| head.sequence > context.from.sequence)
                 {
-                    // A capture may split a large tail into several checkpoints.
                     minimum.main = point.frontiers.main + 1;
                     log = Some(Box::new(context));
                 }
             }
-        } else if anchored
-            .is_some_and(|point| point.base == point.accepted && point.frontiers.main == frontier)
-        {
+        } else if anchored.is_some_and(|p| p.base == p.accepted && p.frontiers.main == frontier) {
             return Ok(None);
         }
         Ok(Some(Pending {
@@ -154,19 +90,19 @@ impl Publisher {
         }))
     }
 
-    pub(super) fn point(&self) -> Result<Option<RecoveryPoint>> {
+    fn point(&self) -> Result<Option<RecoveryPoint>> {
         let point: Option<RecoveryPoint> = store::read(&self.base.join("recovery.json"))?;
         if let Some(point) = &point {
             point.validate()?;
             let stream = &point.accepted.job().stream;
-            let dependencies = &point.accepted.begin.recovery_dependencies;
-            if Some(&stream.stream_id) != self.source.publication_stream.as_ref()
+            let deps = &point.accepted.begin.recovery_dependencies;
+            if &stream.stream_id != self.stream_id()?
                 || stream.scope.account_id != self.source.account
                 || !point.base.begin.recovery_dependencies.is_empty()
                 || (point.base != point.accepted
                     && (point.anchor.is_none()
-                        || dependencies.first() != Some(&point.base.head())
-                        || dependencies.last() != point.accepted.begin.predecessor.as_ref()))
+                        || deps.first() != Some(&point.base.head())
+                        || deps.last() != point.accepted.begin.predecessor.as_ref()))
             {
                 return Err(BackupError::Identity);
             }
@@ -198,22 +134,79 @@ impl Publisher {
             if replacing {
                 return Err(BackupError::Identity);
             }
-            // Reuse the captured prefix when the local journal has changed, but
-            // only submit a new log to a server that can serve it to recipients.
             return if limit.is_some() {
                 Ok(false)
             } else {
                 Err(BackupError::AdmissionPending)
             };
         }
-        saved.local_action = Some(LocalAction::ReplaceWithSnapshot);
-        store.save(saved)?;
-        store.select(&saved.request_id)?;
-        self.source.cancel_replacement(saved)?;
-        saved.phase = Phase::Closed;
-        saved.retained_source_bytes = Some(0);
-        saved.blocked_reason = None;
-        store.save(saved)?;
+        self.source.replace_with_snapshot(store, saved)?;
         Ok(true)
+    }
+
+    pub(super) fn stream_id(&self) -> Result<&Id> {
+        self.source
+            .publication_stream
+            .as_ref()
+            .ok_or(BackupError::Identity)
+    }
+
+    pub(super) fn policy(&self) -> Result<Policy> {
+        let stream_id = self.stream_id()?;
+        let policy: Policy = store::read(&self.base.join(POLICY))?.unwrap_or_else(|| Policy {
+            version: 1,
+            source_home: self.source.source_home.clone(),
+            stream_id: stream_id.clone(),
+            pending: None,
+            cleanup: None,
+        });
+        if policy.version != 1
+            || policy.source_home != self.source.source_home
+            || &policy.stream_id != stream_id
+            || policy
+                .pending
+                .as_ref()
+                .is_some_and(|p| !automatic::reserved(&p.id))
+            || policy
+                .cleanup
+                .as_ref()
+                .is_some_and(|id| !automatic::reserved(id))
+        {
+            return Err(BackupError::Identity);
+        }
+        Ok(policy)
+    }
+
+    pub(super) fn save(&self, policy: &Policy) -> Result<()> {
+        Store::write_configuration_at(&self.base, POLICY, policy)
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Retry {
+    pub(super) until: Option<Instant>,
+    attempts: u32,
+}
+
+impl Retry {
+    pub(super) fn schedule(&mut self, error: impl std::fmt::Display) {
+        if self.attempts == 0 {
+            tracing::warn!(target: "lastdbd::share", %error, "share publication will retry");
+        }
+        let delay = (5u64 << self.attempts.min(4)).min(60);
+        self.until = Some(Instant::now() + Duration::from_secs(delay));
+        self.attempts = self.attempts.saturating_add(1);
+    }
+
+    pub(super) fn ready(&self) -> bool {
+        self.until.is_none_or(|at| at <= Instant::now())
+    }
+
+    pub(super) async fn wait(&self) {
+        if let Some(at) = self.until {
+            tokio::time::sleep_until(at).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
     }
 }

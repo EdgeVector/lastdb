@@ -1,9 +1,7 @@
 //! Separately versioned opaque byte transport. No worker, route or activation.
 use super::backup_transport::{BackupTransport, StoredObject, TemporaryGrant};
 use super::AuthClient;
-use cloud_backup_protocol::v2::access::{
-    InventoryPutRequest, InventoryPutResult, ReadGrant, ReadGrantRequest, ReadGrantResponse,
-};
+use cloud_backup_protocol::v2::access::{InventoryPutRequest, InventoryPutResult};
 use cloud_backup_protocol::v2::blobs::{
     BlobReadItem, BlobReadRequest, BlobReadResponse, BlobReleaseRequest, BlobReleaseResponse,
 };
@@ -19,7 +17,7 @@ use cloud_backup_protocol::v2::transfer::{
     TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
     TransferStatusRequest,
 };
-use cloud_backup_protocol::v2::{limits, AcceptedBackup, Begin, Stream, Version};
+use cloud_backup_protocol::v2::{limits, Begin, Stream, Version};
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Read;
@@ -94,18 +92,6 @@ impl ByteBackupClient {
         let response: InventoryPutResult = self.post("inventory/put", request).await?;
         response.validate_for(request)?;
         Ok(response)
-    }
-
-    pub async fn read_grants(
-        &self,
-        request: &ReadGrantRequest,
-        accepted: &AcceptedBackup,
-    ) -> Result<ReadGrantResponse> {
-        self.reader().read_grants(request, accepted).await
-    }
-
-    pub async fn open(&self, grant: &ReadGrant) -> Result<ObjectStream> {
-        self.reader().open(grant).await
     }
 
     pub async fn blob_read(&self, request: &BlobReadRequest) -> Result<BlobReadResponse> {
@@ -238,10 +224,14 @@ impl ByteBackupClient {
             url: response.grant.url.as_str(),
             expires_ms: response.grant.expires_ms.get(),
         };
-        if response.grant.transfer_mode == Some(TransferMode::MultipartPart) {
-            return self.transport.upload_part(object, grant, source).await;
-        }
-        self.transport.upload(object, grant, source).await
+        self.transport
+            .upload(
+                object,
+                grant,
+                source,
+                response.grant.transfer_mode == Some(TransferMode::MultipartPart),
+            )
+            .await
     }
 
     /// Return the retained checkpoint bound when guest recovery is enabled.

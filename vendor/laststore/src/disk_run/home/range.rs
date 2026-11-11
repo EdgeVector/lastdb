@@ -75,10 +75,7 @@ impl RunRead {
         start: &[u8],
         end: &[u8],
     ) -> Result<RunHashRange<'_>> {
-        self.charge((collection.len() + start.len() + end.len()) as u64)?;
-        let lower = run_key(collection, start)?;
-        let upper = run_key(collection, end)?;
-        self.range_between(collection, lower, Some(upper), false)
+        self.admin_range(collection, start, end, false)
     }
 
     /// Continue an administrative range strictly above one complete storage key.
@@ -88,10 +85,20 @@ impl RunRead {
         after: &[u8],
         end: &[u8],
     ) -> Result<RunHashRange<'_>> {
-        self.charge((collection.len() + after.len() + end.len()) as u64)?;
-        let lower = run_key(collection, after)?;
+        self.admin_range(collection, after, end, true)
+    }
+
+    fn admin_range(
+        &mut self,
+        collection: &str,
+        lower: &[u8],
+        end: &[u8],
+        exclusive: bool,
+    ) -> Result<RunHashRange<'_>> {
+        self.charge((collection.len() + lower.len() + end.len()) as u64)?;
+        let lower = run_key(collection, lower)?;
         let upper = run_key(collection, end)?;
-        self.range_between(collection, lower, Some(upper), true)
+        self.range_between(collection, lower, Some(upper), exclusive)
     }
 
     fn range_between(
@@ -119,7 +126,6 @@ impl RunRead {
             .filter(|(file, _)| file.meta.overlaps(&lower, upper.as_deref()))
             .map(|(file, _)| file.path.clone())
             .collect();
-        self.costs.runs_opened += base.len() as u64;
         let RunRead {
             runs,
             key,
@@ -127,11 +133,8 @@ impl RunRead {
             budget,
             ..
         } = self;
-        let upper_bound = match &upper {
-            Some(upper) => Bound::Excluded(upper.as_slice()),
-            None => Bound::Unbounded,
-        };
-        let lower_bound = if exclusive {
+        let upper_ref = upper.as_deref().map_or(Bound::Unbounded, Bound::Excluded);
+        let lower_ref = if exclusive {
             Bound::Excluded(lower.as_slice())
         } else {
             Bound::Included(lower.as_slice())
@@ -140,7 +143,7 @@ impl RunRead {
             .iter()
             .filter(|(file, _)| file.meta.overlaps(&lower, upper.as_deref()))
             .filter_map(|(_, reader)| reader.as_ref())
-            .map(|reader| MergeSource::Run(reader.range(lower_bound, upper_bound)))
+            .map(|reader| MergeSource::Run(reader.range(lower_ref, upper_ref)))
             .collect();
         if !base.is_empty() {
             let upper = upper.map_or(Bound::Unbounded, Bound::Excluded);
@@ -167,7 +170,7 @@ impl RunRead {
 }
 
 impl OrdinaryRange<'_> {
-    fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+    fn account(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
         if self.costs.examined_keys >= self.budget.keys {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -183,19 +186,6 @@ impl OrdinaryRange<'_> {
         Ok(())
     }
 
-    fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
-        self.page(limit, None)
-    }
-
-    fn next_page_yielding(
-        &mut self,
-        limit: usize,
-        held_rows: usize,
-        keys_per_row: usize,
-    ) -> Result<RunRangePage> {
-        self.page(limit, Some((held_rows, keys_per_row)))
-    }
-
     fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RunRangePage> {
         let mut records = Vec::new();
         let mut last: Option<Vec<u8>> = None;
@@ -204,8 +194,11 @@ impl OrdinaryRange<'_> {
             if let Some((held, keys_per_row)) = yielding {
                 let rows = held + records.len();
                 let needed = keys_per_row.saturating_mul(rows).saturating_add(16) as u64;
-                let low = self.costs.examined_keys.saturating_add(needed) > self.budget.keys;
-                if rows > 0 && keys_per_row > 0 && low && last.is_some() {
+                if rows > 0
+                    && keys_per_row > 0
+                    && self.costs.examined_keys.saturating_add(needed) > self.budget.keys
+                    && last.is_some()
+                {
                     resume = last.take();
                     break;
                 }
@@ -244,10 +237,9 @@ impl OrdinaryRange<'_> {
             records.push((storage_key(&self.collection, &key)?, value));
             last = yielding.map(|_| key);
         }
-        let resume = match resume {
-            Some(key) => Some(storage_key(&self.collection, &key)?),
-            None => None,
-        };
+        let resume = resume
+            .map(|key| storage_key(&self.collection, &key))
+            .transpose()?;
         Ok(RunRangePage {
             records,
             exhausted: self.exhausted,
@@ -260,7 +252,7 @@ impl RunHashRange<'_> {
     /// Charge selected pending records to the same range budget.
     pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
         match &mut self.mode {
-            RangeMode::Ordinary(r) => r.account_memory_record(key_bytes, body_bytes),
+            RangeMode::Ordinary(r) => r.account(key_bytes, body_bytes),
             RangeMode::Bounded(r) => r.account(key_bytes, body_bytes),
         }
     }
@@ -268,7 +260,7 @@ impl RunHashRange<'_> {
     /// Up to `limit` live records under this exact root.
     pub fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
         match &mut self.mode {
-            RangeMode::Ordinary(r) => r.next_page(limit),
+            RangeMode::Ordinary(r) => r.page(limit, None),
             RangeMode::Bounded(r) => r.page(limit, None, u64::MAX),
         }
     }
@@ -281,7 +273,7 @@ impl RunHashRange<'_> {
         keys_per_row: usize,
     ) -> Result<RunRangePage> {
         match &mut self.mode {
-            RangeMode::Ordinary(r) => r.next_page_yielding(limit, held_rows, keys_per_row),
+            RangeMode::Ordinary(r) => r.page(limit, Some((held_rows, keys_per_row))),
             RangeMode::Bounded(r) => r.page(limit, Some((held_rows, keys_per_row)), u64::MAX),
         }
     }

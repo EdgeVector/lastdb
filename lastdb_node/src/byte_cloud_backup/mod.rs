@@ -72,21 +72,13 @@ pub mod share_write_gate {
     }
 }
 
-pub(crate) mod credentials {
-    use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-    use std::path::Path;
-
-    /// Read saved recovery credentials without enrolling or enabling backup.
-    pub fn client_from_home(home: &Path) -> Result<ByteBackupClient, String> {
-        client_for_recovery(home)
-    }
-
-    pub(in crate::byte_cloud_backup) fn client_for_recovery(
-        home: &Path,
-    ) -> Result<ByteBackupClient, String> {
-        let auth = crate::cloud::auth_for_recovery(home)?;
-        ByteBackupClient::from_auth(auth).map_err(|error| error.to_string())
-    }
+/// Read saved recovery credentials without enrolling or enabling backup.
+pub fn client_from_home(
+    home: &std::path::Path,
+) -> std::result::Result<crate::cloud_backup_client::byte_backup::ByteBackupClient, String> {
+    let auth = crate::cloud::auth_for_recovery(home)?;
+    crate::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(auth)
+        .map_err(|error| error.to_string())
 }
 
 mod invocation {
@@ -95,17 +87,6 @@ mod invocation {
     use crate::cloud_backup_client::byte_backup::ByteBackupClient;
     use std::fs::File;
     use std::sync::{atomic::AtomicBool, Arc};
-
-    pub(in crate::byte_cloud_backup) fn run(
-        source: Source,
-        store: Store,
-        saved: Saved,
-        client: ByteBackupClient,
-        permit: File,
-        pause: Arc<AtomicBool>,
-    ) -> InvocationOutcome {
-        execute(source, store, saved, Some(client), permit, pause)
-    }
 
     pub(in crate::byte_cloud_backup) fn execute(
         source: Source,
@@ -346,7 +327,6 @@ pub use automatic::{spawn_automatic, AutomaticBackupStatus};
 pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
 pub use control::request;
 pub(crate) use control::status;
-pub use credentials::client_from_home;
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
 pub(crate) use source::PublicationSource;
 pub use transfer::register_blob_source;

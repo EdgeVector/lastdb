@@ -106,25 +106,7 @@ pub(crate) mod current_keys {
             record: &str,
             version: &Position,
         ) -> super::StorageResult<cloud_backup_protocol::v2::blobs::BlobPath> {
-            let path = record_file_path(record, version)?;
-            let invalid = || super::unsupported("a record file path has no cloud blob path");
-            let mut parts = path
-                .strip_prefix(RECORD_FILE_PREFIX)
-                .ok_or_else(invalid)?
-                .splitn(3, ':');
-            let (Some(space), Some(digest), Some(write_id)) =
-                (parts.next(), parts.next(), parts.next())
-            else {
-                return Err(invalid());
-            };
-            let blob = cloud_backup_protocol::v2::blobs::BlobPath {
-                database: database.clone(),
-                space: space.to_owned().try_into().map_err(|_| invalid())?,
-                record: digest.to_owned().try_into().map_err(|_| invalid())?,
-                write_id: write_id.to_owned().try_into().map_err(|_| invalid())?,
-            };
-            blob.validate().map_err(|_| invalid())?;
-            Ok(blob)
+            super::super::disk_pack::blob_path_of_key(database, &record_file_path(record, version)?)
         }
 
         /// The "already in the cloud" marker of the record file row at `file_path`.

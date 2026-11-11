@@ -7,13 +7,11 @@ use lastdb_model::storage_policy::backup_transport::{
     MAX_PACK_MEMBERS, METADATA_PACK_BYTES, OBJECT_CHUNK_BYTES, SMALL_NATIVE_FILE_BYTES,
 };
 use serde::{Deserialize, Serialize};
-
-mod steps;
-use steps::{probe, Pack, Span};
+use sha2::{Digest as _, Sha256};
+use std::io::Read;
 
 pub const MAX_FILE_EXTENTS: usize = 16384;
-/// Every requested range is at most this many bytes.
-pub const READ_BYTES: u64 = 65536;
+const READ_BYTES: usize = 65536;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,17 +41,12 @@ impl ClientNativeFile {
         }
         let mut bytes = 0u64;
         for extent in &self.extents {
-            if extent.length.get() == 0
-                || extent
-                    .offset
-                    .get()
-                    .checked_add(extent.length.get())
-                    .is_none()
-            {
+            let len = extent.length.get();
+            if len == 0 || extent.offset.get().checked_add(len).is_none() {
                 return Err(PlanError::Invalid("byte native extent bounds"));
             }
             bytes = bytes
-                .checked_add(extent.length.get())
+                .checked_add(len)
                 .ok_or(PlanError::Invalid("byte native extent overflow"))?;
         }
         if bytes != self.native_bytes.get() {
@@ -66,23 +59,20 @@ impl ClientNativeFile {
 /// A refusal from the planner. Each caller maps it to its own error.
 #[derive(Debug)]
 pub enum PlanError {
-    /// A file record is out of bounds. The text names the bound.
     Invalid(&'static str),
-    /// A frozen file holds fewer or more bytes than its frozen length.
     SourceLength,
-    /// A file needs more extents than one record holds.
     ExtentBound,
     Protocol(ProtocolError),
 }
 
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid(reason) => f.write_str(reason),
-            Self::SourceLength => f.write_str("byte native source length changed"),
-            Self::ExtentBound => f.write_str("byte native file extent metadata bound"),
-            Self::Protocol(_) => f.write_str("byte protocol validation"),
-        }
+        f.write_str(match self {
+            Self::Invalid(reason) => reason,
+            Self::SourceLength => "byte native source length changed",
+            Self::ExtentBound => "byte native file extent metadata bound",
+            Self::Protocol(_) => "byte protocol validation",
+        })
     }
 }
 
@@ -123,7 +113,8 @@ pub struct PlanFile {
 }
 
 /// One byte range of one frozen file inside an object.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanSegment {
     pub file: usize,
     pub offset: u64,
@@ -136,7 +127,7 @@ pub struct PlannedObject {
     pub object: Object,
     pub segments: Vec<PlanSegment>,
     pub pack: bool,
-    pub native_files: Vec<(usize, ClientNativeFile)>,
+    pub native_files: Vec<ClientNativeFile>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -146,217 +137,250 @@ pub struct PlanTotals {
     pub multi_file_packs: u64,
 }
 
-/// Bytes of one frozen file. `bytes` begins at `offset` in that file.
-#[derive(Clone, Copy, Debug)]
-pub struct Chunk<'a> {
-    pub file: usize,
-    pub offset: u64,
-    pub bytes: &'a [u8],
-}
-
-/// The next range the plan needs from one frozen file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Range {
-    pub file: usize,
-    pub offset: u64,
-    pub bytes: u64,
-    pub exact: bool,
-}
-
-/// The plan's next effect. `step(None)` asks for one; `step(Some(chunk))`
-/// answers a [`Step::Need`].
-#[derive(Debug)]
-pub enum Step {
-    Save { index: u64, object: PlannedObject },
-    Need(Range),
-    Done(PlanTotals),
-}
-
-/// Plan state. `(state, chunk) -> (state, Save | Need | Done)`.
-#[derive(Debug)]
-pub struct PlanState {
-    files: Vec<PlanFile>,
-    scope: CloudScope,
-    totals: PlanTotals,
-    phase: Phase,
-    awaiting: Option<Range>,
-    save: Option<Pending>,
-}
-
-#[derive(Debug)]
-enum Phase {
-    Choose(usize),
-    Pack(Box<Pack>),
-    Span(Box<Span>),
-    Tail(usize),
-    Finished,
-}
-
-#[derive(Debug)]
-struct Pending {
-    index: u64,
-    object: PlannedObject,
-}
-
-impl PlanState {
-    /// Start a plan over `files` in order.
-    pub fn start(files: &[PlanFile], scope: &CloudScope) -> Self {
-        Self {
-            files: files.to_vec(),
-            scope: scope.clone(),
-            totals: PlanTotals::default(),
-            phase: Phase::Choose(0),
-            awaiting: None,
-            save: None,
+/// Stream `files` in order into packed small-file objects and chunked spans.
+pub fn plan_files<R, E>(
+    files: &[PlanFile],
+    scope: &CloudScope,
+    mut open: impl FnMut(&PlanFile) -> Result<R, E>,
+    mut save: impl FnMut(u64, PlannedObject) -> Result<(), E>,
+) -> Result<PlanTotals, E>
+where
+    R: Read,
+    E: From<PlanError> + From<std::io::Error>,
+{
+    let mut totals = PlanTotals::default();
+    let mut buffer = vec![0u8; READ_BYTES];
+    let mut cursor = 0;
+    while cursor < files.len() {
+        if files[cursor].bytes > OBJECT_CHUNK_BYTES {
+            plan_span(
+                &files[cursor],
+                scope,
+                &mut buffer,
+                &mut totals,
+                &mut open,
+                &mut save,
+            )?;
+            cursor += 1;
+        } else {
+            let end = pack_end(files, cursor);
+            plan_pack(
+                &files[cursor..end],
+                scope,
+                &mut buffer,
+                &mut totals,
+                &mut open,
+                &mut save,
+            )?;
+            cursor = end;
         }
     }
+    Ok(totals)
+}
 
-    /// Advance one step. Pass `None` until the plan asks for bytes, then pass
-    /// the delivered range. After [`Step::Save`], pass `None` again.
-    pub fn step(&mut self, chunk: Option<Chunk<'_>>) -> Result<Step, PlanError> {
-        if let Some(chunk) = chunk {
-            self.consume(chunk)?;
-        } else if self.awaiting.is_some() {
-            return Err(PlanError::Invalid("byte plan range"));
-        }
-        if let Some(save) = self.save.take() {
-            return Ok(Step::Save {
-                index: save.index,
-                object: save.object,
-            });
-        }
-        self.kick()
-    }
-
-    fn consume(&mut self, chunk: Chunk<'_>) -> Result<(), PlanError> {
-        let expect = self
-            .awaiting
-            .take()
-            .ok_or(PlanError::Invalid("byte plan range"))?;
-        if chunk.file != expect.file
-            || chunk.offset != expect.offset
-            || chunk.bytes.len() as u64 > expect.bytes
-            || (expect.exact && chunk.bytes.len() as u64 != expect.bytes)
+fn plan_pack<R, E>(
+    group: &[PlanFile],
+    scope: &CloudScope,
+    buffer: &mut [u8],
+    totals: &mut PlanTotals,
+    open: &mut impl FnMut(&PlanFile) -> Result<R, E>,
+    save: &mut impl FnMut(u64, PlannedObject) -> Result<(), E>,
+) -> Result<(), E>
+where
+    R: Read,
+    E: From<PlanError> + From<std::io::Error>,
+{
+    let first = &group[0];
+    let pack = first.bytes < SMALL_NATIVE_FILE_BYTES;
+    let mut object_hash = Sha256::new();
+    let mut object_bytes = 0u64;
+    let mut members = Vec::with_capacity(group.len());
+    for file in group {
+        let mut reader = open(file)?;
+        let mut file_hash = Sha256::new();
+        if !hash_exact(
+            &mut reader,
+            file.bytes,
+            buffer,
+            &mut file_hash,
+            &mut object_hash,
+        )? || !at_eof(&mut reader)?
         {
-            return Err(PlanError::Invalid("byte plan range"));
+            return Err(PlanError::SourceLength.into());
         }
-        if self.probing() {
-            if chunk.bytes.is_empty() {
-                self.finish_probe()
-            } else {
-                Err(PlanError::SourceLength)
-            }
-        } else if chunk.bytes.len() as u64 != expect.bytes {
-            Err(PlanError::SourceLength)
-        } else {
-            self.absorb(chunk.bytes)
-        }
+        members.push((file, digest(file_hash)?, object_bytes));
+        object_bytes += file.bytes;
     }
-
-    fn kick(&mut self) -> Result<Step, PlanError> {
-        let choice = match &self.phase {
-            Phase::Finished => return Ok(Step::Done(self.totals)),
-            Phase::Choose(index) => Some(*index),
-            Phase::Pack(_) | Phase::Span(_) | Phase::Tail(_) => None,
+    let (object, receipt_id) = seal_object(scope, object_hash, object_bytes, first.destination)?;
+    let mut segments = Vec::with_capacity(members.len());
+    let mut native_files = Vec::with_capacity(members.len());
+    for (file, native_sha256, offset) in members {
+        segments.push(PlanSegment {
+            file: file.id,
+            offset: 0,
+            bytes: file.bytes,
+        });
+        let record = ClientNativeFile {
+            path: file.path.clone(),
+            native_sha256,
+            native_bytes: DecimalU64::new(file.bytes),
+            extents: vec![ClientExtent {
+                receipt_id: receipt_id.clone(),
+                offset: DecimalU64::new(offset),
+                length: DecimalU64::new(file.bytes),
+            }],
         };
-        if let Some(index) = choice {
-            self.open_next(index)
-        } else {
-            self.arm()
-        }
+        record.validate()?;
+        native_files.push(record);
     }
+    let index = totals.objects;
+    totals.packs += u64::from(pack);
+    totals.multi_file_packs += u64::from(pack && segments.len() > 1);
+    totals.objects += 1;
+    save(
+        index,
+        PlannedObject {
+            object,
+            segments,
+            pack,
+            native_files,
+        },
+    )
+}
 
-    fn open_next(&mut self, index: usize) -> Result<Step, PlanError> {
-        if index >= self.files.len() {
-            self.phase = Phase::Finished;
-            return Ok(Step::Done(self.totals));
+fn plan_span<R, E>(
+    file: &PlanFile,
+    scope: &CloudScope,
+    buffer: &mut [u8],
+    totals: &mut PlanTotals,
+    open: &mut impl FnMut(&PlanFile) -> Result<R, E>,
+    save: &mut impl FnMut(u64, PlannedObject) -> Result<(), E>,
+) -> Result<(), E>
+where
+    R: Read,
+    E: From<PlanError> + From<std::io::Error>,
+{
+    let mut reader = open(file)?;
+    let mut file_hash = Sha256::new();
+    let mut extents = Vec::new();
+    let mut base = 0u64;
+    while base < file.bytes {
+        let length = OBJECT_CHUNK_BYTES.min(file.bytes - base);
+        let mut object_hash = Sha256::new();
+        if !hash_exact(
+            &mut reader,
+            length,
+            buffer,
+            &mut file_hash,
+            &mut object_hash,
+        )? {
+            return Err(PlanError::SourceLength.into());
         }
-        if self.files[index].bytes > OBJECT_CHUNK_BYTES {
-            self.phase = Phase::Span(Box::new(Span::open(index, self.files[index].bytes)));
-        } else {
-            let end = self.pack_end(index);
-            self.phase = Phase::Pack(Box::new(Pack::open(index, end)));
+        let (object, receipt_id) = seal_object(scope, object_hash, length, file.destination)?;
+        extents.push(ClientExtent {
+            receipt_id,
+            offset: DecimalU64::new(0),
+            length: DecimalU64::new(length),
+        });
+        if extents.len() > MAX_FILE_EXTENTS {
+            return Err(PlanError::ExtentBound.into());
         }
-        self.arm()
-    }
-
-    fn arm(&mut self) -> Result<Step, PlanError> {
-        let range = self.next_range()?;
-        self.awaiting = Some(range);
-        Ok(Step::Need(range))
-    }
-
-    fn next_range(&self) -> Result<Range, PlanError> {
-        match &self.phase {
-            Phase::Pack(pack) => Ok(pack.range(&self.files)),
-            Phase::Span(span) => Ok(span.range(&self.files)),
-            Phase::Tail(file) => Ok(probe(&self.files[*file])),
-            Phase::Choose(_) | Phase::Finished => Err(PlanError::Invalid("byte plan range")),
-        }
-    }
-
-    fn probing(&self) -> bool {
-        match &self.phase {
-            Phase::Tail(_) => true,
-            Phase::Pack(pack) => pack.at == self.files[pack.file].bytes,
-            Phase::Span(_) | Phase::Choose(_) | Phase::Finished => false,
-        }
-    }
-
-    fn absorb(&mut self, bytes: &[u8]) -> Result<(), PlanError> {
-        match &self.phase {
-            Phase::Pack(_) => steps::absorb_pack(self, bytes),
-            Phase::Span(_) => steps::absorb_span(self, bytes),
-            Phase::Choose(_) | Phase::Tail(_) | Phase::Finished => {
-                Err(PlanError::Invalid("byte plan range"))
+        let native_files = if base + length == file.bytes {
+            if !at_eof(&mut reader)? {
+                return Err(PlanError::SourceLength.into());
             }
-        }
-    }
-
-    fn finish_probe(&mut self) -> Result<(), PlanError> {
-        let tail = match &self.phase {
-            Phase::Tail(file) => Some(*file),
-            Phase::Pack(_) => None,
-            Phase::Span(_) | Phase::Choose(_) | Phase::Finished => {
-                return Err(PlanError::Invalid("byte plan range"));
-            }
+            let record = ClientNativeFile {
+                path: file.path.clone(),
+                native_sha256: digest(std::mem::take(&mut file_hash))?,
+                native_bytes: DecimalU64::new(file.bytes),
+                extents: std::mem::take(&mut extents),
+            };
+            record.validate()?;
+            vec![record]
+        } else {
+            Vec::new()
         };
-        if let Some(file) = tail {
-            self.phase = Phase::Choose(file + 1);
-            Ok(())
-        } else {
-            steps::finish_pack_member(self)
-        }
+        let index = totals.objects;
+        totals.objects += 1;
+        save(
+            index,
+            PlannedObject {
+                object,
+                segments: vec![PlanSegment {
+                    file: file.id,
+                    offset: base,
+                    bytes: length,
+                }],
+                pack: false,
+                native_files,
+            },
+        )?;
+        base += length;
     }
+    Ok(())
+}
 
-    fn stage(&mut self, object: PlannedObject, phase: Phase) {
-        let index = self.totals.objects;
-        self.totals.packs += u64::from(object.pack);
-        self.totals.multi_file_packs += u64::from(object.pack && object.segments.len() > 1);
-        self.totals.objects += 1;
-        self.save = Some(Pending { index, object });
-        self.phase = phase;
-    }
+fn seal_object(
+    scope: &CloudScope,
+    hash: Sha256,
+    bytes: u64,
+    destination: cloud_backup_protocol::v2::Destination,
+) -> Result<(Object, Digest), PlanError> {
+    let object = Object {
+        sha256: digest(hash)?,
+        bytes: DecimalU64::new(bytes),
+        destination,
+    };
+    let receipt_id = object_receipt(scope, &object)?.receipt_id;
+    Ok((object, receipt_id))
+}
 
-    fn pack_end(&self, next: usize) -> usize {
-        let first = &self.files[next];
-        let mut end = next + 1;
-        if first.bytes < SMALL_NATIVE_FILE_BYTES {
-            let mut bytes = first.bytes;
-            while let Some(file) = self.files.get(end) {
-                if file.bytes >= SMALL_NATIVE_FILE_BYTES
-                    || file.destination != first.destination
-                    || end - next >= MAX_PACK_MEMBERS
-                    || bytes
-                        .checked_add(file.bytes)
-                        .is_none_or(|n| n > METADATA_PACK_BYTES)
-                {
-                    break;
-                }
-                bytes += file.bytes;
-                end += 1;
+fn pack_end(files: &[PlanFile], start: usize) -> usize {
+    let first = &files[start];
+    let mut end = start + 1;
+    if first.bytes < SMALL_NATIVE_FILE_BYTES {
+        let mut bytes = first.bytes;
+        while let Some(file) = files.get(end) {
+            if file.bytes >= SMALL_NATIVE_FILE_BYTES
+                || file.destination != first.destination
+                || end - start >= MAX_PACK_MEMBERS
+                || bytes
+                    .checked_add(file.bytes)
+                    .is_none_or(|n| n > METADATA_PACK_BYTES)
+            {
+                break;
             }
+            bytes += file.bytes;
+            end += 1;
         }
-        end
     }
+    end
+}
+
+fn hash_exact(
+    reader: &mut impl Read,
+    mut remaining: u64,
+    buffer: &mut [u8],
+    file_hash: &mut Sha256,
+    object_hash: &mut Sha256,
+) -> std::io::Result<bool> {
+    while remaining > 0 {
+        let limit = buffer.len().min(remaining as usize);
+        let count = reader.read(&mut buffer[..limit])?;
+        if count == 0 {
+            return Ok(false);
+        }
+        file_hash.update(&buffer[..count]);
+        object_hash.update(&buffer[..count]);
+        remaining -= count as u64;
+    }
+    Ok(true)
+}
+
+fn at_eof(reader: &mut impl Read) -> std::io::Result<bool> {
+    Ok(reader.read(&mut [0u8; 1])? == 0)
+}
+
+fn digest(hash: Sha256) -> Result<Digest, PlanError> {
+    Digest::try_from(lastdb_model::hex::hex_lower(hash.finalize())).map_err(PlanError::Protocol)
 }

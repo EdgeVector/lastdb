@@ -116,7 +116,7 @@ fn request_locked(
         };
     }
     let permit = Store::lock(&host.home)?;
-    ensure_previous(&host.home, &id)?;
+    ensure_previous_at(&Store::base(&host.home), &id)?;
     if let Some(expected) = known_terminal {
         let store = Store::open(&host.home, &id)?;
         let saved = store.state()?.ok_or(BackupError::Invalid)?;
@@ -130,12 +130,12 @@ fn request_locked(
         super::worker::validate_terminal(&saved, &result)?;
         store.select(&id)?;
         runtime.start(id, origin, move |pause| {
-            super::worker::terminal_invocation(source, store, saved, permit, pause)
+            super::invocation::execute(source, store, saved, None, permit, pause)
         })?;
         return status(host);
     }
     let client = if matches!(action, ByteBackupRequest::Close) {
-        super::credentials::client_for_recovery(&host.home).map_err(|_| BackupError::Identity)?
+        super::client_from_home(&host.home).map_err(|_| BackupError::Identity)?
     } else {
         super::connection::client_for_host(host)?
     };
@@ -157,7 +157,7 @@ fn request_locked(
     store.save(&saved)?;
     store.select(&id)?;
     runtime.start(id, origin, move |pause| {
-        super::invocation::run(source, store, saved, client, permit, pause)
+        super::invocation::execute(source, store, saved, Some(client), permit, pause)
     })?;
     status(host)
 }
@@ -183,27 +183,23 @@ fn bind_work(
     Ok(())
 }
 
-pub(super) fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
-    ensure_previous_at(&Store::base(home), id)
-}
-
 pub(super) fn ensure_previous_at(base: &std::path::Path, id: &Id) -> Result<()> {
     let Some(previous) = Store::active_at(base)? else {
         return Ok(());
     };
-    if &previous == id {
-        return Ok(());
+    if &previous == id
+        || store::state_at(base, &previous)?
+            .ok_or(BackupError::Invalid)?
+            .terminal()
+    {
+        Ok(())
+    } else {
+        Err(BackupError::Busy)
     }
-    let saved = store::state_at(base, &previous)?.ok_or(BackupError::Invalid)?;
-    if !saved.terminal() {
-        return Err(BackupError::Busy);
-    }
-    Ok(())
 }
 
 pub(crate) fn status(host: &crate::host::Host) -> Result<ByteBackupStatus> {
-    let id = Store::active(&host.home)?;
-    status_for(host, id)
+    status_for(host, Store::active(&host.home)?)
 }
 
 fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStatus> {
@@ -212,15 +208,14 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         .map(|id| store::state(&host.home, id))
         .transpose()?
         .flatten();
-    if saved
-        .as_ref()
-        .is_some_and(|s| s.account.as_str() != host.user_hash)
-    {
-        return Err(BackupError::Identity);
-    }
     if let Some(saved) = &saved {
-        let runtime = host.db.db_ops().native_runtime();
-        if saved.source_home.as_str() != runtime.native_home_id().to_string() {
+        let home_id = host
+            .db
+            .db_ops()
+            .native_runtime()
+            .native_home_id()
+            .to_string();
+        if saved.account.as_str() != host.user_hash || saved.source_home.as_str() != home_id {
             return Err(BackupError::Identity);
         }
     }

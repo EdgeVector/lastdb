@@ -1,7 +1,7 @@
 //! Exact record and alternate lookups from the same inactive native root as the restore proof.
 
 use super::database::{bad_request, checked_address, resource_limit};
-use super::{invalid, map, read_budget, RunNodeGuard, StorageResult};
+use super::{fork_bounded, invalid, map, RunNodeGuard, StorageResult};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
@@ -98,7 +98,31 @@ impl RunSnapshotReader {
         query: &StagedRecordQuery<'_>,
         account_key: &[u8; 32],
     ) -> StorageResult<Option<StagedRecord>> {
-        read_at_root(&self.0, query, account_key)
+        let mut read = fork_bounded(&self.0.main, NATIVE_STREAM_LOOKUP_READ_BYTES, 3)?;
+        let schema = schema(&mut read, query.schema)?;
+        let codec = record_codec(&schema, account_key)?;
+        let address = record_address(&schema, &codec, &query.key)?;
+        let Some(record) = read_record(&mut read, &address)? else {
+            return Ok(None);
+        };
+        check_record_address(&schema, &codec, &record, address.as_str())?;
+        if !record.is_live() {
+            return Err(invalid("staged record payload differs from its key"));
+        }
+        let inline_file = if query.include_inline {
+            read_inline(&mut read, &address, &record)?
+        } else {
+            None
+        };
+        Ok(Some(StagedRecord {
+            key: record.key,
+            fields: record.fields,
+            inline_file,
+            share_author: record
+                .meta
+                .and_then(|mut metadata| metadata.metadata.remove("share_author"))
+                .and_then(|author| Digest::try_from(author).ok()),
+        }))
     }
 
     /// Verify each alternate pointer, then batch-read its primary record.
@@ -126,7 +150,7 @@ impl RunSnapshotReader {
             .map_err(|_| invalid("staged alternate key range profile"))?;
         let field = alternate_field_key_id(schema, name);
         let mut read = self.lookup(10_000)?;
-        let alternate = key_codec(&field, profile, account_key);
+        let alternate = FieldKeyCodec::from_node_key(account_key, &field, profile);
         let primary = record_codec(schema, account_key)?;
         let (start, end) = alternate_bounds(&alternate, &field, filter).map_err(|_| {
             bad_request("alternate reads require a valid key or range under one hash")
@@ -169,41 +193,6 @@ impl RunSnapshotReader {
             .collect::<StorageResult<_>>()?;
         Ok(SnapshotAlternatePage { rows, has_more })
     }
-}
-
-fn read_at_root(
-    native: &RunNodeGuard,
-    query: &StagedRecordQuery<'_>,
-    account_key: &[u8; 32],
-) -> StorageResult<Option<StagedRecord>> {
-    let mut budget = read_budget();
-    budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
-    budget.keys = 3;
-    let mut read = native.main.fork_bounded(budget).map_err(map)?;
-    let schema = schema(&mut read, query.schema)?;
-    let codec = record_codec(&schema, account_key)?;
-    let address = record_address(&schema, &codec, &query.key)?;
-    let Some(record) = read_record(&mut read, &address)? else {
-        return Ok(None);
-    };
-    check_record_address(&schema, &codec, &record, address.as_str())?;
-    if !record.is_live() {
-        return Err(invalid("staged record payload differs from its key"));
-    }
-    let inline_file = if query.include_inline {
-        read_inline(&mut read, &address, &record)?
-    } else {
-        None
-    };
-    Ok(Some(StagedRecord {
-        key: record.key,
-        fields: record.fields,
-        inline_file,
-        share_author: record
-            .meta
-            .and_then(|mut metadata| metadata.metadata.remove("share_author"))
-            .and_then(|author| Digest::try_from(author).ok()),
-    }))
 }
 
 fn read_entries(
@@ -271,19 +260,11 @@ pub(in crate::storage::disk_backup::run_restore) fn record_codec(
     let profile = primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
-    Ok(key_codec(
+    Ok(FieldKeyCodec::from_node_key(
+        account_key,
         &record_space_uuid(&schema.name),
         profile,
-        account_key,
     ))
-}
-
-fn key_codec(
-    field: &str,
-    profile: schema_types::field_range_profile::FieldRangeProfile,
-    account_key: &[u8; 32],
-) -> FieldKeyCodec {
-    FieldKeyCodec::from_node_key(account_key, field, profile)
 }
 
 pub(in crate::storage::disk_backup::run_restore) fn record_address(

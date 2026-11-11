@@ -9,17 +9,12 @@ mod recipient;
 mod runs;
 mod session;
 
-pub mod local {
-    pub(crate) use crate::byte_cloud_restore::native::{
-        atomic_json, directory, owner_file, prepare_native_ephemera, read_json,
-    };
-}
-
-pub(crate) use download::check_capacity;
-use download::{bounded_bytes, verify_file};
+use download::{bounded_bytes, check_capacity, verify_file};
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
 use inventory::RecoveryDecryption;
 pub use inventory::RecoveryKeys;
+use native as local;
+pub use recipient::verify_restore_receipt;
 pub(crate) use recipient::GuestReplayCache;
 pub use session::RestoreSession;
 
@@ -27,13 +22,13 @@ use crate::cloud_backup_client::byte_backup::{
     BackupTransportError, ByteBackupClient, ByteBackupReader,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
-use cloud_backup_protocol::{Digest, ErrorCode, NativeRoot};
+use cloud_backup_protocol::{Digest, ErrorCode};
 use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
-pub(super) const RESTORE_RECEIPT_NAME: &str = "byte-cloud-restore-receipt.json";
+pub const RESTORE_RECEIPT_NAME: &str = "byte-cloud-restore-receipt.json";
 pub(super) const RESTORE_RECEIPT_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -46,55 +41,12 @@ pub struct RestoreReport {
     pub destination: PathBuf,
 }
 
-pub(super) struct VerifiedNativeContext<'a> {
-    pub root: &'a Path,
-    pub destination: &'a Path,
-    pub session_id: uuid::Uuid,
-    pub commit_sha256: &'a Digest,
-    pub native_root: &'a NativeRoot,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct NativeInventory {
-    pub files: u64,
-    pub bytes: u64,
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NativeFileProof {
     pub path: String,
     pub sha256: Digest,
     pub bytes: u64,
-}
-
-impl<'a> VerifiedNativeContext<'a> {
-    pub fn new(session: &'a RestoreSession, native_root: &'a NativeRoot) -> Self {
-        Self {
-            root: &session.root,
-            destination: &session.selection.destination,
-            session_id: session.selection.session_id,
-            commit_sha256: &session.accepted().commit_sha256,
-            native_root,
-        }
-    }
-
-    pub fn data_root(&self) -> PathBuf {
-        self.root.join("home/data")
-    }
-
-    pub fn published(&self) -> Result<Option<RestoreReport>> {
-        recipient::published_context(self)
-    }
-
-    pub fn finish_run(
-        &self,
-        identity_seed: &[u8; 32],
-        inventory: NativeInventory,
-        proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
-    ) -> Result<RestoreReport> {
-        recipient::finish_run_context(self, identity_seed, inventory, proof)
-    }
 }
 
 /// Static errors never contain keys, record values, provider URLs, or local secrets.
@@ -146,13 +98,9 @@ impl std::fmt::Display for RestoreError {
 }
 impl std::error::Error for RestoreError {}
 
-fn source_error(_: BackupTransportError) -> RestoreError {
-    RestoreError::Source("byte transport")
-}
-
-fn reader_error(reader: &ByteBackupReader, error: BackupTransportError) -> RestoreError {
+fn reader_error(reader: &ByteBackupReader, error: &BackupTransportError) -> RestoreError {
     if reader.guest_stream().is_some() {
-        match &error {
+        match error {
             BackupTransportError::Protocol(error)
                 if error.code == ErrorCode::RetryLater && error.field == "guest.head_changed" =>
             {
@@ -167,7 +115,7 @@ fn reader_error(reader: &ByteBackupReader, error: BackupTransportError) -> Resto
             _ => {}
         }
     }
-    source_error(error)
+    RestoreError::Source("byte transport")
 }
 
 async fn restore_closure(
@@ -190,7 +138,7 @@ async fn restore_closure(
         return logs::restore(session, client, decryption, identity_seed, root).await;
     }
     let root = snapshot_closure(session, decryption, &bytes)?;
-    if let Some(report) = VerifiedNativeContext::new(session, &root.native_root).published()? {
+    if let Some(report) = recipient::published(session)? {
         return Ok(report);
     }
     runs::restore(session, client, decryption, identity_seed, &root, inventory).await

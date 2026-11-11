@@ -1,19 +1,14 @@
 //! Format-driven record encoding, using the request's existing commit owner.
-//!
-//! The mutation provider supplies values and format-created addresses. This module
-//! derives alternate pointer changes and composes the record-file encoder.
 
-pub(in crate::storage) mod applied_deletes;
 mod file_crypto;
 mod release;
-mod retention;
 mod store;
 
 pub(crate) use file_crypto::{require_row, seal_file_row};
+pub use release::RecordDeleteLedgerEntry;
 pub(crate) use release::{
     alternate_bounds, release_families, AlternateAddress, RecordAddress, ReleaseFamily, ReleaseKind,
 };
-pub use retention::RecordDeleteLedgerEntry;
 pub(crate) use store::RecordFormat;
 
 use crate::error::FoldDbError;
@@ -42,6 +37,67 @@ pub struct AlternateEntry {
     pub matched: KeyValue,
 }
 
+pub(in crate::storage) mod applied_deletes {
+    //! Replay remembers an erasure without leaving a record at the live key.
+
+    use super::{RecordAddress, RecordFormat};
+    use crate::storage::error::StorageResult;
+    use crate::storage::{KvMutation, StorageError};
+    use lastdb_model::portable_mutation::{AppliedDelete, Stamp};
+
+    pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
+    const MAX_DELETE_BYTES: usize = 512;
+
+    pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
+        let value = serde_json::to_vec(&AppliedDelete::from(stamp.clone())).map_err(invalid)?;
+        Ok(KvMutation::put(address(key.as_str()), value))
+    }
+
+    fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
+        if bytes.len() > MAX_DELETE_BYTES {
+            return Err(invalid("encoded value exceeds its bound"));
+        }
+        let entry: AppliedDelete = serde_json::from_slice(bytes).map_err(invalid)?;
+        entry.delete_position.validate().map_err(invalid)?;
+        Ok(entry.into())
+    }
+
+    pub(crate) fn record_key(key: &str) -> Option<&str> {
+        key.split_once(':')
+            .and_then(|(family, record)| (family == APPLIED_DELETE_FAMILY).then_some(record))
+    }
+
+    fn address(record: &str) -> String {
+        format!("{APPLIED_DELETE_FAMILY}:{record}")
+    }
+
+    impl RecordFormat {
+        pub(crate) async fn applied_deletes(
+            &self,
+            keys: &[&RecordAddress],
+        ) -> StorageResult<Vec<Option<Stamp>>> {
+            let rows = self
+                .main_store
+                .get_many(
+                    keys.iter()
+                        .map(|k| address(k.as_str()).into_bytes())
+                        .collect(),
+                )
+                .await?;
+            if rows.len() != keys.len() {
+                return Err(invalid("incomplete applied-delete read"));
+            }
+            rows.iter()
+                .map(|row| row.as_deref().map(decode).transpose())
+                .collect()
+        }
+    }
+
+    fn invalid(error: impl std::fmt::Display) -> StorageError {
+        StorageError::InvalidOperation(format!("applied delete: {error}"))
+    }
+}
+
 pub(in crate::storage) mod inline_files {
     use crate::storage::error::StorageResult;
     use crate::storage::format::records::RecordAddress;
@@ -63,8 +119,8 @@ pub(in crate::storage) mod inline_files {
     }
 
     pub(crate) fn record_key(key: &str) -> Option<&str> {
-        let (family, record) = key.split_once(':')?;
-        (family == INLINE_FILE_FAMILY).then_some(record)
+        key.split_once(':')
+            .and_then(|(family, record)| (family == INLINE_FILE_FAMILY).then_some(record))
     }
 
     pub(in crate::storage) fn address(record: &str) -> String {
