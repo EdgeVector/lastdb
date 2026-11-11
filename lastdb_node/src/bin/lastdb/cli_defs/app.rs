@@ -4,19 +4,6 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppIndexCommand {
-    /// Sign an index file: writes `<index>.sig` (or `--out`).
-    Sign {
-        #[arg(long)]
-        index: PathBuf,
-        /// Ed25519 signing key file (base64 32-byte secret, `dev-init` format).
-        /// Default: $LASTDB_REGISTRY_SIGNING_KEY, then <home>/registry-index-signing.key.
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-        #[arg(long)]
-        out: Option<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
     /// Verify an index file against its detached signature.
     Verify {
         #[arg(long)]

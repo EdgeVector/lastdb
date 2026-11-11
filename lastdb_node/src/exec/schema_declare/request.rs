@@ -4,74 +4,33 @@ use super::*;
 
 /// `POST /api/apps/declare-schema` — obtain canonical definitions and load
 /// one schema that owns its values.
-///
-/// Request: `{ "app_id": "<namespace>", "schema": <DeclarativeSchemaDefinition>,
-/// "intent"?: "catalog_sync" | "check" }`
-/// Response envelope: `{ app_id, schema, canonical, resolution: "reuse" | "register" }`
-///
-/// `intent` defaults to `catalog_sync` (described below). `check` is the
-/// read-only plan: see [`execute_catalog_schema_check`].
-///
-/// Every declaration owns its values. The node builds the canonical
-/// definition locally. Existing data requires an explicit conversion before
-/// any incompatible declaration.
-///
-/// Served on the owner socket so Mini
-/// first-run init can load exact catalog identities without storing a local
-/// schema dialect.
 pub async fn execute_apps_declare_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let facts = DeclareRequestFacts::from_body(&req.body);
+    let embedded_retention = body_has_embedded_retention(&req.body);
     let body: AppsDeclareRequest = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
         Err(e) => {
-            return reject_schema_sync_request(
-                req,
-                &facts,
-                ctx,
-                host,
-                "apps_declare_schema",
+            return error_response(
                 400,
                 &format!("invalid /api/apps/declare-schema body: {e}"),
+                ctx,
             )
         }
     };
-    let retention = match prepare_declare_retention(ctx, &facts, body.retention) {
+    let retention = match prepare_declare_retention(ctx, embedded_retention, body.retention) {
         Ok(retention) => retention,
-        Err((status, e)) => {
-            return reject_schema_sync_request(
-                req,
-                &facts,
-                ctx,
-                host,
-                "apps_declare_schema",
-                status,
-                &e,
-            )
-        }
+        Err((status, e)) => return error_response(status, &e, ctx),
     };
     let mut declare = match normalize_direct_declare_proposal("app_id", &body.app_id, body.schema) {
         Ok(declare) => declare,
-        Err(e) => {
-            return reject_schema_sync_request(
-                req,
-                &facts,
-                ctx,
-                host,
-                "apps_declare_schema",
-                400,
-                &e,
-            )
-        }
+        Err(e) => return error_response(400, &e, ctx),
     };
     declare.retention = retention;
     match body.intent {
-        SchemaSyncIntent::CatalogSync => {
-            execute_catalog_schema_sync(req, ctx, host, "apps_declare_schema", declare).await
-        }
+        SchemaSyncIntent::CatalogSync => execute_catalog_schema_sync(ctx, host, declare).await,
         SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
     }
 }
@@ -84,36 +43,16 @@ pub(crate) async fn execute_declare_schema_route(
     let body = match serde_json::from_slice::<SchemaDeclareRequest>(&req.body) {
         Ok(body) => body,
         Err(e) => {
-            return reject_schema_sync_request(
-                req,
-                &DeclareRequestFacts::from_body(&req.body),
-                ctx,
-                host,
-                "schemas_declare",
-                400,
-                &format!("invalid /api/schemas/declare body: {e}"),
-            )
+            return error_response(400, &format!("invalid /api/schemas/declare body: {e}"), ctx)
         }
     };
     let declare = match normalize_direct_declare_proposal("namespace", &body.namespace, body.schema)
     {
         Ok(declare) => declare,
-        Err(e) => {
-            return reject_schema_sync_request(
-                req,
-                &DeclareRequestFacts::from_body(&req.body),
-                ctx,
-                host,
-                "schemas_declare",
-                400,
-                &e,
-            )
-        }
+        Err(e) => return error_response(400, &e, ctx),
     };
     match body.intent {
-        SchemaSyncIntent::CatalogSync => {
-            execute_catalog_schema_sync(req, ctx, host, "schemas_declare", declare).await
-        }
+        SchemaSyncIntent::CatalogSync => execute_catalog_schema_sync(ctx, host, declare).await,
         SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
     }
 }

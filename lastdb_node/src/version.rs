@@ -34,3 +34,8 @@ pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = 1;
 /// lands, bump `CURRENT_OUTBOX_FORMAT_VERSION` but leave this unchanged for at
 /// least two releases to provide a deprecation window.
 pub const MIN_SUPPORTED_OUTBOX_FORMAT_VERSION: u32 = 1;
+
+/// The compile-time build stamp (`FOLDDB_BUILD_VERSION`) set by `build.rs`.
+pub fn build_version() -> &'static str {
+    env!("FOLDDB_BUILD_VERSION")
+}

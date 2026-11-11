@@ -18,7 +18,7 @@ pub(crate) fn list_record_keys(
     args: &crate::cli_defs::RecordListArgs,
 ) -> Result<(), String> {
     let socket = &target.socket;
-    if lastdb_node::health_alert::probe_health(socket).is_err() {
+    if probe_health(socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
             socket.display()

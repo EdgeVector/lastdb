@@ -1,64 +1,9 @@
-//! Log filter, schema name claim and retention commands.
+//! Schema name claim and retention commands.
 
 use super::*;
 
 #[path = "db_schema_policy_cmds/retention_backfill.rs"]
 mod retention_backfill;
-
-/// `lastdb log-filter [directive]` — read or swap the daemon's tracing filter.
-///
-/// Read and write share one function because they share every failure mode
-/// (home resolution, socket reachability, envelope shape) and differ only in
-/// the HTTP method.
-pub(crate) fn log_filter_command(
-    data_dir: Option<PathBuf>,
-    directive: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
-    let home = lastdb_node::host::resolve_home(data_dir)?;
-    let socket = home.join("data").join("folddb.sock");
-    let path = "/api/system/log-filter";
-
-    let value = match directive.map(str::trim) {
-        Some(d) if !d.is_empty() => {
-            db_post_json(&socket, path, &serde_json::json!({ "directive": d }))?
-        }
-        Some(_) => return Err("log-filter: directive must be non-empty".to_string()),
-        None => {
-            let response = get_path(&socket, path, admin_scan_client_timeout())?;
-            parse_json_response(&response, path)?
-        }
-    };
-
-    let filter = value
-        .get("log_filter")
-        .ok_or_else(|| "response missing log_filter field".to_string())?;
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(filter)
-                .map_err(|e| format!("serialize log_filter: {e}"))?
-        );
-        return Ok(());
-    }
-
-    // `installed: false` is a real answer from a healthy node, not an error:
-    // it says this daemon build has no runtime control. Say so plainly rather
-    // than printing an empty directive.
-    if filter.get("installed").and_then(serde_json::Value::as_bool) != Some(true) {
-        println!("log-filter: not available on this daemon (no runtime control installed)");
-        return Ok(());
-    }
-    let current = filter
-        .get("directive")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("(unknown)");
-    match filter.get("previous").and_then(serde_json::Value::as_str) {
-        Some(previous) => println!("log-filter: {previous} -> {current}"),
-        None => println!("log-filter: {current}"),
-    }
-    Ok(())
-}
 
 pub(crate) fn db_post_json(
     socket: &Path,

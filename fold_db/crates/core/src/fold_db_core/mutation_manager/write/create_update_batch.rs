@@ -5,9 +5,9 @@ use super::*;
 mod prepare;
 
 /// Mutable state threaded through the phases of one batch write.
+#[derive(Clone, Copy)]
 pub(super) struct BatchState {
     pub(super) force_durable: bool,
-    pub(super) timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
     pub(super) stages: ResidentCommitStages,
 }
 
@@ -15,7 +15,6 @@ impl BatchState {
     fn new(force_durable: bool) -> Self {
         Self {
             force_durable,
-            timing_breakdown: std::collections::HashMap::new(),
             stages: ResidentCommitStages::default(),
         }
     }
@@ -77,14 +76,9 @@ impl MutationManager {
     ) -> ResidentCommitReceipt {
         let BatchState {
             force_durable,
-            timing_breakdown,
             mut stages,
         } = state;
-        let total_time = start_time.elapsed();
-        stages.ack_us = crate::request_phases::duration_us(total_time);
-        Self::log_timing_breakdown(&timing_breakdown, total_time);
-        Self::report_phase_totals(&timing_breakdown, total_time);
-        Self::report_resident_commit_counts(&operations);
+        stages.ack_us = u64::try_from(start_time.elapsed().as_micros()).unwrap_or(u64::MAX);
         ResidentCommitReceipt {
             mutation_ids,
             record_revisions,

@@ -17,7 +17,6 @@ from node import UnixConnection
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")
 SHARED_MARKER = source_constant(FORMAT, "SHARED_NODE_BYTES")
 BOOT_ERROR = source_constant("lastdb_node/src/host/recovery.rs", "LAST_BOOT_ERROR_FILE")
-CRASH_REPORTS = source_constant("fold_db/crates/observability/src/crash.rs", "CRASH_REPORTS_DIR")
 # admit() rejects every other marker through invalid()
 # ("node range admission: {text}") in run_admission.rs.
 REFUSAL = "node range admission: the node range format is unsupported"
@@ -73,7 +72,6 @@ def refuse(node, directory, marker, label):
     path.write_bytes(marker)
     error_file = home / BOOT_ERROR
     error_file.unlink(missing_ok=True)
-    reports = crash_reports(home)
     log_path = directory / "daemon.log"
     socket = node.root / "r.sock"
     process = start(node, home, socket, log_path)
@@ -84,7 +82,7 @@ def refuse(node, directory, marker, label):
         stop(process, socket)
     log = log_path.read_text(errors="replace")
     require(outcome != "opened", f"the {label} home opened")
-    require(PANIC_MARKER not in log and crash_reports(home) == reports,
+    require(PANIC_MARKER not in log,
             f"the {label} home panicked instead of refusing the format")
     require(outcome == "exited" and code is not None and code > 0,
             f"the {label} home did not exit with a format refusal")
@@ -96,13 +94,6 @@ def refuse(node, directory, marker, label):
     require(observed == marker, f"startup rewrote the {label} node marker")
     shutil.rmtree(directory)
     print(f"Format refusal: {label} exited with the unsupported-format error", flush=True)
-
-
-def crash_reports(home):
-    directory = home / CRASH_REPORTS
-    if not directory.is_dir():
-        return set()
-    return {entry.name for entry in directory.iterdir() if entry.is_file()}
 
 
 def environment(node, home):

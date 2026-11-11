@@ -15,12 +15,8 @@ mod record_file_input;
 pub(crate) use record_file_input::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
-    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
-    // The offline verbs work on a stopped home. They never reach the daemon.
-    if let DbCommand::Offline(action) = action {
-        return db_offline_command(&home, action);
-    }
-    if lastdb_node::health_alert::probe_health(&socket).is_err() {
+    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
+    if probe_health(&socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
             socket.display()
@@ -29,7 +25,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, &action),
-        DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
 }
 
@@ -49,13 +44,3 @@ pub(crate) use db_response_cmds::*;
 #[path = "db_schema_policy_cmds.rs"]
 mod db_schema_policy_cmds;
 pub(crate) use db_schema_policy_cmds::*;
-
-fn db_offline_command(home: &Path, args: ReplayCutoffArgs) -> Result<(), String> {
-    lastdb_node::offline_recount::recount_offline(&lastdb_node::offline_recount::RecountArgs {
-        home,
-        execute: args.execute,
-        delete_cutoff_unix_secs: args.delete_cutoff_unix_secs,
-        i_know_this_is_primary: args.i_know_this_is_primary,
-        json: args.json,
-    })
-}

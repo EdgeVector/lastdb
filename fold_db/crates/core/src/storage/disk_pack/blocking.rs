@@ -15,19 +15,9 @@ where
             tokio::runtime::RuntimeFlavor::MultiThread
         )
     });
-    let disk_reads = crate::read_receipts::current();
-    let queued = disk_reads.as_ref().map(|_| std::time::Instant::now());
-    let observed_work = move || {
-        crate::read_receipts::with_sync(disk_reads, || {
-            if let Some(queued) = queued {
-                laststore::record_queue_wait(queued.elapsed());
-            }
-            work()
-        })
-    };
     if can_block {
-        tokio::task::block_in_place(observed_work)
+        tokio::task::block_in_place(work)
     } else {
-        tokio::task::spawn_blocking(observed_work).await?
+        tokio::task::spawn_blocking(work).await?
     }
 }

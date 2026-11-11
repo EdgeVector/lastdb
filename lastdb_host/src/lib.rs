@@ -30,11 +30,9 @@ pub mod handlers;
 pub mod host_node;
 pub mod ids;
 pub mod pagination;
-pub mod qos;
 pub mod reject;
 pub mod wire;
 
 pub use handlers::HostError;
-pub use host_node::{HostNode, ReadBusy};
+pub use host_node::HostNode;
 pub use ids::IdGen;
-pub use qos::{Lane, QosConfig, QosGate, QosPermit, QosSnapshot};

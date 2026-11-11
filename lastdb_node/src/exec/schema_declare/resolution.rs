@@ -15,12 +15,6 @@ impl DirectDeclareResolution {
             "register"
         }
     }
-
-    pub(crate) fn stamp_audit(&self, event: &mut SchemaSyncAuditEvent) {
-        event.outcome = self.outcome().to_string();
-        event.catalog_hashes = vec![self.runtime_schema.clone()];
-        event.bind_eligible = true;
-    }
 }
 
 pub(crate) fn declare_resolution_payload(

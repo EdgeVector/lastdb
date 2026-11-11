@@ -140,11 +140,9 @@ pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
     Ok(())
 }
 
-/// Approximate serialized byte size of a mutation's field payload — the QoS lane
-/// signal for a write (a large blob write lands on [`crate::qos::Lane::Bulk`],
-/// a small row write on [`crate::qos::Lane::Interactive`]). Uses each value's
-/// compact JSON length, which is a cheap, allocation-light proxy for the bytes
-/// the write will persist.
+/// Approximate serialized byte size of a mutation's field payload. Uses each
+/// value's compact JSON length as a cheap, allocation-light proxy for the
+/// bytes the write will persist.
 pub(in super::super) fn fields_payload_bytes(fields: &HashMap<String, Value>) -> usize {
     fields
         .values()

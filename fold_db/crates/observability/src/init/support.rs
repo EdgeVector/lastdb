@@ -1,18 +1,5 @@
 use super::*;
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Reject empty / whitespace-only `service_name` at the entry of every
-/// `init_*` helper. The OTel `service.name` Resource attribute is the primary
-/// dimension dashboards group by — landing in production with `service.name=""`
-/// is a silent telemetry-loss hazard. We treat the bad input as a programming
-/// error and panic immediately so the operator sees the failure at boot rather
-/// than discovering it in their backend the next morning.
-///
-/// The panic message MUST include the literal `service.name` so callers can
-/// match on it; integration tests rely on this string.
 #[inline]
 pub(super) fn assert_service_name(name: &str) {
     assert!(
@@ -21,43 +8,15 @@ pub(super) fn assert_service_name(name: &str) {
     );
 }
 
-/// Atomically claim the one-shot init slot. Returns
-/// [`ObsError::AlreadyInitialized`] when another caller already set it.
 pub(super) fn try_claim_init(cell: &OnceCell<()>) -> Result<(), ObsError> {
     cell.set(()).map_err(|_| ObsError::AlreadyInitialized)
-}
-
-/// Stamp the verified `service_name` onto the process-global cache. Called
-/// at the tail of every successful `init_*` (after subscriber install +
-/// Resource verification). Subsequent calls — including legitimate ones from
-/// nested helpers like nested `init_*` → [`init_node`] — silently no-op via
-/// `OnceCell::set`'s "already set" semantics, which is the right behaviour:
-/// `INIT_ONCE` already gates double-init.
-pub(super) fn record_service_name(service_name: &'static str) {
-    let _ = SERVICE_NAME.set(service_name);
 }
 
 pub(super) fn default_env_filter() -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
 }
 
-// OpenTelemetry no-op TracerProvider + service.name probe — only compiled
-// when the `otel` feature is enabled (default for node/HTTP; off for Lambda light).
 #[cfg(feature = "otel")]
-/// Build a `tracing-opentelemetry` layer riding a no-op
-/// [`SdkTracerProvider`] so every span gets a real W3C `trace_id` /
-/// `span_id`. There is no exporter — the spans never leave the process — but
-/// the ids are what the RING layer stamps onto entries and what the Sentry
-/// layer attaches as tags, so they have to be real.
-///
-/// The constructed provider is configured with a `Resource` carrying
-/// `service.name`, attached to a [`ResourceProbe`] that captures the resource
-/// the SDK pushes into its processors at build time, and installed as the
-/// global tracer provider. Before returning, the captured resource is read
-/// back through the probe and the `service.name` attribute is asserted to
-/// equal `service_name`. Any mismatch panics — the alternative is shipping
-/// spans whose Sentry tags silently group under the wrong service, which is
-/// far worse than a hard failure at boot.
 pub(super) fn build_noop_traces_layer<S>(
     service_name: &'static str,
 ) -> OpenTelemetryLayer<S, Tracer>
@@ -77,9 +36,6 @@ where
 }
 
 #[cfg(feature = "otel")]
-/// Build the OTel `Resource` carrying the canonical `service.name`
-/// attribute. Centralised so any future expansion to `service.version` /
-/// `deployment.environment` lands here.
 pub(super) fn build_service_resource(service_name: &str) -> Resource {
     Resource::new(vec![KeyValue::new(
         "service.name",
@@ -88,10 +44,6 @@ pub(super) fn build_service_resource(service_name: &str) -> Resource {
 }
 
 #[cfg(feature = "otel")]
-/// Assert that the [`ResourceProbe`] captured a `Resource` whose
-/// `service.name` attribute equals `expected`. Panics with a message
-/// mentioning `service.name` on any failure mode (no resource captured,
-/// missing key, wrong value).
 pub(super) fn assert_service_name_resource(probe: &ResourceProbe, expected: &str) {
     let resource = probe
         .captured()
@@ -108,14 +60,6 @@ pub(super) fn assert_service_name_resource(probe: &ResourceProbe, expected: &str
 }
 
 #[cfg(feature = "otel")]
-/// SpanProcessor whose only job is to record the `Resource` that the SDK
-/// pushes into it via [`SpanProcessor::set_resource`] during
-/// `TracerProvider::build`. Used by [`build_noop_traces_layer`] as a probe
-/// to confirm that the constructed provider's resource carries
-/// `service.name`.
-///
-/// `on_start` / `on_end` are intentionally no-ops — the probe MUST NOT
-/// perturb production span flow.
 #[derive(Default, Clone)]
 pub(super) struct ResourceProbe {
     captured: Arc<Mutex<Option<Resource>>>,
@@ -162,35 +106,6 @@ impl SpanProcessor for ResourceProbe {
     }
 }
 
-/// Path a long-running service appends JSON events to.
-///
-/// 1. `$OBS_FILE_PATH` if set — used as-is, with no parent-directory
-///    creation. The caller chose the path; the caller is responsible.
-/// 2. `${XDG_STATE_HOME:-$HOME/.local/state}/lastdb/<service>/observability.jsonl`
-///    — the directory is created if absent. It is never inside a node home,
-///    so a service log adds no file to a database home.
-pub(super) fn default_node_log_path(service_name: &str) -> Result<PathBuf, ObsError> {
-    if let Ok(p) = std::env::var(OBS_FILE_PATH_ENV) {
-        return Ok(PathBuf::from(p));
-    }
-    let state = match std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
-        Some(state) => PathBuf::from(state),
-        None => std::env::var_os("HOME")
-            .filter(|value| !value.is_empty())
-            .map(|home| PathBuf::from(home).join(".local/state"))
-            .ok_or_else(|| {
-                ObsError::Io(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "could not resolve the state directory for the observability log \
-                     path; set OBS_FILE_PATH, XDG_STATE_HOME or HOME",
-                ))
-            })?,
-    };
-    let directory = state.join("lastdb").join(service_name);
-    fs::create_dir_all(&directory)?;
-    Ok(directory.join("observability.jsonl"))
-}
-
 pub(super) fn install_subscriber<S>(subscriber: S) -> Result<(), ObsError>
 where
     S: tracing::Subscriber + Send + Sync + 'static,
@@ -199,22 +114,11 @@ where
         .map_err(|e| ObsError::SubscriberInstall(e.to_string()))
 }
 
-/// Install process-global OTel plumbing. Idempotent.
-/// Called after `install_subscriber` succeeds.
-/// No-op when the `otel` feature is disabled (Lambda light path).
 pub(super) fn install_globals() {
     #[cfg(feature = "otel")]
     global::set_text_map_propagator(TraceContextPropagator::new());
 }
 
-/// Wire the `log` → `tracing` bridge. Called BEFORE `set_global_default` so
-/// any third-party `log::*` call between subscriber install and process exit
-/// flows through tracing. Doing it first also means a `log::*!` emitted by
-/// init code itself is captured rather than dropped.
-///
-/// `LogTracer::init` errors only when called twice in the same process;
-/// that's expected for retries / multiple test cases and not actionable, so
-/// we swallow the error.
 pub(super) fn install_log_tracer() {
     let _ = LogTracer::init();
 }

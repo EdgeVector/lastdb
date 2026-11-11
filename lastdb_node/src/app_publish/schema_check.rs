@@ -7,12 +7,8 @@ use super::*;
 pub enum SchemaCoverage {
     /// One installed schema covers the proposal.
     Reuse { identity_hash: String },
-    /// The node registered one schema and returned the audit proof required
-    /// before an app can bind it.
-    Register {
-        identity_hash: String,
-        audit_event_id: String,
-    },
+    /// The node registered one schema and marked it bind-eligible.
+    Register { identity_hash: String },
     /// Read-only check only: a sync would register this schema.
     /// Nothing was written, so this is not a bind proof. `identity_hash` is
     /// the proposal identity.
@@ -240,18 +236,11 @@ pub(super) fn classify_declare_response(status: u16, payload: &Value) -> SchemaC
             .get("resolution")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let audit_event_id = payload
-            .get("audit_event_id")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty());
-        if payload.get("bind_eligible").and_then(Value::as_bool) != Some(true)
-            || audit_event_id.is_none()
-        {
+        if payload.get("bind_eligible").and_then(Value::as_bool) != Some(true) {
             return SchemaCoverage::Novel {
-                reason: "declare result lacks bind_eligible=true and audit_event_id".into(),
+                reason: "declare result lacks bind_eligible=true".into(),
             };
         }
-        let audit_event_id = audit_event_id.unwrap_or_default().to_string();
         match resolution {
             "reuse" => match payload
                 .get("identity_hash")
@@ -272,7 +261,6 @@ pub(super) fn classify_declare_response(status: u16, payload: &Value) -> SchemaC
             {
                 Some(identity_hash) => SchemaCoverage::Register {
                     identity_hash: identity_hash.to_string(),
-                    audit_event_id,
                 },
                 None => SchemaCoverage::Novel {
                     reason: "register result lacks identity_hash".into(),

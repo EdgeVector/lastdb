@@ -34,10 +34,10 @@ pub(crate) struct RetentionLayout {
 /// word by the schema parser, so it is refused.
 pub(crate) fn prepare_declare_retention(
     ctx: &AccessContext,
-    facts: &DeclareRequestFacts,
+    embedded_retention: bool,
     requested: Option<ManifestRetention>,
 ) -> Result<Option<ManifestRetention>, (u16, String)> {
-    if facts.embedded_retention {
+    if embedded_retention {
         return Err((
             400,
             "retention must sit beside `schema` in the declare body, not inside it".to_string(),

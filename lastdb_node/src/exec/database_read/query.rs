@@ -47,7 +47,7 @@ impl DatabaseRead<'_> {
         if bytes > 64 * 1024 * 1024 {
             return error_response(413, "Share query batch exceeds its response allowance", ctx);
         }
-        let results = super::super::query_read_receipt::batch_results(finished);
+        let results = super::super::query_batch::batch_results(finished);
         render(Ok(json!({"count": results.len(), "results": results})), ctx)
     }
 

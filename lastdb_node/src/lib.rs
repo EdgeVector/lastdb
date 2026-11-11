@@ -3,7 +3,6 @@
 //! The binary delegates host boot and owner-socket data routes to this library.
 //! Administrative modules share those product types without a second daemon.
 
-pub mod allocator;
 pub mod app_publish;
 pub mod app_registry_index;
 pub mod backup_access;
@@ -13,18 +12,12 @@ pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
 mod change_feed_queue;
 pub mod cloud;
-pub mod deliver;
 pub mod exec;
 pub mod host;
 pub mod jobs;
-pub mod local_outbox;
 pub mod log_rotation;
 pub mod offline_home;
-pub mod offline_recount;
-pub mod ops;
 pub mod registered_share;
-pub mod retention_audit;
-pub mod schema_sync_audit;
 pub mod seal;
 pub mod service_home;
 pub mod share_cache;
@@ -37,14 +30,8 @@ pub mod shared_restore;
 pub mod shared_snapshot;
 pub mod shared_sync;
 pub mod shared_upload;
+pub mod shutdown_receipt;
 pub mod version;
-pub mod watch_gate;
 
 pub use host::Host;
-pub use jobs::{footprint, ttl_sweep};
-pub use local_outbox::{LocalOutbox, LocalWatchEvent, LocalWatchPoll};
-pub use ops::{
-    crash_attribution, crash_telemetry, gauge, health_alert, log_filter, request_telemetry,
-    self_metrics, session_ledger, status_gauge_contract,
-};
-pub use watch_gate::{WatchGate, WatchGateSnapshot, WatchSlot};
+pub use jobs::ttl_sweep;

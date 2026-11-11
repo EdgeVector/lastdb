@@ -54,60 +54,8 @@ fn clear_may_expire(
     ))
 }
 
-/// Write the audit row that precedes an operator `set` or `clear`. `Ok(None)`
-/// means the call changes nothing. An `Err` means the row could not be written,
-/// so the policy must not change.
-async fn open_retention_audit(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-    body: &RetentionBody,
-    previous: &Option<fold_db::schema::SchemaRetentionPolicy>,
-) -> Result<Option<crate::retention_audit::RetentionAuditEvent>, String> {
-    use fold_db::schema::SchemaRetentionPolicy as Policy;
-    let expected = match (body.action.as_str(), body.ttl_seconds) {
-        ("set", Some(ttl_seconds)) if ttl_seconds > 0 => Some(Policy::operator_over(
-            previous.as_ref(),
-            ttl_seconds,
-            body.hash_partitions.clone(),
-        )),
-        ("clear", _) => Policy::after_operator_clear(previous.as_ref()),
-        _ => return Ok(None),
-    };
-    if &expected == previous {
-        return Ok(None);
-    }
-    let anchor = host
-        .db
-        .db_ops()
-        .schemas()
-        .retention_anchor(&body.schema)
-        .await
-        .unwrap_or_else(|_| body.schema.clone());
-    let event = crate::retention_audit::RetentionAuditEvent::new(
-        "db_schema_retention",
-        &crate::request_telemetry::client_from_request(req),
-        ctx.user_id.as_str(),
-        &format!("operator_{}", body.action),
-        &body.schema,
-        &anchor,
-    )
-    .with_policies(previous.clone(), expected);
-    let mut event = event;
-    event.confirmed_expire_existing = body.confirm_expire_existing;
-    crate::retention_audit::append(&host.home, &event).map_err(|error| {
-        format!("no policy change was made: its audit row could not be written: {error}")
-    })?;
-    Ok(Some(event))
-}
-
 /// `POST /api/db/schema-retention` — owner read/set/clear of one installed
-/// schema's node-local retention policy. Body: `{ action: "get"|"set"|"clear"|"partitions",
-/// schema: string, ttl_seconds?: u64, hash_partitions?: string[], cursor?: string, limit?: usize }`.
-///
-/// `set` writes an operator policy, which wins over a manifest policy until
-/// `clear` removes it. The response names the `anchor` schema that holds the
-/// policy for `schema`: an app schema's two installed names share one anchor.
+/// schema's node-local retention policy.
 pub(in crate::exec) async fn execute_db_schema_retention_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -130,11 +78,9 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         return error_response(400, "schema is required", ctx);
     }
     if body.action == "backfill" {
-        return retention_backfill::execute(req, ctx, host, &body).await;
+        return retention_backfill::execute(ctx, host, &body).await;
     }
     let store = host.db.db_ops().schemas();
-    // A failed read is an error, never "no policy": the audit row and the
-    // confirmation below both depend on what is in force now.
     let previous = match store.get_schema_retention_policy(&body.schema).await {
         Ok(previous) => previous,
         Err(error) => {
@@ -147,11 +93,6 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
     let may_expire = match clear_may_expire(&body, &previous) {
         Ok(may_expire) => may_expire,
         Err(message) => return error_response(409, &message, ctx),
-    };
-    // Every change to a policy leaves a durable row, written before the change.
-    let audit = match open_retention_audit(req, ctx, host, &body, &previous).await {
-        Ok(audit) => audit,
-        Err(message) => return error_response(503, &message, ctx),
     };
     let result = match body.action.as_str() {
         "get" => store.get_schema_retention_policy(&body.schema).await,
@@ -171,25 +112,12 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             },
             None => return error_response(400, "ttl_seconds is required for set", ctx),
         },
-        // Read back: clearing an operator policy over a manifest policy puts
-        // the manifest policy in force.
         "clear" => match store.clear_schema_retention_policy(&body.schema).await {
             Ok(()) => store.get_schema_retention_policy(&body.schema).await,
             Err(error) => Err(error),
         },
         _ => return error_response(400, "action must be get, set, or clear", ctx),
     };
-    if let Some(event) = &audit {
-        let error = result.as_ref().err().map(ToString::to_string);
-        let closed = event.closed(error.as_deref().map_or(Ok(()), Err));
-        if let Err(error) = crate::retention_audit::append(&host.home, &closed) {
-            return error_response(
-                503,
-                &format!("the audit row that closes the change failed: {error}"),
-                ctx,
-            );
-        }
-    }
     match result {
         Ok(policy) => retention_response(store, &body.schema, policy, may_expire, ctx).await,
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),

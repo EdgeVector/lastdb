@@ -14,8 +14,6 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = { workspace = true }
 zeroize = { workspace = true }
-# gzip for consent-gated delivery JWE plaintext (compress-before-encrypt)
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 # Serialization
 serde = { workspace = true }

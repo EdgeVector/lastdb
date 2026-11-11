@@ -24,3 +24,14 @@ pub(in crate::exec) async fn execute_db_delete_ledger_route(
         Err(e) => error_response(500, &format!("delete-ledger failed: {e}"), ctx),
     }
 }
+
+fn query_u64(target: &str, key: &str) -> Option<u64> {
+    let q = target.split_once('?')?.1;
+    for pair in q.split('&') {
+        let (k, v) = pair.split_once('=')?;
+        if k == key {
+            return v.parse().ok();
+        }
+    }
+    None
+}

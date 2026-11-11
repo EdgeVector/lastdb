@@ -34,16 +34,15 @@ use serde_json::Value;
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
 // verbatim by the full node's socket executor too so the two cannot drift.
 use lastdb_host::envelope::{content_free, envelope, json_ok};
-use lastdb_host::handlers::{self, render, AppSearchParams, NativeSearchParams};
-use lastdb_host::reject::{Reject, WireKey};
+use lastdb_host::handlers::{self, render};
+use lastdb_host::reject::Reject;
 use lastdb_host::wire::{
-    body_object, parse_batch_mutation_body, parse_min_score, parse_mutation_body, parse_query_body,
-    path_tail, query_flag, query_value, schema_name_from_target, QueryRequest,
+    body_object, parse_batch_mutation_body, parse_mutation_body, parse_query_body, query_flag,
+    schema_name_from_target, QueryRequest,
 };
 use lastdb_host::HostError;
 
 use crate::host::Host;
-use crate::schema_sync_audit::{self, SchemaSyncAuditEvent};
 
 /// Render an error to the owner-socket wire, delegating to the shared I4 mapping.
 fn error_response(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
@@ -158,14 +157,10 @@ mod deferred_mutation;
 mod dispatch;
 mod introspection_routes;
 mod mutation_notifications;
-mod query_filters;
 mod query_mutation_routes;
-mod query_read_receipt;
 mod schema_list_rows;
 mod schema_routes;
-mod socket_queue;
 mod timeouts;
-pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
 use admin_routes::*;
 use app_routes::*;
@@ -174,7 +169,6 @@ use db_compact_routes::*;
 pub use deferred_mutation::execute_deferred_mutation;
 pub use dispatch::*;
 use introspection_routes::*;
-use query_filters::*;
 use query_mutation_routes::*;
 use schema_routes::*;
 pub use timeouts::*;

@@ -6,7 +6,6 @@ import json
 import time
 
 from automatic_prefixes import PrefixRecords
-from automatic_stopped import StoppedFinal
 from lifecycle import Lifecycle
 from node import OwnedNode
 from ownership import complete as complete_ownership
@@ -68,7 +67,7 @@ class Automatic:
             reads.append(node.verify_records(expected, file_released=file_released))
             if lifecycle is not None:
                 lifecycle_reads.append(lifecycle.verify(
-                    node, initial, name in ("snapshot-recovery", "stopped-log-recovery")))
+                    node, initial, name == "snapshot-recovery"))
             if temporary is not None:
                 temporary_reads.append(temporary.verify_absent(node))
             node.stop()
@@ -80,15 +79,6 @@ class Automatic:
         if sign_in is not None:
             result["file_read_before_sign_in"] = sign_in
         return result
-
-    def stopped_recoveries(self, stopped, lifecycle, temporary):
-        manual = self.recover("stopped-recovery", stopped.expected, stopped.accepted,
-                              temporary=temporary)
-        replay = {"base": stopped.accepted, "minimum": stopped.final_minimum}
-        final = self.recover("stopped-log-recovery", stopped.final_expected,
-                             stopped.final_accepted, replay, lifecycle=lifecycle,
-                             observe=stopped.source.observe_accepted, temporary=temporary)
-        return manual, final
 
     def run(self, source):
         operation = self.operation
@@ -174,24 +164,14 @@ class Automatic:
         source.retired(restarted["request_id"])
         later_expected = copy.deepcopy(source.expected)
         snapshot_dependency = self.dependencies(later_expected, later["last_accepted_backup"])
-        snapshot_restore = None
-
-        def recover_later_before_stopped():
-            nonlocal snapshot_restore
-            snapshot_restore = self.recover("snapshot-recovery", later_expected,
-                                            later["last_accepted_backup"],
-                                            lifecycle=lifecycle, temporary=temporary)
-            operation.node = source.node
-
-        operation.summary["stage"] = "stopped-backup-automatic-on"
-        stopped = StoppedFinal(source)
-        final_stopped = stopped.run(before_stopped_backup=recover_later_before_stopped)
-        operation.summary["stage"] = "automatic-disable"
         source.disable()
         source.node.stop()
+        snapshot_restore = self.recover("snapshot-recovery", later_expected,
+                                        later["last_accepted_backup"],
+                                        lifecycle=lifecycle, temporary=temporary)
+        operation.node = source.node
         dependency_inspections = {"log": log_dependency,
                                   "snapshot": snapshot_dependency}
-        stopped_restore, final_restore = self.stopped_recoveries(stopped, lifecycle, temporary)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
                                        for value in (snapshot, log, later)])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
@@ -205,8 +185,6 @@ class Automatic:
                 "declared_checkpoint_bytes": source.declared_bytes,
                 "base_recovery": base_restore, "log_recovery": log_restore,
                 "later_snapshot_recovery": snapshot_restore,
-                "stopped_backup_with_automatic_on": final_stopped, "stopped_recovery": stopped_restore,
-                "stopped_log_recovery": final_restore,
                 "ttl_log_frontiers": first_ttl, "ttl_snapshot_frontiers": second_ttl,
                 "dependency_inspections": dependency_inspections,
                 "ci_stream_ownership": ownership,

@@ -6,30 +6,18 @@ use super::*;
 pub fn receive_connection(
     stream: &mut std::os::unix::net::UnixStream,
     owner_user_id: &str,
-    socket_kind: SocketKind,
-    verification: CallerVerification,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
-    receive_with_budget(
-        stream,
-        owner_user_id,
-        socket_kind,
-        verification,
-        UDS_CONN_BUDGET,
-    )
+    receive_with_budget(stream, owner_user_id, UDS_CONN_BUDGET)
 }
 
 pub(super) fn receive_with_budget(
     stream: &mut std::os::unix::net::UnixStream,
     owner_user_id: &str,
-    socket_kind: SocketKind,
-    verification: CallerVerification,
     budget: std::time::Duration,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
     let read_half = stream.try_clone()?;
     let deadline = std::time::Instant::now() + budget;
-    let base = uds_access_context(owner_user_id, socket_kind, verification);
-    // Only the authenticated owner may stream a large local file upload.
-    // Preserve that framing rule for both immediate and deferred handlers.
+    let base = uds_access_context(owner_user_id);
     let request = match read_request_with_owner_blob(
         io::BufReader::new(DeadlineStream::new(&read_half, deadline)),
         base.is_owner,
@@ -41,8 +29,7 @@ pub(super) fn receive_with_budget(
             return Ok(None);
         }
     };
-    let peer_pid = peer_pid_from_stream(stream);
-    Ok(Some((request, base.with_peer_pid(peer_pid))))
+    Ok(Some((request, base)))
 }
 
 /// Write one final response with a fresh deadline and an explicit EOF.

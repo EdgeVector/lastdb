@@ -4,12 +4,12 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use fold_db::access::{AccessContext, CallerVerification};
+use fold_db::access::AccessContext;
 use lastdb_node::exec;
 use lastdb_node::host::Host;
 use lastdb_uds::uds::UdsSocket;
 use lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
-use lastdb_uds::uds_router::{self, SocketKind};
+use lastdb_uds::uds_router;
 use lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
 mod body_budget;
 mod deferred;
@@ -22,11 +22,6 @@ pub(crate) struct Server {
     pub(crate) worker_pool: UdsWorkerPool,
     body_budget: body_budget::BodyBudget,
     mutation_replies: Arc<tokio::sync::Semaphore>,
-}
-
-/// Collect this UDS worker's heap after one request, before the next job.
-fn collect_finished_request_heap() {
-    lastdb_node::allocator::collect_request_heap_if_over_slack();
 }
 
 /// App verbs served on the owner socket. `None` means "not one of these".
@@ -73,7 +68,6 @@ fn route_request(
     uds_router::dispatch(
         req,
         ctx,
-        SocketKind::Owner,
         |route, request, context| exec::block_on_data_route(handle, route, request, context, host),
         (
             lastdb_node::version::MIN_SUPPORTED_API_VERSION,
@@ -132,14 +126,13 @@ impl Server {
         }
     }
 
-    fn on_accept(&self, stream: std::os::unix::net::UnixStream, verification: CallerVerification) {
+    fn on_accept(&self, stream: std::os::unix::net::UnixStream) {
         let server = self.clone();
         let submitted =
             self.worker_pool
                 .try_submit_owned_connection(stream, move |stream, completion| {
-                    let result = deferred::serve(&server, stream, verification, completion);
+                    let result = deferred::serve(&server, stream, completion);
                     deferred::log_result(result);
-                    collect_finished_request_heap();
                 });
         if let Err(err) = submitted {
             log_submit_error(&self.worker_pool, err);
@@ -147,24 +140,14 @@ impl Server {
     }
 
     /// Run the owner socket accept loop until `shutdown` is set.
-    ///
-    /// No macOS code-signature verifier in the minimal daemon: every
-    /// same-user peer keeps the base `Unverified` posture, which the owner
-    /// socket maps to owner context (the device-trust model the full node
-    /// applies on this socket today).
     pub(crate) fn serve(
         &self,
         socket: &UdsSocket,
         owner_uid: u32,
         shutdown: &AtomicBool,
     ) -> std::io::Result<()> {
-        socket.serve(
-            owner_uid,
-            shutdown,
-            |_handle| CallerVerification::Unverified,
-            |stream, verification| {
-                self.on_accept(stream, verification);
-            },
-        )
+        socket.serve(owner_uid, shutdown, |stream| {
+            self.on_accept(stream);
+        })
     }
 }

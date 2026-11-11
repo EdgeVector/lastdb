@@ -31,7 +31,6 @@ pub(super) async fn execute<H: HostNode>(
         if cursor.is_some() {
             return Err(HostError::new(400, "alternate counts do not use a cursor"));
         }
-        let _permit = acquire_read_permit(host, Lane::Bulk).await?;
         let count = host
             .fold_db()
             .query_executor()
@@ -41,7 +40,6 @@ pub(super) async fn execute<H: HostNode>(
         return Ok(serde_json::json!({"total_count": count, "exact": true}));
     }
     let limit = clamp_request_limit(limit);
-    let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;
     let page = host
         .fold_db()
         .query_executor()

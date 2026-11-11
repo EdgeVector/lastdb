@@ -7,7 +7,10 @@ impl ReadContext {
         if !tracing::enabled!(target: "lastdb::native_read_budget", tracing::Level::DEBUG) {
             return;
         }
-        let call = crate::read_receipts::lock(&self.call);
+        let call = self
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let costs = call.costs();
         let limits = call.budget();
         tracing::debug!(

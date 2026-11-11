@@ -28,7 +28,6 @@ pub(crate) use applied_deletes::ReclaimedDeletes;
 pub use audit::RecordDeleteLedgerEntry;
 pub(crate) use file_crypto::{require_row, seal_file_row};
 pub(crate) use keys::{alternate_bounds, AlternateAddress, RecordAddress};
-pub(crate) use maintenance::validate_cutoff_raise;
 pub(crate) use release::{release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use store::RecordFormat;
 

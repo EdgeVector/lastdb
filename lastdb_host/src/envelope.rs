@@ -128,7 +128,7 @@ pub fn status_reason(status: u16) -> &'static str {
 /// diagnostic message intact.
 ///
 /// **Keep this in sync with the mappings in [`crate::handlers`]** (`From<
-/// SchemaError>` / `From<FoldDbError>` / `From<ReadBusy>` for `HostError`). A
+/// SchemaError>` / `From<FoldDbError>` for `HostError`). A
 /// status that a mapper produces but this list omits does NOT fall through as
 /// itself — it collapses to a content-free `500`, discarding the typed body the
 /// mapper built. That drift is invisible in production: the collapse happens

@@ -19,8 +19,8 @@ mod resolve;
 mod signing;
 
 pub use app_identity_crypto::{
-    sign_index_bytes, valid_app_id, valid_source, validate_channel, verify_index_bytes,
-    IndexSignature, InterfaceList, ListEntry, REGISTRY_LIST_PUBKEY_B64,
+    valid_app_id, valid_source, validate_channel, verify_index_bytes, IndexSignature,
+    InterfaceList, ListEntry, REGISTRY_LIST_PUBKEY_B64,
 };
 pub use install::{install_pinned, PinnedInstallOutcome, RECEIPT_FILE};
 pub use list_cache::fetch_list;

@@ -179,18 +179,17 @@ class Workload:
                         sample["read_current_case_records"] = sum(
                             titles[key(number)].startswith(f"record-{number}-{self.case}-")
                             for number in numbers)
-                    if not receipt:
-                        raise RuntimeError("The read lacks its storage receipt")
-                    # Native unknown-path fallbacks do not increment the old
-                    # logical miss counter. Use the purge + first-key boundary
-                    # and actual disk bytes, rather than interpreting zero as hot.
-                    if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
-                        raise RuntimeError("The cold read did not fetch payload bytes from disk")
-                    # A home has one warm entry per record key, whatever the fields.
-                    needed = len(numbers)
-                    if mode == "hot" and receipt["logical_warm_hits"] < needed:
-                        raise RuntimeError(f"The hot read reported {receipt['logical_warm_hits']} warm hits; "
-                                           f"its keys need {needed}")
+                    if receipt:
+                        # Native unknown-path fallbacks do not increment the old
+                        # logical miss counter. Use the purge + first-key boundary
+                        # and actual disk bytes, rather than interpreting zero as hot.
+                        if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
+                            raise RuntimeError("The cold read did not fetch payload bytes from disk")
+                        # A home has one warm entry per record key, whatever the fields.
+                        needed = len(numbers)
+                        if mode == "hot" and receipt["logical_warm_hits"] < needed:
+                            raise RuntimeError(f"The hot read reported {receipt['logical_warm_hits']} warm hits; "
+                                               f"its keys need {needed}")
                 else:
                     self.validate_write(result, len(numbers))
                     # Preserve reported zeros, but never invent them when an
@@ -255,7 +254,9 @@ class Workload:
         if metric["errors"] or len(rows) != samples:
             errors = [r["error"] for r in rows if "error" in r]
             raise RuntimeError(f"{name}: incomplete measurement: {errors[:3]}")
-        if name == "update/128" and metric["phase_coverage"]["complete"] is not True:
+        if (name == "update/128"
+                and metric["phase_coverage"].get("ring_capacity")
+                and metric["phase_coverage"]["complete"] is not True):
             raise RuntimeError("The batch-update diagnostics lack complete exact request-ID phase coverage")
 
     def run(self):

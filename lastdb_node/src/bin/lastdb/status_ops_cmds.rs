@@ -17,77 +17,66 @@ pub(super) fn status_unreachable_line(reason: &str) -> String {
     format!("lastdbd: not reachable — {reason}")
 }
 
+fn probe_status_json(socket: &Path, timeout: Duration) -> Result<serde_json::Value, String> {
+    let req = format!(
+        "GET /api/status HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
+        client_headers()
+    );
+    let raw = request_readonly_with_retry(socket, req.as_bytes(), timeout)?;
+    let envelope = parse_json_response(&raw, "status")?;
+    envelope
+        .get("status")
+        .cloned()
+        .ok_or_else(|| "status response missing status object".to_string())
+}
+
 pub(super) fn status(
     data_dir: Option<PathBuf>,
     json: bool,
-    contract: bool,
     timeout_secs: Option<u64>,
 ) -> Result<StatusRun, String> {
     let probe_timeout = status_client_timeout(timeout_secs, status_default_client_timeout());
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
-    let health = lastdb_node::health_alert::probe_health(&socket);
+    let health = probe_health(&socket);
     let running = health.is_ok();
     let health_err = health.as_ref().err().map(String::as_str);
-    let daemon_pid_alive = !running
-        && health_err.is_some()
-        && lastdb_node::crash_attribution::live_daemon_pid_alive(&home);
-    let store_root = home.join("data");
-
-    if contract {
-        status_contract(&socket, running, json, probe_timeout)?;
-        return Ok(StatusRun::Serving);
-    }
 
     if json {
         return status_json(&home, &socket, running, health_err, probe_timeout);
     }
 
-    let view = StatusView {
-        home: &home,
-        socket: &socket,
-        store_root: &store_root,
-        session_live: running || daemon_pid_alive,
-    };
-
+    let store_root = home.join("data");
     if let Err(e) = &health {
-        view.print_unreachable(e);
+        println!("{}", status_unreachable_line(e));
+        println!("Home: {}", home.display());
+        println!("Socket: {}", socket.display());
+        for line in layout_status_lines(&store_root) {
+            println!("{line}");
+        }
         return Ok(StatusRun::Unreachable);
     }
 
-    view.print_serving(running, health_err, probe_timeout);
-    Ok(StatusRun::Serving)
-}
-
-/// Operator / machine view of the additive gauge contract (PR-5).
-///
-/// Requires a running daemon so unit/window come from live typed gauges.
-/// Prefer `GET /api/status` → `status.contract` for harnesses; this flag is
-/// the human-readable sibling of that block.
-pub(super) fn status_contract(
-    socket: &Path,
-    running: bool,
-    as_json: bool,
-    timeout: Duration,
-) -> Result<(), String> {
-    if !running {
-        return Err(
-            "lastdb status --contract needs a running daemon (socket health failed)".into(),
-        );
-    }
-    let snapshot = probe_status(socket, timeout)?;
-    let contract = lastdb_node::ops::status_gauge_contract::gauge_contract(&snapshot);
-    if as_json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&contract)
-                .map_err(|e| format!("serialize contract json: {e}"))?
-        );
-    } else {
-        for line in lastdb_node::ops::status_gauge_contract::contract_lines(&contract) {
-            println!("{line}");
+    println!("lastdbd: serving");
+    println!("Home: {}", home.display());
+    println!("Socket: {}", socket.display());
+    if let Ok(status_val) = probe_status_json(&socket, probe_timeout) {
+        if let Some(ver) = status_val
+            .pointer("/build/version")
+            .and_then(serde_json::Value::as_str)
+        {
+            println!("Build: {ver}");
+        }
+        if let Some(up) = status_val
+            .get("uptime_secs")
+            .and_then(serde_json::Value::as_u64)
+        {
+            println!("Uptime: {up}s");
         }
     }
-    Ok(())
+    for line in layout_status_lines(&store_root) {
+        println!("{line}");
+    }
+    Ok(StatusRun::Serving)
 }
 
 /// Machine-readable live status.
@@ -101,37 +90,35 @@ pub(super) fn status_json(
     health_err: Option<&str>,
     timeout: Duration,
 ) -> Result<StatusRun, String> {
-    let snapshot = if running {
-        probe_status(socket, timeout).ok()
+    let status_val = if running {
+        probe_status_json(socket, timeout).ok()
     } else {
         None
     };
-    // The build the *process* reports, kept distinct from this CLI's own. A
-    // machine reader — `lastdb-safe-upgrade` computing which hop to probe — must
-    // key off the running build, not the installed file, or it validates an
-    // upgrade path the live node never takes. `null` means no status reply; it
-    // does NOT mean agreement.
-    let daemon_build = snapshot.as_ref().map(|s| s.build.version.clone());
-    let build_agreement = snapshot.as_ref().map(|s| {
-        lastdb_node::self_metrics::BuildAgreement::classify(&s.build)
-            .as_str()
-            .to_string()
-    });
+    let daemon_build = status_val
+        .as_ref()
+        .and_then(|s| s.pointer("/build/version"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let cli_build = lastdb_node::version::build_version();
+    let build_agreement =
+        daemon_build
+            .as_deref()
+            .map(|b| if b == cli_build { "match" } else { "mismatch" });
+    let daemon_status = if running {
+        "serving".to_string()
+    } else {
+        status_unreachable_line(health_err.unwrap_or("socket unreachable"))
+    };
     let payload = serde_json::json!({
         "home": home.display().to_string(),
         "socket": socket.display().to_string(),
         "running": running,
-        "daemon_status": lastdb_node::crash_attribution::daemon_status_line_with_health_error(
-            home,
-            running,
-            health_err,
-        ),
-        "daemon_pid_alive": !running
-            && health_err.is_some()
-            && lastdb_node::crash_attribution::live_daemon_pid_alive(home),
+        "daemon_status": daemon_status,
+        "daemon_pid_alive": false,
         "health_error": health_err,
         "daemon_build": daemon_build,
-        "cli_build": lastdb_node::crash_attribution::build_version(),
+        "cli_build": cli_build,
         "build_agreement": build_agreement,
         "notes": [
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
@@ -177,13 +164,3 @@ fn run_layout_status_line(store_root: &Path) -> Option<String> {
         _ => None,
     }
 }
-
-#[path = "status_ops_cmds/ops_rollup.rs"]
-mod ops_rollup;
-pub(crate) use ops_rollup::*;
-#[path = "status_ops_cmds/probes.rs"]
-mod probes;
-#[path = "status_ops_cmds/status_view.rs"]
-mod status_view;
-pub(crate) use probes::*;
-use status_view::StatusView;

@@ -1,4 +1,4 @@
-//! Public write entry points, batch pipeline orchestration, timing, finalize.
+//! Public write entry points and batch pipeline orchestration.
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,7 +24,6 @@ mod record_effects;
 mod records;
 mod replay_cutoff;
 mod schema_delta_helpers;
-mod timing;
 
 pub(super) struct AuthoredMutation {
     mutation: Mutation,

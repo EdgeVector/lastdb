@@ -8,9 +8,6 @@ pub(crate) enum ByteBackupCommand {
 
     /// Save one manual V2 backup on the owner daemon. Automatic backup stays off.
     Start(BackupStartArgs),
-    /// Back up the final flushed cut without a daemon, copy, or database boot.
-    /// Automatic backup can stay on. A saved automatic job must finish first.
-    StartStopped(BackupStartStoppedArgs),
     /// Resume the exact saved capture and transfer identities.
     Resume(BackupJsonArgs),
     /// Read local V2 status without a cloud request or activation.
@@ -77,22 +74,6 @@ pub(crate) struct BackupConnectArgs {
 pub(crate) struct BackupStartArgs {
     #[arg(long)]
     pub(crate) request_id: Option<String>,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupStartStoppedArgs {
-    /// Preserve this UUID across retries of the same stopped session.
-    #[arg(long)]
-    pub(crate) request_id: String,
-    #[arg(long)]
-    pub(crate) expected_user_hash: String,
-    /// Exact PID from the clean session and its shutdown flush receipt.
-    #[arg(long)]
-    pub(crate) stopped_pid: u32,
-    #[arg(long)]
-    pub(crate) stopped_start_ts: u64,
     #[arg(long)]
     pub(crate) json: bool,
 }

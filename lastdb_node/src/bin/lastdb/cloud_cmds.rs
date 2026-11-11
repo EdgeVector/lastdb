@@ -4,8 +4,6 @@ use std::io::Read;
 
 #[path = "cloud_cmds/byte_backup.rs"]
 mod byte_backup;
-#[path = "cloud_cmds/payments.rs"]
-mod payments;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 #[path = "cloud_cmds/shared_restore.rs"]
@@ -25,9 +23,6 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         }
         CloudCommand::ResumeSharedRestore(ResumeSharedRestoreArgs { workspace, json }) => {
             return shared_restore::resume(data_dir.as_deref(), &workspace, json);
-        }
-        CloudCommand::Payments { action, json } => {
-            return payments::command(data_dir.as_deref(), action, json);
         }
         CloudCommand::BackupV2 { action } if byte_backup::is_setup(&action) => {
             return byte_backup::setup(data_dir.as_deref(), action);
@@ -50,8 +45,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         | CloudCommand::RecoverDevCredentialsHome { .. }
         | CloudCommand::SharedWriter(_)
         | CloudCommand::RestoreShared(_)
-        | CloudCommand::ResumeSharedRestore(_)
-        | CloudCommand::Payments { .. } => {
+        | CloudCommand::ResumeSharedRestore(_) => {
             unreachable!("handled before home resolution")
         }
     }

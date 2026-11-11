@@ -2,16 +2,6 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminCommand {
-    /// Diagnose request and mutation latency.
-    Ops(OpsArgs),
-    /// Check local liveness and degradation, with optional notification.
-    AlertCheck(AlertCheckArgs),
-    /// Read or change the live tracing filter until the next daemon restart.
-    LogFilter {
-        directive: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
     /// Manage the configured service home.
     #[command(subcommand)]
     ServiceHome(ServiceHomeCommand),
@@ -21,7 +11,7 @@ pub(crate) enum AdminCommand {
     /// Manage schema record expiration.
     #[command(subcommand)]
     Retention(SchemaRetentionCommand),
-    /// Inspect storage, reclaim deleted space or raise a stopped home's replay floor.
+    /// Inspect storage or reclaim deleted space.
     #[command(subcommand)]
     Storage(AdminStorageCommand),
     /// Rebuild the Search inbox from a stopped home.
@@ -34,13 +24,6 @@ pub(crate) enum AdminCommand {
     /// Prepare recovery credentials and operate on exact backup jobs.
     #[command(subcommand)]
     Backup(AdminBackupCommand),
-    /// Read payment status or open Stripe-hosted account actions.
-    Payments {
-        #[command(subcommand)]
-        action: CloudPaymentCommand,
-        #[arg(long, global = true)]
-        json: bool,
-    },
     /// Publish, synchronize or restore an enrolled shared database.
     #[command(subcommand)]
     Shared(AdminSharedCommand),
@@ -79,16 +62,12 @@ pub(crate) enum AdminStorageCommand {
     },
     #[command(flatten)]
     Reclaim(DbReclaimCommand),
-    /// Preview or raise the replay cutoff on a cleanly stopped home.
-    ReplayCutoff(ReplayCutoffArgs),
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminBackupCommand {
     /// Create one fresh DEV identity without starting a daemon.
     Init(BackupInitArgs),
-    /// Back up the exact last flush of a cleanly stopped home.
-    StartStopped(BackupStartStoppedArgs),
     /// Resume the exact saved backup job on the owner daemon.
     Resume(BackupJsonArgs),
     /// Fence the saved job while retaining uncertain cloud byte obligations.
@@ -109,8 +88,6 @@ pub(crate) enum AdminBackupCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminSharedCommand {
-    /// Verify, stage and optionally read an encrypted recovery point using a guest permission.
-    StageGuest(GuestStageArgs),
     /// Upload a frozen DEV database snapshot, then upload the writer’s queued changes.
     Snapshot(SnapshotArgs),
     /// Restore a held shared snapshot and its captured tails into a fresh home.
@@ -119,41 +96,4 @@ pub(crate) enum AdminSharedCommand {
     ResumeRestore(ResumeSharedRestoreArgs),
     /// Operate the journal of a stopped enrolled DEV writer.
     Writer(SharedWriterCommand),
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct GuestStageArgs {
-    /// Read trusted JSON from stdin with authorization, publisher_public_key,
-    /// and content_key. The keys are 32-byte hex strings. Authorization is the
-    /// complete LastDBShare header value. Use a publication-specific content key.
-    #[arg(long, required = true)]
-    pub permission_stdin: bool,
-    #[command(flatten)]
-    pub selection: GuestStageSelection,
-}
-
-#[derive(Args, Debug)]
-#[command(group(clap::ArgGroup::new("guest_target").required(true).args(["into", "resume"])))]
-pub(crate) struct GuestStageSelection {
-    /// Absent absolute path. A private workspace is created next to it.
-    #[arg(long)]
-    pub into: Option<PathBuf>,
-    /// Absolute path of a private workspace. Resume uses its exact saved point.
-    #[arg(long)]
-    pub resume: Option<PathBuf>,
-    /// Emit the verified stage receipt as JSON.
-    #[arg(long)]
-    pub json: bool,
-    /// Exact schema name in the staged recovery point.
-    #[arg(long, requires_all = ["json", "key_hash"])]
-    pub schema: Option<String>,
-    /// Exact primary hash key of the staged record.
-    #[arg(long, requires = "schema")]
-    pub key_hash: Option<String>,
-    /// Exact primary range key for a HashRange schema.
-    #[arg(long, requires = "schema")]
-    pub key_range: Option<String>,
-    /// Include the record's inline file as base64 with its marker.
-    #[arg(long = "inline", requires = "schema")]
-    pub inline_file: bool,
 }

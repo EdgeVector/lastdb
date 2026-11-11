@@ -90,33 +90,18 @@ pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
         .with_header("Allow", allow.to_string())
 }
 
-/// Route a parsed request and answer it, delegating the recognized *data* routes
+/// Route a parsed request and answer it, delegating recognized data routes
 /// to `execute_data`.
-///
-/// The stock routes — `Health`, `NotFound`, `MethodNotAllowed` — are answered
-/// here from fixed, content-free responses. Only a [`ControlRoute::Data`] route
-/// invokes `execute_data`, which receives the matched [`DataRoute`], the request,
-/// and the connection's [`AccessContext`]. `lastdb_node` supplies
-/// `execute_data` with access to its live state.
-///
-/// `socket` scopes the route table to the connection's [`SocketKind`].
-/// Owner-only paths are [`ControlRoute::NotFound`] unless `socket` is
-/// [`SocketKind::Owner`].
-///
-/// `version_params` provides the contract version ranges for the version
-/// handshake response (min_supported_api_version, current_outbox_format_version,
-/// min_supported_outbox_format_version).
 pub fn dispatch<F>(
     req: &UdsRequest,
     ctx: &AccessContext,
-    socket: SocketKind,
     execute_data: F,
     version_params: (u32, u32, u32),
 ) -> UdsResponse
 where
     F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse,
 {
-    match route(req, socket) {
+    match route(req) {
         ControlRoute::Health => health_response(),
         ControlRoute::Version => {
             version_response(version_params.0, version_params.1, version_params.2)

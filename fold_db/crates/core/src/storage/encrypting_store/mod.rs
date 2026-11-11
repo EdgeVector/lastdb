@@ -65,13 +65,9 @@ impl EncryptingKvStore {
             .map_err(|e| StorageError::EncryptionError(e.to_string()))
     }
 
-    /// Open one stored value and record the decrypt receipt.
+    /// Open one stored value.
     async fn open_value(&self, stored: Vec<u8>) -> StorageResult<Vec<u8>> {
-        let started = std::time::Instant::now();
-        let result = self.open_sealed_value(&stored, self.crypto.as_ref()).await;
-        let bytes = result.as_ref().map_or(0, Vec::len);
-        crate::read_receipts::decrypted(bytes, started.elapsed());
-        result
+        self.open_sealed_value(&stored, self.crypto.as_ref()).await
     }
 
     async fn decrypt_rows(

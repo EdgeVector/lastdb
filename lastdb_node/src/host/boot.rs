@@ -6,7 +6,7 @@ impl Host {
     pub(super) fn prepare_boot_home(home: &Path) -> Result<PathBuf, String> {
         ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
-        crate::session_ledger::clear_shutdown_flush_receipt(home)
+        crate::shutdown_receipt::clear_shutdown_flush_receipt(home)
             .map_err(|error| format!("could not clear prior shutdown proof: {error}"))?;
         let data_path = home.join("data");
         std::fs::create_dir_all(&data_path)

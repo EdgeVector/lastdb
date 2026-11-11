@@ -6,20 +6,18 @@ use std::os::unix::net::UnixStream;
 pub(super) fn serve(
     server: &Server,
     stream: UnixStream,
-    verification: CallerVerification,
     completion: ConnectionWork,
 ) -> std::io::Result<()> {
     // Workers never wait for byte permits: queued responses must stay runnable.
     if let Some(body) = server.body_budget.try_reserve() {
-        return serve_reserved(server, stream, verification, completion, body);
+        return serve_reserved(server, stream, completion, body);
     }
     let server = server.clone();
     server.handle.clone().spawn(async move {
         match server.body_budget.reserve().await {
             Ok(body) => completion.resume(stream, move |stream, completion| {
-                let result = serve_reserved(&server, stream, verification, completion, body);
+                let result = serve_reserved(&server, stream, completion, body);
                 log_result(result);
-                collect_finished_request_heap();
             }),
             Err(error) => log_result(Err(error)),
         }
@@ -30,20 +28,15 @@ pub(super) fn serve(
 fn serve_reserved(
     server: &Server,
     mut stream: UnixStream,
-    verification: CallerVerification,
     completion: ConnectionWork,
     mut body: body_budget::BodyLease,
 ) -> std::io::Result<()> {
-    let Some((mut request, context)) = uds_http::receive_connection(
-        &mut stream,
-        &server.host.user_hash,
-        SocketKind::Owner,
-        verification,
-    )?
+    let Some((mut request, context)) =
+        uds_http::receive_connection(&mut stream, &server.host.user_hash)?
     else {
         return Ok(());
     };
-    let route = match uds_router::route(&request, SocketKind::Owner) {
+    let route = match uds_router::route(&request) {
         uds_router::ControlRoute::Data(
             route @ (uds_router::DataRoute::Mutation | uds_router::DataRoute::MutationBatch),
         ) => Some(MutationRoute::Default(route)),
@@ -86,7 +79,6 @@ enum MutationRoute {
 fn defer(server: &Server, pending: Pending, route: MutationRoute) {
     let host = Arc::clone(&server.host);
     let replies = Arc::clone(&server.mutation_replies);
-    let queued_at = std::time::Instant::now();
     server.handle.spawn(async move {
         // Hold one slot from handler start through final write/drop. Neither
         // handler outputs nor slow-peer replies can multiply by queue capacity.
@@ -100,19 +92,14 @@ fn defer(server: &Server, pending: Pending, route: MutationRoute) {
             body,
             completion,
         } = pending;
-        let work = match route {
+        let response = match route {
             MutationRoute::Default(route) => {
-                exec::execute_deferred_mutation(route, &request, &context, &host)
+                exec::execute_deferred_mutation(route, &request, &context, &host).await
             }
             MutationRoute::Scoped => {
-                exec::execute_deferred_database_mutation(&mut request, &context, &host)
+                exec::execute_deferred_database_mutation(&mut request, &context, &host).await
             }
         };
-        let response = exec::with_socket_queue_wait(
-            completion.queue_wait().saturating_add(queued_at.elapsed()),
-            work,
-        )
-        .await;
         // Release frame bytes before scheduling the response. Parsers that wait
         // for byte capacity must not prevent these responses from reaching a worker.
         drop(request);
@@ -122,7 +109,6 @@ fn defer(server: &Server, pending: Pending, route: MutationRoute) {
             drop(response);
             drop(reply_slot);
             log_result(result);
-            collect_finished_request_heap();
         });
     });
 }

@@ -5,6 +5,5 @@ pub(crate) mod cli;
 pub(crate) mod node_run;
 pub(crate) mod private_diagnostics;
 pub(crate) mod serve;
-pub(crate) mod session;
 pub(crate) mod shutdown;
 pub(crate) mod tracing_init;

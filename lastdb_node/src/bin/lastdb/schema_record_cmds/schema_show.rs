@@ -22,7 +22,7 @@ pub(crate) fn fetch_schema(
     name: &str,
 ) -> Result<serde_json::Value, String> {
     let socket = &target.socket;
-    if lastdb_node::health_alert::probe_health(socket).is_err() {
+    if probe_health(socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
             socket.display()
