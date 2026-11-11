@@ -19,11 +19,13 @@ fn refused(dir: &Path, key: &[u8; 32]) -> StorageError {
 
 fn fresh() -> (tempfile::TempDir, [u8; 32]) {
     let dir = tempfile::TempDir::new().expect("temp home");
-    let mut key = [0u8; 32];
+    let mut bytes = Vec::new();
     std::fs::File::open("/dev/urandom")
         .expect("urandom")
-        .read_exact(&mut key)
+        .take(32)
+        .read_to_end(&mut bytes)
         .expect("node key");
+    let key: [u8; 32] = bytes.try_into().expect("32 node-key bytes");
     PackNamespacedStore::create_run(dir.path(), &key).expect("personal home");
     (dir, key)
 }
