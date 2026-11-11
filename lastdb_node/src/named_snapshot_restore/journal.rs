@@ -288,7 +288,7 @@ fn read_bytes(
     {
         return Err(class_for(detail));
     }
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
