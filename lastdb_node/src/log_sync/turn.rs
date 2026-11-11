@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mutation_log::{DatabaseId, DatabaseKind, DeviceId, LogError, Namespace, PrincipalId};
+use mutation_log::{DatabaseId, DatabaseKind, DeviceId, Namespace, PrincipalId};
 use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
 use serde::Deserialize;
 
@@ -13,9 +13,11 @@ use crate::host::Host;
 
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
-use super::cutover::{self, Gate, Record};
+use super::cutover::{self, Commit, Gate, ServiceView};
 use super::disk;
+use super::http;
 use super::outbox;
+use super::registry::{self, Owner};
 use super::session;
 
 const GRANTS_LIMIT: usize = 65_536;
@@ -30,7 +32,7 @@ enum Pause {
 }
 
 struct Ready {
-    record: Record,
+    commit: Commit,
     log: CloudLog,
     state: SyncState,
 }
@@ -57,62 +59,82 @@ async fn one_turn(host: &Host) -> Pause {
 }
 
 async fn prepare(host: &Host) -> Prep {
-    match cutover::gate(&host.home) {
-        Gate::Legacy => {
-            note_ready(&host.home);
-            Prep::Pause(Pause::Idle)
-        }
-        Gate::Closed => {
-            warn_once(
-                &CLOSED_WARNED,
-                "cutover record is present and log sync will not start",
-            );
-            Prep::Pause(Pause::Idle)
-        }
-        Gate::SignedOnly(record) => open_signed(host, record).await,
-    }
-}
-
-async fn open_signed(host: &Host, record: Record) -> Prep {
-    note_ready(&host.home);
-    let key = hex::encode(host.keypair.public_key_bytes());
-    if record.authority_node_key != key {
-        warn_once(
-            &AUTHORITY_WARNED,
-            "cutover authority does not match this node key",
-        );
+    let Some(owner) = registry::owner(&host.home) else {
         return Prep::Pause(Pause::Idle);
-    }
-    let revision = match member_revision(&host.home, &record) {
-        Ok(revision) => revision,
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "member revision is unavailable");
-            return Prep::Pause(Pause::Retry);
-        }
     };
+    note_ready(&host.home);
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "device id is unavailable");
-            return Prep::Pause(Pause::Retry);
+            cutover::observe(&owner.id, ServiceView::Unavailable);
+            return paused(&host.home);
         }
     };
-    let log = match CloudLog::connect(host, &record.database_id, &device, revision).await {
+    let log = match CloudLog::connect(host, &owner.id, &device, probe_revision(&host.home, &owner))
+        .await
+    {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
-            return Prep::Pause(Pause::Retry);
+            cutover::observe(&owner.id, ServiceView::Unavailable);
+            return paused(&host.home);
         }
     };
-    let state = match opened_state(&record, &log, &device, &host.home) {
+    let view = log.service_view(&owner).await;
+    cutover::observe(&owner.id, view);
+    match cutover::gate(&host.home) {
+        Gate::Legacy => Prep::Pause(Pause::Idle),
+        Gate::Closed(_) => {
+            warn_once(
+                &CLOSED_WARNED,
+                "signed-only confirmation is unavailable and legacy resume stays closed",
+            );
+            Prep::Pause(Pause::Retry)
+        }
+        Gate::SignedOnly(commit) => open_signed(host, commit, log, &device).await,
+    }
+}
+
+fn paused(home: &Path) -> Prep {
+    match cutover::gate(home) {
+        Gate::Closed(_) => Prep::Pause(Pause::Retry),
+        _ => Prep::Pause(Pause::Idle),
+    }
+}
+
+async fn open_signed(host: &Host, commit: Commit, mut log: CloudLog, device: &str) -> Prep {
+    if commit.database_kind != "personal" && !publisher_is_this_node(host, &commit.database_id) {
+        warn_once(
+            &AUTHORITY_WARNED,
+            "shareable cutover publisher is not this node and sync stays closed",
+        );
+        return Prep::Pause(Pause::Idle);
+    }
+    let wanted = if commit.database_kind == "personal" {
+        0
+    } else {
+        commit.grant_revision
+    };
+    if log.member_revision() != wanted {
+        log = match CloudLog::connect(host, &commit.database_id, device, wanted).await {
+            Ok(log) => log,
+            Err(error) => {
+                tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
+                cutover::observe(&commit.database_id, ServiceView::Unavailable);
+                return Prep::Pause(Pause::Retry);
+            }
+        };
+    }
+    let state = match opened_state(&commit, &log, device, &host.home) {
         Ok(state) => state,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync state was refused");
             return Prep::Pause(Pause::Retry);
         }
     };
-    match resume_state(&log, state, record.database_kind == "personal").await {
-        Ok(state) => Prep::Ready(Ready { record, log, state }),
+    match resume_state(&log, state).await {
+        Ok(state) => Prep::Ready(Ready { commit, log, state }),
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync resume failed");
             Prep::Pause(Pause::Retry)
@@ -125,7 +147,7 @@ async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
         &ready.log,
         &mut ready.state,
         &host.home,
-        &ready.record.database_id,
+        &ready.commit.database_id,
     )
     .await
     .is_err()
@@ -190,13 +212,13 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
         }
     };
     ready.state = next;
-    let shareable = ready.record.database_kind == "shareable";
+    let shareable = ready.commit.database_kind == "shareable";
     let plan = match apply::apply_page(
         host,
         &ready.log,
         &mut ready.state,
         &outcome,
-        &ready.record.database_id,
+        &ready.commit.database_id,
         shareable,
     )
     .await
@@ -210,7 +232,7 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
     match plan {
         PagePlan::SnapshotHeld => Pause::Snapshot,
         PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => {
-            finish_ack(host, &ready.log, &ready.record.database_id, seq).await
+            finish_ack(host, &ready.log, &ready.commit.database_id, seq).await
         }
         PagePlan::Hold(None) => Pause::Retry,
     }
@@ -228,75 +250,65 @@ async fn finish_ack(host: &Host, log: &CloudLog, database_id: &str, seq: u64) ->
     Pause::Idle
 }
 
-async fn resume_state(
-    log: &CloudLog,
-    state: SyncState,
-    personal: bool,
-) -> Result<SyncState, SyncError> {
-    match log.resumed(state.clone()).await {
-        Err(SyncError::Log(LogError::Unauthorized)) if personal => {
-            log.grant_owner().await?;
-            log.resumed(state).await
-        }
-        other => other,
-    }
+async fn resume_state(log: &CloudLog, state: SyncState) -> Result<SyncState, SyncError> {
+    log.resumed(state).await
 }
 
 fn opened_state(
-    record: &Record,
+    commit: &Commit,
     log: &CloudLog,
     device: &str,
     home: &Path,
 ) -> Result<SyncState, String> {
     let database_id =
-        DatabaseId::new(&record.database_id).map_err(|_| "database id was refused")?;
+        DatabaseId::new(&commit.database_id).map_err(|_| "database id was refused")?;
     let principal =
         PrincipalId::new(log.principal().as_str()).map_err(|_| "node key was refused")?;
     let device = DeviceId::new(device).map_err(|_| "device id was refused")?;
-    let (kind, role) = if record.database_kind == "personal" {
+    let (kind, role) = if commit.database_kind == "personal" {
         (
             DatabaseKind::Personal,
             SyncRole::Owner { principal, device },
         )
     } else {
-        let publisher = PrincipalId::new(&record.authority_node_key)
-            .map_err(|_| "publisher key was refused")?;
         (
-            DatabaseKind::Shareable { publisher },
+            DatabaseKind::Shareable {
+                publisher: principal.clone(),
+            },
             SyncRole::Publisher { principal, device },
         )
     };
-    let cursor = session::load_cursor(home, &record.database_id)?;
+    let cursor = session::load_cursor(home, &commit.database_id)?;
     SyncState::open(database_id, kind, role)
         .map(|state| state.with_cursor(cursor))
         .map_err(|error| error.to_string())
 }
 
-fn member_revision(home: &Path, record: &Record) -> Result<u64, String> {
-    if record.database_kind == "personal" {
-        return Ok(0);
+/// Revision for the confirmation read. A missing or unreadable grants file does
+/// not stop legacy resume. After a verified commit, that revision is the fallback.
+fn probe_revision(home: &Path, owner: &Owner) -> u64 {
+    if owner.kind == "personal" {
+        return 0;
     }
-    let path = home
-        .join("databases")
-        .join(&record.database_id)
-        .join("grants.json");
-    match disk::read_limited(&path, GRANTS_LIMIT) {
-        Ok(None) => Ok(record.grant_revision),
-        Ok(Some(bytes)) => {
-            let grants: GrantsFile =
-                serde_json::from_slice(&bytes).map_err(|_| "grants file is invalid")?;
-            if grants.revision == 0 {
-                Ok(record.grant_revision)
-            } else {
-                Ok(grants.revision)
+    let path = home.join("databases").join(&owner.id).join("grants.json");
+    if let Ok(Some(bytes)) = disk::read_limited(&path, GRANTS_LIMIT) {
+        if let Ok(grants) = serde_json::from_slice::<GrantsFile>(&bytes) {
+            if grants.revision != 0 {
+                return grants.revision;
             }
         }
-        Err(_) => Err("cannot read grants file".into()),
     }
+    cutover::remembered(home)
+        .filter(|commit| commit.database_id == owner.id)
+        .map(|commit| commit.grant_revision)
+        .unwrap_or(0)
 }
 
 fn note_ready(home: &Path) {
-    if let Err(error) = cutover::publish_daemon_ready(home) {
+    let Ok(environment) = http::environment_label(home) else {
+        return;
+    };
+    if let Err(error) = cutover::publish_daemon_ready(home, environment) {
         tracing::warn!(
             target: "lastdbd::log_sync",
             error = %error,
@@ -325,7 +337,26 @@ async fn sleep_interruptible(shutdown: &AtomicBool, pause: Pause) {
     }
 }
 
+fn publisher_is_this_node(host: &Host, database_id: &str) -> bool {
+    let key = hex::encode(host.keypair.public_key_bytes());
+    grants_authority(&host.home, database_id).is_some_and(|publisher| publisher == key)
+}
+
+fn grants_authority(home: &Path, database_id: &str) -> Option<String> {
+    let path = home.join("databases").join(database_id).join("grants.json");
+    let bytes = disk::read_limited(&path, GRANTS_LIMIT).ok().flatten()?;
+    let grants = serde_json::from_slice::<GrantsFile>(&bytes).ok()?;
+    let key = grants.authority_node_key?;
+    (key.len() == 64
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    .then_some(key)
+}
+
 #[derive(Deserialize)]
 struct GrantsFile {
+    #[serde(default)]
+    authority_node_key: Option<String>,
     revision: u64,
 }

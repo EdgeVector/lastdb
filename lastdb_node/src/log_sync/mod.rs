@@ -1,7 +1,8 @@
 //! Daemon adapter for the cloud mutation log.
 //!
-//! A home with no signed-only cutover record keeps byte backup. This module
-//! does not change backup policy and does not install a snapshot into the live store.
+//! Exemem's signed mutation-log reply is the only signed-only switch. A local
+//! file does not start sync or stop byte backup. This module does not change
+//! backup policy and does not install a snapshot into the live store.
 
 mod apply;
 mod cloud;

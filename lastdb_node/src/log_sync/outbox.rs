@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use fold_db::schema::types::Mutation;
 use serde::{Deserialize, Serialize};
 
-use super::cutover::Gate;
+use super::cutover;
 use super::disk;
 use super::payload;
 use super::registry;
@@ -22,11 +22,11 @@ pub(crate) struct OutboxNote {
     pub mutation_id: String,
 }
 
-/// Clone log payloads only when this home's owner database is signed-only.
+/// Clone log payloads only after Exemem has confirmed signed-only for this home.
 pub fn capture_mutations(home: &Path, mutations: &[Mutation]) -> Option<Vec<OutboxNote>> {
     let owner = registry::owner(home)?;
-    if !matches!(super::cutover::gate(home), Gate::SignedOnly(record) if record.database_id == owner.id)
-    {
+    let commit = cutover::remembered(home)?;
+    if commit.database_id != owner.id {
         return None;
     }
     let now = fold_db::clock::unix_millis();

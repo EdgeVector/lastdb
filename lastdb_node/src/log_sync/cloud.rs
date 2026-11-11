@@ -14,10 +14,11 @@ use mutation_log_sync::{Outcome, SyncEvent, SyncState};
 use serde::Serialize;
 
 use crate::host::Host;
-use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
-use super::http::Endpoint;
+use super::cutover;
+use super::http::{self, Endpoint};
 use super::paths;
+use super::registry::Owner;
 use super::wire;
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub(crate) struct CloudLog {
     principal: PrincipalId,
     device: mutation_log::DeviceId,
     member_revision: u64,
+    environment_label: &'static str,
 }
 
 impl CloudLog {
@@ -39,11 +41,11 @@ impl CloudLog {
         device: &str,
         member_revision: u64,
     ) -> Result<Self, String> {
-        assert_dev(&host.home)?;
+        let selected = http::selected_service(&host.home)?;
         let wire_id =
             Id::try_from(database_id.to_owned()).map_err(|_| "database id is not a UUID")?;
         let account = account_of(host)?;
-        let endpoint = Endpoint::open(&api_url(&host.home)?)?;
+        let endpoint = Endpoint::open(&selected.api_url, selected.label)?;
         let backup = crate::byte_cloud_backup::credentials::client_from_home(&host.home)?;
         let context = backup
             .context(&ContextReadRequest {
@@ -67,7 +69,36 @@ impl CloudLog {
             device: mutation_log::DeviceId::new(device)
                 .map_err(|_| "device id is not a log label")?,
             member_revision,
+            environment_label: selected.label,
         })
+    }
+
+    pub(crate) fn member_revision(&self) -> u64 {
+        self.member_revision
+    }
+
+    pub(crate) async fn service_view(&self, owner: &Owner) -> cutover::ServiceView {
+        let Ok(body) = canonical_bytes(&serde_json::json!({
+            "database_id": self.database_id.as_str(),
+        })) else {
+            return cutover::ServiceView::Unavailable;
+        };
+        match self
+            .endpoint
+            .post_exchange(
+                &self.keypair,
+                &self.scope,
+                &self.database_id,
+                paths::HEAD,
+                &body,
+                self.member_revision,
+                65_536,
+            )
+            .await
+        {
+            Ok((status, bytes)) => cutover::classify(status, &bytes, owner, self.environment_label),
+            Err(_) => cutover::ServiceView::Unavailable,
+        }
     }
 
     pub(crate) fn principal(&self) -> &PrincipalId {
@@ -115,19 +146,6 @@ impl CloudLog {
     pub(crate) async fn ack_through(&self, reader: Writer, through: u64) -> Result<u64, LogError> {
         let mut log = self.clone();
         match tokio::task::spawn_blocking(move || log.ack(&reader, through)).await {
-            Ok(result) => result,
-            Err(_) => Err(LogError::UnexpectedOutcome),
-        }
-    }
-
-    pub(crate) async fn grant_owner(&self) -> Result<(), LogError> {
-        let mut log = self.clone();
-        let caller = self.principal.clone();
-        match tokio::task::spawn_blocking(move || {
-            log.grant(&caller, caller.clone(), Capability::Owner)
-        })
-        .await
-        {
             Ok(result) => result,
             Err(_) => Err(LogError::UnexpectedOutcome),
         }
@@ -363,32 +381,4 @@ fn account_of(host: &Host) -> Result<AccountId, String> {
         return Err("node account id does not match the node key".into());
     }
     AccountId::try_from(derived).map_err(|_| "node account id is not a cloud account id".into())
-}
-
-fn api_url(home: &std::path::Path) -> Result<String, String> {
-    let saved = crate::cloud::load_saved_credentials(home)?
-        .ok_or("log sync needs saved cloud credentials")?;
-    Ok(saved.api_url)
-}
-
-fn assert_dev(home: &std::path::Path) -> Result<(), String> {
-    let saved = crate::cloud::load_saved_credentials(home)?
-        .ok_or("log sync needs saved cloud credentials")?;
-    if saved
-        .connection
-        .as_ref()
-        .is_some_and(|connection| connection.environment != "dev")
-    {
-        return Err("log sync refuses a non-dev cloud connection".into());
-    }
-    let api = reqwest::Url::parse(&saved.api_url).map_err(|_| "cloud endpoint is not a URL")?;
-    if api.path() != "/" && !api.path().is_empty() {
-        return Err("log sync requires an origin cloud endpoint".into());
-    }
-    let prod = exemem_api_url_for(Environment::Prod);
-    let prod = reqwest::Url::parse(prod).map_err(|_| "production endpoint is not configured")?;
-    if api.scheme() == prod.scheme() && api.host() == prod.host() && api.port() == prod.port() {
-        return Err("log sync refuses the production API".into());
-    }
-    Ok(())
 }

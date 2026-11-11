@@ -1,4 +1,6 @@
-//! Client routes for the mutation log. G, H, I, and K bind the handlers.
+//! Client routes for the mutation log. Dev and prod use this same prefix.
+//! G, H, and I bind the handlers. `head` is the signed-only confirmation read.
+//! A cursor body is not a commit. A commit is D's `CutoverReceipt` on that reply.
 
 pub(crate) const APPEND: &str = "/api/cloud/backups/v2/mutation-log/append";
 pub(crate) const HEAD: &str = "/api/cloud/backups/v2/mutation-log/head";
