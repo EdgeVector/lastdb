@@ -160,13 +160,23 @@ def require_trim(response):
 
 
 def prove_trimmed_list(through, status, body):
-    """A list from zero conflicts at the snapshot, or starts after the floor."""
+    """A list from zero conflicts at the snapshot, or starts after the floor.
+
+    The conflict body is ``predecessor_conflict`` on ``mutation_log.cursor``,
+    with ``snapshot_through`` and ``snapshot_ref``. The ref is null or a
+    snapshot body.
+    """
     if status == 409:
-        page = require_object(body, ("code", "snapshot_through"))
+        page = require_object(body, ("code", "field", "snapshot_ref", "snapshot_through"))
         if page.get("code") != "predecessor_conflict":
+            raise RouteError("trim")
+        if page.get("field") != "mutation_log.cursor":
             raise RouteError("trim")
         if decimal(page["snapshot_through"]) < through:
             raise RouteError("trim")
+        ref = page["snapshot_ref"]
+        if ref is not None:
+            require_snapshot(ref)
         return
     if status != 200:
         raise RouteError("trim")

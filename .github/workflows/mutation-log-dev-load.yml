@@ -17,6 +17,11 @@ on:
         type: choice
         options: ["all", "5", "20", "100", "trim"]
         default: "all"
+      duration:
+        description: "preliminary is about 38 rounds. scale is the 3-minute re-run after bounded reads land."
+        type: choice
+        options: ["preliminary", "scale"]
+        default: "preliminary"
 
 permissions:
   contents: read
@@ -62,13 +67,19 @@ jobs:
           LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           LOAD_LEVEL: ${{ inputs.level }}
+          LOAD_DURATION: ${{ inputs.duration }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
           set +e
+          scale=
+          if [ "$LOAD_DURATION" = "scale" ]; then
+            scale=--scale
+          fi
           python3 scripts/mutation_log_load/run.py \
             --phase load \
             --level "$LOAD_LEVEL" \
+            $scale \
             --confirm-deployed "$CONFIRM_DEPLOYED" \
             --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
             --summary "$RUNNER_TEMP/mutation-log-load-summary.json"

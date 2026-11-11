@@ -5,15 +5,17 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from cost import CapExceeded
+from cost import SERVER_ATTEMPTS, CapExceeded
 from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
-    is_contention, is_duplicate, is_throttle, retry_action,
+    is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
-from finish import ack_cursor, check_log, read_log, request_for, trim_log
+from finish import (
+    ack_cursor, after_exhausted, audit_log, finding_text, read_log, request_for,
+    tier_report, trim_appends, trim_log,
+)
 from plan import still_running, writer_calls
 from routes import READS, RouteError, check_success, path_for
-from stats import finding_message, tier_summary
 
 
 ERROR_RATE = 0.01
@@ -106,6 +108,11 @@ class Session:
         self.ack_holds = True
         self.audited = False
         self.audit_cursor = 0
+        self.in_logcheck = False
+        self.log_read_throttled = False
+        self.logcheck_recheck = False
+        self.quiet = False
+        self.trim_skipped = False
         self.accepted = {}
         self._lock = threading.Lock()
         self.stop = threading.Event()
@@ -131,6 +138,11 @@ class Session:
         self.unresolved = []
         self.ack_holds = True
         self.audited = False
+        self.in_logcheck = False
+        self.log_read_throttled = False
+        self.logcheck_recheck = False
+        self.quiet = False
+        self.trim_skipped = False
 
     def call(self, operation, required=False, accept=(), **fields):
         status, payload = self.exchange(operation, required=required, accept=accept, **fields)
@@ -161,7 +173,10 @@ class Session:
     def _charge(self, operation, body):
         kind = "read" if operation in READS else "write"
         try:
-            self.ledger.charge(kind, None if kind == "read" else len(body), grow=operation == "append")
+            attempts = SERVER_ATTEMPTS if operation in ("append", "ack") else 1
+            self.ledger.charge(
+                kind, None if kind == "read" else len(body),
+                grow=operation == "append", attempts=attempts)
         except CapExceeded:
             self.capped.set()
             self.stop.set()
@@ -190,6 +205,8 @@ class Session:
                 self._remember_unresolved(operation, fields)
             elif throttle and action != "retry":
                 self.throttle_unresolved += 1
+                if operation in READS and self.in_logcheck:
+                    self.log_read_throttled = True
         if action == "retry":
             return True
         if action == "unresolved" or throttle:
@@ -206,7 +223,8 @@ class Session:
 
     def _pause(self, tries):
         with self._lock:
-            delay = backoff_seconds(tries, self.rng.randrange)
+            schedule = quiet_backoff_seconds if self.quiet else backoff_seconds
+            delay = schedule(tries, self.rng.randrange)
         self.sleeper(delay)
 
     def _finish(self, operation, status, payload, required, accept, fields):
@@ -274,13 +292,14 @@ def drive(spec, session):
     try:
         _run_tier(spec, session, started)
     except CapExceeded:
-        return _report(session, session.clock() - started, _over_cap(session, spec), "")
+        return tier_report(session, session.clock() - started, _over_cap(session, spec), "")
     except RetriesExhausted:
-        stopped = "scaling" if session.audited and session.ack_holds else "error"
-        return _report(session, session.clock() - started, stopped, _finding(session, spec))
+        stopped = after_exhausted(session)
+        return tier_report(session, session.clock() - started, stopped, finding_text(session, spec))
     except (LoadError, RouteError) as error:
-        return _report(session, session.clock() - started, "error", str(error))
-    return _report(session, session.clock() - started, _finished(session, spec), _finding(session, spec))
+        return tier_report(session, session.clock() - started, "error", str(error))
+    return tier_report(
+        session, session.clock() - started, _finished(session, spec), finding_text(session, spec))
 
 
 def _run_tier(spec, session, started):
@@ -292,9 +311,10 @@ def _run_tier(spec, session, started):
         _steady(spec, session, started)
     else:
         run_writers(spec.writers, lambda index: _script(spec, session, index))
-    check_log(session)
-    session.audited = True
-    if spec.trim:
+    audit_log(session)
+    if spec.trim and trim_appends(session) < 1:
+        session.trim_skipped = True
+    elif spec.trim:
         trim_log(session)
 
 
@@ -312,6 +332,8 @@ def _over_cap(session, spec):
 
 
 def _finished(session, spec):
+    if session.trim_skipped:
+        return "scaling" if session.ack_holds else "error"
     if _exhausted(session) and not session.ack_holds:
         return "error"
     if _exhausted(session) or _capacity(session, spec):
@@ -322,12 +344,6 @@ def _finished(session, spec):
 def _capacity(session, spec):
     return capacity_finding(
         session.throttle_503, spec.kind, session.contention_503, session.write_attempts)
-
-
-def _finding(session, spec):
-    return finding_message(
-        session.throttle_503, spec.kind, session.contention_503,
-        session.write_attempts, session.contention_unresolved, session.throttle_unresolved)
 
 
 def _script(spec, session, index):
@@ -345,7 +361,7 @@ def _steady(spec, session, started):
     def worker(index):
         seq = 1
         try:
-            while still_running(spec, session.clock() - started) and not session.stop.is_set():
+            while still_running(spec, session.clock() - started, seq - 1) and not session.stop.is_set():
                 if session.call("append", index=index, seq=seq) is None:
                     raise LoadError("http")
                 ack_cursor(session, index)
@@ -358,24 +374,6 @@ def _steady(spec, session, started):
 
 def _pages(session):
     return read_log(session)
-
-
-def _report(session, elapsed_ms, stopped, message):
-    estimate = session.ledger.snapshot()
-    counters = {
-        "contention_503": session.contention_503,
-        "throttle_503": session.throttle_503,
-        "other_503": session.other_503,
-        "write_attempts": session.write_attempts,
-        "contention_unresolved": session.contention_unresolved,
-        "throttle_unresolved": session.throttle_unresolved,
-    }
-    summary = tier_summary(
-        session.samples, session.errors, elapsed_ms, counters, estimate, session.tier_reads)
-    report = {"stopped": stopped, "summary": summary, "estimate": estimate}
-    if message:
-        report["message"] = message
-    return report
 
 
 def _device(prefix, index):

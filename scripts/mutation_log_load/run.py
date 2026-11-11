@@ -28,8 +28,8 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
                    load_partitions, refuse_prod_environment, unprocessed_ids)
-from plan import phases
-from stats import format_summary
+from plan import PRELIMINARY_LABEL, SCALE_LABEL, phases
+from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
 
@@ -149,6 +149,8 @@ def main(argv):
     parser = argparse.ArgumentParser(description="DEV mutation-log load")
     parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
     parser.add_argument("--level", choices=("5", "20", "100", "trim", "all"))
+    parser.add_argument("--scale", action="store_true",
+                        help="3-minute 100-writer tier, for the bounded-read re-run")
     parser.add_argument("--confirm-deployed", required=True)
     parser.add_argument("--ledger", required=True)
     parser.add_argument("--summary", required=True)
@@ -166,7 +168,7 @@ def main(argv):
         cleanup(table, database_id, ledger)
         text = format_estimate(ledger.snapshot())
         if summary_path.is_file():
-            text += "\n" + format_summary(json.loads(summary_path.read_text(encoding="utf-8")))
+            text += "\n" + render_summaries(json.loads(summary_path.read_text(encoding="utf-8")))
         print(text)
         return 0
     key = NodeKey.generate()
@@ -178,10 +180,13 @@ def main(argv):
 
     session = Session(database_id, ident, key.public.hex(), transport, ledger,
                       lambda: time.time_ns() // 1_000_000)
+    label = SCALE_LABEL if args.scale else PRELIMINARY_LABEL
+    print(label)
     try:
-        for spec in phases(args.level):
+        for spec in phases(args.level, args.scale):
             report = drive(spec, session)
             reports.append(report)
+            report["summary"]["run"] = label
             print("tier {0} writers={1}".format(spec.kind, spec.writers))
             print(format_summary(report["summary"]))
             if report.get("message"):
@@ -191,7 +196,7 @@ def main(argv):
     finally:
         Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")
         if reports:
-            summary_path.write_text(json.dumps(reports[-1]["summary"]), encoding="utf-8")
+            write_summaries(summary_path, reports)
             print(format_estimate(ledger.snapshot()))
     return worst_exit(report["stopped"] for report in reports)
 

@@ -8,9 +8,12 @@ reads land, set ``FULL_PARTITION_LOAD`` false and ``load_reads`` charges
 the head row plus the submission query instead of the whole main partition.
 
 A mutating call is one ``TransactWriteItems``, charged at twice the
-on-demand write price. An append adds an entry row of 350 bytes plus 150
-bytes of item overhead. Cleanup Query and BatchWriteItem are counted on
-their own.
+on-demand write price. Appends and acks are charged ``SERVER_ATTEMPTS``
+loads and transactions, because #769 retries the load and the commit up
+to 3 times (mod.rs ``ATTEMPTS``). Head and list stay one load. An append
+adds an entry row of 350 bytes plus 150 bytes of item overhead once, not
+once per attempt. Cleanup Query and BatchWriteItem are counted on their
+own.
 
 Lambda duration is ``LAMBDA_MB / 1024`` GB for 100 ms at the published
 GB-second price. 128 is the Lambda default. The mutation-log function's
@@ -104,7 +107,7 @@ class Ledger:
             "cap_usd": self.cap_usd,
         }
 
-    def project(self, kind, nbytes=None, direct=False, grow=None):
+    def project(self, kind, nbytes=None, direct=False, grow=None, attempts=1):
         size = 0 if nbytes is None else nbytes
         reads = self.reads
         writes = self.write_units
@@ -117,9 +120,9 @@ class Ledger:
                 writes += max(1, (size + 1023) // 1024)
                 stored += size
         else:
-            reads += load_reads(partition, self.sub_bytes)
+            reads += load_reads(partition, self.sub_bytes) * attempts
             if kind == "write":
-                writes += MUTATING_WRITE_UNITS
+                writes += MUTATING_WRITE_UNITS * attempts
                 if grow is None:
                     grow = True
                 if grow:
@@ -128,9 +131,9 @@ class Ledger:
                     partition += growth
         return _money(self, reads, writes, stored, partition)
 
-    def charge(self, kind, nbytes=None, grow=None):
+    def charge(self, kind, nbytes=None, grow=None, attempts=1):
         with self._lock:
-            projected = self.project(kind, nbytes, direct=False, grow=grow)
+            projected = self.project(kind, nbytes, direct=False, grow=grow, attempts=attempts)
             if projected["total_usd"] >= self.cap_usd:
                 raise CapExceeded(projected)
             self._apply(projected)

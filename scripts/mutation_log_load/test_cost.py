@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import (
     CAP_USD, FULL_PARTITION_LOAD, PAGE_BYTES, READ_USD, WRITE_USD, CapExceeded,
-    Ledger, load_reads, stored_growth, MUTATING_WRITE_UNITS,
+    Ledger, MUTATING_WRITE_UNITS, load_reads, stored_growth,
 )
 from drive import DISABLED, LIST_LIMIT, Flight, Session, _pages, drive, run_writers
 from faults import EXIT_CAP, exit_code, scaling_finding
@@ -66,8 +66,10 @@ class MemoryLog:
         if path.endswith("/list"):
             if self.trimmed and parsed.get("after") == 0:
                 return 409, {
-                    "code": "predecessor_conflict", "field": "cursor",
+                    "code": "predecessor_conflict",
+                    "field": "mutation_log.cursor",
                     "snapshot_through": len(self.entries),
+                    "snapshot_ref": None,
                 }, 1
             after = parsed["after"]
             page = [item for item in self.entries if item["delivery_seq"] > after]
@@ -126,10 +128,10 @@ class CapAndRun(unittest.TestCase):
 
     def test_a_budget_stop_inside_a_writer_exits_2(self):
         class StopAfterCreate(Ledger):
-            def charge(self, kind, nbytes=None, grow=None):
+            def charge(self, kind, nbytes=None, grow=None, attempts=1):
                 if self.lambda_requests >= 1:
                     raise CapExceeded(self.estimate())
-                return super().charge(kind, nbytes, grow=grow)
+                return super().charge(kind, nbytes, grow=grow, attempts=attempts)
         report = drive(scenario("5"), self._session(MemoryLog(), StopAfterCreate()))
         self.assertEqual((report["stopped"], exit_code(report["stopped"])), ("cap", EXIT_CAP))
 

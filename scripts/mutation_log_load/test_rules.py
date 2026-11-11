@@ -1,6 +1,8 @@
 """Exit rules for a retried conflict and a query throttle."""
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -14,11 +16,17 @@ from guard import GuardError, database_id_for_run
 from logcheck import ack_holds
 from plan import Scenario, scenario
 from run import batch_retry, keep_going
+from stats import render_summaries, write_summaries
 from test_cost import CONFLICT, THROTTLED, CapAndRun, MemoryLog
 
 
 QUERY_THROTTLE = {"code": "retry_later", "field": "mutation_log.query.throttled"}
 PLAIN_QUERY = {"code": "retry_later", "field": "mutation_log.query"}
+
+
+class _ZeroDraw:
+    def randrange(self, _span):
+        return 0
 
 
 class AmendedExits(unittest.TestCase):
@@ -147,7 +155,7 @@ class AmendedExits(unittest.TestCase):
         self.assertEqual(session.contention_unresolved, 0)
         self.assertIn("contention retried", report["message"])
 
-    def test_unresolved_trim_appends_do_not_exit_3(self):
+    def test_zero_trim_appends_are_trim_not_exercised(self):
         def hook(path, _parsed, _log):
             if path.endswith("/append"):
                 return 503, CONFLICT, 1
@@ -156,10 +164,27 @@ class AmendedExits(unittest.TestCase):
         session = self._session(MemoryLog(hook))
         session.sleeper = lambda _delay: None
         report = drive(scenario("trim"), session)
-        self.assertEqual(report["stopped"], "error")
-        self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
-        self.assertGreater(report["summary"]["contention_unresolved"], 0)
-        self.assertFalse(any(path.endswith("/snapshot") or path.endswith("/trim") for path, _body in session.transport.seen))
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_SCALING)
+        self.assertEqual(report["message"], "trim not exercised")
+        self.assertEqual(report["summary"]["unresolved_appends"], 128)
+        self.assertFalse(any(
+            path.endswith("/snapshot") or path.endswith("/trim")
+            for path, _body in session.transport.seen))
+
+    def test_one_landed_trim_append_still_runs_trim(self):
+        def hook(path, parsed, _log):
+            if path.endswith("/append") and parsed["device_id"].endswith("-d0"):
+                return 503, CONFLICT, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        report = drive(scenario("trim"), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(report["summary"]["unresolved_appends"], 1)
+        self.assertIn("unresolved appends 1", report["message"])
+        self.assertTrue(any(path.endswith("/trim") for path, _body in session.transport.seen))
 
     def test_trim_through_below_128_stays_a_correctness_failure(self):
         def hook(path, _parsed, _log):
@@ -219,10 +244,10 @@ class AmendedExits(unittest.TestCase):
             return None
 
         class CapLater(Ledger):
-            def charge(self, kind, nbytes=None, grow=None):
+            def charge(self, kind, nbytes=None, grow=None, attempts=1):
                 if self.lambda_requests >= 2:
                     raise CapExceeded(self.estimate())
-                return super().charge(kind, nbytes, grow=grow)
+                return super().charge(kind, nbytes, grow=grow, attempts=attempts)
 
         session = self._session(MemoryLog(hook), ledger=CapLater())
         session.sleeper = lambda _delay: None
@@ -270,9 +295,11 @@ class AmendedExits(unittest.TestCase):
         session.accepted["full5-d0"] = set(range(1, 129))
         session.sleeper = lambda _delay: None
         report = drive(scenario("trim"), session)
-        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(report["message"], "trim not exercised")
         self.assertEqual(trim_appends(session), 0)
         self.assertGreaterEqual(session.audit_cursor, 128)
+        self.assertFalse(any(path.endswith("/trim") for path, _body in session.transport.seen))
 
     def test_cleanup_retries_unprocessed_writes_with_backoff(self):
         delays = []
@@ -283,6 +310,70 @@ class AmendedExits(unittest.TestCase):
         self.assertGreater(delays[0], 0)
         with self.assertRaises(GuardError):
             batch_retry(misses, delays.append, lambda span: 0)
+
+    def test_a_read_throttle_during_logcheck_is_reread_after_the_drain(self):
+        state = {"heads": 0}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/head"):
+                state["heads"] += 1
+                if 2 <= state["heads"] <= 9:
+                    return 503, QUERY_THROTTLE, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        delays = []
+        session.sleeper = delays.append
+        session.rng = _ZeroDraw()
+        report = drive(Scenario("full", 1, None, False), session)
+        self.assertNotEqual(report["stopped"], "error")
+        self.assertTrue(report["summary"]["logcheck_recheck"])
+        self.assertGreater(delays[-1], delays[0])
+        self.assertGreaterEqual(delays[-1], 0.2)
+
+    def test_a_read_throttle_that_survives_the_quiet_recheck_is_exit_1(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/head"):
+                return 503, QUERY_THROTTLE, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        report = drive(Scenario("full", 1, None, False), session)
+        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
+        self.assertTrue(report["summary"]["logcheck_recheck"])
+
+    def test_an_exhausted_snapshot_rereads_before_exit_3(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/snapshot"):
+                return 503, CONFLICT, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        report = drive(scenario("trim"), session)
+        seen = [path for path, _body in session.transport.seen]
+        snap = seen.index(next(path for path in seen if path.endswith("/snapshot")))
+        self.assertTrue(any(path.endswith("/head") for path in seen[snap:]))
+        self.assertEqual(report["stopped"], "scaling")
+
+    def test_the_summary_file_keeps_every_tier(self):
+        reports = [
+            {"summary": {"run": "preliminary correctness-and-contention run",
+                         "p50_ms": 1, "p95_ms": 1, "p99_ms": 1, "errors": 0,
+                         "throughput_per_s": 1}},
+            {"summary": {"run": "preliminary correctness-and-contention run",
+                         "p50_ms": 2, "p95_ms": 2, "p99_ms": 2, "errors": 0,
+                         "throughput_per_s": 2}},
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "summary.json"
+            write_summaries(path, reports)
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(len(saved), 2)
+        text = render_summaries(saved)
+        self.assertEqual(text.count("preliminary correctness-and-contention run"), 2)
 
     def test_ack_holds_rejects_a_partial_row_and_a_lost_delivery(self):
         entry = {"delivery_seq": 1, "writer_device": "d", "writer_seq": 1}

@@ -12,9 +12,12 @@ from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, STREAM_ID, GuardError,
                    allow_endpoint, allow_partition, allow_region, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   load_partitions, snap_partition, sub_partition, unprocessed_ids)
-from plan import STEADY_MS, TRIM_WRITERS, scenario, still_running
-from routes import PAYLOAD, path_for, prove_trimmed_list, request_body, require_trim
+                   load_partitions, snap_manifest_key, snap_part_key, snap_partition,
+                   submission_key, sub_partition, unprocessed_ids)
+from plan import (PRELIMINARY_LABEL, PRELIMINARY_ROUNDS, SCALE_LABEL, STEADY_MS,
+                  TRIM_WRITERS, scenario, still_running)
+from routes import (PAYLOAD, path_for, prove_trimmed_list, request_body, require_head,
+                    require_list, require_trim)
 
 
 DEV = "https://dev.example.test"
@@ -101,12 +104,14 @@ class TargetGuard(unittest.TestCase):
             require_trim({"through": "0", "snapshot_due": False})
         with self.assertRaises(Exception):
             require_trim({"through": "4", "dropped": "4"})
-        prove_trimmed_list(4, 409, {
-            "code": "predecessor_conflict", "field": "cursor", "snapshot_through": "4",
-        })
         with self.assertRaises(Exception):
             prove_trimmed_list(4, 409, {
-                "code": "identity_conflict", "field": "cursor", "snapshot_through": "4",
+                "code": "predecessor_conflict", "field": "cursor", "snapshot_through": "4",
+            })
+        with self.assertRaises(Exception):
+            prove_trimmed_list(4, 409, {
+                "code": "identity_conflict", "field": "mutation_log.cursor",
+                "snapshot_through": "4", "snapshot_ref": None,
             })
         entry = {
             "delivery_seq": "5", "accepted_at_ms": "1", "writer_key": "k",
@@ -131,15 +136,57 @@ class TargetGuard(unittest.TestCase):
                              {"database_id": database})
         prove_trimmed_list(4, 409, {
             "code": "predecessor_conflict", "field": "mutation_log.cursor",
-            "snapshot_through": "4",
+            "snapshot_through": "4", "snapshot_ref": None,
+        })
+        prove_trimmed_list(4, 409, {
+            "code": "predecessor_conflict", "field": "mutation_log.cursor",
+            "snapshot_through": 4,
+            "snapshot_ref": {
+                "through_delivery_seq": 4, "at_ms": 9, "snapshot_ref": "s",
+            },
         })
         self.assertNotIn("dropped", json.dumps(created))
         steady = scenario("100")
         self.assertEqual(steady.writers, 100)
-        self.assertEqual(steady.steady_ms, STEADY_MS)
-        self.assertTrue(still_running(steady, STEADY_MS - 1))
-        self.assertFalse(still_running(steady, STEADY_MS))
+        self.assertEqual(steady.steady_rounds, PRELIMINARY_ROUNDS)
+        self.assertEqual(PRELIMINARY_ROUNDS, 38)
+        self.assertIsNone(steady.steady_ms)
+        self.assertTrue(still_running(steady, 0, 37))
+        self.assertFalse(still_running(steady, 0, 38))
+        scale = scenario("100", scale=True)
+        self.assertIsNone(scale.steady_rounds)
+        self.assertEqual(scale.steady_ms, STEADY_MS)
+        self.assertTrue(still_running(scale, STEADY_MS - 1, 1000))
+        self.assertFalse(still_running(scale, STEADY_MS, 0))
         self.assertTrue(still_running(scenario("5"), STEADY_MS * 10))
+        self.assertEqual(PRELIMINARY_LABEL, "preliminary correctness-and-contention run")
+        self.assertNotEqual(SCALE_LABEL, PRELIMINARY_LABEL)
+
+    def test_submission_and_snapshot_keys_match_769(self):
+        database = database_id_for_run("17")
+        self.assertEqual(load_partitions(database),
+                         (database, database + "#snap", database + "#sub"))
+        key = submission_key("owner-key", "phone", 7)
+        self.assertEqual(key, "sub#owner-key#phone#" + format(7, "020d"))
+        self.assertEqual(snap_manifest_key("s"), "snap#s")
+        self.assertEqual(snap_part_key("s", 3), "snap#s#000003")
+        for bad in (("#", "phone", 1), ("owner", "ph#one", 1)):
+            with self.assertRaises(GuardError):
+                submission_key(*bad)
+        head = require_head({
+            "cursor": 3, "authored_at_ms": 5, "writer_key": "owner-key",
+            "writer_device": "phone", "sequence": 1,
+        })
+        self.assertEqual(head, 3)
+        entry = {
+            "delivery_seq": 1, "accepted_at_ms": 1, "writer_key": "owner-key",
+            "writer_device": "phone", "writer_seq": 1, "authored_at_ms": 5,
+            "namespace": "load", "payload": "bG9hZA",
+            "incorporated_from": {
+                "writer_key": "owner-key", "writer_device": "phone", "writer_seq": 1,
+            },
+        }
+        self.assertEqual(require_list({"entries": [entry], "next": 1})["next"], 1)
 
 
 if __name__ == "__main__":

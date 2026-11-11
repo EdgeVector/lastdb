@@ -15,8 +15,9 @@ including ``through`` below 128, a head cursor below 128, or fewer than
 
 A throttle 503 is the same code with field
 ``mutation_log.transaction.throttled``,
-``mutation_log.submission.throttled``, or ``mutation_log.query.throttled``.
-A retry that succeeds is exit 3. Plain ``mutation_log.query`` stays exit 1.
+``mutation_log.submission.throttled``, ``mutation_log.query.throttled``,
+or ``mutation_log.snapshot.throttled``. A retry that succeeds is exit 3.
+Plain ``mutation_log.query`` and plain ``mutation_log.snapshot`` stay exit 1.
 ``RetryLater`` is ``ErrorCode`` in ``cloud_backup_protocol/src/error.rs``
 (lines 42-43). ``rename_all = "snake_case"`` (line 5) makes the wire code
 ``retry_later``. ``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown``
@@ -25,6 +26,16 @@ and stops the run. ``ProtocolError`` serializes as ``{"code", "field"}``
 
 Exit codes: 0 complete, 1 correctness, 2 the $6 cap, 3 a capacity finding.
 Exit 1 wins over 3, and 3 wins over 2.
+
+Client retries: 8 attempts. After each retryable failure the wait is
+``base = min(2000, 50 * 2^(attempt-1))`` milliseconds, jittered from
+``base/2`` through ``base``. A read throttle that is still failing after
+those attempts during logcheck does not fail the tier yet. Writers have
+already stopped. The harness waits one quiet interval, then reads the log
+again. That recheck uses the same 8 attempts with a longer wait:
+``base = min(8000, 400 * 2^(attempt-1))`` milliseconds, jittered the same
+way. The tier is exit 1 only when that quiet recheck still cannot verify
+the log.
 """
 
 CONTENTION_CODE = "retry_later"
@@ -37,6 +48,8 @@ THROTTLE_FIELDS = frozenset((
 ))
 CONTENTION_RATE = 0.01
 MAX_CONTENTION_TRIES = 8
+QUIET_BASE_MS = 400
+QUIET_CAP_MS = 8000
 EXIT_OK = 0
 EXIT_CORRECTNESS = 1
 EXIT_CAP = 2
@@ -55,10 +68,6 @@ def is_contention(status, payload):
 
 class RetriesExhausted(Exception):
     """A conflict or throttle used every client retry and still failed."""
-
-
-class UnresolvedContention(RetriesExhausted):
-    """A conflicted write used every client retry and still failed."""
 
 
 def is_throttle(status, payload):
@@ -91,7 +100,15 @@ def already_created(operation, status, payload):
 
 def backoff_seconds(tries, draw):
     """Bounded jittered delay. ``tries`` starts at 1. ``draw(n)`` is in ``0..n-1``."""
-    base = min(2000, 50 * (2 ** (tries - 1)))
+    return _jitter(min(2000, 50 * (2 ** (tries - 1))), draw)
+
+
+def quiet_backoff_seconds(tries, draw):
+    """Longer delay for the read-only logcheck that runs after writers stop."""
+    return _jitter(min(QUIET_CAP_MS, QUIET_BASE_MS * (2 ** (tries - 1))), draw)
+
+
+def _jitter(base, draw):
     low = base // 2
     return (low + draw(base - low + 1)) / 1000.0
 

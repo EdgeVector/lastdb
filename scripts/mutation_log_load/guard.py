@@ -109,6 +109,34 @@ def sub_partition(database_id):
     return allow_stream(database_id) + "#sub"
 
 
+def _record_label(value):
+    if not isinstance(value, str) or not value or "#" in value or len(value) > 128:
+        raise GuardError("record")
+    return value
+
+
+def submission_key(node, device, writer_seq):
+    """Sort key on ``{id}#sub``: ``sub#{node}#{device}#{writer_seq:020}``."""
+    _record_label(node)
+    _record_label(device)
+    if isinstance(writer_seq, bool) or not isinstance(writer_seq, int) or writer_seq < 0:
+        raise GuardError("record")
+    return "sub#{0}#{1}#{2:020d}".format(node, device, writer_seq)
+
+
+def snap_manifest_key(reference):
+    """Manifest sort key on ``{id}#snap``: ``snap#{reference}``."""
+    return "snap#" + _record_label(reference)
+
+
+def snap_part_key(reference, index):
+    """Chunk sort key on ``{id}#snap``: ``snap#{reference}#{index:06}``."""
+    _record_label(reference)
+    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 999999:
+        raise GuardError("record")
+    return "snap#{0}#{1:06d}".format(reference, index)
+
+
 def load_partitions(database_id):
     """The load id, its snapshot partition, and its submission partition."""
     base = allow_stream(database_id)

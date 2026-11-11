@@ -1,5 +1,7 @@
 """Latency percentiles and throughput for one load run."""
 
+import json
+
 from faults import scaling_finding
 
 
@@ -39,6 +41,8 @@ def tier_summary(samples, errors, elapsed_ms, counters, estimate, tier_reads):
         "throttle_rate": (counters["throttle_503"] / attempts) if attempts else 0,
         "contention_unresolved": counters.get("contention_unresolved", 0),
         "throttle_unresolved": counters.get("throttle_unresolved", 0),
+        "unresolved_appends": counters.get("unresolved_appends", 0),
+        "logcheck_recheck": bool(counters.get("logcheck_recheck", False)),
         "partition_bytes": estimate["partition_bytes"],
         "reads": estimate["reads"] - tier_reads,
     })
@@ -61,24 +65,43 @@ def finding_message(throttles, kind, contention, attempts, unresolved=0, throttl
 
 
 def format_summary(summary):
-    lines = [
+    lines = []
+    if summary.get("run"):
+        lines.append("  run: {run}".format(**summary))
+    lines.extend([
         "  latency_ms p50={p50_ms:.1f} p95={p95_ms:.1f} p99={p99_ms:.1f}".format(**summary),
         "  errors: {errors}".format(**summary),
         "  throughput: {throughput_per_s:.2f} req/s".format(**summary),
-    ]
+    ])
     if "contention_503" in summary:
+        filled = dict(summary)
+        filled.setdefault("unresolved_appends", 0)
+        filled.setdefault("logcheck_recheck", False)
         lines.append(
             "  503 contention={contention_503} rate={contention_rate:.4f} "
             "throttle={throttle_503} throttle_rate={throttle_rate:.4f} "
             "other={other_503} unresolved={contention_unresolved} "
             "throttle_unresolved={throttle_unresolved} "
-            "writes={write_attempts}".format(**summary)
+            "unresolved_appends={unresolved_appends} "
+            "logcheck_recheck={logcheck_recheck} "
+            "writes={write_attempts}".format(**filled)
         )
     if "partition_bytes" in summary:
         lines.append(
             "  modeled partition_bytes={partition_bytes} modeled reads={reads}".format(**summary)
         )
     return "\n".join(lines)
+
+
+def write_summaries(path, reports):
+    """Every tier, not only the last one."""
+    payload = [item["summary"] for item in reports]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def render_summaries(payload):
+    rows = payload if isinstance(payload, list) else [payload]
+    return "\n".join(format_summary(item) for item in rows)
 
 
 def combine_exit(load_status, cleanup_status):
