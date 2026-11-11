@@ -1,41 +1,80 @@
-//! `LastDBNode` authorization for one mutation-log body.
+//! `LastDBNode` authorization for one canonical POST.
 //!
 //! H verifies [`NodeReadToken::digest`] of the exact HTTP body. The token JSON
-//! includes `database_id`. E's private token omits that field, so H treats it
-//! as a legacy proof. Cutover calls this helper. It is the same in `dev` and
-//! in `prod`.
+//! includes `database_id`. E's data-route token omits that field, so H treats
+//! it as a legacy proof. Create, cutover, access, and the member-list read use
+//! this helper. Data routes do not. Dev and prod use the same helper.
 
 use base64::Engine as _;
 use cloud_backup_protocol::v2::share_access::{
-    NodeReadToken, ShareEnvironment, ShareHttpMethod, SHARE_NODE_AUTHORIZATION_SCHEME,
+    NodeReadToken, ShareEnvironment, ShareHttpMethod, MUTATION_LOG_ACCESS_PATH,
+    MUTATION_LOG_CREATE_DATABASE_PATH, MUTATION_LOG_CUTOVER_PATH, SHARE_MEMBER_LIST_READ_PATH,
+    SHARE_NODE_AUTHORIZATION_SCHEME,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Id, Text};
 use fold_db::security::Ed25519KeyPair;
 use rand::RngCore;
 
+/// Canonical POST. The path is the shared constant for that route.
+///
+/// Append, head, list, ack, snapshot, snapshot bytes, and trim are data
+/// routes. They stay on E's signer until that signer accepts this token.
+/// The member-list update is not here: it signs [`cloud_backup_protocol::v2::share_access::MemberListUpdate`],
+/// not this header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CanonicalPost {
+    /// Fresh database create.
+    CreateDatabase,
+    /// One existing database.
+    Cutover,
+    /// Open, native, or committed state.
+    Access,
+    /// Publisher member-list read.
+    MemberRead,
+}
+
+impl CanonicalPost {
+    /// Raw path, including `/api`.
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::CreateDatabase => MUTATION_LOG_CREATE_DATABASE_PATH,
+            Self::Cutover => MUTATION_LOG_CUTOVER_PATH,
+            Self::Access => MUTATION_LOG_ACCESS_PATH,
+            Self::MemberRead => SHARE_MEMBER_LIST_READ_PATH,
+        }
+    }
+}
+
+/// Account, database, realm, and route of one signed POST.
+///
+/// [`authorization`] still takes the raw body, the clock, the signing key,
+/// and the grant revision. Those values are not fields of this target.
+#[derive(Clone, Copy)]
+pub struct SignedPostTarget<'a> {
+    /// Account scope from the saved connection.
+    pub scope: &'a CloudScope,
+    /// Database id. The token sets `stream.stream_id` to this same id.
+    pub database_id: &'a Id,
+    /// Saved connection realm.
+    pub environment: ShareEnvironment,
+    /// Canonical route. [`CanonicalPost::path`] is the path in the token.
+    pub route: CanonicalPost,
+}
+
 /// Authorization header value for one POST. A new nonce is used every call.
 ///
-/// `body` is the exact octets that will be sent. `path` includes `/api`.
+/// `body` is the exact octets that will be sent. `now_ms` is the clock.
+/// `member_revision` is the grant revision in the token.
 pub fn authorization(
     keypair: &Ed25519KeyPair,
-    scope: &CloudScope,
-    database_id: &Id,
-    environment: ShareEnvironment,
-    path: &str,
+    target: SignedPostTarget<'_>,
     body: &[u8],
     member_revision: u64,
     now_ms: u64,
 ) -> Result<String, String> {
-    let token = token(
-        keypair,
-        scope,
-        database_id,
-        environment,
-        path,
-        member_revision,
-        now_ms,
-    )?;
+    let token = token(keypair, target, member_revision, now_ms)?;
     let digest = token
         .digest(body)
         .map_err(|_| "node read digest was refused")?;
@@ -51,10 +90,7 @@ pub fn authorization(
 
 fn token(
     keypair: &Ed25519KeyPair,
-    scope: &CloudScope,
-    database_id: &Id,
-    environment: ShareEnvironment,
-    path: &str,
+    target: SignedPostTarget<'_>,
     member_revision: u64,
     now_ms: u64,
 ) -> Result<NodeReadToken, String> {
@@ -67,14 +103,15 @@ fn token(
         .map_err(|_| "node key was refused")?;
     Ok(NodeReadToken {
         version: Version::V2,
-        environment,
-        database_id: database_id.clone(),
+        environment: target.environment,
+        database_id: target.database_id.clone(),
         stream: Stream {
-            scope: scope.clone(),
-            stream_id: database_id.clone(),
+            scope: target.scope.clone(),
+            stream_id: target.database_id.clone(),
         },
         method: ShareHttpMethod::Post,
-        path: Text::try_from(String::from(path)).map_err(|_| "node read path was refused")?,
+        path: Text::try_from(String::from(target.route.path()))
+            .map_err(|_| "node read path was refused")?,
         issued_at_ms: DecimalU64::new(now_ms),
         nonce: Text::try_from(fold_db::hex::hex_lower(nonce_bytes))
             .map_err(|_| "node read nonce was refused")?,

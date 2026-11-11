@@ -65,10 +65,12 @@ pub async fn post(home: &Path, submit: &CutoverSubmit) -> Result<CutoverReceipt,
     let body = canonical_bytes(&receipt).map_err(|_| "cutover receipt was refused".to_owned())?;
     let header = crate::node_read::authorization(
         &keypair,
-        &scope,
-        &receipt.database_id,
-        saved.environment,
-        MUTATION_LOG_CUTOVER_PATH,
+        crate::node_read::SignedPostTarget {
+            scope: &scope,
+            database_id: &receipt.database_id,
+            environment: saved.environment,
+            route: crate::node_read::CanonicalPost::Cutover,
+        },
         &body,
         submit.grant_revision,
         fold_db::clock::unix_millis(),
@@ -129,7 +131,7 @@ fn load_keypair(home: &Path) -> Result<Ed25519KeyPair, String> {
     if !metadata.file_type().is_file() {
         return Err("node identity must be a regular file".into());
     }
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(&path)

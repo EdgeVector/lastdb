@@ -131,7 +131,9 @@ The body is canonical JSON of `CutoverReceipt`: `state` `committed`, `version` `
 
 `database_id` on the wire is D's `Id`: a 36-character lowercase UUID, not all zeros. The evidence checker still accepts the wider selector alphabet. `request` refuses an id that is not an `Id`.
 
-The node signs the exact body bytes with `lastdb_node::node_read::authorization`. That helper builds `NodeReadToken`, including `database_id`, and signs the lowercase hex of `NodeReadToken::digest(body)`. The header is `LastDBNode`, then a space, then base64url of the token JSON, a dot, and base64url of the 64-byte signature. Each call uses a new nonce. The same helper is used in both realms. The realm comes from the saved connection.
+The node signs the exact body bytes with `lastdb_node::node_read::authorization`. The account, database, realm, and route travel as `SignedPostTarget`. Cutover uses `CanonicalPost::Cutover`, whose path is `MUTATION_LOG_CUTOVER_PATH`. The same helper also covers create (`CanonicalPost::CreateDatabase`), access (`CanonicalPost::Access`), and the publisher member-list read (`CanonicalPost::MemberRead`). E and E4 call this helper for those posts. They do not build a second `NodeReadToken` header. Data routes stay on E's signer until that signer accepts this token. The member-list update does not use this header.
+
+The helper builds `NodeReadToken`, including `database_id`, and signs the lowercase hex of `NodeReadToken::digest(body)`. The header is `LastDBNode`, then a space, then base64url of the token JSON, a dot, and base64url of the 64-byte signature. Each call uses a new nonce. The raw body, the clock, the signing key, and the grant revision stay arguments. The realm comes from the saved connection. Dev and prod use this same call.
 
 The account scope comes from `byte_cloud_backup::client_from_home`. That function reads the saved recovery credentials and does not enroll backup or enable automatic backup. Its context read still sends `X-API-Key`. The cutover POST does not. It sends `Authorization` only. The signer must be the evidence authority: the personal owner or the shareable publisher node key already in `identity.key`.
 
@@ -143,7 +145,7 @@ A repeated call sends the same receipt bytes and a new nonce. `authorize_legacy_
 
 The client sends the canonical request anyway. Three current trees do not complete the first store:
 
-- E's `lastdb_node::log_sync::sign::authorization` is the data-route header. Its token has no `database_id` field, and its digest omits `database_id` and `environment`. H treats a token without `database_id` as a legacy proof. Cutover calls `node_read::authorization`. E should call that helper for this POST only. E's data-route signer stays until G accepts `NodeReadToken`.
+- E's `lastdb_node::log_sync::sign::authorization` is the data-route header. Its token has no `database_id` field, and its digest omits `database_id` and `environment`. H treats a token without `database_id` as a legacy proof. Create, cutover, and access call `node_read::authorization` with `SignedPostTarget`. E4's member-list read uses `CanonicalPost::MemberRead` on that same helper. E's data-route signer stays until G accepts `NodeReadToken`.
 - G's mutation-log match does not include `cutover`. A POST to the canonical path is `http.route` / not found. `commit_cutover_receipt` is present and unused by that match. G's `TokenBody` is `deny_unknown_fields` and has no `database_id`, so it rejects this header on the data routes.
 - I dispatches `mutation-log/delivery/signed-only`, not `mutation-log/cutover`. `signed-only` parses the receipt fields. `Open` returns `mutation_log.cutover` integrity mismatch and does not call `authorize_legacy_cutover` or `commit_cutover_receipt`. The first store cannot succeed there. An equal stored receipt is echoed. `Native` is `share.cutover.native`.
 
