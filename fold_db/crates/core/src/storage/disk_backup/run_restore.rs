@@ -3,27 +3,28 @@
 //! A personal backup carries the main home only. Restore installs an empty
 //! CAS home ([`install_empty_cas_home`]); record blobs are fetched from their
 //! cloud paths on request. A shared database backup still carries its CAS home.
+
+mod database;
 mod files;
 mod node;
-mod proof;
 mod record;
-mod replay;
-mod replay_seed;
 
 use super::byte_backup::RunBackupProfile;
-use crate::storage::disk_pack::run_node;
-use crate::storage::error::{NativeProofCause, NativeProofStage as Stage};
-use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::disk_backup::mutation_log::{Frontiers, LogAnchor, LogEntry, LogPosition};
+use crate::storage::disk_pack::{run_node, NODE_MARKER, RUN_DIR};
+use crate::storage::error::{
+    NativeProofCause, NativeProofStage as Stage, StorageError, StorageResult,
+};
 use cloud_backup_protocol::NativeRoot;
-use laststore::disk_run::home::{ReadBudget, RunRead};
+use laststore::disk_run::home::{ReadBudget, RunHome, RunRead, RUNS};
+use std::fs::{DirBuilder, File, OpenOptions};
+use std::io::{self, Read};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
+pub use database::{SnapshotRecordPage, SnapshotSchema};
 pub use node::{validate_replayed_shared_node, validate_restored_node, RunNodeGuard};
-pub use record::{
-    RunSnapshotReader, SnapshotAlternatePage, SnapshotRecordPage, SnapshotSchema, StagedRecord,
-    StagedRecordQuery,
-};
-pub use replay::{verify_replayed, MutationReplay};
+pub use record::{RunSnapshotReader, SnapshotAlternatePage, StagedRecord, StagedRecordQuery};
 
 pub struct RunRestoreFile {
     pub path: String,
@@ -40,6 +41,7 @@ impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
+
     /// The number of record files that the proof opened and checked against
     /// their markers.
     pub fn verified_records(&self) -> u64 {
@@ -102,11 +104,15 @@ pub fn verify(
 
 pub(crate) fn verify_readers_for_profile(
     main: &RunRead,
-    cas: Option<&RunRead>,
+    _cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
 ) -> StorageResult<u64> {
-    proof::verify(main, cas, account_key, version)
+    phase(
+        Stage::Account,
+        node::verify_account(main, account_key, version),
+    )?;
+    Ok(0)
 }
 
 /// Create the empty local CAS home of a restored personal node, after its
@@ -117,26 +123,192 @@ pub fn install_empty_cas_home(data_root: &Path, account_key: &[u8; 32]) -> Stora
     if path.try_exists()? {
         return Ok(());
     }
-    let home = laststore::disk_run::home::RunHome::create(&path, &run_node::cas_key(account_key))
-        .map_err(map)?;
+    let home = RunHome::create(&path, &run_node::cas_key(account_key)).map_err(map)?;
     drop(home);
-    std::fs::File::open(data_root)?.sync_all()?;
+    File::open(data_root)?.sync_all()?;
     Ok(())
 }
 
-fn invalid(message: &'static str) -> StorageError {
+/// Replays main-home log parts. The CAS home is not logged and stays empty.
+pub struct MutationReplay {
+    main: RunHome,
+    _node: File,
+}
+
+impl MutationReplay {
+    pub fn open(data: &Path, key: &[u8; 32], anchor: &LogAnchor) -> StorageResult<Self> {
+        files::directory(data)?;
+        files::require_root_members(data, false)?;
+        files::node_marker(data)?;
+        let node = files::regular(&data.join(NODE_MARKER), true)?;
+        node.try_lock()
+            .map_err(|_| invalid("mutation replay node is owned"))?;
+        let main =
+            RunHome::open(&data.join(run_node::RUN_DIR), &run_node::home_key(key)).map_err(map)?;
+        if main.identity().to_string() != anchor.main_home.as_str() {
+            return Err(invalid("mutation replay native home identity"));
+        }
+        Ok(Self { main, _node: node })
+    }
+
+    pub fn frontiers(&self) -> Frontiers {
+        Frontiers {
+            main: self.main.current_root().frontier(),
+        }
+    }
+
+    /// Only after the caller durably advances beyond every part in a checkpoint.
+    /// Physical native compaction bounds replay files without changing frontiers.
+    pub fn settle(&self) -> StorageResult<()> {
+        let before = self.frontiers();
+        while self.main.merge_step().map_err(map)? {}
+        if self.frontiers() != before {
+            return Err(invalid("mutation replay compaction changed frontier"));
+        }
+        Ok(())
+    }
+
+    /// A durable caller cursor precedes the next part. An exact repeated part is allowed.
+    pub fn part(&self, entry: &LogEntry, part_index: usize, source: &Path) -> StorageResult<()> {
+        let part = entry
+            .parts
+            .get(part_index)
+            .ok_or_else(|| invalid("mutation replay part number"))?;
+        let mut before = entry.before;
+        for old in &entry.parts[..part_index] {
+            before.main = old.frontier;
+        }
+        let mut after = before;
+        after.main = part.frontier;
+        let current = self.frontiers();
+        if current != before && current != after {
+            return Err(invalid("mutation replay exact partial frontier"));
+        }
+        let applied = self
+            .main
+            .replay_commit_file(source, before.main, part.frontier)
+            .map_err(map)?;
+        if applied.run_id.to_string() != part.run_id.as_str()
+            || applied.run_bytes != part.bytes
+            || self.frontiers() != after
+        {
+            return Err(invalid("mutation replay original run identity or length"));
+        }
+        Ok(())
+    }
+}
+
+pub fn verify_replayed(
+    data: &Path,
+    anchor: &LogAnchor,
+    through: &LogPosition,
+    key: &[u8; 32],
+) -> StorageResult<RunRestoreGuard> {
+    if through.epoch != anchor.epoch {
+        return Err(invalid("mutation replay epoch"));
+    }
+    let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(data, key))?;
+    if native.profile.main.home_id != anchor.main_home
+        || native.profile.main.frontier.get() != through.frontiers.main
+        || native.profile.cas.is_some()
+    {
+        return Err(invalid("mutation replay exact final frontier"));
+    }
+    native.require_empty_local_cas()?;
+    let records = verify_readers_for_profile(
+        &native.main,
+        native.backed_up_cas(),
+        key,
+        native.profile.version,
+    )?;
+    let guard = RunRestoreGuard { native, records };
+    phase(Stage::FinalBinding, guard.check_binding())?;
+    Ok(guard)
+}
+
+impl RunSnapshotReader {
+    /// Seed a fresh stage from the exact verified predecessor. Runtime locks
+    /// and the empty local CAS home are created separately by the caller.
+    pub fn seed_replay(
+        &self,
+        destination: &Path,
+        anchor: &LogAnchor,
+        position: &LogPosition,
+    ) -> StorageResult<()> {
+        let native = &self.0;
+        if native.profile.main.home_id != anchor.main_home
+            || native.profile.main.frontier.get() != position.frontiers.main
+            || position.epoch != anchor.epoch
+            || native.profile.cas.is_some()
+        {
+            return Err(invalid("cached mutation replay predecessor"));
+        }
+        native.check_binding()?;
+        files::directory(destination)?;
+        let bytes = native.files.iter().try_fold(0u64, |sum, file| {
+            sum.checked_add(file.bytes)
+                .ok_or_else(|| invalid("cached mutation replay bytes"))
+        })?;
+        let _space = laststore::space::reserve_space(
+            destination,
+            &laststore::space::SpacePolicy::default(),
+            bytes,
+        )
+        .map_err(map)?;
+        let main = destination.join(RUN_DIR);
+        let runs = main.join(RUNS);
+        for directory in [&main, &runs] {
+            DirBuilder::new().mode(0o700).create(directory)?;
+        }
+        for file in &native.files {
+            copy_replay_file(
+                &native.root.join(&file.path),
+                &destination.join(&file.path),
+                file.bytes,
+            )?;
+        }
+        for directory in [runs.as_path(), main.as_path(), destination] {
+            File::open(directory)?.sync_all()?;
+        }
+        native.check_binding()
+    }
+}
+
+fn copy_replay_file(source: &Path, destination: &Path, bytes: u64) -> StorageResult<()> {
+    let mut input = files::regular(source, false)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(destination)?;
+    let before = input.metadata()?;
+    let copied = io::copy(&mut (&mut input).take(bytes.saturating_add(1)), &mut output)?;
+    files::same_entry(&input, source)?;
+    let after = input.metadata()?;
+    if copied != bytes || before.len() != bytes || after.len() != bytes {
+        return Err(invalid("cached mutation replay file length"));
+    }
+    output.sync_all()?;
+    Ok(())
+}
+
+pub(in crate::storage::disk_backup::run_restore) fn invalid(message: &'static str) -> StorageError {
     StorageError::NativeProof {
         stage: Stage::Validation,
         cause: NativeProofCause::Static(message),
     }
 }
 
-fn phase<T>(stage: Stage, result: StorageResult<T>) -> StorageResult<T> {
+pub(in crate::storage::disk_backup::run_restore) fn phase<T>(
+    stage: Stage,
+    result: StorageResult<T>,
+) -> StorageResult<T> {
     result.map_err(|error| error.at_native_proof(stage))
 }
 
 /// Classify native reader types before the ordinary adapter flattens their text.
-fn map(error: laststore::Error) -> StorageError {
+pub(in crate::storage::disk_backup::run_restore) fn map(error: laststore::Error) -> StorageError {
     let cause = match error {
         laststore::Error::Corrupt(_) => NativeProofCause::NativeFormat,
         laststore::Error::AeadAuthFail => NativeProofCause::Authentication,
@@ -155,7 +327,7 @@ fn map(error: laststore::Error) -> StorageError {
 }
 
 /// Open the main run first. The cas run then uses the remaining memory budget.
-fn open_paired_runs(
+pub(in crate::storage::disk_backup::run_restore) fn open_paired_runs(
     root: &Path,
     key: &[u8; 32],
     shared: bool,
@@ -187,7 +359,7 @@ fn open_paired_runs(
 }
 
 /// Charge both readers with one shared byte count. The main reader is first.
-fn reserve_paired_metadata(
+pub(in crate::storage::disk_backup::run_restore) fn reserve_paired_metadata(
     main: &mut RunRead,
     cas: &mut RunRead,
     shared: u64,
@@ -196,7 +368,7 @@ fn reserve_paired_metadata(
     cas.reserve_metadata(shared).map_err(map)
 }
 
-fn read_budget() -> ReadBudget {
+pub(in crate::storage::disk_backup::run_restore) fn read_budget() -> ReadBudget {
     ReadBudget {
         pages: lastdb_model::storage_policy::backup_decode::RECORD_INVENTORY_PAGES,
         blocks: lastdb_model::storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,

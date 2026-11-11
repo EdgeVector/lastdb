@@ -1,20 +1,9 @@
 //! Product-owned definitions of the format 15 whole-record home.
 //!
-//! Creation,
-//! admission, namespace opening and native routing share these definitions.
-//! LastStore's internal run/block grammar remains owned by LastStore.
-//!
-//! The record writer composes the existing model codecs through typed inputs
-//! and an opaque batch. Domain providers have read-only views and typed
-//! writers, assembled once by bind. Raw child constructors stay inside this
-//! format; ordinary logical sources cannot open raw namespaces. LastStore
-//! keeps physical grammar and authenticated byte-copy/replay admission. No
-//! startup key census or runtime format registry is introduced.
+//! Creation, admission, namespace opening and native routing share these
+//! definitions. LastStore's internal run/block grammar remains owned by LastStore.
 
-pub(crate) mod bind;
-pub(crate) mod control;
 pub(crate) mod metadata;
-pub(crate) mod read;
 pub(crate) mod records;
 pub(crate) mod schemas;
 
@@ -43,7 +32,6 @@ pub(in crate::storage) const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
 pub(crate) const MAIN_NAMESPACE: &str = "main";
 pub(crate) const METADATA_NAMESPACE: &str = "metadata";
-// The model owns the author-clock wire type and its exact key definition.
 pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
@@ -66,19 +54,11 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
-/// Marks a record file row whose bytes are already in the cloud: the node
-/// downloaded it on request (design `design-lastdb-blob-files-on-demand-20261107`).
-/// The key is this prefix and the same suffix as the row's `fb:` key, in
-/// `cas_blobs`, written in the same batch as the row and removed with it. A row
-/// without this marker was created locally by a record write. A personal
-/// backup also writes it after the service accepts the job that uploaded
-/// the version.
+/// Marks a record file row whose bytes are already in the cloud.
 pub(crate) const RECORD_FILE_UPLOADED_PREFIX: &str = "fu:";
-/// A record file version this device created and has not uploaded yet: `fp:`
-/// plus the suffix of its `fb:` key. The next personal backup job uploads it.
+/// A record file version this device created and has not uploaded yet.
 pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
-/// A dropped record file version whose cloud object the next personal backup
-/// job releases: `fr:` plus the suffix of its `fb:` key.
+/// A dropped record file version whose cloud object the next personal backup releases.
 pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
@@ -104,5 +84,231 @@ pub(crate) const CONTENT_KEY_PROOF_KEY: &[u8] = b"__content_key_proof_v1";
 pub(in crate::storage) const CONTENT_KEY_PROOF_VALUE: &[u8] = b"lastdb-content-key-proof-v1";
 pub(in crate::storage) const CONTENT_KEY_PROOF_MAX_BYTES: u64 = 4096;
 
-// Compose the canonical model marker; do not define another wire literal.
 pub(in crate::storage) use lastdb_model::field_key_codec::KEY_FORMAT as CURRENT_KEY_FORMAT_VALUE;
+
+pub(crate) mod bind {
+    use crate::storage::disk_pack::{transaction, PackNamespacedStore, PackRuntime};
+    use crate::storage::error::StorageResult;
+    use crate::storage::format::{
+        metadata::Metadata, records::RecordFormat, schemas::SchemaFormat, MAIN_NAMESPACE,
+        METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    };
+    use std::sync::Arc;
+
+    pub(crate) struct BoundFormat {
+        pub(crate) runtime: Arc<PackRuntime>,
+        pub(crate) schemas: SchemaFormat,
+        pub(crate) records: RecordFormat,
+        pub(crate) metadata: Metadata,
+    }
+
+    pub(crate) async fn open(
+        store: PackNamespacedStore,
+        content_key: [u8; 32],
+    ) -> StorageResult<BoundFormat> {
+        let runtime = store.disk_pack_runtime();
+        let main = store.open_namespace(MAIN_NAMESPACE).await?;
+        let metadata = store.open_namespace(METADATA_NAMESPACE).await?;
+        let states = store.open_namespace(SCHEMA_STATES_NAMESPACE).await?;
+        let schemas = store.open_namespace(SCHEMAS_NAMESPACE).await?;
+        let schemas = SchemaFormat::new(schemas, states, Arc::clone(&runtime));
+        let metadata = Metadata::new(metadata, Arc::clone(&runtime));
+        let records = RecordFormat::new(
+            main,
+            store.clone(),
+            Arc::clone(&runtime),
+            content_key,
+            metadata.clone(),
+        );
+        transaction::scope(Arc::clone(&runtime), async {
+            records.require_current_key_format().await?;
+            crate::storage::content_key_proof::verify_stored(&store, &content_key).await?;
+            Ok::<_, crate::storage::StorageError>(())
+        })
+        .await?;
+        runtime.finish_fresh_initialization().await?;
+        Ok(BoundFormat {
+            schemas,
+            records,
+            metadata,
+            runtime,
+        })
+    }
+}
+
+pub(crate) mod control {
+    use crate::storage::error::StorageResult;
+    use crate::storage::format::REPLAY_CUTOFF_VERSION;
+    use crate::storage::StorageError;
+    use serde::{Deserialize, Serialize};
+
+    pub(crate) use crate::storage::format::{CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY};
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Cutoff {
+        pub(crate) v: u8,
+        pub(crate) minimum_written_at_nanos: u64,
+    }
+
+    pub(in crate::storage::format) fn invalid(text: impl std::fmt::Display) -> StorageError {
+        StorageError::InvalidOperation(format!("delete replay cutoff: {text}"))
+    }
+
+    pub(crate) fn validate_frozen_replay_floor(
+        marker: Option<&[u8]>,
+        cutoff: Option<&[u8]>,
+    ) -> StorageResult<u64> {
+        if !marker.is_some_and(lastdb_model::field_key_codec::current_key_format) {
+            return Err(invalid("the format marker is not the node format"));
+        }
+        let Some(bytes) = cutoff else {
+            return Ok(0);
+        };
+        let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
+        if floor.v != REPLAY_CUTOFF_VERSION || floor.minimum_written_at_nanos == 0 {
+            return Err(invalid("invalid floor record"));
+        }
+        Ok(floor.minimum_written_at_nanos)
+    }
+}
+
+pub(crate) mod read {
+    use crate::storage::disk_pack::PackKvStore;
+    use crate::storage::error::{StorageError, StorageResult};
+    use crate::storage::traits::YieldedScan;
+    use serde::de::DeserializeOwned;
+
+    #[derive(Clone)]
+    pub(crate) struct ReadStore {
+        store: PackKvStore,
+    }
+
+    impl ReadStore {
+        pub(in crate::storage::format) fn new(store: PackKvStore) -> Self {
+            Self { store }
+        }
+
+        fn decode_rows<T: DeserializeOwned>(
+            results: Vec<(Vec<u8>, Vec<u8>)>,
+        ) -> StorageResult<Vec<(String, T)>> {
+            let mut items = Vec::with_capacity(results.len());
+            for (key_bytes, value_bytes) in results {
+                let key = String::from_utf8_lossy(&key_bytes).into_owned();
+                let value = serde_json::from_slice(&value_bytes).map_err(|e| {
+                    StorageError::SerializationError(format!("Failed to deserialize {key}: {e}"))
+                })?;
+                items.push((key, value));
+            }
+            Ok(items)
+        }
+
+        pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
+            self.store.get(key).await
+        }
+
+        pub(crate) async fn get_many(
+            &self,
+            keys: Vec<Vec<u8>>,
+        ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+            self.store.get_many(keys).await
+        }
+
+        pub(crate) async fn scan_prefix(
+            &self,
+            prefix: &[u8],
+        ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+            self.store.scan_prefix(prefix).await
+        }
+
+        pub(crate) async fn scan_range_yielding(
+            &self,
+            start: &[u8],
+            end: &[u8],
+            limit: usize,
+            future_reads: usize,
+        ) -> StorageResult<YieldedScan> {
+            self.store
+                .scan_range_yielding(start, end, limit, future_reads)
+                .await
+        }
+
+        pub(crate) async fn scan_range_paged(
+            &self,
+            start: &[u8],
+            end: &[u8],
+            limit: usize,
+        ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+            self.store.scan_range_paged(start, end, limit).await
+        }
+
+        pub(crate) async fn get_item<T: DeserializeOwned + Send + Sync>(
+            &self,
+            key: &str,
+        ) -> StorageResult<Option<T>> {
+            let raw = self.store.get(key.as_bytes()).await?;
+            raw.map(|bytes| {
+                serde_json::from_slice(&bytes)
+                    .map_err(|error| StorageError::SerializationError(error.to_string()))
+            })
+            .transpose()
+        }
+
+        pub(crate) async fn get_items<T: DeserializeOwned + Send + Sync>(
+            &self,
+            keys: &[String],
+        ) -> StorageResult<Vec<Option<T>>> {
+            if keys.is_empty() {
+                return Ok(Vec::new());
+            }
+            let primary = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
+            let raw = self.store.get_many(primary).await?;
+            let mut out = Vec::with_capacity(keys.len());
+            for (key, bytes) in keys.iter().zip(raw) {
+                match bytes {
+                    Some(bytes) => {
+                        let item = serde_json::from_slice(&bytes).map_err(|e| {
+                            StorageError::SerializationError(format!(
+                                "Failed to deserialize {key}: {e}"
+                            ))
+                        })?;
+                        out.push(Some(item));
+                    }
+                    None => out.push(None),
+                }
+            }
+            Ok(out)
+        }
+
+        pub(crate) async fn list_keys_with_prefix(
+            &self,
+            prefix: &str,
+        ) -> StorageResult<Vec<String>> {
+            let rows = self.store.scan_prefix(prefix.as_bytes()).await?;
+            Ok(rows
+                .into_iter()
+                .map(|(k, _)| String::from_utf8_lossy(&k).into_owned())
+                .collect())
+        }
+
+        pub(crate) async fn scan_items_with_prefix<T: DeserializeOwned + Send + Sync>(
+            &self,
+            prefix: &str,
+        ) -> StorageResult<Vec<(String, T)>> {
+            let rows = self.store.scan_prefix(prefix.as_bytes()).await?;
+            Self::decode_rows(rows)
+        }
+
+        pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(
+            &self,
+            start: &str,
+            end: &str,
+            limit: usize,
+        ) -> StorageResult<Vec<(String, T)>> {
+            Self::decode_rows(
+                self.store
+                    .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
+                    .await?,
+            )
+        }
+    }
+}

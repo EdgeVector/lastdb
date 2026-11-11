@@ -3,30 +3,14 @@
 //!
 //! Each record file version (`fb:<suffix>` in `cas_blobs`) is one B2 object at
 //! a path derived from the record. Three marker families in `cas_blobs` share
-//! the same suffix:
-//!
-//! - `fp:` the version was created here and is not uploaded yet. A commit that
-//!   adds an `fb:` row without an `fu:` row adds it.
-//! - `fu:` the version is in the cloud: the service accepted the job that
-//!   uploaded it (or the version was downloaded from its path).
-//! - `fr:` the version was dropped: the next job releases its cloud object.
-//!   The CAS delete commit that retires the `fb:` row adds it, after the main
-//!   publication that dropped the version, so a crash cannot release a
-//!   version that a record still uses. A release for a path that was never
-//!   uploaded is harmless.
-//!
-//! Marker values are not read, only their presence, so they skip the
-//! storage envelope that the record format puts on file rows.
-//!
+//! the same suffix (`fp:` pending upload, `fu:` uploaded, `fr:` released).
 //! A shared database keeps its eager CAS backup and uses none of this.
 
 use super::super::traits::KvMutation;
 use super::physical::CAS_COLLECTION;
 use super::*;
-use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
 use crate::storage::format::{
-    METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
-    RELEASED_FILE_PREFIX,
+    PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX, RELEASED_FILE_PREFIX,
 };
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::Id;
@@ -93,7 +77,7 @@ fn marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
 
 /// A new `fb:` row without an `fu:` row in the same batch was created here:
 /// queue its upload. A download writes `fb:` and `fu:` together.
-pub(super) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
+pub(in crate::storage::disk_pack) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
     let mut queued = Vec::new();
     for op in cas.values().filter(|op| op.body.is_some()) {
         let Some(key) = raw(op) else { continue };
@@ -113,7 +97,9 @@ pub(super) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
 
 /// The CAS delete commit: each retired `fb:` row also loses its upload
 /// markers and queues a cloud release. Explicit operations of the batch win.
-pub(super) fn with_releases(deletes: Vec<HomeMutation>) -> Vec<HomeMutation> {
+pub(in crate::storage::disk_pack) fn with_releases(
+    deletes: Vec<HomeMutation>,
+) -> Vec<HomeMutation> {
     let mut out = BTreeMap::new();
     let mut derived = Vec::new();
     for op in deletes {
@@ -134,7 +120,9 @@ pub(super) fn with_releases(deletes: Vec<HomeMutation>) -> Vec<HomeMutation> {
 }
 
 impl PackRuntime {
-    fn blob_store(self: &Arc<Self>) -> StorageResult<PackKvStore> {
+    pub(in crate::storage::disk_pack) fn blob_store(
+        self: &Arc<Self>,
+    ) -> StorageResult<PackKvStore> {
         if self.physical.shared.is_some() {
             return Err(StorageError::InvalidOperation(
                 "a shared database backs up its CAS home, not blobs by path".into(),
@@ -144,32 +132,6 @@ impl PackRuntime {
             runtime: Arc::clone(self),
             namespace: CAS_COLLECTION.into(),
         })
-    }
-
-    /// A guest snapshot can carry inline files only. The main reference index
-    /// also detects a local-path or restored reference whose CAS bytes are absent.
-    pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
-        let metadata = PackKvStore {
-            runtime: Arc::clone(self),
-            namespace: METADATA_NAMESPACE.into(),
-        };
-        let cas = self.blob_store()?;
-        for (store, prefix) in [
-            (&metadata, FILE_REFERENCE_PREFIX),
-            (&cas, PENDING_UPLOAD_PREFIX),
-            (&cas, RECORD_FILE_UPLOADED_PREFIX),
-            (&cas, RELEASED_FILE_PREFIX),
-            (&cas, RECORD_FILE_PREFIX),
-        ] {
-            if !store
-                .scan_prefix_paged(prefix.as_bytes(), 1)
-                .await?
-                .is_empty()
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     /// Queue every local `fb:` row that has neither an `fu:` nor an `fp:` row.
@@ -218,8 +180,7 @@ impl PackRuntime {
     }
 
     /// Up to `limit` queued versions after the `fb:` key `after` that are not
-    /// in the cloud, in key order, with their paths under `database`. A queued
-    /// version that is already uploaded loses its stale `fp:` row.
+    /// in the cloud, in key order, with their paths under `database`.
     pub async fn pending_blob_uploads(
         self: &Arc<Self>,
         database: &Id,
@@ -275,9 +236,7 @@ impl PackRuntime {
         Ok(uploads)
     }
 
-    /// Up to `limit` queued releases (`fr:` keys) after the `fr:` key
-    /// `after`, in key order, with their paths. A caller pages through every
-    /// queued release by passing the last key it received.
+    /// Up to `limit` queued releases (`fr:` keys) after `after`, in key order.
     pub async fn pending_blob_releases(
         self: &Arc<Self>,
         database: &Id,
@@ -304,30 +263,7 @@ impl PackRuntime {
             .collect()
     }
 
-    /// Which of these `cas_blobs` marker keys are present. Markers carry no
-    /// storage envelope (the backup worker writes a bare marker), so presence
-    /// is read below the encrypting namespace, which would refuse to open
-    /// them. Any home: a shared home's downloaded rows carry `fu:` markers too.
-    pub(in crate::storage) async fn markers_present(
-        self: &Arc<Self>,
-        keys: Vec<Vec<u8>>,
-    ) -> StorageResult<Vec<bool>> {
-        let store = PackKvStore {
-            runtime: Arc::clone(self),
-            namespace: CAS_COLLECTION.into(),
-        };
-        let wanted = keys.len();
-        let present = store.get_many(keys).await?;
-        if present.len() != wanted {
-            return Err(StorageError::InvalidOperation(
-                "incomplete marker presence read".into(),
-            ));
-        }
-        Ok(present.iter().map(Option::is_some).collect())
-    }
-
-    /// The sealed row of one local record file version, or None when the
-    /// version is gone. A download installs exactly these bytes.
+    /// The sealed row of one local record file version, or None when gone.
     pub async fn record_blob_bytes(self: &Arc<Self>, key: &str) -> StorageResult<Option<Vec<u8>>> {
         if !key.starts_with(RECORD_FILE_PREFIX) {
             return Err(StorageError::InvalidOperation(
@@ -337,8 +273,7 @@ impl PackRuntime {
         self.blob_store()?.get(key.as_bytes()).await
     }
 
-    /// After the service accepted a job: its uploaded versions are in the
-    /// cloud and its releases are recorded. Repeating this is harmless.
+    /// Record uploaded versions and completed releases after a backup job.
     pub async fn blobs_accepted(
         self: &Arc<Self>,
         uploaded: &[String],

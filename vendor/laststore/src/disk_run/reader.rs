@@ -2,9 +2,9 @@
 
 use super::bloom::{key_hash, Filter};
 use super::codec::{corrupt, decode_block, BlockRecords};
-use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
-use super::range::{ReaderRef, RunRange};
-use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
+use super::footer::{get_refs, BlockRef, Footer, Top};
+use super::merge::{ReaderRef, RunRange};
+use super::{Found, INDEX_COUNTER_BASE};
 use crate::frame::{decode_frame_bounded, min_encoded_len, DecodeScratch, PreparedFrameKey};
 use crate::Result;
 use std::fs::File;
@@ -12,42 +12,124 @@ use std::ops::Bound;
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use uuid::Uuid;
-#[path = "reader/metadata.rs"]
-mod metadata;
-#[path = "reader/open.rs"]
-mod open;
-pub(super) use metadata::MetadataMemo;
-#[path = "reader/stream.rs"]
-pub(super) mod stream;
 
-/// One open run for the length of one call. It holds the file, the footer
-/// and the top block; index and data blocks are read when a lookup needs
-/// them and dropped after.
-pub struct RunReader {
-    reserved_memory: u64,
-    file: File,
-    data_key: [u8; 32],
-    frame_key: Option<Box<PreparedFrameKey>>,
-    footer: Footer,
-    top: Top,
+#[path = "reader_stream.rs"]
+pub(crate) mod stream;
+
+const MAX_MEMO_ENTRIES: usize = 64;
+const MAX_MEMO_BYTES: u64 = 256 * 1024;
+
+struct MemoEntry {
+    run: Uuid,
+    number: usize,
+    block: Arc<IndexBlock>,
+    bytes: u64,
 }
 
-/// One decoded index block.
+pub(crate) struct MetadataMemo {
+    entries: Vec<MemoEntry>,
+    bytes: u64,
+    maximum: u64,
+}
+
+impl MetadataMemo {
+    pub(crate) fn new(budget: u64) -> Self {
+        Self {
+            entries: Vec::new(),
+            bytes: 0,
+            maximum: MAX_MEMO_BYTES.min(budget / 16),
+        }
+    }
+
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    fn read(
+        &mut self,
+        reader: &RunReader,
+        number: usize,
+        scratch: &mut DecodeScratch,
+    ) -> Result<Arc<IndexBlock>> {
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|entry| entry.run == reader.run_id() && entry.number == number)
+        {
+            return Ok(Arc::clone(&entry.block));
+        }
+        let block = Arc::new(reader.read_index_with(number, Some(scratch))?);
+        self.retain(reader.run_id(), number, &block);
+        Ok(block)
+    }
+
+    fn retain(&mut self, run: Uuid, number: usize, block: &Arc<IndexBlock>) {
+        let bytes = block.memory_bytes();
+        let slots = MAX_MEMO_ENTRIES * std::mem::size_of::<MemoEntry>();
+        if bytes.saturating_add(slots as u64) > self.maximum {
+            return;
+        }
+        if self.entries.capacity() == 0 {
+            if self.entries.try_reserve_exact(MAX_MEMO_ENTRIES).is_err() {
+                return;
+            }
+            self.bytes = (self.entries.capacity() * std::mem::size_of::<MemoEntry>()) as u64;
+        }
+        while !self.entries.is_empty()
+            && (self.entries.len() == MAX_MEMO_ENTRIES
+                || self.bytes.saturating_add(bytes) > self.maximum)
+        {
+            self.bytes -= self.entries.remove(0).bytes;
+        }
+        if self.bytes.saturating_add(bytes) > self.maximum {
+            return;
+        }
+        self.entries.push(MemoEntry {
+            run,
+            number,
+            block: Arc::clone(block),
+            bytes,
+        });
+        self.bytes += bytes;
+    }
+}
+
+/// One open run for the length of one call.
+pub struct RunReader {
+    pub(super) reserved_memory: u64,
+    pub(super) file: File,
+    pub(super) data_key: [u8; 32],
+    pub(super) frame_key: Option<Box<PreparedFrameKey>>,
+    pub(super) footer: Footer,
+    pub(super) top: Top,
+}
+
 pub(super) struct IndexBlock {
     pub(super) blocks: Vec<BlockRef>,
-    filter_bytes: Vec<u8>,
+    pub(super) filter_bytes: Vec<u8>,
 }
 
 impl IndexBlock {
-    fn may_hold(&self, hash: u64) -> Result<bool> {
+    pub(super) fn may_hold(&self, hash: u64) -> Result<bool> {
         let mut at = 0;
         Ok(Filter::read(&self.filter_bytes, &mut at)?.may_hold(hash))
+    }
+
+    fn memory_bytes(&self) -> u64 {
+        (std::mem::size_of::<Self>()
+            + 2 * std::mem::size_of::<usize>()
+            + self.blocks.capacity() * std::mem::size_of::<BlockRef>()
+            + self.filter_bytes.capacity()
+            + self
+                .blocks
+                .iter()
+                .map(|entry| entry.first_key.capacity())
+                .sum::<usize>()) as u64
     }
 }
 
 impl RunReader {
-    /// Run id from the footer.
-    pub fn run_id(&self) -> Uuid {
+    pub(crate) fn run_id(&self) -> Uuid {
         self.footer.run_id
     }
 
@@ -56,17 +138,21 @@ impl RunReader {
         self.footer.records
     }
 
-    /// Largest key, or `None` for an empty run.
-    pub fn last_key(&self) -> Option<&[u8]> {
+    pub(crate) fn last_key(&self) -> Option<&[u8]> {
         (self.footer.records > 0).then_some(self.top.last_key.as_slice())
     }
 
-    /// Smallest key, or `None` for an empty run.
-    pub fn first_key(&self) -> Option<&[u8]> {
+    pub(crate) fn first_key(&self) -> Option<&[u8]> {
         self.top.indexes.first().map(|i| i.first_key.as_slice())
     }
 
-    fn read_frame(&self, offset: u64, len: u32, counter: u64, max: usize) -> Result<Vec<u8>> {
+    pub(super) fn read_frame(
+        &self,
+        offset: u64,
+        len: u32,
+        counter: u64,
+        max: usize,
+    ) -> Result<Vec<u8>> {
         self.read_frame_with(offset, len, counter, max, None)
     }
 
@@ -78,9 +164,6 @@ impl RunReader {
         max: usize,
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<Vec<u8>> {
-        // The clear footer and index entries name this length; bound it by
-        // the payload limit (plus the 8-byte zstd length and frame overhead)
-        // before allocating, since nothing is authenticated yet.
         if len as usize > max.saturating_add(8 + min_encoded_len()) {
             return Err(corrupt("stored block length over its limit"));
         }
@@ -89,7 +172,7 @@ impl RunReader {
         self.decode_checked_frame(&frame, counter, max, scratch)
     }
 
-    fn decode_checked_frame(
+    pub(super) fn decode_checked_frame(
         &self,
         frame: &[u8],
         counter: u64,
@@ -109,7 +192,7 @@ impl RunReader {
         Ok(decoded.payload)
     }
 
-    fn block_limit(&self) -> usize {
+    pub(super) fn block_limit(&self) -> usize {
         self.footer.max_payload as usize
     }
 
@@ -173,7 +256,6 @@ impl RunReader {
         Ok(records)
     }
 
-    /// The index block whose range holds `key`, if any.
     pub(super) fn index_for(&self, key: &[u8]) -> Option<usize> {
         let n = self
             .top
@@ -182,8 +264,7 @@ impl RunReader {
         n.checked_sub(1)
     }
 
-    /// Looks up one key. `None` means this run does not hold the key; a
-    /// newer run can still hide an older value with [`Found::Tombstone`].
+    /// Looks up one key in this run.
     pub fn get(&self, key: &[u8]) -> Result<Option<Found>> {
         let Some(index) = self.index_for(key) else {
             return Ok(None);
@@ -192,13 +273,7 @@ impl RunReader {
         lookup_in(self, &index, key)
     }
 
-    /// Looks up many keys with one read of each index and data block they
-    /// need. Results come back in the order of `keys`.
-    pub fn get_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<Found>>> {
-        self.get_many_with(keys, &mut MetadataMemo::new(0))
-    }
-
-    pub(in crate::disk_run) fn get_many_with(
+    pub(crate) fn get_many_with(
         &self,
         keys: &[&[u8]],
         metadata: &mut MetadataMemo,
@@ -206,10 +281,7 @@ impl RunReader {
         self.lookup_many(keys, Found::clone, metadata)
     }
 
-    /// The stored size of many keys: key and value bytes, or the key alone
-    /// for a tombstone. It returns no value; the lookup holds the decoded
-    /// records of one data block at a time.
-    pub fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
+    pub(crate) fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
         let sizes = self.lookup_many(
             keys,
             |found| found.value().map_or(0, <[u8]>::len),
@@ -261,14 +333,11 @@ impl RunReader {
         Ok(out)
     }
 
-    /// Records with keys inside the bounds, in key order.
-    pub fn range(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> RunRange<'_> {
+    pub(crate) fn range(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> RunRange<'_> {
         RunRange::new(ReaderRef::Borrowed(self), lower, upper)
     }
 
-    /// Records inside the bounds from a shared reader, so the range can
-    /// outlive the caller's handle.
-    pub fn shared_range(
+    pub(crate) fn shared_range(
         self: Arc<Self>,
         lower: Bound<&[u8]>,
         upper: Bound<&[u8]>,
@@ -292,7 +361,7 @@ fn lookup_in(reader: &RunReader, index: &IndexBlock, key: &[u8]) -> Result<Optio
     Ok(find(&reader.read_data(block)?, key, Found::clone))
 }
 
-pub(super) fn block_for<'a>(index: &'a IndexBlock, key: &[u8]) -> Option<&'a BlockRef> {
+fn block_for<'a>(index: &'a IndexBlock, key: &[u8]) -> Option<&'a BlockRef> {
     let n = index
         .blocks
         .partition_point(|b| b.first_key.as_slice() <= key);

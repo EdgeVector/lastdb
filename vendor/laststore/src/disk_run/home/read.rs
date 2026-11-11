@@ -1,17 +1,12 @@
 //! One read call against one held CURRENT.
 
-use super::keys::run_key;
 use super::manifest::{Manifest, RunFile};
+use super::stream::run_key;
 use super::RunHome;
-use crate::disk_run::reader::MetadataMemo;
-use crate::disk_run::{Found, RunReader};
+use crate::disk_run::{Found, MetadataMemo, RunReader};
 use crate::{Error, Result};
 use std::sync::Arc;
-#[path = "stream.rs"]
-mod stream;
-pub use stream::CopiedRunBody;
 
-/// Most coordinates one batch read accepts.
 const MAX_BATCH_KEYS: usize = 10_000;
 
 /// Finite limits shared by all work in one read call. Zero is never unlimited.
@@ -38,11 +33,9 @@ pub struct RunReadCosts {
     pub runs_opened: u64,
 }
 
-/// One published state of a home: a handle to the CURRENT that a commit or
-/// a merge installed. A holder can read exactly that state later, and the
-/// state's run files stay on disk while any handle or read holds it.
+/// One published state of a home: a handle to the CURRENT that a commit or a merge installed.
 #[derive(Debug, Clone)]
-pub struct RunRoot(pub(super) Arc<Manifest>);
+pub struct RunRoot(pub(in crate::disk_run::home) Arc<Manifest>);
 
 impl RunRoot {
     /// CURRENT generation of this state.
@@ -50,32 +43,23 @@ impl RunRoot {
         self.0.generation
     }
 
-    /// Complete commits in this state. A merge changes the generation but
-    /// not the frontier, and two roots with one frontier hold the same data.
+    /// Complete commits in this state.
     pub fn frontier(&self) -> u64 {
         self.0.frontier
     }
 }
 
-/// One read call. It holds one CURRENT from start to end, so every get,
-/// batch, and range in the call sees the same complete commit boundary.
-///
-/// The call opens a run file the first time it needs it and keeps that
-/// reader only until the call ends. The base runs do not overlap, so the
-/// call keeps one base reader at a time: a long base costs one open file.
+/// One read call holding one CURRENT from start to end.
 pub struct RunRead {
-    pub(super) bounded_streams: bool,
-    pub(super) shared_metadata_bytes: u64,
-    pub(super) manifest: Arc<Manifest>,
-    /// Every run, newest first, with its reader once opened.
-    pub(super) runs: Vec<(Arc<RunFile>, Option<RunReader>)>,
-    pub(super) key: [u8; 32],
-    pub(super) budget: ReadBudget,
-    pub(super) costs: RunReadCosts,
-    /// A bounded metadata workspace; it leaves memory with this held call.
-    pub(super) metadata: MetadataMemo,
-    /// Keeps the owner lock while the read names run files.
-    pub(super) _owner_lock: Arc<std::fs::File>,
+    pub(in crate::disk_run::home) bounded_streams: bool,
+    pub(in crate::disk_run::home) shared_metadata_bytes: u64,
+    pub(in crate::disk_run::home) manifest: Arc<Manifest>,
+    pub(in crate::disk_run::home) runs: Vec<(Arc<RunFile>, Option<RunReader>)>,
+    pub(in crate::disk_run::home) key: [u8; 32],
+    pub(in crate::disk_run::home) budget: ReadBudget,
+    pub(in crate::disk_run::home) costs: RunReadCosts,
+    pub(in crate::disk_run::home) metadata: MetadataMemo,
+    pub(in crate::disk_run::home) _owner_lock: Arc<std::fs::File>,
 }
 
 impl RunHome {
@@ -118,10 +102,7 @@ impl RunRead {
             + (self.runs.capacity() * std::mem::size_of::<(Arc<RunFile>, Option<RunReader>)>())
                 as u64
     }
-    /// Paired metadata already charged to each bounded child read.
-    pub fn reserved_metadata_bytes(&self) -> u64 {
-        self.shared_metadata_bytes.max(self.retained_bytes())
-    }
+
     /// Admit the paired capture metadata shared by subsequent bounded calls.
     pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
         if bytes < self.retained_bytes()
@@ -132,6 +113,7 @@ impl RunRead {
         self.shared_metadata_bytes = bytes;
         Ok(())
     }
+
     /// Identity authenticated by this call's selected CURRENT.
     pub fn home_id(&self) -> uuid::Uuid {
         self.manifest.home_id
@@ -173,7 +155,7 @@ impl RunRead {
         self.charge(bytes as u64)
     }
 
-    pub(super) fn examine(&mut self, keys: u64) -> Result<()> {
+    pub(in crate::disk_run::home) fn examine(&mut self, keys: u64) -> Result<()> {
         let next = self.costs.examined_keys.saturating_add(keys);
         if next > self.budget.keys {
             return Err(Error::ReadBudgetExceeded);
@@ -182,7 +164,7 @@ impl RunRead {
         Ok(())
     }
 
-    pub(super) fn charge(&mut self, bytes: u64) -> Result<()> {
+    pub(in crate::disk_run::home) fn charge(&mut self, bytes: u64) -> Result<()> {
         let next = self.costs.budget_bytes.saturating_add(bytes);
         if next > self.budget.bytes {
             return Err(Error::ReadBudgetExceeded);
@@ -191,9 +173,7 @@ impl RunRead {
         Ok(())
     }
 
-    /// The reader of run `slot`, opened on first use. Opening a base reader
-    /// closes the other base readers.
-    pub(super) fn reader(&mut self, slot: usize) -> Result<&RunReader> {
+    pub(in crate::disk_run::home) fn reader(&mut self, slot: usize) -> Result<&RunReader> {
         if self.runs[slot].1.is_none() {
             let base_from = self.runs.len() - self.manifest.base.len();
             if slot >= base_from {
@@ -249,7 +229,6 @@ impl RunRead {
         Ok(None)
     }
 
-    /// A stored value, charged to the call.
     fn accept(&mut self, value: Vec<u8>, maximum: u64) -> Result<Vec<u8>> {
         if value.len() as u64 > maximum {
             return Err(Error::ReadBudgetExceeded);
@@ -258,8 +237,7 @@ impl RunRead {
         Ok(value)
     }
 
-    /// Batch read. Results keep the input order; one slot's error does not
-    /// fail the others. Collect every coordinate before the call.
+    /// Batch read. Results keep the input order.
     pub fn get_many(
         &mut self,
         coordinates: &[(String, String)],

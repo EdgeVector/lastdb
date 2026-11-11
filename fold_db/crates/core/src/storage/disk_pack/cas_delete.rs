@@ -7,6 +7,11 @@
 
 use super::physical::{V2Home, CAS_COLLECTION};
 use super::*;
+use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
+use crate::storage::format::{
+    METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
+    RELEASED_FILE_PREFIX,
+};
 use serde::{Deserialize, Serialize};
 
 /// Recovery performed by the normal open during this boot. No file keys enter it.
@@ -42,7 +47,7 @@ struct Intent {
 }
 
 /// Variable encoded bytes only; the accepted prefix adds fixed overhead once.
-pub(super) fn key_bytes(operations: &[HomeMutation]) -> StorageResult<u64> {
+pub(in crate::storage::disk_pack) fn key_bytes(operations: &[HomeMutation]) -> StorageResult<u64> {
     operations
         .iter()
         .filter(|op| op.collection == CAS_COLLECTION && op.body.is_none())
@@ -53,7 +58,7 @@ pub(super) fn key_bytes(operations: &[HomeMutation]) -> StorageResult<u64> {
 }
 
 /// Conservative encoded size; admission reserves this before accepting a batch.
-pub(super) fn space(bytes: u64) -> StorageResult<u64> {
+pub(in crate::storage::disk_pack) fn space(bytes: u64) -> StorageResult<u64> {
     if bytes == 0 {
         return Ok(0);
     }
@@ -68,7 +73,7 @@ pub(super) fn space(bytes: u64) -> StorageResult<u64> {
     Ok(reserved)
 }
 
-pub(super) fn save(
+pub(in crate::storage::disk_pack) fn save(
     v2: &V2Home,
     puts: bool,
     main: bool,
@@ -112,7 +117,9 @@ pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
 
 /// Caller owns both homes before any reader, writer or worker can start.
 /// A frontier outside the exact intent is refused, never guessed or replayed.
-pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
+pub(in crate::storage::disk_pack) fn recover(
+    v2: &V2Home,
+) -> StorageResult<Option<CasDeleteRecovery>> {
     let Some(bytes) = v2.home.load_cas_delete_checkpoint().map_err(map)? else {
         return Ok(None);
     };
@@ -140,8 +147,6 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
     {
         return Err(invalid("CAS deletion intent identity or frontier mismatch"));
     }
-    // No main publication: keep every file row. No record lost its file.
-    // A CAS-only batch whose additions did not commit is also incomplete.
     let committed = main == intent.main_after && cas >= intent.cas_after_add;
     let intent_keys = intent.keys.len() as u64;
     let mut outcome = if committed {
@@ -180,8 +185,52 @@ fn invalid(message: &str) -> StorageError {
 }
 
 impl PackRuntime {
-    /// The format has already released the exact path's references. Stage a
-    /// tombstone without loading the retired payload into the write request.
+    /// A guest snapshot can carry inline files only. The main reference index
+    /// also detects a local-path or restored reference whose CAS bytes are absent.
+    pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
+        let metadata = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: METADATA_NAMESPACE.into(),
+        };
+        let cas = self.blob_store()?;
+        for (store, prefix) in [
+            (&metadata, FILE_REFERENCE_PREFIX),
+            (&cas, PENDING_UPLOAD_PREFIX),
+            (&cas, RECORD_FILE_UPLOADED_PREFIX),
+            (&cas, RELEASED_FILE_PREFIX),
+            (&cas, RECORD_FILE_PREFIX),
+        ] {
+            if !store
+                .scan_prefix_paged(prefix.as_bytes(), 1)
+                .await?
+                .is_empty()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Which of these `cas_blobs` marker keys are present.
+    pub(in crate::storage) async fn markers_present(
+        self: &Arc<Self>,
+        keys: Vec<Vec<u8>>,
+    ) -> StorageResult<Vec<bool>> {
+        let store = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: CAS_COLLECTION.into(),
+        };
+        let wanted = keys.len();
+        let present = store.get_many(keys).await?;
+        if present.len() != wanted {
+            return Err(StorageError::InvalidOperation(
+                "incomplete marker presence read".into(),
+            ));
+        }
+        Ok(present.iter().map(Option::is_some).collect())
+    }
+
+    /// Stage a tombstone without loading the retired payload into the write request.
     pub(in crate::storage) fn stage_record_file_deletes(
         self: &Arc<Self>,
         keys: Vec<Vec<u8>>,

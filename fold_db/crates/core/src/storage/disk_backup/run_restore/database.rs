@@ -1,13 +1,26 @@
 //! Database reads through the same held root as the recipient proof.
 
-use super::*;
+use super::record::{
+    check_record_address, read_inline, read_record, record_address, record_codec, RunSnapshotReader,
+};
+use super::{invalid, map, read_budget, StorageResult};
 use crate::schema::types::field::{FilterUtils, HashRangeFilter};
+use crate::schema::types::{KeyValue, Schema};
 use crate::schema::{SchemaState, SchemaWithState};
-use crate::storage::format::SCHEMA_STATES_NAMESPACE;
+use crate::storage::disk_pack::native_routing;
+use crate::storage::format::{
+    records::RecordAddress, RECORDS_COLLECTION, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+};
 use crate::storage::StorageError;
-use lastdb_model::record_space::{record_hash_prefix, RECORD_PREFIX};
-use lastdb_model::record_value::FileMarker;
+use lastdb_model::field_key_codec::FieldKeyCodec;
+use lastdb_model::record_space::{record_hash_prefix, record_space_uuid, RECORD_PREFIX};
+use lastdb_model::record_value::{FileMarker, StoredRecord, MAX_RECORD_BYTES};
+use lastdb_model::storage_policy::backup_decode::{
+    NATIVE_STREAM_LOOKUP_READ_BYTES, RECORD_BODY_MAX_BYTES,
+};
+use laststore::disk_run::home::RunRead;
 use serde::de::DeserializeOwned;
+use std::collections::BTreeMap;
 
 /// Catalog entry in the verified copy.
 pub struct SnapshotSchema {
@@ -125,8 +138,6 @@ impl RunSnapshotReader {
             None => read.administrative_range(RECORDS_COLLECTION, start.as_bytes(), end.as_bytes()),
         }
         .map_err(map)?;
-        // One extra physical record distinguishes a full final page from a
-        // full page with more work. Deleted records still advance the cursor.
         let page = range
             .next_page_yielding_bounded(limit.saturating_add(1), 0, 0, MAX_RECORD_BYTES as u64)
             .map_err(map)?;
@@ -190,8 +201,11 @@ impl RunSnapshotReader {
             .transpose()
     }
 
-    pub(super) fn lookup(&self, keys: usize) -> StorageResult<RunRead> {
-        let mut budget = super::super::read_budget();
+    pub(in crate::storage::disk_backup::run_restore) fn lookup(
+        &self,
+        keys: usize,
+    ) -> StorageResult<RunRead> {
+        let mut budget = read_budget();
         budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
         budget.keys = keys as u64;
         self.0.main.fork_bounded(budget).map_err(map)
@@ -220,7 +234,7 @@ fn page_record(
     Ok(Some(record))
 }
 
-pub(super) fn checked_address(
+pub(in crate::storage::disk_backup::run_restore) fn checked_address(
     schema: &Schema,
     codec: &FieldKeyCodec,
     key: &KeyValue,
@@ -275,11 +289,11 @@ fn page_bounds(
     }
 }
 
-pub(super) fn bad_request(message: &str) -> StorageError {
+pub(in crate::storage::disk_backup::run_restore) fn bad_request(message: &str) -> StorageError {
     StorageError::InvalidOperation(message.to_string())
 }
 
-pub(super) fn resource_limit(message: &str) -> StorageError {
+pub(in crate::storage::disk_backup::run_restore) fn resource_limit(message: &str) -> StorageError {
     StorageError::ReadResourceLimit {
         detail: message.to_string(),
     }

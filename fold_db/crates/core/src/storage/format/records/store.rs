@@ -1,25 +1,138 @@
-//! Bound main/file capabilities; the record provider never gets raw stores.
+//! Bound main/file capabilities and record-owned file version encoding.
 
-use super::{EncodedRecords, RecordChange};
-use crate::schema::types::{FileWriteIssuer, Schema};
+use super::{EncodedRecords, RecordAddress, RecordChange};
+use crate::schema::types::{FileWrite, FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
-use crate::storage::current_keys::families::record_file_uploaded_path;
+use crate::storage::current_keys::families::{record_file_path, record_file_uploaded_path};
 use crate::storage::disk_pack::{transaction, PackKvStore, PackNamespacedStore, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::format::metadata::Metadata;
+use crate::storage::format::metadata::{FileReferenceChange, Metadata};
 use crate::storage::format::read::ReadStore;
+use crate::storage::local_file_ref::{Remember, SidecarPlan};
 use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+pub(in crate::storage::format::records) struct FileChange {
+    pub(in crate::storage::format::records) key: RecordAddress,
+    pub(in crate::storage::format::records) after: Arc<StoredRecord>,
+    pub(in crate::storage::format::records) write: Option<FileWrite>,
+    pub(in crate::storage::format::records) shared: bool,
+    pub(in crate::storage::format::records) needs_upload: bool,
+}
+
+impl FileChange {
+    fn references(
+        &self,
+        before: Option<&StoredRecord>,
+        references: &mut BTreeMap<String, FileReferenceChange>,
+    ) -> Result<(), SchemaError> {
+        let previous = before.and_then(|record| record.file_version.as_ref());
+        let next = self.after.file_version.as_ref();
+        if previous != next {
+            if let Some(version) = previous {
+                let path = record_file_path(self.key.as_str(), version)?;
+                let change = references.entry(path).or_default();
+                change.live = Some(false);
+                change.local_detach = !self.shared;
+            }
+        }
+        if let Some(version) = next.filter(|_| previous != next || self.needs_upload) {
+            let path = record_file_path(self.key.as_str(), version)?;
+            let change = references.entry(path).or_default();
+            change.live = Some(true);
+            if self.needs_upload {
+                change.pending_through = self.after.stamp.position.sequence;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn encode_file_change(
+    change: FileChange,
+    before: Option<&StoredRecord>,
+    issuer: &FileWriteIssuer,
+    content_key: &[u8; 32],
+) -> Result<(Vec<KvMutation>, SidecarPlan), SchemaError> {
+    let FileChange {
+        key, after, write, ..
+    } = change;
+    let previous = before.and_then(|record| record.file_version.as_ref());
+    let next = after.file_version.as_ref();
+    if previous == next {
+        if before.and_then(|record| record.file.as_ref()) != after.file.as_ref() {
+            return Err(SchemaError::InvalidData(
+                "a retained file version has a different marker".into(),
+            ));
+        }
+        return Ok((Vec::new(), SidecarPlan::default()));
+    }
+    let mut rows = Vec::new();
+    let mut plan = SidecarPlan::default();
+    if let Some(version) = previous {
+        plan.forget.push(record_file_path(key.as_str(), version)?);
+    }
+    if let Some(version) = next {
+        let marker = after
+            .file
+            .as_ref()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("a file row requires its record marker".into())
+            })?
+            .clone();
+        match write {
+            Some(FileWrite::Put(file)) => {
+                if file.marker() != &marker {
+                    return Err(SchemaError::InvalidData(
+                        "file payload differs from its record marker".into(),
+                    ));
+                }
+                let row = issuer.admit(file).ok_or_else(|| {
+                    SchemaError::InvalidData("file payload belongs to another format writer".into())
+                })?;
+                super::file_crypto::require_row(content_key, &marker, &row)?;
+                rows.push(KvMutation::put(
+                    record_file_path(key.as_str(), version)?.into_bytes(),
+                    row,
+                ));
+            }
+            Some(FileWrite::LocalPath(local)) => {
+                if local.marker() != &marker {
+                    return Err(SchemaError::InvalidData(
+                        "local file reference differs from its record marker".into(),
+                    ));
+                }
+                let path = issuer.admit_local(&local).ok_or_else(|| {
+                    SchemaError::InvalidData(
+                        "local file reference belongs to another format writer".into(),
+                    )
+                })?;
+                plan.remember.push(Remember {
+                    cas_key: record_file_path(key.as_str(), version)?,
+                    path: path.to_path_buf(),
+                    sha256: marker.sha256.clone(),
+                    size_bytes: marker.size_bytes,
+                });
+            }
+            Some(FileWrite::Clear) | None => {
+                return Err(SchemaError::InvalidData(
+                    "a selected file requires its sealed payload or a local reference".into(),
+                ));
+            }
+        }
+    }
+    Ok((rows, plan))
+}
+
 pub(crate) struct RecordFormat {
-    pub(super) main_store: PackKvStore,
+    pub(in crate::storage::format::records) main_store: PackKvStore,
     file_owner: PackNamespacedStore,
-    pub(super) runtime: Arc<PackRuntime>,
-    pub(super) content_key: [u8; 32],
-    pub(super) file_issuer: FileWriteIssuer,
-    pub(super) metadata: Metadata,
+    pub(in crate::storage::format::records) runtime: Arc<PackRuntime>,
+    pub(in crate::storage::format::records) content_key: [u8; 32],
+    pub(in crate::storage::format::records) file_issuer: FileWriteIssuer,
+    pub(in crate::storage::format::records) metadata: Metadata,
 }
 
 impl RecordFormat {
@@ -74,13 +187,11 @@ impl RecordFormat {
             )?;
         }
         let kept = self
-            .inline_files(super::outgoing::kept_inline_files(&changes))
+            .inline_files(super::retention::kept_inline_files(&changes))
             .await?;
-        let entries = super::outgoing::entries(schema, &changes, &kept)?;
-        let alternates = super::alternates::encode(schema, &changes, &self.content_key)?;
+        let entries = super::retention::outgoing_entries(schema, &changes, &kept)?;
+        let alternates = super::encode_alternates(schema, &changes, &self.content_key)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
-        // Resolve the prior file version from the actual record preimage.
-        // A provider cannot suppress cleanup or authorize a new reference.
         let (files, local_refs) = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
@@ -92,13 +203,7 @@ impl RecordFormat {
         Ok(())
     }
 
-    /// Record local paths only after this request commits. A failed request
-    /// leaves the catalog unchanged. A catalog error does not fail the node:
-    /// the put route writes the same entry again after commit.
-    fn schedule_local_file_refs(
-        &self,
-        plan: crate::storage::local_file_ref::SidecarPlan,
-    ) -> Result<(), SchemaError> {
+    fn schedule_local_file_refs(&self, plan: SidecarPlan) -> Result<(), SchemaError> {
         if plan.is_empty() {
             return Ok(());
         }
@@ -121,13 +226,10 @@ impl RecordFormat {
 
     async fn encode_files(
         &self,
-        changes: Vec<super::files::FileChange>,
-    ) -> Result<(Vec<KvMutation>, crate::storage::local_file_ref::SidecarPlan), SchemaError> {
+        changes: Vec<FileChange>,
+    ) -> Result<(Vec<KvMutation>, SidecarPlan), SchemaError> {
         if changes.is_empty() {
-            return Ok((
-                Vec::new(),
-                crate::storage::local_file_ref::SidecarPlan::default(),
-            ));
+            return Ok((Vec::new(), SidecarPlan::default()));
         }
         let keys: Vec<_> = changes
             .iter()
@@ -142,14 +244,14 @@ impl RecordFormat {
         }
         let mut rows = Vec::with_capacity(changes.len());
         let mut references = BTreeMap::new();
-        let mut local_refs = crate::storage::local_file_ref::SidecarPlan::default();
+        let mut local_refs = SidecarPlan::default();
         for (change, bytes) in changes.into_iter().zip(stored) {
             let before = bytes
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
                 .map_err(super::record_value_error)?;
             change.references(before.as_ref(), &mut references)?;
-            let (encoded, plan) = super::files::encode(
+            let (encoded, plan) = encode_file_change(
                 change,
                 before.as_ref(),
                 &self.file_issuer,
@@ -164,7 +266,7 @@ impl RecordFormat {
         Ok((rows, local_refs))
     }
 
-    pub(super) fn require_scope(&self) -> Result<(), SchemaError> {
+    pub(in crate::storage::format::records) fn require_scope(&self) -> Result<(), SchemaError> {
         if !transaction::publication::active(&self.runtime) {
             return Err(SchemaError::InvalidData(
                 "record format writes require a complete native write scope".into(),
@@ -173,14 +275,18 @@ impl RecordFormat {
         Ok(())
     }
 
-    pub(super) async fn file_store(&self) -> StorageResult<PackKvStore> {
+    pub(in crate::storage::format::records) async fn file_store(
+        &self,
+    ) -> StorageResult<PackKvStore> {
         self.file_owner
             .open_namespace(super::super::CAS_COLLECTION)
             .await
     }
 
-    // Only child encoders in this format can supply these raw file rows.
-    pub(super) async fn stage_files(&self, rows: Vec<KvMutation>) -> Result<(), SchemaError> {
+    pub(in crate::storage::format::records) async fn stage_files(
+        &self,
+        rows: Vec<KvMutation>,
+    ) -> Result<(), SchemaError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -198,8 +304,6 @@ impl RecordFormat {
             store.batch_mutate(puts).await?;
         }
         if !deletes.is_empty() {
-            // A retired row that a download installed carries its uploaded
-            // marker; the marker leaves with the row.
             let markers = deletes
                 .iter()
                 .map(|key| record_file_uploaded_path(key.as_slice()))

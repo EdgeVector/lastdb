@@ -1,11 +1,7 @@
 //! The physical home under one node store: the disk format v2 run homes.
 //!
-//! The logical half (queue, warm set, schema keys, logical paths) reaches the
-//! files only through the types here.
-//!
-//! A node keeps the CAS files (the `cas_blobs` collection) in their own run
-//! home, so they are separate files that a backup can send to a different
-//! store than the rest of the data.
+//! A node keeps the CAS files (`cas_blobs`) in their own run home so backups
+//! can route them separately from the rest of the data.
 
 use super::shared_layout::range::MergedRange;
 use super::shared_layout::{Lane, Scope, SharedHome};
@@ -23,7 +19,7 @@ pub(in crate::storage) struct V2Home {
     pub(in crate::storage) home: Arc<RunHome>,
     /// The CAS files only.
     pub(in crate::storage) cas: Arc<RunHome>,
-    pub(super) shared: Option<SharedHome>,
+    pub(in crate::storage::disk_pack) shared: Option<SharedHome>,
     /// Set while a merge thread runs; at most one runs at a time.
     pub(in crate::storage) merging: Arc<AtomicBool>,
     /// Set when the node store closes; the thread stops after its step.
@@ -82,8 +78,8 @@ impl V2Home {
 pub(in crate::storage) struct V2Root {
     pub(in crate::storage) main: RunRoot,
     pub(in crate::storage) cas: RunRoot,
-    pub(super) private: Option<RunRoot>,
-    pub(super) scope: Option<Arc<Scope>>,
+    pub(in crate::storage::disk_pack) private: Option<RunRoot>,
+    pub(in crate::storage::disk_pack) scope: Option<Arc<Scope>>,
 }
 
 impl V2Root {
@@ -104,8 +100,8 @@ impl V2Root {
 pub(in crate::storage) struct V2Read {
     pub(in crate::storage) main: RunRead,
     pub(in crate::storage) cas: RunRead,
-    pub(super) private: Option<RunRead>,
-    pub(super) scope: Option<Arc<Scope>>,
+    pub(in crate::storage::disk_pack) private: Option<RunRead>,
+    pub(in crate::storage::disk_pack) scope: Option<Arc<Scope>>,
 }
 
 /// The costs that the node store reads from a read call.
@@ -113,8 +109,6 @@ pub(in crate::storage) struct V2Read {
 pub(in crate::storage) struct PhysicalCosts {
     pub(in crate::storage) examined_keys: u64,
     pub(in crate::storage) budget_bytes: u64,
-    pub(in crate::storage) payload_blocks: u64,
-    pub(in crate::storage) metadata_pages: u64,
 }
 
 /// The limits of a new read call.
@@ -131,7 +125,7 @@ pub(in crate::storage) type PhysicalRoot = V2Root;
 pub(in crate::storage) type PhysicalRead = V2Read;
 
 impl V2Read {
-    pub(super) fn legacy_home(&mut self, collection: &str) -> &mut RunRead {
+    pub(in crate::storage::disk_pack) fn legacy_home(&mut self, collection: &str) -> &mut RunRead {
         if collection == CAS_COLLECTION {
             &mut self.cas
         } else {
@@ -139,7 +133,7 @@ impl V2Read {
         }
     }
 
-    pub(super) fn lane(&mut self, lane: Lane) -> &mut RunRead {
+    pub(in crate::storage::disk_pack) fn lane(&mut self, lane: Lane) -> &mut RunRead {
         match lane {
             Lane::Records => &mut self.main,
             Lane::Files => &mut self.cas,
@@ -207,8 +201,6 @@ impl V2Read {
         PhysicalCosts {
             examined_keys: main.examined_keys + cas.examined_keys + private.examined_keys,
             budget_bytes: main.budget_bytes + cas.budget_bytes + private.budget_bytes,
-            payload_blocks: 0,
-            metadata_pages: 0,
         }
     }
 

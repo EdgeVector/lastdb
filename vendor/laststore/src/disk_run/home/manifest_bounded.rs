@@ -1,25 +1,43 @@
-//! Backup-only CURRENT admission. Normal boot, publication and codecs stay unchanged.
-use super::{
-    corrupt, get_len, get_slice, get_varint, Manifest, RunFile, RunMeta, MAGIC, MAX_CURRENT_BYTES,
-    MAX_LEVELS, MAX_LEVEL_RUNS, MAX_RUN_KEY_BYTES, RUN_SUFFIX,
-};
-use crate::frame::VerifiedFrameReader;
+//! Ordinary and backup-bounded CURRENT loaders.
+use super::manifest::{Manifest, RunFile, RunMeta, MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS};
+use crate::disk_run::codec::{corrupt, get_len, get_slice, get_varint};
+use crate::disk_run::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
+use crate::frame::{decode_frame, min_encoded_len, VerifiedFrameReader};
 use crate::{Error, Result};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::mem::size_of;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64},
-    Arc,
-};
+use std::sync::Arc;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+const MAGIC: &[u8; 8] = b"LDRCUR2\0";
 const ARC_HEADER: usize = 2 * size_of::<usize>();
 
 impl Manifest {
+    pub(in crate::disk_run::home) fn load_paths(
+        current: &Path,
+        runs: &Path,
+        key: &[u8; 32],
+        home_id: Uuid,
+    ) -> Result<Self> {
+        let mut file = File::open(current)?;
+        let len = file.metadata()?.len();
+        if len < min_encoded_len() as u64 || len > MAX_CURRENT_BYTES as u64 {
+            return Err(corrupt("CURRENT length"));
+        }
+        let mut frame = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut frame)?;
+        let decoded = decode_frame(key, &frame)?;
+        let manifest = Self::decode(&decoded.payload, runs)?;
+        if manifest.home_id != home_id {
+            return Err(corrupt("CURRENT names another home"));
+        }
+        Ok(manifest)
+    }
+
     pub(in crate::disk_run::home) fn load_paths_bounded(
         current: &Path,
         runs: &Path,
@@ -38,7 +56,7 @@ impl Manifest {
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(current)?;
         let length = file.metadata()?.len();
-        if length < crate::frame::min_encoded_len() as u64 || length > MAX_CURRENT_BYTES as u64 {
+        if length < min_encoded_len() as u64 || length > MAX_CURRENT_BYTES as u64 {
             return Err(corrupt("CURRENT length"));
         }
         let mut input = VerifiedFrameReader::open(&file, 0, length, key)?;
@@ -174,12 +192,7 @@ fn run_list(
             first_key,
             last_key,
         };
-        runs.push(Arc::new(RunFile {
-            meta,
-            path,
-            obsolete: AtomicBool::new(false),
-            hidden: AtomicU64::new(hidden),
-        }));
+        runs.push(RunFile::from_parts(meta, path, hidden));
     }
     Ok(runs)
 }
@@ -210,6 +223,7 @@ struct Admission {
     maximum: u64,
     used: u64,
 }
+
 impl Admission {
     fn new(maximum: u64, used: u64) -> Result<Self> {
         let mut budget = Self { maximum, used: 0 };

@@ -1,13 +1,11 @@
 //! Ordered ranges under one hash, merged across the held runs.
 
-use super::keys::{prefix_end, run_key, storage_key};
 use super::read::{ReadBudget, RunRead, RunReadCosts};
+use super::stream::{prefix_end, run_key, storage_key, BoundedRange};
 use crate::disk_run::{Found, MergeIter, MergeSource, RunSequence};
 use crate::{Error, Result};
 use std::ops::Bound;
 use std::path::PathBuf;
-#[path = "range/stream.rs"]
-mod stream;
 
 /// Half-open encoded range suffix bounds within the held hash.
 pub struct RangeBounds {
@@ -17,18 +15,14 @@ pub struct RangeBounds {
     pub end: Option<String>,
 }
 
-/// One page of live records. Tombstones count as examined keys but do not
-/// appear here.
+/// One page of live records. Tombstones count as examined keys but do not appear here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRangePage {
     /// Complete storage keys and their values, in key order.
     pub records: Vec<(String, Vec<u8>)>,
     /// True when the range has no more records.
     pub exhausted: bool,
-    /// Set only by [`RunHashRange::next_page_yielding`]: the call stopped
-    /// before the page was full because its key budget ran out or was about
-    /// to. Every key up to and including this storage key was examined; the
-    /// next call continues above it.
+    /// Set only by [`RunHashRange::next_page_yielding`]: resume above this storage key.
     pub resume: Option<String>,
 }
 
@@ -36,24 +30,23 @@ pub struct RunRangePage {
 pub struct RunHashRange<'a> {
     mode: RangeMode<'a>,
 }
+
 enum RangeMode<'a> {
     Ordinary(OrdinaryRange<'a>),
-    Bounded(stream::BoundedRange<'a>),
+    Bounded(BoundedRange<'a>),
 }
+
 struct OrdinaryRange<'a> {
     records: MergeIter<'a>,
     collection: String,
     costs: &'a mut RunReadCosts,
     budget: ReadBudget,
     exhausted: bool,
-    /// A record taken from `records` but not examined: the key budget was
-    /// out. The next page starts with it.
     held: Option<(Vec<u8>, Found)>,
 }
 
 impl RunRead {
     /// Records under one complete encoded hash, inside `bounds`.
-    /// `prefix` ends at its first NUL, which closes the encoded hash.
     pub fn hash_range(
         &mut self,
         collection: &str,
@@ -75,9 +68,7 @@ impl RunRead {
         self.range_between(collection, lower, upper, false)
     }
 
-    /// Internal metadata range over one collection, `[start, end)` in
-    /// storage key bytes. Node bootstrap and maintenance use it; user
-    /// record reads use [`RunRead::hash_range`].
+    /// Internal metadata range over one collection, `[start, end)` in storage key bytes.
     pub fn administrative_range(
         &mut self,
         collection: &str,
@@ -90,8 +81,7 @@ impl RunRead {
         self.range_between(collection, lower, Some(upper), false)
     }
 
-    /// Continue an administrative range strictly above one complete storage
-    /// key. No sentinel is appended, so a maximum-length key remains valid.
+    /// Continue an administrative range strictly above one complete storage key.
     pub fn administrative_range_after(
         &mut self,
         collection: &str,
@@ -113,13 +103,11 @@ impl RunRead {
     ) -> Result<RunHashRange<'_>> {
         if self.bounded_streams {
             return Ok(RunHashRange {
-                mode: RangeMode::Bounded(stream::BoundedRange::new(
+                mode: RangeMode::Bounded(BoundedRange::new(
                     self, collection, lower, upper, exclusive,
                 )),
             });
         }
-        // The base runs do not overlap, so they are one source that opens one
-        // run at a time; each other run is a source of its own.
         let base_from = self.runs.len() - self.manifest.base.len();
         for slot in 0..base_from {
             if self.runs[slot].0.meta.overlaps(&lower, upper.as_deref()) {
@@ -179,8 +167,7 @@ impl RunRead {
 }
 
 impl OrdinaryRange<'_> {
-    /// Charge a selected pending-write value to this range's call budget.
-    pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+    fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
         if self.costs.examined_keys >= self.budget.keys {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -196,18 +183,11 @@ impl OrdinaryRange<'_> {
         Ok(())
     }
 
-    /// Up to `limit` live records. Each examined record, tombstones
-    /// included, counts against the call's key budget.
-    pub fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
+    fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
         self.page(limit, None)
     }
 
-    /// Like [`Self::next_page`], but a key budget that runs out once a key
-    /// was examined ends the page with `resume` instead of an error. The
-    /// page stops early while the call still has `keys_per_row` keys for
-    /// each of the `held_rows` rows the caller holds and each row of this
-    /// page. A budget failure before any key was examined is still an error.
-    pub fn next_page_yielding(
+    fn next_page_yielding(
         &mut self,
         limit: usize,
         held_rows: usize,
@@ -240,9 +220,6 @@ impl OrdinaryRange<'_> {
                     }
                 },
             };
-            // A range that ends exactly at the key budget is exhausted, not
-            // over budget. A yielding page that has examined a key resumes
-            // after it.
             if self.costs.examined_keys >= self.budget.keys {
                 self.held = Some((key, found));
                 if yielding.is_some() && last.is_some() {
@@ -287,6 +264,7 @@ impl RunHashRange<'_> {
             RangeMode::Bounded(r) => r.account(key_bytes, body_bytes),
         }
     }
+
     /// Up to `limit` live records under this exact root.
     pub fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
         match &mut self.mode {
@@ -294,6 +272,7 @@ impl RunHashRange<'_> {
             RangeMode::Bounded(r) => r.page(limit, None, u64::MAX),
         }
     }
+
     /// Yield at the same administrative key budget as the ordinary cursor.
     pub fn next_page_yielding(
         &mut self,
@@ -306,6 +285,7 @@ impl RunHashRange<'_> {
             RangeMode::Bounded(r) => r.page(limit, Some((held_rows, keys_per_row)), u64::MAX),
         }
     }
+
     /// Bound each body before allocation on a captured or stopped-home read.
     pub fn next_page_yielding_bounded(
         &mut self,
@@ -318,20 +298,6 @@ impl RunHashRange<'_> {
             RangeMode::Bounded(r) => r.page(limit, Some((held_rows, keys_per_row)), maximum),
             RangeMode::Ordinary(_) => Err(Error::Config(
                 "bounded run pages require a captured or stopped-home read".into(),
-            )),
-        }
-    }
-    /// One bounded backup page with fresh per-page work admission. The cursor
-    /// keeps its authenticated next-key heads; opened-run costs stay cumulative.
-    /// The caller must release the preceding page before it requests another.
-    pub fn next_backup_page(&mut self, limit: usize, maximum: u64) -> Result<RunRangePage> {
-        match &mut self.mode {
-            RangeMode::Bounded(range) => {
-                range.reset_page_budget();
-                range.page(limit, Some((0, 0)), maximum)
-            }
-            RangeMode::Ordinary(_) => Err(Error::Config(
-                "backup run pages require a captured or stopped-home read".into(),
             )),
         }
     }

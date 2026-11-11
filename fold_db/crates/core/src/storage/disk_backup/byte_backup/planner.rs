@@ -1,26 +1,26 @@
-//! The snapshot plan over the frozen run files. The shared planner
-//! (`cloud_backup_plan`) cuts the objects; this file keeps them in the job
-//! store, and `metadata` adds the client pages and root. No network authority.
+//! Snapshot plan over frozen run files and client page/root metadata.
+
 use super::{
-    invalid,
-    model::{ObjectRecord, Segment, State},
-    protocol, Inner, StorageError, StorageResult,
+    codec, invalid, object_name, protocol, ClientPage, ClientPageReference, ClientRoot, Inner,
+    ObjectRecord, Segment, State, StorageError, StorageResult, MAX_OBJECTS,
 };
 use crate::storage::cloud_backup_plan::{
     Chunk, PlanError, PlanFile, PlanState, PlannedObject, Range, Step,
 };
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
-    Object, Version,
+    Destination, Object, Version,
 };
-use cloud_backup_protocol::{Id, RelativePath};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id, RelativePath};
 use laststore::disk_run::home::SnapshotFile;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-pub(super) mod metadata;
-
-pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> StorageResult<()> {
+pub(in crate::storage::disk_backup::byte_backup) fn build(
+    inner: &Inner,
+    state: &mut State,
+    key: &[u8; 32],
+) -> StorageResult<()> {
     let inventory = inner.files()?;
     state.native_files = inventory.len() as u64;
     state.native_bytes = inventory
@@ -44,7 +44,7 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
         .collect::<StorageResult<Vec<_>>>()?;
     let scope = state.begin.job.stream.scope.clone();
     let totals = drive(inner, state, &files, inventory, &scope)?;
-    metadata::finish(inner, state, key, totals.objects)?;
+    finish_metadata(inner, state, key, totals.objects)?;
     state.ready = true;
     state.validate()?;
     inner.store.write("job.json", state)
@@ -146,7 +146,6 @@ fn read_upto(reader: &mut impl Read, buffer: &mut [u8]) -> StorageResult<usize> 
     Ok(filled)
 }
 
-/// Both planners use one relative UTF-8 path.
 fn native_relative_path(file: &SnapshotFile) -> StorageResult<RelativePath> {
     RelativePath::try_from(
         file.path
@@ -157,7 +156,6 @@ fn native_relative_path(file: &SnapshotFile) -> StorageResult<RelativePath> {
     .map_err(protocol)
 }
 
-/// A snapshot segment names its file by path; the plan names it by id.
 fn record(
     inner: &Inner,
     state: &State,
@@ -188,18 +186,19 @@ fn record(
         receipt: None,
     })
 }
-pub(super) fn input(
+
+fn input(
     inner: &Inner,
     state: &State,
     index: u64,
     object: Object,
     request_id: Id,
 ) -> StorageResult<TransferInput> {
-    if index >= super::model::MAX_OBJECTS {
+    if index >= MAX_OBJECTS {
         return Err(invalid("byte source object count bound"));
     }
-    if inner.store.exists(&super::model::object_name(index))? {
-        let prior: ObjectRecord = inner.store.read(&super::model::object_name(index))?;
+    if inner.store.exists(&object_name(index))? {
+        let prior: ObjectRecord = inner.store.read(&object_name(index))?;
         prior.validate(&state.begin)?;
         if prior.input.object != object {
             return Err(invalid("byte frozen object bytes differ"));
@@ -216,13 +215,14 @@ pub(super) fn input(
     input.validate().map_err(protocol)?;
     Ok(input)
 }
-pub(super) fn save(
+
+fn save(
     inner: &Inner,
     state: &mut State,
     index: u64,
     mut object: ObjectRecord,
 ) -> StorageResult<()> {
-    let name = super::model::object_name(index);
+    let name = object_name(index);
     object.validate(&state.begin)?;
     if inner.store.exists(&name)? {
         let prior: ObjectRecord = inner.store.read(&name)?;
@@ -241,8 +241,138 @@ pub(super) fn save(
     state.objects = state.objects.max(index + 1);
     inner.store.write("job.json", state)
 }
-pub(super) fn expected_receipt(input: &TransferInput) -> StorageResult<ObjectReceipt> {
+
+pub(in crate::storage::disk_backup::byte_backup) fn expected_receipt(
+    input: &TransferInput,
+) -> StorageResult<ObjectReceipt> {
     crate::storage::cloud_backup_plan::expected_receipt(input).map_err(protocol)
+}
+
+fn finish_metadata(
+    inner: &Inner,
+    state: &mut State,
+    key: &[u8; 32],
+    content: u64,
+) -> StorageResult<()> {
+    let mut index = content;
+    let mut pages = Vec::new();
+    let mut page = ClientPage {
+        version: codec::CLIENT_VERSION,
+        page_index: 0,
+        begin_sha256: state.begin.input_sha256().map_err(protocol)?,
+        descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
+        native_files: Vec::new(),
+    };
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    for ordinal in 0..content {
+        let object: ObjectRecord = inner.store.read(&object_name(ordinal))?;
+        object.validate(&state.begin)?;
+        for file in object.native_files {
+            if page.native_files.len() == codec::MAX_PAGE_FILES {
+                pages.push(freeze_page(inner, state, key, index, &page)?);
+                index += 1;
+                page.page_index += 1;
+                page.native_files.clear();
+            }
+            files = files
+                .checked_add(1)
+                .ok_or_else(|| invalid("byte native count overflow"))?;
+            bytes = bytes
+                .checked_add(file.native_bytes.get())
+                .ok_or_else(|| invalid("byte native size overflow"))?;
+            page.native_files.push(file);
+        }
+    }
+    if !page.native_files.is_empty() {
+        pages.push(freeze_page(inner, state, key, index, &page)?);
+        index += 1;
+    }
+    if files != state.native_files || bytes != state.native_bytes {
+        return Err(invalid("byte exact native inventory totals"));
+    }
+    let root = ClientRoot {
+        version: page.version,
+        begin_sha256: page.begin_sha256,
+        descriptor_sha256: page.descriptor_sha256,
+        native_root: state.native_root.clone(),
+        recovery: state.recovery.clone(),
+        native_file_count: files,
+        native_bytes: bytes,
+        pages,
+        run: state.run.clone(),
+    };
+    root.validate_for(&state.begin)?;
+    freeze(inner, state, key, index, &codec::encode(&root)?)?;
+    if state.objects != index + 1 {
+        return Err(invalid("byte frozen source object total differs"));
+    }
+    Ok(())
+}
+
+fn freeze_page(
+    inner: &Inner,
+    state: &mut State,
+    key: &[u8; 32],
+    index: u64,
+    page: &ClientPage,
+) -> StorageResult<ClientPageReference> {
+    page.validate_for(&state.begin)?;
+    let object = freeze(inner, state, key, index, &codec::encode(page)?)?;
+    Ok(ClientPageReference {
+        page_index: page.page_index,
+        receipt_id: expected_receipt(&object.input)?.receipt_id,
+        sha256: object.input.object.sha256,
+        bytes: object.input.object.bytes,
+    })
+}
+
+fn freeze(
+    inner: &Inner,
+    state: &mut State,
+    key: &[u8; 32],
+    index: u64,
+    plain: &[u8],
+) -> StorageResult<ObjectRecord> {
+    let name = format!("payload-{index:08}.enc");
+    let encrypted = if inner.store.exists(&name)? {
+        let bytes = inner.store.raw(&name, codec::CODEC_ENVELOPE_MAX_BYTES)?;
+        let old = zeroize::Zeroizing::new(
+            crate::crypto::decrypt_envelope(key, &bytes)
+                .map_err(|_| invalid("byte saved metadata encryption"))?,
+        );
+        if old.as_slice() != plain {
+            return Err(invalid("byte frozen metadata differs"));
+        }
+        bytes
+    } else {
+        let bytes = crate::crypto::encrypt_envelope(key, plain)
+            .map_err(|_| invalid("byte metadata encryption"))?;
+        inner.store.write_raw(&name, &bytes)?;
+        bytes
+    };
+    let request_id = Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?;
+    let input = input(
+        inner,
+        state,
+        index,
+        Object {
+            sha256: bytes_sha256(&encrypted),
+            bytes: DecimalU64::new(encrypted.len() as u64),
+            destination: Destination::R2,
+        },
+        request_id,
+    )?;
+    let record = ObjectRecord {
+        input,
+        segments: Vec::new(),
+        native_files: Vec::new(),
+        metadata_pack: false,
+        ciphertext: Some(name),
+        receipt: None,
+    };
+    save(inner, state, index, record.clone())?;
+    Ok(record)
 }
 
 impl From<PlanError> for StorageError {

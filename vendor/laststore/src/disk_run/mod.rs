@@ -1,59 +1,32 @@
 //! Disk format v2 run files: one immutable, sorted run of records.
-//!
-//! A run holds strictly ascending keys. Each record is a key and either a
-//! value or a tombstone. The file is:
-//!
-//! ```text
-//! data block 0 .. data block n-1   front-coded records, one sealed frame each
-//! index block 0 .. index block m-1 first key and place of each data block,
-//!                                  plus a bloom filter of the keys they cover
-//! top block                        first key and place of each index block
-//! footer (64 B, clear)             magic, run id, place of the top block
-//! ```
-//!
-//! Every block is one [`crate::frame`] frame: zstd when it helps, then
-//! AES-256-GCM under a key derived from the home key and the run id. The
-//! frame counter names the block, so a block moved to another place or
-//! another run fails authentication.
-//!
-//! A reader keeps nothing after its call: [`RunReader::open`] reads the
-//! footer and the top block, and each lookup reads one index block and one
-//! data block. Callers open a reader for one call and drop it after.
 
-mod bloom;
-mod codec;
 mod footer;
 pub mod home;
 mod merge;
-mod range;
 mod reader;
-mod space;
+mod reader_diagnostic;
+mod reader_open;
 mod writer;
 
-pub use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
-pub use range::RunRange;
+pub(crate) use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
+pub use merge::{ReaderRef, RunRange};
 pub use reader::RunReader;
 pub(crate) use writer::PreparedRun;
 pub use writer::{RunSummary, RunWriter};
 
+pub(crate) mod space {
+    pub(crate) use super::footer::MergeSpace;
+}
+
 /// File name suffix of a complete run.
-pub const RUN_SUFFIX: &str = ".ldrun";
+pub(crate) const RUN_SUFFIX: &str = ".ldrun";
 
 /// Largest stored key. Larger keys are refused at write time.
 pub const MAX_RUN_KEY_BYTES: usize = 64 * 1024;
 
-/// Largest stored value. A run stores each value as given. A record larger
-/// than the block target gets a block of its own; this bound keeps one block
-/// inside the frame limit.
-pub const MAX_RUN_VALUE_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES / 2;
-
-/// Largest decoded top block. A writer refuses a run whose top block would
-/// be larger, so every finished run opens.
-pub const MAX_TOP_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES;
-
-/// Largest entry count of one index or top block. The writer starts a new
-/// index block at this count, and a reader refuses a larger claim.
-pub const MAX_INDEX_ENTRIES: usize = 1 << 24;
+pub(crate) const MAX_RUN_VALUE_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES / 2;
+pub(crate) const MAX_TOP_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES;
+pub(crate) const MAX_INDEX_ENTRIES: usize = 1 << 24;
 
 /// One record as a run stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,8 +38,7 @@ pub enum Found {
 }
 
 impl Found {
-    /// The value, or `None` for a tombstone.
-    pub fn value(&self) -> Option<&[u8]> {
+    pub(crate) fn value(&self) -> Option<&[u8]> {
         match self {
             Self::Value(value) => Some(value),
             Self::Tombstone => None,
@@ -86,8 +58,6 @@ pub struct RunOptions {
 }
 
 impl Default for RunOptions {
-    /// 16 KiB blocks and 10 bloom bits per key (about 1% false positives),
-    /// the shape the disk size spike measured (EdgeVector/lastdb#388).
     fn default() -> Self {
         Self {
             block_bytes: 16 * 1024,
@@ -97,7 +67,209 @@ impl Default for RunOptions {
     }
 }
 
-/// Frame counters: data block `n` uses `n`; index block `n` uses
-/// `INDEX_COUNTER_BASE + n`; the top block uses `TOP_COUNTER`.
 pub(crate) const INDEX_COUNTER_BASE: u64 = 1 << 62;
 pub(crate) const TOP_COUNTER: u64 = 1 << 63;
+
+pub(crate) mod bloom {
+    use super::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
+    use crate::Result;
+
+    const PROBES: u32 = 7;
+    const MAX_FILTER_BYTES: usize = 64 * 1024 * 1024;
+
+    pub(crate) fn key_hash(key: &[u8]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in key {
+            h ^= u64::from(*byte);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        mix(h)
+    }
+
+    fn mix(mut z: u64) -> u64 {
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    fn probes(hash: u64, bits: u64) -> impl Iterator<Item = u64> {
+        let step = mix(hash ^ 0x9e37_79b9_7f4a_7c15) | 1;
+        (0..u64::from(PROBES)).map(move |i| hash.wrapping_add(i.wrapping_mul(step)) % bits)
+    }
+
+    pub(crate) fn put_filter(out: &mut Vec<u8>, hashes: &[u64], bits_per_key: u32) {
+        let bytes = if bits_per_key == 0 || hashes.is_empty() {
+            0
+        } else {
+            (hashes.len() * bits_per_key as usize)
+                .div_ceil(8)
+                .clamp(8, MAX_FILTER_BYTES)
+        };
+        put_varint(out, bytes as u64);
+        put_varint(out, u64::from(PROBES));
+        let start = out.len();
+        out.resize(start + bytes, 0);
+        if bytes == 0 {
+            return;
+        }
+        let bits = (bytes * 8) as u64;
+        let filter = &mut out[start..];
+        for hash in hashes {
+            for bit in probes(*hash, bits) {
+                filter[(bit / 8) as usize] |= 1 << (bit % 8);
+            }
+        }
+    }
+
+    pub(crate) struct Filter<'a> {
+        bits: &'a [u8],
+    }
+
+    impl<'a> Filter<'a> {
+        pub(crate) fn read(bytes: &'a [u8], at: &mut usize) -> Result<Self> {
+            let len = get_len(bytes, at, MAX_FILTER_BYTES)?;
+            if get_varint(bytes, at)? != u64::from(PROBES) {
+                return Err(corrupt("unknown bloom probe count"));
+            }
+            Ok(Self {
+                bits: get_slice(bytes, at, len)?,
+            })
+        }
+
+        pub(crate) fn may_hold(&self, hash: u64) -> bool {
+            if self.bits.is_empty() {
+                return true;
+            }
+            let bits = (self.bits.len() * 8) as u64;
+            probes(hash, bits).all(|bit| self.bits[(bit / 8) as usize] & (1 << (bit % 8)) != 0)
+        }
+    }
+}
+
+pub(crate) mod codec {
+    use crate::disk_run::{Found, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
+    use crate::{Error, Result};
+
+    pub(crate) fn put_varint(out: &mut Vec<u8>, mut value: u64) {
+        while value >= 0x80 {
+            out.push((value as u8) | 0x80);
+            value >>= 7;
+        }
+        out.push(value as u8);
+    }
+
+    pub(crate) fn varint_len(mut value: u64) -> usize {
+        let mut n = 1;
+        while value >= 0x80 {
+            value >>= 7;
+            n += 1;
+        }
+        n
+    }
+
+    pub(crate) fn get_varint(bytes: &[u8], at: &mut usize) -> Result<u64> {
+        let mut value = 0u64;
+        for shift in (0..64).step_by(7) {
+            let byte = *bytes
+                .get(*at)
+                .ok_or_else(|| corrupt("varint runs past the block"))?;
+            *at += 1;
+            value |= u64::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err(corrupt("varint longer than 64 bits"))
+    }
+
+    pub(crate) fn get_len(bytes: &[u8], at: &mut usize, limit: usize) -> Result<usize> {
+        let value = get_varint(bytes, at)?;
+        usize::try_from(value)
+            .ok()
+            .filter(|n| *n <= limit)
+            .ok_or_else(|| corrupt("length over its limit"))
+    }
+
+    pub(crate) fn get_slice<'a>(bytes: &'a [u8], at: &mut usize, len: usize) -> Result<&'a [u8]> {
+        let end = at
+            .checked_add(len)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| corrupt("field runs past the block"))?;
+        let slice = &bytes[*at..end];
+        *at = end;
+        Ok(slice)
+    }
+
+    pub(crate) fn shared_prefix(a: &[u8], b: &[u8]) -> usize {
+        a.iter().zip(b).take_while(|(x, y)| x == y).count()
+    }
+
+    pub(crate) fn put_key(out: &mut Vec<u8>, prev: &[u8], key: &[u8]) {
+        let shared = shared_prefix(prev, key);
+        put_varint(out, shared as u64);
+        put_varint(out, (key.len() - shared) as u64);
+        out.extend_from_slice(&key[shared..]);
+    }
+
+    pub(crate) fn get_key(bytes: &[u8], at: &mut usize, prev: &mut Vec<u8>) -> Result<()> {
+        let shared = get_len(bytes, at, prev.len())?;
+        let suffix_len = get_len(bytes, at, MAX_RUN_KEY_BYTES - shared)?;
+        let suffix = get_slice(bytes, at, suffix_len)?;
+        prev.truncate(shared);
+        prev.extend_from_slice(suffix);
+        Ok(())
+    }
+
+    pub(crate) fn record_len(prev: &[u8], key: &[u8], value: Option<&[u8]>) -> usize {
+        let shared = shared_prefix(prev, key);
+        let suffix = key.len() - shared;
+        let tag = value.map_or(0, |v| v.len() as u64 + 1);
+        varint_len(shared as u64)
+            + varint_len(suffix as u64)
+            + suffix
+            + varint_len(tag)
+            + value.map_or(0, <[u8]>::len)
+    }
+
+    pub(crate) fn put_record(out: &mut Vec<u8>, prev: &[u8], key: &[u8], value: Option<&[u8]>) {
+        put_key(out, prev, key);
+        match value {
+            None => put_varint(out, 0),
+            Some(value) => {
+                put_varint(out, value.len() as u64 + 1);
+                out.extend_from_slice(value);
+            }
+        }
+    }
+
+    pub(crate) type BlockRecords = Vec<(Vec<u8>, Found)>;
+
+    pub(crate) fn decode_block(payload: &[u8]) -> Result<BlockRecords> {
+        let mut records = Vec::new();
+        let mut at = 0;
+        let mut key = Vec::new();
+        while at < payload.len() {
+            get_key(payload, &mut at, &mut key)?;
+            let ascending = records
+                .last()
+                .map_or(!key.is_empty(), |(before, _): &(Vec<u8>, Found)| {
+                    *before < key
+                });
+            if !ascending {
+                return Err(corrupt("block keys are not strictly ascending"));
+            }
+            let tag = get_len(payload, &mut at, MAX_RUN_VALUE_BYTES + 1)?;
+            let found = if tag == 0 {
+                Found::Tombstone
+            } else {
+                Found::Value(get_slice(payload, &mut at, tag - 1)?.to_vec())
+            };
+            records.push((key.clone(), found));
+        }
+        Ok(records)
+    }
+
+    pub(crate) fn corrupt(what: &str) -> Error {
+        Error::Corrupt(format!("disk run: {what}"))
+    }
+}

@@ -1,7 +1,11 @@
-//! Scope-local metadata and cache publication after the complete disk root.
+//! Scope-local metadata publication and numeric operation accounting.
 
-use super::{Arc, BTreeMap, Mutex, PackRuntime, PendingBatch, StorageError, StorageResult};
+use super::{
+    Arc, BTreeMap, HomeMutation, Mutex, PackRuntime, PendingBatch, PendingData, StorageError,
+    StorageResult,
+};
 use std::any::Any;
+use std::collections::BTreeSet;
 
 type Action = Box<dyn FnOnce() -> StorageResult<()> + Send>;
 type CacheKey = (usize, String);
@@ -18,10 +22,10 @@ struct Changes {
 }
 
 #[derive(Default)]
-pub(super) struct PendingPublications(Mutex<Changes>);
+pub(in crate::storage::disk_pack::transaction) struct PendingPublications(Mutex<Changes>);
 
 impl PendingPublications {
-    pub(super) fn is_empty(&self) -> StorageResult<bool> {
+    pub(in crate::storage::disk_pack::transaction) fn is_empty(&self) -> StorageResult<bool> {
         Ok(self.lock()?.entries.is_empty())
     }
 
@@ -43,7 +47,7 @@ impl PendingPublications {
         Ok(())
     }
 
-    pub(super) fn finish(&self) -> StorageResult<()> {
+    pub(in crate::storage::disk_pack::transaction) fn finish(&self) -> StorageResult<()> {
         let changes = std::mem::take(&mut *self.lock()?);
         let mut failure = None;
         for (_, (_, action)) in changes.entries {
@@ -55,11 +59,6 @@ impl PendingPublications {
     }
 }
 
-/// Private metadata joins the accepted view before global cache publication.
-/// Later write scopes see that immutable accepted prefix. Ordinary queries use
-/// typed core definitions and their captured disk root; global caches change
-/// after the disk root.
-/// Outside a native write scope, retain the existing immediate cache behavior.
 pub(crate) fn publish<T: Any + Send + Sync>(
     runtime: &PackRuntime,
     cache: usize,
@@ -117,8 +116,6 @@ pub(crate) fn entries<T: Any + Send + Sync>(
     Ok(entries.into_iter().collect())
 }
 
-/// Preparation owns the gate, so accepted publications cannot drain mid-read.
-/// Ordinary queries retain their separate immutable raw-store metadata view.
 fn write_views(runtime: &PackRuntime) -> Vec<Arc<PendingBatch>> {
     let Some(pending) = PendingBatch::current(runtime) else {
         return Vec::new();
@@ -131,4 +128,91 @@ fn write_views(runtime: &PackRuntime) -> Vec<Arc<PendingBatch>> {
 
 fn type_mismatch() -> StorageError {
     StorageError::BackendError("native metadata cache type differs".into())
+}
+
+struct Counts {
+    current: usize,
+    incoming: usize,
+    projected: usize,
+    unique: usize,
+}
+
+fn counts(data: &PendingData, operations: &[HomeMutation]) -> Counts {
+    let mut unique: BTreeSet<_> = data
+        .latest
+        .keys()
+        .map(|(collection, key)| (collection.as_str(), key.as_str()))
+        .collect();
+    unique.extend(
+        operations
+            .iter()
+            .map(|operation| (operation.collection.as_str(), operation.key.as_str())),
+    );
+    Counts {
+        current: data.operations.len(),
+        incoming: operations.len(),
+        projected: data.operations.len().saturating_add(operations.len()),
+        unique: unique.len(),
+    }
+}
+
+pub(in crate::storage::disk_pack::transaction) fn refusal(
+    data: &PendingData,
+    operations: &[HomeMutation],
+    limit: usize,
+) -> StorageError {
+    let counts = counts(data, operations);
+    StorageError::MutationLimit {
+        detail: format!(
+            "complete native mutation exceeds {limit} storage operations: current={}, incoming={}, projected={}, projected_unique={}",
+            counts.current, counts.incoming, counts.projected, counts.unique,
+        ),
+    }
+}
+
+pub(in crate::storage::disk_pack::transaction) fn record_stage(
+    data: &PendingData,
+    operations: &[HomeMutation],
+    limit: usize,
+) {
+    if !tracing::enabled!(target: "lastdb::native_write_budget", tracing::Level::DEBUG) {
+        return;
+    }
+    let counts = counts(data, operations);
+    tracing::debug!(
+        target: "lastdb::native_write_budget",
+        current_operations = counts.current,
+        incoming_operations = counts.incoming,
+        projected_operations = counts.projected,
+        projected_unique_operations = counts.unique,
+        operation_limit = limit,
+        "native preparation cumulative stored operations"
+    );
+}
+
+impl PendingBatch {
+    pub(in crate::storage::disk_pack::transaction) fn remember_preparation_limit(
+        &self,
+        error: StorageError,
+    ) -> StorageError {
+        if let StorageError::MutationLimit { detail } = &error {
+            self.preparation_limit
+                .lock()
+                .expect("native complete mutation limit")
+                .get_or_insert_with(|| detail.clone());
+        }
+        error
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn preparation_limit(
+        &self,
+    ) -> Option<StorageError> {
+        self.preparation_limit
+            .lock()
+            .expect("native complete mutation limit")
+            .as_ref()
+            .map(|detail| StorageError::MutationLimit {
+                detail: detail.clone(),
+            })
+    }
 }

@@ -62,10 +62,9 @@ impl E2eKeys {
 pub mod envelope {
     use super::{CryptoError, CryptoResult};
     use aes_gcm::{
-        aead::{Aead, KeyInit, OsRng},
+        aead::{Aead, AeadCore, KeyInit, OsRng},
         Aes256Gcm, Nonce,
     };
-    use rand::RngCore;
 
     pub const ENVELOPE_VERSION: u8 = 0x01;
     pub(crate) const NONCE_SIZE: usize = 12;
@@ -76,14 +75,13 @@ pub mod envelope {
     pub fn encrypt_envelope(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
         let cipher = Aes256Gcm::new_from_slice(key)
             .map_err(|e| CryptoError::EncryptionFailed(format!("Invalid key: {e}")))?;
-        let mut nonce_bytes = [0u8; NONCE_SIZE];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+            .encrypt(&nonce, plaintext)
             .map_err(|e| CryptoError::EncryptionFailed(format!("AES-GCM encrypt: {e}")))?;
         let mut envelope = Vec::with_capacity(VERSION_SIZE + NONCE_SIZE + ciphertext.len());
         envelope.push(ENVELOPE_VERSION);
-        envelope.extend_from_slice(&nonce_bytes);
+        envelope.extend_from_slice(&nonce);
         envelope.extend_from_slice(&ciphertext);
         Ok(envelope)
     }

@@ -1,34 +1,33 @@
 //! Backup-only bounded selection of a key and its existing stored body.
-use super::super::{codec::corrupt, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
-use super::{BlockRef, RunReader};
+
+use super::{IndexBlock, RunReader};
+use crate::disk_run::bloom::key_hash;
+use crate::disk_run::codec::corrupt;
+use crate::disk_run::footer::BlockRef;
+use crate::disk_run::reader_diagnostic::preflight_frame;
+use crate::disk_run::reader_open::StreamBody;
+use crate::disk_run::{MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
 use crate::frame::VerifiedFrameReader;
 use crate::{Error, Result};
 use std::cmp::Ordering;
-use std::io::Read;
-#[path = "stream/body.rs"]
-mod body;
-#[path = "stream/diagnostic.rs"]
-mod diagnostic;
-#[path = "stream/import.rs"]
-mod import;
-use body::copy_exact;
-pub(crate) use body::StreamBody;
-pub(crate) use diagnostic::SummaryCursor;
+use std::io::{Read, Write};
 
 pub(crate) enum SelectedBody {
     Deleted,
     Value(StreamBody),
 }
-struct Block {
-    input: VerifiedFrameReader,
-    key: Vec<u8>,
+
+pub(in crate::disk_run) struct Block {
+    pub(in crate::disk_run) input: VerifiedFrameReader,
+    pub(in crate::disk_run) key: Vec<u8>,
     seen: bool,
-    remaining: u64,
+    pub(in crate::disk_run) remaining: u64,
     coordinate_bytes: u64,
-    memory_available: u64,
+    pub(in crate::disk_run) memory_available: u64,
 }
+
 impl Block {
-    fn new(
+    pub(in crate::disk_run) fn new(
         reader: &RunReader,
         reference: &BlockRef,
         coordinate_bytes: u64,
@@ -69,6 +68,7 @@ impl Block {
             memory_available,
         })
     }
+
     fn varint(&mut self) -> Result<Option<u64>> {
         let mut value = 0u64;
         for shift in (0..64).step_by(7) {
@@ -91,6 +91,7 @@ impl Block {
         }
         Err(corrupt("stream varint overflow"))
     }
+
     fn length(&mut self, maximum: usize) -> Result<usize> {
         let n = self
             .varint()?
@@ -100,6 +101,7 @@ impl Block {
             .filter(|n| *n <= maximum)
             .ok_or_else(|| corrupt("stream record length"))
     }
+
     fn next(&mut self) -> Result<Option<bool>> {
         copy_exact(&mut self.input, &mut std::io::sink(), self.remaining)?;
         self.remaining = 0;
@@ -153,11 +155,16 @@ impl Block {
         self.remaining = tag.saturating_sub(1) as u64;
         Ok(Some(tag != 0))
     }
-    fn finish(mut self) -> Result<()> {
+
+    pub(in crate::disk_run) fn finish(mut self) -> Result<()> {
         while self.next()?.is_some() {}
         Ok(())
     }
-    fn checked_next(&mut self, reference: &BlockRef) -> Result<Option<bool>> {
+
+    pub(in crate::disk_run) fn checked_next(
+        &mut self,
+        reference: &BlockRef,
+    ) -> Result<Option<bool>> {
         let first = !self.seen;
         let row = self.next()?;
         if first && (row.is_none() || self.key != reference.first_key) {
@@ -166,94 +173,8 @@ impl Block {
         Ok(row)
     }
 }
+
 impl RunReader {
-    fn metadata_bytes(&self) -> u64 {
-        (self.top.indexes.capacity() * std::mem::size_of::<BlockRef>()
-            + self.top.last_key.capacity()
-            + self
-                .top
-                .indexes
-                .iter()
-                .map(|r| r.first_key.capacity())
-                .sum::<usize>()) as u64
-    }
-    pub(super) fn read_metadata_frame(
-        &self,
-        offset: u64,
-        len: u32,
-        counter: u64,
-        maximum: usize,
-        admission: u64,
-    ) -> Result<Vec<u8>> {
-        let retained = self
-            .reserved_memory
-            .checked_add(self.metadata_bytes())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        preflight_frame(retained)?;
-        let mut input =
-            VerifiedFrameReader::open(&self.file, offset, u64::from(len), &self.data_key)?;
-        let header = input.header();
-        let bytes = input.payload_len();
-        if header.chunk_uuid != self.footer.run_id
-            || header.counter != counter
-            || bytes > maximum as u64
-        {
-            return Err(corrupt("stream metadata frame identity or limit"));
-        }
-        if bytes > admission
-            || bytes
-                .saturating_add(input.memory_bytes())
-                .saturating_add(self.metadata_bytes())
-                .saturating_add(self.reserved_memory)
-                > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
-        {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        let count = usize::try_from(bytes).map_err(|_| Error::ReadBudgetExceeded)?;
-        let mut output = Vec::new();
-        output
-            .try_reserve_exact(count)
-            .map_err(|_| Error::ReadBudgetExceeded)?;
-        output.resize(count, 0);
-        input.read_exact(&mut output)?;
-        let mut extra = [0; 1];
-        if input.read(&mut extra)? != 0 {
-            return Err(corrupt("stream metadata frame length"));
-        }
-        Ok(output)
-    }
-    fn stream_index(&self, number: usize, admission: u64) -> Result<super::IndexBlock> {
-        let entry = &self.top.indexes[number];
-        let available = admission
-            .checked_sub(self.metadata_bytes())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let payload = self.read_metadata_frame(
-            entry.offset,
-            entry.len,
-            super::super::INDEX_COUNTER_BASE + entry.number,
-            self.block_limit(),
-            available,
-        )?;
-        let mut at = 0;
-        let blocks = super::super::footer::get_refs_bounded(&payload, &mut at, available)?;
-        if blocks.first().map(|b| &b.first_key) != Some(&entry.first_key) {
-            return Err(corrupt("index block does not start at its top entry"));
-        }
-        let start = at;
-        super::super::bloom::Filter::read(&payload, &mut at)?;
-        if at != payload.len() {
-            return Err(corrupt("trailing bytes in index block"));
-        }
-        let allocated = blocks.capacity() * std::mem::size_of::<BlockRef>()
-            + blocks.iter().map(|b| b.first_key.capacity()).sum::<usize>();
-        if (payload.capacity() + allocated + payload.len() - start) as u64 > available {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        Ok(super::IndexBlock {
-            blocks,
-            filter_bytes: payload[start..].to_vec(),
-        })
-    }
     pub(crate) fn stream_body(
         &self,
         wanted: &[u8],
@@ -264,7 +185,7 @@ impl RunReader {
             return Ok(None);
         };
         let index = self.stream_index(number, admission)?;
-        if !index.may_hold(super::key_hash(wanted))? {
+        if !index.may_hold(key_hash(wanted))? {
             return Ok(None);
         }
         let Some(slot) = index
@@ -274,14 +195,7 @@ impl RunReader {
         else {
             return Ok(None);
         };
-        let metadata = self.metadata_bytes()
-            + (index.blocks.capacity() * std::mem::size_of::<BlockRef>()
-                + index
-                    .blocks
-                    .iter()
-                    .map(|b| b.first_key.capacity())
-                    .sum::<usize>()
-                + index.filter_bytes.capacity()) as u64;
+        let metadata = self.metadata_bytes() + index_footprint(&index);
         let reference = &index.blocks[slot];
         let mut block = Block::new(
             self,
@@ -315,6 +229,7 @@ impl RunReader {
         }
         Ok(None)
     }
+
     pub(crate) fn stream_key(
         &self,
         lower: &[u8],
@@ -334,18 +249,11 @@ impl RunReader {
             } else {
                 0
             };
+            let metadata = self.metadata_bytes() + index_footprint(&index);
             for reference in &index.blocks[first..] {
                 if upper.is_some_and(|end| reference.first_key.as_slice() >= end) {
                     return Ok(None);
                 }
-                let metadata = self.metadata_bytes()
-                    + (index.blocks.capacity() * std::mem::size_of::<BlockRef>()
-                        + index
-                            .blocks
-                            .iter()
-                            .map(|b| b.first_key.capacity())
-                            .sum::<usize>()
-                        + index.filter_bytes.capacity()) as u64;
                 let mut block = Block::new(
                     self,
                     reference,
@@ -354,7 +262,7 @@ impl RunReader {
                 )?;
                 while block.checked_next(reference)?.is_some() {
                     if (block.key.as_slice() > lower || !exclusive && block.key.as_slice() == lower)
-                        && upper.map_or(true, |end| block.key.as_slice() < end)
+                        && upper.is_none_or(|end| block.key.as_slice() < end)
                     {
                         let key = block.key.clone();
                         block.finish()?;
@@ -371,15 +279,27 @@ impl RunReader {
     }
 }
 
-fn preflight_frame(retained: u64) -> Result<()> {
-    let resources = lastdb_model::storage_policy::BACKUP_RESOURCES;
-    let minimum = 2 * resources.stream_buffer_bytes + 16;
-    if retained
-        .checked_add(minimum)
-        .map_or(true, |n| n > resources.working_memory_bytes)
-    {
-        Err(Error::ReadBudgetExceeded)
-    } else {
-        Ok(())
+fn index_footprint(index: &IndexBlock) -> u64 {
+    (index.blocks.capacity() * std::mem::size_of::<BlockRef>()
+        + index
+            .blocks
+            .iter()
+            .map(|b| b.first_key.capacity())
+            .sum::<usize>()
+        + index.filter_bytes.capacity()) as u64
+}
+
+pub(in crate::disk_run) fn copy_exact(
+    input: &mut dyn Read,
+    out: &mut dyn Write,
+    mut bytes: u64,
+) -> Result<()> {
+    let mut buffer = [0u8; 65536];
+    while bytes != 0 {
+        let take = bytes.min(buffer.len() as u64) as usize;
+        input.read_exact(&mut buffer[..take])?;
+        out.write_all(&buffer[..take])?;
+        bytes -= take as u64;
     }
+    Ok(())
 }

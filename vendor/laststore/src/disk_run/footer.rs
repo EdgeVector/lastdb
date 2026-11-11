@@ -1,19 +1,20 @@
-//! The run footer and the entries of index and top blocks.
+//! The run footer, block-ref entries, and replacement-file space admission.
 
 use super::codec::{corrupt, get_key, get_len, get_slice, get_varint, put_key, put_varint};
 use super::MAX_RUN_KEY_BYTES;
+use crate::space::{reserve_space, SpacePolicy, SpaceReservation};
 use crate::{Error, Result};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 const MAGIC: [u8; 8] = *b"LDRUN\x01\0\0";
 const VERSION: u32 = 1;
 pub(super) const FOOTER_BYTES: usize = 64;
-/// Largest block entry count one index or top block may claim.
 const MAX_ENTRIES: usize = super::MAX_INDEX_ENTRIES;
+const PUBLICATION_BYTES: u64 = 4096;
+const OUTPUT_CHUNK_BYTES: u64 = 1 << 20;
 
-/// The fixed clear trailer of a run file. The top block repeats the counts,
-/// and the reader requires both copies to agree, so the clear copy cannot
-/// change what an authenticated block says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Footer {
     pub(super) run_id: Uuid,
@@ -61,11 +62,9 @@ impl Footer {
     }
 }
 
-/// The place of one block, as an index or top block lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BlockRef {
     pub(super) first_key: Vec<u8>,
-    /// Data block number, or index block number in the top block.
     pub(super) number: u64,
     pub(super) offset: u64,
     pub(super) len: u32,
@@ -105,8 +104,6 @@ pub(super) fn get_refs(bytes: &[u8], at: &mut usize) -> Result<Vec<BlockRef>> {
     Ok(refs)
 }
 
-/// Backup-only decode admission includes the retained input, reference entries,
-/// and every expanded prefix key. No key buffer grows before that admission.
 pub(super) fn get_refs_bounded(
     bytes: &[u8],
     at: &mut usize,
@@ -158,7 +155,6 @@ fn admit(used: u64, bytes: usize, maximum: u64) -> Result<u64> {
         .ok_or(Error::ReadBudgetExceeded)
 }
 
-/// The authenticated summary in the top block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Top {
     pub(super) records: u64,
@@ -200,8 +196,6 @@ impl Top {
         })
     }
 
-    /// The bounded backup reader keeps the source payload and decoded top
-    /// together, so both count before any expanded key allocation.
     pub(super) fn decode_bounded(bytes: &[u8], maximum: u64) -> Result<Self> {
         let mut at = 0;
         let records = get_varint(bytes, &mut at)?;
@@ -241,4 +235,101 @@ impl Top {
             && self.data_blocks == u64::from(footer.data_blocks)
             && self.max_payload == u64::from(footer.max_payload)
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct MergeSpace(Arc<Mutex<Pending>>);
+
+struct Pending {
+    policy: SpacePolicy,
+    ticket: SpaceReservation,
+    outputs: Vec<PathBuf>,
+    keep_outputs: bool,
+}
+
+impl MergeSpace {
+    pub(crate) fn new(root: &Path, policy: &SpacePolicy) -> Result<Self> {
+        let mut policy = policy.clone();
+        policy.replacement_reserve_bytes = 0;
+        let ticket = reserve_space(root, &policy, PUBLICATION_BYTES)?;
+        Ok(Self(Arc::new(Mutex::new(Pending {
+            policy,
+            ticket,
+            outputs: Vec::new(),
+            keep_outputs: false,
+        }))))
+    }
+
+    pub(crate) fn admit_run(&self, bytes: u64) -> Result<()> {
+        let mut pending = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let required = bytes.checked_add(PUBLICATION_BYTES).ok_or_else(overflow)?;
+        if required <= pending.ticket.bytes() {
+            return Ok(());
+        }
+        let chunk = pending
+            .ticket
+            .bytes()
+            .checked_add(OUTPUT_CHUNK_BYTES)
+            .ok_or_else(overflow)?
+            .max(required);
+        let extra = pending
+            .ticket
+            .reserve_extension(&pending.policy, chunk)
+            .or_else(|error| match error {
+                Error::Io(io)
+                    if io.raw_os_error() == Some(rustix::io::Errno::NOSPC.raw_os_error()) =>
+                {
+                    pending.ticket.reserve_extension(&pending.policy, required)
+                }
+                error => Err(error),
+            })?;
+        pending.ticket.absorb(extra);
+        Ok(())
+    }
+
+    pub(crate) fn materialize(&self, bytes: u64) -> Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .ticket
+            .materialize(bytes)
+    }
+
+    pub(crate) fn admit_current(&self, bytes: u64) -> Result<()> {
+        let mut pending = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if bytes > pending.ticket.bytes() {
+            let extra = pending.ticket.reserve_extension(&pending.policy, bytes)?;
+            pending.ticket.absorb(extra);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn output(&self, path: &Path) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .outputs
+            .push(path.to_path_buf());
+    }
+
+    pub(crate) fn keep_outputs(&self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keep_outputs = true;
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if !self.keep_outputs {
+            for path in &self.outputs {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn overflow() -> Error {
+    Error::WriteCapacity("disk run: replacement reservation overflow".into())
 }

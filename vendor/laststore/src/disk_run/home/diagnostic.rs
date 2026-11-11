@@ -1,13 +1,17 @@
-//! Explicit isolated-node checkpoints. Default status and read paths do no audit work.
-use super::{manifest::Manifest, RunHome};
+//! Explicit isolated-node checkpoints and merge-input cursors.
+use super::manifest::{Manifest, RunFile};
+use super::RunHome;
+use crate::disk_run::reader_diagnostic::SummaryCursor;
 use crate::{Error, Result};
 use serde::Serialize;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub use super::diagnostic_inventory::{CollectionInventory, LogicalInventory};
+
+type InventoryRecord = (Vec<u8>, Option<u64>);
 
 /// Allocated physical bytes at one captured checkpoint.
 #[derive(Debug, Default, Serialize)]
@@ -61,8 +65,7 @@ pub struct RunDiagnosticCheckpoint {
 }
 
 impl RunDiagnosticCheckpoint {
-    /// The owner stops load before this audit. Only fixed-size aggregate output
-    /// remains after this consumes and releases the captured root.
+    /// Consume and release the captured root, optionally building the logical inventory.
     pub fn finish(
         mut self,
         home: &RunHome,
@@ -79,15 +82,6 @@ impl RunDiagnosticCheckpoint {
 }
 
 impl RunHome {
-    /// Checkpoint only. The inventory holds this root, releases it before return,
-    /// and has independent finite memory, work and wall-time caps.
-    pub fn diagnostics(&self, include_inventory: bool) -> Result<RunHomeDiagnostics> {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        Ok(self
-            .diagnostic_checkpoint(deadline)?
-            .finish(self, include_inventory, deadline))
-    }
-
     /// Capture both homes before either inventory starts; they share one deadline.
     pub fn diagnostic_checkpoint(&self, deadline: Instant) -> Result<RunDiagnosticCheckpoint> {
         if !crate::diagnostics_enabled() {
@@ -98,6 +92,74 @@ impl RunHome {
         let (root, files) = inspect_files(self, deadline)?;
         let report = from_root(&root, files);
         Ok(RunDiagnosticCheckpoint { root, report })
+    }
+}
+
+pub(in crate::disk_run::home) enum InventoryCursor<'a> {
+    Run(SummaryCursor),
+    Base {
+        home: &'a RunHome,
+        files: &'a [Arc<RunFile>],
+        next: usize,
+        current: Option<SummaryCursor>,
+        allowance: u64,
+    },
+}
+
+impl<'a> InventoryCursor<'a> {
+    pub(in crate::disk_run::home) fn run(
+        home: &RunHome,
+        run: &RunFile,
+        allowance: u64,
+    ) -> Result<Self> {
+        Ok(Self::Run(SummaryCursor::open(
+            &run.path, &home.key, allowance,
+        )?))
+    }
+
+    pub(in crate::disk_run::home) fn base(
+        home: &'a RunHome,
+        files: &'a [Arc<RunFile>],
+        allowance: u64,
+    ) -> Self {
+        Self::Base {
+            home,
+            files,
+            next: 0,
+            current: None,
+            allowance,
+        }
+    }
+
+    pub(in crate::disk_run::home) fn next_record(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<Option<InventoryRecord>> {
+        match self {
+            Self::Run(cursor) => cursor.next_record(),
+            Self::Base {
+                home,
+                files,
+                next,
+                current,
+                allowance,
+            } => loop {
+                if Instant::now() >= deadline {
+                    return Err(Error::ReadBudgetExceeded);
+                }
+                if let Some(cursor) = current {
+                    if let Some(record) = cursor.next_record()? {
+                        return Ok(Some(record));
+                    }
+                }
+                *current = None;
+                let Some(run) = files.get(*next) else {
+                    return Ok(None);
+                };
+                *current = Some(SummaryCursor::open(&run.path, &home.key, *allowance)?);
+                *next += 1;
+            },
+        }
     }
 }
 
@@ -128,7 +190,7 @@ fn inspect_files(home: &RunHome, deadline: Instant) -> Result<(Arc<Manifest>, Fi
 }
 
 fn from_root(root: &Manifest, files: FileDiagnostics) -> RunHomeDiagnostics {
-    let part = |runs: &[std::sync::Arc<super::manifest::RunFile>]| RunPartDiagnostics {
+    let part = |runs: &[Arc<RunFile>]| RunPartDiagnostics {
         runs: runs.len(),
         records: runs.iter().map(|run| run.meta.records).sum(),
         file_bytes: runs.iter().map(|run| run.meta.file_bytes).sum(),

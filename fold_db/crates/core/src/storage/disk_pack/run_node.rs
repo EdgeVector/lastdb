@@ -1,47 +1,25 @@
 //! A node home in disk format v2: the node marker and two run homes.
-//!
-//! ```text
-//! <node>/laststore-pack-node-v1   the node marker (`RECORD_NODE_BYTES`)
-//! <node>/disk-run/                the run home for every collection except CAS
-//! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
-//! ```
-//!
-//! The CAS files are separate files so that a backup can send them to a
-//! different store (B2) than the rest of the data (R2).
-//!
-//! Every node home is v2: a node that opens an absent or empty home creates
-//! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
-//! one on request. Both need the node encryption key. Every new home has the
-//! current format; the node marker check admits no other home. The run homes are
-//! complete before the marker appears, so a crash during creation leaves the
-//! creation intent without a marker. The runtime opens only after the marker,
-//! so that home holds no application records: the next open removes the
-//! partial run homes and creates the home again. A lock on the node folder
-//! serializes creators, and a creator holds it until its runtime is open, so
-//! the partial state of a live creator is never removed.
-//!
-//! A new home commits its key-format and account proofs before the node
-//! marker appears. Its intent remains until logical construction checks them.
-//!
-//! Each run home key derives from the node encryption key with its own label
-//! and is never written to a file.
 
 use super::shared_layout::{Scope, SharedHome};
 use super::*;
+use crate::storage::content_key_proof;
+use crate::storage::format::metadata::{
+    initial_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY, LOCAL_AUTHOR_KEY,
+    NATIVE_SHARED_SCOPE_KEY,
+};
+use crate::storage::format::{
+    CAS_KEY_LABEL, CREATION_INTENT as INTENT, CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE,
+    HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, PRIVATE_KEY_LABEL,
+    STAGED_NODE_MARKER as STAGED_MARKER,
+};
 use laststore::disk_run::home::RunHome;
 use std::io::Write;
 
-mod creation;
-
 pub(in crate::storage) use crate::storage::format::PRIVATE_DIR;
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
-use crate::storage::format::{
-    CAS_KEY_LABEL, CREATION_INTENT as INTENT, HOME_KEY_LABEL, PRIVATE_KEY_LABEL,
-    STAGED_NODE_MARKER as STAGED_MARKER,
-};
 
 /// True when `path` is absent or empty: a new node home, which is v2.
-pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
+pub(in crate::storage::disk_pack) fn is_new_home(path: &Path) -> StorageResult<bool> {
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => Some(entries),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -50,16 +28,11 @@ pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
-/// True when a v2 home creation stopped before its node marker: the creation
-/// intent is there and the marker is not.
-pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
+/// True when a v2 home creation stopped before its node marker.
+pub(in crate::storage::disk_pack) fn creation_stopped(path: &Path) -> StorageResult<bool> {
     Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
 }
 
-/// Remove what a creation that stopped before its node marker left: the run
-/// homes, their staging folders, and the staged marker. None of them holds
-/// application records. The caller holds the creation lock. Another entry stops the removal
-/// before it starts, and nothing is removed.
 fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     let staging = |name: &str, home: &str| {
         name.strip_prefix('.')
@@ -98,13 +71,10 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     Ok(())
 }
 
-/// The main run home key: HKDF-SHA256 of the node encryption key. The copy
-/// is cleared when it drops.
 pub(in crate::storage) fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     derive_key(node_key, HOME_KEY_LABEL)
 }
 
-/// The CAS run home key, with its own label.
 pub(in crate::storage) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     derive_key(node_key, CAS_KEY_LABEL)
 }
@@ -121,7 +91,9 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
+pub(in crate::storage::disk_pack) fn require_key(
+    node_key: Option<&[u8; 32]>,
+) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
             "a format v2 node home needs the node encryption key; every new node home is v2".into(),
@@ -129,20 +101,63 @@ pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32
     })
 }
 
+fn initialize_home(
+    home: &RunHome,
+    node_key: &[u8; 32],
+    scope: Option<&Scope>,
+) -> StorageResult<&'static [u8]> {
+    let (collection, key) = kv::coordinate(MAIN_NAMESPACE, CURRENT_KEY_FORMAT_KEY.as_bytes());
+    let format = HomeMutation {
+        collection,
+        key,
+        body: Some(CURRENT_KEY_FORMAT_VALUE.to_vec()),
+    };
+    let proof = HomeMutation {
+        collection: content_key_proof::NAMESPACE.into(),
+        key: super::native_routing::encode(content_key_proof::KEY),
+        body: Some(content_key_proof::create(node_key)?),
+    };
+    let mut rows = vec![format, proof];
+    let marker = if let Some(scope) = scope {
+        rows.push(HomeMutation {
+            collection: METADATA_NAMESPACE.into(),
+            key: NATIVE_SHARED_SCOPE_KEY.into(),
+            body: Some(scope.encode()?),
+        });
+        SHARED_NODE_BYTES
+    } else {
+        rows.extend(local_rows(home.identity())?);
+        RECORD_NODE_BYTES
+    };
+    home.commit(rows).map_err(map)?;
+    Ok(marker)
+}
+
+fn local_rows(stream: uuid::Uuid) -> StorageResult<Vec<HomeMutation>> {
+    let (collection, key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
+    let author = HomeMutation {
+        collection,
+        key,
+        body: Some(initial_local_author(stream)?),
+    };
+    let (collection, key) = kv::coordinate(METADATA_NAMESPACE, FILE_RETENTION_KEY.as_bytes());
+    let file_retention = HomeMutation {
+        collection,
+        key,
+        body: Some(FILE_RETENTION_COMPLETE.to_vec()),
+    };
+    Ok(vec![author, file_retention])
+}
+
 impl PackNamespacedStore {
-    /// Create a new format v2 node home in `path` and open it. The home must
-    /// be absent, empty, or a creation that stopped before its node marker;
-    /// this creation replaces the partial run homes of a stopped creation.
     pub fn create_run(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
         std::fs::create_dir_all(path)?;
-        // The folder handle is the creation lock and the directory barrier.
         let folder = std::fs::File::open(path)?;
         folder.try_lock().map_err(|error| {
             StorageError::InvalidOperation(format!(
                 "another owner is creating this format v2 node home or its lock failed: {error}"
             ))
         })?;
-        // Another creator can finish between the caller's check and the lock.
         if !path.join(NODE_MARKER).try_exists()? {
             if creation_stopped(path)? {
                 clear_stopped_creation(path)?;
@@ -159,7 +174,7 @@ impl PackNamespacedStore {
             if scope.is_some() {
                 create_private(path, node_key)?;
             }
-            let marker = creation::initialize(&main, node_key, scope.as_ref())?;
+            let marker = initialize_home(&main, node_key, scope.as_ref())?;
             drop(main);
             let staged = path.join(STAGED_MARKER);
             let mut file = std::fs::OpenOptions::new()
@@ -171,13 +186,15 @@ impl PackNamespacedStore {
             std::fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;
         }
-        // Keep the lock until the runtime holds the run home locks.
         let store = Self::open_run(path, Some(node_key));
         drop(folder);
         store
     }
 
-    pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
+    pub(in crate::storage::disk_pack) fn open_run(
+        path: &Path,
+        node_key: Option<&[u8; 32]>,
+    ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         let version = super::run_admission::admit(path, node_key)?;
         let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
@@ -196,8 +213,7 @@ impl PackNamespacedStore {
     }
 }
 
-/// Create the device-private disk home after authenticating a downloaded
-/// shared snapshot, before a writer can open the restored data directory.
+/// Create the device-private disk home after authenticating a downloaded shared snapshot.
 pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let version = super::run_admission::admit(path, key)?;
     if version == super::run_admission::SHARED_RECORD_PROFILE {
@@ -208,7 +224,10 @@ pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult
 
 fn create_private(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let private = RunHome::create(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?;
-    creation::initialize_private(&private)
+    private
+        .commit(local_rows(private.identity())?)
+        .map_err(map)?;
+    Ok(())
 }
 
 fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> StorageResult<()> {
@@ -228,18 +247,14 @@ fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> Storag
 pub(in crate::storage) fn verify_private_author(
     local: &mut laststore::disk_run::home::RunRead,
 ) -> StorageResult<()> {
-    let (collection, author_key) = kv::coordinate(
-        crate::storage::format::METADATA_NAMESPACE,
-        crate::storage::format::metadata::LOCAL_AUTHOR_KEY.as_bytes(),
-    );
+    let (collection, author_key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
     let author = local
         .get_bounded(&collection, &author_key, 8192)
         .map_err(map)?;
     crate::storage::format::metadata::validate_local_author(author.as_deref())
 }
 
-/// Remove the creation intent of the v2 node home that holds `run_home`.
-pub(super) fn complete_initialization(run_home: &Path) -> StorageResult<()> {
+pub(in crate::storage::disk_pack) fn complete_initialization(run_home: &Path) -> StorageResult<()> {
     let node = run_home.parent().ok_or_else(|| {
         StorageError::InvalidOperation("a format v2 run home has no node home".into())
     })?;

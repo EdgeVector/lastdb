@@ -15,67 +15,39 @@
 //! durable, then publishes a new CURRENT by rename. A read takes one
 //! CURRENT for its whole call and searches the runs newest first, so it
 //! sees one complete commit boundary and never a part of a commit.
-//!
-//! The runs are tiered levels, then the runs of a base merge in progress,
-//! then the base: the oldest data, each live key once, in key order.
-//! [`RunHome::merge_step`] merges a full level (eight runs) into one run on
-//! the next level, and moves the oldest tiered runs into the base when they
-//! or the stale versions grow past a fixed share of the home. The `plan`
-//! module states the size bound. A read that holds an older CURRENT keeps
-//! the merged runs alive; the last holder deletes their files.
-//! [`RunHome::retired_bytes`] reports how much of that is still on disk, so
-//! an owner whose reads are long can pace its merge steps.
-//!
-//! After a crash, the owner deletes temporary files and run files that
-//! CURRENT does not name when it opens the home. Nothing is replayed: the
-//! last CURRENT is the complete state.
-//!
-//! A commit stores each value as given, and a read returns those bytes. The
-//! block seal of every run is the encryption at rest; the home key protects
-//! every run and CURRENT.
 
 mod capture;
 mod cleanup;
-mod cleanup_checkpoint;
-mod cleanup_files;
 mod commit;
-mod commit_log;
-mod create;
 mod diagnostic;
-mod diagnostic_cursor;
 mod diagnostic_inventory;
-mod keys;
-mod lock;
 mod maintenance;
 mod manifest;
-mod owner;
-mod parallel_publication;
+mod manifest_bounded;
+mod open;
 mod plan;
 mod publication;
 mod range;
 mod read;
-mod read_only;
+mod stream;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
-pub use cleanup_checkpoint::MAX_CAS_DELETE_CHECKPOINT_BYTES;
-pub use cleanup_files::RunCleanupFiles;
-pub use commit::{HomeMutation, MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use cleanup::{RunCleanupFiles, MAX_CAS_DELETE_CHECKPOINT_BYTES};
+pub use commit::{HomeMutation, RunCommit};
 pub use diagnostic::{
     CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
-    RunHomeDiagnostics,
+    RunHomeDiagnostics, RunPartDiagnostics,
 };
-pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
+pub use manifest::{CURRENT, RUNS};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
-pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
+pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
-use super::{RunOptions, RUN_SUFFIX};
-use crate::durability::sync_directory;
+use super::RunOptions;
+use crate::space::sync_directory;
 use crate::{Error, Result};
-use create::build_empty;
 use manifest::{Manifest, RunFile};
-pub use manifest::{CURRENT, RUNS};
-use std::collections::HashSet;
+use open::build_empty;
 use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::DirBuilderExt;
@@ -87,9 +59,9 @@ use uuid::Uuid;
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
 /// File name of the authenticated node-cleanup checkpoint.
-pub const NODE_CLEANUP: &str = "NODE_CLEANUP";
+pub(super) const NODE_CLEANUP: &str = "NODE_CLEANUP";
 /// File name of the authenticated cross-home deletion intent.
-pub const CAS_DELETE: &str = "CAS_DELETE";
+pub(super) const CAS_DELETE: &str = "CAS_DELETE";
 /// Directory of the home owner's mutation log, beside `runs/`.
 pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 /// Directory of the home owner's cloud backup: the capture source and the
@@ -100,8 +72,8 @@ pub const SHARED_BACKUP_DIR: &str = "cloud-shared";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 /// `LDRHOME4`: every value is stored as given.
-const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
-const DESCRIPTOR_BYTES: usize = 64;
+pub(super) const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
+pub(super) const DESCRIPTOR_BYTES: usize = 64;
 
 /// Largest value that a commit accepts.
 pub const MAX_VALUE_BYTES: usize = super::MAX_RUN_VALUE_BYTES;
@@ -163,33 +135,16 @@ pub struct RunHome {
     identity: Uuid,
     options: RunOptions,
     current: RwLock<Arc<Manifest>>,
-    /// Serializes commits from the run write to the publish, so commits
-    /// publish in call order.
     commit: Mutex<()>,
-    /// Serializes CURRENT publication.
     publish: Mutex<()>,
-    /// Serializes merge steps and hidden byte counts, so a step's inputs
-    /// stay in CURRENT until it ends.
     merge: Mutex<()>,
-    /// The runs that merges replaced. A run's file stays until the last
-    /// root or read that names it ends; a dead handle is pruned.
     retired: Mutex<Vec<Weak<RunFile>>>,
-    /// Set when a publish fails after its rename, or when a commit or
-    /// publication lock is poisoned: the durable state is unknown.
     poisoned: AtomicBool,
-    /// The owner lock. Each read holds a clone, so no other owner can open
-    /// the home and remove runs while a read still names them.
     lock: Arc<File>,
 }
 
 impl RunHome {
     /// Create a new empty home in `root`, which must be absent or empty.
-    ///
-    /// The home is built in a hidden sibling directory and renamed into
-    /// place, so a crash leaves either no home or a complete one. A crash
-    /// can leave that `.<name>.create-<uuid>` directory beside the root;
-    /// it is never opened, and the caller may delete it. The parent of
-    /// `root` must exist.
     pub fn create(root: &Path, key: &[u8; 32]) -> Result<Self> {
         if root.try_exists()? && fs::read_dir(root)?.next().is_some() {
             return Err(Error::Config(
@@ -208,9 +163,6 @@ impl RunHome {
             name.to_string_lossy(),
             Uuid::new_v4()
         ));
-        // The home holds private metadata (the mutation log refuses a
-        // parent that group or other can read), so it is owner-only from
-        // the start, as a restored home is.
         fs::DirBuilder::new().mode(0o700).create(&staging)?;
         let built = build_empty(&staging, key).and_then(|()| {
             fs::rename(&staging, root)?;
@@ -221,46 +173,6 @@ impl RunHome {
             return Err(error);
         }
         Self::open(root, key)
-    }
-
-    /// Open an existing home, take its owner lock, and remove what a crash
-    /// left: temporary files and runs that CURRENT does not name.
-    pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        Self::open_owned(root, key, true)
-    }
-
-    /// Own an existing complete home for backup without creation or crash
-    /// cleanup. The caller must not submit writes or merges on this owner.
-    pub fn open_existing_for_backup(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        if root.canonicalize()? != root {
-            return Err(Error::Config("backup home path is not canonical".into()));
-        }
-        Self::open_owned(root, key, false)
-    }
-
-    fn open_owned(root: &Path, key: &[u8; 32], cleanup: bool) -> Result<Self> {
-        let root = root.canonicalize()?;
-        let identity = read_descriptor(&root)?;
-        let lock = owner::open(&root, cleanup)?;
-        let manifest = Manifest::load(&root, key, identity)?;
-        let runs = root.join(RUNS);
-        if cleanup {
-            remove_leftovers(&root, &runs, &manifest)?;
-        }
-        Ok(Self {
-            root,
-            runs,
-            key: *key,
-            identity,
-            options: RunOptions::default(),
-            current: RwLock::new(Arc::new(manifest)),
-            commit: Mutex::new(()),
-            publish: Mutex::new(()),
-            merge: Mutex::new(()),
-            retired: Mutex::new(Vec::new()),
-            poisoned: AtomicBool::new(false),
-            lock: Arc::new(lock),
-        })
     }
 
     /// The home's directory.
@@ -274,7 +186,6 @@ impl RunHome {
     }
 
     /// True after a failed publish or a poisoned commit or publication lock.
-    /// This process still owns the home, so recovery is a restart and open.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.load(Ordering::Acquire)
     }
@@ -303,11 +214,10 @@ impl RunHome {
     }
 
     /// File bytes of the runs that merges replaced and that a held root or
-    /// a read still keeps on disk. They go when the last holder ends.
+    /// a read still keeps on disk.
     pub fn retired_bytes(&self) -> u64 {
         let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
         retired.retain(|run| run.strong_count() > 0);
-        // A handle can be the last one: its drop then deletes the file.
         retired
             .iter()
             .filter_map(Weak::upgrade)
@@ -315,7 +225,6 @@ impl RunHome {
             .sum()
     }
 
-    /// Record the runs that a merge step just retired.
     fn note_retired(&self, runs: &[Arc<RunFile>]) {
         let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
         retired.retain(|run| run.strong_count() > 0);
@@ -337,11 +246,11 @@ impl RunHome {
     }
 }
 
-fn read_descriptor(root: &Path) -> Result<Uuid> {
+pub(super) fn read_descriptor(root: &Path) -> Result<Uuid> {
     read_descriptor_file(&root.join(RUN_HOME_MARKER))
 }
 
-fn read_descriptor_file(path: &Path) -> Result<Uuid> {
+pub(super) fn read_descriptor_file(path: &Path) -> Result<Uuid> {
     let mut file = File::open(path)?;
     if file.metadata()?.len() != DESCRIPTOR_BYTES as u64 {
         return Err(corrupt("home descriptor length"));
@@ -360,38 +269,4 @@ fn read_descriptor_file(path: &Path) -> Result<Uuid> {
         return Err(corrupt("nil home identity"));
     }
     Ok(identity)
-}
-
-/// Remove temporary files and unnamed runs, and check that every named run
-/// is present at its recorded size. Only the two home directories are read.
-fn remove_leftovers(root: &Path, runs: &Path, manifest: &Manifest) -> Result<()> {
-    for entry in fs::read_dir(root)? {
-        let name = entry?.file_name();
-        let name = name.to_string_lossy();
-        if [CURRENT, NODE_CLEANUP, CAS_DELETE]
-            .iter()
-            .any(|file| name.starts_with(&format!(".{file}.")))
-            && name.ends_with(".tmp")
-        {
-            fs::remove_file(root.join(&*name))?;
-        }
-    }
-    let named: HashSet<Uuid> = manifest.newest_first().map(|run| run.meta.run_id).collect();
-    for entry in fs::read_dir(runs)? {
-        let name = entry?.file_name();
-        let name = name.to_string_lossy();
-        let unnamed_run = name
-            .strip_suffix(RUN_SUFFIX)
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .is_some_and(|id| !named.contains(&id));
-        if unnamed_run || (name.starts_with('.') && name.ends_with(".tmp")) {
-            fs::remove_file(runs.join(&*name))?;
-        }
-    }
-    for run in manifest.newest_first() {
-        if fs::metadata(&run.path)?.len() != run.meta.file_bytes {
-            return Err(corrupt("a run that CURRENT names has the wrong size"));
-        }
-    }
-    Ok(())
 }

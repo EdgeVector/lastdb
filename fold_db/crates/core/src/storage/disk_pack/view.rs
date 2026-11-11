@@ -1,6 +1,7 @@
-//! One atomic disk root and immutable typed core read view.
+//! One atomic disk root, immutable read view, diagnostics, and warm-memory relief.
 
 use super::*;
+use laststore::disk_run::home::RunHomeDiagnostics;
 
 /// A read-only operational boundary; this method never wakes a flush worker.
 #[derive(serde::Serialize)]
@@ -24,22 +25,45 @@ pub struct NativeDiskStatus {
     pub core_warm_bytes: crate::resident::CoreWarmByteStats,
 }
 
-#[derive(Clone)]
-pub(super) struct NativeReadView {
-    pub(super) current: physical::PhysicalRoot,
-    pub(super) revision: u64,
+#[derive(serde::Serialize)]
+pub struct NativeStorageDiagnostics {
+    pub main: RunHomeDiagnostics,
+    pub cas: RunHomeDiagnostics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private: Option<RunHomeDiagnostics>,
 }
 
-/// Generation and frontier of the last root that a commit or a merge
-/// installed. Atomics only: a status read uses them while the view lock is
-/// busy, so status never waits for an install.
-pub(super) struct LastRoot {
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct NativeMemoryStatus {
+    pub warm: crate::resident::CoreWarmByteStats,
+    pub records: usize,
+    pub held_records: usize,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct NativeMemoryPurgeReport {
+    pub records_purged: u64,
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    pub target_bytes: u64,
+    pub target_met: bool,
+    pub remaining: NativeMemoryStatus,
+}
+
+#[derive(Clone)]
+pub(in crate::storage::disk_pack) struct NativeReadView {
+    pub(in crate::storage::disk_pack) current: physical::PhysicalRoot,
+    pub(in crate::storage::disk_pack) revision: u64,
+}
+
+/// Generation and frontier of the last root that a commit or a merge installed.
+pub(in crate::storage::disk_pack) struct LastRoot {
     generation: AtomicU64,
     frontier: AtomicU64,
 }
 
 impl LastRoot {
-    pub(super) fn new(root: &physical::PhysicalRoot) -> Self {
+    pub(in crate::storage::disk_pack) fn new(root: &physical::PhysicalRoot) -> Self {
         Self {
             generation: AtomicU64::new(root.generation()),
             frontier: AtomicU64::new(root.frontier()),
@@ -47,7 +71,7 @@ impl LastRoot {
     }
 
     /// A commit and a merge adoption can race; the newer generation wins.
-    pub(super) fn observe(&self, generation: u64, frontier: u64) {
+    pub(in crate::storage::disk_pack) fn observe(&self, generation: u64, frontier: u64) {
         if self.generation.fetch_max(generation, Ordering::Relaxed) <= generation {
             self.frontier.store(frontier, Ordering::Relaxed);
         }
@@ -66,7 +90,6 @@ impl PackRuntime {
         self.home_identity()
     }
 
-    /// The same failure mark that refuses new record reads and writes.
     /// Health probes read only this atomic; they never wait for a writer or read a record.
     pub fn requires_recovery(&self) -> bool {
         self.failed.load(Ordering::Acquire)
@@ -74,8 +97,6 @@ impl PackRuntime {
 
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
-        // A status read must not wait behind an install, so it reports the
-        // last installed root while the view lock is busy.
         let view = self.view.try_read().ok();
         let (generation, frontier) = view.as_deref().map_or_else(
             || self.last_root.get(),
@@ -105,16 +126,83 @@ impl PackRuntime {
         }
     }
 
-    /// The caller owns the write gate and complete physical/logical reservations.
-    /// Captured core values retain their reservation until the last reader releases them.
-    /// Old calls retain their typed values; the flush log is not their read state.
-    pub(super) fn install_committed(
+    /// Physical totals are for independently captured home roots.
+    pub async fn diagnostics_native(
+        &self,
+        include_inventory: bool,
+    ) -> StorageResult<Option<NativeStorageDiagnostics>> {
+        if !laststore::diagnostics_enabled() {
+            return Ok(None);
+        }
+        if include_inventory
+            && self
+                .queue
+                .lock()
+                .expect("native diagnostic queue")
+                .request_count()
+                > 0
+        {
+            return Err(StorageError::InvalidOperation(
+                "storage inventory requires a checkpoint without accepted writes".into(),
+            ));
+        }
+        let main = Arc::clone(&self.physical.home);
+        let cas = Arc::clone(&self.physical.cas);
+        let private = self
+            .physical
+            .shared
+            .as_ref()
+            .map(|shared| Arc::clone(&shared.private));
+        tokio::task::spawn_blocking(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            let main_cut = main.diagnostic_checkpoint(deadline).map_err(map)?;
+            let cas_cut = cas.diagnostic_checkpoint(deadline).map_err(map)?;
+            let private = private
+                .as_ref()
+                .map(|home| {
+                    home.diagnostic_checkpoint(deadline)
+                        .map(|cut| cut.finish(home, include_inventory, deadline))
+                        .map_err(map)
+                })
+                .transpose()?;
+            Ok(Some(NativeStorageDiagnostics {
+                main: main_cut.finish(&main, include_inventory, deadline),
+                cas: cas_cut.finish(&cas, include_inventory, deadline),
+                private,
+            }))
+        })
+        .await?
+    }
+
+    /// Keep held records and definitions.
+    pub fn purge_clean_memory(&self, target_bytes: u64) -> StorageResult<NativeMemoryPurgeReport> {
+        let _view = self.view.read().map_err(|_| unavailable())?;
+        let mut core = self.core.lock().map_err(|_| unavailable())?;
+        let target = usize::try_from(target_bytes).unwrap_or(usize::MAX);
+        let (purged, before, after) = core.purge_clean_to_bytes(target);
+        let stats = core.stats();
+        let remaining = NativeMemoryStatus {
+            warm: core.byte_stats(),
+            records: stats.records,
+            held_records: stats.held,
+        };
+        drop(core);
+        Ok(NativeMemoryPurgeReport {
+            records_purged: purged as u64,
+            bytes_before: before as u64,
+            bytes_after: after as u64,
+            target_bytes,
+            target_met: after as u64 <= target_bytes,
+            remaining,
+        })
+    }
+
+    pub(in crate::storage::disk_pack) fn install_committed(
         &self,
         current: physical::PhysicalRoot,
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        // Checked before the view lock; published under it with the root.
         let records = record_warm::committed_records(requests);
         let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
@@ -125,7 +213,6 @@ impl PackRuntime {
             view.revision = revision;
         }
         for request in requests {
-            // Later raw effects invalidate an earlier request's clean cache.
             self.invalidate_changed_records(&request.changed_coordinates());
         }
         if !records.is_empty() {
@@ -136,17 +223,11 @@ impl PackRuntime {
         }
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);
-        // The last drop of a root deletes its retired run files, so it
-        // happens after the view lock.
         drop(replaced);
-        // A merge can publish between the caller's read of `current` and
-        // this install; take its root now, not at the next read.
         self.adopt_merged_root()?;
         Ok(())
     }
 
-    /// The view write lock excludes captures until these raw records agree
-    /// with the newly visible complete mutation.
     fn invalidate_changed_records(&self, changes: &[(String, String)]) {
         self.core
             .lock()
@@ -159,4 +240,8 @@ fn next_revision(view: &NativeReadView) -> StorageResult<u64> {
     view.revision
         .checked_add(1)
         .ok_or_else(|| StorageError::BackendError("native accepted revision exhausted".into()))
+}
+
+fn unavailable() -> StorageError {
+    StorageError::BackendError("native warm set lock is unavailable".into())
 }

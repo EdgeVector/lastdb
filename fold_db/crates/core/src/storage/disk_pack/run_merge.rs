@@ -1,14 +1,12 @@
 //! Merge and adopt equivalent roots independently of the writer.
 
+use super::physical::{V2Home, V2Root};
+use super::run_commit::adopt;
 use super::*;
+use laststore::disk_run::home::RunHome;
 use laststore::space::SpacePolicy;
 
-/// Run merge steps on one background thread until no home needs a merge.
-/// The thread holds a home only during a step, and installs the merged root
-/// in `view` after each step. Closing the node store stops the thread and
-/// waits for its current step, so the home and its owner lock are free when
-/// the close returns.
-pub(super) fn start_merges(
+pub(in crate::storage::disk_pack) fn start_merges(
     v2: &V2Home,
     view: Arc<RwLock<view::NativeReadView>>,
     last_root: Arc<view::LastRoot>,
@@ -44,7 +42,6 @@ pub(super) fn start_merges(
     match spawned {
         Ok(handle) => {
             let mut merger = v2.merger.lock().expect("disk run merge thread");
-            // The earlier thread cleared the mark, so it is at its end.
             if let Some(earlier) = merger.replace(handle) {
                 let _ = earlier.join();
             }
@@ -56,21 +53,12 @@ pub(super) fn start_merges(
     }
 }
 
-/// The wait before a new merge thread after a failed merge, so a merge that
-/// fails each time (a full disk) does not start a thread on each commit.
 const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// The thread waits before its next step while the replaced runs that reads
-/// still hold are more than this share of the home's run files.
 const HELD_SHARE: u64 = 16;
-/// The smallest wait budget, so a small home does not wait at each step.
 const MIN_HELD_BYTES: u64 = 1 << 20;
-/// The longest wait for reads: a longer read keeps its runs, and the merge
-/// goes on.
 const HELD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
 
-/// Where the merge thread installs merged roots.
 struct Adopted {
     view: Arc<RwLock<view::NativeReadView>>,
     last_root: Arc<view::LastRoot>,
@@ -78,8 +66,6 @@ struct Adopted {
 }
 
 impl Adopted {
-    /// Install the current roots of both homes. It waits for the view: the
-    /// thread holds no other lock, and a read holds the view only briefly.
     fn install(&self, homes: &[std::sync::Weak<RunHome>]) {
         let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) else {
             return;
@@ -128,21 +114,17 @@ fn merge_until_settled(
                     &cas_policy
                 };
                 let result = home.merge_step_with_space(space);
-                if matches!(&result, Ok(Some(_))) {
+                if matches!(&result, Ok(true)) {
                     drop(home);
                     adopted.install(homes);
-                    // Adoption releases the view's previous root before
-                    // the existing pacing wait for readers' older roots.
                     wait_for_held_runs(weak, stop);
                 }
                 match result {
-                    Ok(Some(_)) => {
+                    Ok(true) => {
                         merged = true;
                     }
-                    Ok(None) => {}
+                    Ok(false) => {}
                     Err(error) => {
-                        // A failed merge leaves its inputs in force; a poisoned
-                        // home refuses the next commit, which fails the runtime.
                         tracing::warn!(%error, "disk run merge failed");
                         *retry_after.lock().expect("disk run merge retry") =
                             Some(std::time::Instant::now() + MERGE_RETRY);
@@ -156,8 +138,6 @@ fn merge_until_settled(
             }
         }
         merging.store(false, Ordering::Release);
-        // A commit between the last step and the clear saw the mark set and
-        // started no thread. Take the mark again when a home needs a merge.
         let needed = !stop.load(Ordering::Acquire)
             && homes
                 .iter()
@@ -168,9 +148,6 @@ fn merge_until_settled(
     }
 }
 
-/// Wait while reads keep more than 1/[`HELD_SHARE`] of `home` in runs that
-/// merges replaced, for at most [`HELD_WAIT`]. The thread holds the home
-/// only for each check, and a close ends the wait.
 fn wait_for_held_runs(home: &std::sync::Weak<RunHome>, stop: &AtomicBool) {
     let until = std::time::Instant::now() + HELD_WAIT;
     let mut limit = None;

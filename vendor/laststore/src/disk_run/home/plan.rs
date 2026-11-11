@@ -1,55 +1,8 @@
 //! Merge planning, the stale byte count, and the base merge.
-//!
-//! The home keeps its size within a fixed share of the live data:
-//!
-//! - A tiered merge keeps the run count low: a level with [`MERGE_WIDTH`]
-//!   runs becomes one run on the next level.
-//! - A base merge moves the oldest tiered runs into the base, which holds
-//!   each live key once and no tombstone. It starts when the tiered runs
-//!   hold more than 1/[`TIER_SHARE`] of the record bytes, or when the stale
-//!   bytes (older versions that newer records hide, and tombstones) are
-//!   more than 1/[`STALE_SHARE`] of them.
-//! - A base merge runs in steps. Each step takes the next base runs in key
-//!   order and the merging runs' records in their key range, writes new base
-//!   runs, publishes, and deletes the base runs it took. Only the merging
-//!   runs stay until the last step.
-//!
-//! The bound, in record bytes (keys and values before compression), with L
-//! the live record bytes: outside a base merge the stale bytes are at most
-//! an eighth of the total, so the home holds at most 8/7 L. A base merge
-//! adds at most its merging runs (1/16 of the total when it starts) and two
-//! base runs of 1/64 of the base each, so the peak is about 1.25 L. The file
-//! bytes follow when the runs compress alike. The bound leaves out the run
-//! of one large commit and the runs of commits during a base merge, and each
-//! tier trigger needs [`MIN_BASE_MERGE_BYTES`]. Stale records have the smaller
-//! [`MIN_STALE_MERGE_BYTES`] floor, so deletes and replacements in a small
-//! home cannot retain a full MiB before compaction starts.
-//!
-//! The bound also takes a replaced run off the disk at once. A read that
-//! holds an older CURRENT keeps the runs that later steps replace, so one
-//! read through many steps keeps old and new base runs on disk together.
-//! [`RunHome::retired_bytes`] counts them, and an owner with long reads
-//! waits for them before its next step.
-//!
-//! The shares serve the 2x limit of a node over its logical value bytes, not
-//! only over its live bytes: with small values a node's files take about 1.45
-//! bytes per logical value byte (the disk v2 node proof), which leaves the
-//! merges about 0.38 of the live file bytes. That proof peaked during writes
-//! at 2.03x to 2.12x of the value bytes with shares of a quarter and an
-//! eighth, and at 1.95x to 2.06x with an eighth and a sixteenth: most of
-//! each peak was replaced runs that a node's write requests still held.
-//! Base merges start about twice as often as with the first shares, and
-//! each one rewrites the base.
-//!
-//! The stale bytes are counted, not estimated, so the bound holds for any
-//! value sizes. Each tiered run knows the record bytes of the older versions
-//! its records hide. The merge thread counts a commit's run with batch
-//! lookups of its keys in the older runs; a tiered merge's output carries
-//! the counts of its inputs.
 
-use super::commit::{overflow, MergeKind, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+use super::commit::{overflow, MAX_MERGE_INPUTS, MERGE_WIDTH};
 use super::manifest::{Manifest, RunFile};
-use super::{RunHome, RunRoot};
+use super::RunHome;
 use crate::disk_run::space::MergeSpace;
 use crate::disk_run::RunReader;
 use crate::{space::SpacePolicy, Result};
@@ -57,42 +10,24 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
-mod pieces;
-
-/// A base merge starts when the tiered runs hold more than 1/16 of the
-/// record bytes.
-pub const TIER_SHARE: u64 = 16;
-/// A base merge starts when the stale bytes are more than 1/8 of the record
-/// bytes.
-pub const STALE_SHARE: u64 = 8;
-/// The tiered-byte trigger does not fire below this many bytes.
-pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
-/// Stale bytes need a smaller floor: one MiB can exceed the live data after
-/// deletes. Keep the relative stale share, with at most 64 KiB of slack.
+const TIER_SHARE: u64 = 16;
+const STALE_SHARE: u64 = 8;
+const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
 const MIN_STALE_MERGE_BYTES: u64 = 64 << 10;
-/// A base run holds about 1/64 of the base, inside the bounds below. With
-/// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB. The
-/// minimum keeps the two base runs of a step near 1/32 of a base of 16 MiB
-/// or more; at 1 MiB they were about 1/12 of a 24 MiB base.
 const BASE_PIECES: u64 = 64;
 const MIN_PIECE_BYTES: u64 = 256 << 10;
 const MAX_PIECE_BYTES: u64 = 1 << 30;
-/// Keys of one batch lookup when a run's hidden bytes are counted.
 const COUNT_KEYS: usize = 4096;
 
-pub(super) enum Plan {
+pub(in crate::disk_run::home) enum Plan {
     Tiered {
         level: usize,
         inputs: Vec<Arc<RunFile>>,
     },
-    /// Start a base merge of these tiered runs, or continue the base merge
-    /// in progress (`None`).
     Base(Option<Vec<Arc<RunFile>>>),
 }
 
-/// The next merge, or `None`. A run without a hidden count counts as zero;
-/// [`RunHome::merge_step`] counts every run first.
-pub(super) fn plan(held: &Manifest) -> Option<Plan> {
+pub(in crate::disk_run::home) fn plan(held: &Manifest) -> Option<Plan> {
     if let Some(level) = held.levels.iter().position(|l| l.len() >= MERGE_WIDTH) {
         let full = &held.levels[level];
         let inputs = full[full.len().saturating_sub(MAX_MERGE_INPUTS)..].to_vec();
@@ -120,12 +55,10 @@ pub(super) fn plan(held: &Manifest) -> Option<Plan> {
     {
         return None;
     }
-    // The oldest tiered runs: every tiered run left is newer than them.
     let oldest = &tiered[tiered.len().saturating_sub(MAX_MERGE_INPUTS)..];
     Some(Plan::Base(Some(oldest.iter().copied().cloned().collect())))
 }
 
-/// The target size of one new base run.
 fn piece_bytes(merging: &[Arc<RunFile>], base: &[Arc<RunFile>]) -> u64 {
     let bytes: u64 = merging
         .iter()
@@ -136,17 +69,13 @@ fn piece_bytes(merging: &[Arc<RunFile>], base: &[Arc<RunFile>]) -> u64 {
 }
 
 impl RunHome {
-    /// True when [`RunHome::merge_step`] has work: a new run to count, a
-    /// full level, a base merge in progress, or a base merge trigger.
+    /// True when [`RunHome::merge_step`] has work.
     pub fn needs_merge(&self) -> bool {
         let held = self.held();
         held.tiered().any(|run| run.hidden().is_none()) || plan(&held).is_some()
     }
 
-    /// Count the hidden bytes of each tiered run of `held` that has no count
-    /// yet. Only merges change the runs older than a tiered run, and the
-    /// caller holds the merge lock.
-    pub(super) fn count_hidden(&self, held: &Manifest) -> Result<()> {
+    pub(in crate::disk_run::home) fn count_hidden(&self, held: &Manifest) -> Result<()> {
         let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
         let tiered = held.tiered().count();
         for (at, run) in runs.iter().enumerate().take(tiered) {
@@ -157,8 +86,6 @@ impl RunHome {
         Ok(())
     }
 
-    /// Record bytes of the versions in `older` (newest first) that the
-    /// records of `run` hide: for each key, its newest older version.
     fn hidden_bytes(&self, run: &RunFile, older: &[&Arc<RunFile>]) -> Result<u64> {
         let older: Vec<&Arc<RunFile>> = older
             .iter()
@@ -180,8 +107,6 @@ impl RunHome {
             let Some(first) = keys.first() else {
                 return Ok(hidden);
             };
-            // The keys come in key order: a run that ends before this batch
-            // is not needed again.
             for (slot, other) in older.iter().enumerate() {
                 if other.meta.last_key < *first {
                     readers[slot] = None;
@@ -192,10 +117,6 @@ impl RunHome {
         }
     }
 
-    /// Record bytes of the newest version of each of `keys` (in key order)
-    /// in `older`. It closes the reader of each run that ends inside the
-    /// batch, so the base runs, which do not overlap, keep about one reader
-    /// open.
     fn older_bytes(
         &self,
         keys: &[Vec<u8>],
@@ -225,7 +146,6 @@ impl RunHome {
                 }
                 open.retain(|at| !found.contains(at));
             }
-            // Later batches hold larger keys only.
             if keys.last().is_some_and(|last| run.meta.last_key <= *last) {
                 readers[slot] = None;
             }
@@ -236,20 +156,16 @@ impl RunHome {
         Ok(bytes)
     }
 
-    /// One step of a base merge. `start` names the tiered runs of a new
-    /// base merge; `None` continues the base merge in progress.
-    pub(super) fn base_step(
+    pub(in crate::disk_run::home) fn base_step(
         &self,
         start: Option<Vec<Arc<RunFile>>>,
         policy: &SpacePolicy,
-    ) -> Result<RunMerge> {
+    ) -> Result<()> {
         let held = self.held();
         let (merging, cut) = match &start {
             Some(runs) => (runs.clone(), None),
             None => (held.merging.clone(), held.merge_cut.clone()),
         };
-        // Base runs through the cut are outputs of this merge; the runs
-        // after it are its inputs, in key order.
         let done = cut.as_ref().map_or(0, |cut| {
             held.base.partition_point(|run| run.meta.last_key <= *cut)
         });
@@ -264,7 +180,6 @@ impl RunHome {
         }
         let taken = &held.base[done..done + take];
         let last = done + take == held.base.len();
-        // The last step also takes the merging records above every base key.
         let upper = match taken.last() {
             Some(run) if !last => Some(run.meta.last_key.clone()),
             _ => None,
@@ -278,8 +193,6 @@ impl RunHome {
             target,
             &space,
         )?;
-        let records = pieces.iter().flatten().map(|run| run.meta.records).sum();
-        let run_bytes = pieces.iter().flatten().map(|run| run.meta.file_bytes).sum();
         let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
@@ -294,8 +207,6 @@ impl RunHome {
             }
             next.merging = runs.clone();
         }
-        // Only merges change the base, and merges run one at a time, so the
-        // base is the one this step read.
         let mut base = next.base[..done].to_vec();
         base.extend(pieces.as_deref().unwrap_or(taken).iter().cloned());
         base.extend(next.base[done + take..].iter().cloned());
@@ -306,7 +217,7 @@ impl RunHome {
         } else {
             next.merge_cut = upper;
         }
-        let installed = self.install_merge(next, &space)?;
+        let _installed = self.install_merge(next, &space)?;
         if pieces.is_some() {
             for run in taken {
                 run.retire();
@@ -319,14 +230,6 @@ impl RunHome {
             }
             self.note_retired(&merging);
         }
-        Ok(RunMerge {
-            root: RunRoot(Arc::clone(&installed)),
-            generation: installed.generation,
-            kind: MergeKind::Base { done: last },
-            inputs: merging.len() + take,
-            records,
-            run_bytes,
-            dropped_tombstones: true,
-        })
+        Ok(())
     }
 }
