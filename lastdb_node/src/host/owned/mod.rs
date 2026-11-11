@@ -16,10 +16,21 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
+mod lookup;
 mod registry;
 mod store;
 
+pub(crate) use lookup::{find_shareable, registry_claims};
 pub(crate) use registry::validate_create;
+
+/// AES content key for one owned sibling. Callers must not treat this as a
+/// signing seed.
+pub(crate) fn content_encryption_key(
+    node_seed: &[u8; 32],
+    id: &str,
+) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
+    store::content_encryption_key(node_seed, id)
+}
 
 tokio::task_local! {
     static ACTIVE_STORE: Arc<FoldDB>;

@@ -229,9 +229,13 @@ fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(shares) = registered_share::list(&host.home) else {
         return error_response(503, "database registry is unavailable", ctx);
     };
+    let Ok(received) = crate::named_grant::received_rows(&host.home) else {
+        return error_response(503, "database registry is unavailable", ctx);
+    };
     let mut databases = vec![database_owned::row(&owner)];
     databases.extend(owned.iter().map(database_owned::row));
     databases.extend(shares.iter().map(database));
+    databases.extend(received);
     json_ok(&envelope(&json!({ "databases": databases }), &ctx.user_id))
 }
 
@@ -265,9 +269,26 @@ fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(sealed) = decode_sealed(&body.invitation, MAX_SEALED_INVITATION_BYTES) else {
         return error_response(400, "invalid encoded invitation", ctx);
     };
+    if crate::named_grant::is_content_key_invitation(&sealed) {
+        return accept_named(ctx, host, &sealed, &body.publisher, body.name.as_deref());
+    }
     let result =
         registered_share::accept(&host.home, &sealed, &body.publisher, body.name.as_deref());
     registration_reply(result, ctx)
+}
+
+fn accept_named(
+    ctx: &AccessContext,
+    host: &Host,
+    sealed: &[u8],
+    publisher: &Digest,
+    name: Option<&str>,
+) -> UdsResponse {
+    match crate::named_grant::accept_content_key(&host.home, &host.keypair, sealed, publisher, name)
+    {
+        Ok(row) => json_ok(&envelope(&json!({ "database": row }), &ctx.user_id)),
+        Err(error) => error_response(error.status(), error.message(), ctx),
+    }
 }
 
 fn attach_contributor(

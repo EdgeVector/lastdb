@@ -17,6 +17,8 @@ use std::time::Duration;
 mod contributors;
 #[path = "share_cmds/files/mod.rs"]
 mod files;
+#[path = "share_cmds/named.rs"]
+mod named;
 #[path = "share_cmds/queries/mod.rs"]
 mod queries;
 
@@ -47,7 +49,7 @@ pub(super) fn run(
             database_request(data_dir, Some(&db), "/api/contributors", &body)
         }
         ShareCommand::Queries(action) => queries::run(data_dir, action),
-        action => run_offline(data_dir, action),
+        action => run_offline(data_dir, db, action),
     }
 }
 
@@ -83,7 +85,11 @@ fn database_request(
     Ok(())
 }
 
-fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
+fn run_offline(
+    data_dir: Option<PathBuf>,
+    db: Option<&str>,
+    action: ShareCommand,
+) -> Result<(), String> {
     let identity_home = data_dir
         .filter(|p| p.is_absolute())
         .ok_or("share requires an explicit absolute --data-dir identity home")?;
@@ -119,20 +125,19 @@ fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), St
             recipient_key,
             out,
             expires_in_hours,
-        } => {
-            let contact = read_contact(&recipient, recipient_key)?;
-            let sealed = runtime()?.block_on(share_publication::invite(
-                &home,
-                &identity_home,
-                &contact,
-                expires_in_hours,
-            ))?;
-            write_file(&out, &sealed)?;
-            println!("{}", serde_json::json!({"invitation": out}));
-            Ok(())
-        }
+            regrant,
+        } => named::invite(
+            db,
+            &identity_home,
+            home.as_deref(),
+            &recipient,
+            recipient_key,
+            &out,
+            expires_in_hours,
+            regrant,
+        ),
         ShareCommand::Accept { .. } => unreachable!("accept is routed to the node"),
-        ShareCommand::Contributors(action) => contributors::run(&identity_home, action),
+        ShareCommand::Contributors(action) => contributors::run(&identity_home, db, action),
         ShareCommand::Files(action) => files::run(&identity_home, action),
         ShareCommand::Queries(_) => unreachable!("queries are routed to the node"),
     }

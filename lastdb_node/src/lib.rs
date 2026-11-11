@@ -19,6 +19,7 @@ pub mod jobs;
 pub mod lastdb_uds;
 pub mod legacy_cutover;
 pub mod log_rotation;
+pub mod named_grant;
 pub mod node_read;
 pub mod offline_home;
 pub mod profile;
