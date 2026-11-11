@@ -36,7 +36,7 @@ fn resolutions(
         return Err("managed installs require the pinned registry key".into());
     }
     let list = public_list(home, Some(channel), source.index.as_deref(), None)?;
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     let (build, _, _) = registry::running_node(&socket);
     let (trust, _) = registry::resolve_list_trust_key(None)?;
     let index = registry::IndexLocation::resolve(source.index.as_deref())?

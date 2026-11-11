@@ -9,7 +9,7 @@ import urllib.request
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
-PROFILE = Path(__file__).resolve().parents[2] / "folddb_profile" / "environments.json"
+PROFILE = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
 KEY = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw="
 SIGNED = ("app_id", "channel", "app_version", "api_version", "lastdb_build",
           "outbox_format_version", "source", "sha", "audience")

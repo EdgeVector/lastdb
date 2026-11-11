@@ -261,7 +261,7 @@ impl Read for VerifiedFrameReader {
 }
 
 fn buffer_size() -> usize {
-    lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize
+    lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize
 }
 
 fn decoder_reserve(window: usize) -> usize {

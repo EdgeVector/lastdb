@@ -1,5 +1,5 @@
 use super::*;
-use lastdb_uds::database_path::{self, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
+use lastdb_node::lastdb_uds::database_path::{self, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
 use std::borrow::Cow;
 
 pub(crate) struct DatabaseTarget {

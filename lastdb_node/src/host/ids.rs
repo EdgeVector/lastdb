@@ -3,7 +3,7 @@
 //! Process entry constructs one [`SystemIds`] and passes it into [`super::Host::boot`].
 //! There is no global id source.
 
-use lastdb_host::IdGen;
+use crate::lastdb_host::IdGen;
 use uuid::Uuid;
 
 /// Operating-system randomness. Construct this at the daemon entrypoint.

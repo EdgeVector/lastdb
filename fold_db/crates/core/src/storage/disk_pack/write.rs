@@ -241,8 +241,9 @@ pub(super) fn prefix_batch_bytes(
         .checked_add(bytes)
         .and_then(|bytes| bytes.checked_sub(256));
     if operations.is_none_or(|count| count > limit)
-        || bytes
-            .is_none_or(|bytes| bytes > lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES)
+        || bytes.is_none_or(|bytes| {
+            bytes > lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES
+        })
     {
         return Err(StorageError::WriteResourceLimit {
             detail: "native accepted prefix reached its operation or byte limit; retry after flush"

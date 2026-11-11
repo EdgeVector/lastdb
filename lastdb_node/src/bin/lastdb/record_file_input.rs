@@ -46,7 +46,7 @@ fn put_blob_request(
 }
 
 fn admit_local_file_input(bytes: u64) -> Result<(), String> {
-    if bytes > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if bytes > fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
         return Err("local file input exceeds native pending memory allowance".into());
     }
     Ok(())
@@ -69,7 +69,7 @@ fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, Strin
         admit_local_file_input(length as u64)?;
         if length > bytes.capacity() {
             let maximum =
-                lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
+                fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
             let capacity = bytes.capacity().saturating_mul(2).max(length).min(maximum);
             bytes
                 .try_reserve_exact(capacity - bytes.len())

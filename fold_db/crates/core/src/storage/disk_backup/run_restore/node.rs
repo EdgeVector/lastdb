@@ -135,7 +135,7 @@ impl RunNodeGuard {
         ];
         let (mut main, mut cas) = super::open_paired_runs(root, key, shared)?;
         let private = if with_private {
-            let budget = lastdb_storage_policy::BACKUP_RESOURCES
+            let budget = lastdb_model::storage_policy::BACKUP_RESOURCES
                 .working_memory_bytes
                 .checked_sub(main.retained_bytes())
                 .and_then(|bytes| bytes.checked_sub(cas.retained_bytes()))
@@ -217,7 +217,7 @@ fn reserve_roots(
     // The fixed-length paths, returned inventory, and temporary closure maps
     // use four existing identity charges per file before any map allocation.
     let inventories = (files as u64)
-        .checked_mul(4 * lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)
+        .checked_mul(4 * lastdb_model::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)
         .ok_or_else(|| invalid("paired run inventory memory overflow"))?;
     let shared = main
         .retained_bytes()
@@ -225,7 +225,7 @@ fn reserve_roots(
         .and_then(|bytes| bytes.checked_add(inventories))
         .and_then(|bytes| bytes.checked_add(private.map_or(0, |root| root.read.retained_bytes())))
         .and_then(|bytes| {
-            bytes.checked_add(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
+            bytes.checked_add(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
         })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
     super::reserve_paired_metadata(main, cas, shared)

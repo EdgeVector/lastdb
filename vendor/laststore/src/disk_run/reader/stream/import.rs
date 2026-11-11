@@ -5,7 +5,7 @@ use std::path::Path;
 
 impl RunReader {
     pub(crate) fn verified_summary(&self, path: &Path) -> Result<RunSummary> {
-        let admission = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+        let admission = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
         let mut summary = RunSummary {
             path: path.to_owned(),
             run_id: self.run_id(),

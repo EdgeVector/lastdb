@@ -103,8 +103,10 @@ fn client_socket_path(
     env_socket: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, String> {
     match env_socket.filter(|value| !value.is_empty()) {
-        Some(path) if !explicit_data_dir => folddb_profile::paths::expand_tilde_path(path),
-        _ => Ok(lastdb_uds::uds::socket_path(&home.join("data"))),
+        Some(path) if !explicit_data_dir => lastdb_node::profile::paths::expand_tilde_path(path),
+        _ => Ok(lastdb_node::lastdb_uds::uds::socket_path(
+            &home.join("data"),
+        )),
     }
 }
 

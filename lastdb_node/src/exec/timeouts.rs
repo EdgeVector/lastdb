@@ -35,7 +35,7 @@ pub const CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS: u64 = 1;
 /// Effective handler deadline from env or [`DEFAULT_HANDLER_TIMEOUT_SECS`].
 #[must_use]
 pub fn handler_timeout() -> Duration {
-    env_flag::var_parsed::<u64>("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
+    fold_db::env_flag::var_parsed::<u64>("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
         .filter(|&n| n > 0)
         .map_or(
             Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS),
@@ -49,7 +49,7 @@ pub fn handler_timeout() -> Duration {
 /// default instead of inheriting the 600s admin-scan budget.
 #[must_use]
 pub fn admin_handler_timeout_override() -> Option<Duration> {
-    env_flag::var_parsed::<u64>("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
+    fold_db::env_flag::var_parsed::<u64>("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
         .filter(|&n| n > 0)
         .map(Duration::from_secs)
 }
@@ -96,7 +96,7 @@ where
 
 /// Worker-pool entry: `block_on` + [`with_handler_timeout`] for Mini control-socket
 /// handlers so a hung future cannot pin a worker forever (pairs with
-/// [`lastdb_uds::UdsWorkerPool`]).
+/// [`crate::lastdb_uds::UdsWorkerPool`]).
 pub fn block_on_route<Fut>(
     handle: &tokio::runtime::Handle,
     ctx: &AccessContext,

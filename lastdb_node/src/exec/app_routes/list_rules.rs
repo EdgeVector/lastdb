@@ -1,6 +1,6 @@
 //! Key-list request rules. No host, schema lookup, or storage access.
 
-use lastdb_host::wire::query_value;
+use crate::lastdb_host::wire::query_value;
 
 const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;
 const LIST_RECORD_KEYS_MAX_LIMIT: usize = 1000;

@@ -45,7 +45,7 @@ fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), 
         .env("LASTDB_DATA_DIR", home.join("data"))
         .env(
             "LASTDB_SOCKET",
-            lastdb_uds::uds::socket_path(&home.join("data")),
+            crate::lastdb_uds::uds::socket_path(&home.join("data")),
         )
         .env("LASTDB_APP_ID", app)
         .env("LASTDB_APP_SOURCE_DIR", source)

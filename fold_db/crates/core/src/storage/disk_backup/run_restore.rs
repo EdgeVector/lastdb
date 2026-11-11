@@ -166,7 +166,7 @@ fn open_paired_runs(
     } else {
         RunRead::open_existing_bounded
     };
-    let maximum = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+    let maximum = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
     let main = open(
         &root.join(run_node::RUN_DIR),
         &run_node::home_key(key),
@@ -199,9 +199,9 @@ fn reserve_paired_metadata(
 
 fn read_budget() -> ReadBudget {
     ReadBudget {
-        pages: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_PAGES,
-        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-        bytes: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_READ_BYTES,
+        pages: lastdb_model::storage_policy::backup_decode::RECORD_INVENTORY_PAGES,
+        blocks: lastdb_model::storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
+        bytes: lastdb_model::storage_policy::backup_decode::RECORD_INVENTORY_READ_BYTES,
         keys: 10000,
     }
 }

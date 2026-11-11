@@ -17,20 +17,9 @@ pub(super) async fn execute_query_route(
         Err(resp) => return resp,
     };
 
-    let allow_full_scan = req
-        .header("x-lastdb-allow-full-scan")
-        .is_some_and(env_flag::truthy);
-
     render(
         response_format
-            .run(handlers::execute_query(
-                host,
-                query,
-                limit,
-                offset,
-                cursor,
-                allow_full_scan,
-            ))
+            .run(handlers::execute_query(host, query, limit, offset, cursor))
             .await,
         ctx,
     )

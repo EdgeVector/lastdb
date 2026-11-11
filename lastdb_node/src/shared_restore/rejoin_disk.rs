@@ -42,7 +42,7 @@ fn install_private_run(hold: &Path, capture: &CapturedRunHome, staged_data: &Pat
     let bytes = capture.files.iter().try_fold(0u64, |total, file| {
         total
             .checked_add(file.bytes)
-            .filter(|total| *total <= lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES)
+            .filter(|total| *total <= fold_db::storage_policy::BACKUP_TOTAL_STORED_BYTES)
             .ok_or(RestoreError::Limit("rejoin private run bytes"))
     })?;
     check_capacity(staged_data, bytes)?;

@@ -1,46 +1,46 @@
 //! Data-route executor for the minimal daemon's owner control socket.
 //!
 //! `lastdbd` serves the SAME wire surface fbrain/fkanban speak to the full
-//! node's socket — the [`lastdb_uds::uds_router::DataRoute`] allowlist with
+//! node's socket — the [`crate::lastdb_uds::uds_router::DataRoute`] allowlist with
 //! identical request/response JSON shapes. The query / mutation /
 //! native-index-search HANDLER BODIES now live in the shared
-//! [`lastdb_host::handlers`] module, driven off the [`HostNode`]
+//! [`crate::lastdb_host::handlers`] module, driven off the [`HostNode`]
 //! trait, so this executor and the full node's (`fold_db_node::server::uds_exec`)
 //! are literally ONE implementation below the app-identity axis — no drift.
 //!
 //! What stays local here is only the wire glue and the routes the minimal
 //! daemon serves in its own way:
-//! - Request/response wire parsing (shared `lastdb_host::wire`) + the final
-//!   envelope/error render (shared `lastdb_host::handlers::render`).
+//! - Request/response wire parsing (shared `crate::lastdb_host::wire`) + the final
+//!   envelope/error render (shared `crate::lastdb_host::handlers::render`).
 //! - `GET /api/schemas` / `GET /api/schema/{name}` / `POST /api/schemas/declare`
 //!   — the catalog listing (with record counts), the single-schema fetch, and
 //!   the owner direct-declare, which resolve schema names via the shared
-//!   [`lastdb_host::handlers::resolve_schema_name`] but otherwise assemble
+//!   [`crate::lastdb_host::handlers::resolve_schema_name`] but otherwise assemble
 //!   host-local bodies.
 //! - App-blob routes are structurally absent (404): no upload-storage backend.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
+use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+use crate::lastdb_uds::uds_router::DataRoute;
 use base64::Engine as _;
 use fold_db::access::AccessContext;
 use fold_db::schema::schema_types::SchemaWithState;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
-use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
-use lastdb_uds::uds_router::DataRoute;
 use serde::Deserialize;
 use serde_json::Value;
 
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
 // verbatim by the full node's socket executor too so the two cannot drift.
-use lastdb_host::envelope::{content_free, envelope, json_ok};
-use lastdb_host::handlers::{self, render};
-use lastdb_host::reject::Reject;
-use lastdb_host::wire::{
+use crate::lastdb_host::envelope::{content_free, envelope, json_ok};
+use crate::lastdb_host::handlers::{self, render};
+use crate::lastdb_host::reject::Reject;
+use crate::lastdb_host::wire::{
     body_object, parse_batch_mutation_body, parse_mutation_body, parse_query_body, query_flag,
     schema_name_from_target, QueryRequest,
 };
-use lastdb_host::HostError;
+use crate::lastdb_host::HostError;
 
 use crate::host::Host;
 
@@ -64,7 +64,7 @@ fn error_response(status: u16, message: &str, ctx: &AccessContext) -> UdsRespons
 /// and did the same for the next caller fault.
 ///
 /// Only a genuine 500 takes the operation prefix, mirroring the mutation path
-/// in `lastdb_host::handlers`: a 4xx keeps the status the mapping assigned and
+/// in `crate::lastdb_host::handlers`: a 4xx keeps the status the mapping assigned and
 /// any structured body it carries (`cas_conflict`, …), which re-wrapping the
 /// message would drop.
 ///

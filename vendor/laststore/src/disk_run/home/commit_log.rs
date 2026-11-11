@@ -50,7 +50,7 @@ impl RunHome {
         let reader = RunReader::open_bounded(
             source,
             &self.key,
-            lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes,
+            lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes,
         )?;
         let summary = reader.verified_summary(source)?;
         let run_id = summary.run_id;

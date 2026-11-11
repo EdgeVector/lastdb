@@ -142,7 +142,7 @@ impl PendingBatch {
                         as u64,
                 )
                 .filter(|bytes| {
-                    *bytes <= lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES - 256
+                    *bytes <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES - 256
                 })
                 .ok_or_else(|| {
                     self.remember_preparation_limit(StorageError::MutationLimit {
@@ -248,7 +248,9 @@ pub(in crate::storage) fn batch_bytes(
                     + 2 * operation.key.len()
                     + operation.body.as_ref().map_or(0, Vec::len)) as u64,
             )
-            .filter(|bytes| *bytes <= lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES)
+            .filter(|bytes| {
+                *bytes <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES
+            })
             .ok_or_else(|| StorageError::MutationLimit {
                 detail: "complete native batch exceeds pending memory allowance".into(),
             })?;

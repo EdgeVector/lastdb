@@ -16,41 +16,14 @@ members = [
     # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
     "app_identity_crypto",
 
-    # shared `$LASTDB_HOME` profile loader + endpoint registry + path helpers.
-    # A leaf crate (minimal deps) reusable across node and dev-mode support
-    # without them depending on each other.
-    "folddb_profile",
-
-    # Canonical env-flag truthy/falsy vocabulary (zero-dep leaf).
-    "env_flag",
-
     # Canonical native cloud backup wire contract; no runtime activation.
     "cloud_backup_protocol",
-    # HTTPS client for that contract. The core does no network I/O.
-    "cloud_backup_client",
-    # The one upload planner for snapshot and mutation log backups; no I/O.
-    "cloud_backup_plan",
     # Pure unified mutation log (one log per database). No I/O.
     "mutation_log",
     # In-memory MutationLog adapter. Off unless the caller enables it.
     "mutation_log_mem",
     # Shared-sync step over that port. Off unless the caller enables it.
     "mutation_log_sync",
-    "lastdb_storage_policy",
-
-    # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal
-    # HTTP/1.1 framing, control-socket route classifier). A leaf crate
-    # (fold_db only) originally extracted from the desktop node's uds*.rs so
-    # every LastDB daemon serves the SAME socket surface from one
-    # implementation.
-    "lastdb_uds",
-    "lastdb_identity",
-
-    # framework-agnostic LastDB owner-socket host primitives (the wire-shape
-    # contract: request parsing, pagination math, response envelope, I4 error
-    # mapping, internal-index catalog) backing the lastdb_node socket route
-    # executor.
-    "lastdb_host",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
     # cloud sync over the owner Unix socket (no ingestion, no discovery, no
@@ -76,13 +49,6 @@ default-members = [
     "schema_service/crates/core",
     "schema_service/crates/server_lambda",
     "app_identity_crypto",
-    "folddb_profile",
-
-    # Canonical env-flag truthy/falsy vocabulary (zero-dep leaf).
-    "env_flag",
-    "lastdb_identity",
-    "lastdb_uds",
-    "lastdb_host",
     "lastdb_node",
 ]
 
@@ -359,13 +325,6 @@ observability = { path = "fold_db/crates/observability", default-features = fals
 schema_types = { path = "schema_service/crates/schema_types" }
 schema_service_core = { path = "schema_service/crates/core" }
 app_identity_crypto = { path = "app_identity_crypto" }
-folddb_profile = { path = "folddb_profile" }
-env_flag = { path = "env_flag" }
-lastdb_uds = { path = "lastdb_uds" }
-lastdb_identity = { path = "lastdb_identity" }
-lastdb_host = { path = "lastdb_host" }
-cloud_backup_client = { path = "cloud_backup_client" }
-cloud_backup_plan = { path = "cloud_backup_plan" }
 laststore = { path = "vendor/laststore" }
 
 tracing = "0.1"

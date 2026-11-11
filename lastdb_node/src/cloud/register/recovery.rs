@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::{parse_registered_response, signed_register_request, Ed25519KeyPair, Registered};
 
@@ -47,7 +47,7 @@ pub async fn register_native_device(
         invite_code,
         Some(device_id),
     )?;
-    let client = cloud_backup_client::build_shared_http_client()
+    let client = crate::cloud_backup_client::build_shared_http_client()
         .map_err(|_| "cannot construct DEV recovery register client")?;
     let mut response = client
         .post(request.url.clone())

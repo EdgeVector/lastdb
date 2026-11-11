@@ -2,10 +2,10 @@
 
 use super::{PublishReply, SnapshotTransport};
 use crate::byte_cloud_restore::{RestoreError, Result};
-use cloud_backup_client::shared_objects::{
+use crate::cloud_backup_client::shared_objects::{
     BackupTransportError, SharedObjectClient, SnapshotPublication,
 };
-use cloud_backup_client::AuthClient;
+use crate::cloud_backup_client::AuthClient;
 use cloud_backup_protocol::shared::objects::{
     SharedObjectRequest, SharedObjectRole, SnapshotHeadRequest, SnapshotLogEndsRequest,
 };

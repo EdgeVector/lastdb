@@ -2,9 +2,9 @@
 
 use super::*;
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{register_dev_native_device, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use std::io::Read;
 
 #[path = "setup/files.rs"]
@@ -100,7 +100,7 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
             .map_err(|_| "cannot encode fresh native recovery phrase")?
             .to_string(),
     );
-    let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
     let mut target = target.create()?;
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(PHRASE_FILE, phrase.as_bytes())?;
@@ -125,7 +125,7 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
     let seed = directory.seed()?;
     let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid native backup identity")?;
-    let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
     let api_url = exemem_api_url_for(Environment::Dev);
     if restored {
         directory.device_id()?;
@@ -171,7 +171,7 @@ fn validate_restored_credentials(
     api_key: &str,
     account: &str,
 ) -> Result<(), String> {
-    use cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
+    use lastdb_node::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
     let auth = AuthClient::new(api_url.to_owned(), api_key.to_owned());
     let client = ByteBackupClient::from_auth(auth)
         .map_err(|_| "invalid restored native account endpoint")?;

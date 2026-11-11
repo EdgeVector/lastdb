@@ -94,12 +94,12 @@ pub(crate) fn resolve_schema_service_url(
 ) -> Result<String, String> {
     match (schema_url, env) {
         (Some(url), _) => Ok(url),
-        (None, Some("dev") | None) => Ok(folddb_profile::endpoints::schema_service_url_for(
-            folddb_profile::endpoints::Environment::Dev,
+        (None, Some("dev") | None) => Ok(lastdb_node::profile::endpoints::schema_service_url_for(
+            lastdb_node::profile::endpoints::Environment::Dev,
         )
         .to_string()),
-        (None, Some("prod")) => Ok(folddb_profile::endpoints::schema_service_url_for(
-            folddb_profile::endpoints::Environment::Prod,
+        (None, Some("prod")) => Ok(lastdb_node::profile::endpoints::schema_service_url_for(
+            lastdb_node::profile::endpoints::Environment::Prod,
         )
         .to_string()),
         (None, Some(other)) => Err(format!("unknown --env '{other}' (expected dev or prod)")),

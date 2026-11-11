@@ -23,6 +23,7 @@ doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process 
 modules = [
   "clock",
   "crypto",
+  "env_flag",
   "process_cpu",
   "security",
 ]

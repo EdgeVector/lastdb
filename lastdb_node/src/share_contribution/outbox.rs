@@ -1,10 +1,10 @@
 //! Durable local submission and exact encrypted retries.
 use super::{crypto, inbox_id, Invitation, State, Submission, WriteRequest};
-use crate::share_publication;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use cloud_backup_client::byte_backup::{
+use crate::cloud_backup_client::byte_backup::{
     BackupTransportError, GuestAppendPermission, GuestContributionWriter, ShareEnvironment,
 };
+use crate::share_publication;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::{
     v2::{contributions::MAX_CONTRIBUTION_SEQUENCE, Stream},
     Digest, ErrorCode, Id,

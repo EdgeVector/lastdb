@@ -15,30 +15,11 @@ pub fn require_logical_layout(schema_type: &DeclarativeSchemaType) -> Result<(),
     Ok(())
 }
 
-/// Keep key queries within one hash while preserving explicit page and
-/// sample operations. Catalog metadata does not establish a logical read path.
+/// Require an explicit Hash or HashRange key selector on every logical query.
 pub fn require_logical_filter(filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {
-    if matches!(filter, Some(HashRangeFilter::PageAfter { .. })) {
+    if filter.is_none() {
         return Err(SchemaError::InvalidData(
-            "LastDB does not support cross-hash PageAfter cursors; query one hash with a query cursor, or use Page with an offset"
-                .into(),
-        ));
-    }
-    if matches!(
-        filter,
-        Some(
-            HashRangeFilter::RangeKey(_)
-                | HashRangeFilter::RangePrefix(_)
-                | HashRangeFilter::RangeRange { .. }
-                | HashRangeFilter::HashRange { .. }
-                | HashRangeFilter::HashPattern(_)
-                | HashRangeFilter::RangePattern(_)
-                | HashRangeFilter::HashRangePattern { .. }
-        )
-    ) {
-        return Err(SchemaError::InvalidData(
-            "LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors"
-                .into(),
+            "LastDB requires a Hash or HashRange key selector".into(),
         ));
     }
     Ok(())

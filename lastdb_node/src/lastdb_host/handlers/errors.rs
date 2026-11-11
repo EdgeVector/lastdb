@@ -1,0 +1,172 @@
+//! Handler error type and its conversions.
+
+use super::*;
+
+/// An error from a shared handler, carrying the HTTP status class and an
+/// owner-visible diagnostic message. The caller renders it through
+/// [`crate::lastdb_host::envelope::owner_or_content_free`]: the owner sees `message` (for
+/// `4xx`/`503`), every non-owner stays content-free, and a `500` is content-free
+/// even for the owner (**I4**).
+#[derive(Debug, Clone)]
+pub struct HostError {
+    /// HTTP status the caller should return.
+    pub status: u16,
+    /// Owner-visible diagnostic. Non-owners do not receive this text.
+    pub message: String,
+    structured_body: Option<Value>,
+}
+
+impl HostError {
+    #[must_use]
+    /// Build an error with this status and message and no structured body.
+    pub fn new(status: u16, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            structured_body: None,
+        }
+    }
+
+    /// An owner-visible structured rejection. Remote apps still receive the
+    /// content-free status phrase through [`render`]. `pub` so socket
+    /// executors can build the same `kind`/`remediation` shape as this crate's
+    /// own rejections instead of falling back to a flat message.
+    #[must_use]
+    pub fn structured(status: u16, message: impl Into<String>, body: Value) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            structured_body: Some(body),
+        }
+    }
+
+    /// A `500` — always rendered content-free, so its message never leaks
+    /// (**I4**). The message is still carried for server-side logging clarity.
+    pub(super) fn internal(message: impl Into<String>) -> Self {
+        Self::new(500, message)
+    }
+}
+
+/// Map a core [`FoldDbError`] to a socket-facing status, matching the full
+/// node's [`HandlerError`] mapping so isolation denials stay `400` (content-
+/// free for a non-owner) rather than collapsing to an opaque `500`.
+impl From<FoldDbError> for HostError {
+    fn from(err: FoldDbError) -> Self {
+        match &err {
+            FoldDbError::Schema(schema_err) => Self::from(schema_err.clone()),
+            FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => {
+                Self::new(400, msg.clone())
+            }
+            FoldDbError::InProgress(msg) => Self::new(503, msg.clone()),
+            other => Self::internal(other.to_string()),
+        }
+    }
+}
+
+impl From<SchemaError> for HostError {
+    fn from(err: SchemaError) -> Self {
+        match &err {
+            SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
+            SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
+            // A blocked schema and a resume cursor that names no key are caller
+            // faults. A paging route answers 400 instead of a Sentry-promoting 500.
+            SchemaError::Blocked(msg) | SchemaError::InvalidCursor(msg) => {
+                Self::new(400, msg.clone())
+            }
+            schema_err @ SchemaError::CasConflict { .. } => Self::new(
+                409,
+                schema_err
+                    .cas_conflict_body()
+                    .unwrap_or_else(|| serde_json::json!({}))
+                    .to_string(),
+            ),
+            schema_err @ SchemaError::RecordTooLarge { .. } => Self::new(
+                413,
+                schema_err
+                    .field_value_too_large_body()
+                    .unwrap_or_else(|| serde_json::json!({}))
+                    .to_string(),
+            ),
+            // A full disk is the host's fault, not the request's. `400` sent
+            // the writer to audit a payload that was never wrong; `507` names
+            // the condition and `storage_full_body` says the same write will
+            // succeed once space is freed.
+            SchemaError::ReadResourceLimit { detail } => Self::new(
+                503,
+                serde_json::json!({"error":"read_resource_limit","retryable":false,
+                    "message":detail,"hint":"request fewer records or fields"})
+                .to_string(),
+            ),
+            SchemaError::WriteResourceLimit { detail } => Self::new(
+                503,
+                serde_json::json!({"error":if detail.starts_with("compaction_behind:") { "compaction_behind" } else { "write_resource_limit" },"retryable":true,
+                    "retry_after_secs":2,"message":detail})
+                .to_string(),
+            ),
+            schema_err @ SchemaError::StorageFull { .. } => Self::new(
+                507,
+                schema_err
+                    .storage_full_body()
+                    .unwrap_or_else(|| serde_json::json!({}))
+                    .to_string(),
+            ),
+            other => Self::new(400, other.to_string()),
+        }
+    }
+}
+
+impl From<fold_db::storage::StorageError> for HostError {
+    fn from(error: fold_db::storage::StorageError) -> Self {
+        match error {
+            fold_db::storage::StorageError::ReadResourceLimit { detail } => {
+                Self::from(SchemaError::ReadResourceLimit { detail })
+            }
+            fold_db::storage::StorageError::WriteResourceLimit { detail } => {
+                Self::from(SchemaError::WriteResourceLimit { detail })
+            }
+            error => Self::internal(error.to_string()),
+        }
+    }
+}
+
+/// Render a shared handler's `Result` into the owner-socket [`UdsResponse`]: the
+/// success payload is wrapped in the `{ ok, ...data, user_hash }` envelope and
+/// serialized; an error is mapped through [`owner_or_content_free`] so a
+/// non-owner stays content-free and a `500` never leaks its message (**I4**).
+/// Both socket executors funnel every route's result through this one choke
+/// point so the wire shape (and the I4 property) cannot drift.
+#[must_use]
+pub fn render(result: Result<Value, HostError>, ctx: &AccessContext) -> UdsResponse {
+    match result {
+        Ok(payload) => json_ok(&envelope(&payload, ctx.user_id.as_str())),
+        Err(e) => {
+            // A 5xx goes out content-free (I4), so the carried message is
+            // ONLY visible here — an unlogged 500 leaves the owner staring at
+            // "Internal Server Error" with an empty node log.
+            if e.status == 507 {
+                // A full disk (507) is operator-actionable, permanent until
+                // someone frees space, and repeated by every write that
+                // follows. At ERROR one episode becomes hundreds of identical
+                // Sentry issues (issue 7620061902: 207 events in 8 hours,
+                // 0 users affected).
+                tracing::warn!(
+                    target: "crate::lastdb_host::handlers",
+                    status = e.status,
+                    "handler storage full: {}",
+                    e.message
+                );
+            } else if e.status >= 500 && e.status != 503 {
+                tracing::error!(
+                    target: "crate::lastdb_host::handlers",
+                    status = e.status,
+                    "handler error: {}",
+                    e.message
+                );
+            }
+            match e.structured_body.as_ref() {
+                Some(body) => owner_json_or_content_free(e.status, body, ctx),
+                None => owner_or_content_free(e.status, &e.message, ctx),
+            }
+        }
+    }
+}

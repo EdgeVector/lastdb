@@ -18,7 +18,7 @@ const MACOS_CONFIG_REL: &[&str] = &[
 const UNIX_CONFIG_REL: &[&str] = &[".config", "lastdb", "lastdbd-service-home"];
 
 pub fn explicit_home_override_present() -> bool {
-    std::env::var_os(folddb_profile::paths::LASTDB_HOME_ENV).is_some()
+    std::env::var_os(crate::profile::paths::LASTDB_HOME_ENV).is_some()
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
@@ -116,7 +116,7 @@ pub fn clear_configured_home() -> Result<String, String> {
 }
 
 fn normalize_home_path(path: impl AsRef<Path>) -> Result<PathBuf, String> {
-    let expanded = folddb_profile::paths::expand_tilde_path(path)?;
+    let expanded = crate::profile::paths::expand_tilde_path(path)?;
     if !expanded.is_absolute() {
         return Err(format!(
             "lastdbd service home must be absolute after ~ expansion (got {})",
@@ -141,7 +141,7 @@ fn reject_primary_live_home(home: &Path) -> Result<(), String> {
 
 fn primary_live_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let primary = home.join(folddb_profile::paths::LASTDB_DIR);
+    let primary = home.join(crate::profile::paths::LASTDB_DIR);
     primary.is_dir().then(|| canonical_if_exists(&primary))
 }
 

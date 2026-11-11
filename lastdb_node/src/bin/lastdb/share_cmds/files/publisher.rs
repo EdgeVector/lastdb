@@ -37,7 +37,7 @@ fn publication_socket(home: &Path) -> Result<PathBuf, String> {
         return Err("publication marker must be an owner-only regular file".into());
     }
     let data = home.join("data");
-    let socket = lastdb_uds::uds::socket_path(&data);
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&data);
     if data.canonicalize().ok().as_ref() != Some(&data)
         || !std::fs::symlink_metadata(&socket).is_ok_and(|entry| entry.file_type().is_socket())
     {

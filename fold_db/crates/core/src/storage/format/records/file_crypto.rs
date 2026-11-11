@@ -261,7 +261,9 @@ pub(crate) fn seal_file_row(
     account_key: &[u8; 32],
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, String), FoldDbError> {
-    if plaintext.len() as u64 > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if plaintext.len() as u64
+        > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+    {
         return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
             detail: "local file input exceeds native pending memory allowance".into(),
         }));
@@ -294,7 +296,8 @@ pub(crate) fn require_row(
         .sha256
         .bytes()
         .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        || marker.size_bytes > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+        || marker.size_bytes
+            > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
         || marker.size_bytes.checked_add(overhead) != Some(row.len() as u64)
         || row.first() != Some(&FILE_ENVELOPE_VERSION)
     {

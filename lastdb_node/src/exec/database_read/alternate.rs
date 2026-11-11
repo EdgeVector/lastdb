@@ -71,7 +71,7 @@ impl DatabaseRead<'_> {
         let after = cursor
             .map(|cursor| alternate_after(cursor, &comparison))
             .transpose()?;
-        let limit = lastdb_host::pagination::clamp_request_limit(limit);
+        let limit = crate::lastdb_host::pagination::clamp_request_limit(limit);
         let read_limit = if count_only { 1000 } else { limit };
         let page = self
             .reader

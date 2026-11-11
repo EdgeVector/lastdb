@@ -7,7 +7,7 @@ use super::*;
 /// `None` when the home has no cloud connection or points at a custom URL.
 /// A credential file that fails the private owner-file check also gives
 /// `None` with one warning, so daemon boot never fails because of it.
-pub fn home_cloud_environment(home: &Path) -> Option<folddb_profile::endpoints::Environment> {
+pub fn home_cloud_environment(home: &Path) -> Option<crate::profile::endpoints::Environment> {
     let credentials = match load_saved_credentials(home) {
         Ok(credentials) => credentials?,
         Err(error) => {
@@ -20,7 +20,7 @@ pub fn home_cloud_environment(home: &Path) -> Option<folddb_profile::endpoints::
             return None;
         }
     };
-    folddb_profile::endpoints::environment_for_exemem_api_url(&credentials.api_url)
+    crate::profile::endpoints::environment_for_exemem_api_url(&credentials.api_url)
 }
 
 /// Daemon boot: pin the schema-service environment to the home's cloud
@@ -29,7 +29,7 @@ pub fn home_cloud_environment(home: &Path) -> Option<folddb_profile::endpoints::
 /// Env vars still win; a mismatch between them and the home is logged as a
 /// loud WARN (not a refusal, so a misconfigured node still boots).
 pub fn pin_schema_service_environment_from_home(home: &Path) {
-    use folddb_profile::endpoints::{self, Environment};
+    use crate::profile::endpoints::{self, Environment};
     let Some(cloud_env) = home_cloud_environment(home) else {
         return;
     };

@@ -4,9 +4,9 @@
 use std::io::{Read, Write};
 use std::path::Path;
 
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 
 #[path = "recovery_home/files.rs"]
 pub(super) mod files;

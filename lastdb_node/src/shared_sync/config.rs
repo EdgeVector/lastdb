@@ -3,9 +3,9 @@
 use crate::byte_cloud_backup::connection::files::Directory;
 use crate::byte_cloud_backup::{BackupError, Result};
 use crate::cloud::{load_saved_credentials, SavedCredentials};
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::{shared::WriterStream, AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};

@@ -1,5 +1,5 @@
 use super::source_diagnostic;
-use cloud_backup_client::byte_backup::BackupTransportError;
+use crate::cloud_backup_client::byte_backup::BackupTransportError;
 use fold_db::storage::error::NativeProofCause;
 use serde::{Deserialize, Serialize};
 
@@ -137,9 +137,9 @@ impl From<cloud_backup_protocol::ProtocolError> for BackupError {
         Self::Invalid
     }
 }
-impl From<cloud_backup_plan::PlanError> for BackupError {
-    fn from(error: cloud_backup_plan::PlanError) -> Self {
-        use cloud_backup_plan::PlanError;
+impl From<fold_db::cloud_backup_plan::PlanError> for BackupError {
+    fn from(error: fold_db::cloud_backup_plan::PlanError) -> Self {
+        use fold_db::cloud_backup_plan::PlanError;
         match error {
             PlanError::SourceLength => Self::Identity,
             PlanError::ExtentBound => Self::Limit,

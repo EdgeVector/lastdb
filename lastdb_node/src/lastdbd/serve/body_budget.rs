@@ -1,5 +1,5 @@
 //! Deferred requests share the existing pool's maximum parse-byte allowance.
-use lastdb_uds::uds_http::{self, UdsRequest};
+use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 

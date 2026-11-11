@@ -169,7 +169,7 @@ impl CapturedRunHome {
         Self::open_bounded(
             root,
             key,
-            lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes,
+            lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes,
         )
     }
     /// Reopen with explicit combined capture metadata-memory admission.
@@ -304,7 +304,7 @@ impl CapturedRunHome {
     /// Read the exact captured root while the same native owner keeps its lock.
     pub fn read(&self, owner: &RunHome, budget: ReadBudget) -> Result<RunRead> {
         if self.retained_bytes().saturating_add(self.reader_bytes())
-            > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes
+            > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
         {
             return Err(crate::Error::ReadBudgetExceeded);
         }
@@ -316,7 +316,7 @@ impl CapturedRunHome {
                 .get()
                 .ok_or_else(|| invalid("run capture is not reopened"))?,
         );
-        let available = lastdb_storage_policy::BACKUP_RESOURCES
+        let available = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(self.retained_bytes())
             .ok_or(crate::Error::ReadBudgetExceeded)?;

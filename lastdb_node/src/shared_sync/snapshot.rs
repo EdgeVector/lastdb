@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(super) async fn publish(host: &crate::Host, config: &mut Config) -> Result<()> {
-    let auth = cloud_backup_client::AuthClient::new(
+    let auth = crate::cloud_backup_client::AuthClient::new(
         config.credentials.api_url.clone(),
         config.credentials.api_key.as_str().to_owned(),
     );

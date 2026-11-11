@@ -47,7 +47,7 @@ impl PreparedHome {
         let seed = identity_seed(&directory)?;
         let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
             .map_err(|_| "invalid restored account identity")?;
-        let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+        let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
         let keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|_| "cannot derive restored native account key")?;
         let content = zeroize::Zeroizing::new(keys.encryption_key());
@@ -149,8 +149,10 @@ fn refuse_protected_home(home: &Path) -> Result<(), String> {
 }
 
 fn refuse_daemon(home: &Path) -> Result<(), String> {
-    if std::os::unix::net::UnixStream::connect(lastdb_uds::uds::socket_path(&home.join("data")))
-        .is_ok()
+    if std::os::unix::net::UnixStream::connect(lastdb_node::lastdb_uds::uds::socket_path(
+        &home.join("data"),
+    ))
+    .is_ok()
     {
         return Err("stop the restored home's daemon before account reconnect".into());
     }

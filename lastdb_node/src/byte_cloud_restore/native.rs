@@ -2,9 +2,9 @@ use super::{
     download, inventory::Inventory, local, ByteBackupReader, NativeFileProof, RestoreError,
     RestoreSession, Result,
 };
-use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::Digest;
+use fold_db::cloud_backup_plan::ClientNativeFile;
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};

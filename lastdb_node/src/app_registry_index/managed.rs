@@ -324,7 +324,7 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
             "previous source is held after rollback; explicit install consent is required".into(),
         );
     }
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = crate::lastdb_uds::uds::socket_path(&home.join("data"));
     let (_, _, node) = super::running_node(&socket);
     if prior.listing.api_version != node.api_version
         || prior

@@ -1,5 +1,5 @@
 use super::{retry, wait, BackupError, Result};
-use cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
+use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use cloud_backup_protocol::v2::transfer::*;
 use cloud_backup_protocol::v2::Version;
 use std::cell::RefCell;

@@ -173,7 +173,7 @@ fn read(
             bytes = bytes
                 .saturating_add(row.len() as u64)
                 .saturating_add(body.as_ref().map_or(0, |body| body.len() as u64));
-            if bytes > lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES * 2 {
+            if bytes > lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES * 2 {
                 return Err(invalid("shared disk journal byte limit"));
             }
             batch.push(HomeMutation {

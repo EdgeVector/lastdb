@@ -5,9 +5,9 @@ use std::path::Path;
 
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{register_dev_recovery_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::files::FreshHome;
 

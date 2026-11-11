@@ -25,7 +25,7 @@ pub(crate) fn app_list(
 }
 
 pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<(), String> {
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     let resolution = resolve_by_proof(
         &socket,
         query.app_id,

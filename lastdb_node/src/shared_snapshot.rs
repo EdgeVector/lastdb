@@ -347,7 +347,7 @@ fn require_capture(cut: &FrozenSnapshot, contents: &SnapshotContents) -> Result<
         }
         bytes = bytes
             .checked_add(expected.bytes.get())
-            .filter(|total| *total <= lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES)
+            .filter(|total| *total <= fold_db::storage_policy::BACKUP_TOTAL_STORED_BYTES)
             .ok_or(RestoreError::Limit("frozen checkpoint bytes"))?;
     }
     Ok(())

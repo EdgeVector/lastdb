@@ -3,7 +3,7 @@
 //! Version 8 is the snapshot root (no CAS home; record blobs upload by path).
 //! Version 5 belongs to mutation-log roots.
 use super::{invalid, protocol, StorageResult};
-use cloud_backup_plan::ClientNativeFile;
+use crate::storage::cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;
 use cloud_backup_protocol::{DecimalU64, Digest, NativeRoot, RecoveryDescriptor};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

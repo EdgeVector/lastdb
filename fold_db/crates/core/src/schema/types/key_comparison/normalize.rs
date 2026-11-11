@@ -72,7 +72,7 @@ pub(crate) fn canonical_filter(
 ) -> Result<Option<HashRangeFilter>, SchemaError> {
     use HashRangeFilter::*;
     match filter.as_mut() {
-        Some(HashRangeKey { range, .. } | RangeKey(range)) => {
+        Some(HashRangeKey { range, .. }) => {
             *range = canonical_range(profile, range)?;
         }
         Some(HashRangeKeys(keys)) => {
@@ -80,19 +80,16 @@ pub(crate) fn canonical_filter(
                 *range = canonical_range(profile, range)?;
             }
         }
-        Some(HashRangeRange { start, end, .. } | RangeRange { start, end }) => {
+        Some(HashRangeRange { start, end, .. }) => {
             *start = canonical_range(profile, start)?;
             *end = canonical_range(profile, end)?;
         }
-        Some(
-            HashRangePrefix { .. } | RangePrefix(_) | HashRangePattern { .. } | RangePattern(_),
-        ) => {
+        Some(HashRangePrefix { .. }) => {
             profile
                 .require_text_prefix()
                 .map_err(SchemaError::InvalidData)?;
         }
-        Some(PageAfter { after, .. }) => canonical_key(profile, after)?,
-        _ => {}
+        None | Some(HashKey(_)) => {}
     }
     Ok(filter)
 }

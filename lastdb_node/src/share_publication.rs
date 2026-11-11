@@ -1,16 +1,16 @@
 //! Local publication ownership. Cloud upload authority stays with the owner's home.
 use crate::byte_cloud_backup::connection::files::Directory;
 use crate::byte_cloud_backup::PublicationSource;
-use cloud_backup_client::byte_backup::{
+use crate::cloud_backup_client::byte_backup::{
     BackupTransportError, ByteBackupClient, ByteBackupReader, GuestReadPermission, ShareEnvironment,
 };
-use cloud_backup_client::AuthClient;
+use crate::cloud_backup_client::AuthClient;
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest, publication::HeadReadResult, Stream, Version,
 };
 use cloud_backup_protocol::{AccountId, Digest, Id};
 use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair};
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -178,7 +178,7 @@ pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity
         return Err("share publication does not match its database identity".into());
     }
     let keys = E2eKeys::from_ed25519_seed(&seed).map_err(|_| "invalid share database key")?;
-    let account = lastdb_identity::user_hash_from_pubkey(&signer.public_key_base64())?;
+    let account = crate::identity::user_hash_from_pubkey(&signer.public_key_base64())?;
     Ok(PublicationIdentity {
         id: marker.id,
         publisher: marker.publisher,
@@ -323,7 +323,7 @@ fn owned(home: &Path) -> Result<Directory, String> {
 
 fn read_seed(directory: &Directory) -> Result<Zeroizing<[u8; 32]>, String> {
     let bytes = directory
-        .read(lastdb_identity::IDENTITY_KEY_FILE)
+        .read(crate::identity::IDENTITY_KEY_FILE)
         .map_err(|e| e.to_string())?
         .ok_or("share requires an initialized LastDB identity")?;
     let seed = bytes

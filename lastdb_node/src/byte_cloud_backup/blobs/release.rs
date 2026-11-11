@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::byte_cloud_backup::retry;
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::blobs::BlobReleaseRequest;
 use cloud_backup_protocol::v2::Version;
 use std::sync::atomic::AtomicBool;

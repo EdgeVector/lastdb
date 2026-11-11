@@ -26,13 +26,14 @@ pub mod access;
 /// The maximum size of one field value. The shell installs the parsed limit.
 pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
-pub use lastdb_model::{canonical, hex, json_order};
+pub use lastdb_model::{canonical, hex, storage_policy};
 /// The stored record value of a home and its cap.
 pub use lastdb_model::{portable_mutation, portable_replay, record_replacement, record_value};
 
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;
+pub mod env_flag;
 pub mod error;
 pub mod fold_db_core;
 #[cfg(unix)]
@@ -55,6 +56,7 @@ pub use schema::types::operations::MutationType;
 pub use schema::SchemaState;
 
 // Re-export storage types
+pub use storage::cloud_backup_plan;
 pub use storage::DatabaseConfig;
 
 pub mod alternate_keys;

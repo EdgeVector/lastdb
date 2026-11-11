@@ -21,14 +21,13 @@ pub use admin_db::{
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use core::{
-    note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
-    with_query_page_tally, with_query_tally, DbOperations, KeyForm, PageEnd, PageKeyForms,
-    PageResume,
+    note_page_key_forms, note_page_resume, page_can_resume, with_query_page_tally,
+    with_query_tally, DbOperations, KeyForm, PageEnd, PageKeyForms, PageResume,
 };
 pub use delete_ledger::{
     key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,
 };
-pub use record_store::{RecordStore, WalkStats, WriterWatch, RECORD_WALK_ROWS};
+pub use record_store::{RecordStore, WalkStats, WriterWatch};
 pub use schema_store::SchemaStore;
 pub use search_index::{
     run_search_rebuild_for_home, IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink,

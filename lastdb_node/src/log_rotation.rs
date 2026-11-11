@@ -32,11 +32,12 @@ impl RotationConfig {
         }
 
         Some(Self {
-            max_bytes: env_flag::var_parsed::<u64>("LASTDBD_STDIO_LOG_MAX_BYTES")
+            max_bytes: fold_db::env_flag::var_parsed::<u64>("LASTDBD_STDIO_LOG_MAX_BYTES")
                 .unwrap_or(DEFAULT_MAX_BYTES),
-            keep: env_flag::var_parsed::<usize>("LASTDBD_STDIO_LOG_KEEP").unwrap_or(DEFAULT_KEEP),
+            keep: fold_db::env_flag::var_parsed::<usize>("LASTDBD_STDIO_LOG_KEEP")
+                .unwrap_or(DEFAULT_KEEP),
             check_interval: Duration::from_secs(
-                env_flag::var_parsed::<u64>("LASTDBD_STDIO_LOG_CHECK_SECONDS")
+                fold_db::env_flag::var_parsed::<u64>("LASTDBD_STDIO_LOG_CHECK_SECONDS")
                     .unwrap_or(DEFAULT_CHECK_SECONDS)
                     .max(1),
             ),

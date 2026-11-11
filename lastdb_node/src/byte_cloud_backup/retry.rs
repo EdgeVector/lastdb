@@ -1,6 +1,6 @@
 //! One finite budget for an exact, validated V2 control request. Never wraps PUT.
 use super::{transfer, BackupError, Result};
-use cloud_backup_client::byte_backup::BackupTransportError;
+use crate::cloud_backup_client::byte_backup::BackupTransportError;
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use std::future::Future;
 use std::sync::atomic::AtomicBool;

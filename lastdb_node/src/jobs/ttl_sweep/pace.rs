@@ -33,9 +33,9 @@ pub(super) struct Pace {
 impl Pace {
     pub(super) fn from_env() -> Self {
         Self::new(
-            env_flag::var_or(TTL_SWEEP_BATCH_ENV, DEFAULT_BATCH),
-            env_flag::var_or(TTL_SWEEP_DUTY_PCT_ENV, DEFAULT_DUTY_PCT),
-            env_flag::var_or(TTL_SWEEP_MIN_PAUSE_MS_ENV, DEFAULT_MIN_PAUSE_MS),
+            fold_db::env_flag::var_or(TTL_SWEEP_BATCH_ENV, DEFAULT_BATCH),
+            fold_db::env_flag::var_or(TTL_SWEEP_DUTY_PCT_ENV, DEFAULT_DUTY_PCT),
+            fold_db::env_flag::var_or(TTL_SWEEP_MIN_PAUSE_MS_ENV, DEFAULT_MIN_PAUSE_MS),
         )
     }
 

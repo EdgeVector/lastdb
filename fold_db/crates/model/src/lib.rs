@@ -2,7 +2,7 @@
 //!
 //! The data types of the LastDB core: records, schemas, keys, field keys,
 //! mutations, and the pure rules over them (canonical byte framing, key
-//! codecs, logical layout rules, JSON order).
+//! codecs, logical layout rules).
 //!
 //! The model is data plus pure functions. It reads no clock, makes no random
 //! id, opens no file or socket, keeps no process-wide or task-local state, and
@@ -16,7 +16,6 @@ pub mod content_limit;
 pub mod field_key_codec;
 pub mod field_key_id;
 pub mod hex;
-pub mod json_order;
 pub mod kind_partition;
 pub mod portable_mutation;
 pub mod portable_replay;
@@ -24,3 +23,4 @@ pub mod record_replacement;
 pub mod record_space;
 pub mod record_value;
 pub mod schema;
+pub mod storage_policy;

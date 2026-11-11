@@ -1,7 +1,7 @@
 use super::super::{inventory::Inventory, RestoreError, RestoreSession, Result};
-use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::Digest;
+use fold_db::cloud_backup_plan::ClientNativeFile;
 use fold_db::storage::disk_pack::byte_backup::{run_backup_destination, ClientRoot};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -47,7 +47,7 @@ impl Coverage {
         if inventory.receipt(id)?.object.destination != Destination::R2 {
             return Err(RestoreError::Invalid("run metadata destination"));
         }
-        inventory.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
+        inventory.charge(fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
         if !self.metadata.insert(digest(id)?) {
             return Err(RestoreError::Invalid("duplicate run metadata receipt"));
         }
@@ -82,8 +82,9 @@ impl Coverage {
                 let bytes = receipt.object.bytes.get();
                 let object = match self.data.entry(id) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        inventory
-                            .charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
+                        inventory.charge(
+                            fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES,
+                        )?;
                         entry.insert(Object {
                             bytes,
                             ranges: BTreeMap::new(),
@@ -102,7 +103,7 @@ impl Coverage {
                 {
                     continue;
                 }
-                inventory.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
+                inventory.charge(fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
                 object.add(start, length)?;
             }
         }

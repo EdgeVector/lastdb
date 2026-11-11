@@ -13,7 +13,7 @@ pub(crate) fn public_list(
     let location = registry::IndexLocation::resolve(index)?;
     let (trust, source) = registry::resolve_list_trust_key(trust_key)?;
     warn_trust_override(&source);
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     let (_, _, versions) = registry::running_node(&socket);
     let mut list = block_on_app(registry::fetch_list(
         &location,

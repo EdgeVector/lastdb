@@ -1,24 +1,16 @@
 use super::schema_list_rows::{annotate_full_schemas, annotate_summary_schemas};
 use super::*;
 
-pub(super) async fn execute_list_schemas_route(
+pub(super) fn execute_list_schemas_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    // Default is identity/summary-only: per-schema live record counts walk the
-    // store (collect_matches with limit MAX), and full schema rows carry large
-    // per-field maps that list callers do not use. Opt in to each cost with
-    // ?include_counts=true and ?include_full=true.
-    let include_counts = query_flag(&req.target, "include_counts");
+    if query_flag(&req.target, "include_counts") {
+        return error_response(400, "schema listing does not count records", ctx);
+    }
     let include_full = query_flag(&req.target, "include_full");
-    // App reads are unrestricted once the app is approved
-    // (decision-2026-07-10-apps-read-all-write-own-namespace): the full catalog
-    // is visible to every consented caller — no per-principal filter.
 
-    // Explicit not-ready: never pretend an empty catalog is a finished boot when
-    // the in-memory schema map has not finished its initial load. Empty homes
-    // that truly have zero schemas still report ready=true after boot.
     if !host.db.schema_manager().catalog_ready() {
         return error_response(
             503,
@@ -27,22 +19,15 @@ pub(super) async fn execute_list_schemas_route(
         );
     }
 
-    // Catalog rows stay FLAT: clients read `name`/`descriptive_name`/
-    // `owner_app_id`/`fields` at the top level. The default projection omits
-    // heavy per-field metadata; `GET /api/schema/{name}` and `include_full`
-    // retain the full schema shape for diagnostics and migration tooling.
     let annotated = if include_full {
-        annotate_full_schemas(host, include_counts).await
+        annotate_full_schemas(host)
     } else {
-        annotate_summary_schemas(host, include_counts).await
+        annotate_summary_schemas(host)
     };
     let Some(mut annotated) = annotated else {
         return content_free(500, "Internal Server Error");
     };
 
-    // Which listed schemas no longer answer `descriptive_name` resolution.
-    // Stamped per row AND summarized, so an operator can see at a glance that a
-    // readable name now addresses exactly one Available schema.
     let retired_name_claims = host
         .db
         .schema_manager()
@@ -53,11 +38,6 @@ pub(super) async fn execute_list_schemas_route(
     retired_name_claims.sort();
 
     let count = annotated.len();
-    // Identity-algorithm provenance. `identity_algo_version` is what THIS
-    // binary implements; `newer_identity_algo_schemas` are rows whose identity
-    // was minted by something newer, which `load_schema_internal` preserved
-    // rather than downgrading. A non-empty list means the node is older than
-    // its own data — upgrade the node, do not re-register the schemas.
     let newer_identity_algo_schemas = host
         .db
         .schema_manager()
@@ -67,7 +47,7 @@ pub(super) async fn execute_list_schemas_route(
         "schemas": annotated,
         "count": count,
         "ready": true,
-        "counts_included": include_counts,
+        "counts_included": false,
         "full_included": include_full,
         "identity_algo_version": schema_types::IDENTITY_HASH_ALGO_VERSION,
         "newer_identity_algo_count": newer_identity_algo_schemas.len(),
@@ -201,7 +181,7 @@ pub(super) async fn execute_seed_system_schema_route(
 }
 
 pub(super) fn is_isolated_copy_process() -> bool {
-    env_flag::var_truthy("LASTDB_ISOLATED_COPY")
+    fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY")
 }
 
 /// `POST /api/schemas/retire-name-claim` — retire or restore one installed

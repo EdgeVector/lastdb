@@ -32,7 +32,7 @@ pub(super) struct Plan {
     pub ready: bool,
 }
 pub(super) fn expected(input: &TransferInput) -> Result<ObjectReceipt> {
-    Ok(cloud_backup_plan::expected_receipt(input)?)
+    Ok(fold_db::cloud_backup_plan::expected_receipt(input)?)
 }
 pub(super) fn object_name(index: u64) -> String {
     format!("log-object-{index:08}.json")
@@ -53,7 +53,7 @@ impl ObjectRecord {
                 .payload
                 .as_ref()
                 .is_some_and(|name| *name != payload_name(index))
-            || self.segments.len() > lastdb_storage_policy::backup_transport::MAX_PACK_MEMBERS
+            || self.segments.len() > fold_db::storage_policy::backup_transport::MAX_PACK_MEMBERS
             || self.segments.is_empty() != self.payload.is_some()
         {
             return Err(BackupError::Invalid);

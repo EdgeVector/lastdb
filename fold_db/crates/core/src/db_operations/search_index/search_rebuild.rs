@@ -7,10 +7,10 @@
 
 use super::inbox_fields::searchable_fields;
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
-use crate::db_operations::record_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
+use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -67,23 +67,32 @@ async fn collect_schema_records(
         return Ok(vec![]);
     }
     let comparison = ops.records().key_comparison_context(schema).await?;
+    let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
     let mut after: Option<String> = None;
     loop {
-        let window = WalkWindow {
-            after: after.as_deref(),
-            skip: 0,
-            take: REBUILD_WALK_PAGE,
-        };
-        let walk = ops
-            .records()
-            .walk_record_window(schema, &comparison, window, |_| true);
         let scope = ops.read_scope().await?;
-        let page = Arc::clone(&comparison).run(scope.run_result(walk)).await?;
-        // A page that stopped in a run of deleted records goes on after the
-        // last key it examined.
-        let next = page.next(REBUILD_WALK_PAGE);
-        for (key, record) in page.into_keyed() {
+        let (loaded, next, has_more) = Arc::clone(&comparison)
+            .run(scope.run_result(async {
+                let (pairs, next, has_more) = ops
+                    .records()
+                    .list_record_keys(
+                        schema,
+                        &comparison,
+                        REBUILD_WALK_PAGE,
+                        after.as_deref(),
+                        None,
+                    )
+                    .await?;
+                let api_keys: Vec<KeyValue> = pairs
+                    .into_iter()
+                    .map(|(hash, range)| KeyValue::new(Some(hash), ranged.then_some(range)))
+                    .collect();
+                let loaded = ops.records().records_at(schema, &api_keys).await?;
+                Ok::<_, SchemaError>((loaded, next, has_more))
+            }))
+            .await?;
+        for (key, record) in loaded {
             let fields: HashMap<String, Value> = record
                 .fields
                 .iter()
@@ -99,9 +108,12 @@ async fn collect_schema_records(
                 records.insert(key, fields);
             }
         }
-        match next {
-            Some(next) => after = Some(next),
-            None => break,
+        if !has_more {
+            break;
+        }
+        after = next;
+        if after.is_none() {
+            break;
         }
     }
 
