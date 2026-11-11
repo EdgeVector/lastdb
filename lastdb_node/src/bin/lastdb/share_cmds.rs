@@ -17,6 +17,8 @@ use std::time::Duration;
 mod contributors;
 #[path = "share_cmds/files/mod.rs"]
 mod files;
+#[path = "share_cmds/queries/mod.rs"]
+mod queries;
 
 pub(super) fn run(
     data_dir: Option<PathBuf>,
@@ -44,6 +46,7 @@ pub(super) fn run(
             });
             database_request(data_dir, Some(&db), "/api/contributors", &body)
         }
+        ShareCommand::Queries(action) => queries::run(data_dir, action),
         action => run_offline(data_dir, action),
     }
 }
@@ -131,6 +134,7 @@ fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), St
         ShareCommand::Accept { .. } => unreachable!("accept is routed to the node"),
         ShareCommand::Contributors(action) => contributors::run(&identity_home, action),
         ShareCommand::Files(action) => files::run(&identity_home, action),
+        ShareCommand::Queries(_) => unreachable!("queries are routed to the node"),
     }
 }
 
