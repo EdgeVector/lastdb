@@ -10,7 +10,7 @@
 //! when the ledger is unchanged, so the ledger write does not loop.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -74,7 +74,7 @@ async fn supervise(host: Arc<Host>, socket: PathBuf, shutdown: Arc<AtomicBool>) 
 
 fn sync_sources(
     host: &Host,
-    socket: &PathBuf,
+    socket: &Path,
     shutdown: &Arc<AtomicBool>,
     running: &mut BTreeMap<String, JoinHandle<()>>,
 ) -> Result<(), String> {
@@ -103,7 +103,7 @@ fn sync_sources(
 }
 
 fn ensure_follower(
-    socket: &PathBuf,
+    socket: &Path,
     shutdown: &Arc<AtomicBool>,
     running: &mut BTreeMap<String, JoinHandle<()>>,
     selector: impl Into<String>,
@@ -113,7 +113,7 @@ fn ensure_follower(
     if running.contains_key(&selector) {
         return;
     }
-    let socket = socket.clone();
+    let socket = socket.to_path_buf();
     let shutdown = Arc::clone(shutdown);
     let key = selector.clone();
     let task = tokio::spawn(

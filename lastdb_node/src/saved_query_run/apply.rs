@@ -55,7 +55,7 @@ fn read_chunk(
         .map(|key| (key.hash.as_str(), key.range.as_deref().unwrap_or("")))
         .collect();
     let qualified = format!("{namespace}/{schema}");
-    let rows = store.query(destination, &qualified, json!({"HashRangeKeys": pairs}))?;
+    let rows = store.query(destination, &qualified, &json!({"HashRangeKeys": pairs}))?;
     for row in rows {
         let parsed = LiveRow::from_query(namespace, schema, &row)
             .map_err(|error| error.as_str().to_owned())?;

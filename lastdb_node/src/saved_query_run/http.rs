@@ -90,7 +90,7 @@ impl Store {
         &self,
         database: &DatabaseTarget,
         schema: &str,
-        filter: Value,
+        filter: &Value,
     ) -> Result<Vec<Value>, String> {
         let body = json!({
             "schema_name": schema,

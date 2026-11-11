@@ -35,7 +35,7 @@ pub(super) fn write_hash(
     source: &DatabaseTarget,
     schema: &str,
     hash: &str,
-    record: Value,
+    record: &Value,
     revision: Option<&str>,
 ) -> Result<(), String> {
     let (operation, expected) = match revision {
@@ -58,7 +58,7 @@ pub(super) fn write_hash(
 }
 
 fn load(store: &Store, source: &DatabaseTarget) -> Result<QueryCatalog, String> {
-    let rows = store.query(source, SAVED_QUERY_SCHEMA, json!({"HashKey": CATALOG_KEY}))?;
+    let rows = store.query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": CATALOG_KEY}))?;
     match rows.as_slice() {
         [] => Ok(QueryCatalog::empty()),
         [row] => QueryCatalog::from_row(row).map_err(|error| error.as_str().to_owned()),
@@ -76,7 +76,7 @@ fn store_catalog(
         source,
         SAVED_QUERY_SCHEMA,
         CATALOG_KEY,
-        catalog
+        &catalog
             .fields()
             .map_err(|error| error.as_str().to_owned())?,
         catalog.revision.as_deref(),

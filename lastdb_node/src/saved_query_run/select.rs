@@ -51,7 +51,7 @@ fn read_one(store: &Store, source: &DatabaseTarget, read: &Read) -> Result<Vec<V
         RangeSelect::Point | RangeSelect::All => json!({"HashKey": read.hash}),
         RangeSelect::Exact(range) => json!({"HashRangeKey": {"hash": read.hash, "range": range}}),
     };
-    let rows = store.query(source, &schema, filter)?;
+    let rows = store.query(source, &schema, &filter)?;
     let exact = !matches!(read.range, RangeSelect::All);
     if exact && rows.len() > 1 {
         return Err("saved query read returned more than one record".into());
@@ -86,7 +86,7 @@ fn expand_link(
             continue;
         };
         let schema = format!("{}/{}", link.namespace, link.schema);
-        let found = store.query(source, &schema, json!({ "HashKey": hash }))?;
+        let found = store.query(source, &schema, &json!({ "HashKey": hash }))?;
         if found.len() > 1 {
             return Err("saved query link returned more than one record".into());
         }

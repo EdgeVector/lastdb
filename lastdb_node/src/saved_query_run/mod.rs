@@ -287,7 +287,7 @@ fn load_saved(
     source: &DatabaseTarget,
     id: &str,
 ) -> Result<Option<SavedQuery>, String> {
-    let rows = store.query(source, SAVED_QUERY_SCHEMA, json!({"HashKey": id}))?;
+    let rows = store.query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": id}))?;
     match rows.as_slice() {
         [] => Ok(None),
         [row] => SavedQuery::from_row(id, row)
@@ -303,7 +303,7 @@ fn store_query(store: &Store, source: &DatabaseTarget, query: &SavedQuery) -> Re
         source,
         SAVED_QUERY_SCHEMA,
         &query.id,
-        query.fields().map_err(|error| error.as_str().to_owned())?,
+        &query.fields().map_err(|error| error.as_str().to_owned())?,
         query.revision.as_deref(),
     )
 }

@@ -197,7 +197,7 @@ fn read_mark(read: &Read) -> (String, String, String, String) {
 }
 
 fn push_unique<'a>(out: &mut Vec<(&'a str, &'a str)>, namespace: &'a str, schema: &'a str) {
-    if !out.iter().any(|item| *item == (namespace, schema)) {
+    if !out.contains(&(namespace, schema)) {
         out.push((namespace, schema));
     }
 }

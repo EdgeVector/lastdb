@@ -292,10 +292,13 @@ fn write_for(projected: &Projected, row: Option<&LiveRow>) -> Write {
         fields: projected.fields.clone(),
         creating: row.is_none(),
         fields_changed: row.is_none_or(|row| row.fields != projected.fields),
-        copy_blob: changed_mark(projected.blob.clone(), row.and_then(|row| row.blob.clone())),
+        copy_blob: changed_mark(
+            projected.blob.clone(),
+            &row.and_then(|row| row.blob.clone()),
+        ),
         copy_inline: changed_mark(
             projected.inline.clone(),
-            row.and_then(|row| row.inline.clone()),
+            &row.and_then(|row| row.inline.clone()),
         ),
         clear_blob: row.is_some_and(|row| row.blob.is_some()) && projected.blob.is_none(),
         clear_inline: row.is_some_and(|row| row.inline.is_some()) && projected.inline.is_none(),
@@ -303,10 +306,10 @@ fn write_for(projected: &Projected, row: Option<&LiveRow>) -> Write {
     }
 }
 
-fn changed_mark(desired: Option<FileMark>, live: Option<FileMark>) -> Option<FileMark> {
+fn changed_mark(desired: Option<FileMark>, live: &Option<FileMark>) -> Option<FileMark> {
     let differs = desired
         .as_ref()
-        .is_some_and(|mark| sha(&live) != Some(mark.sha256.as_str()));
+        .is_some_and(|mark| sha(live) != Some(mark.sha256.as_str()));
     if differs {
         desired
     } else {
