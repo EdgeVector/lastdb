@@ -1,7 +1,8 @@
 //! Parse I's snapshot JSON into the install types.
 //!
 //! Manifest and part wrappers use decimal strings. Entry objects inside a
-//! part use JSON numbers, and `payload` is unpadded URL-safe base64.
+//! part use JSON numbers, and `payload` is unpadded URL-safe base64 of the
+//! envelope.
 
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::DecimalU64;

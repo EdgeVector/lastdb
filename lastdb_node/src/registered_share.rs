@@ -107,6 +107,20 @@ pub fn list(home: &Path) -> Result<Vec<RegisteredShare>> {
         .collect()
 }
 
+/// Re-open the invitation stored for this stable stream id.
+///
+/// `accept` already verified the publisher and kept that stream id. This
+/// does not create a store and does not write the registry.
+pub(crate) fn verified_invitation(
+    home: &Path,
+    id: &Id,
+) -> Result<crate::share_invitation::OpenedShareInvitation> {
+    let Some(cache) = ShareCache::open_managed(home, false)? else {
+        return Err(ShareCacheError::Unavailable);
+    };
+    cache.open_verified(id)
+}
+
 /// Resolve a shared database by immutable ID or exact local alias.
 pub fn resolve(home: &Path, selector: &str) -> Result<Option<RegisteredShare>> {
     if let Ok(id) = Id::try_from(selector.to_owned()) {

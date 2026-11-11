@@ -3,6 +3,11 @@
 //! E fetches `delivery/snapshot` and calls [`install`]. This module does not
 //! send HTTP and does not acknowledge the cloud log. E acknowledges only
 //! after `install` returns and any still-stored suffix is durable.
+//!
+//! Record payloads and file fragments are `log_envelope` ciphertexts. The
+//! content key is the owned sibling key, or the key from the verified
+//! registered-share invitation. This module does not call `accept`, does not
+//! write the registry, and does not open the personal store.
 
 mod apply;
 mod chain;
@@ -24,8 +29,10 @@ use std::sync::Arc;
 use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::storage::disk_pack::NODE_MARKER;
+use zeroize::Zeroizing;
 
 use crate::host::owned::Resolved;
+use crate::log_envelope::DatabaseContentKey;
 use crate::Host;
 
 use journal::Resume;
@@ -39,13 +46,13 @@ pub async fn install(
     request: &SnapshotInstall,
     files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<InstalledPrefix, RestoreError> {
-    let store = open_named(host, &request.database_id)?;
+    let target = open_named(host, &request.database_id)?;
     let chain = chain::order(
         &request.database_id,
         &request.snapshot_ref,
         &request.objects,
     )?;
-    decode::check_chain(&request.database_id, &chain)?;
+    decode::check_chain(&target.key, &request.database_id, &chain)?;
     let mut journal = journal::load(&host.home, &request.database_id)?
         .unwrap_or_else(|| journal::Journal::fresh(&request.database_id, &request.snapshot_ref));
     if let Resume::Continue { retarget } = journal::plan(&journal, request, &chain)? {
@@ -55,7 +62,8 @@ pub async fn install(
             journal::save(&host.home, &journal)?;
         }
         apply::replay(
-            store.as_ref(),
+            target.store.as_ref(),
+            &target.key,
             &host.home,
             &request.database_id,
             &chain,
@@ -63,39 +71,100 @@ pub async fn install(
             files,
         )
         .await?;
-        return finish(store.as_ref(), &host.home, request, &chain, &mut journal).await;
+        return finish(
+            target.store.as_ref(),
+            &host.home,
+            request,
+            &chain,
+            &mut journal,
+        )
+        .await;
     }
     prefix(request, &chain)
 }
 
-fn open_named(host: &Host, database_id: &str) -> Result<Arc<FoldDB>, RestoreError> {
+struct Target {
+    store: Arc<FoldDB>,
+    key: DatabaseContentKey,
+}
+
+fn open_named(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
+    require_id(database_id)?;
+    if owned_claim(host, database_id)? {
+        owned_target(host, database_id)
+    } else {
+        received_target(host, database_id)
+    }
+}
+
+fn require_id(database_id: &str) -> Result<(), RestoreError> {
     let id =
         Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
-    if id.as_str() != database_id {
-        return Err(RestoreError::Scope("database id"));
+    if id.as_str() == database_id {
+        Ok(())
+    } else {
+        Err(RestoreError::Scope("database id"))
     }
+}
+
+fn owned_claim(host: &Host, database_id: &str) -> Result<bool, RestoreError> {
     let entries = host
         .owned
         .owned_entries()
         .map_err(|_| RestoreError::Scope("database registry"))?;
-    if !entries.iter().any(|entry| entry.id == database_id) {
-        return Err(RestoreError::Scope("named database"));
-    }
+    Ok(entries.iter().any(|entry| entry.id == database_id))
+}
+
+fn owned_target(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
     let store = match host.owned.resolve(database_id) {
         Ok((Resolved::Owned, Some(store))) => store,
         Ok(_) => return Err(RestoreError::Scope("named database")),
         Err(_) => return Err(RestoreError::Scope("database registry")),
     };
+    if !store_marker(host, database_id) {
+        return Err(RestoreError::Scope("database store"));
+    }
+    let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+    let key = DatabaseContentKey::owned(&seed, database_id)
+        .map_err(|_| RestoreError::Scope("database store"))?;
+    if key.database_id() != database_id {
+        return Err(RestoreError::Scope("database id"));
+    }
+    Ok(Target { store, key })
+}
+
+/// The invitation is verified. No FoldDB is open under that key.
+///
+/// `registered_share::accept` keeps the stream id and the publication key.
+/// It does not create `databases/<id>/data`. The personal store is not a
+/// substitute, and this function does not create one.
+fn received_target(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
+    let id =
+        Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
+    let share = crate::registered_share::resolve(&host.home, database_id)
+        .map_err(|_| RestoreError::Scope("database registry"))?
+        .ok_or(RestoreError::Scope("named database"))?;
+    if share.id.as_str() != database_id || share.stream().stream_id.as_str() != database_id {
+        return Err(RestoreError::Scope("database id"));
+    }
+    let opened = crate::registered_share::verified_invitation(&host.home, &id)
+        .map_err(|_| RestoreError::Scope("named database"))?;
+    let key = DatabaseContentKey::from_invitation(&opened)
+        .map_err(|_| RestoreError::Scope("database store"))?;
+    if key.database_id() != database_id {
+        return Err(RestoreError::Scope("database id"));
+    }
+    Err(RestoreError::Scope("database store"))
+}
+
+fn store_marker(host: &Host, database_id: &str) -> bool {
     let marker = host
         .home
         .join("databases")
         .join(database_id)
         .join("data")
         .join(NODE_MARKER);
-    match fs::symlink_metadata(&marker) {
-        Ok(metadata) if metadata.is_file() => Ok(store),
-        _ => Err(RestoreError::Scope("database store")),
-    }
+    fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.is_file())
 }
 
 async fn finish(
