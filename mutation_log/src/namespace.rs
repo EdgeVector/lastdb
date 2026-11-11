@@ -20,15 +20,13 @@ pub enum NamespaceKind {
 ///   `scripts/operations/record_share_files.py` writes the same schemas.
 /// - `social` — lastdb-std 1.0, shareable (`spec/index.json`,
 ///   `spec/README.md`, `spec/social/`).
-/// - `social-graph` — lastdb-std 1.0 name for the decision's `graph`
-///   (`spec/index.json`, `spec/social-graph/`). `spec/README.md` marks it
-///   personal-only; that prefix split is superseded by this list.
 ///
-/// Share snapshots, contributor rules, and the shared-writer CLI carry the
-/// caller's schema. Cloud share proofs publish under a generated
-/// `cloud-proof-<database>` namespace. `CloudProofLocalOnly` stays on the
-/// device. A generated name is not a stable entry.
-pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social", "social-graph"];
+/// `social-graph` stays personal-only (`spec/README.md`). Share snapshots,
+/// contributor rules, and the shared-writer CLI carry the caller's schema.
+/// Cloud share proofs publish under a generated `cloud-proof-<database>`
+/// namespace. `CloudProofLocalOnly` stays on the device. A generated name
+/// is not a stable entry.
+pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social"];
 
 /// Classify with [`SHAREABLE_NAMESPACES`].
 ///

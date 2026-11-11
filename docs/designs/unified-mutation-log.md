@@ -169,16 +169,14 @@ as well as the reader, because a slice of entries does not carry them.
 
 ## Namespaces
 
-Shareable databases accept one interim list: `social`, `social-graph`, and
-`lastdb-files`. This list is interim. The real reservation of official names
-moves to named databases later. The old schema-prefix reservation plan is
-superseded.
+Shareable databases accept one interim list: `social` and `lastdb-files`.
+This list is interim. The real reservation of official names moves to named
+databases later. The old schema-prefix reservation plan is superseded.
 
-`social` and `social-graph` are lastdb-std 1.0 (`spec/index.json`,
-`spec/README.md`, `spec/social/`, `spec/social-graph/`). The decision named
-them `social` and `graph`. The repo's graph namespace is `social-graph`.
-`spec/README.md` marks `social-graph` personal-only; that prefix split is
-superseded by this list.
+`social` is lastdb-std 1.0 and shareable (`spec/index.json`,
+`spec/README.md`, `spec/social/`). `social-graph` is the lastdb-std 1.0
+graph namespace (`spec/index.json`, `spec/social-graph/`). `spec/README.md`
+keeps it personal-only, so a shareable database rejects it.
 
 `lastdb-files` is the namespace the share files command publishes, for
 `FileCatalog` and `FileChunk`

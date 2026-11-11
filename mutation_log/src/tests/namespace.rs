@@ -170,13 +170,21 @@ fn store(
 
 #[test]
 fn shareable_database_accepts_each_listed_namespace() {
-    assert!(SHAREABLE_NAMESPACES.contains(&"social"));
+    assert_eq!(SHAREABLE_NAMESPACES, &["lastdb-files", "social"]);
     for name in SHAREABLE_NAMESPACES {
         let (state, _publisher, writer) = shareable();
         let stored = store(&state, &writer, name, &classify_shareable).expect("listed namespace");
         assert_eq!(stored.entries.len(), 1);
         assert_eq!(stored.entries[0].entry.namespace.as_str(), *name);
     }
+}
+
+#[test]
+fn shareable_database_rejects_social_graph() {
+    let (state, _publisher, writer) = shareable();
+    let refused = store(&state, &writer, "social-graph", &classify_shareable);
+    assert_eq!(refused, Err(LogError::AppPrivateNamespace));
+    assert!(state.entries.is_empty());
 }
 
 #[test]
