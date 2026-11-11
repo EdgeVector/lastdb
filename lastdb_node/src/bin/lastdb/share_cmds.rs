@@ -32,14 +32,14 @@ pub(super) fn run(
             invitation,
             publisher,
             name,
-        }
-        | ShareCommand::Files(ShareFilesCommand::Receive {
+        } => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
+        ShareCommand::Files(ShareFilesCommand::Receive {
             invitation,
             publisher,
             name,
             cache: None,
             ..
-        }) => accept(data_dir, &invitation, &publisher, name.as_deref()),
+        }) => accept(data_dir, None, &invitation, &publisher, name.as_deref()),
         ShareCommand::Files(action) if db.is_some() => files::run_selected(data_dir, db, action),
         ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
             let sealed = read_file(&grant, 64 * 1024)?;
@@ -55,16 +55,20 @@ pub(super) fn run(
 
 fn accept(
     data_dir: Option<PathBuf>,
+    database_id: Option<&str>,
     invitation: &Path,
     publisher: &str,
     name: Option<&str>,
 ) -> Result<(), String> {
     let sealed = read_file(invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
         "publisher": publisher,
         "name": name,
     });
+    if let Some(database_id) = database_id {
+        body["database_id"] = serde_json::json!(database_id);
+    }
     database_request(data_dir, None, "/api/databases/accept", &body)
 }
 

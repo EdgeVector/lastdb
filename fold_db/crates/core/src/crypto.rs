@@ -57,6 +57,14 @@ impl E2eKeys {
     pub fn encryption_key(&self) -> [u8; 32] {
         self.encryption_key
     }
+
+    /// Use an AES key that was already derived. This does not run HKDF.
+    pub fn from_content_key(encryption_key: [u8; 32]) -> CryptoResult<Self> {
+        if encryption_key == [0u8; 32] {
+            return Err(CryptoError::KeyError("content key is empty".into()));
+        }
+        Ok(Self { encryption_key })
+    }
 }
 
 pub mod envelope {

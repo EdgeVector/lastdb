@@ -1,25 +1,17 @@
 //! Named-database AES key inside the existing share invitation.
 //!
-//! The file prefix tells accept not to start publication recovery.
-//! The suffix is `share_invitation::seal_invitation`. It holds the AES
-//! content key, not the node seed and not the personal content key.
+//! The bytes are `share_invitation::seal_invitation`. That is E3's envelope.
+//! It holds the AES content key, not the node seed and not the personal
+//! content key. There is no second prefix and no raw key file.
 
 use crate::cloud_backup_client::byte_backup::GuestReadPermission;
 use crate::host::owned;
-use crate::share_invitation::{self, OpenedShareInvitation, ShareContact, ShareRecipient};
+use crate::share_invitation::{self, ShareContact};
 use cloud_backup_protocol::v2::Stream;
-use cloud_backup_protocol::{Digest, Id};
+use cloud_backup_protocol::Id;
 use fold_db::crypto::E2eKeys;
 use std::path::Path;
 use zeroize::Zeroizing;
-
-/// Product-file prefix. The invitation bytes follow it.
-pub const CONTENT_KEY_INVITATION_PREFIX: &[u8] = b"lastdb-named-db-key-v1\0";
-
-/// True when `sealed` is a named-database content-key file.
-pub fn is_content_key_invitation(sealed: &[u8]) -> bool {
-    sealed.starts_with(CONTENT_KEY_INVITATION_PREFIX)
-}
 
 /// Seal this database's AES key to `contact`. Opens a fresh publisher session.
 pub async fn seal_named_invitation(
@@ -37,24 +29,13 @@ pub async fn seal_named_invitation(
     let key = owned::content_encryption_key(session.seed.as_ref(), id.as_str())?;
     refuse_invitable(session.seed.as_ref(), key.as_ref())?;
     let permission = read_permission(&session, id, lifetime_hours)?;
-    let inner =
+    let sealed =
         share_invitation::seal_invitation(contact, &permission, key.as_ref(), &session.signer)
             .map_err(|error| error.to_string())?;
-    prefix(inner)
-}
-
-/// Open the inner invitation. E3 reads `publication_key` from the result.
-pub fn open_content_key_invitation(
-    recipient: &ShareRecipient,
-    sealed: &[u8],
-    publisher: &Digest,
-) -> Result<OpenedShareInvitation, String> {
-    let inner = sealed
-        .strip_prefix(CONTENT_KEY_INVITATION_PREFIX)
-        .ok_or("invalid sealed share invitation")?;
-    recipient
-        .open(inner, publisher)
-        .map_err(|error| error.to_string())
+    if sealed.len() > share_invitation::MAX_SEALED_INVITATION_BYTES {
+        return Err("sealed share invitation exceeds its size limit".into());
+    }
+    Ok(sealed)
 }
 
 fn read_permission(
@@ -86,17 +67,4 @@ fn refuse_invitable(seed: &[u8; 32], key: &[u8; 32]) -> Result<(), String> {
         return Err("named database content key is not invitable".into());
     }
     Ok(())
-}
-
-fn prefix(inner: Vec<u8>) -> Result<Vec<u8>, String> {
-    let total = CONTENT_KEY_INVITATION_PREFIX
-        .len()
-        .saturating_add(inner.len());
-    if total > share_invitation::MAX_SEALED_INVITATION_BYTES {
-        return Err("sealed share invitation exceeds its size limit".into());
-    }
-    let mut sealed = Vec::with_capacity(total);
-    sealed.extend_from_slice(CONTENT_KEY_INVITATION_PREFIX);
-    sealed.extend_from_slice(&inner);
-    Ok(sealed)
 }

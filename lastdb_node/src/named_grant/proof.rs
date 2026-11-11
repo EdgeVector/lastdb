@@ -1,14 +1,10 @@
-//! `LastDBNode` header for one member-list read. The update route does not use it.
+//! Member-list read body. The `LastDBNode` header is `node_read`, not a second signer.
 
 use super::session::PublisherSession;
-use base64::Engine as _;
-use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, NodeReadToken, ShareHttpMethod, SHARE_MEMBER_LIST_READ_PATH,
-    SHARE_NODE_AUTHORIZATION_SCHEME,
-};
+use crate::node_read::{self, CanonicalPost, SignedPostTarget};
+use cloud_backup_protocol::v2::share_access::MemberListReadRequest;
 use cloud_backup_protocol::v2::{Stream, Version};
-use cloud_backup_protocol::{DecimalU64, Id, Text};
-use rand::{rngs::OsRng, RngCore};
+use cloud_backup_protocol::Id;
 
 pub(super) fn read_body(session: &PublisherSession, database_id: &str) -> Result<Vec<u8>, String> {
     let request = MemberListReadRequest {
@@ -26,28 +22,20 @@ pub(super) fn authorization(
     database_id: &str,
     revision: u64,
 ) -> Result<String, String> {
-    let stream = stream(session, database_id)?;
-    let token = NodeReadToken {
-        version: Version::V2,
-        environment: session.environment,
-        database_id: stream.stream_id.clone(),
-        stream,
-        method: ShareHttpMethod::Post,
-        path: Text::try_from(SHARE_MEMBER_LIST_READ_PATH.to_owned())
-            .map_err(|_| "invalid member read path")?,
-        issued_at_ms: issued_at()?,
-        nonce: nonce()?,
-        member_list_revision: DecimalU64::new(revision),
-        node_public_key: session.publisher.clone(),
-    };
-    let digest = token.digest(body).map_err(|error| error.field)?;
-    let signature = session.signer.sign(digest.as_str().as_bytes()).to_bytes();
-    let token_json = serde_json::to_vec(&token).map_err(|_| "cannot encode member read proof")?;
-    Ok(format!(
-        "{SHARE_NODE_AUTHORIZATION_SCHEME} {}.{}",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_json),
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature)
-    ))
+    let database_id = Id::try_from(database_id.to_owned())
+        .map_err(|_| "database registry is unavailable".to_string())?;
+    node_read::authorization(
+        &session.signer,
+        SignedPostTarget {
+            scope: &session.scope,
+            database_id: &database_id,
+            environment: session.environment,
+            route: CanonicalPost::MemberRead,
+        },
+        body,
+        revision,
+        fold_db::clock::unix_millis(),
+    )
 }
 
 fn stream(session: &PublisherSession, database_id: &str) -> Result<Stream, String> {
@@ -56,18 +44,4 @@ fn stream(session: &PublisherSession, database_id: &str) -> Result<Stream, Strin
         stream_id: Id::try_from(database_id.to_owned())
             .map_err(|_| "database registry is unavailable")?,
     })
-}
-
-fn issued_at() -> Result<DecimalU64, String> {
-    let now = fold_db::clock::unix_millis();
-    if now == 0 {
-        return Err("invalid clock for member read".into());
-    }
-    Ok(DecimalU64::new(now))
-}
-
-fn nonce() -> Result<Text<64>, String> {
-    let mut raw = [0u8; 32];
-    OsRng.fill_bytes(&mut raw);
-    Text::try_from(hex::encode(raw)).map_err(|_| "cannot encode member read nonce".into())
 }

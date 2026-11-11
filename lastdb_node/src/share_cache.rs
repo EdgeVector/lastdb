@@ -166,6 +166,37 @@ impl ShareCache {
         })
     }
 
+    /// Re-open the invitation saved by the managed share bootstrap.
+    ///
+    /// The returned publication key is the one registration verified.
+    /// A signed log skips bearer expiry. This does not fetch a snapshot
+    /// and does not create a database directory.
+    pub(crate) fn open_verified(&self, id: &Id) -> Result<OpenedShareInvitation> {
+        let entry = self.entry(id, false)?;
+        let _pointer = entry.lock(Lock::Pointer, false)?;
+        let (registration, _) = entry.load()?;
+        let registration = registration.ok_or(ShareCacheError::Unavailable)?;
+        self.require_management(&registration)?;
+        let invitation = URL_SAFE_NO_PAD
+            .decode(registration.invitation.as_bytes())
+            .map_err(|_| ShareCacheError::Invalid("stored invitation"))?;
+        let signed_log = registration
+            .managed
+            .as_ref()
+            .is_some_and(|state| state.signed_log);
+        let opened = if signed_log {
+            self.recipient
+                .open_stored(&invitation, &registration.publisher)?
+        } else {
+            self.recipient.open(&invitation, &registration.publisher)?
+        };
+        registration.require_binding(&opened, &registration.publisher)?;
+        if opened.permission.stream().stream_id.as_str() != id.as_str() {
+            return Err(ShareCacheError::Invalid("stored invitation"));
+        }
+        Ok(opened)
+    }
+
     fn entry(&self, handle: &Id, create: bool) -> Result<Entry> {
         Entry::open(
             &self.root,

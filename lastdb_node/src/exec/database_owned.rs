@@ -61,18 +61,7 @@ pub(super) fn row(entry: &Entry) -> Value {
 }
 
 fn share_conflict(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {
-    if let Some(response) = registered_name(host, name, ctx) {
-        return Some(response);
-    }
-    match crate::named_grant::received_name_taken(&host.home, name) {
-        Ok(false) => None,
-        Ok(true) => Some(error_response(
-            409,
-            "database name is already registered",
-            ctx,
-        )),
-        Err(()) => Some(error_response(503, "database registry is unavailable", ctx)),
-    }
+    registered_name(host, name, ctx)
 }
 
 fn registered_name(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {

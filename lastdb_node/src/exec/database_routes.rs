@@ -17,6 +17,7 @@ enum Selection {
     Owner,
     Owned(Arc<FoldDB>),
     Share(Box<RegisteredShare>),
+    Signed(Box<RegisteredShare>),
 }
 
 /// Dispatch a database registry operation or route an ordinary record request
@@ -33,7 +34,7 @@ pub async fn execute_database_request(
         ("GET", DATABASES_PATH) => return list(ctx, host),
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
         ("POST", database_owned::SPEC_PATH) => return database_owned::bind(req, ctx, host),
-        ("POST", ACCEPT_PATH) => return accept(req, ctx, host),
+        ("POST", ACCEPT_PATH) => return accept(req, ctx, host).await,
         _ => {}
     }
     let Some((selector, path)) = database_path::split(&req.target) else {
@@ -55,7 +56,9 @@ pub async fn execute_database_request(
         Ok(selection) => selection,
         Err(response) => return response,
     };
-    if matches!(selection, Selection::Share(_)) && !is_database_operation(route) {
+    if matches!(selection, Selection::Share(_) | Selection::Signed(_))
+        && !is_database_operation(route)
+    {
         return content_free(404, "Not Found");
     }
     dispatch(route, req, ctx, host, selection).await
@@ -77,15 +80,33 @@ async fn dispatch(
             )
             .await
         }
-        Selection::Share(share) => match route {
+        Selection::Share(share) => received_share(route, req, ctx, share).await,
+        Selection::Signed(share) => match route {
             DataRoute::Mutation | DataRoute::MutationBatch => {
                 received_mutation(route, req, ctx, share.as_ref()).await
             }
             DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
-            _ => super::database_read::read(route, req, ctx, share.as_ref()),
+            _ => super::database_signed::read(route, req, ctx, host, share.as_ref()).await,
         },
+    }
+}
+
+async fn received_share(
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    share: Box<RegisteredShare>,
+) -> UdsResponse {
+    match route {
+        DataRoute::Mutation | DataRoute::MutationBatch => {
+            received_mutation(route, req, ctx, share.as_ref()).await
+        }
+        DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
+            error_response(403, "operation is unavailable on a received database", ctx)
+        }
+        _ => super::database_read::read(route, req, ctx, share.as_ref()),
     }
 }
 
@@ -114,7 +135,7 @@ pub fn execute_deferred_database_mutation<'a>(
                 host.with_records(store, execute_deferred_mutation(route, req, ctx, host))
                     .await
             }
-            Ok(Selection::Share(share)) => {
+            Ok(Selection::Share(share) | Selection::Signed(share)) => {
                 with_handler_timeout_budget(
                     ctx,
                     data_route_budget(route),
@@ -162,6 +183,7 @@ fn resolve_share(
     host: &Host,
 ) -> Result<Selection, UdsResponse> {
     match registered_share::resolve(&host.home, selector) {
+        Ok(Some(share)) if share.signed_log => Ok(Selection::Signed(Box::new(share))),
         Ok(Some(share)) => Ok(Selection::Share(Box::new(share))),
         Ok(None) => Err(error_response(
             404,
@@ -229,24 +251,22 @@ fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(shares) = registered_share::list(&host.home) else {
         return error_response(503, "database registry is unavailable", ctx);
     };
-    let Ok(received) = crate::named_grant::received_rows(&host.home) else {
-        return error_response(503, "database registry is unavailable", ctx);
-    };
     let mut databases = vec![database_owned::row(&owner)];
     databases.extend(owned.iter().map(database_owned::row));
     databases.extend(shares.iter().map(database));
-    databases.extend(received);
     json_ok(&envelope(&json!({ "databases": databases }), &ctx.user_id))
 }
 
 fn database(share: &RegisteredShare) -> Value {
     let mut value = json!(share);
-    value["state"] = json!(if share.snapshot.is_some() {
+    value["state"] = json!(if share.signed_log || share.snapshot.is_some() {
         "ready"
     } else {
         "restoring"
     });
-    value["access"] = json!(if share.has_unexpired_contributor_grant() {
+    value["access"] = json!(if share.signed_log {
+        "reader"
+    } else if share.has_unexpired_contributor_grant() {
         "contributor"
     } else {
         "reader"
@@ -255,13 +275,15 @@ fn database(share: &RegisteredShare) -> Value {
     value
 }
 
-fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Request {
         invitation: String,
         publisher: Digest,
         name: Option<String>,
+        #[serde(default)]
+        database_id: Option<String>,
     }
     let Ok(body) = decode::<Request>(req, MAX_SEALED_INVITATION_BYTES) else {
         return error_response(400, "invalid database invitation request", ctx);
@@ -269,26 +291,28 @@ fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(sealed) = decode_sealed(&body.invitation, MAX_SEALED_INVITATION_BYTES) else {
         return error_response(400, "invalid encoded invitation", ctx);
     };
-    if crate::named_grant::is_content_key_invitation(&sealed) {
-        return accept_named(ctx, host, &sealed, &body.publisher, body.name.as_deref());
+    let result = match body.database_id.as_deref() {
+        Some(database_id) => registered_share::accept_signed_log(
+            &host.home,
+            &sealed,
+            &body.publisher,
+            body.name.as_deref(),
+            database_id,
+        ),
+        None => {
+            registered_share::accept(&host.home, &sealed, &body.publisher, body.name.as_deref())
+        }
+    };
+    if let Ok(share) = &result {
+        if share.signed_log
+            && registered_share::receiver_store(host, &share.id)
+                .await
+                .is_err()
+        {
+            return error_response(503, "database store is unavailable", ctx);
+        }
     }
-    let result =
-        registered_share::accept(&host.home, &sealed, &body.publisher, body.name.as_deref());
     registration_reply(result, ctx)
-}
-
-fn accept_named(
-    ctx: &AccessContext,
-    host: &Host,
-    sealed: &[u8],
-    publisher: &Digest,
-    name: Option<&str>,
-) -> UdsResponse {
-    match crate::named_grant::accept_content_key(&host.home, &host.keypair, sealed, publisher, name)
-    {
-        Ok(row) => json_ok(&envelope(&json!({ "database": row }), &ctx.user_id)),
-        Err(error) => error_response(error.status(), error.message(), ctx),
-    }
 }
 
 fn attach_contributor(
@@ -342,6 +366,12 @@ fn registration_reply(
             &json!({ "database": database(&share) }),
             &ctx.user_id,
         )),
+        Err(ShareCacheError::Invalid("database selector")) => {
+            error_response(400, "invalid database selector", ctx)
+        }
+        Err(ShareCacheError::Invalid("database id")) => {
+            error_response(400, "database id does not match the invitation", ctx)
+        }
         Err(error @ (ShareCacheError::Invalid(_) | ShareCacheError::Invitation(_))) => {
             error_response(400, &error.to_string(), ctx)
         }

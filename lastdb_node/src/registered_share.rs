@@ -1,5 +1,8 @@
 //! Stable database handles for shares accepted by this running node.
+mod store;
 mod worker;
+
+pub(crate) use store::receiver_store;
 
 use crate::cloud_backup_client::byte_backup::ShareEnvironment;
 use crate::share_cache::{ShareCache, ShareCacheError, ShareReader, ShareSnapshot};
@@ -31,6 +34,9 @@ pub struct RegisteredShare {
     pub(crate) contributor_grant: Option<Vec<u8>>,
     #[serde(skip)]
     pub(crate) contributor_expires_ms: Option<u64>,
+    /// Named-database signed log. Publication shares leave this false.
+    #[serde(skip)]
+    pub(crate) signed_log: bool,
 }
 
 impl RegisteredShare {
@@ -93,6 +99,40 @@ pub fn accept(
     ShareCache::open_managed(home, true)?
         .ok_or(ShareCacheError::Unavailable)?
         .register_managed(home, sealed, publisher, name)
+}
+
+/// Save the same invitation as [`accept`], marked as a signed log.
+///
+/// `database_id` must be the invitation stream id. A mismatch writes nothing.
+pub(crate) fn accept_signed_log(
+    home: &Path,
+    sealed: &[u8],
+    publisher: &Digest,
+    name: Option<&str>,
+    database_id: &str,
+) -> Result<RegisteredShare> {
+    let id = Id::try_from(database_id.to_owned())
+        .map_err(|_| ShareCacheError::Invalid("database selector"))?;
+    if let Some(name) = name {
+        require_name(name)?;
+    }
+    ShareCache::open_managed(home, true)?
+        .ok_or(ShareCacheError::Unavailable)?
+        .register_signed_log(home, sealed, publisher, name, &id)
+}
+
+/// Re-open the invitation stored for this stable stream id.
+///
+/// `accept` already verified the publisher and kept that stream id. A signed
+/// log stays readable after the bearer expires. This does not create a store.
+pub(crate) fn verified_invitation(
+    home: &Path,
+    id: &Id,
+) -> Result<crate::share_invitation::OpenedShareInvitation> {
+    let Some(cache) = ShareCache::open_managed(home, false)? else {
+        return Err(ShareCacheError::Unavailable);
+    };
+    cache.open_verified(id)
 }
 
 /// Return node-owned shared database registrations, including pending ones.

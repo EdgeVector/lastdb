@@ -8,18 +8,13 @@ mod files;
 mod invite;
 mod pending;
 mod proof;
-mod received;
 mod session;
 mod successor;
 
 use cloud_backup_protocol::Digest;
 use std::path::Path;
 
-pub use invite::{
-    is_content_key_invitation, open_content_key_invitation, seal_named_invitation,
-    CONTENT_KEY_INVITATION_PREFIX,
-};
-pub use received::{accept_content_key, received_name_taken, received_rows, AcceptError};
+pub use invite::seal_named_invitation;
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
