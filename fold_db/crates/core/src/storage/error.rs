@@ -141,6 +141,10 @@ pub enum StorageError {
 
     #[error("Encryption error: {0}")]
     EncryptionError(String),
+
+    /// A dedicated shared home or portable journal key from the retired format.
+    #[error("retired format: {0}")]
+    RetiredFormat(&'static str),
 }
 
 /// `ENOSPC`. Identical on Linux and macOS/BSD.

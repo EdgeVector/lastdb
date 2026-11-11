@@ -89,6 +89,7 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
+    crate::storage::retired::refuse_shared_home(root, &bytes)?;
     Ok(crate::storage::disk_pack::run_node::profile(&bytes))
 }
 

@@ -38,19 +38,21 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
+    crate::storage::retired::refuse_shared_home(root, &bytes)?;
     let version =
         profile(&bytes).ok_or_else(|| admission_invalid("the node range format is unsupported"))?;
     let admit_budget = ReadBudget {
         pages: 16384,
         blocks: 65536,
         bytes: 8 * 1024 * 1024,
-        keys: 16,
+        keys: 64,
     };
     let mut main =
         RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), admit_budget).map_err(map)?;
     let _cas =
         RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), admit_budget).map_err(map)?;
     verify_proofs(&mut main, key)?;
+    crate::storage::retired::refuse_journal(&mut main)?;
     Ok(version)
 }
 

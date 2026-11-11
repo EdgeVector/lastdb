@@ -11,6 +11,11 @@ pub(crate) mod schemas;
 pub const HOME_FORMAT: u32 = 15;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
 pub const RECORD_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\n";
+/// Historical dedicated shared-home marker. Admission refuses these bytes.
+pub const RETIRED_SHARED_NODE_BYTES: &[u8] =
+    b"format=15\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+/// Historical dedicated shared-home directory. Admission refuses this name.
+pub const RETIRED_SHARED_DIR: &str = "disk-private";
 /// Backup profile of this home format.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 14;
 

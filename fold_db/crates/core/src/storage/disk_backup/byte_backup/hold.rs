@@ -91,7 +91,9 @@ pub(in crate::storage::disk_backup::byte_backup) fn publish_hold(root: &Path) ->
     Ok(())
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn hold_complete(root: &Path) -> StorageResult<bool> {
+pub(in crate::storage::disk_backup::byte_backup) fn hold_complete(
+    root: &Path,
+) -> StorageResult<bool> {
     let mut file = match fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -147,7 +149,9 @@ pub(in crate::storage::disk_backup::byte_backup) async fn cancel(
         state.local_cancelled = true;
         store.write("job.json", &state)?;
         ByteBackupCapture {
-            inner: Arc::new(run_capture::make_inner(runtime, store, state, None, admission)),
+            inner: Arc::new(run_capture::make_inner(
+                runtime, store, state, None, admission,
+            )),
         }
         .finish_terminal()
     })

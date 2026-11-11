@@ -18,6 +18,8 @@ mod queue;
 mod read;
 mod read_raw;
 pub(crate) mod record_warm;
+#[cfg(test)]
+mod retired_format;
 mod rows;
 mod run_commit;
 pub(in crate::storage) mod run_node;
@@ -91,7 +93,7 @@ where
     }
 }
 
-/// Shared v2 run homes and their complete published root.
+/// Native v2 run homes and their complete published root.
 pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
     pub(in crate::storage) cleanup_job: Arc<crate::storage::disk_cleanup::CleanupJob>,

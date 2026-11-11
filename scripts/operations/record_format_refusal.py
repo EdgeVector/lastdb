@@ -2,8 +2,10 @@
 
 Admission compares the marker file to the current record-home byte string.
 This proof copies a stopped generated home, changes that marker, and requires
-a second daemon to exit with the unsupported-format error. The copy stays
-under the generated temp root. A successful open fails the job.
+a second daemon to exit with the unsupported-format error. A copy that still
+carries the retired dedicated shared marker, or a disk-private directory, must
+exit with the retired-format error. The copy stays under the generated temp
+root. A successful open fails the job.
 """
 import http.client
 import os
@@ -16,9 +18,12 @@ from node import UnixConnection
 
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")
 BOOT_ERROR = source_constant("lastdb_node/src/host/recovery.rs", "LAST_BOOT_ERROR_FILE")
-# admit() rejects every other marker through invalid()
-# ("node range admission: {text}") in run_admission.rs.
+RETIRED_MARKER = source_constant(FORMAT, "RETIRED_SHARED_NODE_BYTES")
+RETIRED_DIR = source_constant(FORMAT, "RETIRED_SHARED_DIR")
+# admit() in run_node.rs rejects every other marker as unsupported, and the
+# historical dedicated shared home as a retired format.
 REFUSAL = "node range admission: the node range format is unsupported"
+RETIRED = "retired format: the dedicated shared home format is retired"
 PANIC_MARKER = "LastDB panic"
 DEADLINE_SECONDS = 120
 
@@ -55,13 +60,16 @@ def exercise(node):
             "the older marker does not claim the previous format")
     root = node.root / "format-refusal"
     root.mkdir(mode=0o700)
-    refuse(node, root / "wrong-bytes", changed, "altered marker bytes")
-    refuse(node, root / "older-format", previous, f"format {HOME_FORMAT - 1} marker")
-    print("Format refusal: a copied home with altered marker bytes and a copied home claiming "
-          f"format {HOME_FORMAT - 1} both failed open with the unsupported-format error", flush=True)
+    refuse(node, root / "wrong-bytes", changed, "altered marker bytes", REFUSAL)
+    refuse(node, root / "older-format", previous, f"format {HOME_FORMAT - 1} marker", REFUSAL)
+    refuse(node, root / "retired-shared", RETIRED_MARKER, "retired shared marker", RETIRED)
+    refuse_directory(node, root / "retired-directory")
+    print("Format refusal: altered bytes and an older format failed open as unsupported; "
+          "the retired shared marker and disk-private directory failed open as retired",
+          flush=True)
 
 
-def refuse(node, directory, marker, label):
+def refuse(node, directory, marker, label, refusal):
     directory.mkdir(mode=0o700)
     home = directory / "home"
     shutil.copytree(node.home, home, symlinks=True)
@@ -86,13 +94,39 @@ def refuse(node, directory, marker, label):
     require(outcome == "exited" and code is not None and code > 0,
             f"the {label} home did not exit with a format refusal")
     boot = error_file.read_text(errors="replace") if error_file.is_file() else ""
-    require(REFUSAL in boot,
-            f"the {label} home failed without the unsupported-format error: {boot[-500:]}")
+    require(refusal in boot,
+            f"the {label} home failed without {refusal!r}: {boot[-500:]}")
     require("lastdbd: daemon_failed" in log, f"the {label} daemon did not report a controlled failure")
     observed = path.read_bytes() if path.is_file() else b""
     require(observed == marker, f"startup rewrote the {label} node marker")
     shutil.rmtree(directory)
-    print(f"Format refusal: {label} exited with the unsupported-format error", flush=True)
+    print(f"Format refusal: {label} exited with {refusal}", flush=True)
+
+
+def refuse_directory(node, directory):
+    directory.mkdir(mode=0o700)
+    home = directory / "home"
+    shutil.copytree(node.home, home, symlinks=True)
+    private = home / "data" / RETIRED_DIR
+    private.mkdir(mode=0o700)
+    error_file = home / BOOT_ERROR
+    error_file.unlink(missing_ok=True)
+    log_path = directory / "daemon.log"
+    socket = node.root / "r.sock"
+    process = start(node, home, socket, log_path)
+    try:
+        outcome = wait(process, socket)
+        code = process.returncode
+    finally:
+        stop(process, socket)
+    log = log_path.read_text(errors="replace")
+    require(outcome == "exited" and code is not None and code > 0,
+            "the retired shared directory home opened")
+    require(PANIC_MARKER not in log, "the retired shared directory home panicked")
+    boot = error_file.read_text(errors="replace") if error_file.is_file() else ""
+    require(RETIRED in boot, f"the retired shared directory failed without {RETIRED!r}: {boot[-500:]}")
+    shutil.rmtree(directory)
+    print(f"Format refusal: disk-private directory exited with {RETIRED}", flush=True)
 
 
 def environment(node, home):
