@@ -1,7 +1,6 @@
 //! A run reader shares its key schedule; every frame still authenticates itself.
 
 use super::*;
-use crate::read_receipt::Timer;
 use zeroize::Zeroizing;
 
 #[path = "decode/open.rs"]
@@ -16,31 +15,12 @@ pub(crate) struct DecodeScratch {
 impl DecodeScratch {
     fn decompress(&mut self, stored: &[u8], maximum: usize) -> std::io::Result<Vec<u8>> {
         if self.decompressor.is_none() {
-            crate::read_receipt::update(|receipt| {
-                receipt.frame_decompressor_setups =
-                    receipt.frame_decompressor_setups.saturating_add(1);
-            });
             self.decompressor = Some(zstd::bulk::Decompressor::new()?);
         }
         self.decompressor
             .as_mut()
             .expect("decoder initialized")
             .decompress(stored, maximum)
-    }
-}
-
-impl Drop for DecodeScratch {
-    fn drop(&mut self) {
-        if self.decompressor.is_some() {
-            let timer = Timer::start();
-            drop(self.decompressor.take());
-            // The old one-shot decoder included destruction in these timers.
-            timer.finish(|receipt, nanos| {
-                receipt.frame_decompress_nanos =
-                    receipt.frame_decompress_nanos.saturating_add(nanos);
-                receipt.decode_nanos = receipt.decode_nanos.saturating_add(nanos);
-            });
-        }
     }
 }
 
@@ -52,8 +32,7 @@ pub(crate) struct PreparedFrameKey {
 
 impl PreparedFrameKey {
     pub(crate) fn new(data_key: &[u8; 32], chunk: Uuid) -> Result<Self> {
-        // Keep one-time key setup inside the aggregate decode metric too.
-        crate::read_receipt_io::decode(|| make_key(data_key, chunk), |_| (0, 0))
+        make_key(data_key, chunk)
     }
 
     pub(crate) fn decode(
@@ -63,14 +42,14 @@ impl PreparedFrameKey {
         maximum: usize,
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<DecodedFrame> {
-        observed_decode(data_key, frame, Some(maximum), Some(self), scratch)
+        decode_inner(data_key, frame, Some(maximum), Some(self), scratch)
     }
 }
 
 /// Decode and authenticate one AES-256-GCM frame.
 /// Authentication failure returns AeadAuthFail before plaintext leaves the call.
 pub fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
-    observed_decode(data_key, frame, None, None, None)
+    decode_inner(data_key, frame, None, None, None)
 }
 
 pub(crate) fn decode_frame_bounded(
@@ -78,39 +57,18 @@ pub(crate) fn decode_frame_bounded(
     frame: &[u8],
     maximum: usize,
 ) -> Result<DecodedFrame> {
-    observed_decode(data_key, frame, Some(maximum), None, None)
-}
-
-fn observed_decode(
-    data_key: &[u8; 32],
-    frame: &[u8],
-    maximum: Option<usize>,
-    prepared: Option<&PreparedFrameKey>,
-    scratch: Option<&mut DecodeScratch>,
-) -> Result<DecodedFrame> {
-    crate::read_receipt_io::decode(
-        || decode_inner(data_key, frame, maximum, prepared, scratch),
-        |decoded| (decoded.payload.len(), decoded.payload.capacity()),
-    )
+    decode_inner(data_key, frame, Some(maximum), None, None)
 }
 
 fn make_key(data_key: &[u8; 32], chunk: Uuid) -> Result<PreparedFrameKey> {
-    let timer = Timer::start();
-    let result = chunk_key(data_key, chunk).and_then(|raw_key| {
-        let raw_key = Zeroizing::new(raw_key);
-        let cipher = Aes256Gcm::new_from_slice(raw_key.as_ref())
-            .map_err(|_| Error::Config("invalid aead key length".into()))?;
-        Ok(PreparedFrameKey {
-            chunk,
-            cipher,
-            raw_key,
-        })
-    });
-    timer.finish(|receipt, nanos| {
-        receipt.frame_key_setups = receipt.frame_key_setups.saturating_add(1);
-        receipt.frame_key_setup_nanos = receipt.frame_key_setup_nanos.saturating_add(nanos);
-    });
-    result
+    let raw_key = Zeroizing::new(chunk_key(data_key, chunk)?);
+    let cipher = Aes256Gcm::new_from_slice(raw_key.as_ref())
+        .map_err(|_| Error::Config("invalid aead key length".into()))?;
+    Ok(PreparedFrameKey {
+        chunk,
+        cipher,
+        raw_key,
+    })
 }
 
 fn decode_inner(
@@ -144,7 +102,7 @@ fn decode_inner(
         generated = make_key(data_key, header.chunk_uuid)?;
         &generated
     };
-    let (mut payload, mut payload_charge) = open::payload(
+    let mut payload = open::payload(
         key,
         open::Input {
             nonce: counter_nonce(header.counter),
@@ -160,7 +118,6 @@ fn decode_inner(
             max_payload.unwrap_or(MAX_DECOMPRESSED_FRAME_BYTES),
             scratch,
         )?;
-        payload_charge.resize(payload.capacity());
     } else if max_payload.is_some_and(|limit| payload.len() > limit) {
         return Err(Error::Corrupt("decoded frame exceeds block limit".into()));
     }
@@ -184,23 +141,12 @@ fn decompress_bounded(
             "decompressed frame exceeds {limit} bytes"
         )));
     }
-    let timer = Timer::start();
     let decoded = match scratch {
         Some(scratch) => scratch.decompress(&stored[8..], expected),
-        None => {
-            crate::read_receipt::update(|receipt| {
-                receipt.frame_decompressor_setups =
-                    receipt.frame_decompressor_setups.saturating_add(1);
-            });
-            zstd::bulk::decompress(&stored[8..], expected)
-        }
+        None => zstd::bulk::decompress(&stored[8..], expected),
     };
-    timer.finish(|receipt, nanos| {
-        receipt.frame_decompress_nanos = receipt.frame_decompress_nanos.saturating_add(nanos);
-    });
     let decoded =
         decoded.map_err(|e| Error::Corrupt(format!("frame zstd decompression failed: {e}")))?;
-    let _decoded_charge = crate::read_receipt::TemporaryBytes::new(decoded.capacity());
     if decoded.len() != expected {
         return Err(Error::Corrupt("decompressed frame length mismatch".into()));
     }

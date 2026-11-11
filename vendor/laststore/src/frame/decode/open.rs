@@ -1,7 +1,6 @@
 //! Native AES-GCM for large ordinary reads; plaintext never escapes before the tag check.
 
 use super::*;
-use crate::read_receipt::TemporaryBytes;
 use openssl::symm::{Cipher, Crypter, Mode};
 use zeroize::Zeroize;
 
@@ -15,11 +14,7 @@ pub(super) struct Input<'a> {
     pub tag: &'a [u8],
 }
 
-pub(super) fn payload(
-    key: &PreparedFrameKey,
-    input: Input<'_>,
-    ordinary: bool,
-) -> Result<(Vec<u8>, TemporaryBytes)> {
+pub(super) fn payload(key: &PreparedFrameKey, input: Input<'_>, ordinary: bool) -> Result<Vec<u8>> {
     let native = ordinary && input.ciphertext.len() >= NATIVE_MIN_BYTES;
     let extra = if native {
         Cipher::aes_256_gcm().block_size()
@@ -32,11 +27,9 @@ pub(super) fn payload(
         .checked_add(extra)
         .ok_or_else(|| Error::Corrupt("frame output length overflow".into()))?;
     let mut payload = vec![0u8; capacity];
-    let charge = TemporaryBytes::new(payload.capacity());
     if !native {
         payload.copy_from_slice(input.ciphertext);
     }
-    let timer = Timer::start();
     let opened = if native {
         open_native(key, &input, &mut payload)
     } else {
@@ -49,20 +42,11 @@ pub(super) fn payload(
             )
             .map_err(|_| Error::AeadAuthFail)
     };
-    let bytes = (input.header.len() + input.ciphertext.len() + input.tag.len()) as u64;
-    timer.finish(|receipt, nanos| {
-        receipt.frame_auth_nanos = receipt.frame_auth_nanos.saturating_add(nanos);
-        receipt.frame_authenticated_bytes = receipt.frame_authenticated_bytes.saturating_add(bytes);
-        if native {
-            receipt.frame_native_opens = receipt.frame_native_opens.saturating_add(1);
-            receipt.frame_native_bytes = receipt.frame_native_bytes.saturating_add(bytes);
-        }
-    });
     if let Err(error) = opened {
         payload.zeroize();
         return Err(error);
     }
-    Ok((payload, charge))
+    Ok(payload)
 }
 
 fn open_native(key: &PreparedFrameKey, input: &Input<'_>, output: &mut Vec<u8>) -> Result<()> {

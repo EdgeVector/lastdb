@@ -54,7 +54,7 @@ pub(super) fn encode(
     change: FileChange,
     before: Option<&StoredRecord>,
     issuer: &FileWriteIssuer,
-    content_key: Option<&[u8; 32]>,
+    content_key: &[u8; 32],
 ) -> Result<(Vec<KvMutation>, SidecarPlan), SchemaError> {
     let FileChange {
         key, after, write, ..

@@ -1,9 +1,7 @@
-use super::change_feed::ChangeFeedStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
-use crate::storage::field_key_store::FieldKeyStore;
 use crate::storage::format::metadata::Metadata;
 use std::sync::Arc;
 
@@ -28,15 +26,10 @@ pub struct DbOperations {
     runtime: Arc<PackRuntime>,
     /// Schema / schema-state namespaces
     schema_store: SchemaStore,
-    /// per-field-key key bundles and node wraps.
-    field_keys: FieldKeyStore,
     /// Main namespace: records, alternate keys, and delete metadata.
     record_store: RecordStore,
     /// Metadata namespace for mutation author clocks
     metadata: Metadata,
-    /// Durable app change feed. Product rows remain authoritative. It rides
-    /// cloud backup sealed (`ENC:`).
-    change_feed: ChangeFeedStore,
 }
 
 impl DbOperations {
@@ -45,16 +38,6 @@ impl DbOperations {
     /// Access the schema domain store.
     pub fn schemas(&self) -> &SchemaStore {
         &self.schema_store
-    }
-
-    /// Access durable per-field-key key bundles and node wraps.
-    pub fn field_keys(&self) -> &FieldKeyStore {
-        &self.field_keys
-    }
-
-    /// Access the durable node-local app change feed.
-    pub fn change_feed(&self) -> &ChangeFeedStore {
-        &self.change_feed
     }
 
     /// Access the record store.
@@ -88,7 +71,6 @@ impl DbOperations {
     /// Flush all pending writes to durable storage
     pub async fn flush(&self) -> Result<(), SchemaError> {
         self.schema_store.flush().await?;
-        self.field_keys.flush().await?;
         self.record_store.flush().await?;
         self.metadata.flush().await?;
         Ok(())

@@ -72,10 +72,9 @@ impl DatabaseRead<'_> {
         let candidates = self
             .catalog
             .iter()
-            .filter(|item| !item.name_claim_retired)
             .map(|item| item.entry.clone())
             .collect::<Vec<_>>();
-        handlers::resolve_captured_schema_alias(name, &candidates)?
+        schema_resolve::resolve_captured_schema_alias(name, &candidates)?
             .as_deref()
             .and_then(canonical)
             .or_else(|| canonical(name.trim()))
@@ -106,15 +105,11 @@ impl DatabaseRead<'_> {
             ));
         }
         let include_full = query_flag(target, "include_full");
-        let mut retired = Vec::new();
         let mut newer = Vec::new();
         let mut schemas = Vec::new();
         for item in self.catalog {
             let entry = &item.entry;
             let schema = &entry.schema;
-            if item.name_claim_retired {
-                retired.push(entry.name());
-            }
             if schema.identity_is_newer_than_binary() {
                 newer.push(entry.name());
             }
@@ -129,7 +124,6 @@ impl DatabaseRead<'_> {
             .map_err(|_| HostError::new(500, "could not serialize verified schema"))?;
             row["record_count"] = Value::Null;
             row["has_data"] = Value::Null;
-            row["name_claim_retired"] = item.name_claim_retired.into();
             schemas.push(row);
         }
         Ok(json!({
@@ -137,12 +131,11 @@ impl DatabaseRead<'_> {
             "ready": true, "full_included": include_full, "counts_included": false,
             "identity_algo_version": schema_types::IDENTITY_HASH_ALGO_VERSION,
             "newer_identity_algo_count": newer.len(), "newer_identity_algo_schemas": newer,
-            "retired_name_claim_count": retired.len(), "retired_name_claims": retired,
         }))
     }
 
     fn list_keys(&self, target: &str) -> Result<Value, HostError> {
-        let request = super::app_routes::list_rules::ListRecordKeysRequest::parse(target)
+        let request = super::list_keys_route::ListRecordKeysRequest::parse(target)
             .map_err(|message| HostError::new(400, message))?;
         let schema = self.queryable_schema(&request.requested)?;
         if request.key_name.is_some() {

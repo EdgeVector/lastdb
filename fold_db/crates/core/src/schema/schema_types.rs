@@ -21,29 +21,6 @@ pub enum SchemaState {
     Blocked,
 }
 
-/// Node-local record that one installed schema no longer answers
-/// `descriptive_name` resolution.
-///
-/// This is the retire primitive for a duplicate name claim. It is deliberately
-/// separate from [`DeclarativeSchemaDefinition`], for the same reason
-/// [`SchemaRetentionPolicy`] is: `descriptive_name` folds into
-/// `compute_identity_hash_parts`, so retiring a claim by editing the schema
-/// would mint a DIFFERENT identity and leave the old one Available under the
-/// old name. Keeping the record outside the schema artifact leaves the
-/// identity hash — and therefore every by-hash pin that addresses this
-/// schema — untouched.
-///
-/// A retired claimant stays [`SchemaState::Available`]: it is still queried,
-/// mutated and read when a caller names it by canonical name or identity hash.
-/// It is only removed from the candidate set when a caller names it by
-/// `descriptive_name`. That is the difference from [`SchemaState::Blocked`],
-/// which refuses every query — including a by-hash one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SchemaNameClaim {
-    /// True when this schema is excluded from descriptive-name resolution.
-    pub retired: bool,
-}
-
 /// Node-local time-based retention policy for one installed schema.
 ///
 /// This is operational state owned by the node. It is deliberately separate

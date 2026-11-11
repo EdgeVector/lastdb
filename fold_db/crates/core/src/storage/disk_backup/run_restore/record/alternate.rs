@@ -39,8 +39,8 @@ impl RunSnapshotReader {
             .map_err(|_| invalid("staged alternate key range profile"))?;
         let field = alternate_field_key_id(schema, name);
         let mut read = self.lookup(10_000)?;
-        let alternate = key_codec(&mut read, &field, profile, account_key)?;
-        let primary = record_codec(&mut read, schema, account_key)?;
+        let alternate = key_codec(&field, profile, account_key);
+        let primary = record_codec(schema, account_key)?;
         let (start, end) = alternate_bounds(&alternate, &field, filter).map_err(|_| {
             bad_request("alternate reads require a valid key or range under one hash")
         })?;

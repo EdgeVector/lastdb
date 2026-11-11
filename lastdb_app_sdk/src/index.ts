@@ -12,7 +12,6 @@ export {
   parseListResponse,
   parseQueryResponse,
   resolveLoadedSchema,
-  parseChangesResponse,
 } from './responseParsers.js';
 export type { LastDbClientOptions } from './client.js';
 
@@ -59,9 +58,6 @@ export type {
   ShareSubmissionResult,
   DeclareSchemaRequest,
   DeclareSchemaResult,
-  ChangesOptions,
-  ChangeEvent,
-  ChangesResult,
   Row,
   RowFields,
   JsonValue,

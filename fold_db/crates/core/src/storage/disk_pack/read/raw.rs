@@ -33,7 +33,6 @@ impl PackRuntime {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         trace_families(coordinates);
-        laststore::record_requested_keys(coordinates.len() as u64);
         let result = self.raw_many_inner(context, coordinates, pending);
         context.remembered(result)
     }
@@ -122,7 +121,6 @@ fn trace_families(coordinates: &[(String, String)]) {
         let family = match collection.as_str() {
             crate::storage::format::SCHEMAS_NAMESPACE => "schema",
             crate::storage::format::SCHEMA_STATES_NAMESPACE => "schema_state",
-            crate::storage::format::FIELD_KEYS_NAMESPACE => "field_key_encryption_keys",
             _ => record_family(key),
         };
         *counts.entry(family).or_insert(0usize) += 1;

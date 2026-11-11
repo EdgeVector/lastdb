@@ -122,27 +122,19 @@ fn merge_until_settled(
                 let Some(home) = weak.upgrade() else {
                     break 'steps;
                 };
-                let (result, report) = laststore::commit_timing::measure(|| {
-                    let space = if home_number == 0 {
-                        policy
-                    } else {
-                        &cas_policy
-                    };
-                    let result = home.merge_step_with_space(space);
-                    if matches!(&result, Ok(Some(_))) {
-                        drop(home);
-                        laststore::commit_timing::during("v2_merge_root_adoption_us", || {
-                            adopted.install(homes);
-                        });
-                        // Adoption releases the view's previous root before
-                        // the existing pacing wait for readers' older roots.
-                        laststore::commit_timing::during("v2_merge_held_read_wait_us", || {
-                            wait_for_held_runs(weak, stop);
-                        });
-                    }
-                    result
-                });
-                super::timing::merge(report, &result, home_number);
+                let space = if home_number == 0 {
+                    policy
+                } else {
+                    &cas_policy
+                };
+                let result = home.merge_step_with_space(space);
+                if matches!(&result, Ok(Some(_))) {
+                    drop(home);
+                    adopted.install(homes);
+                    // Adoption releases the view's previous root before
+                    // the existing pacing wait for readers' older roots.
+                    wait_for_held_runs(weak, stop);
+                }
                 match result {
                     Ok(Some(_)) => {
                         merged = true;

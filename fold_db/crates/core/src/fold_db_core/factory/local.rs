@@ -2,7 +2,6 @@
 
 mod boot_wiring;
 mod open_store;
-mod store_stack;
 
 use crate::crypto::E2eKeys;
 use crate::error::FoldDbResult;
@@ -21,11 +20,8 @@ pub(super) async fn create_local_fold_db(
     signer: Arc<Ed25519KeyPair>,
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
-    let store_stack = store_stack::build_store_stack(
-        open_store::open_primary_store(path, &e2e_keys.encryption_key())?,
-        e2e_keys,
-    );
-    let db_ops = open_db_operations(store_stack.store, e2e_keys).await?;
+    let store = open_store::open_primary_store(path, &e2e_keys.encryption_key())?;
+    let db_ops = open_db_operations(store, e2e_keys).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),
         offline_maintenance: options.offline_maintenance,

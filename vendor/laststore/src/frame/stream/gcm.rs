@@ -1,5 +1,5 @@
 use super::{as_io, buffer_size, source::Source};
-use crate::{read_receipt::TemporaryBytes, Error, Result};
+use crate::{Error, Result};
 use openssl::symm::{Cipher, Crypter, Mode};
 use std::io::{self, BufRead, Read};
 use std::sync::Arc;
@@ -14,7 +14,6 @@ pub(super) struct GcmReader {
     begin: usize,
     end: usize,
     finalized: bool,
-    _charge: TemporaryBytes,
 }
 
 impl GcmReader {
@@ -45,11 +44,10 @@ impl GcmReader {
             .ok_or(Error::ReadBudgetExceeded)?;
         let input = buffer(input_bytes)?;
         let plain = buffer(plain_bytes)?;
-        let retained = input
+        let _ = input
             .capacity()
             .checked_add(plain.capacity())
             .ok_or(Error::ReadBudgetExceeded)?;
-        let charge = TemporaryBytes::new(retained);
         Ok(Self {
             source,
             cipher,
@@ -59,7 +57,6 @@ impl GcmReader {
             begin: 0,
             end: 0,
             finalized: false,
-            _charge: charge,
         })
     }
 

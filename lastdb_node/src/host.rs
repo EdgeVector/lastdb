@@ -51,8 +51,6 @@ pub struct Host {
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// Serializes shared upload, replay and snapshot work for this running home.
     pub shared_sync: crate::backup_runtime::SharedSyncRuntime,
-    /// Mutation ids for owner-socket writes. The daemon passes this into [`Self::boot`].
-    ids: Arc<dyn crate::lastdb_host::IdGen>,
 }
 
 /// Derive the canonical user hash from a base64 Ed25519 public key. Canonical
@@ -61,13 +59,10 @@ pub struct Host {
 pub use crate::identity::{load_or_generate_seed_with_meta, user_hash_from_pubkey};
 
 mod boot;
-mod ids;
-pub use ids::SystemIds;
 
 impl Host {
     /// Boot the minimal host under `home` (the node-home directory; data
-    /// lives at `<home>/data`). `ids` assigns mutation ids. The handler asks
-    /// this generator and does not mint them.
+    /// lives at `<home>/data`).
     ///
     /// **Decrypt-failure contract** (incident-lastdbd-0226-wrong-key-fresh-db):
     /// if the data dir already holds an initialized store and decryption fails,
@@ -75,10 +70,7 @@ impl Host {
     /// untouched. It never falls back to serving a fresh empty DB over existing
     /// data, and never uses cloud bootstrap as a heal for a local decrypt
     /// failure.
-    pub async fn boot(
-        home: &Path,
-        ids: Arc<dyn crate::lastdb_host::IdGen>,
-    ) -> Result<Self, String> {
+    pub async fn boot(home: &Path) -> Result<Self, String> {
         let data_path = Self::prepare_boot_home(home)?;
         let search_outbox_inbox =
             fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
@@ -119,7 +111,6 @@ impl Host {
             uds_workers: OnceLock::new(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
-            ids,
         })
     }
 
@@ -131,21 +122,6 @@ impl Host {
     /// Attach the UDS worker pool for status surfaces (idempotent; first wins).
     pub fn attach_uds_workers(&self, pool: crate::lastdb_uds::UdsWorkerPool) {
         let _ = self.uds_workers.set(pool);
-    }
-}
-
-/// The minimal daemon drives the shared owner-socket handlers (`crate::lastdb_host::handlers`).
-impl crate::lastdb_host::HostNode for Host {
-    fn fold_db(&self) -> &Arc<FoldDB> {
-        &self.db
-    }
-
-    fn public_key(&self) -> String {
-        self.keypair.public_key_base64()
-    }
-
-    fn ids(&self) -> &dyn crate::lastdb_host::IdGen {
-        self.ids.as_ref()
     }
 }
 

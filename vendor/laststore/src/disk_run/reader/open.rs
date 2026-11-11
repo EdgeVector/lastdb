@@ -41,16 +41,12 @@ impl RunReader {
         let Some(named) = named else {
             return Err(corrupt("run file name is not <run id>.ldrun"));
         };
-        let file = measured::open(path)?;
+        let file = File::open(path)?;
         let len = file.metadata()?.len();
         if len < FOOTER_BYTES as u64 {
             return Err(corrupt("file shorter than a footer"));
         }
-        let _class = ReadClass::Footer.enter();
         let (footer, tail) = read_footer(&file, len, bytes.is_none())?;
-        let _tail_charge = tail
-            .as_ref()
-            .map(|tail| crate::read_receipt::TemporaryBytes::new(tail.capacity()));
         if bytes.is_some_and(|n| u64::from(footer.top_len).saturating_mul(4) > n) {
             return Err(crate::Error::ReadBudgetExceeded);
         }
@@ -101,9 +97,6 @@ impl RunReader {
             )?,
             None => match cached_top(tail, len, &footer) {
                 Some(frame) => {
-                    crate::read_receipt::update(|r| {
-                        r.coalesced_metadata_reads = r.coalesced_metadata_reads.saturating_add(1);
-                    });
                     self.decode_checked_frame(frame, TOP_COUNTER, MAX_TOP_BYTES, None)?
                 }
                 None => self.read_frame(
@@ -121,16 +114,16 @@ impl RunReader {
     }
 }
 
-fn read_footer(file: &MeasuredFile, len: u64, ordinary: bool) -> Result<(Footer, Option<Vec<u8>>)> {
+fn read_footer(file: &File, len: u64, ordinary: bool) -> Result<(Footer, Option<Vec<u8>>)> {
     let mut raw = [0u8; FOOTER_BYTES];
     let tail = if ordinary {
         let count = len.min(TAIL_BYTES as u64) as usize;
         let mut tail = vec![0u8; count];
-        measured::read_exact_at(file, &mut tail, len - count as u64)?;
+        file.read_exact_at(&mut tail, len - count as u64)?;
         raw.copy_from_slice(&tail[count - FOOTER_BYTES..]);
         Some(tail)
     } else {
-        measured::read_exact_at(file, &mut raw, len - FOOTER_BYTES as u64)?;
+        file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
         None
     };
     Ok((Footer::decode(&raw)?, tail))

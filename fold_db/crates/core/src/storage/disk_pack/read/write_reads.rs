@@ -16,22 +16,11 @@ type Coordinate = (String, String);
 struct Saved {
     values: BTreeMap<Coordinate, Option<Vec<u8>>>,
     bytes: usize,
-    reused_records: u64,
-    reused_bytes: u64,
 }
 
+#[derive(Default)]
 pub(super) struct WriteReads {
     saved: Mutex<Saved>,
-    started_us: u64,
-}
-
-impl Default for WriteReads {
-    fn default() -> Self {
-        Self {
-            saved: Mutex::new(Saved::default()),
-            started_us: laststore::commit_timing::unix_us(),
-        }
-    }
 }
 
 impl ReadContext {
@@ -44,17 +33,14 @@ impl ReadContext {
         let Some(reads) = &self.write_reads else {
             return Ok(None);
         };
-        let mut saved = reads.saved.lock().map_err(|_| poisoned())?;
+        let saved = reads.saved.lock().map_err(|_| poisoned())?;
         let Some(value) = saved.values.get(coordinate) else {
             return Ok(None);
         };
         let bytes = value.as_ref().map_or(0, Vec::len);
         // Reuse does not grant extra keys or body bytes. Charge before copying.
         self.account_memory_record(call, coordinate.0.len() + coordinate.1.len(), bytes)?;
-        let value = value.clone();
-        saved.reused_records += 1;
-        saved.reused_bytes += bytes as u64;
-        Ok(Some(value))
+        Ok(Some(value.clone()))
     }
 
     pub(super) fn remember_disk_value(
@@ -84,27 +70,6 @@ impl ReadContext {
             saved.bytes += bytes;
         }
         Ok(())
-    }
-
-    pub(super) fn report_write_reads(&self) {
-        if !laststore::commit_timing::enabled() {
-            return;
-        }
-        let Some(reads) = &self.write_reads else {
-            return;
-        };
-        if let Ok(saved) = reads.saved.lock() {
-            laststore::commit_timing::emit(
-                "LASTDB_SNAPSHOT_TIMING",
-                &serde_json::json!({
-                    "kind": "write_reads", "started_us": reads.started_us,
-                    "ended_us": laststore::commit_timing::unix_us(),
-                    "counts": {"reused_records": saved.reused_records,
-                        "reused_bytes": saved.reused_bytes, "saved_records": saved.values.len(),
-                        "saved_bytes": saved.bytes},
-                }),
-            );
-        }
     }
 }
 

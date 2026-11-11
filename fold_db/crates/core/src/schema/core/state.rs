@@ -19,12 +19,10 @@ impl SchemaCore {
             super::load::owned::admit_stored_schema(schema)?;
         }
         let schema_states = db_ops.get_all_schema_states().await?;
-        let retired_name_claims = db_ops.list_retired_name_claims().await?;
 
         let hydrated = Arc::new(SchemaCatalog {
             schemas: stored_schemas,
             states: schema_states,
-            retired_name_claims: retired_name_claims.into_iter().collect(),
         });
         {
             let mut guard = schema_core.catalog.write().map_err(|e| {
@@ -80,16 +78,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    /// Retire one schema's claim on its `descriptive_name`.
-    pub async fn retire_name_claim(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        self.set_name_claim_retired(schema_name, true).await
-    }
-
-    /// Restore a retired claim so the schema answers `descriptive_name` resolution again.
-    pub async fn restore_name_claim(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        self.set_name_claim_retired(schema_name, false).await
-    }
-
     /// Remove one installed schema identity from the catalog and the RAM cache.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         if self
@@ -108,7 +96,6 @@ impl SchemaCore {
         self.update_catalog(|catalog| {
             catalog.schemas.remove(schema_name);
             catalog.states.remove(schema_name);
-            catalog.retired_name_claims.remove(schema_name);
         })?;
         Ok(existed)
     }
@@ -122,30 +109,6 @@ impl SchemaCore {
             .filter(|(_, schema)| schema.owner_app_id.as_deref() == Some(owner_app))
             .map(|(name, _)| name.clone())
             .collect())
-    }
-
-    async fn set_name_claim_retired(
-        &self,
-        schema_name: &str,
-        retired: bool,
-    ) -> Result<bool, SchemaError> {
-        let changed = self
-            .db_ops
-            .set_schema_name_claim_retired(schema_name, retired)
-            .await?;
-        self.update_catalog(|catalog| {
-            if retired {
-                catalog.retired_name_claims.insert(schema_name.to_string());
-            } else {
-                catalog.retired_name_claims.remove(schema_name);
-            }
-        })?;
-        Ok(changed)
-    }
-
-    /// Every schema name whose claim on its `descriptive_name` is retired.
-    pub fn retired_name_claims(&self) -> Result<std::collections::HashSet<String>, SchemaError> {
-        Ok(self.catalog_snapshot()?.retired_name_claims.clone())
     }
 
     /// Get the database operations.

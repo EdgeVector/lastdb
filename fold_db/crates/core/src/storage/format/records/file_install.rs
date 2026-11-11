@@ -62,7 +62,7 @@ impl RecordFormat {
         if Self::sealed_file_bytes(marker)? != row.len() as u64 {
             return Err(differs("has a different length than its marker"));
         }
-        require_row(self.content_key.as_ref(), marker, &row)
+        require_row(&self.content_key, marker, &row)
             .map_err(|_| differs("differs from its format or marker"))?;
         let plaintext = self.open_file_row(&row, marker)?;
         let path = record_file_path(record_key, version)?.into_bytes();

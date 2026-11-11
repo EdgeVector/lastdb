@@ -1,9 +1,8 @@
 //! Translate ordinary record mutations for a registered receiver into private submissions.
 use super::{
-    content_free, envelope, error_response, parse_mutation_body, AccessContext, UdsRequest,
-    UdsResponse,
+    content_free, envelope, error_response, parse_mutation_body, AccessContext, ParsedMutation,
+    UdsRequest, UdsResponse,
 };
-use crate::lastdb_host::handlers::MutationComponents;
 use crate::registered_share::RegisteredShare;
 use crate::share_contribution::{submit_registered, SubmitError, WriteRequest};
 use cloud_backup_protocol::{Digest, Id};
@@ -36,18 +35,19 @@ pub(super) async fn mutate(
             ctx,
         );
     };
-    let components = match parse_mutation_body(&req.body) {
-        Ok(components) => components,
+    let parsed = match parse_mutation_body(&req.body) {
+        Ok(parsed) => parsed,
         Err(reject) => return reject.response(),
     };
-    if !contribution_supported(&components) {
+    if !contribution_supported(&parsed) {
         return error_response(
             422,
             "share contributions support an absent create, or a replace or delete at an expected revision, without files, metadata, or synchronous convergence",
             ctx,
         );
     }
-    let Some(definition_id) = components
+    let mutation = parsed.mutation;
+    let Some(definition_id) = mutation
         .definition_id
         .and_then(|id| Digest::try_from(id).ok())
     else {
@@ -55,13 +55,13 @@ pub(super) async fn mutate(
     };
     let request = WriteRequest {
         mutation_id: id.clone(),
-        schema: components.schema,
+        schema: mutation.schema_name,
         definition_id,
-        action: components.mutation_type,
-        key: components.key_value,
-        record: components.record_fields.into_iter().collect(),
-        alternates: components.alternates,
-        revision: match &components.expected {
+        action: mutation.mutation_type,
+        key: mutation.key_value,
+        record: mutation.record_fields.into_iter().collect(),
+        alternates: mutation.alternates,
+        revision: match &mutation.expected {
             CasExpectation::Revision { revision } => Some(revision.clone()),
             CasExpectation::Absent => None,
         },
@@ -95,19 +95,19 @@ pub(super) async fn mutate(
     }
 }
 
-fn contribution_supported(components: &MutationComponents) -> bool {
-    if components.source_file_name.is_some()
-        || components.metadata.is_some()
-        || components.file.is_some()
-        || components.file_write.is_some()
-        || components.inline_write.is_some()
-        || components.convergence.waits()
-        || (components.mutation_type == MutationType::Delete
-            && !components.record_fields.is_empty())
+fn contribution_supported(parsed: &ParsedMutation) -> bool {
+    let m = &parsed.mutation;
+    if m.source_file_name.is_some()
+        || m.metadata.is_some()
+        || m.file.is_some()
+        || m.file_write.is_some()
+        || m.inline_write.is_some()
+        || parsed.convergence.waits()
+        || (m.mutation_type == MutationType::Delete && !m.record_fields.is_empty())
     {
         return false;
     }
-    match (&components.mutation_type, &components.expected) {
+    match (&m.mutation_type, &m.expected) {
         (MutationType::Create, CasExpectation::Absent) => true,
         (MutationType::Replace | MutationType::Delete, CasExpectation::Revision { revision })
             if !revision.is_empty() =>

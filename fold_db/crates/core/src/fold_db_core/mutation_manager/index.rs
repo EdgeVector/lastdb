@@ -61,12 +61,11 @@ impl MutationManager {
     }
 
     /// Send one batch after a native commit. A sink error becomes a storage error.
-    pub(crate) async fn deliver_search_outbox(
+    pub(crate) fn deliver_search_outbox(
         inbox: Option<std::path::PathBuf>,
-        batch: IndexChangeBatch,
+        batch: &IndexChangeBatch,
     ) -> Result<(), crate::storage::StorageError> {
         SearchOutboxSink::deliver(inbox, batch)
-            .await
             .map_err(|error| crate::storage::StorageError::BackendError(error.to_string()))
     }
 }

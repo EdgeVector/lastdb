@@ -39,8 +39,7 @@ FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 CORE_SOURCE = "fold_db/crates/core/src/"
 TRUSTED_PREFIXES = tuple(CORE_SOURCE + part for part in (
     "storage/format/", "storage/disk_pack/", "storage/disk_backup/",
-    "storage/disk_cleanup/", "storage/traits/", "storage/encrypting_store/",
-    "storage/encrypting_namespaced_store/", "fold_db_core/factory/local/",
+    "storage/disk_cleanup/", "storage/traits/", "fold_db_core/factory/local/",
 ))
 TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
     "mod.rs", "traits.rs", "format.rs", "disk_backup.rs", "disk_cleanup.rs",
@@ -48,14 +47,13 @@ TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
 )}
 BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/core/open.rs"
 BOOTSTRAP_FUNCTIONS = {
-    "from_namespaced_store", "from_namespaced_store_with_content_and_field_keys",
+    "from_namespaced_store_with_content_and_field_keys",
     "from_stopped_native_data",
 }
 RAW_CAPABILITY = re.compile(
-    r"\b(?:KvStore|TypedKvStore|KvMutation|NamespacedStore|PackNamespacedStore|"
-    r"EncryptingNamespacedStore|RunHome|HomeMutation)\b|"
+    r"\b(?:PackKvStore|KvMutation|PackNamespacedStore|RunHome|HomeMutation)\b|"
     r"\.(?:namespaced_store|open_namespace)\s*\(|\.raw\(\)|"
-    r"\bfrom_namespaced_store(?:_with_content_and_field_keys)?\s*\("
+    r"\bfrom_namespaced_store_with_content_and_field_keys\s*\("
 )
 
 

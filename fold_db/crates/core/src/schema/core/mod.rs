@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
@@ -15,12 +15,11 @@ mod state;
 pub(super) struct SchemaCatalog {
     pub(super) schemas: HashMap<String, Schema>,
     pub(super) states: HashMap<String, SchemaState>,
-    pub(super) retired_name_claims: HashSet<String>,
 }
 
 /// Core schema management system that combines schema validation, caching, and persistence.
 pub struct SchemaCore {
-    /// Unified copy-on-write catalog of schemas, states, and retired name claims.
+    /// Unified copy-on-write catalog of schemas and states.
     catalog: Arc<RwLock<Arc<SchemaCatalog>>>,
     /// Unified database operations with storage abstraction
     db_ops: Arc<crate::db_operations::DbOperations>,

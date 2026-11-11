@@ -4,7 +4,6 @@ use super::{
     MAX_LEVELS, MAX_LEVEL_RUNS, MAX_RUN_KEY_BYTES, RUN_SUFFIX,
 };
 use crate::frame::VerifiedFrameReader;
-use crate::read_receipt::TemporaryBytes;
 use crate::{Error, Result};
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -38,7 +37,7 @@ impl Manifest {
             .read(true)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(current)?;
-        let length = crate::read_receipt_io::status(|| file.metadata())?.len();
+        let length = file.metadata()?.len();
         if length < crate::frame::min_encoded_len() as u64 || length > MAX_CURRENT_BYTES as u64 {
             return Err(corrupt("CURRENT length"));
         }
@@ -61,7 +60,6 @@ impl Manifest {
         {
             return Err(Error::ReadBudgetExceeded);
         }
-        let _payload_charge = TemporaryBytes::new(payload.capacity());
         payload.resize(count, 0);
         input.read_exact(&mut payload)?;
         let mut extra = [0];

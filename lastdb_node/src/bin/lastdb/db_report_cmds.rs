@@ -1,52 +1,6 @@
-//! Database inventory and schema storage reports.
+//! Schema storage reports.
 
 use super::*;
-
-pub(crate) fn db_inventory(
-    socket: &Path,
-    json_only: bool,
-    out: Option<&Path>,
-    timeout_secs: Option<u64>,
-) -> Result<(), String> {
-    // Full main-tree prefix scans on multi-GiB stores can take minutes and
-    // burn cold-shard budget — treat as a heavy op, not a free status call.
-    let deadline = inventory_client_timeout(timeout_secs);
-    if !json_only {
-        eprintln!(
-            "lastdb admin storage inventory: heavy full-store walk (client deadline {}s; \
-             raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS)",
-            deadline.as_secs().max(1)
-        );
-    }
-    let response = get_path(socket, "/api/db/inventory", deadline)?;
-    let value = parse_json_response(&response, "inventory")?;
-    let inventory = value
-        .get("inventory")
-        .cloned()
-        .ok_or_else(|| "response missing inventory field".to_string())?;
-
-    let pretty = serde_json::to_string_pretty(&inventory)
-        .map_err(|e| format!("serialize inventory: {e}"))?;
-
-    if let Some(path) = out.as_ref() {
-        // Atomic write: only rename into place after a full serialize so a
-        // failed run never leaves a 0-byte product that looks like an empty store.
-        write_product_file_atomic(path, pretty.as_bytes())?;
-        if !json_only {
-            eprintln!("Wrote {}", path.display());
-        }
-    }
-
-    if json_only {
-        // Only emit complete JSON on success (exit 0). Prefer --out over shell
-        // redirect so a client timeout cannot create a deceptive 0-byte file.
-        println!("{pretty}");
-        return Ok(());
-    }
-
-    print_inventory_human(&inventory);
-    Ok(())
-}
 
 pub(crate) fn db_schemas(
     socket: &Path,

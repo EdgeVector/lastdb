@@ -16,7 +16,6 @@ mod catalog_keys;
 mod claims_retention;
 mod drop_tracking;
 mod manifest_retention;
-mod name_claims;
 mod read;
 mod retention_backfill;
 mod retention_floors;

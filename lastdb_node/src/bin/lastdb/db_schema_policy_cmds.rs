@@ -1,4 +1,4 @@
-//! Schema name claim and retention commands.
+//! Schema retention commands.
 
 use super::*;
 
@@ -12,42 +12,6 @@ pub(crate) fn db_post_json(
 ) -> Result<serde_json::Value, String> {
     let response = post_json_admin(socket, path, body)?;
     parse_json_response(&response, path)
-}
-
-pub(crate) fn schema_name_claim_command(
-    data_dir: Option<PathBuf>,
-    action: SchemaNameClaimCommand,
-) -> Result<(), String> {
-    let home = lastdb_node::host::resolve_home(data_dir)?;
-    let socket = home.join("data").join("folddb.sock");
-    let (schema, retired, json_only) = match action {
-        SchemaNameClaimCommand::Retire { schema, json } => (schema, true, json),
-        SchemaNameClaimCommand::Restore { schema, json } => (schema, false, json),
-    };
-    let response = db_post_json(
-        &socket,
-        "/api/schemas/retire-name-claim",
-        &serde_json::json!({ "schema": schema, "retired": retired }),
-    )?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response)
-                .map_err(|error| format!("serialize name claim response: {error}"))?
-        );
-        return Ok(());
-    }
-    let changed = response
-        .get("changed")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    let verb = if retired { "retired" } else { "restored" };
-    if changed {
-        println!("Name claim {verb} for {schema}");
-    } else {
-        println!("Name claim for {schema} was already {verb}; nothing changed");
-    }
-    Ok(())
 }
 
 pub(crate) fn schema_retention_command(

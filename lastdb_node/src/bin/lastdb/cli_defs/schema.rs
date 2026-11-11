@@ -1,4 +1,4 @@
-//! Clap subcommands for schema inspection, name claims and retention.
+//! Clap subcommands for schema inspection and retention.
 
 use super::*;
 
@@ -9,26 +9,6 @@ pub(crate) enum SchemaInspectCommand {
         /// Schema identity hash, `app/Name`, or descriptive name.
         name: String,
         /// Emit the raw `schema` object.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum SchemaNameClaimCommand {
-    /// Stop this schema answering `descriptive_name` resolution.
-    Retire {
-        /// Canonical schema name or identity hash of the claimant to retire.
-        #[arg(long)]
-        schema: String,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Put a retired claim back.
-    Restore {
-        /// Canonical schema name or identity hash of the claimant to restore.
-        #[arg(long)]
-        schema: String,
         #[arg(long)]
         json: bool,
     },

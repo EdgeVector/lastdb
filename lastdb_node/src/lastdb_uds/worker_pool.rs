@@ -1,32 +1,9 @@
-//! Bounded **worker pool + queue** for control-socket connection handling.
+//! Bounded worker pool + queue for control-socket connection handling.
 //!
-//! # Why this is the primary concurrency control
-//!
-//! Mini used to treat “max concurrent connections” as the product limit. That is
-//! a poor limiter: idle apps cost nothing, and hung handlers pin slots at 0% CPU
-//! while real work waits. The right shape is:
-//!
-//! 1. **Accept** is cheap (one FD until a worker starts).
-//! 2. **Bounded workers** do handler work (CPU-shaped concurrency).
-//! 3. **Bounded queue** absorbs bursts; when full → immediate **backpressure**
-//!    (HTTP 503) instead of spawning unbounded threads.
-//! 4. **LIFO hand-off** ([`dispatch`]): a new job goes to the most recently idle
-//!    worker, so light load reuses a few warm threads and their allocator pages.
-//!
-//! FD exhaustion (EMFILE) is still bounded because in-flight streams cannot
-//! exceed roughly `workers + queue_capacity` — without pretending “connections”
-//! are the product resource.
-//!
-//! # Env
-//!
-//! - `LASTDB_UDS_WORKERS` — worker threads (default: `2 * available_parallelism`,
-//!   clamped to **8..=64**).
-//! - `LASTDB_UDS_QUEUE` — pending accepted jobs waiting for a free worker
-//!   (default **256**).
-//! - `RUST_MIN_STACK` — raises the worker stack above
-//!   [`DEFAULT_WORKER_STACK_BYTES`]; never lowers it.
+//! - `LASTDB_UDS_WORKERS` — worker threads (default: `2 * available_parallelism`, clamped to `8..=64`).
+//! - `LASTDB_UDS_QUEUE` — pending accepted jobs waiting for a free worker (default `256`).
+//! - `RUST_MIN_STACK` — raises the worker stack above [`DEFAULT_WORKER_STACK_BYTES`]; never lowers it.
 
-use std::cell::Cell;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -37,50 +14,21 @@ use crate::lastdb_uds::uds_http;
 
 mod dispatch;
 use dispatch::{Dispatch, Rejected, Slot};
-mod completion;
-pub use completion::ConnectionWork;
-mod submit;
 
-/// Default queue depth when `LASTDB_UDS_QUEUE` is unset.
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
-
-/// Floor / ceiling for the auto worker count.
 const MIN_WORKERS: usize = 8;
 const MAX_WORKERS: usize = 64;
-
-/// Explicit stack size for every UDS worker thread.
-///
-/// Workers used to spawn with a bare `thread::Builder`, inheriting the
-/// platform default (2 MiB). Handler frames in an **unoptimized** build exceed
-/// that, so a debug-built `lastdbd` aborted on the very first `/api/status` —
-/// on a fresh empty home, nothing to do with the data:
-///
-/// ```text
-/// thread 'lastdb-uds-worker-1' has overflowed its stack
-/// fatal runtime error: stack overflow, aborting
-/// ```
-///
-/// Release builds were unaffected, which is exactly what made this expensive:
-/// the crash appeared only when someone was debugging, and every integration
-/// test that boots a `Host` inherited it. Brain:
-/// `papercut-lastdbd-uds-worker-stack-overflow-on-debug-status`.
-///
-/// 8 MiB matches the main thread's default. Thread stacks are reserved address
-/// space committed lazily page by page, so this costs virtual mappings, not
-/// resident memory — a 64-worker pool reserves 512 MiB of address space and
-/// still touches only the pages it uses.
 const DEFAULT_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 /// Why [`UdsWorkerPool::try_submit_owned_connection`] refused the job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmitError {
-    /// Queue is full — backpressure 503 was (or should be) written to the peer.
+    /// Queue is full — backpressure 503 was written to the peer.
     QueueFull,
-    /// Admission is closed, or all workers exited / the channel disconnected.
+    /// Admission is closed, or all workers exited.
     ShutDown,
 }
 
-/// Configuration for a [`UdsWorkerPool`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WorkerPoolConfig {
     workers: usize,
@@ -97,7 +45,6 @@ impl Default for WorkerPoolConfig {
 }
 
 impl WorkerPoolConfig {
-    /// Build from env, falling back to [`Self::default`] for unset/invalid knobs.
     #[must_use]
     fn from_env() -> Self {
         let defaults = Self::default();
@@ -112,11 +59,6 @@ impl WorkerPoolConfig {
     }
 }
 
-/// Stack size for UDS workers: [`DEFAULT_WORKER_STACK_BYTES`], raised to
-/// `RUST_MIN_STACK` when that is larger.
-///
-/// Never returns less than the floor, so the debug-build overflow cannot come
-/// back via a small `RUST_MIN_STACK`.
 #[must_use]
 fn worker_stack_bytes() -> usize {
     fold_db::env_flag::var_parsed::<usize>("RUST_MIN_STACK")
@@ -124,47 +66,42 @@ fn worker_stack_bytes() -> usize {
         .max(DEFAULT_WORKER_STACK_BYTES)
 }
 
-/// CPU-shaped default worker count: `2 * available_parallelism`, clamped.
 #[must_use]
 fn default_worker_count() -> usize {
     let cpus = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
     (cpus.saturating_mul(2)).clamp(MIN_WORKERS, MAX_WORKERS)
 }
 
-/// One accepted connection plus the work to run on a worker thread.
 struct ConnJob {
     stream: UnixStream,
-    /// When the accept loop submitted this job — the start of its queue wait.
-    /// One request per connection on the control socket, so connection queue
-    /// wait IS the request's queue wait.
-    enqueued_at: Instant,
-    /// Consumes the stream (handler owns it until done).
     work: Box<dyn FnOnce(UnixStream, ConnectionWork) + Send + 'static>,
-    /// Admission owns one count until this job's handler finishes.
     in_flight_guard: InFlightGuard,
 }
 
-thread_local! {
-    /// Queue wait of the job THIS worker thread is currently running.
-    ///
-    /// The worker thread runs the entire blocking handler (including any
-    /// `Handle::block_on` future, which is polled on the calling thread), so
-    /// a thread-local is a sound handoff that changes no public handler
-    /// signature. Set just before a job's work runs, cleared right after.
-    static CURRENT_QUEUE_WAIT: Cell<Option<Duration>> = const { Cell::new(None) };
+/// Admission kept for one accepted connection across async continuation.
+pub struct ConnectionWork {
+    guard: InFlightGuard,
 }
 
-/// Queue wait of the connection job the current worker thread is running, or
-/// `None` off a worker thread (tests, direct calls, other runtimes).
-///
-/// Telemetry recorders call this from inside the request handler to attribute
-/// socket-queue wait separately from handler work.
-#[must_use]
-pub fn current_queue_wait() -> Option<Duration> {
-    CURRENT_QUEUE_WAIT.with(Cell::get)
+impl ConnectionWork {
+    /// Continue an accepted request on the same bounded worker pool, retaining its original admission.
+    pub fn resume<F>(self, stream: UnixStream, work: F)
+    where
+        F: FnOnce(UnixStream, Self) + Send + 'static,
+    {
+        let dispatch = Arc::clone(&self.guard.0.dispatch);
+        let job = ConnJob {
+            stream,
+            work: Box::new(work),
+            in_flight_guard: self.guard,
+        };
+        if dispatch.resume(job).is_err() {
+            tracing::error!("accepted socket response dispatcher closed");
+        }
+    }
 }
 
-/// Point-in-time occupancy for `/api/status` and self-metrics.
+/// Point-in-time occupancy for `/api/status`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UdsPoolSnapshot {
     /// Worker threads configured for this pool.
@@ -191,8 +128,6 @@ struct PoolInner {
     queue_capacity: usize,
     submitted: AtomicU64,
     queue_full_rejects: AtomicU64,
-    /// One lock closes admission and counts every accepted job. A close cannot
-    /// observe zero between a submit's open check and its count increment.
     admission: Mutex<AdmissionState>,
     drained: Condvar,
 }
@@ -203,7 +138,6 @@ struct AdmissionState {
     in_flight: usize,
 }
 
-/// The last handle closes dispatch, as dropping the old channel sender did.
 impl Drop for PoolInner {
     fn drop(&mut self) {
         self.dispatch.close();
@@ -227,8 +161,6 @@ impl Drop for InFlightGuard {
 }
 
 impl UdsWorkerPool {
-    /// Spawn `config.workers` threads fed by a LIFO hand-off with a bounded
-    /// FIFO queue of `config.queue_capacity` waiting jobs.
     #[must_use]
     fn new(config: WorkerPoolConfig) -> Self {
         let workers = config.workers.max(1);
@@ -244,19 +176,9 @@ impl UdsWorkerPool {
             drained: Condvar::new(),
         });
 
-        // Take the LARGER of our floor and any `RUST_MIN_STACK` the operator
-        // set: setting `stack_size` explicitly makes `std::thread` stop
-        // consulting that variable, so a naive floor would silently REMOVE the
-        // documented workaround from anyone already relying on it.
         let stack_bytes = worker_stack_bytes();
         for i in 0..workers {
             let dispatch = Arc::clone(&dispatch);
-            // Two independent reproductions of the same 2 MiB default being too
-            // small, both on 2026-07-31: serializing a real-home /api/schemas
-            // catalog (~2 MiB JSON, 1k+ schemas) overflowed on the first
-            // list-schemas after identity-ready in a CoW boot proof, and a
-            // debug-built node aborted on its very first /api/status. See
-            // [`DEFAULT_WORKER_STACK_BYTES`].
             thread::Builder::new()
                 .name(format!("lastdb-uds-worker-{i}"))
                 .stack_size(stack_bytes)
@@ -267,26 +189,82 @@ impl UdsWorkerPool {
         Self { inner }
     }
 
-    /// Config from environment ([`WorkerPoolConfig::from_env`]).
+    /// Build a worker pool from environment configuration.
     #[must_use]
     pub fn from_env() -> Self {
         Self::new(WorkerPoolConfig::from_env())
     }
 
-    #[must_use]
+    /// Transfer completion ownership when a handler awaits outside the pool.
+    pub fn try_submit_owned_connection<F>(
+        &self,
+        stream: UnixStream,
+        work: F,
+    ) -> Result<(), SubmitError>
+    where
+        F: FnOnce(UnixStream, ConnectionWork) + Send + 'static,
+    {
+        let in_flight_guard = match self.admit() {
+            Ok(guard) => guard,
+            Err(error) => return self.reject(stream, error),
+        };
+        let job = ConnJob {
+            stream,
+            work: Box::new(work),
+            in_flight_guard,
+        };
+        match self.inner.dispatch.submit(job) {
+            Ok(()) => {
+                self.inner.submitted.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            Err(Rejected::Full(job)) => self.reject(job.stream, SubmitError::QueueFull),
+            Err(Rejected::Closed(job)) => self.reject(job.stream, SubmitError::ShutDown),
+        }
+    }
+
+    fn admit(&self) -> Result<InFlightGuard, SubmitError> {
+        let mut state = self
+            .inner
+            .admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.closed {
+            return Err(SubmitError::ShutDown);
+        }
+        if state.in_flight >= self.inner.workers.saturating_add(self.inner.queue_capacity) {
+            return Err(SubmitError::QueueFull);
+        }
+        state.in_flight += 1;
+        Ok(InFlightGuard(Arc::clone(&self.inner)))
+    }
+
+    fn reject(&self, mut stream: UnixStream, error: SubmitError) -> Result<(), SubmitError> {
+        if matches!(error, SubmitError::QueueFull) {
+            self.inner
+                .queue_full_rejects
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        if let Err(error) = uds_http::write_busy_and_close(&mut stream) {
+            tracing::debug!(error = %error, "busy response write failed");
+        }
+        Err(error)
+    }
+
     /// Worker threads configured for this pool.
+    #[must_use]
     pub fn workers(&self) -> usize {
         self.inner.workers
     }
 
-    #[must_use]
     /// How many accepted jobs may wait for a worker.
+    #[must_use]
     pub fn queue_capacity(&self) -> usize {
         self.inner.queue_capacity
     }
 
-    #[must_use]
     /// Jobs refused because the queue was full.
+    #[must_use]
     pub fn queue_full_rejects(&self) -> u64 {
         self.inner.queue_full_rejects.load(Ordering::Relaxed)
     }
@@ -307,9 +285,6 @@ impl UdsWorkerPool {
     }
 
     /// Refuse new connections, then wait for queued and active handlers.
-    ///
-    /// Admission stays closed after a timeout. The caller must not record a
-    /// clean shutdown when this method returns an error.
     pub fn close_and_drain(&self, timeout: Duration) -> Result<(), String> {
         let started = Instant::now();
         let mut state = self
@@ -356,20 +331,11 @@ impl UdsWorkerPool {
 fn worker_loop(dispatch: &Dispatch<ConnJob>) {
     let slot = Slot::new();
     while let Some(job) = dispatch.next(&slot) {
-        let ConnJob {
-            stream,
-            enqueued_at,
-            work,
-            in_flight_guard,
-        } = job;
-        // Measured at pickup: elapsed since submit is exactly the time the
-        // job sat in the bounded queue behind busy workers.
-        let queue_wait = enqueued_at.elapsed();
-        CURRENT_QUEUE_WAIT.with(|cell| cell.set(Some(queue_wait)));
-        work(
-            stream,
-            ConnectionWork::new(in_flight_guard, enqueued_at, queue_wait),
+        (job.work)(
+            job.stream,
+            ConnectionWork {
+                guard: job.in_flight_guard,
+            },
         );
-        CURRENT_QUEUE_WAIT.with(|cell| cell.set(None));
     }
 }

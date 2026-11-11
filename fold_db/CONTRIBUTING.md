@@ -55,8 +55,8 @@ fold_db/
 └── README.md           # library overview
 ```
 
-Workspace product crates (outside this dir): `lastdb_node`, `lastdb_host`,
-`lastdb_uds`, `schema_service`, etc. See monorepo root `Cargo.toml`.
+Workspace product crates (outside this dir): `lastdb_node`, `schema_service`,
+etc. See monorepo root `Cargo.toml`.
 
 ## Code style
 

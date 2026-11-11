@@ -1,7 +1,38 @@
-use super::schema_list_rows::{annotate_full_schemas, annotate_summary_schemas};
-use super::*;
+//! Schema catalog listing, single-schema lookup, system seed, and schema drop routes.
 
-pub(super) fn execute_list_schemas_route(
+use fold_db::access::AccessContext;
+use fold_db::schema::schema_types::SchemaWithState;
+use fold_db::schema::types::DeclarativeSchemaDefinition;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use super::reply::{
+    content_free, envelope, error_response, json_ok, mapped_error_response, render, HostError,
+};
+use super::schema_declare::logical_layout_error;
+use super::schema_resolve::resolve_schema_name;
+use super::wire::{query_flag, schema_name_from_target};
+use crate::host::Host;
+use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+
+fn annotated_schema_row<T: Serialize>(schema: &T) -> Option<Value> {
+    let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
+        return None;
+    };
+    row.insert("record_count".into(), Value::Null);
+    row.insert("has_data".into(), Value::Null);
+    Some(Value::Object(row))
+}
+
+fn annotate_schemas<T: Serialize>(schemas: &[T]) -> Option<Vec<Value>> {
+    let mut annotated = Vec::with_capacity(schemas.len());
+    for schema in schemas {
+        annotated.push(annotated_schema_row(schema)?);
+    }
+    Some(annotated)
+}
+
+pub(in crate::exec) fn execute_list_schemas_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -11,7 +42,8 @@ pub(super) fn execute_list_schemas_route(
     }
     let include_full = query_flag(&req.target, "include_full");
 
-    if !host.db.schema_manager().catalog_ready() {
+    let mgr = host.db.schema_manager();
+    if !mgr.catalog_ready() {
         return error_response(
             503,
             "schema catalog not ready: still hydrating from store",
@@ -20,29 +52,20 @@ pub(super) fn execute_list_schemas_route(
     }
 
     let annotated = if include_full {
-        annotate_full_schemas(host)
+        mgr.get_active_schemas_with_states()
+            .ok()
+            .and_then(|schemas| annotate_schemas(&schemas))
     } else {
-        annotate_summary_schemas(host)
+        mgr.get_active_schema_list_entries_with_states()
+            .ok()
+            .and_then(|schemas| annotate_schemas(&schemas))
     };
-    let Some(mut annotated) = annotated else {
+    let Some(annotated) = annotated else {
         return content_free(500, "Internal Server Error");
     };
 
-    let retired_name_claims = host
-        .db
-        .schema_manager()
-        .retired_name_claims()
-        .unwrap_or_default();
-    stamp_retired_name_claims(&mut annotated, &retired_name_claims);
-    let mut retired_name_claims: Vec<String> = retired_name_claims.into_iter().collect();
-    retired_name_claims.sort();
-
     let count = annotated.len();
-    let newer_identity_algo_schemas = host
-        .db
-        .schema_manager()
-        .schemas_with_newer_identity_algo()
-        .unwrap_or_default();
+    let newer_identity_algo_schemas = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
     let payload = serde_json::json!({
         "schemas": annotated,
         "count": count,
@@ -52,27 +75,11 @@ pub(super) fn execute_list_schemas_route(
         "identity_algo_version": schema_types::IDENTITY_HASH_ALGO_VERSION,
         "newer_identity_algo_count": newer_identity_algo_schemas.len(),
         "newer_identity_algo_schemas": newer_identity_algo_schemas,
-        "retired_name_claim_count": retired_name_claims.len(),
-        "retired_name_claims": retired_name_claims,
     });
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
 
-/// Mark each row whose name no longer answers `descriptive_name` resolution.
-fn stamp_retired_name_claims(rows: &mut [Value], retired_name_claims: &HashSet<String>) {
-    for row in rows {
-        let Some(row) = row.as_object_mut() else {
-            continue;
-        };
-        let retired = row
-            .get("name")
-            .and_then(Value::as_str)
-            .is_some_and(|name| retired_name_claims.contains(name));
-        row.insert("name_claim_retired".into(), retired.into());
-    }
-}
-
-pub(super) fn execute_get_schema_route(
+pub(in crate::exec) fn execute_get_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -81,7 +88,7 @@ pub(super) fn execute_get_schema_route(
         return content_free(400, "Bad Request");
     };
 
-    let canonical = match handlers::resolve_schema_name(host, &name) {
+    let canonical = match resolve_schema_name(host, &name) {
         Ok(Some(canonical)) => canonical,
         Ok(None) => return error_response(404, &format!("Schema not found: {name}"), ctx),
         Err(e) => return render(Err(e), ctx),
@@ -105,15 +112,8 @@ pub(super) fn execute_get_schema_route(
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
 
-/// `POST /api/schemas/seed-system` — install a system-owned schema only for
-/// an explicitly isolated node.
-///
-/// Catalog sync is intentionally unable to create a `SystemSeed` schema: it
-/// resolves application proposals through the shared catalog and gives the
-/// resulting binding an application owner. Attribution and copy harnesses need
-/// one real system root on a throwaway daemon, however, so this setup route
-/// loads the supplied declarative schema without contacting the catalog.
-pub(super) async fn execute_seed_system_schema_route(
+/// `POST /api/schemas/seed-system` — install a system-owned schema on an explicitly isolated node.
+pub(in crate::exec) async fn execute_seed_system_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -136,7 +136,7 @@ pub(super) async fn execute_seed_system_schema_route(
             )
         }
     };
-    if !request.isolated_copy || !is_isolated_copy_process() {
+    if !request.isolated_copy || !fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY") {
         return error_response(
             409,
             "system seed setup requires isolated_copy=true and LASTDB_ISOLATED_COPY=1",
@@ -180,91 +180,8 @@ pub(super) async fn execute_seed_system_schema_route(
     }
 }
 
-pub(super) fn is_isolated_copy_process() -> bool {
-    fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY")
-}
-
-/// `POST /api/schemas/retire-name-claim` — retire or restore one installed
-/// schema's claim on its `descriptive_name`.
-///
-/// Body: `{ "schema": "<canonical name or identity hash>", "retired": true }`.
-/// `retired` defaults to `true`; pass `false` to put the claim back.
-///
-/// `schema` is resolved as a canonical name / identity hash FIRST, exactly like
-/// every other by-hash reader, because the point of this route is to act on a
-/// claimant that a `descriptive_name` lookup can no longer disambiguate. Naming
-/// it by the ambiguous descriptive name is refused rather than guessed.
-pub(super) async fn execute_retire_schema_name_claim_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct RetireNameClaimRequest {
-        schema: String,
-        #[serde(default = "default_true")]
-        retired: bool,
-    }
-    fn default_true() -> bool {
-        true
-    }
-
-    let body = match serde_json::from_slice::<RetireNameClaimRequest>(&req.body) {
-        Ok(body) => body,
-        Err(e) => {
-            return error_response(
-                400,
-                &format!("invalid /api/schemas/retire-name-claim body: {e}"),
-                ctx,
-            )
-        }
-    };
-    let schema_name = body.schema.trim();
-    if schema_name.is_empty() {
-        return error_response(400, "schema must be non-empty", ctx);
-    }
-
-    let mgr = host.db.schema_manager();
-    match mgr.get_schema_metadata(schema_name) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return error_response(
-                404,
-                &format!(
-                    "no schema is installed under '{schema_name}'; name the claimant by its \
-                     canonical name or identity hash, not by the descriptive name it shares"
-                ),
-                ctx,
-            )
-        }
-        Err(_) => return content_free(500, "Internal Server Error"),
-    }
-
-    let changed = if body.retired {
-        mgr.retire_name_claim(schema_name).await
-    } else {
-        mgr.restore_name_claim(schema_name).await
-    };
-    let changed = match changed {
-        Ok(changed) => changed,
-        Err(e) => return error_response(500, &format!("retire-name-claim failed: {e}"), ctx),
-    };
-
-    let payload = serde_json::json!({
-        "schema": schema_name,
-        "name_claim_retired": body.retired,
-        "changed": changed,
-    });
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
-}
-
-/// `POST /api/schemas/drop` — remove one catalog identity, or every identity
-/// owned by one app. ACK is catalog absence: the schema record and its database
-/// catalog rows are gone in the answer. Before the schema record goes, the drop
-/// releases the records, their files, alternate entries and applied deletes
-/// of the schema in bounded batches (`RecordStore::release_schema_rows`). A drop
-/// that fails or times out leaves the schema installed, and a retry goes on.
-pub(super) async fn execute_drop_schema_route(
+/// `POST /api/schemas/drop` — remove one catalog identity, or every identity owned by one app.
+pub(in crate::exec) async fn execute_drop_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -309,7 +226,7 @@ pub(super) async fn execute_drop_schema_route(
         return json_ok(&envelope(&payload, ctx.user_id.as_str()));
     }
 
-    let canonical = match handlers::resolve_schema_name(host, schema) {
+    let canonical = match resolve_schema_name(host, schema) {
         Ok(Some(canonical)) => canonical,
         Ok(None) => {
             if body.must_exist {
@@ -326,10 +243,13 @@ pub(super) async fn execute_drop_schema_route(
             });
             return json_ok(&envelope(&payload, ctx.user_id.as_str()));
         }
-        Err(e) => match blocked_drop_target(host, schema, &e) {
-            Some(canonical) => canonical,
-            None => return render(Err(e), ctx),
-        },
+        Err(e) => {
+            if let Some(canonical) = blocked_drop_target(host, schema, &e) {
+                canonical
+            } else {
+                return render(Err(e), ctx);
+            }
+        }
     };
 
     let existed = match host.db.drop_schema_and_bindings(&canonical).await {
@@ -351,11 +271,6 @@ pub(super) async fn execute_drop_schema_route(
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
 
-/// A drop that stopped leaves its schema blocked (`DbOperations::drop_schema`),
-/// and the name resolution of the other routes refuses an alias of a blocked
-/// schema with a 400. The drop route alone takes the one blocked schema whose
-/// descriptive name or identity is `requested`, so a retry by the same alias
-/// finishes the drop. A canonical name resolves without this.
 fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
     if error.status != 400 {
         return None;
@@ -369,5 +284,3 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
     let first = blocked.next()?;
     blocked.next().is_none().then(|| first.schema.name.clone())
 }
-
-// lint:file-size-ok moved verbatim from exec.rs; cohesive unit, split further in a later pass

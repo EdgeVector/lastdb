@@ -1,118 +1,19 @@
-//! Data-route executor for the minimal daemon's owner control socket.
-//!
-//! `lastdbd` serves the SAME wire surface fbrain/fkanban speak to the full
-//! node's socket — the [`crate::lastdb_uds::uds_router::DataRoute`] allowlist with
-//! identical request/response JSON shapes. The query / mutation /
-//! native-index-search HANDLER BODIES now live in the shared
-//! [`crate::lastdb_host::handlers`] module, driven off the [`HostNode`]
-//! trait, so this executor and the full node's (`fold_db_node::server::uds_exec`)
-//! are literally ONE implementation below the app-identity axis — no drift.
-//!
-//! What stays local here is only the wire glue and the routes the minimal
-//! daemon serves in its own way:
-//! - Request/response wire parsing (shared `crate::lastdb_host::wire`) + the final
-//!   envelope/error render (shared `crate::lastdb_host::handlers::render`).
-//! - `GET /api/schemas` / `GET /api/schema/{name}` / `POST /api/schemas/declare`
-//!   — the catalog listing (with record counts), the single-schema fetch, and
-//!   the owner direct-declare, which resolve schema names via the shared
-//!   [`crate::lastdb_host::handlers::resolve_schema_name`] but otherwise assemble
-//!   host-local bodies.
-//! - App-blob routes are structurally absent (404): no upload-storage backend.
+//! Data-route executor for the `lastdbd` owner control socket.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
-use crate::lastdb_uds::uds_router::DataRoute;
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::schema::schema_types::SchemaWithState;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
+use fold_db::schema::types::Schema;
 use serde::Deserialize;
 use serde_json::Value;
 
-// Framework-agnostic wire-shape contract + the shared handler bodies, consumed
-// verbatim by the full node's socket executor too so the two cannot drift.
-use crate::lastdb_host::envelope::{content_free, envelope, json_ok};
-use crate::lastdb_host::handlers::{self, render};
-use crate::lastdb_host::reject::Reject;
-use crate::lastdb_host::wire::{
-    body_object, parse_batch_mutation_body, parse_mutation_body, parse_query_body, query_flag,
-    schema_name_from_target, QueryRequest,
-};
-use crate::lastdb_host::HostError;
-
 use crate::host::Host;
+use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+use crate::lastdb_uds::uds_router::DataRoute;
 
-/// Render an error to the owner-socket wire, delegating to the shared I4 mapping.
-fn error_response(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
-    render(Err(HostError::new(status, message)), ctx)
-}
-
-/// Render a failed owner-socket operation through the canonical
-/// [`FoldDbError`](fold_db::error::FoldDbError) -> [`HostError`] mapping.
-///
-/// **Use this instead of `Err(e) => error_response(500, …)` wherever the error
-/// being caught can carry a caller fault.** A handler that ends its error match
-/// with a bare 500 reports a *caller* fault as a server bug: name a `field` the
-/// schema does not have and the node answered 500. [`render`] logs every 5xx at
-/// ERROR, and the observability ERROR layer promotes each of those into its own
-/// Sentry issue — so one bad field name became 210 events with zero users
-/// affected (Sentry `7620011366`), and one bad `uds` accept became 492 more
-/// (`7641868650`). The mutation-path bug behind the first burst was fixed in
-/// `70e120f27`; the misclassification that turned it into a storm outlived it,
-/// and did the same for the next caller fault.
-///
-/// Only a genuine 500 takes the operation prefix, mirroring the mutation path
-/// in `crate::lastdb_host::handlers`: a 4xx keeps the status the mapping assigned and
-/// any structured body it carries (`cas_conflict`, …), which re-wrapping the
-/// message would drop.
-///
-/// This is only half the contract. The mapping can only classify what reaches
-/// it, so a core admin wrapper must not flatten the fault into
-/// `FoldDbError::Database` first.
-fn mapped_error_response(
-    operation: &str,
-    err: fold_db::error::FoldDbError,
-    ctx: &AccessContext,
-) -> UdsResponse {
-    let mapped = HostError::from(err);
-    if mapped.status == 500 {
-        return render(
-            Err(HostError::new(
-                500,
-                format!("{operation}: {}", mapped.message),
-            )),
-            ctx,
-        );
-    }
-    render(Err(mapped), ctx)
-}
-
-mod byte_backup_routes;
-mod db_maintenance;
-mod file_blob;
-mod file_blob_put;
-mod query_batch;
-mod schema_declare;
-use self::db_maintenance::*;
-use self::file_blob::*;
-use self::file_blob_put::*;
-use self::query_batch::*;
-use self::schema_declare::*;
-pub use self::schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
-pub use crate::shared_snapshot::sequence::SharedSnapshotRequest;
-
-/// Heap future for one data route.
-///
-/// A dev build of `dispatch_data_route` used to keep every route future in one
-/// poll frame (about 2.5 MiB). The request future copies that frame again at
-/// each caller, which overflowed the 8 MiB UDS worker and the libtest thread.
-/// Each awaited route is built inside `#[inline(never)]` and returned as a
-/// pointer, so the dispatch frame stays small in dev and in release.
-///
-/// Two routes stay inline. Their futures are `Send` for this borrow and are
-/// not `Send` for `dyn Future + Send` (`Send` is not general enough).
+/// Heap future for one data route so the dispatch poll frame stays small.
 type ErasedRoute<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = UdsResponse> + Send + 'a>>;
 
@@ -124,9 +25,6 @@ macro_rules! heap_route {
             ctx: &'a AccessContext,
             host: &'a Host,
         ) -> ErasedRoute<'a> {
-            // A fresh async block is `Send` when the route future is `Send`.
-            // Casting the route future itself trips a higher-ranked `Send`
-            // check on the references that future already holds.
             Box::pin(async move { $f(req, ctx, host).await })
         }
         start($req, $ctx, $host)
@@ -144,31 +42,43 @@ macro_rules! heap_route_ctx_host {
 }
 
 mod admin_routes;
-mod app_routes;
-mod batch_mutation_routes;
+mod byte_backup_routes;
 mod database_mutation;
 mod database_read;
 mod database_routes;
+mod dispatch;
+mod file_blob;
+mod file_blob_put;
+mod list_keys_route;
+mod mutation;
+mod query;
+mod reject;
+mod reply;
+mod retention_routes;
+mod schema_declare;
+mod schema_resolve;
+mod schema_routes;
+mod timeouts;
+mod wire;
+
+use file_blob::is_media_type;
+use reply::{content_free, envelope, error_response, json_ok, render, HostError};
+use timeouts::with_handler_timeout_budget;
+use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
+
+pub use crate::shared_snapshot::sequence::SharedSnapshotRequest;
 pub use database_routes::{
     execute_database_request, execute_deferred_database_mutation, is_deferred_database_mutation,
 };
-mod db_compact_routes;
-mod deferred_mutation;
-mod dispatch;
-mod introspection_routes;
-mod mutation_notifications;
-mod query_mutation_routes;
-mod schema_list_rows;
-mod schema_routes;
-mod timeouts;
-
-use admin_routes::*;
-use app_routes::*;
-use batch_mutation_routes::*;
-use db_compact_routes::*;
-pub use deferred_mutation::execute_deferred_mutation;
-pub use dispatch::*;
-use introspection_routes::*;
-use query_mutation_routes::*;
-use schema_routes::*;
-pub use timeouts::*;
+pub use dispatch::execute_data_route;
+pub use mutation::execute_deferred_mutation;
+pub use reject::Reject;
+pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
+pub use timeouts::{
+    admin_handler_timeout, admin_handler_timeout_override, block_on_admin_route,
+    block_on_data_route, block_on_route, data_route_budget, execute_data_route_with_timeout,
+    handler_timeout, with_handler_timeout, CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS,
+    CANARY_STATUS_HANDLER_TIMEOUT_SECS, DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS,
+    DEFAULT_CLI_UDS_TIMEOUT_SECS, DEFAULT_HANDLER_TIMEOUT_SECS,
+};
+pub use wire::{parse_mutation_body, ParsedMutation};

@@ -1,6 +1,4 @@
 use crate::schema::types::key_value::KeyValue;
-use crate::schema::SchemaError;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -23,11 +21,6 @@ pub struct IndexChange {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexChangeBatch {
-    /// The outbox format version this batch conforms to. Consumers (lastseek,
-    /// Search) can check this to ensure compatibility before processing.
-    /// Additive: old consumers without this field in their schema will ignore
-    /// it (serde's default behavior). Set to `CURRENT_OUTBOX_FORMAT_VERSION`
-    /// from `lastdb_node::version`.
     #[serde(
         default = "default_format_version",
         skip_serializing_if = "is_current_format_version"
@@ -45,11 +38,4 @@ fn default_format_version() -> u32 {
 
 fn is_current_format_version(v: &u32) -> bool {
     *v == 1
-}
-
-/// Off-path consumer of committed mutation changes that should be reflected in
-/// a local/rebuildable search index.
-#[async_trait]
-pub trait IndexSink: Send + Sync {
-    async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError>;
 }

@@ -11,7 +11,6 @@ impl MutationManager {
             return Ok(ResidentCommitReceipt::empty());
         }
         self.validate_mutation_batch(&mutations)?;
-        self.prepare_batch_field_keys(&mutations).await?;
         self.reject_blocked_mutation_targets(&mutations)?;
         for mutation in &mutations {
             mutation.validate_record_intent()?;

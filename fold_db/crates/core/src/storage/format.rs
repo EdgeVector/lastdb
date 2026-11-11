@@ -1,4 +1,4 @@
-//! Product-owned definitions of the format 14 whole-record home.
+//! Product-owned definitions of the format 15 whole-record home.
 //!
 //! Creation,
 //! admission, namespace opening and native routing share these definitions.
@@ -12,22 +12,20 @@
 //! startup key census or runtime format registry is introduced.
 
 pub(crate) mod bind;
-pub(crate) mod change_feed;
 pub(crate) mod control;
-pub(crate) mod field_keys;
 pub(crate) mod metadata;
 pub(crate) mod read;
 pub(crate) mod records;
 pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
-pub const HOME_FORMAT: u32 = 14;
+pub const HOME_FORMAT: u32 = 15;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 12;
-pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 13;
-pub const SHARED_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+pub(in crate::storage) const RECORD_PROFILE: u16 = 14;
+pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 15;
+pub const SHARED_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
 pub(in crate::storage) const PRIVATE_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/private";
 
 /// Clear node marker file inside the data directory.
@@ -49,23 +47,6 @@ pub(crate) const METADATA_NAMESPACE: &str = "metadata";
 pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
-pub(crate) const FIELD_KEYS_NAMESPACE: &str = "field_keys";
-pub(in crate::storage::format) const FIELD_KEY_BUNDLE_VERSION: u8 = 1;
-pub(crate) const FIELD_KEY_METADATA_VERSION: u8 = 2;
-pub(in crate::storage::format) const FIELD_KEY_NODE_DOMAIN: &str = "node";
-pub(in crate::storage::format) const FIELD_KEY_METADATA_PREFIX: &str = "fkb:";
-pub(in crate::storage::format) const FIELD_KEY_WRAP_PREFIX: &str = "fkw:";
-pub(in crate::storage::format) const FIELD_KEY_ID_MAX_BYTES: usize = 1024;
-pub(crate) const FIELD_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
-pub(in crate::storage::format) const FIELD_KEY_BUNDLE_MAX_BYTES: u64 = 4096;
-pub(crate) const CHANGE_FEED_NAMESPACE: &str = "change_feed";
-pub(crate) const CHANGE_FEED_LAST_SEQ_KEY: &str = "last_seq";
-pub(in crate::storage::format) const CHANGE_FEED_EVENT_PREFIX: &str = "event:";
-pub(in crate::storage::format) const CHANGE_FEED_EVENT_END: &str = "event;";
-pub(crate) const CHANGE_FEED_APPEND_EVENTS: usize = 1_024;
-pub(crate) const CHANGE_FEED_APPEND_BYTES: usize = 32 * 1024 * 1024;
-/// Retained node-local notifications; readers report a gap beyond this window.
-pub const CHANGE_FEED_MAX_EVENTS: u64 = 250_000;
 /// Record files use a separate native home; namespace and collection coincide.
 pub const CAS_COLLECTION: &str = "cas_blobs";
 /// Every logical main key routes to this native collection.
@@ -100,7 +81,6 @@ pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
 /// job releases: `fr:` plus the suffix of its `fb:` key.
 pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
-pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";

@@ -5,7 +5,6 @@ import {
 } from './errors.js';
 import {
   type AutoIdentityResult,
-  type ChangesResult,
   type JsonValue,
   type KeyValue,
   type QueryCursor,
@@ -229,58 +228,6 @@ function parseQueryCursor(raw: unknown): QueryCursor | null {
     throw new UnexpectedResponseError('query returned an invalid comparison cursor', 200, raw);
   }
   return { ...raw, ...key };
-}
-
-/** Parse a successful `POST /api/app/changes` cursor page. */
-export function parseChangesResponse(body: unknown): ChangesResult {
-  if (!isObject(body)) {
-    throw new UnexpectedResponseError('changes returned a non-object body', 200, body);
-  }
-  const nextCursor = body['next_cursor'];
-  const hasMore = body['has_more'];
-  const gap = body['gap'];
-  const rawChanges = body['changes'];
-  if (typeof nextCursor !== 'string' || typeof hasMore !== 'boolean' || typeof gap !== 'boolean' || !Array.isArray(rawChanges)) {
-    throw new UnexpectedResponseError('changes returned an invalid cursor page', 200, body);
-  }
-  const changes = rawChanges.map((raw) => {
-    if (!isObject(raw) || !isObject(raw['key'])) {
-      throw new UnexpectedResponseError('changes returned an invalid event', 200, raw);
-    }
-    const keyRaw = raw['key'];
-    const cursor = raw['cursor'];
-    const mutationId = raw['mutation_id'];
-    const schemaName = raw['schema_name'];
-    const operation = raw['operation'];
-    const committedAtMs = raw['committed_at_ms'];
-    const backgroundTasksDrained = raw['background_tasks_drained'];
-    const convergencePending = raw['convergence_pending'];
-    if (
-      typeof cursor !== 'string' ||
-      typeof mutationId !== 'string' ||
-      typeof schemaName !== 'string' ||
-      typeof operation !== 'string' ||
-      typeof committedAtMs !== 'number' ||
-      typeof backgroundTasksDrained !== 'boolean' ||
-      typeof convergencePending !== 'boolean'
-    ) {
-      throw new UnexpectedResponseError('changes returned an invalid event', 200, raw);
-    }
-    return {
-      cursor,
-      mutationId,
-      schemaName,
-      key: {
-        hash: typeof keyRaw['hash'] === 'string' ? keyRaw['hash'] : null,
-        range: typeof keyRaw['range'] === 'string' ? keyRaw['range'] : null,
-      },
-      operation,
-      committedAtMs,
-      backgroundTasksDrained,
-      convergencePending,
-    };
-  });
-  return { changes, nextCursor, hasMore, gap };
 }
 
 /**

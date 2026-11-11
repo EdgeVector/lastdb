@@ -1,9 +1,6 @@
 //! Two-pass bounded GCM authentication for existing immutable frame extents.
 use super::{FrameHeader, FLAG_ZSTD, MAX_DECOMPRESSED_FRAME_BYTES, UNCOMPRESSED_LEN_SIZE};
-use crate::{
-    read_receipt::{TemporaryBytes, Timer},
-    Error, Result,
-};
+use crate::{Error, Result};
 use std::fs::File;
 use std::io::{self, Read};
 use std::sync::Arc;
@@ -84,7 +81,6 @@ pub(crate) struct VerifiedFrameReader {
     payload: Payload,
     payload_len: u64,
     memory_bytes: u64,
-    decoder_charge: Option<TemporaryBytes>,
     delivered: u64,
     finished: bool,
     failed: bool,
@@ -97,60 +93,17 @@ impl VerifiedFrameReader {
         encoded_bytes: u64,
         data_key: &[u8; 32],
     ) -> Result<Self> {
-        Self::open_with_window(
-            file,
-            offset,
-            encoded_bytes,
-            data_key,
-            MAX_DECOMPRESSED_FRAME_BYTES,
-        )
-    }
-
-    /// Checkpoint readers admit a smaller payload and its rounded decoder window.
-    /// Ordinary streams continue to use the full existing format limit.
-    pub(crate) fn open_with_window(
-        file: &File,
-        offset: u64,
-        encoded_bytes: u64,
-        data_key: &[u8; 32],
-        maximum_payload: usize,
-    ) -> Result<Self> {
-        if maximum_payload == 0 || maximum_payload > MAX_DECOMPRESSED_FRAME_BYTES {
-            return Err(Error::ReadBudgetExceeded);
-        }
+        let maximum_payload = MAX_DECOMPRESSED_FRAME_BYTES;
         let window = maximum_payload
             .max(1024)
             .checked_next_power_of_two()
             .ok_or(Error::ReadBudgetExceeded)?;
-        let timer = Timer::start();
-        let result = Self::open_inner(
-            file,
-            offset,
-            encoded_bytes,
-            data_key,
-            maximum_payload,
-            window,
-        );
-        timer.finish(|receipt, nanos| {
-            receipt.decode_nanos = receipt.decode_nanos.saturating_add(nanos)
-        });
-        result
-    }
-
-    fn open_inner(
-        file: &File,
-        offset: u64,
-        encoded_bytes: u64,
-        data_key: &[u8; 32],
-        maximum_payload: usize,
-        window: usize,
-    ) -> Result<Self> {
         let source = Arc::new(Source::open(file, offset, encoded_bytes)?);
         GcmReader::new(Arc::clone(&source), data_key)?.authenticate()?;
         let mut plain = GcmReader::new(Arc::clone(&source), data_key)?;
         let buffer_bytes = plain.memory_bytes();
-        let (payload, payload_len, decoder_charge) = if source.flags & FLAG_ZSTD == 0 {
-            (Payload::Raw(Box::new(plain)), source.stored_bytes, None)
+        let (payload, payload_len, compressed) = if source.flags & FLAG_ZSTD == 0 {
+            (Payload::Raw(Box::new(plain)), source.stored_bytes, false)
         } else {
             let mut length = [0; UNCOMPRESSED_LEN_SIZE];
             plain.read_exact(&mut length)?;
@@ -163,17 +116,14 @@ impl VerifiedFrameReader {
             if expected > maximum_payload as u64 {
                 return Err(Error::ReadBudgetExceeded);
             }
-            // Reserve the maximum existing window plus bounded decoder context/block
-            // workspace. Callers include this reservation before output allocation.
-            let charge = TemporaryBytes::new(decoder_reserve(window));
             (
                 Payload::CompressedPending(Some(Box::new(plain)), window.ilog2()),
                 expected,
-                Some(charge),
+                true,
             )
         };
         let memory_bytes = buffer_bytes
-            + if decoder_charge.is_some() {
+            + if compressed {
                 decoder_reserve(window) as u64
             } else {
                 0
@@ -183,7 +133,6 @@ impl VerifiedFrameReader {
             payload,
             payload_len,
             memory_bytes,
-            decoder_charge,
             delivered: 0,
             finished: false,
             failed: false,
@@ -207,7 +156,6 @@ impl VerifiedFrameReader {
         if !self.finished {
             self.payload.finish()?;
             self.source.check().map_err(as_io)?;
-            drop(self.decoder_charge.take());
             self.finished = true;
         }
         Ok(())
@@ -247,15 +195,8 @@ impl Read for VerifiedFrameReader {
                 "streamed frame reader failed",
             ));
         }
-        let timer = Timer::start();
         let result = self.read_inner(output);
         self.failed = result.is_err();
-        timer.finish(|receipt, nanos| {
-            receipt.decode_nanos = receipt.decode_nanos.saturating_add(nanos);
-            receipt.decoded_bytes = receipt
-                .decoded_bytes
-                .saturating_add(result.as_ref().copied().unwrap_or(0) as u64);
-        });
         result
     }
 }

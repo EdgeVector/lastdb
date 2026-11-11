@@ -4,7 +4,6 @@ use super::SchemaFormat;
 use crate::schema::SchemaState;
 use crate::storage::format::read::ReadStore;
 use crate::storage::{error::StorageResult, StorageError};
-use std::sync::Arc;
 
 impl SchemaFormat {
     /// Runs inside the same native write scope as the tracking puts. This
@@ -17,7 +16,7 @@ impl SchemaFormat {
             .iter()
             .map(|name| name.as_bytes().to_vec())
             .collect();
-        let states_reader = ReadStore::new(Arc::clone(&self.schema_states_store));
+        let states_reader = ReadStore::new(self.schema_states_store.clone());
         let (states, definitions) = tokio::try_join!(
             states_reader.get_items::<SchemaState>(schemas),
             self.schemas_store.get_many(keys),

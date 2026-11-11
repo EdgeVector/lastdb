@@ -2,9 +2,6 @@
 //! subcommand enum, and the small value-enum argument types.
 
 use super::*;
-#[path = "cli_defs/record_list.rs"]
-mod record_list;
-pub(crate) use record_list::RecordListArgs;
 
 #[path = "cli_defs/admin.rs"]
 mod admin;
@@ -14,8 +11,6 @@ mod app;
 mod backup;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
-#[path = "cli_defs/db.rs"]
-mod db;
 #[path = "cli_defs/schema.rs"]
 mod schema;
 #[path = "cli_defs/share.rs"]
@@ -25,12 +20,38 @@ pub(super) use admin::*;
 pub(super) use app::*;
 pub(super) use backup::*;
 pub(super) use cloud::*;
-pub(super) use db::*;
 pub(super) use schema::*;
 pub(super) use share::*;
-#[path = "cli_defs/args.rs"]
-mod args;
-pub(super) use args::*;
+
+/// Shared list/get-keys input; a named alternate always has a selected hash.
+#[derive(clap::Args, Debug)]
+pub(crate) struct RecordListArgs {
+    pub schema: String,
+    #[arg(long)]
+    pub key_hash: Option<String>,
+    /// Named alternate key. The default uses the schema's primary key.
+    #[arg(long, requires = "key_hash")]
+    pub key_name: Option<String>,
+    #[arg(long, default_value_t = 100)]
+    pub limit: usize,
+    #[arg(long)]
+    pub cursor: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ServiceHomeCommand {
+    /// Persist the home directory service starts should use.
+    Set {
+        /// Absolute path, or a path beginning with ~/; must not resolve to ~/.lastdb.
+        home: PathBuf,
+    },
+    /// Show the persisted service home, if one is configured.
+    Show,
+    /// Clear the persisted service home.
+    Clear,
+}
 
 /// Client headroom above the server's mutation route budget.
 pub(super) const MUTATION_CLIENT_HEADROOM_SECS: u64 = 20;

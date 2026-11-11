@@ -90,7 +90,7 @@ impl MutationManager {
         ) {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                Self::deliver_search_outbox(inbox, batch).await
+                Self::deliver_search_outbox(inbox, &batch)
             })?;
         }
         Ok(())

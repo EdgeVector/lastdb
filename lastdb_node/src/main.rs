@@ -163,7 +163,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         share,
     } = run;
 
-    let host = runtime.block_on(Host::boot(&home, Arc::new(host::SystemIds)))?;
+    let host = runtime.block_on(Host::boot(&home))?;
     let host = Arc::new(host);
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 

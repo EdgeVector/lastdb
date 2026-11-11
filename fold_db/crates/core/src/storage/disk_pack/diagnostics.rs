@@ -18,7 +18,7 @@ impl PackRuntime {
         &self,
         include_inventory: bool,
     ) -> StorageResult<Option<NativeStorageDiagnostics>> {
-        if !laststore::commit_timing::enabled() {
+        if !laststore::diagnostics_enabled() {
             return Ok(None);
         }
         if include_inventory

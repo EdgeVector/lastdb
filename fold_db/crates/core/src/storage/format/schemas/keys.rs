@@ -16,8 +16,8 @@ pub(crate) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 
 // Root-owned names are shared by admission, writers and readers.
 pub(crate) use crate::storage::format::{
-    NAME_CLAIM_KEY_PREFIX, RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX,
-    RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
+    RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_HASH_PARTITION_KEY_PREFIX,
+    RETENTION_POLICY_KEY_PREFIX,
 };
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -33,10 +33,6 @@ pub(crate) struct SchemaRetentionHashPartition {
 
 pub(crate) fn retention_policy_key(schema_name: &str) -> String {
     format!("{RETENTION_POLICY_KEY_PREFIX}{schema_name}")
-}
-
-pub(crate) fn name_claim_key(schema_name: &str) -> String {
-    format!("{NAME_CLAIM_KEY_PREFIX}{schema_name}")
 }
 
 pub(crate) fn retention_fingerprint(value: &str) -> String {

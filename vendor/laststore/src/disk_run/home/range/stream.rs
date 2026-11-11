@@ -1,13 +1,10 @@
-//! Backup-only cursor with bounded optional authenticated block storage.
+//! Backup-only bounded range cursor.
 use super::super::{
     keys::{run_key, storage_key},
     RunRead,
 };
 use super::RunRangePage;
 use crate::{Error, Result};
-#[path = "memo.rs"]
-mod memo;
-use memo::{CachedValue, HeadMemo, Selection};
 
 pub(super) struct BoundedRange<'a> {
     owner: &'a mut RunRead,
@@ -16,8 +13,6 @@ pub(super) struct BoundedRange<'a> {
     upper: Option<Vec<u8>>,
     exclusive: bool,
     exhausted: bool,
-    memo: Option<HeadMemo>,
-    memo_attempted: bool,
 }
 impl<'a> BoundedRange<'a> {
     pub fn new(
@@ -34,8 +29,6 @@ impl<'a> BoundedRange<'a> {
             upper,
             exclusive,
             exhausted: false,
-            memo: None,
-            memo_attempted: false,
         }
     }
     pub(super) fn reset_page_budget(&mut self) {
@@ -68,7 +61,7 @@ impl<'a> BoundedRange<'a> {
                     break;
                 }
             }
-            let Some((key, slot)) = self.next_key()? else {
+            let Some(key) = self.next_key()? else {
                 self.exhausted = true;
                 break;
             };
@@ -79,12 +72,9 @@ impl<'a> BoundedRange<'a> {
                 }
                 return Err(Error::ReadBudgetExceeded);
             }
-            let value = self.value(&key, maximum, slot)?;
+            let value = self.value(&key, maximum)?;
             self.lower = run_key(&self.collection, key.as_bytes())?;
             self.exclusive = true;
-            if let Some(memo) = &mut self.memo {
-                memo.consume(&self.lower);
-            }
             last = true;
             if let Some(value) = value {
                 records.push((key, value));
@@ -96,94 +86,26 @@ impl<'a> BoundedRange<'a> {
             resume,
         })
     }
-    fn next_key(&mut self) -> Result<Option<(String, Option<usize>)>> {
-        if !self.memo_attempted {
-            self.memo = HeadMemo::new(
-                self.owner,
-                &self.lower,
-                self.upper.as_deref(),
-                self.coordinate_bytes(),
-            );
-            self.memo_attempted = true;
-        }
-        let retained = self.coordinate_bytes();
-        if let Some(memo) = &mut self.memo {
-            match memo.next(
-                self.owner,
-                &self.lower,
-                self.upper.as_deref(),
-                self.exclusive,
-                retained,
-            ) {
-                Ok(Selection::Key(key, slot)) => {
-                    return storage_key(&self.collection, &key).map(|key| Some((key, Some(slot))));
-                }
-                Ok(Selection::Exhausted) => return Ok(None),
-                Ok(Selection::Fallback) => self.memo = None,
-                Err(error) if descriptor_pressure(&error) => self.memo = None,
-                Err(error) => return Err(error),
-            }
-        }
-        self.owner
-            .streamed_next_key(
-                &self.collection,
-                &self.lower,
-                self.upper.as_deref(),
-                self.exclusive,
-            )
-            .map(|key| key.map(|key| (key, None)))
+    fn next_key(&mut self) -> Result<Option<String>> {
+        self.owner.streamed_next_key(
+            &self.collection,
+            &self.lower,
+            self.upper.as_deref(),
+            self.exclusive,
+        )
     }
     fn coordinate_bytes(&self) -> u64 {
         (self.collection.capacity()
             + self.lower.capacity()
             + self.upper.as_ref().map_or(0, Vec::capacity)) as u64
     }
-    fn retained_bytes(&self) -> u64 {
-        self.coordinate_bytes()
-            .saturating_add(self.memo.as_ref().map_or(0, HeadMemo::bytes))
-    }
-    fn value(&mut self, key: &str, maximum: u64, slot: Option<usize>) -> Result<Option<Vec<u8>>> {
-        let costs = self.owner.costs;
-        let value = self.reserved_value(key, maximum, slot);
-        let retry = value.as_ref().err().is_some_and(|error| {
-            matches!(error, Error::ReadBudgetExceeded) || descriptor_pressure(error)
-        });
-        if retry && self.memo.is_some() {
-            self.memo = None;
-            // Drop optional memory and descriptors before retry. Restore only
-            // logical charges; physical read/open/decode costs stay cumulative.
-            self.owner.costs.examined_keys = costs.examined_keys;
-            self.owner.costs.budget_bytes = costs.budget_bytes;
-            return self.reserved_value(key, maximum, None);
-        }
-        value
-    }
-    fn reserved_value(
-        &mut self,
-        key: &str,
-        maximum: u64,
-        slot: Option<usize>,
-    ) -> Result<Option<Vec<u8>>> {
+    fn value(&mut self, key: &str, maximum: u64) -> Result<Option<Vec<u8>>> {
         let before = self.owner.shared_metadata_bytes;
         self.owner.shared_metadata_bytes = before
             .max(self.owner.retained_bytes())
-            .checked_add(self.retained_bytes())
+            .checked_add(self.coordinate_bytes())
             .ok_or(Error::ReadBudgetExceeded)?;
-        let value = match slot {
-            Some(slot) => match self
-                .memo
-                .as_ref()
-                .map(|memo| memo.value(self.owner, slot, &self.collection, key, maximum))
-                .transpose()
-            {
-                Ok(Some(CachedValue::Value(value))) => Ok(value),
-                Ok(_) => self
-                    .owner
-                    .streamed_value_at(slot, &self.collection, key, maximum),
-                Err(error) => Err(error),
-            },
-            None => self.owner.streamed_value(&self.collection, key, maximum),
-        };
+        let value = self.owner.streamed_value(&self.collection, key, maximum);
         self.owner.shared_metadata_bytes = before;
         value
     }
@@ -193,21 +115,11 @@ impl<'a> BoundedRange<'a> {
             .shared_metadata_bytes
             .max(self.owner.retained_bytes())
             .saturating_add(self.owner.costs.budget_bytes)
-            .saturating_add(self.retained_bytes())
+            .saturating_add(self.coordinate_bytes())
             .saturating_add(self.lower.len() as u64);
         if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
             return Err(Error::ReadBudgetExceeded);
         }
         storage_key(&self.collection, &self.lower)
     }
-}
-
-fn descriptor_pressure(error: &Error) -> bool {
-    let Error::Io(error) = error else {
-        return false;
-    };
-    matches!(
-        rustix::io::Errno::from_io_error(error),
-        Some(rustix::io::Errno::MFILE | rustix::io::Errno::NFILE)
-    )
 }
