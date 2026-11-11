@@ -2,8 +2,7 @@
 //!
 //! The owner saves the keys and both exact frontiers before CAS puts or main
 //! publication. A reopen finishes deletion before any reader or writer can
-//! reuse those keys. The intent is not a backup file: a
-//! capture refuses it until normal recovery completes.
+//! reuse those keys.
 
 use super::physical::{V2Home, CAS_COLLECTION};
 use super::*;
@@ -12,6 +11,7 @@ use crate::storage::format::{
     METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
     RELEASED_FILE_PREFIX,
 };
+use laststore::disk_run::home::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
 use serde::{Deserialize, Serialize};
 
 /// Recovery performed by the normal open during this boot. No file keys enter it.
@@ -65,7 +65,7 @@ pub(in crate::storage::disk_pack) fn space(bytes: u64) -> StorageResult<u64> {
     let reserved = bytes
         .checked_add(8192)
         .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
-    if reserved > laststore::disk_run::home::MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
+    if reserved > MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
         return Err(StorageError::WriteResourceLimit {
             detail: "CAS deletion intent exceeds its byte bound".into(),
         });
@@ -84,30 +84,34 @@ pub(in crate::storage::disk_pack) fn save(
     }
     require_clear(v2)?;
     let before = v2.current_root();
+    let (main_before, cas_before) = (before.main.frontier(), before.cas.frontier());
     let intent = Intent {
         version: 1,
         main_home: v2.home.identity(),
         cas_home: v2.cas.identity(),
-        main_before: before.main.frontier(),
-        main_after: before
-            .main
-            .frontier()
+        main_before,
+        main_after: main_before
             .checked_add(u64::from(main))
             .ok_or_else(|| invalid("main frontier overflow"))?,
-        cas_before: before.cas.frontier(),
-        cas_after_add: before
-            .cas
-            .frontier()
+        cas_before,
+        cas_after_add: cas_before
             .checked_add(u64::from(puts))
             .ok_or_else(|| invalid("CAS frontier overflow"))?,
         keys: deletes.iter().map(|op| op.key.clone()).collect(),
     };
     let bytes = serde_json::to_vec(&intent).map_err(|_| invalid("CAS deletion intent encoding"))?;
-    v2.home.save_cas_delete_checkpoint(&bytes).map_err(map)
+    v2.home
+        .save_checkpoint(CheckpointKind::CasDelete, &bytes)
+        .map_err(map)
 }
 
 pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
-    if v2.home.load_cas_delete_checkpoint().map_err(map)?.is_some() {
+    if v2
+        .home
+        .load_checkpoint(CheckpointKind::CasDelete)
+        .map_err(map)?
+        .is_some()
+    {
         return Err(invalid(
             "pending CAS deletion requires native recovery before backup",
         ));
@@ -120,13 +124,19 @@ pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
 pub(in crate::storage::disk_pack) fn recover(
     v2: &V2Home,
 ) -> StorageResult<Option<CasDeleteRecovery>> {
-    let Some(bytes) = v2.home.load_cas_delete_checkpoint().map_err(map)? else {
+    let Some(bytes) = v2
+        .home
+        .load_checkpoint(CheckpointKind::CasDelete)
+        .map_err(map)?
+    else {
         return Ok(None);
     };
     let intent: Intent =
         serde_json::from_slice(&bytes).map_err(|_| invalid("CAS deletion intent encoding"))?;
-    let main = v2.home.current_root().frontier();
-    let cas = v2.cas.current_root().frontier();
+    let (main, cas) = (
+        v2.home.current_root().frontier(),
+        v2.cas.current_root().frontier(),
+    );
     let deleted = intent
         .cas_after_add
         .checked_add(1)
@@ -149,13 +159,8 @@ pub(in crate::storage::disk_pack) fn recover(
     }
     let committed = main == intent.main_after && cas >= intent.cas_after_add;
     let intent_keys = intent.keys.len() as u64;
-    let mut outcome = if committed {
-        CasDeleteRecoveryOutcome::AlreadyComplete
-    } else {
-        CasDeleteRecoveryOutcome::MainNotPublished
-    };
-    if committed && cas != deleted {
-        let operations = intent
+    let outcome = if committed && cas != deleted {
+        let ops = intent
             .keys
             .into_iter()
             .map(|key| HomeMutation {
@@ -165,11 +170,17 @@ pub(in crate::storage::disk_pack) fn recover(
             })
             .collect();
         v2.cas
-            .commit(super::blob_backup::with_releases(operations))
+            .commit(super::blob_backup::with_releases(ops))
             .map_err(map)?;
-        outcome = CasDeleteRecoveryOutcome::Completed;
-    }
-    v2.home.clear_cas_delete_checkpoint().map_err(map)?;
+        CasDeleteRecoveryOutcome::Completed
+    } else if committed {
+        CasDeleteRecoveryOutcome::AlreadyComplete
+    } else {
+        CasDeleteRecoveryOutcome::MainNotPublished
+    };
+    v2.home
+        .clear_checkpoint(CheckpointKind::CasDelete)
+        .map_err(map)?;
     Ok(Some(CasDeleteRecovery {
         outcome,
         intent_keys,
@@ -192,7 +203,7 @@ impl PackRuntime {
             runtime: Arc::clone(self),
             namespace: METADATA_NAMESPACE.into(),
         };
-        let cas = self.blob_store()?;
+        let cas = self.cas_kv();
         for (store, prefix) in [
             (&metadata, FILE_REFERENCE_PREFIX),
             (&cas, PENDING_UPLOAD_PREFIX),
@@ -216,16 +227,10 @@ impl PackRuntime {
         self: &Arc<Self>,
         keys: Vec<Vec<u8>>,
     ) -> StorageResult<Vec<bool>> {
-        let store = PackKvStore {
-            runtime: Arc::clone(self),
-            namespace: CAS_COLLECTION.into(),
-        };
         let wanted = keys.len();
-        let present = store.get_many(keys).await?;
+        let present = self.cas_kv().get_many(keys).await?;
         if present.len() != wanted {
-            return Err(StorageError::InvalidOperation(
-                "incomplete marker presence read".into(),
-            ));
+            return Err(invalid("incomplete marker presence read"));
         }
         Ok(present.iter().map(Option::is_some).collect())
     }
@@ -237,13 +242,14 @@ impl PackRuntime {
     ) -> StorageResult<()> {
         let pending = transaction::PendingBatch::current(self)
             .ok_or_else(|| invalid("file retirement requires a native write request"))?;
-        let operations = keys
+        let ops = keys
             .into_iter()
             .map(|key| {
-                let file = std::str::from_utf8(&key)
+                if std::str::from_utf8(&key)
                     .ok()
-                    .and_then(crate::storage::current_keys::families::record_file_space);
-                if file.is_none() {
+                    .and_then(crate::storage::current_keys::families::record_file_space)
+                    .is_none()
+                {
                     return Err(invalid("file retirement requires a record file key"));
                 }
                 Ok(HomeMutation {
@@ -253,6 +259,6 @@ impl PackRuntime {
                 })
             })
             .collect::<StorageResult<_>>()?;
-        pending.stage(operations)
+        pending.stage(ops)
     }
 }

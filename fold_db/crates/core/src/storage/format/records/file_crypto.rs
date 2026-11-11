@@ -113,23 +113,21 @@ impl RecordFormat {
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
                 .map_err(super::record_value_error)?;
-            let selected = current.as_ref().is_some_and(|record| {
+            if !current.as_ref().is_some_and(|record| {
                 record.file_version.as_ref() == Some(version)
                     && record.file.as_ref() == Some(marker)
-            });
-            if !selected {
+            }) {
                 return Ok::<_, FoldDbError>(());
             }
             let store = self.file_store().await?;
-            if store.get(&path).await?.is_some() {
-                return Ok(());
+            if store.get(&path).await?.is_none() {
+                store
+                    .batch_mutate(vec![
+                        KvMutation::put(path, row),
+                        KvMutation::put(uploaded, vec![1]),
+                    ])
+                    .await?;
             }
-            store
-                .batch_mutate(vec![
-                    KvMutation::put(path, row),
-                    KvMutation::put(uploaded, vec![1]),
-                ])
-                .await?;
             Ok(())
         })
         .await?;
@@ -145,13 +143,15 @@ impl RecordFormat {
         media_type: Option<String>,
     ) -> Result<FileWrite, FoldDbError> {
         let (row, sha256) = seal_file_row(&self.content_key, plaintext)?;
-        let marker = FileMarker {
-            name,
-            media_type,
-            size_bytes: plaintext.len() as u64,
-            sha256,
-        };
-        Ok(self.file_issuer.issue(marker, row))
+        Ok(self.file_issuer.issue(
+            FileMarker {
+                name,
+                media_type,
+                size_bytes: plaintext.len() as u64,
+                sha256,
+            },
+            row,
+        ))
     }
 
     pub(crate) async fn reference_local_file(
@@ -187,27 +187,20 @@ impl RecordFormat {
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
         let path = record_file_path(record_key, version)?;
-        let row = match self.file_store().await?.get(path.as_bytes()).await {
-            Ok(Some(row)) => row,
+        match self.file_store().await?.get(path.as_bytes()).await {
+            Ok(Some(row)) => self.open_file_row(&row, marker).map(Some),
             Ok(None) => {
-                return crate::storage::local_file_ref::read_referenced(
-                    &self.runtime,
-                    &path,
-                    marker,
-                )
-                .await;
+                crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker).await
             }
             Err(error) => {
-                if let Some(bytes) =
-                    crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker)
-                        .await?
+                match crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker)
+                    .await?
                 {
-                    return Ok(Some(bytes));
+                    Some(bytes) => Ok(Some(bytes)),
+                    None => Err(error.into()),
                 }
-                return Err(error.into());
             }
-        };
-        self.open_file_row(&row, marker).map(Some)
+        }
     }
 
     fn open_file_row(&self, row: &[u8], marker: &FileMarker) -> Result<Vec<u8>, FoldDbError> {
@@ -257,10 +250,7 @@ pub(crate) fn require_row(
     let invalid =
         || SchemaError::InvalidData("record file row differs from its format or marker".into());
     let overhead = (1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64;
-    if marker
-        .sha256
-        .bytes()
-        .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    if !marker.has_valid_hash()
         || marker.size_bytes
             > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
         || marker.size_bytes.checked_add(overhead) != Some(row.len() as u64)

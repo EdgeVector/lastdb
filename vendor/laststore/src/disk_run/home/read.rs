@@ -29,8 +29,6 @@ pub struct RunReadCosts {
     pub examined_keys: u64,
     /// Key and body bytes charged to the budget.
     pub budget_bytes: u64,
-    /// Run files this call opened.
-    pub runs_opened: u64,
 }
 
 /// One published state of a home: a handle to the CURRENT that a commit or a merge installed.
@@ -66,11 +64,6 @@ impl RunHome {
     /// The state that the latest publish installed.
     pub fn current_root(&self) -> RunRoot {
         RunRoot(self.held())
-    }
-
-    /// Capture the current CURRENT and one budget for a whole read call.
-    pub fn read(&self, budget: ReadBudget) -> RunRead {
-        self.read_root(&self.current_root(), budget)
     }
 
     /// One read call against exactly `root`, even when newer states exist.
@@ -183,24 +176,16 @@ impl RunRead {
             }
             let (file, reader) = &mut self.runs[slot];
             *reader = Some(if self.bounded_streams {
-                RunReader::open_bounded(
-                    &file.path,
-                    &self.key,
-                    self.budget
-                        .bytes
-                        .min(lastdb_model::storage_policy::BACKUP_RESOURCES.decoded_values_bytes),
-                )?
+                let cap = self
+                    .budget
+                    .bytes
+                    .min(lastdb_model::storage_policy::BACKUP_RESOURCES.decoded_values_bytes);
+                RunReader::open_bounded(&file.path, &self.key, cap)?
             } else {
                 RunReader::open(&file.path, &self.key)?
             });
-            self.costs.runs_opened += 1;
         }
         Ok(self.runs[slot].1.as_ref().expect("reader opened"))
-    }
-
-    /// The value of one complete storage key.
-    pub fn get(&mut self, collection: &str, key: &str) -> Result<Option<Vec<u8>>> {
-        self.get_bounded(collection, key, u64::MAX)
     }
 
     /// The value of one key; a body over `maximum` fails the call's budget.
@@ -210,23 +195,9 @@ impl RunRead {
         key: &str,
         maximum: u64,
     ) -> Result<Option<Vec<u8>>> {
-        if self.bounded_streams {
-            return self.streamed_value(collection, key, maximum);
-        }
-        self.examine(1)?;
-        self.charge((collection.len() + key.len()) as u64)?;
-        let wanted = run_key(collection, key.as_bytes())?;
-        for slot in 0..self.runs.len() {
-            if !self.runs[slot].0.meta.covers(&wanted) {
-                continue;
-            }
-            match self.read_many_at(slot, &[&wanted])?.pop().flatten() {
-                Some(Found::Value(value)) => return self.accept(value, maximum).map(Some),
-                Some(Found::Tombstone) => return Ok(None),
-                None => {}
-            }
-        }
-        Ok(None)
+        self.get_many_bounded(&[(collection.to_owned(), key.to_owned())], maximum)?
+            .pop()
+            .expect("one coordinate")
     }
 
     fn accept(&mut self, value: Vec<u8>, maximum: u64) -> Result<Vec<u8>> {
@@ -279,28 +250,24 @@ impl RunRead {
                 .iter()
                 .map(|&at| wanted[at].as_ref().expect("checked").as_slice())
                 .collect();
-            let hits = self.read_many_at(slot, &keys)?;
+            self.reader(slot)?;
+            let hits = self.runs[slot]
+                .1
+                .as_ref()
+                .expect("reader opened")
+                .get_many_with(&keys, &mut self.metadata)?;
             for (at, hit) in open.into_iter().zip(hits) {
                 found[at] = hit;
             }
         }
-        let mut out = Vec::with_capacity(coordinates.len());
-        for (key, hit) in wanted.into_iter().zip(found) {
-            out.push(match (key, hit) {
-                (Err(error), _) => Err(error),
-                (Ok(_), Some(Found::Value(value))) => self.accept(value, maximum).map(Some),
-                (Ok(_), _) => Ok(None),
-            });
-        }
-        Ok(out)
-    }
-
-    fn read_many_at(&mut self, slot: usize, keys: &[&[u8]]) -> Result<Vec<Option<Found>>> {
-        self.reader(slot)?;
-        self.runs[slot]
-            .1
-            .as_ref()
-            .expect("reader opened")
-            .get_many_with(keys, &mut self.metadata)
+        wanted
+            .into_iter()
+            .zip(found)
+            .map(|(key, hit)| match (key, hit) {
+                (Err(error), _) => Ok(Err(error)),
+                (Ok(_), Some(Found::Value(value))) => Ok(self.accept(value, maximum).map(Some)),
+                (Ok(_), _) => Ok(Ok(None)),
+            })
+            .collect()
     }
 }

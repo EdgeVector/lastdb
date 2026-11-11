@@ -53,11 +53,8 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
-/// Marks a record file row whose bytes are already in the cloud.
 pub(crate) const RECORD_FILE_UPLOADED_PREFIX: &str = "fu:";
-/// A record file version this device created and has not uploaded yet.
 pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
-/// A dropped record file version whose cloud object the next personal backup releases.
 pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
@@ -78,18 +75,15 @@ pub(in crate::storage::format) use crate::crypto::envelope::{
 };
 
 pub(crate) const SCHEMA_RELEASE_ROWS: usize = 256;
-
 pub(crate) const CONTENT_KEY_PROOF_KEY: &[u8] = b"__content_key_proof_v1";
 pub(in crate::storage) const CONTENT_KEY_PROOF_VALUE: &[u8] = b"lastdb-content-key-proof-v1";
 pub(in crate::storage) const CONTENT_KEY_PROOF_MAX_BYTES: u64 = 4096;
-
 pub(in crate::storage) use lastdb_model::field_key_codec::KEY_FORMAT as CURRENT_KEY_FORMAT_VALUE;
 
 pub(crate) mod content_key_proof {
     use crate::crypto::at_rest::{
         open_at_rest_bounded, seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX,
     };
-    use crate::storage::disk_pack::PackNamespacedStore;
     use crate::storage::StorageError;
 
     pub(crate) use super::CONTENT_KEY_PROOF_KEY as KEY;
@@ -118,27 +112,14 @@ pub(crate) mod content_key_proof {
         }
         Ok(())
     }
-
-    pub(crate) async fn verify_stored(
-        store: &PackNamespacedStore,
-        key: &[u8; 32],
-    ) -> Result<(), StorageError> {
-        let kv = store.open_namespace(NAMESPACE).await?;
-        match kv.get(KEY).await? {
-            Some(stored) => verify(key, &stored),
-            None => Err(StorageError::EncryptionError(
-                "content key proof is missing; this program opens only a home it created".into(),
-            )),
-        }
-    }
 }
 
 pub(crate) mod bind {
     use crate::storage::disk_pack::{transaction, PackNamespacedStore, PackRuntime};
-    use crate::storage::error::StorageResult;
+    use crate::storage::error::{StorageError, StorageResult};
     use crate::storage::format::{
-        metadata::Metadata, records::RecordFormat, schemas::SchemaFormat, MAIN_NAMESPACE,
-        METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+        content_key_proof, metadata::Metadata, records::RecordFormat, schemas::SchemaFormat,
+        MAIN_NAMESPACE, METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
     };
     use std::sync::Arc;
 
@@ -155,22 +136,27 @@ pub(crate) mod bind {
     ) -> StorageResult<BoundFormat> {
         let runtime = store.disk_pack_runtime();
         let main = store.open_namespace(MAIN_NAMESPACE).await?;
-        let metadata = store.open_namespace(METADATA_NAMESPACE).await?;
+        let meta_kv = store.open_namespace(METADATA_NAMESPACE).await?;
         let states = store.open_namespace(SCHEMA_STATES_NAMESPACE).await?;
         let schemas = store.open_namespace(SCHEMAS_NAMESPACE).await?;
         let schemas = SchemaFormat::new(schemas, states, Arc::clone(&runtime));
-        let metadata = Metadata::new(metadata, Arc::clone(&runtime));
+        let metadata = Metadata::new(meta_kv.clone(), Arc::clone(&runtime));
         let records = RecordFormat::new(
             main,
-            store.clone(),
+            store,
             Arc::clone(&runtime),
             content_key,
             metadata.clone(),
         );
         transaction::scope(Arc::clone(&runtime), async {
             records.require_current_key_format().await?;
-            crate::storage::content_key_proof::verify_stored(&store, &content_key).await?;
-            Ok::<_, crate::storage::StorageError>(())
+            let stored = meta_kv.get(content_key_proof::KEY).await?.ok_or_else(|| {
+                StorageError::EncryptionError(
+                    "content key proof is missing; this program opens only a home it created"
+                        .into(),
+                )
+            })?;
+            content_key_proof::verify(&content_key, &stored)
         })
         .await?;
         runtime.finish_fresh_initialization().await?;
@@ -230,6 +216,12 @@ pub(crate) mod read {
         store: PackKvStore,
     }
 
+    fn parse_item<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
+        serde_json::from_slice(bytes).map_err(|e| {
+            StorageError::SerializationError(format!("Failed to deserialize {key}: {e}"))
+        })
+    }
+
     impl ReadStore {
         pub(in crate::storage::format) fn new(store: PackKvStore) -> Self {
             Self { store }
@@ -238,15 +230,14 @@ pub(crate) mod read {
         fn decode_rows<T: DeserializeOwned>(
             results: Vec<(Vec<u8>, Vec<u8>)>,
         ) -> StorageResult<Vec<(String, T)>> {
-            let mut items = Vec::with_capacity(results.len());
-            for (key_bytes, value_bytes) in results {
-                let key = String::from_utf8_lossy(&key_bytes).into_owned();
-                let value = serde_json::from_slice(&value_bytes).map_err(|e| {
-                    StorageError::SerializationError(format!("Failed to deserialize {key}: {e}"))
-                })?;
-                items.push((key, value));
-            }
-            Ok(items)
+            results
+                .into_iter()
+                .map(|(k, v)| {
+                    let key = String::from_utf8_lossy(&k).into_owned();
+                    let val = parse_item(&key, &v)?;
+                    Ok((key, val))
+                })
+                .collect()
         }
 
         pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
@@ -292,12 +283,11 @@ pub(crate) mod read {
             &self,
             key: &str,
         ) -> StorageResult<Option<T>> {
-            let raw = self.store.get(key.as_bytes()).await?;
-            raw.map(|bytes| {
-                serde_json::from_slice(&bytes)
-                    .map_err(|error| StorageError::SerializationError(error.to_string()))
-            })
-            .transpose()
+            self.store
+                .get(key.as_bytes())
+                .await?
+                .map(|bytes| parse_item(key, &bytes))
+                .transpose()
         }
 
         pub(crate) async fn get_items<T: DeserializeOwned + Send + Sync>(
@@ -308,30 +298,23 @@ pub(crate) mod read {
                 return Ok(Vec::new());
             }
             let primary = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
-            let raw = self.store.get_many(primary).await?;
-            let mut out = Vec::with_capacity(keys.len());
-            for (key, bytes) in keys.iter().zip(raw) {
-                match bytes {
-                    Some(bytes) => {
-                        let item = serde_json::from_slice(&bytes).map_err(|e| {
-                            StorageError::SerializationError(format!(
-                                "Failed to deserialize {key}: {e}"
-                            ))
-                        })?;
-                        out.push(Some(item));
-                    }
-                    None => out.push(None),
-                }
-            }
-            Ok(out)
+            self.store
+                .get_many(primary)
+                .await?
+                .into_iter()
+                .zip(keys)
+                .map(|(raw, key)| raw.map(|b| parse_item(key, &b)).transpose())
+                .collect()
         }
 
         pub(crate) async fn list_keys_with_prefix(
             &self,
             prefix: &str,
         ) -> StorageResult<Vec<String>> {
-            let rows = self.store.scan_prefix(prefix.as_bytes()).await?;
-            Ok(rows
+            Ok(self
+                .store
+                .scan_prefix(prefix.as_bytes())
+                .await?
                 .into_iter()
                 .map(|(k, _)| String::from_utf8_lossy(&k).into_owned())
                 .collect())
@@ -341,8 +324,7 @@ pub(crate) mod read {
             &self,
             prefix: &str,
         ) -> StorageResult<Vec<(String, T)>> {
-            let rows = self.store.scan_prefix(prefix.as_bytes()).await?;
-            Self::decode_rows(rows)
+            Self::decode_rows(self.store.scan_prefix(prefix.as_bytes()).await?)
         }
 
         pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(

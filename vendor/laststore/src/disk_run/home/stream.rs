@@ -69,19 +69,38 @@ impl RunRead {
             .checked_add(key.len())
             .and_then(|n| n.checked_add(2))
             .ok_or(Error::ReadBudgetExceeded)?;
-        let frame_buffers =
-            2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
-        let needed = (length as u64)
-            .checked_add(frame_buffers)
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let needed = usize::try_from(needed).map_err(|_| Error::ReadBudgetExceeded)?;
-        self.stream_admission(needed)?;
+        let buffers = 2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let check = |n: usize| {
+            let total = (n as u64)
+                .checked_add(buffers)
+                .ok_or(Error::ReadBudgetExceeded)?;
+            self.stream_admission(usize::try_from(total).map_err(|_| Error::ReadBudgetExceeded)?)
+        };
+        check(length)?;
         let wanted = run_key(collection, key)?;
-        let actual = (wanted.capacity() as u64)
-            .checked_add(frame_buffers)
-            .ok_or(Error::ReadBudgetExceeded)?;
-        self.stream_admission(usize::try_from(actual).map_err(|_| Error::ReadBudgetExceeded)?)?;
+        check(wanted.capacity())?;
         Ok(wanted)
+    }
+
+    fn open_stream_reader(
+        &mut self,
+        slot: usize,
+        admission: u64,
+        extra: u64,
+    ) -> Result<(RunReader, u64)> {
+        let reserved = self
+            .shared_metadata_bytes
+            .max(self.retained_bytes())
+            .checked_add(self.costs.budget_bytes)
+            .and_then(|n| n.checked_add(extra))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let reader = RunReader::open_bounded_with_reserve(
+            &self.runs[slot].0.path,
+            &self.key,
+            admission,
+            reserved,
+        )?;
+        Ok((reader, reserved))
     }
 
     pub(in crate::disk_run::home) fn streamed_value(
@@ -98,47 +117,21 @@ impl RunRead {
             if !self.runs[slot].0.meta.covers(&wanted) {
                 continue;
             }
-            if let Some(body) = self.streamed_body_at(slot, &wanted, admission)? {
-                return self.accept_streamed(body, admission, maximum);
+            let (reader, reserved) =
+                self.open_stream_reader(slot, admission, wanted.len() as u64)?;
+            if let Some(body) = reader.stream_body(&wanted, admission, reserved)? {
+                return match body {
+                    SelectedBody::Deleted => Ok(None),
+                    SelectedBody::Value(body) => {
+                        let limit = maximum.min(admission).min(body.memory_available);
+                        let value = body.into_vec(limit)?;
+                        self.charge(value.len() as u64)?;
+                        Ok(Some(value))
+                    }
+                };
             }
         }
         Ok(None)
-    }
-
-    fn streamed_body_at(
-        &mut self,
-        slot: usize,
-        wanted: &[u8],
-        admission: u64,
-    ) -> Result<Option<SelectedBody>> {
-        let reserved = self.shared_metadata_bytes.max(self.retained_bytes())
-            + self.costs.budget_bytes
-            + wanted.len() as u64;
-        let reader = RunReader::open_bounded_with_reserve(
-            &self.runs[slot].0.path,
-            &self.key,
-            admission,
-            reserved,
-        )?;
-        self.costs.runs_opened += 1;
-        reader.stream_body(wanted, admission, reserved)
-    }
-
-    fn accept_streamed(
-        &mut self,
-        body: SelectedBody,
-        admission: u64,
-        maximum: u64,
-    ) -> Result<Option<Vec<u8>>> {
-        match body {
-            SelectedBody::Deleted => Ok(None),
-            SelectedBody::Value(body) => {
-                let maximum = maximum.min(admission).min(body.allocation_limit());
-                let value = body.into_vec(maximum)?;
-                self.charge(value.len() as u64)?;
-                Ok(Some(value))
-            }
-        }
     }
 
     pub(in crate::disk_run::home) fn streamed_next_key(
@@ -151,55 +144,23 @@ impl RunRead {
         let mut selected: Option<Vec<u8>> = None;
         for slot in 0..self.runs.len() {
             let end = selected.as_deref().or(upper);
-            if let Some(next) = self.streamed_next_key_at(
-                slot,
-                lower,
-                end,
-                exclusive,
-                selected.as_ref().map_or(0, |key| key.capacity() as u64),
-            )? {
+            if !self.runs[slot].0.meta.overlaps(lower, end) {
+                continue;
+            }
+            let extra = lower
+                .len()
+                .checked_add(end.map_or(0, <[u8]>::len))
+                .and_then(|n| n.checked_add(selected.as_ref().map_or(0, Vec::capacity)))
+                .ok_or(Error::ReadBudgetExceeded)?;
+            let admission = self.stream_admission(extra)?;
+            let (reader, reserved) = self.open_stream_reader(slot, admission, extra as u64)?;
+            if let Some(next) = reader.stream_key(lower, end, exclusive, admission, reserved)? {
                 selected = Some(next);
             }
         }
         selected
             .map(|key| storage_key(collection, &key))
             .transpose()
-    }
-
-    fn streamed_next_key_at(
-        &mut self,
-        slot: usize,
-        lower: &[u8],
-        upper: Option<&[u8]>,
-        exclusive: bool,
-        extra_retained: u64,
-    ) -> Result<Option<Vec<u8>>> {
-        if !self.runs[slot].0.meta.overlaps(lower, upper) {
-            return Ok(None);
-        }
-        let coordinates = lower
-            .len()
-            .checked_add(upper.map_or(0, <[u8]>::len))
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let extra = usize::try_from(extra_retained)
-            .ok()
-            .and_then(|n| n.checked_add(coordinates))
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let admission = self.stream_admission(extra)?;
-        let reserved = self
-            .shared_metadata_bytes
-            .max(self.retained_bytes())
-            .checked_add(self.costs.budget_bytes)
-            .and_then(|n| n.checked_add(extra as u64))
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let reader = RunReader::open_bounded_with_reserve(
-            &self.runs[slot].0.path,
-            &self.key,
-            admission,
-            reserved,
-        )?;
-        self.costs.runs_opened += 1;
-        reader.stream_key(lower, upper, exclusive, admission, reserved)
     }
 }
 
@@ -257,7 +218,13 @@ impl<'a> BoundedRange<'a> {
                     break;
                 }
             }
-            let Some(key) = self.next_key()? else {
+            let Some(key) = self.owner.streamed_next_key(
+                &self.collection,
+                &self.lower,
+                self.upper.as_deref(),
+                self.exclusive,
+            )?
+            else {
                 self.exhausted = true;
                 break;
             };
@@ -281,15 +248,6 @@ impl<'a> BoundedRange<'a> {
             exhausted: self.exhausted,
             resume,
         })
-    }
-
-    fn next_key(&mut self) -> Result<Option<String>> {
-        self.owner.streamed_next_key(
-            &self.collection,
-            &self.lower,
-            self.upper.as_deref(),
-            self.exclusive,
-        )
     }
 
     fn coordinate_bytes(&self) -> u64 {

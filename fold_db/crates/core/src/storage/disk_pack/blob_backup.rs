@@ -1,10 +1,5 @@
 //! Local state of personal record blobs for cloud backup (design
 //! `design-lastdb-blob-files-on-demand-20261107`).
-//!
-//! Each record file version (`fb:<suffix>` in `cas_blobs`) is one B2 object at
-//! a path derived from the record. Three marker families in `cas_blobs` share
-//! the same suffix (`fp:` pending upload, `fu:` uploaded, `fr:` released).
-//! A shared database keeps its eager CAS backup and uses none of this.
 
 use super::super::traits::KvMutation;
 use super::physical::CAS_COLLECTION;
@@ -16,12 +11,9 @@ use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::Id;
 use std::collections::BTreeMap;
 
-/// Marker rows hold no data; the key is the fact.
 const MARKER: &[u8] = b"1";
-/// Rows read per scan page. A `fb:` row holds a whole sealed file.
 const FILE_PAGE: usize = 4;
 const MARKER_PAGE: usize = 256;
-/// Marker writes per native write request.
 const WRITE_CHUNK: usize = 512;
 
 /// One record file version and its cloud path.
@@ -35,7 +27,15 @@ pub struct BlobRow {
 /// The cloud path of a record file version from any key of its families.
 pub fn blob_path_of_key(database: &Id, key: &str) -> StorageResult<BlobPath> {
     let invalid = || StorageError::InvalidOperation("record file key has no blob path".into());
-    let suffix = suffix(key).ok_or_else(invalid)?;
+    let suffix = [
+        RECORD_FILE_PREFIX,
+        RECORD_FILE_UPLOADED_PREFIX,
+        PENDING_UPLOAD_PREFIX,
+        RELEASED_FILE_PREFIX,
+    ]
+    .into_iter()
+    .find_map(|prefix| key.strip_prefix(prefix))
+    .ok_or_else(invalid)?;
     let mut parts = suffix.splitn(3, ':');
     let (Some(space), Some(record), Some(write_id)) = (parts.next(), parts.next(), parts.next())
     else {
@@ -51,20 +51,9 @@ pub fn blob_path_of_key(database: &Id, key: &str) -> StorageResult<BlobPath> {
     Ok(path)
 }
 
-fn suffix(key: &str) -> Option<&str> {
-    [
-        RECORD_FILE_PREFIX,
-        RECORD_FILE_UPLOADED_PREFIX,
-        PENDING_UPLOAD_PREFIX,
-        RELEASED_FILE_PREFIX,
-    ]
-    .into_iter()
-    .find_map(|prefix| key.strip_prefix(prefix))
-}
-
-fn raw(op: &HomeMutation) -> Option<String> {
-    let key = native_routing::decode(&op.key).ok()?;
-    String::from_utf8(key).ok()
+fn raw_suffix<'a>(op: &'a HomeMutation, decoded: &'a mut String) -> Option<&'a str> {
+    *decoded = String::from_utf8(native_routing::decode(&op.key).ok()?).ok()?;
+    decoded.strip_prefix(RECORD_FILE_PREFIX)
 }
 
 fn marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
@@ -75,38 +64,31 @@ fn marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
     }
 }
 
-/// A new `fb:` row without an `fu:` row in the same batch was created here:
-/// queue its upload. A download writes `fb:` and `fu:` together.
+/// Queue upload markers for new `fb:` rows that lack an `fu:` row in the same batch.
 pub(in crate::storage::disk_pack) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
     let mut queued = Vec::new();
+    let mut buf = String::new();
     for op in cas.values().filter(|op| op.body.is_some()) {
-        let Some(key) = raw(op) else { continue };
-        let Some(suffix) = key.strip_prefix(RECORD_FILE_PREFIX) else {
+        let Some(suffix) = raw_suffix(op, &mut buf) else {
             continue;
         };
         let uploaded = marker(RECORD_FILE_UPLOADED_PREFIX, suffix, true);
-        if cas.get(&uploaded.key).is_some_and(|op| op.body.is_some()) {
-            continue;
+        if cas.get(&uploaded.key).is_none_or(|op| op.body.is_none()) {
+            queued.push(marker(PENDING_UPLOAD_PREFIX, suffix, true));
         }
-        queued.push(marker(PENDING_UPLOAD_PREFIX, suffix, true));
     }
     for op in queued {
         cas.entry(op.key.clone()).or_insert(op);
     }
 }
 
-/// The CAS delete commit: each retired `fb:` row also loses its upload
-/// markers and queues a cloud release. Explicit operations of the batch win.
+/// Each retired `fb:` row also loses its upload markers and queues a cloud release.
 pub(in crate::storage::disk_pack) fn with_releases(
     deletes: Vec<HomeMutation>,
 ) -> Vec<HomeMutation> {
-    let mut out = BTreeMap::new();
-    let mut derived = Vec::new();
+    let (mut out, mut derived, mut buf) = (BTreeMap::new(), Vec::new(), String::new());
     for op in deletes {
-        if let Some(suffix) = raw(&op)
-            .as_deref()
-            .and_then(|key| key.strip_prefix(RECORD_FILE_PREFIX))
-        {
+        if let Some(suffix) = raw_suffix(&op, &mut buf) {
             derived.push(marker(RECORD_FILE_UPLOADED_PREFIX, suffix, false));
             derived.push(marker(PENDING_UPLOAD_PREFIX, suffix, false));
             derived.push(marker(RELEASED_FILE_PREFIX, suffix, true));
@@ -119,47 +101,36 @@ pub(in crate::storage::disk_pack) fn with_releases(
     out.into_values().collect()
 }
 
-impl PackRuntime {
-    pub(in crate::storage::disk_pack) fn blob_store(
-        self: &Arc<Self>,
-    ) -> StorageResult<PackKvStore> {
-        Ok(PackKvStore {
-            runtime: Arc::clone(self),
-            namespace: CAS_COLLECTION.into(),
-        })
-    }
+fn suffixes_of(rows: &[(Vec<u8>, Vec<u8>)], prefix: &str) -> Vec<String> {
+    rows.iter()
+        .filter_map(|(k, _)| std::str::from_utf8(k).ok()?.strip_prefix(prefix))
+        .map(str::to_owned)
+        .collect()
+}
 
+impl PackRuntime {
     /// Queue every local `fb:` row that has neither an `fu:` nor an `fp:` row.
-    /// A snapshot job runs this first, so versions that predate the upload
-    /// markers (or lost them) upload once. It reads every file row.
     pub async fn queue_unuploaded_blobs(self: &Arc<Self>) -> StorageResult<u64> {
-        let store = self.blob_store()?;
-        let mut after = None;
-        let mut puts = Vec::new();
-        let mut queued = 0u64;
+        let store = self.cas_kv();
+        let (mut after, mut puts, mut queued) = (None, Vec::new(), 0u64);
         loop {
             let rows = page(&store, RECORD_FILE_PREFIX, after.take(), FILE_PAGE).await?;
             let done = rows.len() < FILE_PAGE;
-            let suffixes: Vec<String> = rows
-                .iter()
-                .filter_map(|(key, _)| std::str::from_utf8(key).ok())
-                .filter_map(|key| key.strip_prefix(RECORD_FILE_PREFIX))
-                .map(str::to_owned)
-                .collect();
+            let suffixes = suffixes_of(&rows, RECORD_FILE_PREFIX);
             after = rows.last().map(|(key, _)| key.clone());
             drop(rows);
             let keys = suffixes
                 .iter()
-                .flat_map(|suffix| {
+                .flat_map(|s| {
                     [RECORD_FILE_UPLOADED_PREFIX, PENDING_UPLOAD_PREFIX]
-                        .map(|prefix| format!("{prefix}{suffix}").into_bytes())
+                        .map(|p| format!("{p}{s}").into_bytes())
                 })
                 .collect();
             let markers = store.get_many(keys).await?;
             for (suffix, pair) in suffixes.iter().zip(markers.chunks(2)) {
                 if pair.iter().all(Option::is_none) {
                     puts.push(KvMutation::put(
-                        format!("{PENDING_UPLOAD_PREFIX}{suffix}").into_bytes(),
+                        format!("{PENDING_UPLOAD_PREFIX}{suffix}"),
                         MARKER.to_vec(),
                     ));
                 }
@@ -174,21 +145,19 @@ impl PackRuntime {
         }
     }
 
-    /// Up to `limit` queued versions after the `fb:` key `after` that are not
-    /// in the cloud, in key order, with their paths under `database`.
+    /// Up to `limit` queued versions after the `fb:` key `after` that are not in the cloud.
     pub async fn pending_blob_uploads(
         self: &Arc<Self>,
         database: &Id,
         after: Option<&str>,
         limit: usize,
     ) -> StorageResult<Vec<BlobRow>> {
-        let store = self.blob_store()?;
-        let mut uploads = Vec::new();
-        let mut stale = Vec::new();
+        let store = self.cas_kv();
+        let (mut uploads, mut stale) = (Vec::new(), Vec::new());
         let mut after = after
             .map(|key| {
                 key.strip_prefix(RECORD_FILE_PREFIX)
-                    .map(|suffix| format!("{PENDING_UPLOAD_PREFIX}{suffix}").into_bytes())
+                    .map(|s| format!("{PENDING_UPLOAD_PREFIX}{s}").into_bytes())
                     .ok_or_else(|| StorageError::InvalidOperation("upload cursor".into()))
             })
             .transpose()?;
@@ -196,29 +165,26 @@ impl PackRuntime {
             let rows = page(&store, PENDING_UPLOAD_PREFIX, after.take(), MARKER_PAGE).await?;
             let done = rows.len() < MARKER_PAGE;
             after = rows.last().map(|(key, _)| key.clone());
-            let suffixes: Vec<String> = rows
-                .iter()
-                .filter_map(|(key, _)| std::str::from_utf8(key).ok())
-                .filter_map(|key| key.strip_prefix(PENDING_UPLOAD_PREFIX))
-                .map(str::to_owned)
-                .collect();
+            let suffixes = suffixes_of(&rows, PENDING_UPLOAD_PREFIX);
             let uploaded = store
                 .get_many(
                     suffixes
                         .iter()
-                        .map(|suffix| format!("{RECORD_FILE_UPLOADED_PREFIX}{suffix}").into_bytes())
+                        .map(|s| format!("{RECORD_FILE_UPLOADED_PREFIX}{s}").into_bytes())
                         .collect(),
                 )
                 .await?;
             for (suffix, uploaded) in suffixes.iter().zip(uploaded) {
                 if uploaded.is_some() {
-                    stale.push(KvMutation::delete(
-                        format!("{PENDING_UPLOAD_PREFIX}{suffix}").into_bytes(),
-                    ));
+                    stale.push(KvMutation::delete(format!(
+                        "{PENDING_UPLOAD_PREFIX}{suffix}"
+                    )));
                 } else if uploads.len() < limit {
                     let key = format!("{RECORD_FILE_PREFIX}{suffix}");
-                    let path = blob_path_of_key(database, &key)?;
-                    uploads.push(BlobRow { key, path });
+                    uploads.push(BlobRow {
+                        path: blob_path_of_key(database, &key)?,
+                        key,
+                    });
                 }
             }
             if done || after.is_none() {
@@ -238,7 +204,7 @@ impl PackRuntime {
         after: Option<&str>,
         limit: usize,
     ) -> StorageResult<Vec<BlobRow>> {
-        let store = self.blob_store()?;
+        let store = self.cas_kv();
         let after = after
             .map(|key| {
                 key.starts_with(RELEASED_FILE_PREFIX)
@@ -246,14 +212,17 @@ impl PackRuntime {
                     .ok_or_else(|| StorageError::InvalidOperation("release cursor".into()))
             })
             .transpose()?;
-        let rows = page(&store, RELEASED_FILE_PREFIX, after, limit).await?;
-        rows.into_iter()
+        page(&store, RELEASED_FILE_PREFIX, after, limit)
+            .await?
+            .into_iter()
             .map(|(key, _)| {
                 let key = String::from_utf8(key).map_err(|_| {
                     StorageError::InvalidOperation("record file release key".into())
                 })?;
-                let path = blob_path_of_key(database, &key)?;
-                Ok(BlobRow { key, path })
+                Ok(BlobRow {
+                    path: blob_path_of_key(database, &key)?,
+                    key,
+                })
             })
             .collect()
     }
@@ -265,7 +234,7 @@ impl PackRuntime {
                 "a blob upload reads a record file key".into(),
             ));
         }
-        self.blob_store()?.get(key.as_bytes()).await
+        self.cas_kv().get(key.as_bytes()).await
     }
 
     /// Record uploaded versions and completed releases after a backup job.
@@ -274,19 +243,19 @@ impl PackRuntime {
         uploaded: &[String],
         released: &[String],
     ) -> StorageResult<()> {
-        let store = self.blob_store()?;
-        let mut mutations = Vec::new();
+        let store = self.cas_kv();
+        let mut mutations = Vec::with_capacity(uploaded.len() * 2 + released.len());
         for key in uploaded {
             let suffix = key
                 .strip_prefix(RECORD_FILE_PREFIX)
                 .ok_or_else(|| StorageError::InvalidOperation("uploaded file key".into()))?;
             mutations.push(KvMutation::put(
-                format!("{RECORD_FILE_UPLOADED_PREFIX}{suffix}").into_bytes(),
+                format!("{RECORD_FILE_UPLOADED_PREFIX}{suffix}"),
                 MARKER.to_vec(),
             ));
-            mutations.push(KvMutation::delete(
-                format!("{PENDING_UPLOAD_PREFIX}{suffix}").into_bytes(),
-            ));
+            mutations.push(KvMutation::delete(format!(
+                "{PENDING_UPLOAD_PREFIX}{suffix}"
+            )));
         }
         for key in released {
             if !key.starts_with(RELEASED_FILE_PREFIX) {
@@ -301,7 +270,6 @@ impl PackRuntime {
     }
 }
 
-/// One page of a key family, strictly after `after`.
 async fn page(
     store: &PackKvStore,
     prefix: &str,
@@ -310,9 +278,6 @@ async fn page(
 ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let mut end = prefix.as_bytes().to_vec();
     *end.last_mut().expect("family separator") = b';';
-    let start = match after {
-        Some(after) => [after, vec![0]].concat(),
-        None => prefix.as_bytes().to_vec(),
-    };
+    let start = after.map_or_else(|| prefix.as_bytes().to_vec(), |a| [a, vec![0]].concat());
     store.scan_range_paged(&start, &end, limit).await
 }

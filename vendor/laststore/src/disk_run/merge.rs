@@ -8,11 +8,8 @@ use std::ops::{Bound, Deref};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Borrowed or shared run reader backing a [`RunRange`].
-pub enum ReaderRef<'a> {
-    /// Borrowed reader for a single call.
+pub(super) enum ReaderRef<'a> {
     Borrowed(&'a RunReader),
-    /// Shared reader for sequenced iteration.
     Shared(Arc<RunReader>),
 }
 
@@ -21,14 +18,13 @@ impl Deref for ReaderRef<'_> {
 
     fn deref(&self) -> &RunReader {
         match self {
-            Self::Borrowed(reader) => reader,
-            Self::Shared(reader) => reader,
+            Self::Borrowed(r) => r,
+            Self::Shared(r) => r,
         }
     }
 }
 
-/// Records of one run inside key bounds, in key order.
-pub struct RunRange<'a> {
+pub(crate) struct RunRange<'a> {
     reader: ReaderRef<'a>,
     lower: Bound<Vec<u8>>,
     upper: Bound<Vec<u8>>,
@@ -77,37 +73,34 @@ impl<'a> RunRange<'a> {
 
     fn load_next_block(&mut self) -> Result<bool> {
         loop {
-            let exhausted = match &self.index {
-                Some(index) => self.next_block >= index.blocks.len(),
-                None => true,
-            };
-            if exhausted {
+            if self
+                .index
+                .as_ref()
+                .is_none_or(|idx| self.next_block >= idx.blocks.len())
+            {
                 if self.next_index >= self.reader.index_count() {
                     return Ok(false);
                 }
-                let index = self.reader.read_index(self.next_index)?;
+                let index = self.reader.read_index(self.next_index, None)?;
                 self.next_index += 1;
                 self.next_block = self.first_block_in(&index);
                 self.index = Some(index);
                 continue;
             }
-            let index = self.index.as_ref().expect("index loaded");
-            let block = &index.blocks[self.next_block];
+            let block = &self.index.as_ref().expect("index loaded").blocks[self.next_block];
             if self.above_upper(&block.first_key) {
                 return Ok(false);
             }
-            let records = self.reader.read_data(block)?;
+            self.current = self.reader.read_data(block, None)?.into_iter();
             self.next_block += 1;
-            self.current = records.into_iter();
             return Ok(true);
         }
     }
 
     fn first_block_in(&mut self, index: &IndexBlock) -> usize {
-        if self.positioned {
+        if std::mem::replace(&mut self.positioned, true) {
             return 0;
         }
-        self.positioned = true;
         match &self.lower {
             Bound::Included(key) | Bound::Excluded(key) => index
                 .blocks
@@ -120,8 +113,16 @@ impl<'a> RunRange<'a> {
 
 fn owned(bound: Bound<&[u8]>) -> Bound<Vec<u8>> {
     match bound {
-        Bound::Included(key) => Bound::Included(key.to_vec()),
-        Bound::Excluded(key) => Bound::Excluded(key.to_vec()),
+        Bound::Included(k) => Bound::Included(k.to_vec()),
+        Bound::Excluded(k) => Bound::Excluded(k.to_vec()),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+fn borrowed(bound: &Bound<Vec<u8>>) -> Bound<&[u8]> {
+    match bound {
+        Bound::Included(k) => Bound::Included(k),
+        Bound::Excluded(k) => Bound::Excluded(k),
         Bound::Unbounded => Bound::Unbounded,
     }
 }
@@ -164,8 +165,8 @@ impl Iterator for MergeSource<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Run(range) => range.next(),
-            Self::Sequence(sequence) => sequence.next(),
+            Self::Run(r) => r.next(),
+            Self::Sequence(s) => s.next(),
         }
     }
 }
@@ -197,31 +198,23 @@ impl RunSequence {
     }
 }
 
-fn borrowed(bound: &Bound<Vec<u8>>) -> Bound<&[u8]> {
-    match bound {
-        Bound::Included(key) => Bound::Included(key),
-        Bound::Excluded(key) => Bound::Excluded(key),
-        Bound::Unbounded => Bound::Unbounded,
-    }
-}
-
 impl Iterator for RunSequence {
     type Item = Result<(Vec<u8>, Found)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.failed {
             if let Some(range) = self.current.as_mut() {
-                match range.next() {
-                    Some(record) => return Some(record),
-                    None => self.current = None,
+                if let Some(record) = range.next() {
+                    return Some(record);
                 }
+                self.current = None;
             }
             let path = self.paths.next()?;
             match RunReader::open(&path, &self.key) {
                 Ok(reader) => {
-                    let range =
-                        Arc::new(reader).shared_range(borrowed(&self.lower), borrowed(&self.upper));
-                    self.current = Some(range);
+                    self.current = Some(
+                        Arc::new(reader).shared_range(borrowed(&self.lower), borrowed(&self.upper)),
+                    );
                 }
                 Err(error) => {
                     self.failed = true;
@@ -261,8 +254,7 @@ impl<'a> MergeIter<'a> {
     }
 
     fn step(&mut self) -> Result<Option<(Vec<u8>, Found)>> {
-        if !self.started {
-            self.started = true;
+        if !std::mem::replace(&mut self.started, true) {
             for source in 0..self.sources.len() {
                 self.advance(source)?;
             }
@@ -270,11 +262,10 @@ impl<'a> MergeIter<'a> {
         let mut winner: Option<usize> = None;
         for (source, head) in self.heads.iter().enumerate() {
             let Some((key, _)) = head else { continue };
-            let smaller = match winner.and_then(|w| self.heads[w].as_ref()) {
-                Some((best, _)) => key < best,
-                None => true,
-            };
-            if smaller {
+            if winner
+                .and_then(|w| self.heads[w].as_ref())
+                .is_none_or(|(best, _)| key < best)
+            {
                 winner = Some(source);
             }
         }

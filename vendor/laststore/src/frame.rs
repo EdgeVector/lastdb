@@ -9,7 +9,6 @@ use sha2::Sha256;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
-mod gcm;
 mod stream;
 pub(crate) use stream::VerifiedFrameReader;
 
@@ -21,7 +20,7 @@ const ZSTD_LEVEL: i32 = 3;
 const UNCOMPRESSED_LEN_SIZE: usize = 8;
 pub(crate) const MAX_DECOMPRESSED_FRAME_BYTES: usize = 64 * 1024 * 1024;
 
-const HEADER_SIZE: usize = 4 + 1 + 1 + 2 + 8 + 8 + 8 + 16;
+const HEADER_SIZE: usize = 48;
 const TAG_SIZE: usize = 16;
 const HKDF_INFO: &[u8] = b"laststore/frame/aes-256-gcm/v1";
 
@@ -69,7 +68,14 @@ pub(crate) struct PreparedFrameKey {
 
 impl PreparedFrameKey {
     pub(crate) fn new(data_key: &[u8; 32], chunk: Uuid) -> Result<Self> {
-        make_key(data_key, chunk)
+        let raw_key = Zeroizing::new(chunk_key(data_key, chunk)?);
+        let cipher = Aes256Gcm::new_from_slice(raw_key.as_ref())
+            .map_err(|_| Error::Config("invalid aead key length".into()))?;
+        Ok(Self {
+            chunk,
+            cipher,
+            raw_key,
+        })
     }
 
     pub(crate) fn decode(
@@ -79,11 +85,11 @@ impl PreparedFrameKey {
         maximum: usize,
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<DecodedFrame> {
-        decode_inner(data_key, frame, Some(maximum), Some(self), scratch)
+        decode_inner(data_key, frame, maximum, Some(self), scratch)
     }
 }
 
-pub(crate) fn min_encoded_len() -> usize {
+pub(crate) const fn min_encoded_len() -> usize {
     HEADER_SIZE + TAG_SIZE
 }
 
@@ -92,14 +98,17 @@ pub(crate) fn encode_frame(
     header: FrameHeader,
     payload: &[u8],
 ) -> Result<Vec<u8>> {
-    let (mut stored, use_compressed) = stored_payload(payload)?;
-    let flags = if use_compressed { FLAG_ZSTD } else { 0 };
-    let header_bytes = encode_header(header, stored.len() as u64, flags);
+    let (mut stored, compressed) = stored_payload(payload)?;
+    let header_bytes = encode_header(
+        header,
+        stored.len() as u64,
+        if compressed { FLAG_ZSTD } else { 0 },
+    );
     let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
         .map_err(|_| Error::Config("invalid aead key length".into()))?;
-    let nonce_bytes = counter_nonce(header.counter);
+    let nonce = counter_nonce(header.counter);
     let tag = cipher
-        .encrypt_in_place_detached(Nonce::from_slice(&nonce_bytes), &header_bytes, &mut stored)
+        .encrypt_in_place_detached(Nonce::from_slice(&nonce), &header_bytes, &mut stored)
         .map_err(|_| Error::AeadAuthFail)?;
 
     let mut out = Vec::with_capacity(HEADER_SIZE + stored.len() + TAG_SIZE);
@@ -109,20 +118,16 @@ pub(crate) fn encode_frame(
     Ok(out)
 }
 
-pub(crate) fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
-    decode_inner(data_key, frame, None, None, None)
-}
-
 pub(crate) fn decode_frame_bounded(
     data_key: &[u8; 32],
     frame: &[u8],
     maximum: usize,
 ) -> Result<DecodedFrame> {
-    decode_inner(data_key, frame, Some(maximum), None, None)
+    decode_inner(data_key, frame, maximum, None, None)
 }
 
 fn stored_payload(payload: &[u8]) -> Result<(Vec<u8>, bool)> {
-    if payload.len() < MIN_INPUT_BYTES || payload.len() > MAX_DECOMPRESSED_FRAME_BYTES {
+    if !(MIN_INPUT_BYTES..=MAX_DECOMPRESSED_FRAME_BYTES).contains(&payload.len()) {
         return Ok((payload.to_vec(), false));
     }
     let compressed = zstd::bulk::compress(payload, ZSTD_LEVEL)
@@ -138,21 +143,10 @@ fn stored_payload(payload: &[u8]) -> Result<(Vec<u8>, bool)> {
     Ok((stored, true))
 }
 
-fn make_key(data_key: &[u8; 32], chunk: Uuid) -> Result<PreparedFrameKey> {
-    let raw_key = Zeroizing::new(chunk_key(data_key, chunk)?);
-    let cipher = Aes256Gcm::new_from_slice(raw_key.as_ref())
-        .map_err(|_| Error::Config("invalid aead key length".into()))?;
-    Ok(PreparedFrameKey {
-        chunk,
-        cipher,
-        raw_key,
-    })
-}
-
 fn decode_inner(
     data_key: &[u8; 32],
     frame: &[u8],
-    max_payload: Option<usize>,
+    max_payload: usize,
     prepared: Option<&PreparedFrameKey>,
     scratch: Option<&mut DecodeScratch>,
 ) -> Result<DecodedFrame> {
@@ -168,71 +162,65 @@ fn decode_inner(
     if frame.len() != expected_len {
         return Err(Error::Corrupt("frame length mismatch".into()));
     }
-    if max_payload.is_some_and(|limit| payload_len > limit.saturating_add(UNCOMPRESSED_LEN_SIZE)) {
+    if payload_len > max_payload.saturating_add(UNCOMPRESSED_LEN_SIZE) {
         return Err(Error::Corrupt("stored frame exceeds block limit".into()));
     }
     let tag_offset = HEADER_SIZE + payload_len;
     let generated;
-    let key = if let Some(key) = prepared.filter(|key| key.chunk == header.chunk_uuid) {
-        key
-    } else {
-        generated = make_key(data_key, header.chunk_uuid)?;
-        &generated
+    let key = match prepared.filter(|k| k.chunk == header.chunk_uuid) {
+        Some(key) => key,
+        None => {
+            generated = PreparedFrameKey::new(data_key, header.chunk_uuid)?;
+            &generated
+        }
     };
     let mut payload = open_payload(
         key,
-        OpenInput {
-            nonce: counter_nonce(header.counter),
-            header: header_bytes,
-            ciphertext: &frame[HEADER_SIZE..tag_offset],
-            tag: &frame[tag_offset..],
-        },
+        counter_nonce(header.counter),
+        header_bytes,
+        &frame[HEADER_SIZE..tag_offset],
+        &frame[tag_offset..],
         prepared.is_some(),
     )?;
     if flags & FLAG_ZSTD != 0 {
-        payload = decompress_bounded(
-            &payload,
-            max_payload.unwrap_or(MAX_DECOMPRESSED_FRAME_BYTES),
-            scratch,
-        )?;
-    } else if max_payload.is_some_and(|limit| payload.len() > limit) {
+        payload = decompress_bounded(&payload, max_payload, scratch)?;
+    } else if payload.len() > max_payload {
         return Err(Error::Corrupt("decoded frame exceeds block limit".into()));
     }
     Ok(DecodedFrame { header, payload })
 }
 
-struct OpenInput<'a> {
+fn open_payload(
+    key: &PreparedFrameKey,
     nonce: [u8; 12],
-    header: &'a [u8],
-    ciphertext: &'a [u8],
-    tag: &'a [u8],
-}
-
-fn open_payload(key: &PreparedFrameKey, input: OpenInput<'_>, ordinary: bool) -> Result<Vec<u8>> {
-    let native = ordinary && input.ciphertext.len() >= NATIVE_MIN_BYTES;
+    header: &[u8],
+    ciphertext: &[u8],
+    tag: &[u8],
+    ordinary: bool,
+) -> Result<Vec<u8>> {
+    let native = ordinary && ciphertext.len() >= NATIVE_MIN_BYTES;
     let extra = if native {
         Cipher::aes_256_gcm().block_size()
     } else {
         0
     };
-    let capacity = input
-        .ciphertext
+    let capacity = ciphertext
         .len()
         .checked_add(extra)
         .ok_or_else(|| Error::Corrupt("frame output length overflow".into()))?;
     let mut payload = vec![0u8; capacity];
     if !native {
-        payload.copy_from_slice(input.ciphertext);
+        payload.copy_from_slice(ciphertext);
     }
     let opened = if native {
-        open_native(key, &input, &mut payload)
+        open_native(key, &nonce, header, ciphertext, tag, &mut payload)
     } else {
         key.cipher
             .decrypt_in_place_detached(
-                Nonce::from_slice(&input.nonce),
-                input.header,
+                Nonce::from_slice(&nonce),
+                header,
                 &mut payload,
-                Tag::from_slice(input.tag),
+                Tag::from_slice(tag),
             )
             .map_err(|_| Error::AeadAuthFail)
     };
@@ -243,25 +231,30 @@ fn open_payload(key: &PreparedFrameKey, input: OpenInput<'_>, ordinary: bool) ->
     Ok(payload)
 }
 
-fn open_native(key: &PreparedFrameKey, input: &OpenInput<'_>, output: &mut Vec<u8>) -> Result<()> {
+fn open_native(
+    key: &PreparedFrameKey,
+    nonce: &[u8; 12],
+    header: &[u8],
+    ciphertext: &[u8],
+    tag: &[u8],
+    output: &mut Vec<u8>,
+) -> Result<()> {
     let mut cipher = Crypter::new(
         Cipher::aes_256_gcm(),
         Mode::Decrypt,
         key.raw_key.as_ref(),
-        Some(&input.nonce),
+        Some(nonce),
     )
     .map_err(|_| Error::AeadAuthFail)?;
-    cipher
-        .aad_update(input.header)
-        .map_err(|_| Error::AeadAuthFail)?;
-    cipher.set_tag(input.tag).map_err(|_| Error::AeadAuthFail)?;
+    cipher.aad_update(header).map_err(|_| Error::AeadAuthFail)?;
+    cipher.set_tag(tag).map_err(|_| Error::AeadAuthFail)?;
     let count = cipher
-        .update(input.ciphertext, output)
+        .update(ciphertext, output)
         .map_err(|_| Error::AeadAuthFail)?;
     let rest = cipher
         .finalize(&mut output[count..])
         .map_err(|_| Error::AeadAuthFail)?;
-    if count.checked_add(rest) != Some(input.ciphertext.len()) {
+    if count.checked_add(rest) != Some(ciphertext.len()) {
         return Err(Error::Corrupt("frame GCM output length differs".into()));
     }
     output.truncate(count + rest);
@@ -276,8 +269,7 @@ fn decompress_bounded(
     if stored.len() < UNCOMPRESSED_LEN_SIZE {
         return Err(Error::Corrupt("compressed frame missing length".into()));
     }
-    let expected_u64 = u64::from_le_bytes(stored[..8].try_into().unwrap());
-    let expected = usize::try_from(expected_u64)
+    let expected = usize::try_from(u64::from_le_bytes(stored[..8].try_into().unwrap()))
         .map_err(|_| Error::Corrupt("decompressed frame length too large".into()))?;
     let limit = max_payload.min(MAX_DECOMPRESSED_FRAME_BYTES);
     if expected > limit {
@@ -324,10 +316,6 @@ pub(super) fn decode_header_prefix(bytes: &[u8]) -> Result<(FrameHeader, usize, 
     if bytes[..4] != MAGIC || bytes[4] != VERSION || bytes[5] & !KNOWN_FLAGS != 0 {
         return Err(Error::AeadAuthFail);
     }
-    let flags = bytes[5];
-    let shard = u16::from_le_bytes(bytes[6..8].try_into().unwrap());
-    let start_csn = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
-    let counter = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
     let payload_len = usize::try_from(u64::from_le_bytes(bytes[24..32].try_into().unwrap()))
         .map_err(|_| Error::Corrupt("frame payload length too large".into()))?;
     let chunk_uuid =
@@ -335,12 +323,12 @@ pub(super) fn decode_header_prefix(bytes: &[u8]) -> Result<(FrameHeader, usize, 
     Ok((
         FrameHeader {
             chunk_uuid,
-            shard,
-            start_csn,
-            counter,
+            shard: u16::from_le_bytes(bytes[6..8].try_into().unwrap()),
+            start_csn: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
+            counter: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
         },
         payload_len,
-        flags,
+        bytes[5],
     ))
 }
 

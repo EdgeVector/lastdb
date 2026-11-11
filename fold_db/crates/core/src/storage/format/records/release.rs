@@ -1,4 +1,4 @@
-//! Format-minted record/alternate addresses and schema-release batch erasures.
+//! Format-minted record/alternate addresses, schema release, and erase audit rows.
 
 use super::{
     applied_deletes::APPLIED_DELETE_FAMILY, file_crypto::dropped_file_paths,
@@ -6,12 +6,28 @@ use super::{
 };
 use crate::schema::types::{field::HashRangeFilter, KeyValue, Schema};
 use crate::schema::SchemaError;
-use crate::storage::format::metadata::FileReferenceChange;
-use crate::storage::format::MAIN_NAMESPACE;
-use crate::storage::KvMutation;
+use crate::storage::format::{
+    control, CURRENT_KEY_FORMAT_KEY, DELETE_AUDIT_FAMILY, DELETE_REPLAY_CUTOFF_KEY, MAIN_NAMESPACE,
+};
+use crate::storage::{KvMutation, StorageError};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// One audit row per erase batch. The row joins the native erase atomically,
+/// so a stored row always names a committed erase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordDeleteLedgerEntry {
+    pub verb: String,
+    pub at: String,
+    pub caller: String,
+    pub schema: String,
+    pub key_fingerprint: String,
+    pub records_erased: u64,
+    pub file_records_erased: u64,
+}
 
 /// A primary record address. No caller can supply an arbitrary storage string.
 #[derive(Clone, Debug)]
@@ -90,8 +106,7 @@ impl AlternateAddress {
     }
 }
 
-/// Read-only range position. Only a primary-bound AlternateAddress can be written.
-pub(crate) fn alternate_range_key(
+fn alternate_range_key(
     codec: &FieldKeyCodec,
     field_key: &str,
     key: &KeyValue,
@@ -125,8 +140,7 @@ pub(crate) fn alternate_bounds(
     };
     match filter {
         HashRangeFilter::HashRangeKey { hash, range } => {
-            let key = encode(hash, range)?;
-            Ok(exact_prefix_bounds(&format!("{key}\0")))
+            Ok(exact_prefix_bounds(&format!("{}\0", encode(hash, range)?)))
         }
         HashRangeFilter::HashKey(hash) => {
             let prefix = codec
@@ -215,6 +229,49 @@ impl ReleaseFamily {
 }
 
 impl RecordFormat {
+    pub(in crate::storage::format) async fn require_current_key_format(
+        &self,
+    ) -> Result<(), StorageError> {
+        let controls = self
+            .main_store
+            .get_many(vec![
+                CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
+                DELETE_REPLAY_CUTOFF_KEY.as_bytes().to_vec(),
+            ])
+            .await?;
+        if controls.len() != 2 {
+            return Err(control::invalid("incomplete fence read"));
+        }
+        if !controls[0]
+            .as_deref()
+            .is_some_and(lastdb_model::field_key_codec::current_key_format)
+        {
+            return Err(StorageError::InvalidOperation(
+                "the logical key format does not match this node home".into(),
+            ));
+        }
+        control::validate_frozen_replay_floor(controls[0].as_deref(), controls[1].as_deref())
+            .map(|_| ())
+    }
+
+    pub(crate) async fn record_delete_audit(
+        &self,
+        entry: RecordDeleteLedgerEntry,
+    ) -> Result<(), SchemaError> {
+        self.require_scope()?;
+        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
+        let key = lastdb_model::kind_partition::anchored(
+            DELETE_AUDIT_FAMILY,
+            &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
+        );
+        let bytes = serde_json::to_vec(&entry)
+            .map_err(|error| StorageError::SerializationError(error.to_string()))?;
+        self.main_store
+            .put(key.as_bytes(), bytes)
+            .await
+            .map_err(|error| SchemaError::InvalidData(format!("stage erase audit: {error}")))
+    }
+
     /// Re-read selected keys under the same gate, then stage the exact child deletes.
     pub(crate) async fn release_schema_batch(
         &self,
@@ -250,25 +307,21 @@ impl RecordFormat {
         } else {
             Vec::new()
         };
-        let deletes = rows
-            .into_iter()
-            .map(|(key, _)| KvMutation::delete(key))
-            .collect();
-        self.main_store.batch_mutate(deletes).await?;
-        let references = files
+        self.main_store
+            .batch_mutate(
+                rows.into_iter()
+                    .map(|(key, _)| KvMutation::delete(key))
+                    .collect(),
+            )
+            .await?;
+        let references: BTreeMap<String, bool> = files
             .into_iter()
             .map(|key| {
-                let path = String::from_utf8(key).map_err(|error| {
-                    SchemaError::InvalidData(format!("released file key: {error}"))
-                })?;
-                Ok((
-                    path,
-                    FileReferenceChange {
-                        live: Some(false),
-                        local_detach: true,
-                        ..FileReferenceChange::default()
-                    },
-                ))
+                String::from_utf8(key)
+                    .map(|path| (path, false))
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!("released file key: {error}"))
+                    })
             })
             .collect::<Result<_, SchemaError>>()?;
         let files = self.metadata.stage_file_references(references).await?;

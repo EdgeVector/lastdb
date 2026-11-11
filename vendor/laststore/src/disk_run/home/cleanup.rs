@@ -1,25 +1,42 @@
-//! Explicit base compaction, authenticated cleanup checkpoints, and obsolete-file removal.
+//! Explicit base compaction, hidden-version counting, cleanup checkpoints, and file removal.
 
 use super::commit::MAX_MERGE_INPUTS;
-use super::manifest::Manifest;
-use super::{RunHome, CAS_DELETE as CAS_NAME, NODE_CLEANUP as NAME};
-use crate::disk_run::RUN_SUFFIX;
-use crate::durability::{sync_directory, sync_dirty_file};
+use super::manifest::{Manifest, RunFile};
+use super::{write_private_file, RunHome, CAS_DELETE, NODE_CLEANUP};
+use crate::disk_run::{RunReader, RUN_SUFFIX};
+use crate::durability::sync_directory;
 use crate::frame::{decode_frame_bounded, encode_frame, FrameHeader};
 use crate::space::SpacePolicy;
 use crate::{Error, Result};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::sync::Arc;
 use uuid::Uuid;
 
-const MAGIC: &[u8; 8] = b"LDRCLN1\0";
-const MAX_BYTES: usize = 16 * 1024;
-const CAS_MAGIC: &[u8; 8] = b"LDRCAS1\0";
 /// Maximum encrypted cross-home deletion intent payload.
 pub const MAX_CAS_DELETE_CHECKPOINT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ENTRIES: usize = 1_000_000;
+const COUNT_KEYS: usize = 4096;
+
+/// Private authenticated checkpoint slot inside a run home.
+#[derive(Debug, Clone, Copy)]
+pub enum CheckpointKind {
+    /// Bounded node-cleanup progress receipt.
+    NodeCleanup,
+    /// Cross-home CAS deletion intent.
+    CasDelete,
+}
+
+impl CheckpointKind {
+    fn spec(self) -> (&'static str, &'static [u8; 8], usize) {
+        match self {
+            Self::NodeCleanup => (NODE_CLEANUP, b"LDRCLN1\0", 16 * 1024),
+            Self::CasDelete => (CAS_DELETE, b"LDRCAS1\0", MAX_CAS_DELETE_CHECKPOINT_BYTES),
+        }
+    }
+}
 
 /// Result of one exact active run-directory cleanup.
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +48,84 @@ pub struct RunCleanupFiles {
 }
 
 impl RunHome {
+    pub(in crate::disk_run::home) fn count_hidden(&self, held: &Manifest) -> Result<()> {
+        let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
+        for (at, run) in runs.iter().enumerate().take(held.tiered().count()) {
+            if run.hidden().is_none() {
+                run.set_hidden(self.hidden_bytes(run, &runs[at + 1..])?);
+            }
+        }
+        Ok(())
+    }
+
+    fn hidden_bytes(&self, run: &RunFile, older: &[&Arc<RunFile>]) -> Result<u64> {
+        let older: Vec<&Arc<RunFile>> = older
+            .iter()
+            .copied()
+            .filter(|other| other.meta.meets(&run.meta))
+            .collect();
+        if older.is_empty() {
+            return Ok(0);
+        }
+        let reader = RunReader::open(&run.path, &self.key)?;
+        let mut readers: Vec<Option<RunReader>> = (0..older.len()).map(|_| None).collect();
+        let (mut records, mut hidden) = (reader.iter(), 0u64);
+        loop {
+            let keys: Vec<Vec<u8>> = records
+                .by_ref()
+                .take(COUNT_KEYS)
+                .map(|r| r.map(|(k, _)| k))
+                .collect::<Result<_>>()?;
+            let Some(first) = keys.first() else {
+                return Ok(hidden);
+            };
+            for (slot, other) in older.iter().enumerate() {
+                if other.meta.last_key < *first {
+                    readers[slot] = None;
+                }
+            }
+            hidden = hidden.saturating_add(self.older_bytes(&keys, &older, &mut readers)?);
+        }
+    }
+
+    fn older_bytes(
+        &self,
+        keys: &[Vec<u8>],
+        older: &[&Arc<RunFile>],
+        readers: &mut [Option<RunReader>],
+    ) -> Result<u64> {
+        let (mut open, mut bytes) = ((0..keys.len()).collect::<Vec<_>>(), 0u64);
+        for (slot, run) in older.iter().enumerate() {
+            let wanted: Vec<usize> = open
+                .iter()
+                .copied()
+                .filter(|&at| run.meta.covers(&keys[at]))
+                .collect();
+            if !wanted.is_empty() {
+                let reader = match &mut readers[slot] {
+                    Some(r) => r,
+                    slot_ref => slot_ref.insert(RunReader::open(&run.path, &self.key)?),
+                };
+                let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
+                let mut found = HashSet::new();
+                for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
+                    if let Some(size) = size {
+                        bytes = bytes.saturating_add(size);
+                        found.insert(at);
+                    }
+                }
+                open.retain(|at| !found.contains(at));
+            }
+            if keys.last().is_some_and(|last| run.meta.last_key <= *last) {
+                readers[slot] = None;
+            }
+            if open.is_empty() {
+                break;
+            }
+        }
+        Ok(bytes)
+    }
+
     /// Explicit cleanup uses the same replacement admission as automatic merges.
     pub fn cleanup_step_with_space(&self, policy: &SpacePolicy) -> Result<bool> {
         self.cleanup_step_inner(policy, false)
@@ -61,38 +156,24 @@ impl RunHome {
             if tiered.is_empty() {
                 return Ok(false);
             }
-            let first = tiered.len().saturating_sub(MAX_MERGE_INPUTS);
-            Some(tiered[first..].to_vec())
+            Some(tiered[tiered.len().saturating_sub(MAX_MERGE_INPUTS)..].to_vec())
         } else {
             None
         };
         self.base_step(start, policy).map(|()| true)
     }
 
-    /// Read the node's private cleanup checkpoint.
-    pub fn load_cleanup_checkpoint(&self) -> Result<Option<Vec<u8>>> {
-        self.load_checkpoint(NAME, MAGIC, MAX_BYTES)
-    }
-
-    /// Read the authenticated cross-home deletion intent, if one remains.
-    pub fn load_cas_delete_checkpoint(&self) -> Result<Option<Vec<u8>>> {
-        self.load_checkpoint(CAS_NAME, CAS_MAGIC, MAX_CAS_DELETE_CHECKPOINT_BYTES)
-    }
-
-    fn load_checkpoint(
-        &self,
-        name: &str,
-        magic: &[u8; 8],
-        maximum: usize,
-    ) -> Result<Option<Vec<u8>>> {
+    /// Read one authenticated private checkpoint, if present.
+    pub fn load_checkpoint(&self, kind: CheckpointKind) -> Result<Option<Vec<u8>>> {
+        let (name, magic, maximum) = kind.spec();
         let mut file = match OpenOptions::new()
             .read(true)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(self.root.join(name))
         {
             Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
         };
         let meta = file.metadata()?;
         if !meta.is_file()
@@ -101,7 +182,7 @@ impl RunHome {
             || meta.uid() != rustix::process::geteuid().as_raw()
             || meta.len() > (maximum + 4096) as u64
         {
-            return Err(invalid("invalid cleanup checkpoint file"));
+            return Err(Error::Corrupt("invalid cleanup checkpoint file".into()));
         }
         let mut bytes = Vec::new();
         (&mut file)
@@ -111,90 +192,62 @@ impl RunHome {
         if frame.payload.get(..8) != Some(magic.as_slice())
             || frame.payload.get(8..24) != Some(self.identity.as_bytes().as_slice())
         {
-            return Err(invalid(
-                "cleanup checkpoint belongs to another role or home",
+            return Err(Error::Corrupt(
+                "cleanup checkpoint belongs to another role or home".into(),
             ));
         }
         Ok(Some(frame.payload[24..].to_vec()))
     }
 
-    /// Durably replace the bounded node-cleanup checkpoint.
-    pub fn save_cleanup_checkpoint(&self, bytes: &[u8]) -> Result<()> {
-        self.save_checkpoint(NAME, MAGIC, MAX_BYTES, bytes)
-    }
-
-    /// Save intent before either home changes. No body or encryption key enters it.
-    pub fn save_cas_delete_checkpoint(&self, bytes: &[u8]) -> Result<()> {
-        self.save_checkpoint(CAS_NAME, CAS_MAGIC, MAX_CAS_DELETE_CHECKPOINT_BYTES, bytes)
-    }
-
-    /// Remove only the authenticated intent after its exact frontier completes.
-    pub fn clear_cas_delete_checkpoint(&self) -> Result<()> {
-        if self.load_cas_delete_checkpoint()?.is_some() {
-            fs::remove_file(self.root.join(CAS_NAME))?;
-            sync_directory(&File::open(&self.root)?)?;
-        }
-        Ok(())
-    }
-
-    fn save_checkpoint(
-        &self,
-        name: &str,
-        magic: &[u8; 8],
-        maximum: usize,
-        bytes: &[u8],
-    ) -> Result<()> {
+    /// Durably replace one authenticated private checkpoint.
+    pub fn save_checkpoint(&self, kind: CheckpointKind, bytes: &[u8]) -> Result<()> {
+        let (name, magic, maximum) = kind.spec();
         if bytes.len() > maximum {
-            return Err(invalid("cleanup checkpoint exceeds its byte bound"));
+            return Err(Error::Corrupt(
+                "cleanup checkpoint exceeds its byte bound".into(),
+            ));
         }
-        let _publish = self
-            .publish
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
         self.refuse_if_poisoned()?;
+        let chunk_uuid = Uuid::new_v4();
         let header = FrameHeader {
-            chunk_uuid: Uuid::new_v4(),
+            chunk_uuid,
             shard: 0,
             start_csn: 0,
             counter: 0,
         };
-        let mut payload = magic.to_vec();
+        let mut payload = Vec::with_capacity(24 + bytes.len());
+        payload.extend_from_slice(magic);
         payload.extend_from_slice(self.identity.as_bytes());
         payload.extend_from_slice(bytes);
         let frame = encode_frame(&self.key, header, &payload)?;
-        let pending = self.root.join(format!(".{name}.{}.tmp", header.chunk_uuid));
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&pending)?;
-            file.write_all(&frame)?;
-            sync_dirty_file(&file)?;
-            fs::rename(&pending, self.root.join(name))?;
-            sync_directory(&File::open(&self.root)?)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&pending);
+        let pending = self.root.join(format!(".{name}.{chunk_uuid}.tmp"));
+        write_private_file(&pending, &frame)?;
+        fs::rename(&pending, self.root.join(name))
+            .map_err(Error::from)
+            .and_then(|()| sync_directory(&self.root))
+            .inspect_err(|_| {
+                let _ = fs::remove_file(&pending);
+            })
+    }
+
+    /// Remove an authenticated private checkpoint after verifying its ownership.
+    pub fn clear_checkpoint(&self, kind: CheckpointKind) -> Result<()> {
+        if self.load_checkpoint(kind)?.is_some() {
+            fs::remove_file(self.root.join(kind.spec().0))?;
+            sync_directory(&self.root)?;
         }
-        result
+        Ok(())
     }
 
     /// Remove unnamed files only after all active writers/mergers finish.
     pub fn cleanup_files(&self) -> Result<RunCleanupFiles> {
-        let _merge = self
-            .merge
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let _commit = self.commit_lock()?;
-        let _publish = self.publish_lock()?;
+        let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
+        let (_commit, _publish) = (self.commit_lock()?, self.publish_lock()?);
         self.refuse_if_poisoned()?;
         let current = self.held();
         let held: Vec<_> = {
-            let mut retired = self
-                .retired
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
             retired.retain(|run| run.strong_count() > 0);
             if retired.len() > MAX_ENTRIES {
                 return Err(Error::WriteCapacity(
@@ -208,7 +261,7 @@ impl RunHome {
         };
         let protected: HashSet<_> = current
             .newest_first()
-            .chain(held.iter())
+            .chain(&held)
             .map(|run| run.meta.run_id)
             .collect();
         let mut removed_files = 0;
@@ -219,8 +272,8 @@ impl RunHome {
                 ));
             }
             let entry = entry?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
+            let raw_name = entry.file_name();
+            let name = raw_name.to_string_lossy();
             let obsolete = name
                 .strip_suffix(RUN_SUFFIX)
                 .and_then(|id| Uuid::parse_str(id).ok())
@@ -228,12 +281,12 @@ impl RunHome {
             if obsolete || (name.starts_with('.') && name.ends_with(".tmp")) {
                 match fs::remove_file(entry.path()) {
                     Ok(()) => removed_files += 1,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
                 }
             }
         }
-        sync_directory(&File::open(&self.runs)?)?;
+        sync_directory(&self.runs)?;
         for run in current.newest_first() {
             let meta = fs::symlink_metadata(&run.path)?;
             if !meta.is_file() || meta.len() != run.meta.file_bytes {
@@ -251,8 +304,4 @@ impl RunHome {
 
 fn clean_runs(held: &Manifest) -> bool {
     held.merging.is_empty() && held.tiered().all(|run| run.hidden() == Some(0))
-}
-
-fn invalid(message: &str) -> Error {
-    Error::Corrupt(message.into())
 }

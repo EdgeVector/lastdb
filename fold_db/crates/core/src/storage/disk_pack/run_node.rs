@@ -22,10 +22,7 @@ pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 
 /// The backup profile version of a node marker. Only the current marker has one.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
-    match bytes {
-        RECORD_NODE_BYTES => Some(RECORD_PROFILE),
-        _ => None,
-    }
+    (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
 }
 
 fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
@@ -101,12 +98,11 @@ fn admission_invalid(text: &str) -> StorageError {
 }
 
 pub(in crate::storage::disk_pack) fn is_new_home(path: &Path) -> StorageResult<bool> {
-    let entries = match std::fs::read_dir(path) {
-        Ok(entries) => Some(entries),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
+    match std::fs::read_dir(path) {
+        Ok(mut entries) => Ok(entries.next().is_none()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(in crate::storage::disk_pack) fn creation_stopped(path: &Path) -> StorageResult<bool> {
@@ -114,11 +110,6 @@ pub(in crate::storage::disk_pack) fn creation_stopped(path: &Path) -> StorageRes
 }
 
 fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
-    let staging = |name: &str, home: &str| {
-        name.strip_prefix('.')
-            .and_then(|rest| rest.strip_prefix(home))
-            .is_some_and(|rest| rest.starts_with(".create-"))
-    };
     let mut partial = Vec::new();
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
@@ -128,9 +119,13 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
         if kind.is_file() && name == INTENT {
             continue;
         }
-        let run_home = [RUN_DIR, CAS_DIR]
-            .into_iter()
-            .any(|home| name == home || staging(name, home));
+        let run_home = [RUN_DIR, CAS_DIR].into_iter().any(|home| {
+            name == home
+                || name
+                    .strip_prefix('.')
+                    .and_then(|r| r.strip_prefix(home))
+                    .is_some_and(|r| r.starts_with(".create-"))
+        });
         if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
             partial.push((entry.path(), kind.is_dir()));
             continue;
@@ -178,38 +173,38 @@ pub(in crate::storage::disk_pack) fn require_key(
 }
 
 fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'static [u8]> {
-    let (collection, key) = kv::coordinate(MAIN_NAMESPACE, CURRENT_KEY_FORMAT_KEY.as_bytes());
-    let mut rows = vec![
+    let row = |ns: &str, k: &[u8], body: Vec<u8>| {
+        let (collection, key) = kv::coordinate(ns, k);
         HomeMutation {
             collection,
             key,
-            body: Some(CURRENT_KEY_FORMAT_VALUE.to_vec()),
-        },
-        HomeMutation {
-            collection: content_key_proof::NAMESPACE.into(),
-            key: super::native_routing::encode(content_key_proof::KEY),
-            body: Some(content_key_proof::create(node_key)?),
-        },
+            body: Some(body),
+        }
+    };
+    let rows = vec![
+        row(
+            MAIN_NAMESPACE,
+            CURRENT_KEY_FORMAT_KEY.as_bytes(),
+            CURRENT_KEY_FORMAT_VALUE.to_vec(),
+        ),
+        row(
+            content_key_proof::NAMESPACE,
+            content_key_proof::KEY,
+            content_key_proof::create(node_key)?,
+        ),
+        row(
+            METADATA_NAMESPACE,
+            LOCAL_AUTHOR_KEY.as_bytes(),
+            initial_local_author(home.identity())?,
+        ),
+        row(
+            METADATA_NAMESPACE,
+            FILE_RETENTION_KEY.as_bytes(),
+            FILE_RETENTION_COMPLETE.to_vec(),
+        ),
     ];
-    rows.extend(local_rows(home.identity())?);
     home.commit(rows).map_err(map)?;
     Ok(RECORD_NODE_BYTES)
-}
-
-fn local_rows(stream: uuid::Uuid) -> StorageResult<Vec<HomeMutation>> {
-    let (collection, key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
-    let author = HomeMutation {
-        collection,
-        key,
-        body: Some(initial_local_author(stream)?),
-    };
-    let (collection, key) = kv::coordinate(METADATA_NAMESPACE, FILE_RETENTION_KEY.as_bytes());
-    let retention = HomeMutation {
-        collection,
-        key,
-        body: Some(FILE_RETENTION_COMPLETE.to_vec()),
-    };
-    Ok(vec![author, retention])
 }
 
 impl PackNamespacedStore {
@@ -262,8 +257,7 @@ impl PackNamespacedStore {
         v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         let policy = space::policy_from_env()?;
         let root = v2.current_root();
-        let initializing = path.join(INTENT).try_exists()?;
-        let store = Self::assemble(v2, root, initializing, policy);
+        let store = Self::assemble(v2, root, path.join(INTENT).try_exists()?, policy);
         store.runtime.resume_merges();
         Ok(store)
     }

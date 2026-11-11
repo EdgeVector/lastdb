@@ -2,6 +2,7 @@
 
 use crate::Result;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -100,51 +101,37 @@ fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReserva
     let root = std::fs::canonicalize(root)?;
     let device = std::fs::metadata(&root)?.dev();
     let inventory = Inventory::start(&root, device)?;
-    let usage = if policy.disk_cap_bytes == 0 {
-        SpaceUsage {
-            available_bytes: available_space(&root)?,
-            ..Default::default()
-        }
-    } else {
-        space_usage(&root, policy.max_files)?
-    };
+    let mut usage = SpaceUsage::default();
+    if policy.disk_cap_bytes != 0 {
+        count(&root, 6, policy.max_files, &mut usage)?; // walk-ok: exact native root, depth six and finite file budget
+    }
+    let stats = rustix::fs::statvfs(&root).map_err(std::io::Error::from)?;
+    usage.available_bytes = (stats.f_bavail as u64)
+        .checked_mul(stats.f_frsize as u64)
+        .ok_or_else(|| corrupt("filesystem capacity overflow"))?;
     inventory.reserve(policy, usage, bytes)
 }
 
-fn space_usage(root: &Path, max_files: usize) -> Result<SpaceUsage> {
-    let mut out = SpaceUsage::default();
-    count(root, 6, max_files, &mut out)?; // walk-ok: exact native root, depth six and finite file budget
-    out.available_bytes = available_space(root)?;
-    Ok(out)
-}
-
-fn available_space(root: &Path) -> Result<u64> {
-    let stats = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
-    (stats.f_bavail as u64)
-        .checked_mul(stats.f_frsize as u64)
-        .ok_or_else(|| corrupt("filesystem capacity overflow"))
+fn opt_io<T>(res: std::io::Result<T>) -> Result<Option<T>> {
+    match res {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 fn count(path: &Path, depth: usize, limit: usize, out: &mut SpaceUsage) -> Result<()> {
     if depth == 0 {
         return Err(corrupt("native file inventory exceeds layout depth"));
     }
-    let entries = match std::fs::read_dir(path) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+    let Some(entries) = opt_io(std::fs::read_dir(path))? else {
+        return Ok(());
     };
     for entry in entries {
         let entry = entry?;
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
-        };
-        let kind = match entry.file_type() {
-            Ok(kind) => kind,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
+        let (Some(metadata), Some(kind)) = (opt_io(entry.metadata())?, opt_io(entry.file_type())?)
+        else {
+            continue;
         };
         if kind.is_symlink() {
             return Err(corrupt("native inventory refuses symlinks"));
@@ -221,9 +208,18 @@ impl State {
             self.released = self.released.and_then(|n| n.checked_add(bytes));
         }
     }
+}
 
-    fn idle(&self) -> bool {
-        self.bytes == 0 && self.inventories == 0
+fn mutate_state<K: Eq + Hash + ?Sized, Q: Eq + Hash + std::borrow::Borrow<K>>(
+    map: &mut HashMap<Q, State>,
+    key: &K,
+    f: impl FnOnce(&mut State),
+) {
+    if let Some(state) = map.get_mut(key) {
+        f(state);
+        if state.bytes == 0 && state.inventories == 0 {
+            map.remove(key);
+        }
     }
 }
 
@@ -241,11 +237,7 @@ impl Inventory {
         let device_released = match ledger.devices.entry(device).or_default().start() {
             Ok(released) => released,
             Err(error) => {
-                ledger
-                    .roots
-                    .get_mut(root)
-                    .expect("started root")
-                    .inventories -= 1;
+                mutate_state(&mut ledger.roots, root, |s| s.inventories -= 1);
                 return Err(error);
             }
         };
@@ -314,35 +306,17 @@ impl Inventory {
 impl Drop for Inventory {
     fn drop(&mut self) {
         if let Ok(mut ledger) = LEDGER.get_or_init(Mutex::default).lock() {
-            if let Some(state) = ledger.roots.get_mut(&self.root) {
-                state.inventories -= 1;
-                if state.idle() {
-                    ledger.roots.remove(&self.root);
-                }
-            }
-            if let Some(state) = ledger.devices.get_mut(&self.device) {
-                state.inventories -= 1;
-                if state.idle() {
-                    ledger.devices.remove(&self.device);
-                }
-            }
+            mutate_state(&mut ledger.roots, self.root.as_path(), |s| {
+                s.inventories -= 1
+            });
+            mutate_state(&mut ledger.devices, &self.device, |s| s.inventories -= 1);
         }
     }
 }
 
 fn release(root: &Path, device: u64, bytes: u64) {
     if let Ok(mut ledger) = LEDGER.get_or_init(Mutex::default).lock() {
-        if let Some(state) = ledger.roots.get_mut(root) {
-            state.release(bytes);
-            if state.idle() {
-                ledger.roots.remove(root);
-            }
-        }
-        if let Some(state) = ledger.devices.get_mut(&device) {
-            state.release(bytes);
-            if state.idle() {
-                ledger.devices.remove(&device);
-            }
-        }
+        mutate_state(&mut ledger.roots, root, |s| s.release(bytes));
+        mutate_state(&mut ledger.devices, &device, |s| s.release(bytes));
     }
 }
