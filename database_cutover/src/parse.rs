@@ -69,11 +69,9 @@ fn parse_one<T: DeserializeOwned>(
         reasons.push(Reason::Unreadable { file });
         return None;
     }
-    match serde_json::from_slice(bytes) {
-        Ok(value) => Some(value),
-        Err(_) => {
-            reasons.push(Reason::Unreadable { file });
-            None
-        }
-    }
+    let Ok(value) = serde_json::from_slice(bytes) else {
+        reasons.push(Reason::Unreadable { file });
+        return None;
+    };
+    Some(value)
 }
