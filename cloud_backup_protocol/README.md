@@ -13,8 +13,10 @@ routes and their wire module are gone.
 `NodeReadProof::digest` binds the database id, the HTTP action, the raw body, and a nonce.
 The domain string is `lastdb:share:node-read-authority:v1`.
 A revoked member stays on the signed member list until a later revision sets `regrant`.
-The signing key is the node key. Data routes use `authorize_request`.
-The member-list read uses `member_list_read_view` so an authorized node can learn the revision without the member list.
+The signing key is the node key. DEV and PROD use the same mutation-log paths.
+`NodeReadProof::digest` hashes the raw body octets and the service realm.
+Data routes use `authorize_request` after a cutover receipt. The member-list read uses `member_list_read_view`.
+A node-key revoke covers every device of that key. The body-less proof remains only while that database has no receipt.
 Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.
 
 The crate root holds the scalar, recovery and limit types that `src/v2` uses.

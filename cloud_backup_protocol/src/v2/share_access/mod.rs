@@ -10,25 +10,32 @@
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
 //! signature over `NodeReadProof::digest` of the exact HTTP body. The signing
 //! key is the node key in that token. It is not the publisher account key.
-//! Data routes call `authorize_request`. The member-list read calls
+//! Data routes call `authorize_request` on the mutation-log paths. Those paths
+//! are the same in DEV and PROD. The member-list read calls
 //! `member_list_read_view` so an authorized node can learn the revision
-//! without receiving the member list.
+//! without receiving the member list. A node-key revoke covers every device
+//! that signs with that key. The body-less proof remains only for a database
+//! that has no cutover receipt.
 
 mod cursor;
 mod grant;
 mod members;
 mod proof;
+mod receipt;
 
 pub use cursor::{DeliveryCursor, DeviceCursor, SnapshotReference, SnapshotReset};
 pub use grant::{
     authorize, authorize_request, bind_request_scope, member_list_read_view, member_list_revision,
-    MemberListReadView, ShareAccess,
+    MemberListReadView, ShareAccess, SignedRequestTarget,
 };
 pub use members::{
     MemberListReadRequest, MemberListReadResponse, MemberListRevision, MemberListUpdate,
     ShareMember, ShareMemberRole, ShareMemberState,
 };
-pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
+pub use proof::{
+    LegacyNodeReadProof, NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod,
+};
+pub use receipt::{accepted_proof, AcceptedProof, CutoverReceipt, SHARE_CUTOVER_RECEIPT_DOMAIN};
 
 use crate::{AccountId, Digest, ProtocolError};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -53,6 +60,39 @@ pub const SHARE_MEMBER_LIST_UPDATE_PATH: &str = "/api/cloud/backups/v2/share/mem
 /// `BackupTransport` inserts `/api` itself, so the operation suffix is
 /// `cloud/backups/v2/share/members/read`.
 pub const SHARE_MEMBER_LIST_READ_PATH: &str = "/api/cloud/backups/v2/share/members/read";
+
+/// Prefix for the one mutation-log route family. DEV and PROD use these paths.
+pub const MUTATION_LOG_PREFIX: &str = "/api/cloud/backups/v2/mutation-log/";
+/// Append published entries or a pending contribution.
+pub const MUTATION_LOG_APPEND_PATH: &str = "/api/cloud/backups/v2/mutation-log/append";
+/// Read the log head.
+pub const MUTATION_LOG_HEAD_PATH: &str = "/api/cloud/backups/v2/mutation-log/head";
+/// Read a delivery page.
+pub const MUTATION_LOG_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/list";
+/// Ack a delivery cursor.
+pub const MUTATION_LOG_ACK_PATH: &str = "/api/cloud/backups/v2/mutation-log/ack";
+/// Cut a published snapshot.
+pub const MUTATION_LOG_SNAPSHOT_PATH: &str = "/api/cloud/backups/v2/mutation-log/snapshot";
+/// Read published snapshot bytes by `snapshot_ref`.
+pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
+/// Advance the trim floor.
+pub const MUTATION_LOG_TRIM_PATH: &str = "/api/cloud/backups/v2/mutation-log/trim";
+
+/// True for the mutation-log paths above. Grant and revoke are not in this set.
+#[must_use]
+pub fn is_mutation_log_path(path: &str) -> bool {
+    matches!(
+        path,
+        MUTATION_LOG_APPEND_PATH
+            | MUTATION_LOG_HEAD_PATH
+            | MUTATION_LOG_LIST_PATH
+            | MUTATION_LOG_ACK_PATH
+            | MUTATION_LOG_SNAPSHOT_PATH
+            | MUTATION_LOG_SNAPSHOT_BYTES_PATH
+            | MUTATION_LOG_TRIM_PATH
+    )
+}
 
 /// Reader node public key, 64 lowercase hex characters.
 pub const SHARE_NODE_HEADER: &str = "x-lastdb-share-node";

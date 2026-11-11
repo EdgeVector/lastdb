@@ -30,7 +30,10 @@ pub enum ShareHttpMethod {
     Head,
 }
 
-/// Cloud the signature is allowed to address.
+/// Realm the signature is allowed to address.
+///
+/// DEV and PROD use the same routes. This value is the credential realm, not a
+/// second path and not a feature flag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareEnvironment {
@@ -38,6 +41,26 @@ pub enum ShareEnvironment {
     Dev,
     /// Production service.
     Prod,
+}
+
+impl ShareEnvironment {
+    /// Wire spelling: `dev` or `prod`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Prod => "prod",
+        }
+    }
+
+    /// Accept only `dev` or `prod`.
+    pub fn parse(value: &str) -> Result<Self, ProtocolError> {
+        match value {
+            "dev" => Ok(Self::Dev),
+            "prod" => Ok(Self::Prod),
+            _ => Err(ProtocolError::invalid("share.node_read.environment")),
+        }
+    }
 }
 
 /// Signed statement carried in a `LastDBNode` authorization token.
@@ -86,6 +109,25 @@ impl NodeReadToken {
             return Err(ProtocolError::invalid("share.node_read.nonce"));
         }
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
+    }
+
+    /// Reject a token aimed at another realm, method, or path.
+    ///
+    /// `path` is the raw request path, including `/api`. It is not a rewritten
+    /// route key.
+    pub fn require_target(
+        &self,
+        service: ShareEnvironment,
+        method: ShareHttpMethod,
+        path: &str,
+    ) -> Result<(), ProtocolError> {
+        if self.environment != service {
+            return Err(ProtocolError::unauthorized("share.node_read.environment"));
+        }
+        if self.method != method || self.path.as_str() != path {
+            return Err(ProtocolError::unauthorized("share.node_read.target"));
+        }
+        Ok(())
     }
 
     /// Domain-separated SHA-256 of this statement and the raw request body.
@@ -138,7 +180,10 @@ impl NodeReadProof {
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 
-    /// Digest of the statement and the exact raw HTTP body.
+    /// Digest of the statement and the exact received HTTP body octets.
+    ///
+    /// `body` is the bytes on the wire. Do not parse them and serialize again
+    /// before this call.
     pub fn digest(&self, body: &[u8]) -> Result<Digest, ProtocolError> {
         self.validate()?;
         self.token.digest(body)
@@ -179,6 +224,70 @@ impl NodeReadProof {
             return Err(ProtocolError::unauthorized("share.node_read.revision"));
         }
         Ok(())
+    }
+}
+
+/// Body-less share proof from before the per-database cutover.
+///
+/// The JSON object is flat. It has no `database_id` and no `environment`.
+/// [`digest`](Self::digest) does not cover the HTTP body. Use it only when
+/// [`super::accepted_proof`] is [`super::AcceptedProof::Legacy`]. A database
+/// with a cutover receipt refuses this object. Do not use Exemem #769's
+/// private field order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyNodeReadProof {
+    /// Protocol version. V2 serializes this field as the JSON integer 2.
+    pub version: Version,
+    /// Shared database this read addresses.
+    pub stream: Stream,
+    /// HTTP method of the read.
+    pub method: ShareHttpMethod,
+    /// HTTP path of the read, including the `/api` prefix.
+    pub path: Text<512>,
+    /// Unix milliseconds when the node signed this proof.
+    pub issued_at_ms: DecimalU64,
+    /// 32 random bytes as 64 lowercase hex characters.
+    pub nonce: Text<64>,
+    /// Member-list revision this read is bound to. Zero is the empty list.
+    pub member_list_revision: DecimalU64,
+    /// Ed25519 node key that signs this proof.
+    pub node_public_key: Digest,
+    /// Signature over `digest`'s lowercase hexadecimal bytes.
+    pub signature: Ed25519Signature,
+}
+
+impl LegacyNodeReadProof {
+    /// Check the path, time, and nonce. This does not verify the signature.
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        self.stream.validate()?;
+        validate_path(self.path.as_str())?;
+        if self.issued_at_ms.get() == 0 {
+            return Err(ProtocolError::invalid("share.node_read.issued_at_ms"));
+        }
+        if !exact_lower_hex(self.nonce.as_str(), 64) {
+            return Err(ProtocolError::invalid("share.node_read.nonce"));
+        }
+        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
+    }
+
+    /// Pre-migration digest. The array is `version`, `stream`, `method`,
+    /// `path`, `issued_at_ms`, `nonce`, `member_list_revision`, `node_public_key`.
+    pub fn digest(&self) -> Result<Digest, ProtocolError> {
+        self.validate()?;
+        input_digest(
+            SHARE_NODE_READ_AUTHORITY_DOMAIN,
+            &(
+                &self.version,
+                &self.stream,
+                self.method,
+                self.path.as_str(),
+                self.issued_at_ms,
+                self.nonce.as_str(),
+                self.member_list_revision,
+                &self.node_public_key,
+            ),
+        )
     }
 }
 
