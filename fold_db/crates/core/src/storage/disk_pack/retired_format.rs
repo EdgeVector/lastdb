@@ -1,14 +1,12 @@
-//! Planted retired homes must fail open, and journal keys must be deleted unread.
+//! Planted retired homes must fail open and must not replay journal keys.
 use crate::storage::disk_pack::run_node::{self, RUN_DIR};
 use crate::storage::disk_pack::PackNamespacedStore;
 use crate::storage::error::StorageError;
-use crate::storage::format::metadata::LOCAL_AUTHOR_KEY;
 use crate::storage::format::{
-    MAIN_NAMESPACE, METADATA_NAMESPACE, NODE_MARKER, RECORDS_COLLECTION, RETIRED_SHARED_DIR,
-    RETIRED_SHARED_NODE_BYTES,
+    MAIN_NAMESPACE, METADATA_NAMESPACE, NODE_MARKER, RETIRED_SHARED_DIR, RETIRED_SHARED_NODE_BYTES,
 };
-use crate::storage::retired::{self, SHARED_RETIRED};
-use laststore::disk_run::home::{HomeMutation, ReadBudget, RunHome, CURRENT};
+use crate::storage::retired::{self, JOURNAL_RETIRED, SHARED_RETIRED};
+use laststore::disk_run::home::{HomeMutation, RunHome};
 use std::io::Read;
 use std::path::Path;
 
@@ -50,124 +48,46 @@ fn retired_shared_directory_is_refused() {
     assert!(matches!(error, StorageError::RetiredFormat(SHARED_RETIRED)));
 }
 
-fn plant(dir: &Path, key: &[u8; 32], rows: Vec<(&str, &str)>) {
-    let home_key = run_node::home_key(key);
-    let home = RunHome::open(&dir.join(RUN_DIR), &home_key).unwrap();
-    let operations = rows
-        .into_iter()
-        .map(|(collection, key)| HomeMutation {
-            collection: collection.into(),
-            key: key.into(),
-            body: Some(b"not-a-record".to_vec()),
-        })
-        .collect();
-    home.commit(operations).unwrap();
-}
-
-fn absent(dir: &Path, key: &[u8; 32], collection: &str, name: &str) -> bool {
-    let home_key = run_node::home_key(key);
-    let home = RunHome::open(&dir.join(RUN_DIR), &home_key).unwrap();
-    let mut read = home.read(ReadBudget {
-        pages: 64,
-        blocks: 256,
-        bytes: 1024 * 1024,
-        keys: 32,
-    });
-    read.get(collection, name).unwrap().is_none()
-}
-
-fn stored(dir: &Path, key: &[u8; 32], collection: &str) -> Vec<(String, Vec<u8>)> {
-    let home_key = run_node::home_key(key);
-    let home = RunHome::open(&dir.join(RUN_DIR), &home_key).unwrap();
-    let mut read = home.read(ReadBudget {
-        pages: 256,
-        blocks: 1024,
-        bytes: 4 * 1024 * 1024,
-        keys: 256,
-    });
-    let mut range = read.administrative_range(collection, b"", b"\xff").unwrap();
-    let page = range.next_page(128).unwrap();
-    assert!(page.exhausted, "{collection} has another page");
-    page.records
-}
-
 #[test]
 fn portable_journal_key_is_not_replayed() {
     let (dir, key) = fresh();
     let home_key = run_node::home_key(&key);
     let home = RunHome::open(&dir.path().join(RUN_DIR), &home_key).unwrap();
-    let mut operations: Vec<_> = (0..40)
-        .map(|n| HomeMutation {
-            collection: METADATA_NAMESPACE.into(),
-            key: format!("portable-entry:{n:04}"),
-            body: Some(b"not-a-record".to_vec()),
-        })
-        .collect();
-    operations.push(HomeMutation {
-        collection: RECORDS_COLLECTION.into(),
-        key: "ade:1".into(),
+    home.commit(vec![HomeMutation {
+        collection: METADATA_NAMESPACE.into(),
+        key: "portable-entry:planted".into(),
         body: Some(b"not-a-record".to_vec()),
-    });
-    home.commit(operations).unwrap();
+    }])
+    .unwrap();
     drop(home);
-    PackNamespacedStore::open_keyed(dir.path(), Some(&key)).expect("personal home opens");
-    let metadata = stored(dir.path(), &key, METADATA_NAMESPACE);
-    let records = stored(dir.path(), &key, RECORDS_COLLECTION);
-    assert!(metadata.iter().any(|(name, _)| name == LOCAL_AUTHOR_KEY));
-    assert!(metadata
-        .iter()
-        .chain(&records)
-        .all(|(name, body)| !name.starts_with("portable-entry:")
-            && !name.starts_with("ade:")
-            && body != b"not-a-record"));
-}
-
-#[test]
-fn portable_journal_cleanup_second_open_is_a_noop() {
-    let (dir, key) = fresh();
-    plant(
-        dir.path(),
-        &key,
-        vec![(METADATA_NAMESPACE, "portable-entry:planted")],
-    );
-    PackNamespacedStore::open_keyed(dir.path(), Some(&key)).expect("cleanup open");
-    let current = dir.path().join(RUN_DIR).join(CURRENT);
-    let before = std::fs::read(&current).unwrap();
-    PackNamespacedStore::open_keyed(dir.path(), Some(&key)).expect("second open");
-    assert_eq!(std::fs::read(&current).unwrap(), before);
-    assert!(absent(
-        dir.path(),
-        &key,
-        METADATA_NAMESPACE,
-        "portable-entry:planted"
+    let error = refused(dir.path(), &key);
+    assert!(matches!(
+        error,
+        StorageError::RetiredFormat(JOURNAL_RETIRED)
     ));
+    assert!(error.to_string().contains("retired"));
+    assert!(!error.to_string().contains("not-a-record"));
 }
 
 #[test]
 fn kept_personal_keys_stay_readable() {
-    assert!(!retired::is_retired_key(
+    assert!(!retired::is_journal_key(
         METADATA_NAMESPACE,
         b"portable-local-author"
     ));
-    assert!(!retired::is_retired_key(
+    assert!(!retired::is_journal_key(
         METADATA_NAMESPACE,
         b"portable-file-reference:record"
     ));
-    assert!(!retired::is_retired_key(
+    assert!(!retired::is_journal_key(
         METADATA_NAMESPACE,
         b"portable-file-retention"
     ));
-    assert!(retired::is_retired_key(
+    assert!(retired::is_journal_key(
         METADATA_NAMESPACE,
         b"portable-entry:peer"
     ));
-    assert!(retired::is_retired_key(MAIN_NAMESPACE, b"ade:1"));
+    assert!(retired::is_journal_key(MAIN_NAMESPACE, b"ade:1"));
     let (dir, key) = fresh();
     PackNamespacedStore::open_keyed(dir.path(), Some(&key)).expect("kept keys reopen");
-    assert!(!absent(
-        dir.path(),
-        &key,
-        METADATA_NAMESPACE,
-        LOCAL_AUTHOR_KEY
-    ));
 }

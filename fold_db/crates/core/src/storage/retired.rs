@@ -1,8 +1,10 @@
-//! Refusals for the retired dedicated shared home, and the retired-key predicate.
+//! Refusals for the retired dedicated shared home and portable journal.
+use crate::storage::disk_pack::{map, native_routing};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::{
     MAIN_NAMESPACE, METADATA_NAMESPACE, RETIRED_SHARED_DIR, RETIRED_SHARED_NODE_BYTES,
 };
+use laststore::disk_run::home::RunRead;
 use std::path::Path;
 
 pub(in crate::storage) const SHARED_RETIRED: &str = "the dedicated shared home format is retired";
@@ -31,20 +33,46 @@ pub(in crate::storage) fn refuse_shared_home(root: &Path, marker: &[u8]) -> Stor
     Ok(())
 }
 
-pub(in crate::storage) fn retired_prefixes(namespace: &str) -> &'static [&'static str] {
-    match namespace {
-        METADATA_NAMESPACE => METADATA_PREFIXES,
-        MAIN_NAMESPACE => MAIN_PREFIXES,
-        _ => &[],
-    }
-}
-
-/// True when `key` is leftover portable-journal metadata, not a live personal key.
-pub(in crate::storage) fn is_retired_key(namespace: &str, key: &[u8]) -> bool {
+pub(in crate::storage) fn is_journal_key(namespace: &str, key: &[u8]) -> bool {
     let Ok(key) = std::str::from_utf8(key) else {
         return false;
     };
-    retired_prefixes(namespace)
-        .iter()
-        .any(|prefix| key.starts_with(prefix))
+    let prefixes = match namespace {
+        METADATA_NAMESPACE => METADATA_PREFIXES,
+        MAIN_NAMESPACE => MAIN_PREFIXES,
+        _ => return false,
+    };
+    prefixes.iter().any(|prefix| key.starts_with(prefix))
+}
+
+pub(in crate::storage) fn refuse_journal(main: &mut RunRead) -> StorageResult<()> {
+    for prefix in METADATA_PREFIXES {
+        if prefixed(main, METADATA_NAMESPACE, prefix)? {
+            return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
+        }
+    }
+    for prefix in MAIN_PREFIXES {
+        if prefixed(main, MAIN_NAMESPACE, prefix)? {
+            return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
+        }
+    }
+    Ok(())
+}
+
+fn prefixed(main: &mut RunRead, namespace: &str, prefix: &str) -> StorageResult<bool> {
+    let collection = native_routing::collection_for_namespace(namespace);
+    let end = exclusive_end(prefix);
+    let mut range = main
+        .administrative_range(collection, prefix.as_bytes(), end.as_bytes())
+        .map_err(map)?;
+    let page = range.next_page(1).map_err(map)?;
+    Ok(!page.records.is_empty())
+}
+
+fn exclusive_end(prefix: &str) -> String {
+    let mut bytes = prefix.as_bytes().to_vec();
+    let last = bytes.last_mut().expect("retired prefix");
+    assert!(prefix.is_ascii() && *last < 0xff, "retired prefix end");
+    *last += 1;
+    String::from_utf8(bytes).expect("ascii prefix")
 }

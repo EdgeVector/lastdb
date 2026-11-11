@@ -11,7 +11,6 @@ mod blob_backup;
 pub use blob_backup::{blob_path_of_key, BlobRow};
 pub(in crate::storage) mod cas_delete;
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
-mod journal_cleanup;
 mod kv;
 pub(in crate::storage) use kv::native_routing;
 pub(in crate::storage) mod physical;
