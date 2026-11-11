@@ -1,32 +1,10 @@
-//! Clap subcommands for `lastdb app` and `lastdb app index`.
+//! Clap subcommands for `lastdb app`.
 
 use super::*;
 
-#[derive(Subcommand, Debug)]
-pub(crate) enum AppIndexCommand {
-    /// Verify an index file against its detached signature.
-    Verify {
-        #[arg(long)]
-        index: PathBuf,
-        /// Signature file (default: `<index>.sig`).
-        #[arg(long)]
-        sig: Option<PathBuf>,
-        /// Trusted verifying key (base64 or file). Default: the pinned release key.
-        #[arg(long)]
-        trust_key: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Print the pinned release verifying key this binary trusts.
-    TrustKey,
-}
-
-#[path = "app/catalog.rs"]
-mod catalog;
 #[path = "app/lifecycle.rs"]
 mod lifecycle;
 
-pub(crate) use catalog::AppCatalogCommand;
 pub(crate) use lifecycle::AppLifecycleCommand;
 
 #[derive(Subcommand, Debug)]
@@ -43,6 +21,79 @@ pub(crate) enum AppManagedCommand {
     /// Restore the previous retained app version and its service hooks.
     Rollback {
         app_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AppCatalogCommand {
+    /// List apps on the signed public index or resolve one for this node.
+    List {
+        /// Resolve the signed release for this app and this node's interface.
+        #[arg(value_name = "APP")]
+        app_id: Option<String>,
+        /// Show the app's catalog entry for diagnostics without resolving its install.
+        #[arg(long, requires = "app_id")]
+        catalog_entry: bool,
+        /// Index channel (`stable` | `next`). Default: stable.
+        #[arg(long)]
+        channel: Option<String>,
+        /// Index location: S3 HTTPS base or directory (default: production S3,
+        /// or $LASTDB_REGISTRY_INDEX).
+        #[arg(long)]
+        index: Option<String>,
+        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        #[arg(long)]
+        trust_key: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install apps from the signed list for this node's exact API version.
+    Install {
+        /// App ids (`brain kanban situations`).
+        #[arg(required = true)]
+        app_ids: Vec<String>,
+        /// Index channel (`stable` | `next`). Default: stable.
+        #[arg(long)]
+        channel: Option<String>,
+        /// Index location: URL base or directory.
+        #[arg(long)]
+        index: Option<String>,
+        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        #[arg(long)]
+        trust_key: Option<String>,
+        /// Approve the pinned source install steps and command links.
+        #[arg(long)]
+        accept_install: bool,
+        /// Install code without running probes or service hooks.
+        #[arg(long)]
+        inactive: bool,
+        /// Emit raw JSON only. Managed install always prints JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Upgrade installed apps from the list for the running node API.
+    Upgrade {
+        /// App ids (`brain kanban situations`).
+        #[arg(required_unless_present = "all")]
+        app_ids: Vec<String>,
+        /// Upgrade every registry-managed app on its saved channel.
+        #[arg(long, conflicts_with = "app_ids")]
+        all: bool,
+        /// Approve changed install instructions.
+        #[arg(long)]
+        accept_install: bool,
+        /// Index channel (`stable` | `next`). Default: stable.
+        #[arg(long)]
+        channel: Option<String>,
+        /// Index location: URL base or directory.
+        #[arg(long)]
+        index: Option<String>,
+        /// Trusted verifying key (base64 or file). Default: the pinned release key.
+        #[arg(long)]
+        trust_key: Option<String>,
+        /// Emit raw JSON only. Managed upgrade always prints JSON.
         #[arg(long)]
         json: bool,
     },

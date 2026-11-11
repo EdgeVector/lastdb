@@ -1,14 +1,22 @@
-use super::{reader_error, source_error, ByteBackupReader, RestoreError, RestoreSession, Result};
+//! Object downloads, spool accounting, and bounded local file proofs.
+use super::{
+    local, reader_error, source_error, ByteBackupReader, RestoreError, RestoreSession, Result,
+};
 use cloud_backup_protocol::v2::access::{
     ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
 use cloud_backup_protocol::v2::Version;
+use cloud_backup_protocol::Digest;
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
+
+const MAX_SPOOL: u64 = cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
+    - fold_db::storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
 
 pub(super) async fn grants(
     session: &RestoreSession,
@@ -62,7 +70,7 @@ pub(super) async fn fetch(
     };
     let path = session.root.join("cache").join(name);
     if cache && path.try_exists()? {
-        crate::byte_cloud_restore::verify_file(&path, &grant.sha256, grant.bytes.get())?;
+        verify_file(&path, &grant.sha256, grant.bytes.get())?;
         return Ok(path);
     }
     let temporary = session.root.join("cache/download.pending");
@@ -71,7 +79,7 @@ pub(super) async fn fetch(
         session.remove_spool_file(&path)?;
     }
     session.reserve_spool(grant.bytes.get())?;
-    crate::byte_cloud_restore::check_capacity(&session.root, grant.bytes.get())?;
+    check_capacity(&session.root, grant.bytes.get())?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -110,6 +118,170 @@ async fn stream_to(client: &ByteBackupReader, grant: &ReadGrant, file: &mut File
     }
     if hex::encode(digest.finalize()) != grant.sha256.as_str() {
         return Err(RestoreError::Invalid("object digest"));
+    }
+    Ok(())
+}
+
+impl RestoreSession {
+    pub(super) fn reserve_spool(&self, bytes: u64) -> Result<()> {
+        let allocated = bytes
+            .div_ceil(4096)
+            .checked_mul(4096)
+            .ok_or(RestoreError::Limit("spool bytes"))?;
+        if self
+            .spool_bytes
+            .load(Ordering::Relaxed)
+            .checked_add(allocated)
+            .is_none_or(|total| total > MAX_SPOOL)
+        {
+            return Err(RestoreError::Limit("spool bytes"));
+        }
+        Ok(())
+    }
+    pub(super) fn add_spool_file(&self, path: &Path) -> Result<()> {
+        let bytes = allocated(path)?;
+        let total = self
+            .spool_bytes
+            .load(Ordering::Relaxed)
+            .checked_add(bytes)
+            .ok_or(RestoreError::Limit("spool bytes"))?;
+        if total > MAX_SPOOL {
+            return Err(RestoreError::Limit("spool bytes"));
+        }
+        self.spool_bytes.store(total, Ordering::Relaxed);
+        Ok(())
+    }
+    pub(super) fn remove_spool_file(&self, path: &Path) -> Result<()> {
+        let bytes = match fs::symlink_metadata(path) {
+            Ok(_) => allocated(path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        fs::remove_file(path)?;
+        self.spool_bytes.store(
+            self.spool_bytes
+                .load(Ordering::Relaxed)
+                .saturating_sub(bytes),
+            Ordering::Relaxed,
+        );
+        Ok(())
+    }
+    pub(super) fn check_spool(&self) -> Result<()> {
+        let mut bytes = 0u64;
+        let mut count = 0usize;
+        let mut routes = 0usize;
+        for folder in ["cache", "entries", "chain"] {
+            let path = self.root.join(folder);
+            local::directory(&path)?;
+            for entry in fs::read_dir(path)? {
+                let path = entry?.path();
+                if route_entry(folder, &path)? {
+                    routes += 1;
+                } else {
+                    count += 1;
+                }
+                if count
+                    > cloud_backup_protocol::limits::NATIVE_FILES_MAX
+                        + 2 * cloud_backup_protocol::v2::limits::MAX_PAGES
+                        + 8
+                    || routes > 2 * super::logs::MAX_CHAIN as usize
+                {
+                    return Err(RestoreError::Limit("spool entries"));
+                }
+                bytes = bytes
+                    .checked_add(allocated(&path)?)
+                    .ok_or(RestoreError::Limit("spool bytes"))?;
+                if bytes > MAX_SPOOL {
+                    return Err(RestoreError::Limit("spool bytes"));
+                }
+            }
+        }
+        self.spool_bytes.store(bytes, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+fn route_entry(folder: &str, path: &Path) -> Result<bool> {
+    let Some(name) = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("routes-"))
+        .filter(|_| folder == "chain")
+    else {
+        return Ok(false);
+    };
+    let index = name
+        .strip_suffix(".json")
+        .or_else(|| name.strip_suffix(".pending"))
+        .filter(|index| index.len() == 8 && index.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|index| index.parse::<u32>().ok());
+    if index.is_none_or(|index| index >= super::logs::MAX_CHAIN) {
+        return Err(RestoreError::Invalid("mutation route spool name"));
+    }
+    Ok(true)
+}
+
+fn allocated(path: &Path) -> Result<u64> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_file() {
+        return Err(RestoreError::Invalid("spool file"));
+    }
+    meta.blocks()
+        .checked_mul(512)
+        .ok_or(RestoreError::Limit("spool bytes"))
+}
+
+pub(super) fn bounded_bytes(path: &Path, max: u64) -> Result<Vec<u8>> {
+    if !fs::symlink_metadata(path)?.is_file() {
+        return Err(RestoreError::Invalid("object file"));
+    }
+    let mut bytes = Vec::new();
+    File::open(path)?.take(max + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Err(RestoreError::Limit("object decode"));
+    }
+    Ok(bytes)
+}
+
+pub(super) fn verify_file(path: &Path, sha: &Digest, length: u64) -> Result<()> {
+    if !fs::symlink_metadata(path)?.is_file() {
+        return Err(RestoreError::Invalid("native file"));
+    }
+    let mut input = File::open(path)?;
+    if input.metadata()?.len() != length {
+        return Err(RestoreError::Invalid("file length"));
+    }
+    let mut digest = Sha256::new();
+    let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
+    let mut left = length;
+    while left > 0 {
+        let maximum = left.min(buffer.len() as u64) as usize;
+        let count = input.read(&mut buffer[..maximum])?;
+        if count == 0 {
+            return Err(RestoreError::Invalid("file length"));
+        }
+        digest.update(&buffer[..count]);
+        left -= count as u64;
+    }
+    if input.read(&mut buffer[..1])? != 0 {
+        return Err(RestoreError::Invalid("file length"));
+    }
+    if hex::encode(digest.finalize()) != sha.as_str() {
+        return Err(RestoreError::Invalid("file digest"));
+    }
+    Ok(())
+}
+
+pub(crate) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
+    let fs = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
+    let available = (fs.f_bavail as u64)
+        .checked_mul(fs.f_frsize as u64)
+        .ok_or(RestoreError::Limit("disk capacity"))?;
+    let required = bytes
+        .checked_add(laststore::space::SpacePolicy::default().free_space_reserve_bytes)
+        .ok_or(RestoreError::Limit("disk capacity"))?;
+    if available < required {
+        return Err(RestoreError::Limit("disk capacity"));
     }
     Ok(())
 }

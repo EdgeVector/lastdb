@@ -206,13 +206,6 @@ impl std::fmt::Display for Environment {
     }
 }
 
-fn service_url(env_var: &str, dev: &'static str, prod: &'static str) -> String {
-    std::env::var(env_var).unwrap_or_else(|_| match Environment::from_env() {
-        Environment::Dev => dev.to_string(),
-        Environment::Prod => prod.to_string(),
-    })
-}
-
 /// Schema service URL: `FOLD_SCHEMA_SERVICE_URL`, else the URL of
 /// [`Environment::from_env`] (env var > node home cloud env > build default).
 pub fn schema_service_url() -> String {
@@ -228,11 +221,6 @@ pub fn schema_service_url_from(override_url: Option<String>, env: Environment) -
     override_url
         .filter(|u| !u.trim().is_empty())
         .unwrap_or_else(|| schema_service_url_for(env).to_string())
-}
-
-/// Exemem API URL (auth, sync, etc.).
-pub fn exemem_api_url() -> String {
-    service_url("EXEMEM_API_URL", gen::DEV_EXEMEM_API, gen::PROD_EXEMEM_API)
 }
 
 /// Schema service URL for a specific environment, ignoring `EXEMEM_ENV`.
@@ -252,25 +240,5 @@ pub fn exemem_api_url_for(env: Environment) -> &'static str {
     match env {
         Environment::Dev => gen::DEV_EXEMEM_API,
         Environment::Prod => gen::PROD_EXEMEM_API,
-    }
-}
-
-/// Base URL of the environment's release log: the signed, hash-chained
-/// record of verifier results that a node reads before it installs an app
-/// release. The node reads `{url}/head.json` and `{url}/tiles/<t>.jsonl`.
-pub fn release_log_url_for(env: Environment) -> &'static str {
-    match env {
-        Environment::Dev => gen::DEV_RELEASE_LOG_URL,
-        Environment::Prod => gen::PROD_RELEASE_LOG_URL,
-    }
-}
-
-/// The verifier's release-log signing keys for the environment, as base64
-/// raw 32-byte Ed25519 public keys. An empty list means the environment has
-/// no release log yet, and a node refuses every app install.
-pub fn release_log_keys_for(env: Environment) -> &'static [&'static str] {
-    match env {
-        Environment::Dev => gen::DEV_RELEASE_LOG_KEYS,
-        Environment::Prod => gen::PROD_RELEASE_LOG_KEYS,
     }
 }

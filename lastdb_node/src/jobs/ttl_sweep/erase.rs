@@ -3,23 +3,21 @@
 //! rest between batches.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
-
-static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
-use super::backlog::Backlog;
+use super::discovery::{self, Backlog};
 use super::key_is_expired;
-
-mod rounds;
-use super::pace::Pace;
-use super::send::send_with_missing_retry;
-use super::verb::SweepVerb;
+use super::send::{send_with_missing_retry, Pace, SweepVerb};
 use crate::host::Host;
+
+static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
+
+const REST_SLICE: Duration = Duration::from_millis(250);
 
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
@@ -47,11 +45,7 @@ impl PassTotals {
 }
 
 /// Erase the backlogs in rounds: one batch from each schema that still has
-/// keys, then the rest, then the next round. A schema whose batch fails is
-/// skipped for the rest of the pass, logged once, and the others go on. The
-/// pass ends early, without an error, when the node stops or pauses local
-/// writes. Snapshot cuts retain the normal mutation admission for each batch.
-/// The next sampler tick lists the rest again.
+/// keys, then the rest, then the next round.
 pub(super) async fn purge_round_robin(
     host: &Host,
     mut backlogs: Vec<Backlog>,
@@ -65,7 +59,7 @@ pub(super) async fn purge_round_robin(
         .expect("ttl writer watch")
         .take()
         .unwrap_or_default();
-    totals.cut = rounds::erase_rounds(
+    totals.cut = erase_rounds(
         host,
         &mut backlogs,
         shutdown,
@@ -79,9 +73,124 @@ pub(super) async fn purge_round_robin(
     totals
 }
 
-/// Keys in the next batch of a schema. The pace sets the size. A schema with
-/// many fields or alternate keys gets fewer keys, so the batch always fits in
-/// one native batch (16,384 operations). One key at least.
+async fn erase_rounds(
+    host: &Host,
+    backlogs: &mut [Backlog],
+    shutdown: &AtomicBool,
+    options: (SweepVerb, Pace),
+    totals: &mut PassTotals,
+    watch: &mut WriterWatch,
+) -> bool {
+    while backlogs.iter().any(|backlog| !backlog.is_done()) {
+        for backlog in &mut *backlogs {
+            if backlog.is_done() {
+                continue;
+            }
+            if shutdown.load(Ordering::Acquire) {
+                return true;
+            }
+            let size = batch_size(host, backlog, options.1.batch, options.0);
+            if let Err(error) = discovery::fill_page(host, backlog, size).await {
+                tracing::warn!(
+                    target: "lastdbd::ttl_sweep",
+                    schema = %backlog.schema_name,
+                    error = %error,
+                    "ttl discovery failed; skip this schema for this pass"
+                );
+                backlog.abandon();
+                totals.schemas_failed += 1;
+                continue;
+            }
+            if erase_page(host, backlog, shutdown, options, totals, watch).await {
+                return true;
+            }
+            // No second schema can hold a page while this one still owns it.
+            // A failed page keeps only its outstanding count, never its keys.
+            backlog.release_page();
+        }
+    }
+    false
+}
+
+/// Drain this one page, including smaller retries after size refusals. Each
+/// batch observes the existing duty pause.
+async fn erase_page(
+    host: &Host,
+    backlog: &mut Backlog,
+    shutdown: &AtomicBool,
+    (verb, pace): (SweepVerb, Pace),
+    totals: &mut PassTotals,
+    watch: &mut WriterWatch,
+) -> bool {
+    while backlog.page_left() > 0 {
+        if shutdown.load(Ordering::Acquire) {
+            return true;
+        }
+        let size = batch_size(host, backlog, pace.batch, verb);
+        let chunk = backlog.take(size);
+        let taken = chunk.len();
+        let started = Instant::now();
+        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(erase_batch(
+            host, backlog, chunk, verb,
+        )))
+        .await;
+        let pause = pace.pause_after(blocked, watch.writer_present(scopes));
+        match outcome {
+            Ok(done) => {
+                totals.erased += done.erased;
+                totals.dropped += done.dropped;
+                log_batch(&backlog.schema_name, &done, started.elapsed());
+            }
+            Err(error) if taken > 1 && is_size_limit_error(&error) => {
+                backlog.shrink_after_limit(taken);
+                tracing::warn!(
+                    target: "lastdbd::ttl_sweep",
+                    schema = %backlog.schema_name,
+                    keys = taken,
+                    error = %error,
+                    "ttl size refusal; retry a smaller batch"
+                );
+            }
+            Err(error) => {
+                backlog.shrink_after_limit(taken);
+                backlog.abandon();
+                totals.schemas_failed += 1;
+                tracing::warn!(
+                    target: "lastdbd::ttl_sweep",
+                    schema = %backlog.schema_name,
+                    error = %error,
+                    "ttl erase failed; skip this schema for this pass"
+                );
+                return false;
+            }
+        }
+        if !backlog.is_done() {
+            rest(pause, shutdown, watch).await;
+        }
+    }
+    false
+}
+
+/// Rest for `pause`. The slice is 250 ms; ends early on shutdown or when no
+/// other task has opened a write scope within the quiet period.
+async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
+    let end = Instant::now() + pause;
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            return;
+        }
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left.min(REST_SLICE)).await;
+        if left > REST_SLICE && watch.rest_may_end() {
+            return;
+        }
+    }
+}
+
+/// Keys in the next batch of a schema.
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
     use fold_db::fold_db_core::purge::budget::max_erase_keys;
     let fits = max_erase_keys(
@@ -92,8 +201,6 @@ fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb
     pace_batch.min(fits).min(backlog.batch_cap()).max(1)
 }
 
-/// True when the error says that the request was over a size limit (the
-/// operation limit of a batch or the read budget of a request).
 fn is_size_limit_error(error: &str) -> bool {
     error.contains("read resource limit exceeded")
         || error.contains("complete mutation limit exceeded")
@@ -102,11 +209,8 @@ fn is_size_limit_error(error: &str) -> bool {
 
 /// What one batch did.
 struct Batch {
-    /// Keys that the batch sent to the erase.
     erased: usize,
-    /// Keys that the re-check dropped because they were no longer expired.
     dropped: usize,
-    /// Keys of a purge that were already gone and that the sweep dropped.
     missing: usize,
 }
 
@@ -132,10 +236,6 @@ async fn erase_batch(
         });
     };
     let dropped = listed - keys.len();
-    // Hash records age by the whole-record write time. The revision condition
-    // and cutoff spare a rewrite even if its age row has not been observed.
-    // HashRange records age by their external key; replacing the payload
-    // does not change that age.
     let write_cutoff_nanos = matches!(
         backlog.schema_type,
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
@@ -151,15 +251,6 @@ async fn erase_batch(
     })
 }
 
-/// The keys of `chunk` that are expired now, under the policy now, and the
-/// cutoff that decided it in unix seconds. `None` means the policy is gone.
-///
-/// The pass lists its keys once. A paced pass reaches a key long after the
-/// listing, and a client can rewrite the key in that time. Range and HashRange
-/// keys carry their age in the key, so a rewrite does not change it. Hash and
-/// Single keys carry it in the write-time index, which the re-check reads in
-/// one batch. A policy that now has a longer TTL protects keys that it
-/// protected not when the pass listed them.
 async fn still_expired(
     host: &Host,
     backlog: &Backlog,
@@ -196,8 +287,6 @@ async fn still_expired(
     }
 }
 
-/// One line per batch, for the operator who asks where a batch spent its time.
-/// A batch that dropped keys at the re-check is logged at info.
 fn log_batch(schema_name: &str, batch: &Batch, took: Duration) {
     let Batch {
         erased,

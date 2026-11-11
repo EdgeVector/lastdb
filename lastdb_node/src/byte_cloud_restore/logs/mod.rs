@@ -1,6 +1,4 @@
 //! Restore one fixed accepted root: a private snapshot followed by whole native batches.
-mod cache;
-mod checkpoint;
 mod plan;
 mod routing;
 use super::{
@@ -277,7 +275,7 @@ async fn replay_checkpoint(
     if cursor.position != position {
         return Err(RestoreError::Invalid("saved complete replay position"));
     }
-    checkpoint::download(
+    routing::download_checkpoint(
         &ancestor,
         client,
         decryption,
@@ -323,7 +321,7 @@ async fn replay_checkpoint(
     if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
     }
-    checkpoint::release(session, &root)?;
+    routing::release_checkpoint(session, &root)?;
     cursor.remaining -= 1;
     cursor.previous = accepted;
     cursor.entry = 0;

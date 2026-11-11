@@ -1,15 +1,142 @@
+//! Native file staging and owned local session filesystem primitives.
 use super::{
-    download, inventory::Inventory, local, ByteBackupReader, NativeFileProof, RestoreError,
-    RestoreSession, Result,
+    check_capacity, download, inventory::Inventory, verify_file, ByteBackupReader, NativeFileProof,
+    RestoreError, RestoreSession, Result,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::Digest;
 use fold_db::cloud_backup_plan::ClientNativeFile;
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+
+pub(crate) fn directory(path: &Path) -> Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+        return Err(RestoreError::Invalid("owned session directory"));
+    }
+    Ok(())
+}
+
+pub(crate) fn owner_file(path: &Path, new: bool) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW);
+    if new {
+        options.create_new(true);
+    }
+    let file = options.open(path)?;
+    validate_file(&file)?;
+    Ok(file)
+}
+
+pub(crate) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Result<T> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    validate_file(&file)?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > maximum {
+        return Err(RestoreError::Limit("metadata bytes"));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| RestoreError::Invalid("metadata JSON"))
+}
+
+pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
+    atomic_json_bounded(
+        path,
+        value,
+        cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES,
+    )
+}
+
+pub(crate) fn atomic_json_bounded(path: &Path, value: &impl Serialize, maximum: u64) -> Result<()> {
+    let bytes = cloud_backup_protocol::canonical_bytes(value)?;
+    if bytes.len() as u64 > maximum {
+        return Err(RestoreError::Limit("saved metadata"));
+    }
+    let pending = path.with_extension("pending");
+    let mut file = writable_file(&pending, true)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    fs::rename(pending, path)?;
+    File::open(
+        path.parent()
+            .ok_or(RestoreError::Invalid("metadata parent"))?,
+    )?
+    .sync_all()?;
+    Ok(())
+}
+
+fn validate_file(file: &File) -> Result<()> {
+    let meta = file.metadata()?;
+    if !meta.is_file()
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.mode() & 0o077 != 0
+        || meta.nlink() != 1
+    {
+        return Err(RestoreError::Invalid("owned session file"));
+    }
+    Ok(())
+}
+
+pub(crate) fn writable_file(path: &Path, truncate: bool) -> Result<File> {
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    validate_file(&file)?;
+    if truncate {
+        file.set_len(0)?;
+    }
+    Ok(file)
+}
+
+pub(crate) fn prepare_native_ephemera(data: &Path) -> Result<()> {
+    for name in [
+        fold_db::storage::disk_pack::RUN_DIR,
+        fold_db::storage::disk_pack::CAS_DIR,
+    ] {
+        let home = data.join(name);
+        if name == fold_db::storage::disk_pack::CAS_DIR && !home.try_exists()? {
+            continue;
+        }
+        directory(&home)?;
+        let runs = home.join(laststore::disk_run::home::RUNS);
+        match fs::DirBuilder::new().mode(0o700).create(&runs) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        directory(&runs)?;
+        let path = home.join(laststore::disk_run::home::LOCK);
+        let lock = match owner_file(&path, true) {
+            Ok(lock) => lock,
+            Err(RestoreError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                owner_file(&path, false)?
+            }
+            Err(error) => return Err(error),
+        };
+        if lock.metadata()?.len() != 0 {
+            return Err(RestoreError::Invalid("run ephemeral lock"));
+        }
+        lock.sync_all()?;
+        File::open(&home)?.sync_all()?;
+    }
+    Ok(())
+}
 
 pub(super) async fn restore_at(
     session: &RestoreSession,
@@ -63,16 +190,12 @@ fn prepare(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
     let path = root.join(entry.path.as_str());
     create_parents(root, entry.path.as_str())?;
     if path.try_exists()? {
-        crate::byte_cloud_restore::verify_file(
-            &path,
-            &entry.native_sha256,
-            entry.native_bytes.get(),
-        )?;
+        verify_file(&path, &entry.native_sha256, entry.native_bytes.get())?;
         return Ok(false);
     }
-    crate::byte_cloud_restore::check_capacity(&session.root, entry.native_bytes.get())?;
+    check_capacity(&session.root, entry.native_bytes.get())?;
     let pending = pending(session, entry.path.as_str());
-    local::writable_file(&pending, true)?;
+    writable_file(&pending, true)?;
     Ok(true)
 }
 
@@ -109,7 +232,7 @@ fn copy_object(
         let mut offset = 0u64;
         for extent in &entry.extents {
             if extent.receipt_id == *id {
-                crate::byte_cloud_restore::check_capacity(&session.root, extent.length.get())?;
+                check_capacity(&session.root, extent.length.get())?;
                 let mut output = OpenOptions::new()
                     .write(true)
                     .custom_flags(libc::O_NOFOLLOW)
@@ -140,11 +263,7 @@ fn install(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
     let path = root.join(entry.path.as_str());
     if !path.try_exists()? {
         let pending = pending(session, entry.path.as_str());
-        crate::byte_cloud_restore::verify_file(
-            &pending,
-            &entry.native_sha256,
-            entry.native_bytes.get(),
-        )?;
+        verify_file(&pending, &entry.native_sha256, entry.native_bytes.get())?;
         File::open(&pending)?.sync_all()?;
         fs::rename(pending, &path)?;
     }
@@ -164,14 +283,14 @@ fn install(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
         bytes: entry.native_bytes.get(),
     };
     if ledger.try_exists()? {
-        let saved: NativeFileProof = local::read_json(&ledger, 256 * 1024)?;
+        let saved: NativeFileProof = read_json(&ledger, 256 * 1024)?;
         if saved.path != proof.path || saved.sha256 != proof.sha256 || saved.bytes != proof.bytes {
             return Err(RestoreError::Invalid("saved native proof"));
         }
     } else {
         session.remove_spool_file(&ledger.with_extension("pending"))?;
         session.reserve_spool(4096)?;
-        if let Err(error) = local::atomic_json(&ledger, &proof) {
+        if let Err(error) = atomic_json(&ledger, &proof) {
             if ledger.with_extension("pending").try_exists()? {
                 session.add_spool_file(&ledger.with_extension("pending"))?;
             }
@@ -187,6 +306,7 @@ pub(super) fn path_key(path: &str) -> String {
         .as_str()
         .into()
 }
+
 fn pending(session: &RestoreSession, path: &str) -> PathBuf {
     session
         .root

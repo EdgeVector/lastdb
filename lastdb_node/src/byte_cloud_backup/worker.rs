@@ -13,7 +13,6 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{ErrorCode, Id};
 use std::sync::atomic::AtomicBool;
 
-mod stream;
 mod terminal;
 pub(super) use terminal::{source_unavailable, terminal_invocation, validate_terminal};
 
@@ -26,7 +25,7 @@ pub(super) async fn run(
 ) -> Result<()> {
     source.validate(saved)?;
     if saved.begin.is_some() {
-        stream::validate_saved(source, store, saved)?;
+        terminal::validate_saved_stream(source, store, saved)?;
     }
     if saved.local_action.is_some() {
         source.cancel_replacement(saved)?;
@@ -89,13 +88,13 @@ async fn setup(
     if !context.new_work_allowed {
         if source.publication_stream.is_some()
             || (saved.automatic_revision.is_some()
-                && stream::same_scope(source, store, &context.scope)?)
+                && terminal::same_scope(source, store, &context.scope)?)
         {
             return Err(BackupError::AdmissionPending);
         }
         return Err(BackupError::Authority);
     }
-    let stream = stream::select(source, store, context.scope)?;
+    let stream = terminal::select_stream(source, store, context.scope)?;
     let head_request = HeadReadRequest {
         version: Version::V2,
         stream: stream.clone(),

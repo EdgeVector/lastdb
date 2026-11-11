@@ -39,15 +39,10 @@ use fold_db::schema::SchemaRetentionPolicy;
 
 use crate::host::Host;
 
-mod backlog;
 mod discovery;
 mod erase;
-mod pace;
 mod send;
-mod verb;
-use backlog::Backlog;
-pub use pace::{TTL_SWEEP_BATCH_ENV, TTL_SWEEP_DUTY_PCT_ENV, TTL_SWEEP_MIN_PAUSE_MS_ENV};
-pub use verb::TTL_SWEEP_VERB_ENV;
+use discovery::Backlog;
 
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const TTL_SWEEP_ENV: &str = "LASTDB_TTL_SWEEP";
@@ -67,7 +62,6 @@ pub fn ttl_sweep_enabled() -> bool {
 
 fn sweep_interval_from_env() -> std::time::Duration {
     let secs = std::env::var(TTL_SWEEP_INTERVAL_SECS_ENV)
-        .or_else(|_| std::env::var("LASTDB_SELF_METRICS_SAMPLE_SECS"))
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
         .unwrap_or(60)
@@ -84,7 +78,7 @@ pub fn spawn_periodic(
     tokio::spawn(
         async move {
             if ttl_sweep_enabled() {
-                verb::warn_on_bad_verb_once();
+                send::warn_on_bad_verb_once();
             }
             while !shutdown.load(Ordering::Acquire) {
                 if ttl_sweep_enabled() {

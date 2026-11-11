@@ -1,7 +1,7 @@
 //! Exact record and alternate lookups from the same inactive native root as the restore proof.
 
 use super::database::{bad_request, checked_address, resource_limit};
-use super::{invalid, map, read_budget, RunNodeGuard, RunRestoreGuard, StorageResult};
+use super::{invalid, map, read_budget, RunNodeGuard, StorageResult};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
@@ -75,17 +75,6 @@ impl StagedRecord {
     /// The authenticated fields of this exact primary record.
     pub fn fields(&self) -> &BTreeMap<String, Value> {
         &self.fields
-    }
-}
-
-impl RunRestoreGuard {
-    /// Read one primary key while the verified native root remains locked.
-    pub fn read_staged_record(
-        &self,
-        query: &StagedRecordQuery<'_>,
-        account_key: &[u8; 32],
-    ) -> StorageResult<Option<StagedRecord>> {
-        read_at_root(&self.native, query, account_key)
     }
 }
 

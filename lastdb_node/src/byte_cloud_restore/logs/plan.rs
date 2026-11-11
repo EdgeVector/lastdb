@@ -77,7 +77,7 @@ pub(super) async fn prepare(
             save(session, &link, &accepted)?;
         }
         count += 1;
-        super::cache::clear(session)?;
+        super::routing::clear_cache(session)?;
         if let Some(cached) = cached_predecessor(cache, &root)? {
             break Some(cached);
         }

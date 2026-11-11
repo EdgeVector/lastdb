@@ -1,35 +1,7 @@
-//! Re-exports `lastdb_model::schema::types` plus task-local key comparison and mutation IDs.
+//! Re-exports `lastdb_model::schema::types` plus task-local key comparison.
 
 pub use key_comparison::KeyValuePageOrder;
 pub use lastdb_model::schema::types::*;
-
-use lastdb_model::record_replacement::{RecordExpectation, RecordTarget};
-use serde_json::Value;
-use std::collections::HashMap;
-
-pub trait MutationIds {
-    fn new(
-        id: String,
-        target: RecordTarget,
-        record_fields: HashMap<String, Value>,
-        pub_key: String,
-        mutation_type: MutationType,
-        expected: RecordExpectation,
-    ) -> Self;
-}
-
-impl MutationIds for Mutation {
-    fn new(
-        id: String,
-        target: RecordTarget,
-        record_fields: HashMap<String, Value>,
-        pub_key: String,
-        mutation_type: MutationType,
-        expected: RecordExpectation,
-    ) -> Self {
-        Self::with_uuid(id, target, record_fields, pub_key, mutation_type, expected)
-    }
-}
 
 pub mod key_comparison {
     use lastdb_model::schema::types::field::{HashRangeFilter, KeyWindow};

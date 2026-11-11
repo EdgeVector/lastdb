@@ -1,6 +1,7 @@
-//! Owner socket serving: request routing, the accept handler, and
-//! worker-pool backpressure logging.
+//! Owner socket serving: request routing, body-byte budget, deferred
+//! mutations, the accept handler, and worker-pool backpressure logging.
 
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -10,9 +11,69 @@ use lastdb_node::host::Host;
 use lastdb_node::lastdb_uds::uds::UdsSocket;
 use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use lastdb_node::lastdb_uds::uds_router;
-use lastdb_node::lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
-mod body_budget;
-mod deferred;
+use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+// Include body, bounded headers, request line and container allocation slack.
+const MAX_PARSE_BYTES: usize =
+    uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
+
+/// Deferred requests share the existing pool's maximum parse-byte allowance.
+#[derive(Clone)]
+struct BodyBudget(Arc<Semaphore>);
+
+struct BodyLease(OwnedSemaphorePermit);
+
+impl BodyBudget {
+    fn new(workers: usize) -> Self {
+        let bytes = workers
+            .saturating_mul(MAX_PARSE_BYTES)
+            .min(Semaphore::MAX_PERMITS);
+        Self(Arc::new(Semaphore::new(bytes)))
+    }
+
+    fn try_reserve(&self) -> Option<BodyLease> {
+        let bytes = u32::try_from(MAX_PARSE_BYTES).expect("bounded HTTP parse size fits u32");
+        Arc::clone(&self.0)
+            .try_acquire_many_owned(bytes)
+            .ok()
+            .map(BodyLease)
+    }
+
+    async fn reserve(&self) -> std::io::Result<BodyLease> {
+        let bytes = u32::try_from(MAX_PARSE_BYTES).expect("bounded HTTP parse size fits u32");
+        Arc::clone(&self.0)
+            .acquire_many_owned(bytes)
+            .await
+            .map(BodyLease)
+            .map_err(std::io::Error::other)
+    }
+}
+
+impl BodyLease {
+    /// Retain the actual frame bytes while its future awaits. Large frames
+    /// consume the same allowance as the original bounded synchronous parsers.
+    fn retain_request(&mut self, request: &UdsRequest) -> bool {
+        let bytes = request.headers.iter().fold(
+            std::mem::size_of::<UdsRequest>()
+                + request.body.capacity()
+                + request.method.capacity()
+                + request.target.capacity()
+                + request.headers.capacity() * std::mem::size_of::<(String, String)>(),
+            |total, (name, value)| {
+                total
+                    .saturating_add(name.capacity())
+                    .saturating_add(value.capacity())
+            },
+        );
+        if bytes > self.0.num_permits() {
+            return false;
+        }
+        let unused = self.0.num_permits() - bytes;
+        drop(self.0.split(unused));
+        true
+    }
+}
 
 /// Shared state every accept handler needs.
 #[derive(Clone)]
@@ -20,8 +81,8 @@ pub(crate) struct Server {
     pub(crate) host: Arc<Host>,
     pub(crate) handle: tokio::runtime::Handle,
     pub(crate) worker_pool: UdsWorkerPool,
-    body_budget: body_budget::BodyBudget,
-    mutation_replies: Arc<tokio::sync::Semaphore>,
+    body_budget: BodyBudget,
+    mutation_replies: Arc<Semaphore>,
 }
 
 /// App verbs served on the owner socket. `None` means "not one of these".
@@ -109,14 +170,130 @@ fn log_submit_error(pool: &UdsWorkerPool, err: SubmitError) {
     }
 }
 
+fn serve_connection(
+    server: &Server,
+    stream: UnixStream,
+    completion: ConnectionWork,
+) -> std::io::Result<()> {
+    // Workers never wait for byte permits: queued responses must stay runnable.
+    if let Some(body) = server.body_budget.try_reserve() {
+        return serve_reserved(server, stream, completion, body);
+    }
+    let server = server.clone();
+    server.handle.clone().spawn(async move {
+        match server.body_budget.reserve().await {
+            Ok(body) => completion.resume(stream, move |stream, completion| {
+                let result = serve_reserved(&server, stream, completion, body);
+                log_result(result);
+            }),
+            Err(error) => log_result(Err(error)),
+        }
+    });
+    Ok(())
+}
+
+fn serve_reserved(
+    server: &Server,
+    mut stream: UnixStream,
+    completion: ConnectionWork,
+    mut body: BodyLease,
+) -> std::io::Result<()> {
+    let Some((mut request, context)) =
+        uds_http::receive_connection(&mut stream, &server.host.user_hash)?
+    else {
+        return Ok(());
+    };
+    let route = match uds_router::route(&request) {
+        uds_router::ControlRoute::Data(
+            route @ (uds_router::DataRoute::Mutation | uds_router::DataRoute::MutationBatch),
+        ) => Some(MutationRoute::Default(route)),
+        _ if exec::is_deferred_database_mutation(&request) => Some(MutationRoute::Scoped),
+        _ => None,
+    };
+    if let Some(route) = route {
+        if body.retain_request(&request) {
+            defer(
+                server,
+                Pending {
+                    stream,
+                    request,
+                    context,
+                    body,
+                    completion,
+                },
+                route,
+            );
+            return Ok(());
+        }
+    }
+    let response = route_request(&server.handle, &server.host, &mut request, &context);
+    uds_http::finish_connection(&mut stream, &response)
+}
+
+struct Pending {
+    stream: UnixStream,
+    request: UdsRequest,
+    context: AccessContext,
+    body: BodyLease,
+    completion: ConnectionWork,
+}
+
+enum MutationRoute {
+    Default(uds_router::DataRoute),
+    Scoped,
+}
+
+fn defer(server: &Server, pending: Pending, route: MutationRoute) {
+    let host = Arc::clone(&server.host);
+    let replies = Arc::clone(&server.mutation_replies);
+    server.handle.spawn(async move {
+        // Hold one slot from handler start through final write/drop. Neither
+        // handler outputs nor slow-peer replies can multiply by queue capacity.
+        let Ok(reply_slot) = replies.acquire_owned().await else {
+            return;
+        };
+        let Pending {
+            stream,
+            mut request,
+            context,
+            body,
+            completion,
+        } = pending;
+        let response = match route {
+            MutationRoute::Default(route) => {
+                exec::execute_deferred_mutation(route, &request, &context, &host).await
+            }
+            MutationRoute::Scoped => {
+                exec::execute_deferred_database_mutation(&mut request, &context, &host).await
+            }
+        };
+        // Release frame bytes before scheduling the response. Parsers that wait
+        // for byte capacity must not prevent these responses from reaching a worker.
+        drop(request);
+        drop(body);
+        completion.resume(stream, move |mut stream, _completion| {
+            let result = uds_http::finish_connection(&mut stream, &response);
+            drop(response);
+            drop(reply_slot);
+            log_result(result);
+        });
+    });
+}
+
+fn log_result(result: std::io::Result<()>) {
+    if let Err(error) = result {
+        tracing::debug!(error = %error, "socket connection ended with error");
+    }
+}
+
 impl Server {
     pub(crate) fn new(
         host: Arc<Host>,
         handle: tokio::runtime::Handle,
         worker_pool: UdsWorkerPool,
     ) -> Self {
-        let body_budget = body_budget::BodyBudget::new(worker_pool.workers());
-        let mutation_replies = Arc::new(tokio::sync::Semaphore::new(worker_pool.workers()));
+        let body_budget = BodyBudget::new(worker_pool.workers());
+        let mutation_replies = Arc::new(Semaphore::new(worker_pool.workers()));
         Self {
             host,
             handle,
@@ -126,13 +303,13 @@ impl Server {
         }
     }
 
-    fn on_accept(&self, stream: std::os::unix::net::UnixStream) {
+    fn on_accept(&self, stream: UnixStream) {
         let server = self.clone();
         let submitted =
             self.worker_pool
                 .try_submit_owned_connection(stream, move |stream, completion| {
-                    let result = deferred::serve(&server, stream, completion);
-                    deferred::log_result(result);
+                    let result = serve_connection(&server, stream, completion);
+                    log_result(result);
                 });
         if let Err(err) = submitted {
             log_submit_error(&self.worker_pool, err);

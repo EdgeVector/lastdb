@@ -1,7 +1,35 @@
 use super::*;
+use sha2::{Digest, Sha256};
+use std::os::unix::fs::OpenOptionsExt;
 
-#[path = "hydrate_cmds.rs"]
-mod hydrate_cmds;
+/// Record-level data commands: mutate, get-keys, get.
+pub(super) fn record_command(target: &DatabaseTarget, command: Command) -> Result<(), String> {
+    match command {
+        Command::Mutate {
+            request_file,
+            durable,
+            mutation_id,
+        } => mutate_command(target, &request_file, durable, mutation_id),
+        Command::GetKeys(args) => list_record_keys(target, &args),
+        Command::Get {
+            schema,
+            key_hash,
+            key_range,
+            json,
+            hydrate,
+            hydrate_inline,
+        } => get_record(
+            target,
+            &schema,
+            key_hash.as_deref(),
+            key_range.as_deref(),
+            json,
+            hydrate.as_deref(),
+            hydrate_inline.as_deref(),
+        ),
+        _ => unreachable!("run() routes only record commands here"),
+    }
+}
 
 pub(super) fn legal_query_shapes(
     schema_type: &str,
@@ -96,23 +124,23 @@ pub(super) fn get_record(
     let mut value = parse_json_response(&response, "query")?;
     if let Some(out) = hydrate {
         let file_required = schema["file_required"].as_bool().unwrap_or(false);
-        hydrate_cmds::hydrate(
+        hydrate_record_file(
             target,
             schema_name,
             &mut value,
             out,
             file_required,
-            hydrate_cmds::Placement::Blob,
+            Placement::Blob,
         )?;
     }
     if let Some(out) = hydrate_inline {
-        hydrate_cmds::hydrate(
+        hydrate_record_file(
             target,
             schema_name,
             &mut value,
             out,
             false,
-            hydrate_cmds::Placement::Inline,
+            Placement::Inline,
         )?;
     }
     if json_only {
@@ -195,4 +223,108 @@ pub(super) fn get_path(socket: &Path, path: &str, timeout: Duration) -> Result<S
         client_headers()
     );
     request_with_timeout(socket, req.as_bytes(), timeout)
+}
+
+#[derive(Clone, Copy)]
+enum Placement {
+    Blob,
+    Inline,
+}
+
+impl Placement {
+    fn marker(self) -> &'static str {
+        match self {
+            Self::Blob => "/metadata/file",
+            Self::Inline => "/metadata/inline_file",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Blob => "blob",
+            Self::Inline => "inline",
+        }
+    }
+
+    fn output_field(self) -> &'static str {
+        match self {
+            Self::Blob => "hydrated_file",
+            Self::Inline => "hydrated_inline_file",
+        }
+    }
+}
+
+fn hydrate_record_file(
+    target: &DatabaseTarget,
+    schema: &str,
+    value: &mut serde_json::Value,
+    out: &Path,
+    file_required: bool,
+    placement: Placement,
+) -> Result<(), String> {
+    let records = value["results"]
+        .as_array_mut()
+        .ok_or("missing query records")?;
+    let [record] = records.as_mut_slice() else {
+        return Err("hydration requires exactly one record".into());
+    };
+    let Some(marker) = record
+        .pointer(placement.marker())
+        .filter(|value| !value.is_null())
+    else {
+        return match placement {
+            Placement::Blob if !file_required => Ok(()),
+            Placement::Blob => Err("record is missing its required file".into()),
+            Placement::Inline => Err("record has no inline file".into()),
+        };
+    };
+    let size = marker["size_bytes"]
+        .as_u64()
+        .ok_or("file marker has no size")?;
+    let digest = marker["sha256"]
+        .as_str()
+        .ok_or("file marker has no digest")?;
+    let revision = record["revision"]
+        .as_str()
+        .ok_or("record has no revision")?;
+    let body = serde_json::to_vec(&serde_json::json!({
+        "schema": schema, "key": record["key"], "expected_revision": revision,
+        "placement": placement.name(),
+    }))
+    .map_err(|error| format!("encode hydrate request: {error}"))?;
+    let path = target.path("/api/db/fetch-blob");
+    let mut request = format!(
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nAccept: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        client_headers(),
+        body.len(),
+    )
+    .into_bytes();
+    request.extend_from_slice(&body);
+    let timeout = admin_scan_client_timeout();
+    let response = request_with_timeout_raw_bytes(&target.socket, &request, timeout)
+        .map_err(|(op, error, _)| format_socket_io_error(op, &error, timeout))?;
+    let bytes = parse_binary_response(&response, "record hydration")?;
+    if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {
+        return Err("hydrated file differs from the queried record version".into());
+    }
+    publish_hydrated(out, &bytes)?;
+    record[placement.output_field()] = serde_json::json!(out);
+    Ok(())
+}
+
+fn publish_hydrated(out: &Path, bytes: &[u8]) -> Result<(), String> {
+    let name = format!(".lastdb-hydrate-{}", uuid::Uuid::new_v4());
+    let temp = out.with_file_name(name);
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|error| format!("create hydration output: {error}"))?;
+    let result = file
+        .write_all(bytes)
+        .and_then(|()| std::fs::hard_link(&temp, out));
+    let cleanup = std::fs::remove_file(&temp);
+    result.map_err(|error| format!("publish hydration output: {error}"))?;
+    cleanup.map_err(|error| format!("clean up hydration output: {error}"))
 }

@@ -58,9 +58,63 @@ pub struct Host {
 /// every binary derives the same owner identity.
 pub use crate::identity::{load_or_generate_seed_with_meta, user_hash_from_pubkey};
 
-mod boot;
-
 impl Host {
+    fn prepare_boot_home(home: &Path) -> Result<PathBuf, String> {
+        ensure_node_home(home)
+            .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
+        crate::shutdown_receipt::clear_shutdown_flush_receipt(home)
+            .map_err(|error| format!("could not clear prior shutdown proof: {error}"))?;
+        let data_path = home.join("data");
+        std::fs::create_dir_all(&data_path)
+            .map_err(|e| format!("failed to create data dir {}: {e}", data_path.display()))?;
+        Ok(data_path)
+    }
+
+    fn load_boot_identity(home: &Path) -> Result<(Arc<Ed25519KeyPair>, E2eKeys, bool), String> {
+        let (seed, freshly_generated) = load_or_generate_seed_with_meta(home)?;
+        if freshly_generated {
+            match bip39::Mnemonic::from_entropy(&seed) {
+                Ok(mnemonic) => {
+                    emit_fresh_recovery_phrase(&mnemonic.to_string());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "fresh identity written but BIP39 phrase could not be encoded"
+                    );
+                }
+            }
+        }
+        let keypair = Arc::new(
+            Ed25519KeyPair::from_secret_key(&seed)
+                .map_err(|e| format!("identity keyfile is not a valid Ed25519 seed: {e}"))?,
+        );
+        let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
+            .map_err(|e| format!("E2E key derivation failed: {e}"))?;
+        Ok((keypair, e2e_keys, freshly_generated))
+    }
+
+    async fn open_boot_db(
+        home: &Path,
+        data_path: &Path,
+        existing_store: bool,
+        keypair: &Arc<Ed25519KeyPair>,
+        e2e_keys: &E2eKeys,
+        search_outbox_inbox: PathBuf,
+    ) -> Result<Arc<FoldDB>, String> {
+        let config = DatabaseConfig::local(data_path.to_path_buf());
+        fold_db::fold_db_core::factory::create_fold_db_with_options(
+            &config,
+            e2e_keys,
+            Arc::clone(keypair),
+            fold_db::fold_db_core::factory::FoldDbOptions {
+                offline_maintenance: false,
+                search_outbox_inbox: Some(search_outbox_inbox),
+            },
+        )
+        .await
+        .map_err(|e| map_and_record_boot_error(home, existing_store, e))
+    }
     /// Boot the minimal host under `home` (the node-home directory; data
     /// lives at `<home>/data`).
     ///

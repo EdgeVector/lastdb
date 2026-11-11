@@ -6,6 +6,7 @@
 
 #[path = "lastdb/admin_cmds.rs"]
 mod admin_cmds;
+use admin_cmds::db_post_json;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
 use app_cmds::*;
@@ -18,9 +19,6 @@ use record_get_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
 use db_cmds::*;
-#[path = "lastdb/database_target.rs"]
-mod database_target;
-use database_target::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
 #[path = "lastdb/share_cmds.rs"]
@@ -31,6 +29,12 @@ use cloud_cmds::*;
 #[path = "lastdb/status_ops_cmds.rs"]
 mod status_ops_cmds;
 use status_ops_cmds::*;
+#[path = "lastdb/mutate_cmds.rs"]
+mod mutate_cmds;
+use mutate_cmds::*;
+#[path = "lastdb/socket_client.rs"]
+mod socket_client;
+use socket_client::*;
 
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -53,12 +57,6 @@ fn main() {
 }
 
 /// Shell exit status for a process that SIGPIPE killed (128 + 13).
-///
-/// Rust ignores SIGPIPE, so `println!` into a pipe whose reader exited
-/// (`lastdb status | head`) panics with "failed printing to stdout: Broken
-/// pipe". We do not restore `SIG_DFL` instead: this binary also writes to the
-/// daemon's Unix socket, and a default SIGPIPE there would kill the CLI with
-/// no error text when the daemon closes a connection.
 const BROKEN_PIPE_EXIT_CODE: i32 = 141;
 
 /// True for the panic `print!`/`eprint!` raise when their stream is a closed
@@ -70,9 +68,7 @@ fn is_std_stream_broken_pipe_panic(message: &str) -> bool {
 }
 
 /// Exit quietly with [`BROKEN_PIPE_EXIT_CODE`] when a downstream reader closes
-/// stdout/stderr early. Non-zero on purpose: output was cut, so a caller that
-/// checks the status (for example `restore --json`) must still fail closed.
-/// Other panics emit only the fixed marker, never the previous hook's payload.
+/// stdout/stderr early.
 fn install_broken_pipe_exit_hook() {
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload();
@@ -87,16 +83,10 @@ fn install_broken_pipe_exit_hook() {
     }));
 }
 
-/// Explicit node-socket override for client subcommands. Same name the app
-/// SDK honours first (`lastdb_app_sdk` transport discovery).
+/// Explicit node-socket override for client subcommands.
 const LASTDB_SOCKET_PATH_ENV: &str = "LASTDB_SOCKET_PATH";
 
 /// Socket a client subcommand talks to.
-///
-/// Order: an explicit `--data-dir` wins (flag beats env); then a non-empty
-/// `LASTDB_SOCKET_PATH`; then `<home>/data/folddb.sock`. Offline commands that
-/// probe the socket only to refuse when a daemon holds *this* home's store must
-/// keep using the home socket, not this resolver.
 fn client_socket_path(
     explicit_data_dir: bool,
     home: &Path,
@@ -175,14 +165,3 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::App { action } => app_command(cli.data_dir, action),
     }
 }
-
-#[path = "lastdb/mutate_cmds.rs"]
-mod mutate_cmds;
-#[path = "lastdb/record_cmds.rs"]
-mod record_cmds;
-use mutate_cmds::*;
-use record_cmds::record_command;
-
-#[path = "lastdb/socket_client.rs"]
-mod socket_client;
-use socket_client::*;

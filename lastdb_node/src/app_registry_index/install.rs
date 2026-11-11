@@ -1,42 +1,19 @@
-//! Install by proof: clone the proved commit and write the install receipt.
+//! Install by proof and running-node contract inspection.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::time::Duration;
 
-use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
-use super::resolve::Resolution;
+use super::{ContractVersions, Resolution};
 
 /// The receipt `lastdb app install` leaves in the install directory.
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 
-/// What a pinned install produced.
-#[derive(Debug, Clone, Serialize)]
-pub struct PinnedInstallOutcome {
-    pub app_id: String,
-    pub app_version: String,
-    pub sha: String,
-    pub lastdb_version: String,
-    pub channel: String,
-    pub source: String,
-    pub install_dir: String,
-    pub checkout_path: String,
-    pub proof_run: String,
-}
-
 /// Clone `resolution.source` and check out `resolution.sha` under
 /// `install_dir/source`, then write the receipt.
-///
-/// The checkout is verified by `git rev-parse HEAD`; a clone that lands on a
-/// different commit is removed, not installed.
-///
-/// # Errors
-/// Filesystem and git failures, and a HEAD that is not the proved commit.
-pub fn install_pinned(
-    resolution: &Resolution,
-    install_dir: &Path,
-) -> Result<PinnedInstallOutcome, String> {
+pub fn install_pinned(resolution: &Resolution, install_dir: &Path) -> Result<(), String> {
     if !resolution.sha.chars().all(|c| c.is_ascii_hexdigit()) || resolution.sha.len() != 40 {
         return Err(format!(
             "compat row sha '{}' is not a git commit",
@@ -79,20 +56,9 @@ pub fn install_pinned(
     std::fs::write(&receipt_path, bytes)
         .map_err(|e| cleanup(format!("failed to write {}: {e}", receipt_path.display())))?;
 
-    Ok(PinnedInstallOutcome {
-        app_id: resolution.app_id.clone(),
-        app_version: resolution.app_version.clone(),
-        sha: head,
-        lastdb_version: resolution.lastdb_version.clone(),
-        channel: resolution.channel.clone(),
-        source: resolution.source.clone(),
-        install_dir: install_dir.display().to_string(),
-        checkout_path: checkout_path.display().to_string(),
-        proof_run: resolution.proof_run.clone(),
-    })
+    Ok(())
 }
 
-/// Clone and checkout a proved commit. Helper for install_pinned.
 fn clone_and_checkout<F>(
     checkout_path: &Path,
     source: &str,
@@ -146,7 +112,6 @@ where
     Ok(head)
 }
 
-/// Reject an existing install directory, then create it.
 fn prepare_install_dir(install_dir: &Path) -> Result<(), String> {
     if install_dir.exists() {
         return Err(format!(
@@ -160,6 +125,96 @@ fn prepare_install_dir(install_dir: &Path) -> Result<(), String> {
             install_dir.display()
         )
     })?;
-
     Ok(())
+}
+
+fn sibling_lastdbd_version() -> Option<String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("lastdbd"));
+        }
+    }
+    candidates.push(PathBuf::from("lastdbd"));
+    for candidate in candidates {
+        let output = ProcessCommand::new(&candidate)
+            .arg("--version")
+            .env("RUST_LOG", "off")
+            .output();
+        let Ok(output) = output else { continue };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some(rest) = line.trim().strip_prefix("lastdbd ") {
+                let build = rest.trim();
+                if !build.is_empty() {
+                    return Some(build.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Read the node's build and exact contract versions from one socket request.
+/// Falls back to the paired daemon build and this release's contract constants.
+#[must_use]
+pub fn running_node(socket: &Path) -> (String, &'static str, ContractVersions) {
+    let mut versions = ContractVersions {
+        api_version: crate::version::CURRENT_API_VERSION,
+        min_supported_api_version: crate::version::MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    };
+    if let Some(value) = socket_version(socket) {
+        let api = value
+            .get("api_version")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        let outbox = value
+            .get("current_outbox_format_version")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        if let (Some(build), Some(api), Some(outbox)) =
+            (value.get("build").and_then(Value::as_str), api, outbox)
+        {
+            versions.api_version = api;
+            versions.outbox_format_version = outbox;
+            return (build.to_string(), "socket", versions);
+        }
+    }
+    let build = sibling_lastdbd_version();
+    (
+        build
+            .clone()
+            .unwrap_or_else(|| crate::version::build_version().to_string()),
+        if build.is_some() { "lastdbd" } else { "cli" },
+        versions,
+    )
+}
+
+fn socket_version(socket: &Path) -> Option<Value> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    let mut stream = UnixStream::connect(socket).ok()?;
+    let timeout = Some(Duration::from_secs(5));
+    stream.set_read_timeout(timeout).ok()?;
+    stream.set_write_timeout(timeout).ok()?;
+    stream
+        .write_all(
+            b"GET /api/version HTTP/1.1\r\nHost: localhost\r\nX-LastDB-Client: lastdb\r\nConnection: close\r\n\r\n",
+        )
+        .ok()?;
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).ok()?;
+    let status: u16 = raw.split_whitespace().nth(1)?.parse().ok()?;
+    if status != 200 {
+        return None;
+    }
+    let body = raw.split_once("\r\n\r\n")?.1.trim();
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    serde_json::from_str(&body[start..=end]).ok()
 }

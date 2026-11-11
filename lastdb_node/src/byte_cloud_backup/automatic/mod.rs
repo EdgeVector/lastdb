@@ -1,8 +1,6 @@
 //! One owner, one saved pending request, separate log and snapshot schedules.
 mod cleanup;
 mod policy;
-mod previous;
-mod replacement;
 use super::{
     model::Saved,
     recovery::RecoveryPoint,
@@ -156,7 +154,7 @@ fn pending_job(
     pending: &Pending,
     now: u64,
 ) -> Result<()> {
-    if replacement::retire(host, policy, pending)? {
+    if cleanup::retire_replacement(host, policy, pending)? {
         let saved = store::state(&host.home, &pending.id)?.ok_or(BackupError::Missing)?;
         return complete(host, policy, &saved, now);
     }
