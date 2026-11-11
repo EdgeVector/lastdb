@@ -12,6 +12,8 @@ pub enum SyncError {
     NotPublisher,
     /// Re-append only copies a submission stream, not the publisher stream.
     NotSubmission,
+    /// Append ran before [`crate::SyncState::resume`] loaded the stream tip.
+    NeedsResume,
 }
 
 impl From<LogError> for SyncError {
@@ -32,6 +34,7 @@ impl fmt::Display for SyncError {
                     "re-append copies a submission, not the publisher stream"
                 )
             }
+            Self::NeedsResume => write!(formatter, "resume the writer sequence before appending"),
         }
     }
 }

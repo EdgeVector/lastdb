@@ -56,6 +56,9 @@ fn append_effect(
 ) -> Result<Effect, SyncError> {
     let author = writer(state)?.clone();
     let stream = write_stream(state)?.clone();
+    if !state.resumed {
+        return Err(SyncError::NeedsResume);
+    }
     reject_app_private(&state.kind, &namespace, policy)?;
     let entry = Entry {
         database_id: state.database_id.clone(),
@@ -84,6 +87,9 @@ fn reappend_effect(
     let SyncRole::Publisher { principal } = &state.role else {
         return Err(SyncError::NotPublisher);
     };
+    if !state.resumed {
+        return Err(SyncError::NeedsResume);
+    }
     let publisher_stream = publisher_stream(state)?;
     if entry.database_id != state.database_id {
         return Err(LogError::WrongDatabase.into());

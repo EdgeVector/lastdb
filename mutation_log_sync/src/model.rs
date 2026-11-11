@@ -146,13 +146,15 @@ pub struct SyncState {
     pub(crate) role: SyncRole,
     pub(crate) cursor: ReadCursor,
     pub(crate) next_seq: u64,
+    pub(crate) resumed: bool,
 }
 
 impl SyncState {
-    /// Start a participant at writer sequence 1 and cursor 0.
+    /// Start a participant at cursor 0. `next_seq` is 1 until [`Self::resume`].
     ///
-    /// A personal database accepts a device only. A shareable database accepts
-    /// a publisher, a receiver, or a contributor, and rejects a device grant.
+    /// Append is refused until `resume` loads the stream tip. A personal
+    /// database accepts a device only. A shareable database accepts a
+    /// publisher, a receiver, or a contributor, and rejects a device grant.
     pub fn open(
         database_id: DatabaseId,
         kind: DatabaseKind,
@@ -166,19 +168,21 @@ impl SyncState {
             role,
             cursor,
             next_seq: 1,
+            resumed: false,
         })
     }
 
     /// Set `next_seq` from the stream tip already stored in `log`.
     ///
-    /// A fresh [`Self::open`] starts at 1. A process that rejoins a stream
-    /// calls this before appending, so the next mutation does not reuse a
-    /// stored sequence.
+    /// [`crate::drive`] refuses an append until this has run. A process that
+    /// rejoins a stream calls it before appending, so the next mutation does
+    /// not reuse a stored sequence.
     pub fn resume<L: MutationLog>(state: &Self, log: &L) -> Result<Self, SyncError> {
         let stream = crate::step::write_stream(state)?.clone();
         let tip = log.writer_tip(state.reader(), &stream)?;
         let mut next = state.clone();
         next.next_seq = tip.checked_add(1).ok_or(LogError::SequenceExhausted)?;
+        next.resumed = true;
         Ok(next)
     }
 

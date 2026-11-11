@@ -12,6 +12,7 @@ mod retry;
 mod role;
 mod share;
 mod space;
+mod writer;
 
 type Policy = fn(&Namespace) -> NamespaceKind;
 type MemLog = InMemoryMutationLog<Policy>;
@@ -85,7 +86,8 @@ fn append_event(namespace_name: &str, payload: &[u8], at_ms: u64) -> SyncEvent {
 }
 
 fn append(log: &mut MemLog, state: &SyncState, event: SyncEvent) -> SyncState {
-    let (next, outcome) = drive(state, log, event, &hearth).expect("append");
+    let state = SyncState::resume(state, log).expect("resume");
+    let (next, outcome) = drive(&state, log, event, &hearth).expect("append");
     assert!(matches!(outcome, Outcome::Appended { .. }));
     next
 }
