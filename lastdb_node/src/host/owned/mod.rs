@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
@@ -102,13 +101,9 @@ pub(crate) struct Tables {
 }
 
 impl Tables {
-    pub(crate) async fn open(
-        home: &Path,
-        keys: &E2eKeys,
-        signer: Arc<Ed25519KeyPair>,
-    ) -> Result<Self, String> {
+    pub(crate) async fn open(home: &Path, signer: Arc<Ed25519KeyPair>) -> Result<Self, String> {
         let file = registry::load(home)?;
-        let stores = store::open_all(home, &file.owned, keys, &signer).await?;
+        let stores = store::open_all(home, &file.owned, &signer).await?;
         if registry::read(home)?.is_none() {
             registry::write(home, &file)?;
         }
@@ -158,14 +153,13 @@ impl Tables {
     pub(crate) async fn create(
         &self,
         home: &Path,
-        keys: &E2eKeys,
         signer: Arc<Ed25519KeyPair>,
         name: &str,
         spec: Option<SpecBinding>,
     ) -> Result<Entry, OwnedError> {
         validate_create(name, spec.as_ref())?;
         let id = self.allocate(name)?;
-        let store = store::open(home, &id, keys, signer, true)
+        let store = store::open(home, &id, signer, true)
             .await
             .map_err(|_| OwnedError::Unavailable)?;
         let entry = Entry {
@@ -291,11 +285,6 @@ impl Host {
     /// Flush sibling stores. The daemon binary calls this before the owner store.
     pub async fn shutdown_owned_databases(&self) -> Result<(), String> {
         self.owned.shutdown().await
-    }
-
-    pub(crate) fn node_keys(&self) -> Result<E2eKeys, String> {
-        E2eKeys::from_ed25519_seed(&self.keypair.secret_key_bytes())
-            .map_err(|error| format!("E2E key derivation failed: {error}"))
     }
 }
 

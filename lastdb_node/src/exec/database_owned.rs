@@ -22,18 +22,9 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     if let Some(response) = share_conflict(host, &body.name, ctx) {
         return response;
     }
-    let Ok(keys) = host.node_keys() else {
-        return error_response(503, "database registry is unavailable", ctx);
-    };
     match host
         .owned
-        .create(
-            &host.home,
-            &keys,
-            Arc::clone(&host.keypair),
-            &body.name,
-            spec,
-        )
+        .create(&host.home, Arc::clone(&host.keypair), &body.name, spec)
         .await
     {
         Ok(entry) => json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id)),

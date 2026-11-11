@@ -78,7 +78,7 @@ impl Host {
 
         fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
             .map_err(|error| format!("Search queue preparation failed: {error}"))?;
-        let owned = owned::Tables::open(home, &e2e_keys, Arc::clone(&keypair)).await?;
+        let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         recovery::clear_last_boot_error(home);
         tracing::info!(
