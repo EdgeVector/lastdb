@@ -6,7 +6,6 @@
 pub mod alternate_keys;
 pub mod alternate_parts;
 pub mod clock;
-pub mod data_classification;
 pub mod declarative_schemas;
 pub mod error;
 pub mod field_identity;
@@ -21,12 +20,10 @@ pub mod record_keys;
 pub mod rfc3339;
 pub mod schema_type;
 
-pub use data_classification::{DataClassification, MAX_SENSITIVITY_LEVEL};
 pub use declarative_schemas::{
-    compute_identity_hash_parts, derive_transform_metadata, hash_expression, parse_canonical_name,
-    refuses_identity_downgrade, schema_from_value, DeclarativeSchemaDefinition, IdentityRecompute,
-    OwnedDeclaration, PortableSchemaDefinition, PortableSchemaId, SchemaSource, TransformMetadata,
-    IDENTITY_HASH_ALGO_VERSION,
+    compute_identity_hash_parts, parse_canonical_name, refuses_identity_downgrade,
+    schema_from_value, DeclarativeSchemaDefinition, IdentityRecompute, OwnedDeclaration,
+    PortableSchemaDefinition, PortableSchemaId, IDENTITY_HASH_ALGO_VERSION,
 };
 pub use error::{FoldDbError, FoldDbResult};
 pub use field_identity::{

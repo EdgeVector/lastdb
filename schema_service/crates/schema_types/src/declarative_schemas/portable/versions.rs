@@ -128,7 +128,6 @@ fn shape(definition: &DeclarativeSchemaDefinition) -> Result<serde_json::Value, 
     shape.fields = None;
     shape.field_classifications.clear();
     shape.field_descriptions.clear();
-    shape.field_data_classifications.clear();
     shape.field_interest_categories.clear();
     shape.field_types.clear();
     shape.field_hashes.clear();
@@ -150,7 +149,6 @@ fn field_entry(
         definition.field_types.get(field),
         definition.field_descriptions.get(field),
         definition.field_classifications.get(field),
-        definition.field_data_classifications.get(field),
         definition.field_interest_categories.get(field),
         definition.field_hashes.get(field),
         definition.field_versions.get(field),
@@ -173,10 +171,6 @@ fn copy_field(
     }
     if let Some(value) = from.field_classifications.get(field) {
         to.field_classifications
-            .insert(field.to_owned(), value.clone());
-    }
-    if let Some(value) = from.field_data_classifications.get(field) {
-        to.field_data_classifications
             .insert(field.to_owned(), value.clone());
     }
     if let Some(value) = from.field_interest_categories.get(field) {

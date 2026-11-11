@@ -12,7 +12,7 @@ pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AlternateKey {
     #[serde(default)]
@@ -30,7 +30,7 @@ pub struct AlternateKey {
     pub missing: MissingAlternateKey,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MissingAlternateKey {
     #[default]
@@ -81,15 +81,8 @@ impl DeclarativeSchemaDefinition {
                 crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
                 crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
             };
-            if self.schema_type != kind
-                || self.key.is_some()
-                || !self.alternate_keys.is_empty()
-                || self
-                    .transform_fields
-                    .as_ref()
-                    .is_some_and(|fields| !fields.is_empty())
-            {
-                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys or transforms".into());
+            if self.schema_type != kind || self.key.is_some() || !self.alternate_keys.is_empty() {
+                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys".into());
             }
             return Ok(());
         }
@@ -99,15 +92,8 @@ impl DeclarativeSchemaDefinition {
         if !matches!(
             self.schema_type,
             DeclarativeSchemaType::Hash | DeclarativeSchemaType::HashRange
-        ) || self
-            .transform_fields
-            .as_ref()
-            .is_some_and(|m| !m.is_empty())
-        {
-            return Err(
-                "an owned schema must be a Hash or HashRange schema without transform fields"
-                    .into(),
-            );
+        ) {
+            return Err("an owned schema must be a Hash or HashRange schema".into());
         }
         let primary = self.key.as_ref().and_then(|key| key.hash_field.as_deref());
         if primary.is_none()

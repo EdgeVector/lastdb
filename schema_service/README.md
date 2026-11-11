@@ -1,242 +1,36 @@
 # schema_service
 
-Canonical schema service for FoldDB's global schema catalog - the control plane
-for direct schema resolution, intentionally published contracts, cross-app
-discovery, deduplication, semantic similarity matching, view registration, and
-the global transform registry. App and agent writes resolve to catalog
-identities before durable storage; local field names are bridged by edge
-adapters, not stored as a second on-disk language.
+Advisory Schema Service for LastDB's curated canonical field vocabulary.
 
 Canonical field names use full concept and property names. New fields cannot
 use the audited app abbreviations such as `bge_*` and `rle_*`. The direct
-checks are in `crates/core/src/field_name_policy.rs`.
+checks live in `crates/core/src/field_name_policy.rs`.
 
-**Distribution:** shared apps add publish/attach metadata and distribution
-verification on top of catalog identities.
+## Cloud-only deployment
 
-## Status
-
-✅ **Extraction complete** (2026-04-21). All phases of
-`projects/extract-schema-service-repo` have landed. The registry brain,
-HTTP handlers, Lambda handler, typed client, and OpenAPI spec all live
-in this repo; `fold_db` is back to being a pure DB library. Deployed to
-`schema.folddb.com` via the
-[EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra)
-submodule consumer.
-
-## Cloud-only constraint
-
-This service is **not** a user-installable binary. Production = the
-schema-infra Lambda → `schema.folddb.com`. The actix binary in
-`crates/server_http/` is for local development only. No brew formula,
-no GitHub release tarballs, no `cargo install` end-user path.
+Production runs on AWS Lambda (`schema.folddb.com`) deployed via
+[EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra). There is
+no user-installable binary, Homebrew formula, or local HTTP dev server.
 
 ## Workspace layout
 
-| Crate                                | Purpose                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `crates/core`                        | Registry brain — schema/view/transform state, similarity, canonical-field seeding. ~7400 LOC moved from `fold_db` in Phase 2.        |
-| `crates/server_shared`               | Framework-agnostic HTTP handlers. Shared verbatim by the actix binary and the Lambda.                                                |
-| `crates/server_http`                 | Actix wrapper + `schema_service` dev binary. Mounts the shared handlers under `/v1/*`. Dev-only.                                     |
-| `crates/server_lambda`               | AWS Lambda handler — wraps the shared handlers for API Gateway invocation. Built by `schema-infra/build.sh`.                         |
-| `crates/client`                      | Typed HTTP client (`schema_service_client`). Consumed by `fold_db_node`.                                                             |
+| Crate                  | Purpose                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `crates/schema_types`  | Shared declarative schema types, key layouts, and portable schema definitions consumed by `fold_db`.      |
+| `crates/core`          | Pure deterministic canonical field vocabulary, field-name policy, and `POST /v1/advice/schema` engine.    |
+| `crates/server_lambda` | AWS Lambda handler serving `/v1/health`, `/v1/fields/vocabulary`, and `POST /v1/advice/schema`.           |
 
-The `core` crate has **no** `fastembed`/`ONNX` dependencies — callers
-inject an `Arc<dyn Embedder>` into `SchemaServiceState::new_in_memory()` or
-`SchemaServiceState::new_with_external()`, so a
-Lambda deployment can swap embedder implementations without touching core.
-Default local/dev binaries inject a disabled embedder. Exact name matching
-works without initializing or downloading a model. Real FastEmbed is an
-explicit build feature for semantic matching.
+## HTTP surface
 
-## Run locally
+| Method | Path                    | Description                                                      |
+| ------ | ----------------------- | ---------------------------------------------------------------- |
+| GET    | `/health`, `/v1/health` | Liveness probe                                                   |
+| GET    | `/v1/fields/vocabulary` | Read the curated canonical field vocabulary                      |
+| POST   | `/v1/advice/schema`     | Deterministic advice for a draft schema declaration (read-only)  |
 
-From the monorepo root, run the dev binary. The registry lives only in
-process memory: a restart starts again from the built-in seeds.
+## Verify vocabulary locally in CI
 
 ```bash
-cargo run -p schema_service_server_http --bin schema_service \
-  -- --port 9102
-```
-
-To start with production-like data, pass `--hydrate-from <url>` with
-`EXEMEM_API_KEY` set. The binary imports that snapshot into memory at
-startup.
-
-Enable the local FastEmbed adapter only when you need to validate the
-live semantic path:
-
-```bash
-cargo run -p schema_service_server_http --features fastembed --bin schema_service \
-  -- --port 9102
-```
-
-Smoke check:
-
-```bash
-curl -s http://127.0.0.1:9102/v1/health
-# {"status":"healthy"}
-```
-
-## Operations
-
-Mini calls the live schema service. It does not load an offline resolver pack.
-
-The shared-only snapshot stays available for operators as
-`GET /v1/snapshot/shared-only` on the production schema service URL from
-`folddb_profile/environments.json` (`environments.prod.schema_service`).
-The route is gated by `X-API-Key`. The key locator is
-`lastsecrets://schema-service-prod-api-key`. Provision it with
-`lastsecrets put schema-service-prod-api-key --value-stdin`.
-Read the key from LastSecrets at point of use. Do not print it, commit it,
-or pass it as a CLI argument.
-
-## Canonicalization
-
-A structural candidate merges into an existing canonical only when the
-purpose signal passes. The purpose text is
-`"{descriptive_name} — {purpose_statement}"`. The threshold is
-τ_purpose = 0.88 (`state_matching::PURPOSE_SIMILARITY_THRESHOLD`).
-An embedder failure is a veto, and the proposal registers as its own
-canonical.
-
-The descriptive-name embedding still runs on that path. A failure of
-that call is a veto even when the purpose embedding would succeed.
-A purpose-reuse candidate skips this gate. Different key layouts and
-same-app distinct names stay separate.
-
-## HTTP surface (`/v1/*`)
-
-| Method | Path                                | Description                             |
-| ------ | ----------------------------------- | --------------------------------------- |
-| GET    | `/v1/health`                        | Liveness probe                          |
-| GET    | `/v1/schemas`                       | List schema names                       |
-| POST   | `/v1/schemas`                       | Add a schema (with mutation mappers; accepts an optional `purpose_statement`) |
-| POST   | `/v1/schemas/batch-check-reuse`     | Batch reuse-check for proposed schemas  |
-| POST   | `/v1/schemas/reload`                | Reload schemas from storage             |
-| GET    | `/v1/schemas/available`             | Full schema definitions                 |
-| GET    | `/v1/schemas/similar/{name}`        | Find similar schemas (Jaccard)          |
-| GET    | `/v1/schema/{name}`                 | Get one schema                          |
-| GET    | `/v1/views`                         | List view names                         |
-| POST   | `/v1/views`                         | Register a view                         |
-| GET    | `/v1/views/available`               | Full view definitions                   |
-| GET    | `/v1/view/{name}`                   | Get one view                            |
-| POST   | `/v1/system/reset`                  | Clear schemas on the in-memory dev server |
-
-## OpenAPI spec
-
-A machine-readable OpenAPI 3.0 spec lives at repo root as
-[`openapi.yaml`](./openapi.yaml). It documents every `/v1/*` endpoint
-served by both the dev binary and the production Lambda — they mount
-the same handler set, so the wire contract is identical.
-
-Third-party integrators can generate a client directly from the spec:
-
-```bash
-# Rust
-openapi-generator-cli generate -i openapi.yaml -g rust -o ./out/client-rust
-
-# TypeScript (fetch)
-openapi-generator-cli generate -i openapi.yaml -g typescript-fetch -o ./out/client-ts
-
-# Python
-openapi-generator-cli generate -i openapi.yaml -g python -o ./out/client-py
-```
-
-Or against the live service:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/EdgeVector/fold/main/schema_service/openapi.yaml \
-  | openapi-generator-cli generate -i /dev/stdin -g rust -o ./out/client-rust
-```
-
-A reference Rust client also ships as a workspace crate at
-[`crates/client/`](./crates/client) (published as
-`schema_service_client`). Use it when you want retry semantics and
-strongly-typed FoldDB wire structs without running codegen.
-
-For an operator-safe end-to-end check of mutation proof-of-work, run the
-client's live proof harness against the intended dev/test environment:
-
-```bash
-schema_service/scripts/schema_pow_dev_proof_harness.sh \
-  --url "$(jq -r '.environments.dev.schema_service' folddb_profile/environments.json)" \
-  --evidence schema_service/target/schema-pow-dev-proof.jsonl \
-  --report schema_service/target/schema-pow-dev-proof.report.json
-```
-
-The harness creates ephemeral node identities, exercises the real client's
-challenge/solve/repost path, proves missing and invalid PoW submissions are
-rejected, and emits a JSONL evidence stream plus a redacted report that records
-explicit `PASS` results for challenge retrieval, PoW grinding, signed retry,
-and identity-preserving idempotent repost. The harness exits nonzero if any
-required stage or negative control is absent. The retired
-`https://schema-dev.folddb.com` alias is resolved through
-`folddb_profile/environments.json` for compatibility with older proof commands.
-Production is guarded in the underlying Rust probe by `--allow-prod` and uses a
-fixed schema identity so reruns remain idempotent.
-
-After the human-owned guarded production cutover, run the fail-closed terminal
-proof harness with its redacted deployment attestation:
-
-```bash
-schema_service/scripts/schema_pow_prod_terminal_proof.sh \
-  --allow-prod \
-  --attestation /path/to/redacted-schema-pow-prod-attestation.json
-```
-
-The harness targets only the canonical production URL from
-`folddb_profile/environments.json`. It runs the real client positive path and
-missing, invalid, and expired negative controls, then writes a `PASS` report
-to `schema_service/target/` (outside Git) only when the attestation also
-proves enforcement, production scope, quota/alarm evidence, canary promotion,
-and rollback readiness.
-
-The canary promotion gate consumes those evidence files without copying their
-payloads into its output:
-
-```bash
-schema_service/scripts/schema_pow_canary_alarm_gate.sh \
-  --stage canary \
-  --evidence schema_service/target/schema-pow-dev-proof-01.jsonl \
-  --evidence schema_service/target/schema-pow-dev-proof-02.jsonl \
-  > schema_service/target/schema-pow-canary-decision.json
-```
-
-The executable policy lives in
-[`config/schema_pow_canary_alarm_gate.json`](./config/schema_pow_canary_alarm_gate.json).
-Promotion requires 24 completed hourly runs with all three required probes and
-zero active alarms. One challenge, grind, retry, missing-probe, evidence-safety,
-or unclassified failure reaches its named alarm threshold and produces
-`decision: "hold"`. After promotion, evaluate the same evidence with
-`--stage promoted`; any failed criterion produces `decision: "rollback"` and
-`rollback_signal: true`. Repeat `--evidence` once per hourly artifact in the
-24-run window. The generated decision contains only counts, stable
-reason categories, alarm names, and evidence basenames. Credential fields,
-headers, request/response bodies, raw payloads, and persisted private-key
-markers activate the evidence-safety alarm and their values are never emitted.
-
-### Spec / handler sync
-
-When you add, remove, or rename a `/v1/*` endpoint, update **both**
-`configure_routes` and `openapi.yaml` in the same commit. No automated
-drift check exists; the lint below checks only the spec itself.
-
-### Lint the spec
-
-```bash
-npx -y @redocly/cli@latest lint openapi.yaml
-```
-
-Remaining warnings (e.g. missing `4XX` responses on read-only or verify
-endpoints) are intentional: those handlers can only fail at the `5XX`
-transport layer, which `#/components/responses/InternalError` already
-covers.
-
-## Pre-PR checklist
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo build --workspace --all-targets
+cargo build --locked -p schema_service_server_lambda --bin server_lambda
+./target/debug/server_lambda --print-vocabulary | jq '.name_policy_version, (.fields | length)'
 ```

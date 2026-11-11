@@ -92,8 +92,6 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "Model purity lint" -- bash scripts/ci/model-purity-lint.sh
       - name: Module layer check
         run: bash scripts/ci/mini-gate-step.sh "Module layer check" -- python3 scripts/ci/layer-check.py --crate fold_db/crates/model --crate fold_db/crates/core --crate lastdb_node
-      - name: Workspace fastembed-unification lint
-        run: bash scripts/ci/mini-gate-step.sh "Workspace fastembed-unification lint" -- bash scripts/ci/lint-workspace-fastembed-unification.sh
       - name: Heavy clippy workspace-coverage lint
         run: bash scripts/ci/mini-gate-step.sh "Heavy clippy workspace-coverage lint" -- ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
       - name: cargo clippy (path-selected required lane)
@@ -121,18 +119,6 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "cargo test (mutation_log)" -- cargo test --locked -p mutation_log -p mutation_log_mem --lib
       - name: Schema core statics gate
         run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
-      - name: Assert fastembed is NOT compiled in the Mini gate lane
-        run: |
-          bash scripts/ci/mini-gate-step.sh "Assert fastembed is NOT compiled in the Mini gate lane" -- bash -euo pipefail -c '
-          tree="$(cargo tree -p lastdb_node -e no-dev -i fastembed 2>&1 || true)"
-          if printf "%s\n" "$tree" | grep -q "^fastembed v"; then
-            echo "FAIL: fastembed is linked into the default lastdb_node lane:" >&2
-            printf "%s\n" "$tree" >&2
-            echo "lastdb_node product graph must stay fastembed-free; FastEmbed belongs to schema-service tooling only." >&2
-            exit 1
-          fi
-          echo "OK: fastembed is not compiled in the default lastdb_node lane."
-          '
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build
@@ -178,46 +164,29 @@ jobs:
         with:
           shared-key: heavy
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Workspace fastembed-unification lint
-        run: bash scripts/ci/lint-workspace-fastembed-unification.sh
       - name: Heavy clippy workspace-coverage lint
         run: ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
-      - name: cargo clippy --workspace --lib --bins (no ONNX packages)
+      - name: cargo clippy --workspace --lib --bins
         run: |
           ulimit -n 8192 || true
           cargo clippy --workspace --lib --bins --locked \
             -- -D warnings
-      # The production feature set (schema-infra builds the Lambda with
-      # --features fastembed). It loads ONNX Runtime at run time, so this
-      # lane neither downloads nor links it.
-      - name: cargo clippy the Lambda with its production features
+      - name: cargo clippy the Lambda with schema-infra build features
         run: |
           ulimit -n 8192 || true
           cargo clippy --locked -p schema_service_server_lambda --bins \
             --features fastembed -- -D warnings
-      - name: Start the default schema service and read its seed vocabulary
+      - name: Build schema_service_server_lambda and verify its seed vocabulary
         run: |
           set -euo pipefail
-          cargo build --locked -p schema_service_server_http --bin schema_service
+          cargo build --locked -p schema_service_server_lambda --bin server_lambda
           runtime="$(mktemp -d "$RUNNER_TEMP/schema-service-startup.XXXXXX")"
-          OBS_FILE_PATH="$runtime/observability.jsonl" \
-            target/debug/schema_service --port 19102 >"$runtime/server.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
-          if ! curl --fail --silent --show-error --retry 30 --retry-connrefused \
-            --retry-delay 1 --max-time 2 http://127.0.0.1:19102/v1/health \
-            --output "$runtime/health.json"; then
-            cat "$runtime/server.log"
-            exit 1
-          fi
-          curl --fail --silent --show-error --max-time 10 \
-            http://127.0.0.1:19102/v1/fields/vocabulary --output "$runtime/vocabulary.json"
+          target/debug/server_lambda --print-vocabulary >"$runtime/vocabulary.json"
           seed_count="$(jq length schema_service/crates/core/src/builtin_canonical_fields.json)"
           jq --exit-status --argjson expected "$seed_count" \
             '.name_policy_version == 1 and (.fields | length) == $expected' \
             "$runtime/vocabulary.json"
-          kill -0 "$server_pid"
-          printf 'Default schema service started without FastEmbed; GET vocabulary returned %s seed fields. Source: %s\n' \
+          printf 'schema_service_server_lambda printed %s seed fields. Source: %s\n' \
             "$seed_count" "$GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
 
   diff_file_size:

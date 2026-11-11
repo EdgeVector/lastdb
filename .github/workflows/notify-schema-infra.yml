@@ -7,9 +7,8 @@ name: notify-schema-infra
 #
 # The paths are the inputs of the schema-infra build
 #   cargo lambda build -p schema_service_server_lambda --features fastembed --locked
-# at the workspace root: the path-crate closure of that package (normal and
-# build dependencies, `workspace = true` path entries, and the
-# [patch.crates-io] fastembed fork) plus the workspace files.
+# at the workspace root: the path-crate closure of that package plus the
+# workspace files.
 # schema-infra scripts/deploy/fold-lambda-inputs.txt keeps the same list and
 # decides. This filter only sends the early signal; a 30-minute schedule in
 # schema-infra catches a missed one. Keep the two lists the same.
@@ -18,15 +17,10 @@ on:
     branches: [main]
     paths:
       - "schema_service/crates/server_lambda/**"
-      - "schema_service/crates/server_shared/**"
       - "schema_service/crates/core/**"
       - "schema_service/crates/schema_types/**"
-      - "schema_service/crates/schema_core_resolver/**"
-      - "schema_service/crates/schema_service_s3/**"
       - "app_identity_crypto/**"
       - "fold_db/crates/observability/**"
-      - "folddb_profile/**"
-      - "vendor/fastembed-4.9.0-no-image/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"

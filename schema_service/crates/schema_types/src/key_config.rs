@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 // Forward declarations for types that need to be defined
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 // Used in two ways, one to set the field_names which will be used to resolve the keys, and one to pass key values in a mutation.
 pub struct KeyConfig {
     pub hash_field: Option<String>,

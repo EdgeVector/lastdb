@@ -30,15 +30,10 @@ async fn annotated_schema_row<T: serde::Serialize>(
 /// Annotate one loaded schema list. `None` on an internal failure.
 async fn annotate_schemas<T: serde::Serialize>(
     host: &Host,
-    include_system: bool,
     include_counts: bool,
-    mut schemas: Vec<T>,
-    source_of: impl Fn(&T) -> SchemaSource,
+    schemas: Vec<T>,
     name_of: impl Fn(&T) -> &str,
 ) -> Option<Vec<Value>> {
-    if !include_system {
-        schemas.retain(|schema| source_of(schema) != SchemaSource::SystemSeed);
-    }
     let mut annotated = Vec::with_capacity(schemas.len());
     for schema in &schemas {
         annotated.push(annotated_schema_row(host, name_of(schema), schema, include_counts).await?);
@@ -47,20 +42,14 @@ async fn annotate_schemas<T: serde::Serialize>(
 }
 
 /// Full schema rows (`include_full`). `None` on an internal failure.
-pub(super) async fn annotate_full_schemas(
-    host: &Host,
-    include_system: bool,
-    include_counts: bool,
-) -> Option<Vec<Value>> {
+pub(super) async fn annotate_full_schemas(host: &Host, include_counts: bool) -> Option<Vec<Value>> {
     annotate_schemas(
         host,
-        include_system,
         include_counts,
         host.db
             .schema_manager()
             .get_active_schemas_with_states()
             .ok()?,
-        |schema| schema.schema.source,
         |schema| schema.name(),
     )
     .await
@@ -69,18 +58,15 @@ pub(super) async fn annotate_full_schemas(
 /// Summary rows (the default projection). `None` on an internal failure.
 pub(super) async fn annotate_summary_schemas(
     host: &Host,
-    include_system: bool,
     include_counts: bool,
 ) -> Option<Vec<Value>> {
     annotate_schemas(
         host,
-        include_system,
         include_counts,
         host.db
             .schema_manager()
             .get_active_schema_list_entries_with_states()
             .ok()?,
-        |schema| schema.source,
         |schema| schema.name.as_str(),
     )
     .await

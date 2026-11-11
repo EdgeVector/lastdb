@@ -6,7 +6,6 @@ pub(super) async fn execute_list_schemas_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let include_system = query_flag(&req.target, "include_system");
     // Default is identity/summary-only: per-schema live record counts walk the
     // store (collect_matches with limit MAX), and full schema rows carry large
     // per-field maps that list callers do not use. Opt in to each cost with
@@ -33,9 +32,9 @@ pub(super) async fn execute_list_schemas_route(
     // heavy per-field metadata; `GET /api/schema/{name}` and `include_full`
     // retain the full schema shape for diagnostics and migration tooling.
     let annotated = if include_full {
-        annotate_full_schemas(host, include_system, include_counts).await
+        annotate_full_schemas(host, include_counts).await
     } else {
-        annotate_summary_schemas(host, include_system, include_counts).await
+        annotate_summary_schemas(host, include_counts).await
     };
     let Some(mut annotated) = annotated else {
         return content_free(500, "Internal Server Error");
@@ -161,13 +160,6 @@ pub(super) async fn execute_seed_system_schema_route(
         return error_response(
             409,
             "system seed setup requires isolated_copy=true and LASTDB_ISOLATED_COPY=1",
-            ctx,
-        );
-    }
-    if request.schema.source != SchemaSource::SystemSeed {
-        return error_response(
-            400,
-            "system seed setup requires schema.source=system_seed",
             ctx,
         );
     }

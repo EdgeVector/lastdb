@@ -11,7 +11,7 @@ pub(crate) mod temporal;
 /// (`decision-2026-11-02-field-types-no-any`). Its last users were Brain's two
 /// file pointer fields, which format 9 removes: a file is the record's own
 /// `file` member, not a field value.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum FieldValueType {
     // ── Primitives ──────────────────────────────────────
     String,

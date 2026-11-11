@@ -1,9 +1,11 @@
 # schema_service
 
-Canonical schema service of the `EdgeVector/lastdb` workspace
-(`crates/{core,client,server_shared,server_http,server_lambda,schema_service_s3}`).
-Cloud-only: prod is the AWS Lambda at `schema.folddb.com` (deployed via
-EdgeVector/schema-infra); the `server_http` actix binary is dev-only.
+Advisory Schema Service of the `EdgeVector/lastdb` workspace
+(`crates/{schema_types,core,server_lambda}`).
+Cloud-only: deployed as the AWS Lambda behind `schema.folddb.com` via
+`EdgeVector/schema-infra`. Serves `/v1/health`, `/v1/fields/vocabulary`, and
+deterministic `POST /v1/advice/schema` from the built-in canonical field
+vocabulary (no ONNX, no S3/DynamoDB/SQS, no HTTP dev binary).
 
 ## Canonical commands
 
@@ -15,8 +17,8 @@ Situation: `no-tests-all-repos-20261009`.
 
 ```bash
 cargo build --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all                             # ALWAYS before committing
+cargo clippy --workspace --lib --bins -- -D warnings
+cargo fmt --all
 ```
 
 CI lints (canonical scripts in the monorepo root; run against just this crate):
@@ -30,18 +32,5 @@ bash ../scripts/lints/lint-tracing-egress.sh   --scope=schema_service/crates --s
 PR / merge: `gh pr create -R EdgeVector/lastdb --base main --head <branch>`.
 Use `gh pr merge <PR> -R EdgeVector/lastdb --auto --squash` after the required
 `ci-required` check succeeds.
-The old fold repo is frozen. Do not open PRs there.
 
-## Ask the brain for anything project-specific
-
-This file holds commands only. For architecture, the crate map, the embedder
-injection design, and the canonicalization gate, ask the brain
-(`brain ask "<q>"` / `brain get <slug>`):
-
-- `concepts-fold-schema-service` — crate-by-crate layout, cloud-only deploy posture, `core` has no fastembed/ONNX (injected `Arc<dyn Embedder>`), dual-signal canonicalization gate, in-repo observability notes.
-- `concepts-fold-build-test-ci-safety` — fmt gate, lints, workspace path-dep model, merge mechanics.
-- `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
-
-See also: `README.md`, `openapi.yaml` (the `/v1/*` contract).
-
-Do not write, restore, or run tests. Use product build, format, and lint checks.
+See also: `README.md`.

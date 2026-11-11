@@ -1,6 +1,6 @@
 use super::DeclarativeSchemaDefinition;
 
-// Manual PartialEq implementation that excludes derived/runtime metadata
+// Manual PartialEq implementation that excludes identity_hash_algo_version
 impl PartialEq for DeclarativeSchemaDefinition {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
@@ -12,11 +12,9 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.record_keys == other.record_keys
             && self.file_required == other.file_required
             && self.fields == other.fields
-            && self.transform_fields == other.transform_fields
             && self.hash == other.hash
             && self.field_classifications == other.field_classifications
             && self.field_descriptions == other.field_descriptions
-            && self.field_data_classifications == other.field_data_classifications
             && self.field_interest_categories == other.field_interest_categories
             && self.field_types == other.field_types
             && self.field_hashes == other.field_hashes
@@ -24,10 +22,6 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.field_versions == other.field_versions
             && self.identity_hash == other.identity_hash
             && self.superseded_by == other.superseded_by
-            && self.trust_domain == other.trust_domain
             && self.owner_app_id == other.owner_app_id
-            && self.source == other.source
-        // Exclude inputs_schema_fields, source_schemas, and hash mappings
-        // These are derived/runtime state and don't affect schema identity
     }
 }

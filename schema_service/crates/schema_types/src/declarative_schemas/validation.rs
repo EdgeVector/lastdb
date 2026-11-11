@@ -45,15 +45,8 @@ impl DeclarativeSchemaDefinition {
             .iter()
             .flatten()
             .map(String::as_str)
-            .chain(
-                self.transform_fields
-                    .iter()
-                    .flat_map(|map| map.keys())
-                    .map(String::as_str),
-            )
             .chain(self.field_classifications.keys().map(String::as_str))
             .chain(self.field_descriptions.keys().map(String::as_str))
-            .chain(self.field_data_classifications.keys().map(String::as_str))
             .chain(self.field_interest_categories.keys().map(String::as_str))
             .chain(self.field_types.keys().map(String::as_str))
             .chain(self.field_hashes.keys().map(String::as_str))

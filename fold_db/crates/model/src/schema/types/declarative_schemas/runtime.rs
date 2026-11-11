@@ -10,9 +10,7 @@ impl DeclarativeSchemaDefinition {
         self.clone()
     }
 
-    /// Populates runtime_fields from declarative schema definition
-    /// This is called after deserializing from database to ensure runtime state is initialized
-    /// Also regenerates transform metadata (hash mappings, inputs, source schemas) which are not persisted
+    /// Populates `runtime_fields` from declarative schema definition.
     pub fn populate_runtime_fields(&mut self) -> Result<(), crate::schema::SchemaError> {
         use crate::schema::types::field::FieldVariant;
 
@@ -20,29 +18,14 @@ impl DeclarativeSchemaDefinition {
             .map_err(crate::schema::SchemaError::InvalidData)?;
 
         let mut runtime_fields = HashMap::new();
-        let mut add_field = |field_name: String| {
-            let schema_type = self.schema_type.clone();
-            runtime_fields.insert(field_name, FieldVariant::from_schema_type(schema_type));
-        };
-
         if let Some(field_list) = self.fields.clone() {
             for field_name in field_list {
-                add_field(field_name);
-            }
-        }
-
-        if let Some(transform_map) = self.transform_fields.clone() {
-            for (field_name, _) in transform_map {
-                add_field(field_name);
+                let schema_type = self.schema_type.clone();
+                runtime_fields.insert(field_name, FieldVariant::from_schema_type(schema_type));
             }
         }
 
         self.runtime_fields = runtime_fields;
-
-        // Regenerate transform metadata that isn't persisted (marked with #[serde(skip)])
-        // This is needed when schemas are loaded from the database
-        self.regenerate_metadata();
-
         Ok(())
     }
 }

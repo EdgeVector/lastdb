@@ -1,9 +1,8 @@
-//! One name rule for canonical publication, declarations, schemas and imports.
+//! One name rule for canonical field publication and schema advice.
 
-use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
-use schema_types::{FoldDbError, FoldDbResult, Schema};
-use std::collections::{BTreeSet, HashMap};
+use schema_types::{FoldDbError, FoldDbResult};
+use std::collections::HashMap;
 
 /// Validation rule version; excluded from field identity hashes.
 pub const NAME_POLICY_VERSION: u32 = 1;
@@ -18,7 +17,7 @@ const SHORT_WORDS: &[&str] = &[
     "us",
 ];
 
-/// Syntax is the first gate. Meaning, type and concept reuse are checked too.
+/// Syntax gate for canonical field names.
 pub fn validate_new_field_name(name: &str) -> Result<(), String> {
     let words: Vec<_> = name.split('_').collect();
     let reason = if name.len() > 96 || name.is_empty() {
@@ -66,16 +65,13 @@ pub fn validate_new_field_name(name: &str) -> Result<(), String> {
     } else {
         None
     };
-    match reason {
-        Some(reason) => Err(format!(
+    if let Some(reason) = reason {
+        Err(format!(
             "invalid_canonical_name: '{name}': {reason}; for example 'file_size_bytes'"
-        )),
-        None => Ok(()),
+        ))
+    } else {
+        Ok(())
     }
-}
-
-pub(crate) fn invalid_canonical_name(name: &str) -> bool {
-    validate_new_field_name(name).is_err()
 }
 
 pub fn validate_canonical_field(name: &str, field: &CanonicalField) -> FoldDbResult<()> {
@@ -93,100 +89,6 @@ pub fn validate_canonical_field(name: &str, field: &CanonicalField) -> FoldDbRes
     crate::vocabulary_matching::validate_description(name, field)
 }
 
-pub fn validate_schema_vocabulary(
-    schema: &Schema,
-    vocabulary: &HashMap<String, CanonicalField>,
-) -> FoldDbResult<()> {
-    for name in schema_field_names(schema) {
-        validate_new_field_name(name).map_err(FoldDbError::Config)?;
-        let field = vocabulary.get(name).ok_or_else(|| FoldDbError::Config(format!(
-            "unknown_canonical_field: '{name}'; submit a precise description and explicit type through schema or field declaration"
-        )))?;
-        validate_canonical_field(name, field)?;
-        if schema
-            .field_descriptions
-            .get(name)
-            .is_none_or(|description| description.trim() != field.description.trim())
-        {
-            return Err(FoldDbError::Config(format!(
-                "canonical_field_definition_conflict: '{name}' must use the registered description"
-            )));
-        }
-        if schema
-            .field_types
-            .get(name)
-            .is_none_or(|value| value != &field.field_type)
-            || schema.field_versions.get(name).copied().unwrap_or(1) != field.version
-        {
-            return Err(FoldDbError::Config(format!(
-                "canonical_field_definition_conflict: '{name}' must use the registered type and identity version"
-            )));
-        }
-    }
-    for name in schema_referenced_field_names(schema) {
-        validate_vocabulary_reference(name, vocabulary)?;
-    }
-    crate::field_identity_validation::validate_canonical_schema_hashes(schema, vocabulary)?;
-    Ok(())
-}
-
-impl SchemaServiceState {
-    pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
-        *schema = self.normalized_schema_field_vocabulary(schema)?;
-        Ok(())
-    }
-}
-
-pub(crate) fn fill_schema_field_defaults(
-    schema: &mut Schema,
-    vocabulary: &HashMap<String, CanonicalField>,
-) {
-    let names: Vec<_> = schema_field_names(schema).into_iter().cloned().collect();
-    for name in &names {
-        if let Some(field) = vocabulary.get(name) {
-            schema
-                .field_descriptions
-                .entry(name.clone())
-                .or_insert_with(|| field.description.clone());
-            schema
-                .field_types
-                .entry(name.clone())
-                .or_insert_with(|| field.field_type.clone());
-            schema
-                .field_versions
-                .entry(name.clone())
-                .or_insert(field.version);
-        }
-    }
-}
-
-/// The same name denotes one registered type/version, including owned declarations.
-pub fn validate_declared_concept(
-    vocabulary: &HashMap<String, CanonicalField>,
-    name: &str,
-    field_type: &schema_types::FieldValueType,
-    description: &str,
-    version: u32,
-) -> FoldDbResult<()> {
-    validate_new_field_name(name).map_err(FoldDbError::Config)?;
-    let field = vocabulary.get(name).ok_or_else(|| {
-        FoldDbError::Config(format!(
-            "unknown_canonical_field: '{name}'; submit a precise description and explicit type"
-        ))
-    })?;
-    validate_canonical_field(name, field)?;
-    if field_type != &field.field_type
-        || version != field.version
-        || description.trim() != field.description.trim()
-    {
-        return Err(FoldDbError::Config(format!(
-            "canonical_field_definition_conflict: '{name}' must use the registered description, type and identity version"
-        )));
-    }
-    Ok(())
-}
-
-/// Called inside the durable backend's conditional update, not only a warm cache.
 pub fn validate_canonical_insert(
     existing: &HashMap<String, CanonicalField>,
     name: &str,
@@ -208,7 +110,7 @@ pub fn validate_canonical_insert(
     Ok(())
 }
 
-/// Validate against durable definitions and the earlier entries in the batch.
+/// Validate against existing definitions and earlier entries in the batch.
 pub fn canonical_fields_after_insert(
     existing: &HashMap<String, CanonicalField>,
     fields: &[(String, CanonicalField)],
@@ -219,46 +121,4 @@ pub fn canonical_fields_after_insert(
         candidate.insert(name.clone(), field.clone());
     }
     Ok(candidate)
-}
-
-/// Include transform outputs and metadata-only names; none can hide a new field.
-pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
-    schema
-        .fields
-        .iter()
-        .flatten()
-        .chain(schema.transform_fields.iter().flat_map(|map| map.keys()))
-        .chain(schema.field_types.keys())
-        .chain(schema.field_descriptions.keys())
-        .chain(schema.field_classifications.keys())
-        .chain(schema.field_data_classifications.keys())
-        .chain(schema.field_interest_categories.keys())
-        .chain(schema.field_hashes.keys())
-        .chain(schema.field_versions.keys())
-        .chain(schema.field_declarations.keys())
-        .collect()
-}
-
-fn validate_vocabulary_reference(
-    name: &str,
-    vocabulary: &HashMap<String, CanonicalField>,
-) -> FoldDbResult<()> {
-    validate_new_field_name(name).map_err(FoldDbError::Config)?;
-    let field = vocabulary.get(name).ok_or_else(|| {
-        FoldDbError::Config(format!(
-            "canonical_field_definition_conflict: '{name}' in a key"
-        ))
-    })?;
-    validate_canonical_field(name, field)
-}
-
-/// Referenced concepts participate in refresh, but are not local schema fields.
-pub(crate) fn schema_referenced_field_names(schema: &Schema) -> BTreeSet<&str> {
-    schema
-        .key
-        .iter()
-        .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
-        .flatten()
-        .map(|path| path.split('.').next().unwrap_or(path))
-        .collect()
 }

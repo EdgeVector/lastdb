@@ -164,12 +164,6 @@ fn owned_schema(
                     .entry(field.clone())
                     .or_insert_with(|| tags.clone());
             }
-            if let Some(label) = installed.field_data_classifications.get(&field) {
-                schema
-                    .field_data_classifications
-                    .entry(field.clone())
-                    .or_insert_with(|| label.clone());
-            }
             if let Some(category) = installed.field_interest_categories.get(&field) {
                 schema
                     .field_interest_categories

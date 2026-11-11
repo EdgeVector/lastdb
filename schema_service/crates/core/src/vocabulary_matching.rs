@@ -1,4 +1,4 @@
-//! Deterministic vocabulary checks, shared with conditional persistence.
+//! Deterministic vocabulary matching helpers for canonical validation and advice.
 
 use crate::types::CanonicalField;
 use schema_types::{FoldDbError, FoldDbResult};
@@ -22,61 +22,6 @@ pub(crate) fn validate_description(name: &str, field: &CanonicalField) -> FoldDb
 
 pub(crate) fn same_description(left: &str, right: &str) -> bool {
     words(left) == words(right)
-}
-
-pub(crate) fn name_has_definition_support(name: &str, description: &str) -> bool {
-    let description_words = words(description);
-    let description: Vec<_> = description_words
-        .iter()
-        .map(|word| meaning_word(word))
-        .collect();
-    words(name).iter().any(|raw_word| {
-        let word = meaning_word(raw_word);
-        word.len() > 2
-            && !matches!(
-                word,
-                "field"
-                    | "value"
-                    | "data"
-                    | "json"
-                    | "text"
-                    | "string"
-                    | "integer"
-                    | "number"
-                    | "object"
-                    | "array"
-                    | "type"
-            )
-            && (description.contains(&word) || acronym_matches(raw_word, &description_words))
-    })
-}
-
-/// Meaning checks accept ordinary plurals and common equivalent terms. Keep
-/// identity/duplicate normalization and unit/role separation unchanged.
-fn meaning_word(word: &str) -> &str {
-    let singular = if word.len() > 3 && !word.ends_with("ss") && !word.ends_with("us") {
-        word.strip_suffix('s').unwrap_or(word)
-    } else {
-        word
-    };
-    match singular {
-        "telephone" => "phone",
-        "photograph" => "photo",
-        "timestamp" | "datetime" | "duration" | "second" | "minute" | "hour" => "time",
-        _ => singular,
-    }
-}
-
-fn acronym_matches(word: &str, description: &[String]) -> bool {
-    (3..=5).contains(&word.len())
-        && word.bytes().all(|byte| byte.is_ascii_lowercase())
-        && description.windows(word.len()).any(|phrase| {
-            phrase
-                .iter()
-                .filter_map(|part| part.chars().next())
-                .collect::<String>()
-                == word
-        })
 }
 
 fn overlap(left: &str, right: &str) -> f32 {
@@ -117,21 +62,7 @@ fn different_qualifiers(left: &str, right: &str) -> bool {
     })
 }
 
-/// Vectors confirm a lexical candidate; they cannot erase units or key roles.
-pub(crate) fn semantic_candidate(
-    name: &str,
-    field: &CanonicalField,
-    other_name: &str,
-    other: &CanonicalField,
-) -> bool {
-    field.field_type == other.field_type
-        && !different_qualifiers(name, other_name)
-        && overlap(name, other_name) >= 0.5
-        && overlap(&field.description, &other.description) >= 0.35
-}
-
-/// The name overlap of a canonical name close enough to suggest in advice:
-/// the name test of [`semantic_candidate`], with no description to compare.
+/// Name overlap of a canonical name close enough to suggest in advice.
 pub(crate) fn name_overlap(name: &str, other_name: &str) -> Option<f32> {
     if name == other_name || different_qualifiers(name, other_name) {
         return None;

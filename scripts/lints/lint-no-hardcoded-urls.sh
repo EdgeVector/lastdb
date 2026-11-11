@@ -49,9 +49,6 @@ ALLOW_PATHS=(
     './scripts/lints/lint-no-hardcoded-urls.sh'
     './.git/'
     './.claude/worktrees/'
-    # OpenAPI spec: its `servers:` block deliberately documents the live
-    # gateway URLs for API consumers.
-    './schema_service/openapi.yaml'
 )
 
 errors=0
