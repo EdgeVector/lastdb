@@ -63,7 +63,7 @@ impl Manifest {
         let bytes = input.payload_len();
         if bytes
             .checked_add(input.memory_bytes())
-            .map_or(true, |n| n > maximum)
+            .is_none_or(|n| n > maximum)
         {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -74,7 +74,7 @@ impl Manifest {
             .map_err(|_| Error::ReadBudgetExceeded)?;
         if (payload.capacity() as u64)
             .checked_add(input.memory_bytes())
-            .map_or(true, |n| n > maximum)
+            .is_none_or(|n| n > maximum)
         {
             return Err(Error::ReadBudgetExceeded);
         }
