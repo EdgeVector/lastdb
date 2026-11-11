@@ -163,7 +163,7 @@ async fn account_scope(
     let derived = crate::identity::user_hash_from_pubkey(&keypair.public_key_base64())?;
     let account = AccountId::try_from(derived)
         .map_err(|_| "node account id is not a cloud account id".to_owned())?;
-    let backup = crate::byte_cloud_backup::credentials::client_from_home(home)?;
+    let backup = crate::byte_cloud_backup::client_from_home(home)?;
     let context = backup
         .context(&ContextReadRequest {
             version: Version::V2,

@@ -133,7 +133,7 @@ The body is canonical JSON of `CutoverReceipt`: `state` `committed`, `version` `
 
 The node signs the exact body bytes with `lastdb_node::node_read::authorization`. That helper builds `NodeReadToken`, including `database_id`, and signs the lowercase hex of `NodeReadToken::digest(body)`. The header is `LastDBNode`, then a space, then base64url of the token JSON, a dot, and base64url of the 64-byte signature. Each call uses a new nonce. The same helper is used in both realms. The realm comes from the saved connection.
 
-The account scope comes from the existing recovery client. That context read still sends `X-API-Key`. The cutover POST does not. It sends `Authorization` only. The signer must be the evidence authority: the personal owner or the shareable publisher node key already in `identity.key`.
+The account scope comes from `byte_cloud_backup::client_from_home`. That function reads the saved recovery credentials and does not enroll backup or enable automatic backup. Its context read still sends `X-API-Key`. The cutover POST does not. It sends `Authorization` only. The signer must be the evidence authority: the personal owner or the shareable publisher node key already in `identity.key`.
 
 A repeated call sends the same receipt bytes and a new nonce. `authorize_legacy_cutover` returns `AlreadyStored` when the stored receipt is equal, and `share.cutover.conflict` when it is not. The client accepts any live `CutoverReceipt` that validates and compares equal to the receipt it sent. It does not cache that body. A saved copy is not the service write.
 
@@ -165,4 +165,4 @@ Lane C's `lastdb db create` stays the fresh-database operation. `Command::Cutove
 
 Lane D owns `CutoverReceipt`, `NodeReadToken`, and `MUTATION_LOG_CUTOVER_PATH`. `database_cutover` does not import that crate. The send lives in `lastdb_node`.
 
-This change does not publish before the lead coordinates, and it does not merge before `benchmark-complete` and the other required gates are green. Nothing here activates an unmigrated database, changes the primary, or starts a production migration.
+The client is ready for a review PR. Merge waits until Exemem's canonical cutover accepts the first valid receipt, and until `benchmark-complete` and the other required gates are green. Nothing here activates an unmigrated database, changes the primary, or starts a production migration.
