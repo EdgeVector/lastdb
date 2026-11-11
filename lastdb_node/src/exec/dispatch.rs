@@ -2,24 +2,14 @@
 
 use super::*;
 
-/// Execute a recognized control-socket data route against the host, with the
-/// caller's user id bound as the task-local user context.
+/// Execute a recognized control-socket data route against the host.
 pub async fn execute_data_route(
     route: DataRoute,
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    execute_observed_route(ctx, dispatch_data_route(route, req, ctx, host)).await
-}
-
-/// Bind the caller's user id as the task-local user context for dispatch and
-/// deferred mutation execution.
-pub(in crate::exec) async fn execute_observed_route<F>(ctx: &AccessContext, work: F) -> UdsResponse
-where
-    F: std::future::Future<Output = UdsResponse>,
-{
-    fold_db::user_context::run_with_user(&ctx.user_id, work).await
+    dispatch_data_route(route, req, ctx, host).await
 }
 
 async fn dispatch_data_route(

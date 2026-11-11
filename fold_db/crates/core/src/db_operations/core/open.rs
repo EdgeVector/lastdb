@@ -26,14 +26,4 @@ impl DbOperations {
             metadata,
         })
     }
-
-    /// Open typed operations for explicit stopped-home maintenance, without
-    /// starting serving workers. Native ownership and format checks still run.
-    pub async fn from_stopped_native_data(
-        data: &std::path::Path,
-        node_key: &[u8; 32],
-    ) -> Result<Self, crate::storage::StorageError> {
-        let store = PackNamespacedStore::open_existing(data, node_key)?;
-        Self::from_namespaced_store_with_content_and_field_keys(store, *node_key).await
-    }
 }

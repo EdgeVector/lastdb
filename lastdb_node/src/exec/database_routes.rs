@@ -57,7 +57,7 @@ pub async fn execute_database_request(
             _ => super::database_read::read(route, req, ctx, &share),
         }
     };
-    super::dispatch::execute_observed_route(ctx, work).await
+    work.await
 }
 
 /// Only bounded, Send mutation futures may leave the socket worker.
@@ -85,10 +85,7 @@ pub fn execute_deferred_database_mutation<'a>(
                 with_handler_timeout_budget(
                     ctx,
                     data_route_budget(route),
-                    super::dispatch::execute_observed_route(
-                        ctx,
-                        received_mutation(route, req, ctx, &share),
-                    ),
+                    received_mutation(route, req, ctx, &share),
                 )
                 .await
             }

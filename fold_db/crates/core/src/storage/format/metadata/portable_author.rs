@@ -26,16 +26,13 @@ pub(in crate::storage) fn shared_metadata_key(key: &str) -> bool {
 
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
-mod checkpoint;
-mod cleanup;
 mod definitions;
 mod inbox;
-pub(crate) use checkpoint::CheckpointDirectory;
-pub(crate) use definitions::DefinitionSet;
+mod maintenance;
 mod outgoing;
-mod rejoin;
-mod retention;
+pub(crate) use definitions::DefinitionSet;
 pub use inbox::PortablePeerProgress;
+pub(crate) use maintenance::CheckpointDirectory;
 pub use outgoing::OutgoingPortablePage;
 
 pub(crate) struct AuthoredStamp {
@@ -295,7 +292,7 @@ impl Metadata {
         let author = LocalAuthor {
             stream: fresh_stream.clone(),
             progress: StreamProgress::default(),
-            clock_floor_ms: rejoin::restored_clock_floor(progress, cutoff)?,
+            clock_floor_ms: maintenance::restored_clock_floor(progress, cutoff)?,
             shared: None,
         };
         self.stage_restored_author(

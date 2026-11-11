@@ -1,20 +1,27 @@
 //! Apply checked portable winners through the native record writer.
 
-use super::{portable_schema::PortableReplaySchema, MutationManager};
-use crate::db_operations::record_store::RecordChange;
-use crate::schema::{Schema, SchemaError};
-use crate::storage::disk_pack::transaction;
-use crate::storage::format::records::{PortableEffect, RecordAddress};
-use cloud_backup_protocol::Id;
-use lastdb_model::portable_mutation::{MutationEntry, Position, Stamp, StreamId, StreamProgress};
-use lastdb_model::record_value::StoredRecord;
-use schema_types::PortableSchemaDefinition;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
+use cloud_backup_protocol::shared::{LogHead, WriterStream};
+use cloud_backup_protocol::Id;
+use lastdb_model::portable_mutation::{
+    MutationEntry, MutationOperation, Position, SchemaIdentity, Stamp, StreamId, StreamProgress,
+};
+use lastdb_model::record_value::{FileMarker, InlineWrite, StoredRecord, RECORD_VALUE_VERSION};
+use schema_types::{PortableSchemaDefinition, PortableSchemaId};
+use serde_json::{Map, Value};
+
+use super::portable_checkpoint::PortableReplaySchema;
+use super::portable_journal::schema_fingerprint;
+use super::MutationManager;
+use crate::db_operations::record_store::RecordChange;
+use crate::schema::{Schema, SchemaError};
+use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::JournalSchema;
+use crate::storage::format::records::{PortableEffect, RecordAddress};
+
 mod peer;
-mod rejoin;
-mod values;
 pub use peer::PortablePeerWindow;
 
 const MAX_CANDIDATES: usize = 256;
@@ -110,7 +117,7 @@ impl MutationManager {
         for index in prepared.winners(candidates) {
             let input = &candidates[index];
             let before = prepared.before[index].clone();
-            let after = values::record(input.entry)?;
+            let after = replay_record(input.entry)?;
             let file_write = match (&after.file, &after.file_version) {
                 (Some(marker), Some(version))
                     if before
@@ -125,7 +132,7 @@ impl MutationManager {
                 }
                 _ => None,
             };
-            let inline_write = values::inline_write(input.entry, before.as_deref());
+            let inline_write = replay_inline_write(input.entry, before.as_deref());
             groups
                 .entry(input.local_schema)
                 .or_default()
@@ -165,6 +172,66 @@ impl MutationManager {
             ),
         )
         .await?)
+    }
+
+    /// In the private stage, discard file references derived from the old shared roots.
+    pub async fn reset_portable_rejoin_file_references(&self) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        runtime.require_staged_shared_rejoin()?;
+        let metadata = self.db_ops.metadata();
+        let mut after = None;
+        loop {
+            after = transaction::request_scope(
+                Arc::clone(&runtime),
+                metadata.stage_reset_rejoin_file_references(after.as_deref()),
+            )
+            .await?;
+            if after.is_none() {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Seal complete replay under the original writer at its exact authenticated cloud head.
+    pub async fn finish_portable_rejoin(
+        &self,
+        progress: &BTreeMap<StreamId, StreamProgress>,
+        cutoff: Option<u64>,
+        writer: &WriterStream,
+        device: &Id,
+        expected: Option<&LogHead>,
+    ) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        runtime.require_staged_shared_rejoin()?;
+        let metadata = self.db_ops.metadata();
+        let mut after = None;
+        loop {
+            after = transaction::request_scope(
+                Arc::clone(&runtime),
+                metadata.stage_reset_rejoin_inbox(after.as_deref()),
+            )
+            .await?;
+            if after.is_none() {
+                break;
+            }
+        }
+        transaction::request_scope(Arc::clone(&runtime), async {
+            let bound = metadata.portable_bound_schemas().await?;
+            runtime.require_shared_schema_subset(bound.values().map(String::as_str))?;
+            let schemas =
+                futures::future::try_join_all(bound.into_iter().map(|(id, alias)| async move {
+                    let schema = self.load_schema_for_delta(&alias).await?;
+                    let local_sha256 = schema_fingerprint(&schema)?;
+                    Ok::<_, SchemaError>((alias, JournalSchema { id, local_sha256 }))
+                }))
+                .await?
+                .into_iter()
+                .collect();
+            Ok(metadata
+                .stage_portable_rejoin(progress, cutoff, writer, device, expected, &schemas)
+                .await?)
+        })
+        .await
     }
 
     async fn prepare_portable_replay(
@@ -218,6 +285,66 @@ impl MutationManager {
             deletes,
         })
     }
+}
+
+fn replay_inline_write(
+    entry: &MutationEntry,
+    before: Option<&StoredRecord>,
+) -> Option<InlineWrite> {
+    let MutationOperation::ReplaceRecord { data, .. } = &entry.operation else {
+        return None;
+    };
+    let before = before.and_then(|record| record.inline_file.as_ref());
+    match data.inline_file.as_deref() {
+        Some(file) if before == Some(&file.marker) => None,
+        Some(file) => Some(InlineWrite::Put(file.clone())),
+        None if before.is_some() => Some(InlineWrite::Clear),
+        None => None,
+    }
+}
+
+fn replay_record(entry: &MutationEntry) -> Result<StoredRecord, SchemaError> {
+    let MutationOperation::ReplaceRecord { primary_key, data } = &entry.operation else {
+        return Ok(StoredRecord::erased(entry.stamp.clone()));
+    };
+    let meta = data
+        .metadata
+        .as_ref()
+        .map(|metadata| {
+            let object: Map<String, Value> = metadata.clone().into_iter().collect();
+            serde_json::from_value(Value::Object(object))
+                .map_err(|_| invalid("portable record metadata differs from the record API"))
+        })
+        .transpose()?;
+    let definition_id = match &entry.schema {
+        SchemaIdentity::Shared(id) => Some(
+            id.parse::<PortableSchemaId>()
+                .map_err(|_| invalid("a shared record names an invalid schema definition"))?,
+        ),
+        SchemaIdentity::Local(_) => None,
+    };
+    Ok(StoredRecord {
+        v: RECORD_VALUE_VERSION,
+        key: primary_key.clone().into(),
+        alternates: data
+            .alternates
+            .iter()
+            .map(|(name, key)| (name.clone(), key.clone().map(Into::into)))
+            .collect(),
+        fields: data.fields.clone(),
+        stamp: entry.stamp.clone(),
+        meta,
+        file: data.file.as_ref().map(|file| FileMarker {
+            name: file.name.clone(),
+            media_type: file.media_type.clone(),
+            size_bytes: file.size_bytes,
+            sha256: file.sha256.clone(),
+        }),
+        file_version: data.file.as_ref().map(|file| file.version.clone()),
+        inline_file: data.inline_file.as_ref().map(|file| file.marker.clone()),
+        definition_id,
+        deleted: false,
+    })
 }
 
 fn invalid(detail: &str) -> SchemaError {

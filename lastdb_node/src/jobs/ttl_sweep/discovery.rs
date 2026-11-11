@@ -169,7 +169,7 @@ async fn range_page(
     let executor = host.db.query_executor();
     // The page tally lets the read end early in a run of deleted records and
     // name where it ended, where a read without it fails at the read limit.
-    let (rows, _, end) = with_query_page_tally(async {
+    let (rows, end) = with_query_page_tally(async {
         match after {
             Some(cursor) => executor.query_keyset_windowed(query, cursor, limit).await,
             None => executor.query_windowed(query, (0, limit)).await,

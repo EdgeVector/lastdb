@@ -1,7 +1,5 @@
 use super::DeclarativeSchemaDefinition;
-use crate::schema_type::DeclarativeSchemaType;
-use crate::FieldValueType;
-use crate::KeyConfig;
+use crate::{DeclarativeSchemaType, FieldValueType, KeyConfig};
 use std::collections::HashMap;
 
 #[derive(serde::Deserialize)]

@@ -50,16 +50,10 @@ pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
-/// True while a v2 home holds its creation intent: from the start of its
-/// creation until the node writes its key-format proofs.
-pub(super) fn creation_pending(path: &Path) -> StorageResult<bool> {
-    Ok(path.join(INTENT).try_exists()?)
-}
-
 /// True when a v2 home creation stopped before its node marker: the creation
 /// intent is there and the marker is not.
 pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
-    Ok(creation_pending(path)? && !path.join(NODE_MARKER).try_exists()?)
+    Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
 }
 
 /// Remove what a creation that stopped before its node marker left: the run
@@ -184,44 +178,20 @@ impl PackNamespacedStore {
     }
 
     pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
-        Self::open_run_with_merges(path, node_key, true)
-    }
-
-    pub(super) fn open_run_with_merges(
-        path: &Path,
-        node_key: Option<&[u8; 32]>,
-        resume_merges: bool,
-    ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         let version = super::run_admission::admit(path, node_key)?;
-        let open = if resume_merges {
-            RunHome::open
-        } else {
-            RunHome::open_existing_for_backup
-        };
-        let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
-        let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
+        let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
+        let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut v2 = physical::V2Home::new(home, cas);
         if version == super::run_admission::SHARED_RECORD_PROFILE {
-            if !resume_merges {
-                return Err(shared_layout::invalid(
-                    "shared homes use the shared snapshot command",
-                ));
-            }
             open_shared(path, node_key, &mut v2)?;
         }
-        if resume_merges {
-            v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
-        } else {
-            super::cas_delete::require_clear(&v2)?;
-        }
+        v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         let policy = space::policy_from_env()?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(v2, root, initializing, policy);
-        if resume_merges {
-            store.runtime.resume_merges();
-        }
+        store.runtime.resume_merges();
         Ok(store)
     }
 }

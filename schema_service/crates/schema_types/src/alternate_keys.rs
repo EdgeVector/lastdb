@@ -1,8 +1,8 @@
-//! Named alternate keys belong to one schema; field identities remain independent.
+//! Named alternate keys and compound range validation for owned schemas.
 
 use crate::declarative_schemas::DeclarativeSchemaDefinition;
 use crate::field_range_profile::FieldRangeProfile;
-use crate::schema_type::DeclarativeSchemaType;
+use crate::{DeclarativeSchemaType, FieldValueType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -14,6 +14,25 @@ pub(crate) fn is_false(value: &bool) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RangePart {
+    pub field: String,
+    #[serde(default)]
+    pub format: PartFormat,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum PartFormat {
+    #[default]
+    Text,
+    PaddedText {
+        width: u8,
+    },
+    ReverseTimeMillis,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AlternateKey {
     #[serde(default)]
     pub hash_field: String,
@@ -21,7 +40,7 @@ pub struct AlternateKey {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hash_literal: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub range_parts: Vec<crate::alternate_parts::RangePart>,
+    pub range_parts: Vec<RangePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range_separator: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -47,23 +66,66 @@ impl AlternateKey {
             .chain(self.range_parts.iter().map(|part| part.field.as_str()))
     }
 
-    pub fn range_type(
-        &self,
-        schema: &DeclarativeSchemaDefinition,
-    ) -> Option<crate::FieldValueType> {
+    pub fn range_type(&self, schema: &DeclarativeSchemaDefinition) -> Option<FieldValueType> {
         if self.range_parts.is_empty() {
             self.range_field
                 .as_deref()
                 .map(|field| schema.key_field_type(field))
         } else {
-            Some(crate::FieldValueType::String)
+            Some(FieldValueType::String)
         }
     }
 }
 
+fn validate_parts(key: &AlternateKey, schema: &DeclarativeSchemaDefinition) -> Result<(), String> {
+    if key.hash_field.is_empty() == key.hash_literal.is_none() {
+        return Err("an alternate key needs exactly one hash field or literal".into());
+    }
+    if key.omit_empty_hash
+        && (key.missing != MissingAlternateKey::Omit
+            || key.hash_literal.is_some()
+            || schema.key_field_type(&key.hash_field) != FieldValueType::String)
+    {
+        return Err("omit_empty_hash requires an optional text hash field".into());
+    }
+    if key
+        .hash_literal
+        .as_ref()
+        .is_some_and(|value| value.is_empty() || value.len() > 1024)
+    {
+        return Err("an alternate hash literal must contain 1 to 1024 bytes".into());
+    }
+    if key.range_parts.is_empty() {
+        if key.range_separator.is_some() {
+            return Err("a range separator requires compound range parts".into());
+        }
+        return Ok(());
+    }
+    if key.range_field.is_some() || !(2..=8).contains(&key.range_parts.len()) {
+        return Err("a compound range needs 2 to 8 parts and no range field".into());
+    }
+    let separator = key
+        .range_separator
+        .as_deref()
+        .ok_or("a compound range needs a separator")?;
+    if separator.len() != 1 || !separator.as_bytes()[0].is_ascii_punctuation() {
+        return Err("a compound separator must be one ASCII punctuation byte".into());
+    }
+    for part in &key.range_parts {
+        let kind = schema.key_field_type(&part.field);
+        match part.format {
+            PartFormat::Text if kind == FieldValueType::String => {}
+            PartFormat::PaddedText { width }
+                if (1..=64).contains(&width) && kind == FieldValueType::String => {}
+            PartFormat::ReverseTimeMillis
+                if matches!(kind, FieldValueType::String | FieldValueType::DateTime) => {}
+            _ => return Err("compound range format does not match its field type".into()),
+        }
+    }
+    Ok(())
+}
+
 impl DeclarativeSchemaDefinition {
-    /// The definition check: named alternate keys require the owned-schema
-    /// rules.
     pub fn validate_alternate_keys(&self) -> Result<(), String> {
         if self.alternate_keys.is_empty() && self.record_keys.is_none() {
             return Ok(());
@@ -71,9 +133,6 @@ impl DeclarativeSchemaDefinition {
         self.validate_owned_schema()
     }
 
-    /// The rules for a schema that owns its record values. A node applies them
-    /// to every schema it declares, loads, or admits at startup. A declaration
-    /// names local fields, never another schema or its records.
     pub fn validate_owned_schema(&self) -> Result<(), String> {
         if let Some(keys) = &self.record_keys {
             keys.validate()?;
@@ -82,7 +141,10 @@ impl DeclarativeSchemaDefinition {
                 crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
             };
             if self.schema_type != kind || self.key.is_some() || !self.alternate_keys.is_empty() {
-                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys".into());
+                return Err(
+                    "record_keys require one owned Hash/HashRange layout without field-derived keys"
+                        .into(),
+                );
             }
             return Ok(());
         }
@@ -104,9 +166,6 @@ impl DeclarativeSchemaDefinition {
                 .as_ref()
                 .is_none_or(|key| key.range_field.is_none())
         {
-            // A plain owned Hash can use the request's external coordinate as
-            // its only key; its one field holds the value. More fields or named
-            // alternate keys still need the primary value in a declared field.
             if self.fields.as_deref().unwrap_or_default().len() != 1 {
                 return Err(
                     "an owned Hash without a primary hash field must declare exactly one field"
@@ -128,12 +187,13 @@ impl DeclarativeSchemaDefinition {
             if name == "primary" {
                 return Err("primary is reserved as an alternate key name".into());
             }
-            crate::alternate_parts::validate(key, self)?;
+            validate_parts(key, self)?;
             let exact_primary = key.hash_field == primary
                 || key.range_field.as_deref() == Some(primary)
-                || key.range_parts.iter().any(|part| {
-                    part.field == primary && part.format == crate::alternate_parts::PartFormat::Text
-                });
+                || key
+                    .range_parts
+                    .iter()
+                    .any(|part| part.field == primary && part.format == PartFormat::Text);
             if !exact_primary {
                 return Err(
                     "each alternate key must retain the exact primary key field without formatting"
@@ -150,11 +210,6 @@ impl DeclarativeSchemaDefinition {
         Ok(())
     }
 
-    /// Separate from schema identity: a layout change cannot remint record identity.
-    ///
-    /// The leading `true` is a fixed hash input. Alternate field key IDs and
-    /// stored capture outcomes already hold these revision bytes, so the input
-    /// stays.
     pub fn alternate_key_revision(&self) -> String {
         if let Some(keys) = &self.record_keys {
             let bytes = serde_json::to_vec(keys).expect("record key declarations serialize");

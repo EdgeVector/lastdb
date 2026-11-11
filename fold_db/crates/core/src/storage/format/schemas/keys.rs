@@ -1,20 +1,18 @@
-//! Catalog key framing, retention row shapes and JSON decoding for
-//! the typed schema format component.
+//! Catalog key framing, retention row shapes, delete encoding, and JSON decoding.
 
-use crate::schema::types::KeyValue;
-use crate::schema::Schema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// Rows in one page of a catalog read.
+use super::require_name;
+use crate::schema::types::KeyValue;
+use crate::schema::Schema;
+use crate::storage::error::StorageResult;
+use crate::storage::StorageError;
+
 pub(crate) const CATALOG_PAGE_ROWS: usize = 256;
-/// Schema names are UTF-8, so this byte is above every valid first byte.
 pub(crate) const CATALOG_SCAN_END: &[u8] = &[0xff];
-/// The first schema-state key. The node-local families in `schema_states`
-/// start with a zero byte, and a schema name never does.
 pub(crate) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 
-// Root-owned names are shared by admission, writers and readers.
 pub(crate) use crate::storage::format::{
     RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_HASH_PARTITION_KEY_PREFIX,
     RETENTION_POLICY_KEY_PREFIX,
@@ -29,6 +27,79 @@ pub(crate) struct SchemaRetentionAgeEntry {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct SchemaRetentionHashPartition {
     pub(crate) hash: String,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum StateKey {
+    State,
+    Policy,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Tracking {
+    Age,
+    Latest,
+    Partition,
+}
+
+pub(crate) enum StateDelete<'a> {
+    Key {
+        schema: &'a str,
+        kind: StateKey,
+    },
+    Selected {
+        schema: &'a str,
+        kind: Tracking,
+        keys: Vec<String>,
+    },
+}
+
+pub(super) fn encode_deletes(changes: Vec<StateDelete<'_>>) -> StorageResult<Vec<Vec<u8>>> {
+    let mut output = Vec::new();
+    for change in changes {
+        match change {
+            StateDelete::Key { schema, kind } => {
+                require_name(schema)?;
+                let raw = match kind {
+                    StateKey::State => schema.to_owned(),
+                    StateKey::Policy => retention_policy_key(schema),
+                };
+                output.push(raw.into_bytes());
+            }
+            StateDelete::Selected { schema, kind, keys } => {
+                require_name(schema)?;
+                let prefix = match kind {
+                    Tracking::Age => retention_age_prefix(schema),
+                    Tracking::Latest => retention_age_latest_prefix(schema),
+                    Tracking::Partition => retention_hash_partition_prefix(schema),
+                };
+                for key in keys {
+                    let suffix = key.strip_prefix(&prefix).ok_or_else(invalid_delete)?;
+                    let digest = if matches!(kind, Tracking::Age) {
+                        let (clock, digest) = suffix.split_once('\0').ok_or_else(invalid_delete)?;
+                        if clock.len() != 20
+                            || !clock.bytes().all(|byte| byte.is_ascii_digit())
+                            || clock.parse::<u64>().is_err()
+                        {
+                            return Err(invalid_delete());
+                        }
+                        digest
+                    } else {
+                        suffix
+                    };
+                    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                        return Err(invalid_delete());
+                    }
+                    output.push(key.into_bytes());
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn invalid_delete() -> StorageError {
+    StorageError::InvalidOperation("retention delete key differs from its owner/family".into())
 }
 
 pub(crate) fn retention_policy_key(schema_name: &str) -> String {
@@ -88,16 +159,10 @@ pub(crate) fn retention_hash_partition_key(schema_name: &str, hash: &str) -> Str
     )
 }
 
-/// Compare two schemas on their durable catalog payload only.
-///
-/// `Schema` (`DeclarativeSchemaDefinition`) already implements `PartialEq`
-/// that **excludes** runtime-only fields (`runtime_fields`, etc.), so this is
-/// exactly the "would this put change durable catalog bytes?" check.
 pub(crate) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
     a == b
 }
 
-/// Decode a catalog value. Plain JSON is the only catalog row form.
 pub(crate) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     serde_json::from_slice::<T>(bytes).map_err(|error| error.to_string())
 }

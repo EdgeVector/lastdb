@@ -1,15 +1,95 @@
-//! Applied writer positions bound to one frozen native generation.
+//! Applied writer positions bound to one frozen native generation, plus portable schema binding.
 
-use super::MutationManager;
-use super::{portable_journal::schema_fingerprint, portable_schema::PortableReplaySchema};
-use crate::schema::SchemaError;
-use crate::storage::disk_pack::byte_backup::SharedRunCapture;
-use crate::storage::format::metadata::CheckpointDirectory;
+use std::collections::BTreeMap;
+
 use cloud_backup_protocol::shared::{LogHead, StreamCover, WriterStream};
 use cloud_backup_protocol::Id;
-use lastdb_model::portable_mutation::{StreamId, StreamProgress};
-use schema_types::PortableSchemaDefinition;
-use std::collections::BTreeMap;
+use lastdb_model::portable_mutation::{
+    MutationEntry, MutationOperation, SchemaIdentity, StreamId, StreamProgress,
+};
+use schema_types::{DeclarativeSchemaDefinition, PortableSchemaDefinition, PortableSchemaId};
+
+use super::portable_journal::schema_fingerprint;
+use super::validation::validate_field_value;
+use super::MutationManager;
+use crate::schema::{Schema, SchemaError};
+use crate::storage::disk_pack::byte_backup::SharedRunCapture;
+use crate::storage::format::metadata::CheckpointDirectory;
+
+/// Resolve once per schema and batch. The local schema carries the exact
+/// runtime address to use for records and alternate pointers.
+pub(super) struct PortableReplaySchema<'a> {
+    id: &'a PortableSchemaId,
+    local: &'a Schema,
+    /// The record's definition when the local schema may hold fields that
+    /// later definitions added. Its records use only its own fields.
+    declared: Option<&'a DeclarativeSchemaDefinition>,
+}
+
+impl<'a> PortableReplaySchema<'a> {
+    pub(super) fn bind(
+        definition: &'a PortableSchemaDefinition,
+        expected: &PortableSchemaId,
+        local: &'a Schema,
+    ) -> Result<Self, SchemaError> {
+        definition
+            .bind_local_alias(expected, &local.to_wire())
+            .map_err(SchemaError::InvalidData)?;
+        Ok(Self {
+            id: definition.id(),
+            local,
+            declared: None,
+        })
+    }
+
+    /// Bind a record's definition to the schema of its name, which may hold
+    /// fields that later accepted definitions added.
+    pub(super) fn bind_version(
+        definition: &'a PortableSchemaDefinition,
+        expected: &PortableSchemaId,
+        local: &'a Schema,
+    ) -> Result<Self, SchemaError> {
+        let declared = definition
+            .bind_local_version(expected, &local.to_wire())
+            .map_err(SchemaError::InvalidData)?;
+        Ok(Self {
+            id: definition.id(),
+            local,
+            declared: Some(declared),
+        })
+    }
+
+    /// A mismatched identity, key, or field cannot advance replay progress.
+    pub(super) fn validate_entry(&self, entry: &MutationEntry) -> Result<(), SchemaError> {
+        if !matches!(&entry.schema, SchemaIdentity::Shared(id) if id == self.id.as_str()) {
+            return Err(SchemaError::InvalidData(
+                "portable mutation targets a different schema revision".into(),
+            ));
+        }
+        let invalid_entry = |error: lastdb_model::portable_mutation::PortableMutationError| {
+            SchemaError::InvalidData(error.to_string())
+        };
+        entry.validate().map_err(invalid_entry)?;
+        entry
+            .validate_keys(self.local.require_record_keys()?)
+            .map_err(invalid_entry)?;
+        if let MutationOperation::ReplaceRecord { data, .. } = &entry.operation {
+            for (field, value) in &data.fields {
+                let declared = self.declared.is_none_or(|definition| {
+                    definition.fields.iter().flatten().any(|f| f == field)
+                });
+                if !declared
+                    || validate_field_value(&self.local.name, self.local, field, value).is_err()
+                {
+                    return Err(SchemaError::InvalidData(
+                        "portable mutation has an undeclared or wrongly typed field".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Logical metadata of the immutable native generation.
 pub struct PortableCheckpoint {

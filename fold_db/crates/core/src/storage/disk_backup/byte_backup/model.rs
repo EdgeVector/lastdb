@@ -1,4 +1,5 @@
 use super::{invalid, protocol, StorageResult};
+use crate::storage::cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{
     jobs::{JobResult, JobStatus},
     transfer::{ObjectReceipt, TransferInput},
@@ -91,7 +92,7 @@ pub(super) struct Segment {
 pub(super) struct ObjectRecord {
     pub input: TransferInput,
     pub segments: Vec<Segment>,
-    pub native_files: Vec<super::ClientNativeFile>,
+    pub native_files: Vec<ClientNativeFile>,
     pub metadata_pack: bool,
     pub ciphertext: Option<String>,
     pub receipt: Option<ObjectReceipt>,

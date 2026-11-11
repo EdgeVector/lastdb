@@ -1,7 +1,7 @@
 //! Shared schema definitions come from the writer logs, not from a service.
 //! The home records each verified definition beside the shared records.
 
-use super::{portable_schema::PortableReplaySchema, MutationManager};
+use super::{portable_checkpoint::PortableReplaySchema, MutationManager};
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::DefinitionSet;

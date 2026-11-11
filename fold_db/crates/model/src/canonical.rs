@@ -1,56 +1,33 @@
-//! Canonical byte framing for hashing and signing.
-//!
-//! # Why this module exists
-//!
-//! Every place in `fold_db` that assembles bytes to feed a SHA-256 digest, an
-//! Ed25519 signature, or a Merkle leaf must do so *unambiguously*: two
-//! semantically-different field tuples must never produce the same bytes.
-//! Otherwise one signature verifies two distinct messages, or two distinct
-//! Merkle leaves collide.
-//!
-//! The naive approach — joining variable-length fields with a single `0x00`
-//! separator — is **not** injective when a field can itself contain `0x00`.
-//! Many of our fields can: `field_key_id` is peer-supplied on the import
-//! path, hash and range keys are user-supplied, and `share_e2e_secret` is
-//! random bytes. An attacker could shift a `0x00` byte across a field boundary
-//! so that, e.g.
-//!
-//! ```text
-//! A: { hash: "B",     range: "\x00k" }
-//! B: { hash: "B\x00", range: "k"     }
-//! ```
-//!
-//! serialize identically under a `0x00`-separator scheme. This is the
-//! "NUL-shift collision". This module is the *one* home for the fix, so each
-//! signing/hashing site uses the same field framing rule.
-//!
-//! # The framing
-//!
-//! Each variable-length field is written as a **4-byte big-endian `u32` length
-//! prefix** followed by its raw bytes. Fixed-width integers (`u64` versions /
-//! timestamps) are written directly as big-endian bytes with no prefix — their
-//! width is known statically, so they are self-delimiting in a fixed schema.
-//!
-//! Because every variable field carries its own length, the byte stream is
-//! *uniquely decodable* given the field schema: there is exactly one way to
-//! parse it back into its fields. Unique decodability ⇒ injectivity ⇒ no
-//! cross-message collision from ambiguous field boundaries.
-//!
-//! Callers are still responsible for choosing a *fixed field order* per
-//! message type and for not making two different message types share a layout;
-//! this module guarantees only that a given ordered tuple of fields maps to a
-//! unique byte string.
+//! Unambiguous canonical byte framing (`u32` big-endian length prefixes) and
+//! deterministic JSON object serialization for hashing and signing.
 
+use serde::ser::SerializeMap;
+use serde::{Serialize, Serializer};
+use serde_json::Value;
 use sha2::Sha256;
+use std::collections::BTreeMap;
 
-mod value;
-pub use value::CanonicalValue;
+/// Borrowed JSON value wrapper that serializes nested objects in sorted key order.
+pub struct CanonicalValue<'a>(pub &'a Value);
 
-/// A sink that canonical framing can be written into.
-///
-/// Implemented for `Vec<u8>` (build-then-hash/sign) and [`Sha256`]
-/// (stream-into-the-digest, avoiding a large intermediate `Vec`). Both produce
-/// byte-identical framing.
+impl Serialize for CanonicalValue<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            Value::Object(values) => {
+                let sorted: BTreeMap<_, _> = values.iter().collect();
+                let mut map = serializer.serialize_map(Some(sorted.len()))?;
+                for (name, value) in sorted {
+                    map.serialize_entry(name, &Self(value))?;
+                }
+                map.end()
+            }
+            Value::Array(values) => serializer.collect_seq(values.iter().map(Self)),
+            value => value.serialize(serializer),
+        }
+    }
+}
+
+/// Sink that canonical framing can be written into (`Vec<u8>` or [`Sha256`]).
 pub trait ByteSink {
     /// Append raw bytes to the sink.
     fn put(&mut self, bytes: &[u8]);
@@ -71,51 +48,29 @@ impl ByteSink for Sha256 {
     }
 }
 
-/// Write `field` into `sink` preceded by its length as a 4-byte big-endian
-/// `u32`.
-///
-/// This is the single source of the length-prefix framing. The `u32` cap is
-/// `4 GiB`; no legitimate canonical field comes anywhere near it, and the
-/// conversion panics rather than silently truncating (a truncated length would
-/// reintroduce the very ambiguity this framing exists to remove).
+/// Write `field` into `sink` preceded by its length as a 4-byte big-endian `u32`.
 #[inline]
 pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
     let len: u32 = field
         .len()
         .try_into()
-        .expect("canonical field exceeds 4 GiB — not possible for any legitimate input");
+        .expect("canonical field exceeds 4 GiB");
     sink.put(&len.to_be_bytes());
     sink.put(field);
 }
 
-/// Ergonomic builder for the common "build a `Vec<u8>` then hash/sign it" case.
-///
-/// Field order is the caller's responsibility; this type only guarantees that
-/// each `field` is length-prefixed and each fixed-width integer is appended
-/// big-endian, matching [`push_field`].
-///
-/// ```ignore
-/// let bytes = CanonicalWriter::new()
-///     .field(field_key_id.as_bytes())
-///     .field(hash.as_bytes())
-///     .field(range.as_bytes())
-///     .u64(written_at)
-///     .finish();
-/// ```
+/// Builder for assembling canonical framed bytes into a `Vec<u8>`.
 #[derive(Debug, Default, Clone)]
 pub struct CanonicalWriter {
     buf: Vec<u8>,
 }
 
 impl CanonicalWriter {
-    /// A new, empty writer.
     #[must_use]
     pub fn new() -> Self {
         Self { buf: Vec::new() }
     }
 
-    /// A new writer with a pre-sized backing buffer (an optimization hint
-    /// only — does not affect output bytes).
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -123,21 +78,18 @@ impl CanonicalWriter {
         }
     }
 
-    /// Append a length-prefixed variable-length field.
     #[must_use]
     pub fn field(mut self, field: &[u8]) -> Self {
         push_field(&mut self.buf, field);
         self
     }
 
-    /// Append a `u64` as 8 big-endian bytes (no length prefix — fixed width).
     #[must_use]
     pub fn u64(mut self, value: u64) -> Self {
         self.buf.extend_from_slice(&value.to_be_bytes());
         self
     }
 
-    /// Consume the writer and return the assembled canonical bytes.
     #[must_use]
     pub fn finish(self) -> Vec<u8> {
         self.buf

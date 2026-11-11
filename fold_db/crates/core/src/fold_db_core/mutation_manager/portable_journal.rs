@@ -1,20 +1,22 @@
-//! Owner-facing local journal ports for shared database replication.
+//! Owner-facing local journal ports and uploaded-file retention for shared replication.
 
-use super::{portable_schema::PortableReplaySchema, MutationManager};
+use std::collections::{BTreeMap, BTreeSet};
+
+use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
+use cloud_backup_protocol::Id;
+use lastdb_model::canonical::CanonicalValue;
+use lastdb_model::portable_mutation::{
+    MutationEntry, MutationOperation, SchemaIdentity, StreamProgress,
+};
+use lastdb_model::record_value::FileMarker;
+use schema_types::PortableSchemaDefinition;
+use sha2::{Digest, Sha256};
+
+use super::{portable_checkpoint::PortableReplaySchema, MutationManager};
 use crate::db_operations::OutgoingPortablePage;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::JournalSchema;
-use cloud_backup_protocol::shared::{BatchReceipt, LogBatch, WriterStream};
-use cloud_backup_protocol::Id;
-use lastdb_model::canonical::CanonicalValue;
-use lastdb_model::portable_mutation::{MutationEntry, MutationOperation, StreamProgress};
-use lastdb_model::record_value::FileMarker;
-use schema_types::PortableSchemaDefinition;
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-
-mod retention;
 
 impl MutationManager {
     /// Bind an enrolled restored writer, or the authenticated first publisher.
@@ -41,10 +43,7 @@ impl MutationManager {
         .await
     }
 
-    /// Admit more shared schemas to a bound writer. A schema this home lacks
-    /// installs under its canonical name. A later definition of an admitted
-    /// name adds its fields to that name. The writer binds each name's current
-    /// definition, and its stream defines that before the name's next record.
+    /// Admit more shared schemas to a bound writer.
     pub async fn admit_portable_schemas(
         &self,
         definitions: &[PortableSchemaDefinition],
@@ -71,8 +70,6 @@ impl MutationManager {
     }
 
     /// Bind each of the writer's aliases to its name's current definition.
-    /// A record then names the definition that declares its fields, and the
-    /// stream defines that definition before the record.
     pub(super) async fn follow_portable_definitions(&self) -> Result<(), SchemaError> {
         let stale = self
             .db_ops
@@ -243,8 +240,6 @@ impl MutationManager {
         if records.file_retention_complete().await? {
             return Ok(());
         }
-        // Each step releases the native write gate and saves its continuation.
-        // A large old home can finish on subsequent shared sync invocations.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         for _ in 0..64 {
             let more = transaction::background_scope(
@@ -257,6 +252,61 @@ impl MutationManager {
             }
         }
         Ok(())
+    }
+
+    async fn release_uploaded_files(&self, retired: &[MutationEntry]) -> Result<(), SchemaError> {
+        let Some(last) = retired.last() else {
+            return Ok(());
+        };
+        let files: Vec<_> = retired
+            .iter()
+            .filter_map(|entry| match &entry.operation {
+                MutationOperation::ReplaceRecord { primary_key, data } => data
+                    .file
+                    .as_ref()
+                    .map(|file| (&entry.schema, primary_key, &file.version)),
+                MutationOperation::DeleteRecord { .. } | MutationOperation::DefineSchema { .. } => {
+                    None
+                }
+            })
+            .collect();
+        if files.is_empty() {
+            return Ok(());
+        }
+        let bindings = self.db_ops.metadata().portable_bound_schemas().await?;
+        let ids = files
+            .iter()
+            .map(|(schema, _, _)| match schema {
+                SchemaIdentity::Shared(id) => Ok(id),
+                SchemaIdentity::Local(_) => Err(invalid("local mutation in the shared log")),
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        let bindings = &bindings;
+        let schemas = futures::future::try_join_all(ids.into_iter().map(|id| async move {
+            let name = bindings
+                .get(id)
+                .ok_or_else(|| invalid("completed mutation has no local schema"))?;
+            Ok::<_, SchemaError>((id, self.load_schema_for_delta(name).await?))
+        }))
+        .await?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+        let records = self.db_ops.records();
+        let addresses = files
+            .into_iter()
+            .map(|(schema, key, version)| {
+                let SchemaIdentity::Shared(id) = schema else {
+                    return Err(invalid("local file reference in the shared log"));
+                };
+                Ok((
+                    records.record_address(&schemas[id], &key.clone().into())?,
+                    version.clone(),
+                ))
+            })
+            .collect::<Result<_, SchemaError>>()?;
+        records
+            .stage_completed_file_references(addresses, last.stamp.position.sequence)
+            .await
     }
 }
 

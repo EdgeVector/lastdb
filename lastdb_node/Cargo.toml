@@ -35,7 +35,7 @@ zeroize = { workspace = true }
 fold_db = { workspace = true }
 laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
-observability = { workspace = true, features = ["otel"] }
+observability = { workspace = true }
 schema_types = { workspace = true }
 semver = { workspace = true }
 app_identity_crypto = { workspace = true }

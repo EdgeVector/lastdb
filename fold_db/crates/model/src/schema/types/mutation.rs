@@ -1,13 +1,14 @@
 use super::cas::CasExpectation;
 use super::{key_value::KeyValue, operations::MutationType};
+use crate::canonical::{push_field, CanonicalValue};
 use crate::record_replacement::RecordTarget;
+use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
-
-mod content_hash;
-mod file_write;
-pub use file_write::{FileWrite, FileWriteIssuer, LocalFileReference, SealedRecordFile};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub fn is_zero_u8(value: &u8) -> bool {
     *value == 0
@@ -17,13 +18,161 @@ pub fn is_zero_u64(value: &u64) -> bool {
     *value == 0
 }
 
+/// Format instance authority to issue and admit sealed or local-path file data.
+pub struct FileWriteIssuer {
+    identity: Arc<()>,
+}
+
+impl Default for FileWriteIssuer {
+    fn default() -> Self {
+        Self {
+            identity: Arc::new(()),
+        }
+    }
+}
+
+struct Payload {
+    issuer: Arc<()>,
+    marker: FileMarker,
+    row: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub struct SealedRecordFile {
+    payload: Arc<Payload>,
+}
+
+impl SealedRecordFile {
+    #[must_use]
+    pub fn marker(&self) -> &FileMarker {
+        &self.payload.marker
+    }
+}
+
+impl PartialEq for SealedRecordFile {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.payload, &other.payload)
+            || (Arc::ptr_eq(&self.payload.issuer, &other.payload.issuer)
+                && self.payload.marker == other.payload.marker
+                && self.payload.row == other.payload.row)
+    }
+}
+
+struct LocalPayload {
+    issuer: Arc<()>,
+    marker: FileMarker,
+    path: PathBuf,
+}
+
+#[derive(Clone)]
+pub struct LocalFileReference {
+    payload: Arc<LocalPayload>,
+}
+
+impl LocalFileReference {
+    #[must_use]
+    pub fn marker(&self) -> &FileMarker {
+        &self.payload.marker
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.payload.path
+    }
+}
+
+impl PartialEq for LocalFileReference {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.payload, &other.payload)
+            || (Arc::ptr_eq(&self.payload.issuer, &other.payload.issuer)
+                && self.payload.marker == other.payload.marker
+                && self.payload.path == other.payload.path)
+    }
+}
+
+impl FileWriteIssuer {
+    #[must_use]
+    pub fn issue(&self, marker: FileMarker, row: Vec<u8>) -> FileWrite {
+        FileWrite::Put(SealedRecordFile {
+            payload: Arc::new(Payload {
+                issuer: Arc::clone(&self.identity),
+                marker,
+                row,
+            }),
+        })
+    }
+
+    #[must_use]
+    pub fn issue_local(&self, marker: FileMarker, path: PathBuf) -> FileWrite {
+        FileWrite::LocalPath(LocalFileReference {
+            payload: Arc::new(LocalPayload {
+                issuer: Arc::clone(&self.identity),
+                marker,
+                path,
+            }),
+        })
+    }
+
+    #[must_use]
+    pub fn admit(&self, file: SealedRecordFile) -> Option<Vec<u8>> {
+        if !Arc::ptr_eq(&self.identity, &file.payload.issuer) {
+            return None;
+        }
+        Some(
+            Arc::try_unwrap(file.payload)
+                .map_or_else(|payload| payload.row.clone(), |payload| payload.row),
+        )
+    }
+
+    #[must_use]
+    pub fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
+        if !Arc::ptr_eq(&self.identity, &file.payload.issuer) {
+            return None;
+        }
+        Some(file.path())
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum FileWrite {
+    Put(SealedRecordFile),
+    LocalPath(LocalFileReference),
+    Clear,
+}
+
+impl FileWrite {
+    #[must_use]
+    pub fn row_len(&self) -> usize {
+        match self {
+            Self::Put(file) => file.payload.row.len(),
+            Self::LocalPath(_) | Self::Clear => 0,
+        }
+    }
+}
+
+impl std::fmt::Debug for FileWrite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Put(file) => f
+                .debug_struct("Put")
+                .field("marker", file.marker())
+                .field("row_bytes", &self.row_len())
+                .finish(),
+            Self::LocalPath(file) => f
+                .debug_struct("LocalPath")
+                .field("marker", file.marker())
+                .finish_non_exhaustive(),
+            Self::Clear => f.write_str("Clear"),
+        }
+    }
+}
+
 /// Native preconditions supplied after verifying a signed share contribution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContributionAdmission {
     pub definition_id: String,
     pub receipt_id: [u8; 32],
     pub intent_digest: [u8; 32],
-    /// Grant signature digest. Replace and delete may change only this writer's row.
     pub writer: String,
 }
 
@@ -35,70 +184,39 @@ pub struct Mutation {
     pub record_fields: HashMap<String, Value>,
     pub key_value: KeyValue,
     pub alternates: BTreeMap<String, Option<KeyValue>>,
-    pub file: Option<crate::record_value::FileMarker>,
+    pub file: Option<FileMarker>,
     pub pub_key: String,
     pub mutation_type: MutationType,
     pub synchronous: Option<bool>,
-    /// Optional source filename for records created from file uploads
     pub source_file_name: Option<String>,
-    /// Per-key metadata is part of the signed mutation, not the record UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    /// The author-clock write time. The node assigns it from its clock.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
-    /// Durable per-device logical author counter. A mutation without one uses zero.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub logical_counter: u64,
-    /// Device key that signed the mutation author clock. This is separate from
-    /// `pub_key`, which remains the request/content attribution identity.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_writer_id: String,
-    /// Ed25519 signature over the mutation content, id, and author clock.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_signature: String,
-    /// Author-clock signature version. Local writes use
-    /// `MUTATION_AUTHOR_SIGNATURE_VERSION`.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
-    /// Required acceptance policy for the entire record.
     pub expected: CasExpectation,
-    /// Local audit tag for the delete ledger row of a `Delete` that a node job
-    /// issues, for example the TTL sweep. `None` writes the default caller.
-    /// Never serialized, so it is never captured, synced or replayed.
     #[serde(skip)]
     pub erase_caller: Option<&'static str>,
-    /// Local guard for a `Delete` that a node job issues on a key whose age is
-    /// its write time (the TTL sweep on a Hash or Single schema): a record
-    /// written at or after this time, in unix nanoseconds, is not erased. The
-    /// write scope checks its current record stamp and revision, so a rewrite
-    /// that is acked but not yet in the age rows survives. API serialization omits it;
-    /// the signed mutation-intent envelope carries it explicitly for replay.
     #[serde(skip)]
     pub erase_written_before_nanos: Option<u64>,
-    /// The file write of `put-blob` or `delete-blob`. Never serialized, so it is
-    /// never captured, synced or replayed, and API input cannot forge it.
     #[serde(skip)]
     pub file_write: Option<FileWrite>,
-    /// The inline file write of `put-blob` (its thumbnail), `put-inline` or
-    /// `delete-blob`. Never serialized, like `file_write`. `None` keeps the
-    /// record's current inline file.
     #[serde(skip)]
     pub inline_write: Option<crate::record_value::InlineWrite>,
-    /// The shared definition the writer declared
-    /// (`decision-2026-11-07-lastdb-replace-keeps-fields-writer-does-not-know`).
-    /// On a shared replace, stored fields this definition does not declare stay.
-    /// `None` means the write names the current definition. Never serialized:
-    /// the log entry is the stored record, and author signatures do not cover it.
     #[serde(skip)]
     pub definition_id: Option<String>,
-    /// Native-only authorization and replay identity, never decoded from an app mutation.
     #[serde(skip)]
     pub contribution: Option<ContributionAdmission>,
 }
 
 impl Mutation {
-    /// A new mutation with a caller-chosen id. The model makes no random id.
     #[must_use]
     pub fn with_uuid(
         uuid: String,
@@ -135,23 +253,18 @@ impl Mutation {
         }
     }
 
-    /// Name the node job that issues this `Delete`. The delete ledger row
-    /// carries the name as its caller, so an audit read can tell the job from
-    /// a client delete. Local only: it is not captured or synced.
     #[must_use]
     pub fn with_erase_caller(mut self, caller: &'static str) -> Self {
         self.erase_caller = Some(caller);
         self
     }
 
-    /// Erase only records written before `nanos` (unix nanoseconds). See the field.
     #[must_use]
     pub fn with_erase_written_before_nanos(mut self, nanos: u64) -> Self {
         self.erase_written_before_nanos = Some(nanos);
         self
     }
 
-    /// Data-only target; it conveys no storage authority.
     pub fn target(&self) -> RecordTarget {
         RecordTarget {
             schema: self.schema_name.clone(),
@@ -161,7 +274,6 @@ impl Mutation {
     }
 
     pub fn validate_record_intent(&self) -> Result<(), crate::schema::SchemaError> {
-        use super::operations::MutationType;
         let invalid = |message: &str| crate::schema::SchemaError::InvalidData(message.into());
         if self.uuid.is_empty() || self.uuid.len() > 128 {
             return Err(invalid(
@@ -196,4 +308,40 @@ impl Mutation {
         }
         Ok(())
     }
+
+    #[must_use]
+    pub fn content_hash(&self) -> String {
+        let mut digest = Sha256::new();
+        push_field(&mut digest, b"lastdb-record-authored-content-v2");
+        push_field(&mut digest, self.uuid.as_bytes());
+        push_field(&mut digest, self.schema_name.as_bytes());
+        json_field(&mut digest, &self.mutation_type);
+        json_field(&mut digest, &self.key_value);
+        json_field(&mut digest, &self.alternates);
+        json_field(&mut digest, &self.file);
+        json_field(&mut digest, &self.expected);
+        let fields: BTreeMap<_, _> = self.record_fields.iter().collect();
+        digest.update((fields.len() as u64).to_be_bytes());
+        for (name, value) in fields {
+            push_field(&mut digest, name.as_bytes());
+            json_field(&mut digest, &CanonicalValue(value));
+        }
+        push_field(&mut digest, self.pub_key.as_bytes());
+        json_field(&mut digest, &self.source_file_name);
+        let metadata = self
+            .metadata
+            .as_ref()
+            .map(|metadata| metadata.iter().collect::<BTreeMap<_, _>>());
+        json_field(&mut digest, &metadata);
+        json_field(&mut digest, &self.erase_written_before_nanos);
+        json_field(&mut digest, &self.imported_written_at);
+        digest.update(self.logical_counter.to_be_bytes());
+        push_field(&mut digest, self.author_clock_writer_id.as_bytes());
+        format!("{:x}", digest.finalize())
+    }
+}
+
+fn json_field<T: Serialize>(digest: &mut Sha256, value: &T) {
+    let bytes = serde_json::to_vec(value).expect("mutation content is serializable");
+    push_field(digest, &bytes);
 }

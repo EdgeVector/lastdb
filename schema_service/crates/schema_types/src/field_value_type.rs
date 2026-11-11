@@ -1,60 +1,39 @@
+//! Strongly typed value types and temporal validation for schema fields.
+
+use chrono::{DateTime, Datelike, NaiveDate, Timelike};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub(crate) mod temporal;
-
-/// Strongly typed value types for schema fields.
-///
-/// Every declared field names one of these types, and every write is checked
-/// against it. A declaration with a field that has no type is refused.
-/// `Any` remains only until no stored schema names it; then it is deleted
-/// (`decision-2026-11-02-field-types-no-any`). Its last users were Brain's two
-/// file pointer fields, which format 9 removes: a file is the record's own
-/// `file` member, not a field value.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum FieldValueType {
-    // ── Primitives ──────────────────────────────────────
     String,
     Integer,
     Float,
-    Number, // accepts either integer or float
+    Number,
     Boolean,
     Null,
-
-    // ── Compound ────────────────────────────────────────
-    /// Homogeneous typed array: `Array(String)`, `Array(Integer)`
     Array(Box<Self>),
-    /// Typed key-value map (JSON keys are always strings):
-    /// `Map(String, Number)` means `{"a": 1, "b": 2}`
     Map(Box<Self>),
-    /// Typed struct with named fields:
-    /// `Object({"name": String, "age": Integer})`
     Object(BTreeMap<String, Self>),
-
-    // ── Union ───────────────────────────────────────────
-    /// Union type: matches if the value satisfies any variant.
-    /// Common use: `OneOf([String, Null])` for nullable strings.
     OneOf(Vec<Self>),
-
-    // ── Escape hatch ────────────────────────────────────
-    /// Accepts any JSON value. Used for backward compatibility
-    /// with existing schemas that have no type declarations.
     Any,
-
-    /// Gregorian calendar date, encoded as a strict `YYYY-MM-DD` JSON string.
     Date,
-    /// RFC 3339 instant with an offset and at most nine fractional digits.
     DateTime,
 }
 
 impl FieldValueType {
-    /// Validate a JSON value against this type. Returns Ok(()) if valid,
-    /// Err with a human-readable message if not.
-    pub fn validate(&self, value: &serde_json::Value) -> Result<(), String> {
+    pub fn validate(&self, value: &Value) -> Result<(), String> {
         match self {
             Self::Any => Ok(()),
-            Self::Date => temporal::validate_date(value),
-            Self::DateTime => temporal::validate_datetime(value),
+            Self::Date => value
+                .as_str()
+                .ok_or_else(|| type_err("Date", value))
+                .and_then(|s| date_day(s).map(|_| ())),
+            Self::DateTime => value
+                .as_str()
+                .ok_or_else(|| type_err("DateTime", value))
+                .and_then(|s| datetime_nanos(s).map(|_| ())),
             Self::Null => value
                 .is_null()
                 .then_some(())
@@ -104,7 +83,7 @@ impl FieldValueType {
                     .as_object()
                     .ok_or_else(|| format!("expected Object, got {}", json_type_name(value)))?;
                 for (field_name, field_type) in field_types {
-                    let field_value = obj.get(field_name).unwrap_or(&serde_json::Value::Null);
+                    let field_value = obj.get(field_name).unwrap_or(&Value::Null);
                     field_type
                         .validate(field_value)
                         .map_err(|e| format!(".{field_name}: {e}"))?;
@@ -118,8 +97,7 @@ impl FieldValueType {
                     }
                 }
                 Err(format!(
-                    "value does not match any variant of OneOf({}), got {}",
-                    self,
+                    "value does not match any variant of OneOf({self}), got {}",
                     json_type_name(value)
                 ))
             }
@@ -127,18 +105,18 @@ impl FieldValueType {
     }
 }
 
-fn type_err(expected: &str, got: &serde_json::Value) -> String {
+fn type_err(expected: &str, got: &Value) -> String {
     format!("expected {expected}, got {}", json_type_name(got))
 }
 
-fn json_type_name(value: &serde_json::Value) -> &'static str {
+fn json_type_name(value: &Value) -> &'static str {
     match value {
-        serde_json::Value::Null => "Null",
-        serde_json::Value::Bool(_) => "Boolean",
-        serde_json::Value::Number(_) => "Number",
-        serde_json::Value::String(_) => "String",
-        serde_json::Value::Array(_) => "Array",
-        serde_json::Value::Object(_) => "Object",
+        Value::Null => "Null",
+        Value::Bool(_) => "Boolean",
+        Value::Number(_) => "Number",
+        Value::String(_) => "String",
+        Value::Array(_) => "Array",
+        Value::Object(_) => "Object",
     }
 }
 
@@ -177,4 +155,67 @@ impl std::fmt::Display for FieldValueType {
             Self::Any => write!(f, "Any"),
         }
     }
+}
+
+pub(crate) fn date_day(text: &str) -> Result<i32, String> {
+    if !date_shape(text.as_bytes()) {
+        return Err("expected Date in YYYY-MM-DD form with a valid calendar date".into());
+    }
+    NaiveDate::parse_from_str(text, "%Y-%m-%d")
+        .map(|date| date.num_days_from_ce())
+        .map_err(|_| "expected Date in YYYY-MM-DD form with a valid calendar date".into())
+}
+
+pub(crate) fn datetime_nanos(text: &str) -> Result<i128, String> {
+    let invalid = || {
+        "expected DateTime in RFC 3339 form with an offset, years 0000..9999, \
+         at most nine fractional digits, and no leap second"
+            .to_string()
+    };
+    if !datetime_shape(text.as_bytes()) {
+        return Err(invalid());
+    }
+    let instant = DateTime::parse_from_rfc3339(text).map_err(|_| invalid())?;
+    if instant.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&instant.to_utc().year()) {
+        return Err(invalid());
+    }
+    Ok(i128::from(instant.timestamp()) * 1_000_000_000 + i128::from(instant.nanosecond()))
+}
+
+fn date_shape(bytes: &[u8]) -> bool {
+    bytes.len() == 10
+        && bytes.iter().enumerate().all(|(i, byte)| match i {
+            4 | 7 => *byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+}
+
+fn datetime_shape(bytes: &[u8]) -> bool {
+    if !(20..=35).contains(&bytes.len())
+        || !date_shape(&bytes[..10])
+        || !matches!(bytes[10], b'T' | b't')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || ![11, 12, 14, 15, 17, 18]
+            .iter()
+            .all(|i| bytes[*i].is_ascii_digit())
+    {
+        return false;
+    }
+    let mut offset = &bytes[19..];
+    if offset.first() == Some(&b'.') {
+        let digits = offset[1..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if !(1..=9).contains(&digits) {
+            return false;
+        }
+        offset = &offset[1 + digits..];
+    }
+    matches!(offset, [b'Z' | b'z'])
+        || (offset.len() == 6
+            && matches!(offset[0], b'+' | b'-')
+            && offset[3] == b':'
+            && [1, 2, 4, 5].iter().all(|i| offset[*i].is_ascii_digit()))
 }

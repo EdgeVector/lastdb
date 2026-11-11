@@ -3,7 +3,10 @@
 //! Every node home stores typed ranges, so API coordinates compare in the
 //! scalar order of the declared range type.
 
-use crate::{field_value_type::temporal, FieldValueType};
+use crate::{
+    field_value_type::{date_day, datetime_nanos},
+    FieldValueType,
+};
 use serde::Serialize;
 use std::cmp::Ordering;
 
@@ -86,8 +89,8 @@ fn parse<'a>(field_type: &FieldValueType, text: &'a str) -> Result<CanonicalRang
             .parse::<i64>()
             .map(CanonicalRange::Integer)
             .map_err(|_| "expected a signed 64-bit range key".into()),
-        FieldValueType::Date => temporal::date_day(text).map(CanonicalRange::Date),
-        FieldValueType::DateTime => temporal::datetime_nanos(text).map(CanonicalRange::DateTime),
+        FieldValueType::Date => date_day(text).map(CanonicalRange::Date),
+        FieldValueType::DateTime => datetime_nanos(text).map(CanonicalRange::DateTime),
         FieldValueType::Boolean => text
             .parse::<bool>()
             .map(CanonicalRange::Boolean)

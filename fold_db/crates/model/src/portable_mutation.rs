@@ -1,19 +1,16 @@
-//! Data that the disk writer and replay planner share. Positions identify
-//! immutable operations. A record's only version is the stamp of its last
-//! winning operation.
+//! Portable mutation entries, stamps, stream cursors, and canonical JSON bounds.
 
-mod codec;
 mod record;
 
-pub use record::{FileMarker, RecordData, RecordKey, StoredRecord};
+pub use record::{
+    RecordData, RecordKey, StoredRecord, MAX_MUTATION_ENTRY_BYTES, MAX_PORTABLE_RECORD_BYTES,
+};
 
 use schema_types::record_keys::RecordKeys;
 use schema_types::{PortableSchemaDefinition, PortableSchemaId};
 use serde::{Deserialize, Serialize, Serializer};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
-/// A safe path component with the same spelling and ordering as a cloud ID.
-/// Fixed-width lowercase hexadecimal text orders like the underlying UUID.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 pub struct StreamId(String);
@@ -79,7 +76,6 @@ impl Position {
     }
 }
 
-/// Field order is the replay order, with the newest stamp greatest.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stamp {
@@ -87,8 +83,40 @@ pub struct Stamp {
     pub position: Position,
 }
 
-/// Shared mutations use locally computed definition IDs. A local schema with
-/// identical ID text still has a distinct identity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileMarker {
+    pub version: Position,
+    pub name: Option<String>,
+    pub media_type: Option<String>,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+impl FileMarker {
+    fn validate(&self, record_position: &Position) -> Result<(), PortableMutationError> {
+        self.version.validate()?;
+        if self.sha256.len() != 64
+            || !self
+                .sha256
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(PortableMutationError::Invalid(
+                "file marker requires a lowercase SHA-256",
+            ));
+        }
+        if self.version.source_stream == record_position.source_stream
+            && self.version.sequence > record_position.sequence
+        {
+            return Err(PortableMutationError::Invalid(
+                "file version cannot follow its record in the same stream",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(
     tag = "scope",
@@ -116,9 +144,6 @@ impl SchemaIdentity {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MutationOperation {
-    /// The typed definition of the entry's schema ID. A writer appends one
-    /// before its stream's first record operation with that ID, so each
-    /// stream carries every definition it uses. A reader verifies the ID.
     DefineSchema {
         #[serde(serialize_with = "ordered")]
         definition: Box<PortableSchemaDefinition>,
@@ -133,7 +158,6 @@ pub enum MutationOperation {
 }
 
 impl MutationOperation {
-    /// A record operation's primary key. A definition has none.
     #[must_use]
     pub fn primary_key(&self) -> Option<&RecordKey> {
         match self {
@@ -144,7 +168,6 @@ impl MutationOperation {
         }
     }
 
-    /// The exact file version a replacement names.
     #[must_use]
     pub fn file_version(&self) -> Option<&Position> {
         match self {
@@ -154,8 +177,6 @@ impl MutationOperation {
     }
 }
 
-/// Serialize through a JSON value, whose maps order their keys. A schema
-/// definition holds hash maps, and a log entry has one canonical encoding.
 fn ordered<T: Serialize, S: Serializer>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
     serde_json::to_value(value)
         .map_err(serde::ser::Error::custom)?
@@ -184,7 +205,6 @@ impl MutationEntry {
                 let id: PortableSchemaId = id.parse().map_err(|_| {
                     PortableMutationError::Invalid("schema definition ID must be a SHA-256")
                 })?;
-                // Recompute the hash: only a definition that matches its ID installs.
                 definition.verify(&id).map_err(|_| {
                     PortableMutationError::Invalid("schema definition differs from its ID")
                 })?;
@@ -198,7 +218,6 @@ impl MutationEntry {
         Ok(())
     }
 
-    /// The definition of a `define_schema` entry.
     #[must_use]
     pub fn definition(&self) -> Option<&PortableSchemaDefinition> {
         match &self.operation {
@@ -209,8 +228,6 @@ impl MutationEntry {
         }
     }
 
-    /// The caller supplies the exact schema revision for this identity and
-    /// validates field values against it separately.
     pub fn validate_keys(&self, keys: &RecordKeys) -> Result<(), PortableMutationError> {
         keys.validate()
             .map_err(|_| PortableMutationError::Invalid("invalid record key definitions"))?;
@@ -224,6 +241,19 @@ impl MutationEntry {
             data.validate_alternates(keys)?;
         }
         Ok(())
+    }
+
+    #[must_use]
+    pub fn max_encoded_bytes(&self) -> usize {
+        record::entry_max_encoded_bytes(self)
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>, PortableMutationError> {
+        record::encode_entry(self)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, PortableMutationError> {
+        record::decode_entry(bytes)
     }
 }
 
@@ -257,7 +287,6 @@ impl From<AppliedDelete> for Stamp {
 pub struct StreamProgress {
     pub applied_through: u64,
     pub applied_through_ms: Option<u64>,
-    /// A local stream can upload beyond its applied prefix during a freeze.
     pub uploaded_through: Option<u64>,
 }
 
@@ -299,5 +328,3 @@ impl fmt::Display for PortableMutationError {
 }
 
 impl std::error::Error for PortableMutationError {}
-
-pub use codec::MAX_MUTATION_ENTRY_BYTES;

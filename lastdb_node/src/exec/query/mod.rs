@@ -22,9 +22,7 @@ mod format;
 mod rules;
 
 pub(in crate::exec) use batch::{batch_results, execute_query_batch_route, parse_query_batch};
-use format::{
-    cursor_payload, format_rows, materialized_page_payload, overfetched_offset_payload, PageFlags,
-};
+use format::{cursor_payload, format_rows, materialized_page_payload, overfetched_offset_payload};
 pub(in crate::exec) use format::{format_alternate_page, verified_query_page};
 
 const DEFAULT_QUERY_LIMIT: usize = 100;
@@ -300,26 +298,25 @@ impl QueryRun<'_> {
         };
 
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
-        let (page, flags, end) =
+        let (page, end) =
             execute_query_rows_windowed(host, query, Some(window), self.response_format).await?;
         Ok(match (uses_cursor, total) {
-            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset, flags),
+            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset),
             (_, total) => {
                 let resume = end.resume.map(|PageResume::Key(key)| key);
                 let comparison = self.comparison.clone();
-                cursor_payload(page, total, limit, offset, flags, resume, comparison)
+                cursor_payload(page, total, limit, offset, resume, comparison)
             }
         })
     }
 
     async fn bounded_fallback(&self, query: Query) -> Result<Value, HostError> {
-        let (all_results, flags, _) =
+        let (all_results, _) =
             execute_query_rows_windowed(self.host, query, None, self.response_format).await?;
         Ok(materialized_page_payload(
             all_results,
             self.limit,
             self.offset,
-            flags,
         ))
     }
 }
@@ -329,34 +326,28 @@ async fn execute_query_rows_windowed(
     query: Query,
     window: Option<KeyWindow>,
     response_format: QueryResponseFormat,
-) -> Result<(Vec<Value>, PageFlags, PageEnd), HostError> {
+) -> Result<(Vec<Value>, PageEnd), HostError> {
     let comparison = capture_key_comparison(host, &query.schema_name).await?;
     let sort_order = query.sort_order.clone();
     let future = async move {
         let executor = host.db.query_executor();
         let resumable = window.is_some() && !matches!(query.sort_order, Some(SortOrder::Desc));
-        let (result, forms, end) = match window {
+        let (result, end) = match window {
             Some(window) if resumable => {
                 fold_db::db_operations::with_query_page_tally(executor.query_window(query, window))
                     .await
             }
-            Some(window) => {
-                let (result, forms) =
-                    fold_db::db_operations::with_query_tally(executor.query_window(query, window))
-                        .await;
-                (result, forms, PageEnd::default())
-            }
-            None => {
-                let (result, forms) =
-                    fold_db::db_operations::with_query_tally(executor.query(query)).await;
-                (result, forms, PageEnd::default())
-            }
+            Some(window) => (
+                executor.query_window(query, window).await,
+                PageEnd::default(),
+            ),
+            None => (executor.query(query).await, PageEnd::default()),
         };
         let records = result.map_err(HostError::from)?;
         let mut results = format_rows(records, response_format == QueryResponseFormat::Values);
         let range_comparison = KeyComparisonContext::capture_current_range_comparison();
         rules::sort_rows(&mut results, sort_order.as_ref(), range_comparison.as_ref())?;
-        Ok((results, PageFlags::from(forms), end))
+        Ok((results, end))
     };
     if let Some(comparison) = comparison {
         comparison.run(future).await

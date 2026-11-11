@@ -1,9 +1,144 @@
-//! One bounded merge round, then one serialized completion check.
+//! Cleanup checkpoint persistence, bounded merge rounds, and background worker.
 
-use super::*;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use tracing::Instrument;
+
+use super::{
+    invalid, map, message, physical, run_blocking, CleanupJob, NativeCleanupBoundary,
+    NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus, PackRuntime, StorageResult,
+};
+
+const STEP_PAUSE: std::time::Duration = std::time::Duration::from_millis(25);
+const HELD_PAUSE: std::time::Duration = std::time::Duration::from_millis(250);
+const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_secs(30);
+
+pub(super) fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> {
+    let Some(bytes) = v2.home.load_cleanup_checkpoint().map_err(map)? else {
+        return Ok(NativeCleanupStatus::idle(v2));
+    };
+    let status: NativeCleanupStatus = serde_json::from_slice(&bytes)
+        .map_err(|_| invalid("native cleanup checkpoint encoding is invalid"))?;
+    let current = NativeCleanupBoundary::capture(v2);
+    let target_ok = status.target.is_some_and(|target| current.covers(target));
+    let finish_ok = status.completed_through.is_some_and(|finish| {
+        status.target.is_some_and(|target| finish.covers(target)) && current.covers(finish)
+    });
+    let expected = NativeCleanupStatus::idle(v2);
+    if status.version != expected.version
+        || status.scope != expected.scope
+        || status.main_home != v2.home.identity().to_string()
+        || status.cas_home != v2.cas.identity().to_string()
+        || status.private_home != expected.private_home
+        || status.private.is_some() != expected.private_some()
+        || !status.backup_copies_excluded
+        || status.live_cas_orphan_repair_included
+        || status
+            .request_id
+            .as_deref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+            .is_none()
+        || !target_ok
+        || status.requested_at.is_none()
+        || status.complete != (status.phase == NativeCleanupPhase::Complete)
+        || (status.complete && (!finish_ok || status.completed_at.is_none()))
+        || (!status.complete
+            && (status.completed_at.is_some() || status.completed_through.is_some()))
+        || status.phase == NativeCleanupPhase::Idle
+    {
+        return Err(invalid(
+            "native cleanup checkpoint identity or boundary is invalid",
+        ));
+    }
+    Ok(status)
+}
+
+impl NativeCleanupStatus {
+    const fn private_some(&self) -> bool {
+        self.private.is_some()
+    }
+}
 
 impl PackRuntime {
-    pub(super) async fn cleanup_tick(self: &Arc<Self>) -> StorageResult<NativeCleanupStatus> {
+    pub(super) fn save_cleanup(&self, status: &NativeCleanupStatus) -> StorageResult<()> {
+        let bytes = serde_json::to_vec(status)
+            .map_err(|_| invalid("native cleanup checkpoint encoding failed"))?;
+        let _space = laststore::space::reserve_space(
+            self.physical.home.path(),
+            &self.space_policy,
+            (bytes.len() as u64).saturating_add(4096),
+        )
+        .map_err(map)?;
+        self.physical
+            .home
+            .save_cleanup_checkpoint(&bytes)
+            .map_err(map)
+    }
+
+    /// Mark this runtime as the serving node and resume a saved cleanup request.
+    pub(crate) fn begin_serving(self: &Arc<Self>) {
+        self.serving.store(true, Ordering::Release);
+        self.resume_native_cleanup();
+    }
+
+    /// Resume a saved request without creating work when no request is active.
+    pub fn resume_native_cleanup(self: &Arc<Self>) {
+        if !self.cleanup_job.get().active() || self.cleanup_job.worker.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let job = Arc::clone(&self.cleanup_job);
+        tokio::spawn(
+            async move {
+                {
+                    let _running = Running(Arc::clone(&job));
+                    while let Some(runtime) = weak.upgrade() {
+                        let delay = match runtime.cleanup_tick().await {
+                            Ok(status) if !status.active() => break,
+                            Ok(status) if status.phase == NativeCleanupPhase::WaitingForReads => {
+                                HELD_PAUSE
+                            }
+                            Ok(_) => STEP_PAUSE,
+                            Err(error) => {
+                                let terminal = runtime.requires_recovery()
+                                    || runtime.physical.home.is_poisoned()
+                                    || runtime.physical.cas.is_poisoned()
+                                    || runtime
+                                        .physical
+                                        .private_home()
+                                        .is_some_and(|home| home.is_poisoned());
+                                let mut status = job.get();
+                                status.complete = false;
+                                status.phase = if terminal {
+                                    NativeCleanupPhase::RecoveryRequired
+                                } else {
+                                    NativeCleanupPhase::Retrying
+                                };
+                                status.last_error = Some(message(&error));
+                                job.set(status);
+                                if terminal {
+                                    break;
+                                }
+                                RETRY_PAUSE
+                            }
+                        };
+                        drop(runtime);
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+                if job.get().active() {
+                    if let Some(runtime) = weak.upgrade() {
+                        runtime.resume_native_cleanup();
+                    }
+                }
+            }
+            .in_current_span(),
+        );
+    }
+
+    async fn cleanup_tick(self: &Arc<Self>) -> StorageResult<NativeCleanupStatus> {
         let owner = Arc::clone(&self.cleanup_job.gate).lock_owned().await;
         let runtime = Arc::clone(self);
         let (status, owner) = run_blocking(move || {
@@ -14,7 +149,6 @@ impl PackRuntime {
         if !status.active() || status.needs_merge() {
             return Ok(status);
         }
-        // Complete against one stable accepted prefix, not two unrelated polls.
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         run_blocking(move || {
@@ -112,6 +246,7 @@ impl PackRuntime {
         self.cleanup_job.set(status.clone());
         Ok(status)
     }
+
     fn update_cleanup_progress(&self, status: &mut NativeCleanupStatus) {
         status.main = progress(&self.physical.home, status.main.removed_files);
         status.cas = progress(&self.physical.cas, status.cas.removed_files);
@@ -128,5 +263,12 @@ fn progress(home: &laststore::disk_run::home::RunHome, removed_files: u64) -> Na
         merging_runs: status.merging.0,
         held_retired_bytes: home.retired_bytes(),
         removed_files,
+    }
+}
+
+struct Running(Arc<CleanupJob>);
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.worker.store(false, Ordering::Release);
     }
 }

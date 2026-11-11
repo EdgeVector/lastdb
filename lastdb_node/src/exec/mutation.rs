@@ -70,12 +70,7 @@ pub fn execute_deferred_mutation<'a>(
             DataRoute::MutationBatch => heap_route!(execute_mutations_batch_route, req, ctx, host),
             _ => return content_free(404, "Not Found"),
         };
-        with_handler_timeout_budget(
-            ctx,
-            data_route_budget(route),
-            super::dispatch::execute_observed_route(ctx, work),
-        )
-        .await
+        with_handler_timeout_budget(ctx, data_route_budget(route), work).await
     })
 }
 

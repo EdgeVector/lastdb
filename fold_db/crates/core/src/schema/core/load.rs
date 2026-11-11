@@ -1,15 +1,53 @@
 use super::SchemaCore;
-
-pub(super) mod owned;
-mod rules;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
 use schema_types::IdentityRecompute;
 
+pub(super) fn admit_stored_schema(schema: &Schema) -> Result<(), SchemaError> {
+    if schema.record_keys.is_none() {
+        return Err(SchemaError::InvalidData(
+            "stored schema has no explicit record_keys".into(),
+        ));
+    }
+    schema
+        .validate_owned_schema()
+        .map_err(SchemaError::InvalidData)
+}
+
+fn check_owned_declaration(schema: &Schema) -> Result<(), SchemaError> {
+    if schema.record_keys.is_none() {
+        return Err(SchemaError::InvalidData(
+            "this home requires explicit record_keys; field-derived keys are unsupported".into(),
+        ));
+    }
+    schema
+        .validate_owned_schema()
+        .map_err(SchemaError::InvalidData)
+}
+
+fn prepare_refresh(schema: &mut Schema, stored: &Schema) -> Result<(), SchemaError> {
+    if schema.record_keys != stored.record_keys || schema.alternate_keys != stored.alternate_keys {
+        return Err(SchemaError::InvalidData(
+            "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly"
+                .into(),
+        ));
+    }
+    schema.validate()?;
+    Ok(())
+}
+
+fn preserve_stored_identity(schema: &mut Schema, stored: Option<&Schema>) -> Option<u32> {
+    let stored = stored?;
+    let version = schema_types::refuses_identity_downgrade(
+        stored.identity_hash.as_deref(),
+        stored.identity_hash_algo_version,
+    )?;
+    schema.identity_hash = stored.identity_hash.clone();
+    schema.identity_hash_algo_version = stored.identity_hash_algo_version;
+    Some(version)
+}
+
 impl SchemaCore {
-    /// Fetches a schema by name, checking both in-memory cache and database.
-    ///
-    /// Note: This is STRICTLY case-sensitive.
     pub async fn resolve_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         if let Some(schema) = self.get_schema_metadata(schema_name)? {
             return Ok(Some(schema));
@@ -23,10 +61,7 @@ impl SchemaCore {
         {
             let cached_name = schema.name.clone();
             self.load_schema_internal(schema.clone()).await?;
-            tracing::info!(
-                "Refreshed schema '{}' from database (stale cache)",
-                cached_name
-            );
+            tracing::info!("Refreshed schema '{cached_name}' from database (stale cache)");
             if let Some(cached) = self.get_schema_metadata(&cached_name)? {
                 return Ok(Some(cached));
             }
@@ -36,7 +71,6 @@ impl SchemaCore {
         Ok(None)
     }
 
-    /// Install already verified definitions in one private native request.
     pub async fn load_schema_batch(&self, schemas: Vec<Schema>) -> Result<(), SchemaError> {
         let runtime = self.db_ops.native_runtime();
         crate::storage::disk_pack::transaction::request_scope(runtime, async {
@@ -48,7 +82,6 @@ impl SchemaCore {
         .await
     }
 
-    /// Prepare definitions, write durable metadata, then publish the matching cache state.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
         schema
             .validate_alternate_keys()
@@ -56,20 +89,17 @@ impl SchemaCore {
         schema.validate()?;
         schema.ensure_field_hashes();
 
-        // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        owned::check_owned_declaration(&schema)?;
+        check_owned_declaration(&schema)?;
         Self::stamp_identity_for_load(&mut schema, existing.as_ref());
 
         let refresh = existing.is_some();
         if let Some(stored) = existing {
-            rules::prepare_refresh(&mut schema, &stored)?;
+            prepare_refresh(&mut schema, &stored)?;
         }
         let name = schema.name.clone();
         self.db_ops.store_schema(&name, &schema).await?;
 
-        // Read state AFTER the schema write. A missing durable state uses the
-        // cached value lazily, so a refresh cannot turn Blocked into Available.
         let state = if refresh {
             match self.db_ops.get_schema_state(&name).await? {
                 Some(state) => state,
@@ -81,7 +111,6 @@ impl SchemaCore {
                 .await?;
             SchemaState::Available
         };
-        // Native writes stage this publication until the complete disk root.
         self.publish_schema_cache(&name, schema, state)?;
         Ok(())
     }
@@ -95,21 +124,16 @@ impl SchemaCore {
                 stored_algo_version = stored,
                 binary_algo_version = binary,
                 identity_hash = %schema.identity_hash.as_deref().unwrap_or("<none>"),
-                "refusing to downgrade schema identity: this schema was minted by a \
-                 newer identity algorithm than this binary implements. Keeping the \
-                 stored identity. This node is older than its own data — upgrade it \
-                 rather than re-registering the schema.",
+                "refusing to downgrade schema identity minted by a newer algorithm",
             );
         }
 
-        if let Some(stored) = rules::preserve_stored_identity(schema, existing_schema) {
+        if let Some(stored) = preserve_stored_identity(schema, existing_schema) {
             tracing::warn!(
                 schema = %schema.name,
                 stored_algo_version = stored,
                 binary_algo_version = schema_types::IDENTITY_HASH_ALGO_VERSION,
-                "refusing to overwrite a stored schema identity minted by a newer \
-                 identity algorithm than this binary implements. Keeping the stored \
-                 identity for this row.",
+                "refusing to overwrite a stored schema identity minted by a newer algorithm",
             );
         }
     }
