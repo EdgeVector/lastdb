@@ -37,10 +37,21 @@ impl BoundPolicy {
     }
 
     /// Admit namespaces through this catalog binding.
+    ///
+    /// `binding` must already be [`SpecBinding::admitted`]. The registry row,
+    /// the publication marker, and this policy share that value.
     pub fn new(binding: SpecBinding) -> Self {
         Self {
             binding: Some(binding),
         }
+    }
+
+    /// Build the policy from the stored `{ "name", "version" }` object.
+    ///
+    /// This is the same admission as [`SpecBinding::admitted`]. A missing spec
+    /// is [`Self::absent`], not this call, and is not `lastdb-files`.
+    pub fn admitted(name: &str, version: u32) -> Result<Self, database_policy::PolicyError> {
+        Ok(Self::new(SpecBinding::admitted(name, version)?))
     }
 
     /// Borrow the binding, when one was supplied.

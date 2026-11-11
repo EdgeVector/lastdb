@@ -4,7 +4,7 @@
 //! That absence is not a catalog binding and is not `lastdb-files`.
 //! An explicit spec is validated before a home exists. Named-database
 //! admission stays fail-closed through `database_policy::admit_share`.
-use database_policy::{admit_share, PolicyError, SpecBinding};
+use database_policy::{PolicyError, SpecBinding};
 use serde::{Deserialize, Serialize};
 
 /// Registry `spec` object stored on a publication marker that named one.
@@ -31,12 +31,10 @@ pub(crate) fn binding_for_create(
 }
 
 pub(crate) fn require_new(name: &str, version: u32) -> Result<SpecBinding, String> {
-    let binding = SpecBinding::new(name, version).map_err(text)?;
-    admit_share(Some(&binding)).map_err(text)?;
-    Ok(binding)
+    SpecBinding::admitted(name, version).map_err(text)
 }
 
-/// `None` is a legacy marker. It is not passed to [`admit_share`].
+/// `None` is a legacy marker. It is not passed to `admit_share`.
 pub(crate) fn resolve_stored(
     name: Option<&str>,
     version: Option<u32>,

@@ -4,6 +4,11 @@
 //! [`admit_namespace`] are the narrow policy. A missing binding is
 //! [`PolicyError::BindingAbsent`]. Callers deny that result.
 //!
+//! The registry, the publication marker, and the daemon share one binding.
+//! [`SpecBinding::admitted`] is that binding. [`record_is_shareable`] is the
+//! LastDB check for a schema, its fields, and a file. A service that stores
+//! the log does not call it. The payload stays opaque there.
+//!
 //! `spec/index.json` records the same catalog. Social schemas live in
 //! `spec/social/`. `social-graph` stays in `personal` and is not the
 //! reserved `graph` database.
@@ -78,6 +83,16 @@ impl SpecBinding {
     /// Registry spec version. `1` is the current catalog.
     pub fn version(&self) -> u32 {
         self.version
+    }
+
+    /// The binding the registry, the publication marker, and the daemon share.
+    ///
+    /// `name` and `version` are the stored `{ "name", "version" }` object.
+    /// A missing spec is not this call. An unknown catalog entry is an error.
+    pub fn admitted(name: &str, version: u32) -> Result<Self, PolicyError> {
+        let binding = Self::new(name, version)?;
+        admit_share(Some(&binding))?;
+        Ok(binding)
     }
 }
 
@@ -261,6 +276,35 @@ pub fn file_is_shareable(
 ) -> Result<bool, PolicyError> {
     let listed = schema_is_shareable(binding, namespace, schema)?;
     Ok(listed && catalog::carries_file(namespace, schema))
+}
+
+/// True when LastDB may publish this record on the binding.
+///
+/// The schema and every named field must be listed. `file` is true only when
+/// the mutation carries the record's file bytes. Those bytes are eligible for
+/// social `Photo` and `lastdb-files` `FileChunk`. A private schema, an unlisted
+/// field, or any other file is `Ok(false)`. A bad binding is an error.
+/// A missing spec is not classified here.
+pub fn record_is_shareable(
+    binding: &SpecBinding,
+    namespace: &str,
+    schema: &str,
+    fields: &[&str],
+    file: bool,
+) -> Result<bool, PolicyError> {
+    if !schema_is_shareable(binding, namespace, schema)? {
+        return Ok(false);
+    }
+    for field in fields {
+        if !field_is_shareable(binding, namespace, schema, field)? {
+            return Ok(false);
+        }
+    }
+    if file {
+        file_is_shareable(binding, namespace, schema)
+    } else {
+        Ok(true)
+    }
 }
 
 /// True only when the bound spec lists this field. Other fields stay in `personal`.
