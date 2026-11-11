@@ -1,35 +1,33 @@
-//! Schema catalog listing, single-schema lookup, system seed, and schema drop routes.
+//! Schema catalog listing, lookup, alias resolution, system seed, and schema drop routes.
+
+use std::collections::HashSet;
 
 use fold_db::access::AccessContext;
-use fold_db::schema::schema_types::SchemaWithState;
-use fold_db::schema::types::DeclarativeSchemaDefinition;
+use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema};
+use fold_db::schema::{SchemaState, SchemaWithState};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::reply::{
     content_free, envelope, error_response, json_ok, mapped_error_response, render, HostError,
 };
 use super::schema_declare::logical_layout_error;
-use super::schema_resolve::resolve_schema_name;
 use super::wire::{query_flag, schema_name_from_target};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-fn annotated_schema_row<T: Serialize>(schema: &T) -> Option<Value> {
-    let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
-        return None;
-    };
-    row.insert("record_count".into(), Value::Null);
-    row.insert("has_data".into(), Value::Null);
-    Some(Value::Object(row))
-}
-
 fn annotate_schemas<T: Serialize>(schemas: &[T]) -> Option<Vec<Value>> {
-    let mut annotated = Vec::with_capacity(schemas.len());
-    for schema in schemas {
-        annotated.push(annotated_schema_row(schema)?);
-    }
-    Some(annotated)
+    schemas
+        .iter()
+        .map(|schema| {
+            let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
+                return None;
+            };
+            row.insert("record_count".into(), Value::Null);
+            row.insert("has_data".into(), Value::Null);
+            Some(Value::Object(row))
+        })
+        .collect()
 }
 
 pub(in crate::exec) fn execute_list_schemas_route(
@@ -41,7 +39,6 @@ pub(in crate::exec) fn execute_list_schemas_route(
         return error_response(400, "schema listing does not count records", ctx);
     }
     let include_full = query_flag(&req.target, "include_full");
-
     let mgr = host.db.schema_manager();
     if !mgr.catalog_ready() {
         return error_response(
@@ -50,31 +47,24 @@ pub(in crate::exec) fn execute_list_schemas_route(
             ctx,
         );
     }
-
     let annotated = if include_full {
         mgr.get_active_schemas_with_states()
             .ok()
-            .and_then(|schemas| annotate_schemas(&schemas))
+            .and_then(|s| annotate_schemas(&s))
     } else {
         mgr.get_active_schema_list_entries_with_states()
             .ok()
-            .and_then(|schemas| annotate_schemas(&schemas))
+            .and_then(|s| annotate_schemas(&s))
     };
     let Some(annotated) = annotated else {
         return content_free(500, "Internal Server Error");
     };
-
-    let count = annotated.len();
-    let newer_identity_algo_schemas = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
-    let payload = serde_json::json!({
-        "schemas": annotated,
-        "count": count,
-        "ready": true,
-        "counts_included": false,
-        "full_included": include_full,
+    let newer = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
+    let payload = json!({
+        "schemas": annotated, "count": annotated.len(), "ready": true,
+        "counts_included": false, "full_included": include_full,
         "identity_algo_version": schema_types::IDENTITY_HASH_ALGO_VERSION,
-        "newer_identity_algo_count": newer_identity_algo_schemas.len(),
-        "newer_identity_algo_schemas": newer_identity_algo_schemas,
+        "newer_identity_algo_count": newer.len(), "newer_identity_algo_schemas": newer,
     });
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
@@ -87,32 +77,27 @@ pub(in crate::exec) fn execute_get_schema_route(
     let Some(name) = schema_name_from_target(&req.target) else {
         return content_free(400, "Bad Request");
     };
-
     let canonical = match resolve_schema_name(host, &name) {
-        Ok(Some(canonical)) => canonical,
+        Ok(Some(c)) => c,
         Ok(None) => return error_response(404, &format!("Schema not found: {name}"), ctx),
         Err(e) => return render(Err(e), ctx),
     };
-
     let mgr = host.db.schema_manager();
-    let schema_with_state = match mgr.get_schema_metadata(&canonical) {
+    let sws = match mgr.get_schema_metadata(&canonical) {
         Ok(Some(schema)) => {
             let state = mgr
                 .get_schema_states()
                 .ok()
-                .and_then(|states| states.get(&canonical).copied())
+                .and_then(|s| s.get(&canonical).copied())
                 .unwrap_or_default();
             SchemaWithState::new(schema, state)
         }
         Ok(None) => return error_response(404, &format!("Schema not found: {name}"), ctx),
         Err(_) => return content_free(500, "Internal Server Error"),
     };
-
-    let payload = serde_json::json!({ "schema": schema_with_state });
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
+    json_ok(&envelope(&json!({ "schema": sws }), ctx.user_id.as_str()))
 }
 
-/// `POST /api/schemas/seed-system` — install a system-owned schema on an explicitly isolated node.
 pub(in crate::exec) async fn execute_seed_system_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -125,15 +110,10 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
         #[serde(default)]
         isolated_copy: bool,
     }
-
     let request = match serde_json::from_slice::<Request>(&req.body) {
-        Ok(request) => request,
-        Err(error) => {
-            return error_response(
-                400,
-                &format!("invalid system seed setup request: {error}"),
-                ctx,
-            )
+        Ok(r) => r,
+        Err(e) => {
+            return error_response(400, &format!("invalid system seed setup request: {e}"), ctx)
         }
     };
     if !request.isolated_copy || !fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY") {
@@ -147,7 +127,7 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
         .schema
         .owner_app_id
         .as_deref()
-        .is_some_and(|owner| !owner.trim().is_empty())
+        .is_some_and(|o| !o.trim().is_empty())
     {
         return error_response(
             400,
@@ -155,39 +135,35 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
             ctx,
         );
     }
-
     if let Some(response) = logical_layout_error(ctx, &request.schema) {
         return response;
     }
-    let schema_name = request.schema.name.clone();
-    if let Err(error) = request.schema.validate() {
-        return mapped_error_response("system seed setup failed", error.into(), ctx);
-    }
-    match host
-        .db
-        .schema_manager()
-        .load_schema_internal(request.schema)
-        .await
-    {
+    let name = request.schema.name.clone();
+    let res = match request.schema.validate() {
+        Ok(()) => {
+            host.db
+                .schema_manager()
+                .load_schema_internal(request.schema)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+    match res {
         Ok(()) => json_ok(&envelope(
-            &serde_json::json!({
-                "system_seed_schema": schema_name,
-                "source": "system_seed",
-            }),
+            &json!({ "system_seed_schema": name, "source": "system_seed" }),
             ctx.user_id.as_str(),
         )),
-        Err(error) => mapped_error_response("system seed setup failed", error.into(), ctx),
+        Err(e) => mapped_error_response("system seed setup failed", e.into(), ctx),
     }
 }
 
-/// `POST /api/schemas/drop` — remove one catalog identity, or every identity owned by one app.
 pub(in crate::exec) async fn execute_drop_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
     #[derive(Deserialize)]
-    struct DropSchemaRequest {
+    struct Body {
         #[serde(default)]
         schema: String,
         #[serde(default)]
@@ -195,20 +171,17 @@ pub(in crate::exec) async fn execute_drop_schema_route(
         #[serde(default)]
         must_exist: bool,
     }
-
-    let body = match serde_json::from_slice::<DropSchemaRequest>(&req.body) {
-        Ok(body) => body,
+    let body = match serde_json::from_slice::<Body>(&req.body) {
+        Ok(b) => b,
         Err(e) => return error_response(400, &format!("invalid /api/schemas/drop body: {e}"), ctx),
     };
-    let schema = body.schema.trim();
-    let owner_app = body.owner_app.trim();
+    let (schema, owner_app) = (body.schema.trim(), body.owner_app.trim());
     if schema.is_empty() == owner_app.is_empty() {
         return error_response(400, "pass exactly one of schema or owner_app", ctx);
     }
-
     if !owner_app.is_empty() {
         let dropped = match host.db.drop_schemas_owned_by_with_bindings(owner_app).await {
-            Ok(dropped) => dropped,
+            Ok(d) => d,
             Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
         };
         if body.must_exist && dropped.is_empty() {
@@ -218,40 +191,31 @@ pub(in crate::exec) async fn execute_drop_schema_route(
                 ctx,
             );
         }
-        let payload = serde_json::json!({
-            "dropped": dropped,
-            "existed": !dropped.is_empty(),
-            "owner_app": owner_app,
-        });
-        return json_ok(&envelope(&payload, ctx.user_id.as_str()));
+        return json_ok(&envelope(
+            &json!({ "dropped": dropped, "existed": !dropped.is_empty(), "owner_app": owner_app }),
+            ctx.user_id.as_str(),
+        ));
     }
-
     let canonical = match resolve_schema_name(host, schema) {
-        Ok(Some(canonical)) => canonical,
+        Ok(Some(c)) => c,
+        Ok(None) if body.must_exist => {
+            return error_response(
+                404,
+                &format!("no schema is installed under '{schema}'"),
+                ctx,
+            );
+        }
         Ok(None) => {
-            if body.must_exist {
-                return error_response(
-                    404,
-                    &format!("no schema is installed under '{schema}'"),
-                    ctx,
-                );
-            }
-            let payload = serde_json::json!({
-                "dropped": Vec::<String>::new(),
-                "existed": false,
-                "schema": schema,
-            });
-            return json_ok(&envelope(&payload, ctx.user_id.as_str()));
+            return json_ok(&envelope(
+                &json!({ "dropped": [], "existed": false, "schema": schema }),
+                ctx.user_id.as_str(),
+            ));
         }
-        Err(e) => {
-            if let Some(canonical) = blocked_drop_target(host, schema, &e) {
-                canonical
-            } else {
-                return render(Err(e), ctx);
-            }
-        }
+        Err(e) => match blocked_drop_target(host, schema, &e) {
+            Some(c) => c,
+            None => return render(Err(e), ctx),
+        },
     };
-
     let existed = match host.db.drop_schema_and_bindings(&canonical).await {
         Ok(existed) => existed,
         Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
@@ -263,24 +227,171 @@ pub(in crate::exec) async fn execute_drop_schema_route(
             ctx,
         );
     }
-    let payload = serde_json::json!({
-        "dropped": if existed { vec![canonical.clone()] } else { Vec::new() },
-        "existed": existed,
-        "schema": canonical,
-    });
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
+    let dropped: Vec<String> = existed.then(|| canonical.clone()).into_iter().collect();
+    json_ok(&envelope(
+        &json!({ "dropped": dropped, "existed": existed, "schema": canonical }),
+        ctx.user_id.as_str(),
+    ))
 }
 
 fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
-    if error.status != 400 {
-        return None;
-    }
+    (error.status == 400).then_some(())?;
     let schemas = host.db.schema_manager().get_schemas_with_states().ok()?;
-    let mut blocked = schemas.into_iter().filter(|entry| {
-        entry.state == fold_db::schema::SchemaState::Blocked
-            && (entry.schema.descriptive_name.as_deref() == Some(requested)
-                || entry.schema.identity_hash.as_deref() == Some(requested))
+    let mut blocked = schemas.into_iter().filter(|e| {
+        e.state == SchemaState::Blocked
+            && (e.schema.descriptive_name.as_deref() == Some(requested)
+                || e.schema.identity_hash.as_deref() == Some(requested))
     });
     let first = blocked.next()?;
     blocked.next().is_none().then(|| first.schema.name.clone())
+}
+
+pub(in crate::exec) fn resolve_schema_name(
+    host: &Host,
+    name: &str,
+) -> Result<Option<String>, HostError> {
+    let mgr = host.db.schema_manager();
+    if mgr
+        .get_schema_metadata(name)
+        .map_err(|e| HostError::internal(e.to_string()))?
+        .is_some()
+    {
+        return Ok(Some(name.to_string()));
+    }
+    let schemas = mgr
+        .get_schemas_with_states()
+        .map_err(|e| HostError::internal(e.to_string()))?;
+    if let Some(c) = resolve_exact_alias(name, &schemas)? {
+        return Ok(Some(c));
+    }
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed != name
+        && mgr
+            .get_schema_metadata(trimmed)
+            .map_err(|e| HostError::internal(e.to_string()))?
+            .is_some()
+    {
+        return Ok(Some(trimmed.to_string()));
+    }
+    resolve_folded_alias(trimmed, &schemas)
+}
+
+pub(in crate::exec) fn resolve_captured_schema_alias(
+    name: &str,
+    entries: &[SchemaWithState],
+) -> Result<Option<String>, HostError> {
+    if let Some(c) = resolve_exact_alias(name, entries)? {
+        return Ok(Some(c));
+    }
+    match name.trim() {
+        "" => Ok(None),
+        trimmed => resolve_folded_alias(trimmed, entries),
+    }
+}
+
+fn resolve_exact_alias(
+    requested: &str,
+    schemas: &[SchemaWithState],
+) -> Result<Option<String>, HostError> {
+    if let Some(c) = resolve_matches(
+        requested,
+        schemas
+            .iter()
+            .filter(|e| e.schema.identity_hash.as_deref() == Some(requested)),
+    )? {
+        return Ok(Some(c));
+    }
+    if let Some((owner, local)) = requested
+        .split_once('/')
+        .filter(|(o, l)| !o.is_empty() && !l.is_empty())
+    {
+        let m = schemas
+            .iter()
+            .filter(|e| e.schema.owner_app_id.as_deref() == Some(owner))
+            .filter(|e| {
+                e.schema.name == local || e.schema.descriptive_name.as_deref() == Some(local)
+            });
+        if let Some(c) = resolve_matches(requested, m)? {
+            return Ok(Some(c));
+        }
+    }
+    resolve_matches(
+        requested,
+        schemas
+            .iter()
+            .filter(|e| e.schema.descriptive_name.as_deref() == Some(requested)),
+    )
+}
+
+fn resolve_folded_alias(
+    trimmed: &str,
+    schemas: &[SchemaWithState],
+) -> Result<Option<String>, HostError> {
+    let folded = trimmed.to_lowercase();
+    resolve_matches(
+        trimmed,
+        schemas.iter().filter(|e| {
+            e.schema
+                .descriptive_name
+                .as_deref()
+                .is_some_and(|v| v.to_lowercase() == folded)
+        }),
+    )
+}
+
+fn resolve_matches<'a>(
+    requested: &str,
+    matches: impl Iterator<Item = &'a SchemaWithState>,
+) -> Result<Option<String>, HostError> {
+    let (mut blocked, mut seen, mut candidates) = (false, HashSet::new(), Vec::<&Schema>::new());
+    for entry in matches {
+        if entry.state == SchemaState::Blocked {
+            blocked = true;
+        } else if seen.insert(entry.schema.name.as_str()) {
+            candidates.push(&entry.schema);
+        }
+    }
+    let names: HashSet<&str> = candidates.iter().map(|s| s.name.as_str()).collect();
+    let superseded: HashSet<&str> = candidates
+        .iter()
+        .filter_map(|s| {
+            s.name
+                .split_once(':')
+                .and_then(|(_, base)| names.contains(base).then_some(base))
+        })
+        .collect();
+    candidates.retain(|s| !superseded.contains(s.name.as_str()));
+
+    match candidates.len() {
+        0 if blocked => Err(HostError::new(
+            400,
+            format!("Schema '{requested}' is blocked and cannot be queried or mutated"),
+        )),
+        0 => Ok(None),
+        1 => Ok(Some(candidates[0].name.clone())),
+        _ => {
+            candidates.sort_by(|a, b| a.name.cmp(&b.name));
+            let details = candidates
+                .iter()
+                .map(|s| {
+                    format!(
+                        "canonical={} descriptive_name={} owner_app_id={}",
+                        s.name,
+                        s.descriptive_name.as_deref().unwrap_or("<none>"),
+                        s.owner_app_id.as_deref().unwrap_or("<none>"),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(HostError::new(
+                409,
+                format!(
+                    "descriptive_name '{requested}' is ambiguous; pin the schema by canonical hash. Candidates: {details}. Example: lastdb query <canonical-hash> --fields <fields>"
+                ),
+            ))
+        }
+    }
 }

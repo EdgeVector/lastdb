@@ -12,7 +12,6 @@ use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 mod owned;
 mod retention;
-mod retention_assess;
 
 use retention::{
     finish_declare_retention, precheck_declare_retention, prepare_declare_retention,
@@ -37,13 +36,6 @@ enum SchemaSyncIntent {
     Check,
 }
 
-fn body_has_embedded_retention(body: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|raw| raw.get("schema")?.get("retention").cloned())
-        .is_some()
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AppsDeclareRequest {
@@ -64,16 +56,14 @@ struct SchemaDeclareRequest {
     intent: SchemaSyncIntent,
 }
 
-/// Normalize one `lastdb-app.json` schema entry identically to the declare route.
 pub fn normalize_app_manifest_schema(
     app_id: &str,
     schema: DeclarativeSchemaDefinition,
 ) -> Result<DeclarativeSchemaDefinition, String> {
-    normalize_direct_declare_proposal("app_id", app_id, schema)
-        .map(|proposal| proposal.catalog_schema)
+    normalize_proposal("app_id", app_id, schema).map(|p| p.catalog_schema)
 }
 
-fn normalize_direct_declare_proposal(
+fn normalize_proposal(
     namespace_label: &str,
     namespace: &str,
     mut schema: DeclarativeSchemaDefinition,
@@ -100,30 +90,9 @@ pub(in crate::exec) fn logical_layout_error(
         .map(|error| error_response(400, &error.to_string(), ctx))
 }
 
-fn sync_admission_error(
-    ctx: &AccessContext,
-    declare: &DirectDeclareProposal,
-) -> Option<UdsResponse> {
-    logical_layout_error(ctx, &declare.catalog_schema).or_else(|| {
-        validate_declare_retention(declare)
-            .err()
-            .map(|error| error_response(409, &error, ctx))
-    })
-}
-
 pub(super) struct DirectDeclareResolution {
     pub(super) runtime_schema: String,
     pub(super) reused: bool,
-}
-
-impl DirectDeclareResolution {
-    fn outcome(&self) -> &'static str {
-        if self.reused {
-            "reuse"
-        } else {
-            "register"
-        }
-    }
 }
 
 fn declare_resolution_payload(
@@ -148,17 +117,19 @@ fn declare_resolution_payload(
         "canonical": resolution.runtime_schema,
         "identity_hash": declare.catalog_schema.identity_hash,
         "definition_id": definition.id().as_str(),
-        "resolution": resolution.outcome(),
+        "resolution": if resolution.reused { "reuse" } else { "register" },
     }))
 }
 
-/// `POST /api/apps/declare-schema` — obtain canonical definitions and load one owned schema.
 pub async fn execute_apps_declare_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let embedded_retention = body_has_embedded_retention(&req.body);
+    let embedded_retention = serde_json::from_slice::<Value>(&req.body)
+        .ok()
+        .and_then(|raw| raw.pointer("/schema/retention").cloned())
+        .is_some();
     let body: AppsDeclareRequest = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
         Err(e) => {
@@ -170,18 +141,15 @@ pub async fn execute_apps_declare_schema_route(
         }
     };
     let retention = match prepare_declare_retention(ctx, embedded_retention, body.retention) {
-        Ok(retention) => retention,
+        Ok(r) => r,
         Err((status, e)) => return error_response(status, &e, ctx),
     };
-    let mut declare = match normalize_direct_declare_proposal("app_id", &body.app_id, body.schema) {
-        Ok(declare) => declare,
+    let mut declare = match normalize_proposal("app_id", &body.app_id, body.schema) {
+        Ok(d) => d,
         Err(e) => return error_response(400, &e, ctx),
     };
     declare.retention = retention;
-    match body.intent {
-        SchemaSyncIntent::CatalogSync => execute_catalog_schema_sync(ctx, host, declare).await,
-        SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
-    }
+    dispatch_declare(ctx, host, declare, body.intent).await
 }
 
 pub(in crate::exec) async fn execute_declare_schema_route(
@@ -190,85 +158,76 @@ pub(in crate::exec) async fn execute_declare_schema_route(
     host: &Host,
 ) -> UdsResponse {
     let body = match serde_json::from_slice::<SchemaDeclareRequest>(&req.body) {
-        Ok(body) => body,
+        Ok(b) => b,
         Err(e) => {
             return error_response(400, &format!("invalid /api/schemas/declare body: {e}"), ctx)
         }
     };
-    let declare = match normalize_direct_declare_proposal("namespace", &body.namespace, body.schema)
-    {
-        Ok(declare) => declare,
+    let declare = match normalize_proposal("namespace", &body.namespace, body.schema) {
+        Ok(d) => d,
         Err(e) => return error_response(400, &e, ctx),
     };
-    match body.intent {
-        SchemaSyncIntent::CatalogSync => execute_catalog_schema_sync(ctx, host, declare).await,
-        SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
-    }
+    dispatch_declare(ctx, host, declare, body.intent).await
 }
 
-async fn execute_catalog_schema_sync(
+async fn dispatch_declare(
     ctx: &AccessContext,
     host: &Host,
     declare: DirectDeclareProposal,
-) -> UdsResponse {
-    if let Some(response) = sync_admission_error(ctx, &declare) {
-        return response;
-    }
-
-    let _declare_guard = DECLARE_LOCK.lock().await;
-
-    let resolution = match owned::load(host, &declare).await {
-        Ok(resolution) => resolution,
-        Err(e) => return error_response(409, &e, ctx),
-    };
-
-    let mut payload = match declare_resolution_payload(&declare, &resolution) {
-        Ok(payload) => payload,
-        Err(error) => return error_response(409, &error, ctx),
-    };
-    payload["bind_eligible"] = serde_json::json!(true);
-
-    match finish_declare_retention(host, &declare, &resolution).await {
-        Ok(Some(retention)) => payload["retention"] = retention,
-        Ok(None) => {}
-        Err(e) => {
-            return error_response(
-                409,
-                &format!("schema declared and bound, but its retention step failed: {e}"),
-                ctx,
-            )
-        }
-    }
-
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
-}
-
-async fn execute_catalog_schema_check(
-    ctx: &AccessContext,
-    host: &Host,
-    declare: DirectDeclareProposal,
+    intent: SchemaSyncIntent,
 ) -> UdsResponse {
     if let Some(response) = logical_layout_error(ctx, &declare.catalog_schema) {
         return response;
     }
-    let plan = match owned::plan(host, &declare).await {
-        Ok(plan) => plan,
-        Err(e) => return error_response(409, &e, ctx),
-    };
-    let mut payload = match declare_resolution_payload(&declare, &plan.resolution) {
-        Ok(payload) => payload,
-        Err(error) => return error_response(409, &error, ctx),
-    };
-    payload["intent"] = serde_json::json!("check");
-    payload["dry_run"] = serde_json::json!(true);
-    payload["bind_eligible"] = serde_json::json!(false);
-    if let Some(reason) = plan.register_reason {
-        payload["register_reason"] = serde_json::json!(reason);
+    match intent {
+        SchemaSyncIntent::CatalogSync => {
+            if let Err(error) = validate_declare_retention(&declare) {
+                return error_response(409, &error, ctx);
+            }
+            let _guard = DECLARE_LOCK.lock().await;
+            let resolution = match owned::load(host, &declare).await {
+                Ok(r) => r,
+                Err(e) => return error_response(409, &e, ctx),
+            };
+            let mut payload = match declare_resolution_payload(&declare, &resolution) {
+                Ok(p) => p,
+                Err(e) => return error_response(409, &e, ctx),
+            };
+            payload["bind_eligible"] = serde_json::json!(true);
+            match finish_declare_retention(host, &declare, &resolution).await {
+                Ok(Some(r)) => payload["retention"] = r,
+                Ok(None) => {}
+                Err(e) => {
+                    return error_response(
+                        409,
+                        &format!("schema declared and bound, but its retention step failed: {e}"),
+                        ctx,
+                    );
+                }
+            }
+            json_ok(&envelope(&payload, ctx.user_id.as_str()))
+        }
+        SchemaSyncIntent::Check => {
+            let plan = match owned::plan(host, &declare).await {
+                Ok(p) => p,
+                Err(e) => return error_response(409, &e, ctx),
+            };
+            let mut payload = match declare_resolution_payload(&declare, &plan.resolution) {
+                Ok(p) => p,
+                Err(e) => return error_response(409, &e, ctx),
+            };
+            payload["intent"] = serde_json::json!("check");
+            payload["dry_run"] = serde_json::json!(true);
+            payload["bind_eligible"] = serde_json::json!(false);
+            if let Some(reason) = plan.register_reason {
+                payload["register_reason"] = serde_json::json!(reason);
+            }
+            match preview_declare_retention(host, &declare, &plan.resolution).await {
+                Ok(Some(r)) => payload["retention"] = r,
+                Ok(None) => {}
+                Err(e) => return error_response(409, &e, ctx),
+            }
+            json_ok(&envelope(&payload, ctx.user_id.as_str()))
+        }
     }
-    match preview_declare_retention(host, &declare, &plan.resolution).await {
-        Ok(Some(retention)) => payload["retention"] = retention,
-        Ok(None) => {}
-        Err(e) => return error_response(409, &e, ctx),
-    }
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }

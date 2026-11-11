@@ -7,7 +7,7 @@ pub(crate) fn db_storage_command(
     data_dir: Option<PathBuf>,
     action: AdminStorageCommand,
 ) -> Result<(), String> {
-    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
+    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     if probe_health(&socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
@@ -34,6 +34,24 @@ pub(crate) fn db_storage_command(
     }
 }
 
+fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {
+    let report = value
+        .get("cleanup")
+        .cloned()
+        .ok_or("response missing cleanup")?;
+    let status: NativeCleanupStatus =
+        serde_json::from_value(report).map_err(|e| format!("invalid cleanup response: {e}"))?;
+    if status.complete != (status.phase == NativeCleanupPhase::Complete) {
+        return Err("cleanup response has inconsistent completion fields".into());
+    }
+    Ok(status)
+}
+
+fn read_cleanup_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
+    let response = get_path(socket, "/api/db/cleanup", timeout)?;
+    decode_cleanup(&parse_json_response(&response, "cleanup status")?)
+}
+
 fn db_cleanup(
     socket: &Path,
     status_only: bool,
@@ -44,11 +62,14 @@ fn db_cleanup(
     let mut status = if status_only {
         read_cleanup_status(socket, Duration::from_secs(30))?
     } else {
-        let value = db_post_json(socket, "/api/db/cleanup", &serde_json::json!({}))?;
-        decode_cleanup(&value)?
+        decode_cleanup(&db_post_json(
+            socket,
+            "/api/db/cleanup",
+            &serde_json::json!({}),
+        )?)?
     };
     let id = status.request_id.clone();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let limit = Duration::from_secs(timeout);
     while wait && !status.complete {
         if status.phase == NativeCleanupPhase::RecoveryRequired || status.request_id.is_none() {
@@ -59,7 +80,9 @@ fn db_cleanup(
         }
         let Some(left) = limit.checked_sub(started.elapsed()) else {
             print_cleanup_status(&status, json)?;
-            return Err("cleanup remains incomplete; its durable request continues after this client timeout".into());
+            return Err(
+                "cleanup remains incomplete; its durable request continues after this client timeout".into(),
+            );
         };
         std::thread::sleep(Duration::from_millis(250).min(left));
         let Some(left) = limit.checked_sub(started.elapsed()) else {
@@ -73,56 +96,38 @@ fn db_cleanup(
     print_cleanup_status(&status, json)
 }
 
-fn read_cleanup_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
-    let response = get_path(socket, "/api/db/cleanup", timeout)?;
-    decode_cleanup(&parse_json_response(&response, "cleanup status")?)
-}
-
-fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {
-    let report = value
-        .get("cleanup")
-        .cloned()
-        .ok_or("response missing cleanup")?;
-    let status: NativeCleanupStatus = serde_json::from_value(report)
-        .map_err(|error| format!("invalid cleanup response: {error}"))?;
-    if status.complete != (status.phase == NativeCleanupPhase::Complete) {
-        return Err("cleanup response has inconsistent completion fields".into());
-    }
-    Ok(status)
-}
-
 fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) -> Result<(), String> {
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(status).map_err(|error| error.to_string())?
+            serde_json::to_string_pretty(status).map_err(|e| e.to_string())?
         );
-    } else {
-        println!("Cleanup: {:?}", status.phase);
-        if let Some(id) = &status.request_id {
-            println!("  request: {id}");
-        }
+        return Ok(());
+    }
+    println!("Cleanup: {:?}", status.phase);
+    if let Some(id) = &status.request_id {
+        println!("  request: {id}");
+    }
+    println!(
+        "  main: {} tiered, {} merge inputs, {} held bytes",
+        status.main.tiered_runs, status.main.merging_runs, status.main.held_retired_bytes
+    );
+    println!(
+        "  file blobs: {} tiered, {} merge inputs, {} held bytes",
+        status.cas.tiered_runs, status.cas.merging_runs, status.cas.held_retired_bytes
+    );
+    if let Some(b) = status.completed_through {
         println!(
-            "  main: {} tiered, {} merge inputs, {} held bytes",
-            status.main.tiered_runs, status.main.merging_runs, status.main.held_retired_bytes
-        );
-        println!(
-            "  file blobs: {} tiered, {} merge inputs, {} held bytes",
-            status.cas.tiered_runs, status.cas.merging_runs, status.cas.held_retired_bytes
-        );
-        if let Some(boundary) = status.completed_through {
-            println!(
-                "  completed through: main {}, file blobs {}",
-                boundary.main_frontier, boundary.cas_frontier
-            );
-        }
-        if let Some(error) = &status.last_error {
-            println!("  error: {error}");
-        }
-        println!(
-            "  Scope: data already deleted from the active stores. Backup copies remain separate."
+            "  completed through: main {}, file blobs {}",
+            b.main_frontier, b.cas_frontier
         );
     }
+    if let Some(error) = &status.last_error {
+        println!("  error: {error}");
+    }
+    println!(
+        "  Scope: data already deleted from the active stores. Backup copies remain separate."
+    );
     Ok(())
 }
 
@@ -133,12 +138,10 @@ fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Result<(), St
         format!("/api/db/delete-ledger?limit={limit}")
     };
     let response = get_path(socket, &target, admin_scan_client_timeout())?;
-    let value = parse_json_response(&response, "delete-ledger")?;
-    let ledger = value
+    let ledger = parse_json_response(&response, "delete-ledger")?
         .get("delete_ledger")
         .cloned()
-        .ok_or_else(|| "response missing delete_ledger field".to_string())?;
-
+        .ok_or("response missing delete_ledger field")?;
     if json_only {
         println!(
             "{}",
@@ -146,10 +149,9 @@ fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Result<(), St
         );
         return Ok(());
     }
-
     let entries = ledger
         .get("entries")
-        .and_then(|e| e.as_array())
+        .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
     if entries.is_empty() {
@@ -162,18 +164,18 @@ fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Result<(), St
         entries.len()
     );
     for e in &entries {
-        let s = |k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let s = |k: &str| e.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
         let n = |k: &str| e.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
         let mut line = format!(
             "  {}  {:<15} records={}",
             s("at"),
             s("verb"),
-            n("records_erased"),
+            n("records_erased")
         );
-        if let Some(schema) = e.get("schema").and_then(|v| v.as_str()) {
+        if let Some(schema) = e.get("schema").and_then(serde_json::Value::as_str) {
             line.push_str(&format!(" schema={schema}"));
         }
-        if let Some(fp) = e.get("key_fingerprint").and_then(|v| v.as_str()) {
+        if let Some(fp) = e.get("key_fingerprint").and_then(serde_json::Value::as_str) {
             line.push_str(&format!(
                 " key_fp={}",
                 observability::truncate::truncate_on_char_boundary(fp, 12)
@@ -194,67 +196,46 @@ fn db_schemas(
     let deadline = inventory_client_timeout(timeout_secs);
     if !json_only {
         eprintln!(
-            "lastdb admin storage inventory --by-schema: heavy record walk (client deadline {}s; \
-             raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS). \
-             This is not a cheap status gauge.",
+            "lastdb admin storage inventory --by-schema: heavy record walk (client deadline {}s; raise with --timeout or LASTDB_UDS_ADMIN_TIMEOUT_SECS). This is not a cheap status gauge.",
             deadline.as_secs().max(1)
         );
     }
     let response = get_path(socket, "/api/db/schemas", deadline)?;
-    let value = parse_json_response(&response, "schema storage")?;
-    let report = value
+    let report = parse_json_response(&response, "schema storage")?
         .get("schema_storage")
         .cloned()
-        .ok_or_else(|| "response missing schema_storage field".to_string())?;
-
+        .ok_or("response missing schema_storage field")?;
     let pretty = serde_json::to_string_pretty(&report)
         .map_err(|e| format!("serialize schema storage: {e}"))?;
-
-    if let Some(path) = out.as_ref() {
+    if let Some(path) = out {
         write_product_file_atomic(path, pretty.as_bytes())?;
         if !json_only {
             eprintln!("Wrote {}", path.display());
         }
     }
-
     if json_only {
         println!("{pretty}");
         return Ok(());
     }
-
-    print_schema_storage_human(&report, limit);
-    Ok(())
-}
-
-fn print_schema_storage_human(report: &serde_json::Value, limit: usize) {
     let measured = report
         .get("measured_at")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("?");
-    let total_bytes = report
-        .get("total_logical_bytes")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let schema_count = report
-        .get("schema_count")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let total_records = report
-        .get("total_records")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
+    let u64_of =
+        |r: &serde_json::Value, k: &str| r.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
     println!("Per-schema record storage  measured_at={measured}  heavy=true");
     println!(
-        "  {:>10}  {:>8} records  {} schemas",
-        format_bytes(total_bytes),
-        total_records,
-        schema_count
+        "  {:>10}  {:>8} records  {} schemas\n\n  {:>10}  {:>8}  {:<32}  SCHEMA",
+        format_bytes(u64_of(&report, "total_logical_bytes")),
+        u64_of(&report, "total_records"),
+        u64_of(&report, "schema_count"),
+        "SIZE",
+        "RECORDS",
+        "NAME"
     );
-    println!();
-    println!("  {:>10}  {:>8}  {:<32}  SCHEMA", "SIZE", "RECORDS", "NAME");
     let rows = report
         .get("per_schema")
-        .and_then(|v| v.as_array())
+        .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
     let shown = if limit == 0 { rows.len() } else { limit };
@@ -268,26 +249,18 @@ fn print_schema_storage_human(report: &serde_json::Value, limit: usize) {
         }
         let identity = row
             .get("schema_name")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("?");
         let name = row
             .get("display_name")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("-");
-        let bytes = row
-            .get("bytes")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let count = row
-            .get("record_count")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
         println!(
-            "  {:>10}  {:>8}  {:<32}  {}",
-            format_bytes(bytes),
-            count,
+            "  {:>10}  {:>8}  {:<32}  {identity}",
+            format_bytes(u64_of(row, "bytes")),
+            u64_of(row, "record_count"),
             truncate_label(name, 32),
-            identity
         );
     }
+    Ok(())
 }

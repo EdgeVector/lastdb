@@ -1,12 +1,11 @@
 //! Shutdown flush receipt written after request and background writers drain.
 
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-/// A stop-and-copy action accepts this receipt only for the daemon it stopped.
-pub const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
+const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
 /// Receipt written when `lastdbd` completes a clean shutdown flush.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,17 +30,12 @@ impl ShutdownFlushReceipt {
     }
 }
 
-/// Path of the shutdown flush receipt file inside `home`.
-pub fn shutdown_flush_receipt_path(home: &Path) -> PathBuf {
-    home.join(SHUTDOWN_FLUSH_READY_FILE)
-}
-
 /// Read and validate the shutdown flush receipt from `home`.
 pub fn read_shutdown_flush_receipt(home: &Path) -> std::io::Result<ShutdownFlushReceipt> {
-    let path = shutdown_flush_receipt_path(home);
-    let file = std::fs::File::open(path)?;
     let mut bytes = Vec::new();
-    file.take(4097).read_to_end(&mut bytes)?;
+    std::fs::File::open(home.join(SHUTDOWN_FLUSH_READY_FILE))?
+        .take(4097)
+        .read_to_end(&mut bytes)?;
     if bytes.len() > 4096 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -56,14 +50,14 @@ pub fn read_shutdown_flush_receipt(home: &Path) -> std::io::Result<ShutdownFlush
 
 /// Remove old proof before a daemon can accept a new mutation.
 pub fn clear_shutdown_flush_receipt(home: &Path) -> std::io::Result<()> {
-    match std::fs::remove_file(shutdown_flush_receipt_path(home)) {
+    match std::fs::remove_file(home.join(SHUTDOWN_FLUSH_READY_FILE)) {
         Ok(()) => std::fs::File::open(home)?.sync_all(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
 }
 
-/// Write proof only after request and background writers stop and the final flush succeeds.
+/// Write proof after request and background writers stop and the final flush succeeds.
 pub fn write_shutdown_flush_receipt(
     home: &Path,
     pid: u32,
@@ -76,7 +70,6 @@ pub fn write_shutdown_flush_receipt(
         flush_ok: true,
     };
     receipt.validate()?;
-    let path = shutdown_flush_receipt_path(home);
     let nonce = fold_db::clock::unix_nanos_wide();
     let tmp = home.join(format!(".shutdown_flush_ready.tmp.{pid}.{nonce}"));
     let bytes = serde_json::to_vec(&receipt).map_err(std::io::Error::other)?;
@@ -86,7 +79,7 @@ pub fn write_shutdown_flush_receipt(
         .open(&tmp)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
-    std::fs::rename(&tmp, &path)?;
+    std::fs::rename(&tmp, home.join(SHUTDOWN_FLUSH_READY_FILE))?;
     std::fs::File::open(home)?.sync_all()?;
     Ok(receipt)
 }

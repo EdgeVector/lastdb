@@ -1,24 +1,17 @@
-use super::*;
+//! Boot recovery-phrase emission, Spotlight opt-out, and `last_boot_error.txt` persistence.
 
-/// Whether stderr may receive a raw recovery phrase.
-///
-/// CI logs are retained. Recovery material must never appear there
-/// (`papercut-fold-ci-test-recovery-phrase-leaks-to-logs-20260817`).
-pub fn should_emit_recovery_phrase() -> bool {
-    if std::env::var_os("CI").is_some() {
-        return false;
-    }
-    if std::env::var_os("LASTDB_SUPPRESS_RECOVERY_PHRASE").is_some() {
-        return false;
-    }
-    io::stderr().is_terminal()
-}
+use std::io::{self, IsTerminal};
+use std::path::Path;
 
-/// Lines written when a fresh identity is minted. `emit_secret=false` is the
-/// CI/non-TTY path and must never contain the mnemonic.
-pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> String {
+/// File under the node home recording the last boot failure message.
+pub const LAST_BOOT_ERROR_FILE: &str = "last_boot_error.txt";
+
+pub(super) fn emit_fresh_recovery_phrase(mnemonic: &str) {
+    let emit_secret = std::env::var_os("CI").is_none()
+        && std::env::var_os("LASTDB_SUPPRESS_RECOVERY_PHRASE").is_none()
+        && io::stderr().is_terminal();
     if emit_secret {
-        format!(
+        eprint!(
             "\n\
              === LastDB recovery phrase (save this; only shown once) ===\n\
              {mnemonic}\n\
@@ -26,115 +19,56 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              This phrase is your account root: identity, content encryption, \
              and HashKey blinding. Enabling cloud later reuses it — \
              no re-encryption of field keys.\n"
-        )
-    } else {
-        "=== LastDB recovery phrase generated (redacted; not printed in CI/non-TTY) ===\n"
-            .to_string()
-    }
-}
-
-/// Print a freshly generated recovery phrase, or a redacted stand-in.
-pub fn emit_fresh_recovery_phrase(mnemonic: &str) {
-    let emit_secret = should_emit_recovery_phrase();
-    eprint!("{}", format_recovery_phrase_notice(mnemonic, emit_secret));
-    if emit_secret {
+        );
         tracing::info!("fresh identity generated; recovery phrase printed on stderr");
     } else {
+        eprintln!("=== LastDB recovery phrase generated (redacted; not printed in CI/non-TTY) ===");
         tracing::info!("fresh identity generated; recovery phrase redacted (CI/non-TTY)");
     }
 }
 
-/// File under the node home recording the last boot failure message so
-/// `lastdb status` / operators can see why a KeepAlive-restarted service is
-/// not serving (without digging through rotated logs).
-pub const LAST_BOOT_ERROR_FILE: &str = "last_boot_error.txt";
-
-/// macOS Spotlight opt-out marker. An empty file with this name excludes the
-/// directory it sits in — and everything below it — from Spotlight indexing.
-pub const SPOTLIGHT_EXCLUSION_FILE: &str = ".metadata_never_index";
-
-/// Create `home` if needed and keep it out of the macOS Spotlight index.
-///
-/// Every path that can materialize a *live* node home routes through this, so a
-/// home is never left indexable just because `cloud connect` created it before
-/// the first [`Host::boot`].
-pub fn ensure_node_home(home: &Path) -> io::Result<()> {
+pub(super) fn ensure_node_home(home: &Path) -> io::Result<()> {
     std::fs::create_dir_all(home)?;
-    mark_never_indexed(home);
+    #[cfg(target_os = "macos")]
+    {
+        let marker = home.join(".metadata_never_index");
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker)
+        {
+            Ok(_) => tracing::info!(
+                path = %marker.display(),
+                "excluded node home from Spotlight indexing"
+            ),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => tracing::warn!(
+                target: "lastdb_node::host",
+                path = %marker.display(),
+                error = %e,
+                "could not exclude node home from Spotlight indexing"
+            ),
+        }
+    }
     Ok(())
 }
 
-/// Write [`SPOTLIGHT_EXCLUSION_FILE`] at the node-home root. Idempotent; never
-/// truncates an existing marker, so an operator can put notes in it.
-///
-/// Two reasons this is a default rather than a tuning knob:
-///
-/// * **At-rest hygiene.** The run files are encrypted, but some files in the
-///   home are plain text, for example the Search inbox batches. Spotlight
-///   copies indexed content into a system-wide index that sits *outside* the
-///   home and outside any LastDB access control.
-/// * **Read-path cost.** Each commit writes a new run file and background
-///   merges rewrite them, and every new file is fresh re-index work against the
-///   same disk the read path uses.
-///
-/// Best-effort by construction: an unwritable home is reported by the
-/// `create_dir_all` in [`ensure_node_home`], and a missing marker must never
-/// fail a boot.
-///
-/// Deliberately *not* called for `restore --into` destinations: those homes
-/// pick the marker up on their first real boot.
-#[cfg(target_os = "macos")]
-pub fn mark_never_indexed(home: &Path) {
-    let marker = home.join(SPOTLIGHT_EXCLUSION_FILE);
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&marker)
-    {
-        Ok(_) => tracing::info!(
-            path = %marker.display(),
-            "excluded node home from Spotlight indexing"
-        ),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(e) => tracing::warn!(
-            target: "lastdb_node::host",
-            path = %marker.display(),
-            error = %e,
-            "could not exclude node home from Spotlight indexing; \
-             plain text files in the home may be copied into the system index"
-        ),
-    }
-}
-
-/// No-op off macOS: Spotlight is the only indexer this marker speaks to.
-/// Porting seam for a Windows Search / tracker3 equivalent.
-#[cfg(not(target_os = "macos"))]
-pub fn mark_never_indexed(_home: &Path) {}
-
-/// Whether `<home>/data` already holds a store: a home with the node marker.
-/// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
-/// The refuse-to-start-fresh contract below rests on this structural answer,
-/// not on the storage layer's error text.
-pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
-    data_path
-        .join(fold_db::storage::disk_pack::NODE_MARKER)
-        .is_file()
-}
-
-pub(super) fn is_decrypt_boot_failure(msg: &str) -> bool {
+fn is_decrypt_boot_failure(msg: &str) -> bool {
     let lower = msg.to_ascii_lowercase();
-    lower.contains("cannot decrypt existing store")
-        || lower.contains("aead")
-        || lower.contains("aes-gcm")
-        || lower.contains("decrypt")
-        || lower.contains("wrong encryption key")
-        || lower.contains("wrong master key")
-        || lower.contains("encryption error")
-        || lower.contains("undecryptable")
+    [
+        "cannot decrypt existing store",
+        "aead",
+        "aes-gcm",
+        "decrypt",
+        "wrong encryption key",
+        "wrong master key",
+        "encryption error",
+        "undecryptable",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
-/// Map a core boot error into the loud refuse-to-boot message required by
-/// incident-lastdbd-0226-wrong-key-fresh-db, and persist it for operators.
 pub(super) fn map_and_record_boot_error(
     home: &Path,
     existing_store: bool,
@@ -151,12 +85,6 @@ pub(super) fn map_and_record_boot_error(
             )
         }
     } else if existing_store {
-        // Structural, not lexical: `is_decrypt_boot_failure` is a substring
-        // heuristic over someone else's error text, so a re-worded storage
-        // error would silently demote a wrong-key boot over real data to a
-        // generic failure. If the home held data before this process touched
-        // it, any boot failure is a refuse-to-start-fresh event regardless of
-        // how the underlying layer phrased it.
         format!(
             "cannot open existing store — refusing to start fresh over existing data at {}: {raw}",
             home.display()
@@ -164,13 +92,8 @@ pub(super) fn map_and_record_boot_error(
     } else {
         format!("core database boot failed: {raw}")
     };
-    record_last_boot_error(home, &msg);
-    msg
-}
-
-pub(super) fn record_last_boot_error(home: &Path, msg: &str) {
     let path = home.join(LAST_BOOT_ERROR_FILE);
-    let body = format!("{}\n", msg.lines().next().unwrap_or(msg));
+    let body = format!("{}\n", msg.lines().next().unwrap_or(&msg));
     if let Err(e) = std::fs::write(&path, body) {
         tracing::warn!(
             target: "lastdbd::boot",
@@ -179,9 +102,9 @@ pub(super) fn record_last_boot_error(home: &Path, msg: &str) {
             "failed to write last_boot_error.txt"
         );
     }
+    msg
 }
 
 pub(super) fn clear_last_boot_error(home: &Path) {
-    let path = home.join(LAST_BOOT_ERROR_FILE);
-    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(home.join(LAST_BOOT_ERROR_FILE));
 }

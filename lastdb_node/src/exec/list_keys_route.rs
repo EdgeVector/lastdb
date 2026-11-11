@@ -2,8 +2,9 @@
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
+use fold_db::db_operations::{SchemaRecordKey, SchemaRecordKeysRequest};
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{Query, QueryCursor, Schema};
+use fold_db::schema::types::{KeyValue, Query, QueryCursor, Schema};
 use serde_json::Value;
 
 use super::query::{execute_query, QueryResponseFormat};
@@ -12,9 +13,6 @@ use super::schema_resolve::resolve_schema_name;
 use super::wire::query_value;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
-
-const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;
-const LIST_RECORD_KEYS_MAX_LIMIT: usize = 1000;
 
 pub(in crate::exec) struct ListRecordKeysRequest {
     pub(in crate::exec) requested: String,
@@ -27,25 +25,26 @@ pub(in crate::exec) struct ListRecordKeysRequest {
 impl ListRecordKeysRequest {
     pub(in crate::exec) fn parse(target: &str) -> Result<Self, &'static str> {
         let requested = query_value(target, "schema")
-            .filter(|schema| !schema.is_empty())
+            .filter(|s| !s.is_empty())
             .ok_or("schema query parameter is required")?;
         let limit = match query_value(target, "limit") {
-            None => LIST_RECORD_KEYS_DEFAULT_LIMIT,
+            None => 100,
             Some(raw) => match raw.parse::<usize>() {
                 Ok(0) => return Err("limit must be at least 1"),
-                Ok(limit) => limit.min(LIST_RECORD_KEYS_MAX_LIMIT),
+                Ok(limit) => limit.min(1000),
                 Err(_) => return Err("limit must be a positive integer"),
             },
+        };
+        let key_name = match query_value(target, "key_name") {
+            Some(name) if name.is_empty() => return Err("key_name must not be empty"),
+            name => name,
         };
         Ok(Self {
             requested,
             limit,
-            cursor: query_value(target, "cursor").filter(|cursor| !cursor.is_empty()),
+            cursor: query_value(target, "cursor").filter(|c| !c.is_empty()),
             hash_filter: query_value(target, "hash"),
-            key_name: match query_value(target, "key_name") {
-                Some(name) if name.is_empty() => return Err("key_name must not be empty"),
-                name => name,
-            },
+            key_name,
         })
     }
 }
@@ -56,29 +55,37 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
     host: &Host,
 ) -> UdsResponse {
     let request = match ListRecordKeysRequest::parse(&req.target) {
-        Ok(request) => request,
-        Err(message) => return error_response(400, message, ctx),
+        Ok(r) => r,
+        Err(msg) => return error_response(400, msg, ctx),
     };
-
-    let resolved = match resolve_schema_name(host, &request.requested) {
-        Ok(v) => v,
+    let canonical = match resolve_schema_name(host, &request.requested) {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return error_response(
+                404,
+                &format!("schema not found: {}", request.requested),
+                ctx,
+            )
+        }
         Err(e) => return render(Err(e), ctx),
     };
-    let Some(canonical) = resolved else {
-        return error_response(
-            404,
-            &format!("schema not found: {}", request.requested),
+    if request.key_name.is_some() {
+        let result = match host.db.db_ops().read_scope().await {
+            Ok(scope) => {
+                scope
+                    .run_result(Box::pin(alternate_keyed_page(host, &request, &canonical)))
+                    .await
+            }
+            Err(error) => Err(HostError::from(error)),
+        };
+        return render(
+            result.map(|report| serde_json::json!({ "list": report })),
             ctx,
         );
-    };
-
-    if request.key_name.is_some() {
-        return execute_alternate_list(host, ctx, &request, &canonical).await;
     }
-
     match host
         .db
-        .list_schema_record_keys(fold_db::db_operations::SchemaRecordKeysRequest {
+        .list_schema_record_keys(SchemaRecordKeysRequest {
             requested: &request.requested,
             schema_id: &canonical,
             limit: request.limit,
@@ -92,29 +99,6 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => mapped_error_response("list failed", e, ctx),
-    }
-}
-
-async fn execute_alternate_list(
-    host: &Host,
-    ctx: &AccessContext,
-    request: &ListRecordKeysRequest,
-    canonical: &str,
-) -> UdsResponse {
-    let result = match host.db.db_ops().read_scope().await {
-        Ok(scope) => {
-            scope
-                .run_result(Box::pin(alternate_keyed_page(host, request, canonical)))
-                .await
-        }
-        Err(error) => Err(HostError::from(error)),
-    };
-    match result {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "list": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(error) => render(Err(error), ctx),
     }
 }
 
@@ -214,10 +198,10 @@ pub(in crate::exec) fn alternate_list_report(
     }))
 }
 
-fn record_key(value: &Value) -> Result<fold_db::db_operations::SchemaRecordKey, HostError> {
-    let key: fold_db::schema::types::KeyValue = serde_json::from_value(value.clone())
+fn record_key(value: &Value) -> Result<SchemaRecordKey, HostError> {
+    let key: KeyValue = serde_json::from_value(value.clone())
         .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
-    Ok(fold_db::db_operations::SchemaRecordKey {
+    Ok(SchemaRecordKey {
         hash: key
             .hash
             .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,

@@ -14,7 +14,6 @@ use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::DataRoute;
 
-/// Heap future for one data route so the dispatch poll frame stays small.
 type ErasedRoute<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = UdsResponse> + Send + 'a>>;
 
@@ -51,14 +50,17 @@ mod file_blob_put;
 mod list_keys_route;
 mod mutation;
 mod query;
-mod reject;
 mod reply;
-mod retention_routes;
 mod schema_declare;
-mod schema_resolve;
 mod schema_routes;
 mod timeouts;
 mod wire;
+
+mod schema_resolve {
+    pub(in crate::exec) use super::schema_routes::{
+        resolve_captured_schema_alias, resolve_schema_name,
+    };
+}
 
 use file_blob::is_media_type;
 use reply::{content_free, envelope, error_response, json_ok, render, HostError};
@@ -70,15 +72,13 @@ pub use database_routes::{
     execute_database_request, execute_deferred_database_mutation, is_deferred_database_mutation,
 };
 pub use mutation::execute_deferred_mutation;
-pub use reject::Reject;
 pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
 pub use timeouts::{
     admin_handler_timeout, admin_handler_timeout_override, block_on_admin_route,
     block_on_data_route, block_on_route, handler_timeout, DEFAULT_CLI_UDS_TIMEOUT_SECS,
 };
-pub use wire::{parse_mutation_body, ParsedMutation};
+pub use wire::{parse_mutation_body, ParsedMutation, Reject};
 
-/// Execute a recognized control-socket data route against the host.
 pub(in crate::exec) async fn execute_data_route(
     route: DataRoute,
     req: &UdsRequest,
@@ -142,17 +142,11 @@ pub(in crate::exec) async fn execute_data_route(
             heap_route!(admin_routes::execute_db_native_status_route, req, ctx, host).await
         }
         DataRoute::DbDeleteLedger => {
-            heap_route!(
-                retention_routes::execute_db_delete_ledger_route,
-                req,
-                ctx,
-                host
-            )
-            .await
+            heap_route!(admin_routes::execute_db_delete_ledger_route, req, ctx, host).await
         }
         DataRoute::DbSchemaRetention => {
             heap_route!(
-                retention_routes::execute_db_schema_retention_route,
+                admin_routes::execute_db_schema_retention_route,
                 req,
                 ctx,
                 host
@@ -178,9 +172,8 @@ async fn execute_byte_backup(req: &UdsRequest, ctx: &AccessContext, host: &Host)
     if req.body.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
         return error_response(413, "byte backup request exceeds its byte limit", ctx);
     }
-    let request: ByteBackupRequest = match serde_json::from_slice(&req.body) {
-        Ok(value) => value,
-        Err(_) => return error_response(400, "invalid byte backup request", ctx),
+    let Ok(request) = serde_json::from_slice::<ByteBackupRequest>(&req.body) else {
+        return error_response(400, "invalid byte backup request", ctx);
     };
     match byte_cloud_backup::request(host, request).await {
         Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
@@ -195,11 +188,11 @@ async fn connect_byte_backup(req: &UdsRequest, ctx: &AccessContext, host: &Host)
     if req.body.len() > 8192 {
         return error_response(413, "byte backup connection exceeds its byte limit", ctx);
     }
-    let request: byte_cloud_backup::SensitiveConnectionRequest =
-        match serde_json::from_slice(&req.body) {
-            Ok(value) => value,
-            Err(_) => return error_response(400, "invalid byte backup connection", ctx),
-        };
+    let Ok(request) =
+        serde_json::from_slice::<byte_cloud_backup::SensitiveConnectionRequest>(&req.body)
+    else {
+        return error_response(400, "invalid byte backup connection", ctx);
+    };
     match byte_cloud_backup::connect_existing(host, request).await {
         Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
         Err(error) => error_response(409, &error.to_string(), ctx),

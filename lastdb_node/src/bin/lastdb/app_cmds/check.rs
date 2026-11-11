@@ -1,15 +1,31 @@
-//! Themed module split from the parent.
+//! Schema checks, signed-index resolution, and manifest publishing rules.
 
 use super::*;
+use fold_db::schema::types::DeclarativeSchemaDefinition;
+use lastdb_node::app_publish::{self, AppManifest, CheckMode, CheckOutcome, SchemaCoverage};
+use lastdb_node::exec::normalize_app_manifest_schema;
+use serde_json::Value;
 
-/// Declare manifest schemas against the local Mini (owner socket must be up).
-/// `CheckMode::ReadOnly` writes nothing; `CheckMode::Sync` can register.
+const NODE_SCHEMAS_TIMEOUT: Duration = Duration::from_secs(30);
+
+pub(super) struct ListedSchema {
+    name: String,
+    descriptive_name: Option<String>,
+    identity_hash: String,
+}
+
+struct HeldSchema {
+    name: String,
+    descriptive_name: Option<String>,
+    identity_hash: Option<String>,
+}
+
 pub(crate) fn app_check(
     home: &Path,
-    manifest: &lastdb_node::app_publish::AppManifest,
-    mode: lastdb_node::app_publish::CheckMode,
+    manifest: &AppManifest,
+    mode: CheckMode,
     confirm_expire_existing: bool,
-) -> Result<Vec<lastdb_node::app_publish::CheckOutcome>, String> {
+) -> Result<Vec<CheckOutcome>, String> {
     let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     if probe_health(&socket).is_err() {
         return Err(format!(
@@ -17,14 +33,10 @@ pub(crate) fn app_check(
             socket.display()
         ));
     }
-    lastdb_node::app_publish::check_schemas_with(&socket, manifest, mode, confirm_expire_existing)
+    app_publish::check_schemas_with(&socket, manifest, mode, confirm_expire_existing)
 }
 
-/// One JSON row per schema: how its coverage resolves and the detail to show.
-fn check_outcome_rows(
-    outcomes: &[lastdb_node::app_publish::CheckOutcome],
-) -> Vec<serde_json::Value> {
-    use lastdb_node::app_publish::SchemaCoverage;
+fn check_outcome_rows(outcomes: &[CheckOutcome]) -> Vec<Value> {
     outcomes
         .iter()
         .map(|o| {
@@ -52,29 +64,18 @@ fn check_outcome_rows(
         .collect()
 }
 
-fn print_check_outcomes_json(
-    manifest: &lastdb_node::app_publish::AppManifest,
-    outcomes: &[lastdb_node::app_publish::CheckOutcome],
-) {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
+pub(crate) fn print_check_outcomes(manifest: &AppManifest, outcomes: &[CheckOutcome], json: bool) {
+    if json {
+        print_pretty_json(&serde_json::json!({
             "app_id": manifest.app_id,
             "schemas": check_outcome_rows(outcomes),
-            "catalog_collisions": lastdb_node::app_publish::catalog_collisions(outcomes)
+            "catalog_collisions": app_publish::catalog_collisions(outcomes)
                 .into_iter()
                 .map(|(catalog, schemas)| serde_json::json!({ "catalog": catalog, "schemas": schemas }))
                 .collect::<Vec<_>>(),
-        }))
-        .unwrap_or_default()
-    );
-}
-
-fn print_check_outcomes_text(
-    manifest: &lastdb_node::app_publish::AppManifest,
-    outcomes: &[lastdb_node::app_publish::CheckOutcome],
-) {
-    use lastdb_node::app_publish::SchemaCoverage;
+        }));
+        return;
+    }
     println!("app: {}", manifest.app_id);
     for o in outcomes {
         match &o.coverage {
@@ -102,7 +103,7 @@ fn print_check_outcomes_text(
             print_retention_text(retention);
         }
     }
-    for (catalog, names) in lastdb_node::app_publish::catalog_collisions(outcomes) {
+    for (catalog, names) in app_publish::catalog_collisions(outcomes) {
         println!(
             "WARNING: [{}] resolve to one catalog schema ({catalog}). They share one dataset: a record written through one name is a record of the others.",
             names.join(", ")
@@ -110,20 +111,6 @@ fn print_check_outcomes_text(
     }
 }
 
-pub(crate) fn print_check_outcomes(
-    manifest: &lastdb_node::app_publish::AppManifest,
-    outcomes: &[lastdb_node::app_publish::CheckOutcome],
-    json: bool,
-) {
-    if json {
-        print_check_outcomes_json(manifest, outcomes);
-    } else {
-        print_check_outcomes_text(manifest, outcomes);
-    }
-}
-
-/// Say so when the trusted index key is not the pinned release key. A test
-/// index is fine; a silent override is not.
 pub(crate) fn warn_trust_override(source: &lastdb_node::app_registry_index::TrustSource) {
     use lastdb_node::app_registry_index::TrustSource;
     match source {
@@ -136,7 +123,6 @@ pub(crate) fn warn_trust_override(source: &lastdb_node::app_registry_index::Trus
     }
 }
 
-/// Fetch the signed index and pick the row proved with the running node.
 pub(crate) fn resolve_by_proof(
     socket: &Path,
     app_id: &str,
@@ -165,8 +151,6 @@ pub(crate) fn resolve_by_proof(
     ))
 }
 
-/// `lastdb app check`: report what a catalog sync would do, and fail when a
-/// manifest schema would not come back bind-eligible.
 pub(crate) fn app_check_command(
     home: &Path,
     manifest_path: &Path,
@@ -175,7 +159,6 @@ pub(crate) fn app_check_command(
     confirm_expire_existing: bool,
     schema_url: Option<String>,
 ) -> Result<(), String> {
-    use lastdb_node::app_publish;
     let manifest = app_publish::load_manifest(manifest_path)?;
     print_schema_advice(
         resolve_schema_service_url(schema_url, None),
@@ -183,9 +166,9 @@ pub(crate) fn app_check_command(
         &manifest.schemas,
     );
     let mode = if sync {
-        app_publish::CheckMode::Sync
+        CheckMode::Sync
     } else {
-        app_publish::CheckMode::ReadOnly
+        CheckMode::ReadOnly
     };
     let outcomes = app_check(home, &manifest, mode, confirm_expire_existing)?;
     let node_novel = app_publish::novel_schema_names(&outcomes);
@@ -193,7 +176,7 @@ pub(crate) fn app_check_command(
     for schema in &manifest.schemas {
         let name = schema
             .get("name")
-            .and_then(serde_json::Value::as_str)
+            .and_then(Value::as_str)
             .unwrap_or("<unnamed>");
         if node_novel.iter().any(|n| n == name) {
             let missing = app_publish::missing_field_descriptions(schema);
@@ -220,6 +203,140 @@ pub(crate) fn app_check_command(
         Err(format!(
             "a catalog sync would fail for: {}. Fix the reported error, then re-run `lastdb app check` (read-only) before `lastdb app check --sync`.",
             node_novel.join(", ")
+        ))
+    }
+}
+
+pub(super) fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<ListedSchema>, String> {
+    let schemas = manifest
+        .get("schemas")
+        .ok_or("manifest must list the schemas the app declares in `schemas` (an empty list when it declares none)")?
+        .as_array()
+        .ok_or("manifest `schemas` must be a list of schema declarations")?;
+    let untyped: Vec<String> = schemas
+        .iter()
+        .flat_map(|schema| {
+            let name = schema.get("name").and_then(Value::as_str).unwrap_or("?");
+            let typed = schema.get("field_types").and_then(Value::as_object);
+            schema
+                .get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(move |f| !typed.is_some_and(|m| m.contains_key(*f)))
+                .map(move |f| format!("{name}.{f}"))
+        })
+        .collect();
+    if !untyped.is_empty() {
+        return Err(format!(
+            "every schema field needs a type in field_types; these fields have none: {}",
+            untyped.join(", ")
+        ));
+    }
+    schemas
+        .iter()
+        .map(|entry| {
+            let label = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("<unnamed>");
+            let mut entry = entry.clone();
+            if let Some(object) = entry.as_object_mut() {
+                object.remove("retention");
+            }
+            let schema: DeclarativeSchemaDefinition =
+                serde_json::from_value(entry).map_err(|e| {
+                    format!("manifest schema '{label}' is not a schema declaration: {e}")
+                })?;
+            let schema = normalize_app_manifest_schema(app_id, schema)
+                .map_err(|e| format!("manifest schema '{label}' cannot be declared: {e}"))?;
+            let identity_hash = schema
+                .identity_hash
+                .clone()
+                .ok_or_else(|| format!("manifest schema '{label}' has no identity hash"))?;
+            Ok(ListedSchema {
+                name: schema.name.clone(),
+                descriptive_name: schema.descriptive_name.clone(),
+                identity_hash,
+            })
+        })
+        .collect()
+}
+
+fn held_schemas(socket: &Path, app_id: &str) -> Result<Vec<HeldSchema>, String> {
+    let req = format!(
+        "GET /api/schemas HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
+        client_headers()
+    );
+    let response = request_readonly_with_retry(socket, req.as_bytes(), NODE_SCHEMAS_TIMEOUT)?;
+    let value = parse_json_response(&response, "GET /api/schemas")?;
+    let rows = value
+        .get("data")
+        .unwrap_or(&value)
+        .get("schemas")
+        .and_then(Value::as_array)
+        .ok_or("the node's schema list has no schemas array")?;
+    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_string);
+    Ok(rows
+        .iter()
+        .filter(|row| row.get("owner_app_id").and_then(Value::as_str) == Some(app_id))
+        .map(|row| HeldSchema {
+            name: text(row, "name").unwrap_or_default(),
+            descriptive_name: text(row, "descriptive_name"),
+            identity_hash: text(row, "identity_hash"),
+        })
+        .collect())
+}
+
+pub(super) fn require_held_schemas_listed(
+    socket: &Path,
+    app_id: &str,
+    listed: &[ListedSchema],
+) -> Result<(), String> {
+    let held = held_schemas(socket, app_id).map_err(|e| {
+        format!(
+            "publish reads the running node at {} to check that the manifest lists every schema app '{app_id}' declares: {e}",
+            socket.display()
+        )
+    })?;
+    let unlisted: Vec<String> = held
+        .iter()
+        .filter_map(|h| {
+            let held_id = h.identity_hash.as_deref();
+            let related: Vec<&ListedSchema> = listed
+                .iter()
+                .filter(|s| {
+                    s.name == h.name
+                        || held_id == Some(s.identity_hash.as_str())
+                        || (h.descriptive_name.is_some()
+                            && s.descriptive_name == h.descriptive_name)
+                })
+                .collect();
+            if related
+                .iter()
+                .any(|s| held_id == Some(s.identity_hash.as_str()))
+            {
+                return None;
+            }
+            let shown = held_id.unwrap_or("none");
+            Some(related.first().map_or_else(
+                || format!("{} (identity {shown}) is not listed", h.name),
+                |s| {
+                    format!(
+                        "{} has identity {shown} on the node, but the manifest's {} has identity {}",
+                        h.name, s.name, s.identity_hash
+                    )
+                },
+            ))
+        })
+        .collect();
+    if unlisted.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the manifest must list every schema app '{app_id}' declares, exactly as declared; the running node holds: {}",
+            unlisted.join("; ")
         ))
     }
 }

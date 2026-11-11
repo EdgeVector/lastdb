@@ -1,11 +1,13 @@
-//! Registry-owned app trees, atomic activation and retained rollback versions.
+//! Registry-owned app trees, atomic activation, and retained rollback versions.
 
-use super::{managed_manifest::InstallPlan, managed_process::steps, Resolution, RECEIPT_FILE};
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{self, File},
-    path::{Path, PathBuf},
-};
+
+use super::managed_manifest::{self, InstallPlan};
+use super::managed_poll::steps;
+use super::{Resolution, RECEIPT_FILE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagedReceipt {
@@ -70,11 +72,12 @@ pub fn install(
 ) -> Result<ManagedReceipt, String> {
     let root = app_root(&resolution.app_id)?;
     let _lock = lock(&root)?;
-    let prior = if root.join("current").symlink_metadata().is_ok() {
-        Some(receipt(&root.join("current"))?)
-    } else {
-        None
-    };
+    let prior = root
+        .join("current")
+        .symlink_metadata()
+        .ok()
+        .map(|_| receipt(&root.join("current")))
+        .transpose()?;
     if !options.accept_install
         && fs::read_to_string(root.join("rejected-source"))
             .is_ok_and(|sha| sha.trim() == resolution.sha)
@@ -87,7 +90,7 @@ pub fn install(
                 .into(),
         );
     }
-    if prior.as_ref().is_some_and(|r| {
+    if let Some(current) = prior.as_ref().filter(|r| {
         r.sha == resolution.sha
             && r.inactive == options.inactive
             && resolution
@@ -95,9 +98,8 @@ pub fn install(
                 .as_ref()
                 .is_some_and(|entry| r.publisher == entry.publisher_key)
     }) {
-        let current = prior.ok_or("missing current receipt")?;
-        verify_or_restore(&root, home, &current)?;
-        return Ok(current);
+        verify_or_restore(&root, home, current)?;
+        return Ok(current.clone());
     }
     let version = root.join("versions").join(format!(
         "{}-{}",
@@ -111,9 +113,8 @@ pub fn install(
             stage.display()
         ));
     }
-    let outcome = stage_version(resolution, &stage, home, prior.as_ref(), &options);
-    let result = match outcome {
-        Ok(new) => {
+    let result =
+        stage_version(resolution, &stage, home, prior.as_ref(), &options).and_then(|new| {
             fs::create_dir_all(root.join("versions")).map_err(|e| e.to_string())?;
             fs::rename(&stage, &version).map_err(|e| e.to_string())?;
             let activation = activate(&root, &version, home, &new);
@@ -123,9 +124,7 @@ pub fn install(
                 fs::remove_file(root.join("rejected-source")).map_err(|e| e.to_string())?;
             }
             Ok(new)
-        }
-        Err(error) => Err(error),
-    };
+        });
     if stage.exists() {
         let _ = fs::remove_dir_all(stage);
     }
@@ -150,14 +149,15 @@ fn stage_version(
     let source = stage.join("source");
     let plan = InstallPlan::load(&source, &resolution.app_id)?;
     let hash = plan.consent_hash()?;
-    let changed = prior.is_none_or(|r| r.consent_hash != hash || r.inactive != options.inactive);
     if prior.is_some_and(|r| {
         r.publisher != entry.publisher_key
-            && !super::managed_publisher::authorized_transition(r, resolution, entry)
+            && !managed_manifest::authorized_transition(r, resolution, entry)
     }) {
         return Err("publisher key changed; explicit owner rotation is required".into());
     }
-    if changed && !options.accept_install {
+    if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != options.inactive)
+        && !options.accept_install
+    {
         eprintln!(
             "Install consent for {} (publisher {}): {}",
             resolution.app_id,
@@ -172,22 +172,17 @@ fn stage_version(
         }
     }
     steps(&source, home, &resolution.app_id, &plan.prepare)?;
-    super::managed_links::validate_sources(&source, &plan)?;
+    managed_manifest::validate_sources(&source, &plan)?;
     if !options.inactive {
         steps(&source, home, &resolution.app_id, &plan.probe)?;
     }
+    let suffix = format!("/{}/api/{}.json", entry.channel, entry.api_version);
     let new = ManagedReceipt {
         app_id: resolution.app_id.clone(),
         sha: resolution.sha.clone(),
         version: resolution.app_version.clone(),
         channel: resolution.channel.clone(),
-        index: resolution
-            .index
-            .trim_end_matches(&format!(
-                "/{}/api/{}.json",
-                entry.channel, entry.api_version
-            ))
-            .to_string(),
+        index: resolution.index.trim_end_matches(&suffix).to_string(),
         trust: resolution.trust.clone(),
         publisher: entry.publisher_key.clone(),
         consent_hash: hash,
@@ -207,15 +202,12 @@ pub fn verify_active(root: &Path, home: &Path, current: &ManagedReceipt) -> Resu
     verify_state(root, current)?;
     let source = root.join("current/source");
     let plan = InstallPlan::load(&source, &current.app_id)?;
-    super::managed_links::verify(root, &plan)?;
     if !current.inactive {
         steps(&source, home, &current.app_id, &plan.probe)?;
     }
     Ok(())
 }
 
-/// The updater restores a healthy prior version and remembers the rejected source.
-/// Caller holds the app install lock. Read-only status uses `verify_active`.
 pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
     if let Err(error) = verify_active(root, home, current) {
         restore_previous(root, home)?;
@@ -233,7 +225,7 @@ pub fn verify_state(root: &Path, current: &ManagedReceipt) -> Result<(), String>
     if plan.consent_hash()? != current.consent_hash {
         return Err("install manifest changed since consent".into());
     }
-    super::managed_links::verify(root, &plan)?;
+    managed_manifest::verify(root, &plan)?;
     let head = std::process::Command::new("git")
         .arg("-C")
         .arg(&source)
@@ -263,9 +255,9 @@ pub fn activate(
 ) -> Result<(), String> {
     let old = fs::read_link(root.join("current")).ok();
     let plan = InstallPlan::load(&version.join("source"), &new.app_id)?;
-    let links_before = super::managed_links::snapshot(&plan)?;
-    super::managed_links::flip(&root.join("current"), version)?;
-    let result = super::managed_links::install(root, &plan).and_then(|()| {
+    let links_before = managed_manifest::snapshot(&plan)?;
+    managed_manifest::flip(&root.join("current"), version)?;
+    let result = managed_manifest::install(root, &plan).and_then(|()| {
         if !new.inactive {
             steps(
                 &root.join("current/source"),
@@ -278,10 +270,10 @@ pub fn activate(
     });
     if let Err(error) = result {
         if let Some(ref target) = old {
-            super::managed_links::flip(&root.join("current"), target)?;
+            managed_manifest::flip(&root.join("current"), target)?;
             let old_receipt = receipt(&root.join("current"))?;
             let old_plan = InstallPlan::load(&root.join("current/source"), &old_receipt.app_id)?;
-            super::managed_links::install(root, &old_plan)?;
+            managed_manifest::install(root, &old_plan)?;
             if !old_receipt.inactive {
                 steps(
                     &root.join("current/source"),
@@ -293,13 +285,13 @@ pub fn activate(
         } else {
             let _ = fs::remove_file(root.join("current"));
         }
-        super::managed_links::restore(&links_before)?;
+        managed_manifest::restore(&links_before)?;
         return Err(format!(
             "activation failed; restored prior version: {error}"
         ));
     }
     if let Some(target) = old {
-        super::managed_links::flip(&root.join("previous"), &target)?;
+        managed_manifest::flip(&root.join("previous"), &target)?;
     }
     Ok(())
 }
@@ -355,13 +347,12 @@ fn prune(root: &Path) -> Result<(), String> {
     versions.sort_by(|a, b| b.0.cmp(&a.0));
     let mut kept = 0;
     for (_, path) in versions {
-        if current.as_ref() == Some(&path) || previous.as_ref() == Some(&path) {
-            continue;
-        }
-        if kept == 0 {
-            kept += 1;
-        } else {
-            fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+        if current.as_ref() != Some(&path) && previous.as_ref() != Some(&path) {
+            if kept == 0 {
+                kept += 1;
+            } else {
+                fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+            }
         }
     }
     Ok(())

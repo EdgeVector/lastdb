@@ -1,24 +1,22 @@
-//! Bounded worker pool + queue for control-socket connection handling.
-//!
-//! - `LASTDB_UDS_WORKERS` — worker threads (default: `2 * available_parallelism`, clamped to `8..=64`).
-//! - `LASTDB_UDS_QUEUE` — pending accepted jobs waiting for a free worker (default `256`).
-//! - `RUST_MIN_STACK` — raises the worker stack above [`DEFAULT_WORKER_STACK_BYTES`]; never lowers it.
+//! Bounded LIFO worker pool and FIFO queue for control-socket connection handling.
 
+use std::collections::VecDeque;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::lastdb_uds::uds_http;
 
-mod dispatch;
-use dispatch::{Dispatch, Rejected, Slot};
-
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
 const MIN_WORKERS: usize = 8;
 const MAX_WORKERS: usize = 64;
 const DEFAULT_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Why [`UdsWorkerPool::try_submit_owned_connection`] refused the job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,49 +25,6 @@ pub enum SubmitError {
     QueueFull,
     /// Admission is closed, or all workers exited.
     ShutDown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct WorkerPoolConfig {
-    workers: usize,
-    queue_capacity: usize,
-}
-
-impl Default for WorkerPoolConfig {
-    fn default() -> Self {
-        Self {
-            workers: default_worker_count(),
-            queue_capacity: DEFAULT_QUEUE_CAPACITY,
-        }
-    }
-}
-
-impl WorkerPoolConfig {
-    #[must_use]
-    fn from_env() -> Self {
-        let defaults = Self::default();
-        let workers = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_WORKERS")
-            .unwrap_or(defaults.workers);
-        let queue_capacity = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_QUEUE")
-            .unwrap_or(defaults.queue_capacity);
-        Self {
-            workers: workers.max(1),
-            queue_capacity: queue_capacity.max(1),
-        }
-    }
-}
-
-#[must_use]
-fn worker_stack_bytes() -> usize {
-    fold_db::env_flag::var_parsed::<usize>("RUST_MIN_STACK")
-        .unwrap_or(0)
-        .max(DEFAULT_WORKER_STACK_BYTES)
-}
-
-#[must_use]
-fn default_worker_count() -> usize {
-    let cpus = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
-    (cpus.saturating_mul(2)).clamp(MIN_WORKERS, MAX_WORKERS)
 }
 
 struct ConnJob {
@@ -84,7 +39,7 @@ pub struct ConnectionWork {
 }
 
 impl ConnectionWork {
-    /// Continue an accepted request on the same bounded worker pool, retaining its original admission.
+    /// Continue an accepted request on the same bounded worker pool, retaining its admission.
     pub fn resume<F>(self, stream: UnixStream, work: F)
     where
         F: FnOnce(UnixStream, Self) + Send + 'static,
@@ -95,7 +50,7 @@ impl ConnectionWork {
             work: Box::new(work),
             in_flight_guard: self.guard,
         };
-        if dispatch.resume(job).is_err() {
+        if dispatch.enqueue(job, true).is_err() {
             tracing::error!("accepted socket response dispatcher closed");
         }
     }
@@ -116,7 +71,7 @@ pub struct UdsPoolSnapshot {
     pub queue_full_rejects: u64,
 }
 
-/// Shared handle: accept loops `try_submit_owned_connection`; workers drain the queue.
+/// Bounded worker pool handle shared by accept loops and `/api/status`.
 #[derive(Clone)]
 pub struct UdsWorkerPool {
     inner: Arc<PoolInner>,
@@ -148,11 +103,7 @@ struct InFlightGuard(Arc<PoolInner>);
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        let mut state = self
-            .0
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = lock(&self.0.admission);
         state.in_flight -= 1;
         if state.in_flight == 0 {
             self.0.drained.notify_all();
@@ -161,10 +112,17 @@ impl Drop for InFlightGuard {
 }
 
 impl UdsWorkerPool {
+    /// Build a worker pool from environment configuration.
     #[must_use]
-    fn new(config: WorkerPoolConfig) -> Self {
-        let workers = config.workers.max(1);
-        let queue_capacity = config.queue_capacity.max(1);
+    pub fn from_env() -> Self {
+        let cpus = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+        let default_workers = cpus.saturating_mul(2).clamp(MIN_WORKERS, MAX_WORKERS);
+        let workers = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_WORKERS")
+            .unwrap_or(default_workers)
+            .max(1);
+        let queue_capacity = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_QUEUE")
+            .unwrap_or(DEFAULT_QUEUE_CAPACITY)
+            .max(1);
         let dispatch = Dispatch::new(queue_capacity);
         let inner = Arc::new(PoolInner {
             dispatch: Arc::clone(&dispatch),
@@ -175,27 +133,34 @@ impl UdsWorkerPool {
             admission: Mutex::new(AdmissionState::default()),
             drained: Condvar::new(),
         });
-
-        let stack_bytes = worker_stack_bytes();
+        let stack_bytes = fold_db::env_flag::var_parsed::<usize>("RUST_MIN_STACK")
+            .unwrap_or(0)
+            .max(DEFAULT_WORKER_STACK_BYTES);
         for i in 0..workers {
             let dispatch = Arc::clone(&dispatch);
             thread::Builder::new()
                 .name(format!("lastdb-uds-worker-{i}"))
                 .stack_size(stack_bytes)
-                .spawn(move || worker_loop(&dispatch))
+                .spawn(move || {
+                    let slot = Arc::new(Slot {
+                        hand: Mutex::new(Hand::Empty),
+                        ready: Condvar::new(),
+                    });
+                    while let Some(job) = dispatch.next(&slot) {
+                        (job.work)(
+                            job.stream,
+                            ConnectionWork {
+                                guard: job.in_flight_guard,
+                            },
+                        );
+                    }
+                })
                 .unwrap_or_else(|e| panic!("failed to spawn UDS worker {i}: {e}"));
         }
-
         Self { inner }
     }
 
-    /// Build a worker pool from environment configuration.
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self::new(WorkerPoolConfig::from_env())
-    }
-
-    /// Transfer completion ownership when a handler awaits outside the pool.
+    /// Submit an accepted connection for handling on the bounded worker pool.
     pub fn try_submit_owned_connection<F>(
         &self,
         stream: UnixStream,
@@ -204,39 +169,29 @@ impl UdsWorkerPool {
     where
         F: FnOnce(UnixStream, ConnectionWork) + Send + 'static,
     {
-        let in_flight_guard = match self.admit() {
-            Ok(guard) => guard,
-            Err(error) => return self.reject(stream, error),
+        let in_flight_guard = {
+            let mut state = lock(&self.inner.admission);
+            if state.closed {
+                return self.reject(stream, SubmitError::ShutDown);
+            }
+            if state.in_flight >= self.inner.workers.saturating_add(self.inner.queue_capacity) {
+                return self.reject(stream, SubmitError::QueueFull);
+            }
+            state.in_flight += 1;
+            InFlightGuard(Arc::clone(&self.inner))
         };
         let job = ConnJob {
             stream,
             work: Box::new(work),
             in_flight_guard,
         };
-        match self.inner.dispatch.submit(job) {
+        match self.inner.dispatch.enqueue(job, false) {
             Ok(()) => {
                 self.inner.submitted.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err(Rejected::Full(job)) => self.reject(job.stream, SubmitError::QueueFull),
-            Err(Rejected::Closed(job)) => self.reject(job.stream, SubmitError::ShutDown),
+            Err((job, err)) => self.reject(job.stream, err),
         }
-    }
-
-    fn admit(&self) -> Result<InFlightGuard, SubmitError> {
-        let mut state = self
-            .inner
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.closed {
-            return Err(SubmitError::ShutDown);
-        }
-        if state.in_flight >= self.inner.workers.saturating_add(self.inner.queue_capacity) {
-            return Err(SubmitError::QueueFull);
-        }
-        state.in_flight += 1;
-        Ok(InFlightGuard(Arc::clone(&self.inner)))
     }
 
     fn reject(&self, mut stream: UnixStream, error: SubmitError) -> Result<(), SubmitError> {
@@ -245,8 +200,8 @@ impl UdsWorkerPool {
                 .queue_full_rejects
                 .fetch_add(1, Ordering::Relaxed);
         }
-        if let Err(error) = uds_http::write_busy_and_close(&mut stream) {
-            tracing::debug!(error = %error, "busy response write failed");
+        if let Err(err) = uds_http::write_busy_and_close(&mut stream) {
+            tracing::debug!(error = %err, "busy response write failed");
         }
         Err(error)
     }
@@ -269,29 +224,16 @@ impl UdsWorkerPool {
         self.inner.queue_full_rejects.load(Ordering::Relaxed)
     }
 
-    #[must_use]
-    fn submitted(&self) -> u64 {
-        self.inner.submitted.load(Ordering::Relaxed)
-    }
-
     /// Jobs accepted into the pool and not yet finished (queued or running).
     #[must_use]
     pub fn in_flight(&self) -> usize {
-        self.inner
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .in_flight
+        lock(&self.inner.admission).in_flight
     }
 
-    /// Refuse new connections, then wait for queued and active handlers.
+    /// Refuse new connections, then wait up to `timeout` for queued and active handlers.
     pub fn close_and_drain(&self, timeout: Duration) -> Result<(), String> {
         let started = Instant::now();
-        let mut state = self
-            .inner
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = lock(&self.inner.admission);
         state.closed = true;
         while state.in_flight != 0 {
             let remaining = timeout.saturating_sub(started.elapsed());
@@ -302,7 +244,7 @@ impl UdsWorkerPool {
                 .inner
                 .drained
                 .wait_timeout(state, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .unwrap_or_else(PoisonError::into_inner);
             state = next;
         }
         if state.in_flight == 0 {
@@ -315,27 +257,111 @@ impl UdsWorkerPool {
         }
     }
 
-    /// Occupancy + reject counters for status surfaces.
+    /// Occupancy and reject counters for `/api/status`.
     #[must_use]
     pub fn snapshot(&self) -> UdsPoolSnapshot {
         UdsPoolSnapshot {
             workers: self.workers(),
             queue_capacity: self.queue_capacity(),
             in_flight: self.in_flight(),
-            submitted: self.submitted(),
+            submitted: self.inner.submitted.load(Ordering::Relaxed),
             queue_full_rejects: self.queue_full_rejects(),
         }
     }
 }
 
-fn worker_loop(dispatch: &Dispatch<ConnJob>) {
-    let slot = Slot::new();
-    while let Some(job) = dispatch.next(&slot) {
-        (job.work)(
-            job.stream,
-            ConnectionWork {
-                guard: job.in_flight_guard,
-            },
-        );
+struct Dispatch<J> {
+    state: Mutex<DispatchState<J>>,
+}
+
+struct DispatchState<J> {
+    queue: VecDeque<J>,
+    capacity: usize,
+    idle: Vec<Arc<Slot<J>>>,
+    closed: bool,
+}
+
+struct Slot<J> {
+    hand: Mutex<Hand<J>>,
+    ready: Condvar,
+}
+
+enum Hand<J> {
+    Empty,
+    Job(J),
+    Closed,
+}
+
+impl<J> Dispatch<J> {
+    fn new(capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(DispatchState {
+                queue: VecDeque::new(),
+                capacity,
+                idle: Vec::new(),
+                closed: false,
+            }),
+        })
+    }
+
+    fn enqueue(&self, job: J, resume_front: bool) -> Result<(), (J, SubmitError)> {
+        let slot = {
+            let mut state = lock(&self.state);
+            if state.closed {
+                return Err((job, SubmitError::ShutDown));
+            }
+            if let Some(slot) = state.idle.pop() {
+                slot
+            } else if resume_front {
+                state.queue.push_front(job);
+                return Ok(());
+            } else if state.queue.len() >= state.capacity {
+                return Err((job, SubmitError::QueueFull));
+            } else {
+                state.queue.push_back(job);
+                return Ok(());
+            }
+        };
+        *lock(&slot.hand) = Hand::Job(job);
+        slot.ready.notify_one();
+        Ok(())
+    }
+
+    fn close(&self) {
+        let idle = {
+            let mut state = lock(&self.state);
+            state.closed = true;
+            std::mem::take(&mut state.idle)
+        };
+        for slot in idle {
+            *lock(&slot.hand) = Hand::Closed;
+            slot.ready.notify_one();
+        }
+    }
+
+    fn next(&self, slot: &Arc<Slot<J>>) -> Option<J> {
+        {
+            let mut state = lock(&self.state);
+            if let Some(job) = state.queue.pop_front() {
+                return Some(job);
+            }
+            if state.closed {
+                return None;
+            }
+            state.idle.push(Arc::clone(slot));
+        }
+        let mut hand = lock(&slot.hand);
+        loop {
+            match std::mem::replace(&mut *hand, Hand::Empty) {
+                Hand::Job(job) => return Some(job),
+                Hand::Closed => return None,
+                Hand::Empty => {
+                    hand = slot
+                        .ready
+                        .wait(hand)
+                        .unwrap_or_else(PoisonError::into_inner);
+                }
+            }
+        }
     }
 }
