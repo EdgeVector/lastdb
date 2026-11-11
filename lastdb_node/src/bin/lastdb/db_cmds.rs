@@ -11,7 +11,7 @@ pub(crate) use db_ledger_cmds::*;
 mod record_file_input;
 pub(crate) use record_file_input::*;
 
-pub(super) fn db_storage_command(
+pub(crate) fn db_storage_command(
     data_dir: Option<PathBuf>,
     action: AdminStorageCommand,
 ) -> Result<(), String> {
