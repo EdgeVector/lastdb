@@ -10,19 +10,19 @@ from faults import (
     MAX_CONTENTION_TRIES, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle,
 )
-from logcheck import verify_log
+from logcheck import collect_pages, verify_log
 from plan import TRIM_WRITERS, still_running, writer_calls
 from routes import (
-    PAYLOAD, READS, RouteError, check_success, decimal, path_for, prove_trimmed_list,
+    PAYLOAD, READS, RouteError, check_success, path_for, prove_trimmed_list,
     request_body, require_ack, require_head, require_snapshot, require_trim,
 )
-from stats import summarize
+from stats import finding_message, tier_summary
 
 
 ERROR_RATE = 0.01
 DISABLED_FIELD = "mutation_log.disabled"
 DISABLED = "mutation log is disabled"
-LIST_LIMIT = 20
+LIST_LIMIT = 90
 
 
 class LoadError(Exception):
@@ -46,18 +46,28 @@ class Flight:
 
 
 def run_writers(count, worker, flight=None):
-    """Run ``count`` workers at once. ``flight.max`` is the peak overlap."""
+    """Run ``count`` workers at once. A budget stop wins over ``stopped``."""
+    failures = []
+
     def wrapped(index):
         if flight is not None:
             flight.enter()
         try:
             return worker(index)
+        except Exception as exc:
+            failures.append(exc)
+            return None
         finally:
             if flight is not None:
                 flight.leave()
 
     with ThreadPoolExecutor(max_workers=count) as pool:
-        return list(pool.map(wrapped, range(count)))
+        list(pool.map(wrapped, range(count)))
+    for exc in failures:
+        if isinstance(exc, CapExceeded):
+            raise exc
+    if failures:
+        raise failures[0]
 
 
 class Session:
@@ -81,6 +91,8 @@ class Session:
         self.accepted = {}
         self._lock = threading.Lock()
         self.stop = threading.Event()
+        self.capped = threading.Event()
+        self.tier_reads = 0
         self.device_prefix = "d"
         self.allow_contention = False
         self.created = False
@@ -88,6 +100,7 @@ class Session:
     def begin_tier(self, spec):
         self.device_prefix = "{0}{1}".format(spec.kind, spec.writers)
         self.allow_contention = spec.kind == "steady"
+        self.tier_reads = self.ledger.snapshot()["reads"]
         self.samples = []
         self.errors = 0
         self.calls = 0
@@ -108,6 +121,8 @@ class Session:
         tries = 0
         while True:
             if self.stop.is_set():
+                if self.capped.is_set():
+                    raise CapExceeded(self.ledger.snapshot())
                 raise LoadError("stopped")
             body = self._body(operation, fields)
             self._charge(operation, body)
@@ -125,6 +140,7 @@ class Session:
         try:
             self.ledger.charge(kind, None if kind == "read" else len(body))
         except CapExceeded:
+            self.capped.set()
             self.stop.set()
             raise
 
@@ -132,6 +148,7 @@ class Session:
         with self._lock:
             self.samples.append(latency)
             self.calls += 1
+            # Appends and acks are both write attempts in the contention rate.
             if operation not in READS:
                 self.write_attempts += 1
 
@@ -212,6 +229,9 @@ class Session:
 
     def _body(self, operation, fields):
         database = self.database_id
+        if "index" in fields or "device_id" in fields:
+            device = fields.get("device_id") or _device(self.device_prefix, fields["index"])
+            self.ledger.note_device(device)
         if operation in ("head", "snapshot", "trim", "create-database"):
             body = {"database_id": database}
             if operation == "create-database":
@@ -267,14 +287,15 @@ def drive(spec, session):
         return _report(session, session.clock() - started, "error", str(error))
     if capacity_finding(session.throttle_503, spec.kind, session.contention_503,
                         session.write_attempts):
-        return _report(session, session.clock() - started, "scaling", _finding(session, spec))
+        return _report(session, session.clock() - started, "scaling", finding_message(
+            session.throttle_503, spec.kind, session.contention_503, session.write_attempts))
     return _report(session, session.clock() - started, "complete", "")
 
 
 def _script(spec, session, index):
     for operation, writer, seq in writer_calls(spec, index):
         if session.call(operation, index=writer, seq=seq) is None:
-            return
+            raise LoadError("http")
     if spec.kind == "full":
         _ack_cursor(session, index)
 
@@ -284,7 +305,7 @@ def _steady(spec, session, started):
         seq = 1
         while still_running(spec, session.clock() - started) and not session.stop.is_set():
             if session.call("append", index=index, seq=seq) is None:
-                return
+                raise LoadError("http")
             _ack_cursor(session, index)
             seq += 1
 
@@ -313,21 +334,20 @@ def _audit(session):
 
 
 def _pages(session):
-    after = 0
-    found = []
-    for _page in range(64):
+    head = session.call("head", required=True, index=0)
+    if head is None:
+        raise LoadError("log")
+
+    def fetch(after):
         page = session.call("list", required=True, index=0, after=after)
         if page is None:
             raise LoadError("log")
-        entries = page["entries"]
-        found.extend(entries)
-        if len(entries) < LIST_LIMIT or page.get("next") is None:
-            return found
-        nxt = decimal(page["next"])
-        if nxt <= after:
-            return found
-        after = nxt
-    raise LoadError("log")
+        return page
+
+    try:
+        return collect_pages(require_head(head), fetch)
+    except RouteError as error:
+        raise LoadError("log") from error
 
 
 def _trim(session):
@@ -349,27 +369,19 @@ def _trim(session):
 
 
 def _report(session, elapsed_ms, stopped, message):
-    summary = summarize(session.samples, session.errors, elapsed_ms)
-    attempts = session.write_attempts
-    summary["contention_503"] = session.contention_503
-    summary["throttle_503"] = session.throttle_503
-    summary["other_503"] = session.other_503
-    summary["write_attempts"] = attempts
-    summary["contention_rate"] = (session.contention_503 / attempts) if attempts else 0
-    summary["throttle_rate"] = (session.throttle_503 / attempts) if attempts else 0
-    report = {"stopped": stopped, "summary": summary, "estimate": session.ledger.snapshot()}
+    estimate = session.ledger.snapshot()
+    counters = {
+        "contention_503": session.contention_503,
+        "throttle_503": session.throttle_503,
+        "other_503": session.other_503,
+        "write_attempts": session.write_attempts,
+    }
+    summary = tier_summary(
+        session.samples, session.errors, elapsed_ms, counters, estimate, session.tier_reads)
+    report = {"stopped": stopped, "summary": summary, "estimate": estimate}
     if message:
         report["message"] = message
     return report
-
-
-def _finding(session, spec):
-    parts = []
-    if session.throttle_503:
-        parts.append("throttle")
-    if capacity_finding(0, spec.kind, session.contention_503, session.write_attempts):
-        parts.append("contention above 1 percent of write attempts")
-    return ", ".join(parts)
 
 
 def _device(prefix, index):

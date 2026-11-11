@@ -52,10 +52,11 @@ class TargetGuard(unittest.TestCase):
                       "c1da11d0-load-", "", expected + "#other", expected + "#snap-extra"):
             with self.assertRaises(GuardError):
                 allow_partition(value)
-        self.assertFalse(continue_page(3, None))
-        self.assertTrue(continue_page(63, {"database_id": {"S": expected}}))
+        key = {"database_id": {"S": expected}}
+        self.assertFalse(continue_page(None, None))
+        self.assertTrue(continue_page(key, None))
         with self.assertRaises(GuardError):
-            continue_page(64, {"database_id": {"S": expected}})
+            continue_page(key, key)
 
     def test_prod_endpoint_is_refused(self):
         self.assertEqual(allow_endpoint(DEV, DEV, PROD), DEV)

@@ -1,13 +1,14 @@
 """One ledger for every phase, with a six-dollar hard cap.
 
-Each API call loads the whole log partition with a strongly consistent
-read (``store.rs`` ``query``, ``consistent_read`` true): ``ceil(partition
-bytes / 4 KiB)`` read units, and at least one. A mutating call is a
-``TransactWriteItems`` and spends 4 write units at twice the on-demand
-price. The ledger also stops at ``MAX_REQUESTS``. That count is the most calls
-whose worst case stays under $6: each call writes a max head, a max entry,
-a tip, and an ack, then every later call rereads the whole partition.
-Cleanup Query and BatchWriteItem are counted separately.
+Each API call can reload the whole log partition up to three times
+(mod.rs ``ATTEMPTS``). Each reload is a strongly consistent ``query``.
+This ledger charges those three reads up front, ``ceil(partition bytes /
+4 KiB)`` each. A mutating call is a ``TransactWriteItems`` and is charged
+the same three attempts at twice the on-demand write price. Stored growth
+is an entry row of 350 bytes plus 150 bytes of item overhead, and 400
+bytes each for the tip and ack of a device. That is above the measured
+row, so the $6 stop stays conservative. Cleanup Query and BatchWriteItem
+are counted on their own and do not use the three-attempt model.
 
 Lambda duration is ``LAMBDA_MB / 1024`` GB for 100 ms at the published
 GB-second price. 128 is the Lambda default. The mutation-log function's
@@ -18,7 +19,11 @@ import threading
 
 
 PAGE_BYTES = 4096
+SERVER_ATTEMPTS = 3
 MUTATING_WRITE_UNITS = 4
+ENTRY_ROW_BYTES = 350
+ROW_OVERHEAD_BYTES = 150
+DEVICE_ROW_BYTES = 800
 WRITE_USD = 2 * 1.25 / 1_000_000
 READ_USD = 0.25 / 1_000_000
 LAMBDA_REQUEST_USD = 0.20 / 1_000_000
@@ -28,10 +33,6 @@ LAMBDA_GB_SECOND_USD = 0.0000166667
 LAMBDA_DURATION_USD = (LAMBDA_MB / 1024) * LAMBDA_SECONDS * LAMBDA_GB_SECOND_USD
 STORAGE_USD_PER_BYTE = 0.25 / (1024 ** 3)
 CAP_USD = 6.0
-# One commit can rewrite the head (1024 bytes), one entry (350000 bytes of
-# JSON), one tip, and one ack. store.rs HEAD_ITEM_MAX_BYTES and
-# ENTRY_JSON_MAX_BYTES. Every later call reads that whole partition back.
-WORST_TX_BYTES = 1024 + 350_000 + 1024 + 1024
 
 
 class CapExceeded(Exception):
@@ -46,27 +47,10 @@ def read_units(partition_bytes):
     return (partition_bytes + PAGE_BYTES - 1) // PAGE_BYTES
 
 
-def worst_spend(requests):
-    """Dollars if every call writes a full transaction and the log only grows."""
-    if requests <= 0:
-        return 0
-    reads = 0
-    units = (WORST_TX_BYTES + 1023) // 1024
-    for index in range(1, requests + 1):
-        reads += read_units(index * WORST_TX_BYTES)
-    lam = requests * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
-    return lam + reads * READ_USD + units * requests * WRITE_USD
-
-
-def request_limit(cap_usd=CAP_USD):
-    """Largest call count whose worst-case spend stays under the cap."""
-    allowed = 0
-    while worst_spend(allowed + 1) < cap_usd:
-        allowed += 1
-    return allowed
-
-
-MAX_REQUESTS = request_limit()
+def stored_growth(nbytes):
+    """Bytes a mutating call adds. A large body is not rounded down."""
+    body = 0 if nbytes is None else nbytes
+    return max(body, ENTRY_ROW_BYTES) + ROW_OVERHEAD_BYTES
 
 
 class Ledger:
@@ -77,7 +61,17 @@ class Ledger:
         self.write_units = 0
         self.stored_bytes = 0
         self.partition_bytes = 0
+        self._devices = set()
         self._lock = threading.Lock()
+
+    def note_device(self, device_id):
+        """Tip and ack rows are about 400 bytes each and stay in the partition."""
+        with self._lock:
+            if device_id in self._devices:
+                return
+            self._devices.add(device_id)
+            self.partition_bytes += DEVICE_ROW_BYTES
+            self.stored_bytes += DEVICE_ROW_BYTES
 
     def estimate(self):
         request_usd = self.lambda_requests * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
@@ -111,17 +105,16 @@ class Ledger:
                 writes += max(1, (size + 1023) // 1024)
                 stored += size
         else:
-            reads += read_units(partition)
+            reads += SERVER_ATTEMPTS * read_units(partition)
             if kind == "write":
-                writes += MUTATING_WRITE_UNITS
-                stored += size
-                partition += size
+                writes += SERVER_ATTEMPTS * MUTATING_WRITE_UNITS
+                growth = stored_growth(size)
+                stored += growth
+                partition += growth
         return _money(self, reads, writes, stored, partition)
 
     def charge(self, kind, nbytes=None):
         with self._lock:
-            if self.lambda_requests + 1 > MAX_REQUESTS:
-                raise CapExceeded(self.estimate())
             projected = self.project(kind, nbytes, direct=False)
             if projected["total_usd"] >= self.cap_usd:
                 raise CapExceeded(projected)

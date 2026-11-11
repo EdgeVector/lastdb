@@ -3,10 +3,10 @@
 DEV and PROD share account 152335099025, so the region is the guard.
 The only table is ``ExememMutationLog-dev``. The database id is
 ``c1da11d0-0000-4000-8000-`` plus 12 hex characters from SHA-256 of the run
-id. The DEV role's LeadingKeys scope is that same prefix with ``*``.
+id. LastDB CEO approved LeadingKeys ``c1da11d0-0000-4000-8000-*``.
 DescribeTable belongs in a separate IAM statement on the table ARN only.
-That scope is pending LastDB CEO re-approval. This module does not change
-IAM. Snapshot rows live in the ``<id>#snap`` partition of the same table.
+This module does not change IAM. Snapshot rows live in the ``<id>#snap``
+partition of the same table.
 """
 
 import hashlib
@@ -20,7 +20,6 @@ DEV_ACCOUNT = "152335099025"
 STREAM_PREFIX = "c1da11d0-0000-4000-8000-"
 STREAM_ID = re.compile(STREAM_PREFIX + r"[0-9a-f]{12}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
-PAGE_LIMIT = 64
 ROLE_ARN = re.compile(
     r"arn:aws:iam::" + DEV_ACCOUNT + r":role/[A-Za-z0-9+=,.@_-]{1,64}")
 BATCH_LIMIT = 25
@@ -114,11 +113,11 @@ def allow_partition(value):
     return allow_stream(value)
 
 
-def continue_page(pages, start, limit=PAGE_LIMIT):
-    """Keep querying while a continuation remains inside the page cap."""
+def continue_page(start, previous):
+    """True when DynamoDB returned a new continuation key."""
     if not start:
         return False
-    if pages >= limit:
+    if previous is not None and start == previous:
         raise GuardError("page")
     return True
 

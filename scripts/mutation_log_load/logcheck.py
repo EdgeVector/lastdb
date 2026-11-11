@@ -13,6 +13,27 @@ ENTRY_KEYS = (
 )
 
 
+def collect_pages(cursor, fetch):
+    """Read list pages until ``next`` reaches the head cursor."""
+    cursor = cursor or 0
+    after = 0
+    found = []
+    while True:
+        page = fetch(after)
+        found.extend(page["entries"])
+        if cursor == 0:
+            return found
+        nxt = page.get("next")
+        if nxt is None:
+            raise RouteError("log")
+        nxt = decimal(nxt)
+        if nxt >= cursor:
+            return found
+        if nxt <= after:
+            raise RouteError("log")
+        after = nxt
+
+
 def verify_log(entries, accepted):
     if not isinstance(entries, list) or not isinstance(accepted, dict):
         raise RouteError("log")

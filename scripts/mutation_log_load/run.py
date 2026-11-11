@@ -88,7 +88,7 @@ def cleanup(table, database_id, ledger):
 
 
 def purge(table, partition, ledger):
-    pending, start, pages = [], None, 0
+    pending, start = [], None
     while True:
         request = query_request(table, partition)
         if start is not None:
@@ -98,10 +98,10 @@ def purge(table, partition, ledger):
         found = aws("dynamodb", "query", request)
         ledger.record("read")
         pending.extend(record_ids_from_query(found, partition))
-        start = found.get("LastEvaluatedKey")
-        pages += 1
-        if not continue_page(pages, start):
+        nxt = found.get("LastEvaluatedKey")
+        if not continue_page(nxt, start):
             break
+        start = nxt
     stalls = 0
     while pending:
         chunk = pending[:25]

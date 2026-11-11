@@ -9,11 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import (
-    CAP_USD, MAX_REQUESTS, PAGE_BYTES, READ_USD, WRITE_USD, CapExceeded, Ledger,
-    worst_spend,
+    CAP_USD, PAGE_BYTES, READ_USD, SERVER_ATTEMPTS, WRITE_USD, CapExceeded,
+    Ledger, stored_growth,
 )
-from drive import DISABLED, Flight, Session, drive, run_writers
-from faults import scaling_finding
+from drive import DISABLED, LIST_LIMIT, Flight, Session, _pages, drive, run_writers
+from faults import EXIT_CAP, exit_code, scaling_finding
 from guard import database_id_for_run
 from logcheck import verify_log
 from plan import Scenario, scenario
@@ -96,16 +96,16 @@ class CapAndRun(unittest.TestCase):
         ledger.charge("read")
         ledger.charge("write", 2048)
         estimate = ledger.estimate()
-        self.assertEqual(estimate["reads"], 2)
-        self.assertEqual(estimate["write_units"], 4)
-        self.assertEqual(estimate["partition_bytes"], 2048)
+        self.assertEqual(estimate["reads"], SERVER_ATTEMPTS * 2)
+        self.assertEqual(estimate["write_units"], SERVER_ATTEMPTS * 4)
+        self.assertEqual(estimate["partition_bytes"], stored_growth(2048))
         self.assertEqual(estimate["lambda_requests"], 2)
-        self.assertAlmostEqual(estimate["read_usd"], 2 * READ_USD)
-        self.assertAlmostEqual(estimate["write_usd"], 4 * WRITE_USD)
+        self.assertAlmostEqual(estimate["read_usd"], SERVER_ATTEMPTS * 2 * READ_USD)
+        self.assertAlmostEqual(estimate["write_usd"], SERVER_ATTEMPTS * 4 * WRITE_USD)
         ledger.charge("write", PAGE_BYTES)
         before = ledger.reads
         ledger.charge("read")
-        self.assertEqual(ledger.reads - before, 2)
+        self.assertEqual(ledger.reads - before, SERVER_ATTEMPTS * 2)
         with self.assertRaises(CapExceeded):
             Ledger(cap_usd=READ_USD).charge("read")
         capped = Ledger(cap_usd=0)
@@ -113,19 +113,49 @@ class CapAndRun(unittest.TestCase):
             capped.charge("write", 1)
         capped.record("write", 1)
         self.assertEqual(capped.write_units, 1)
-        self.assertLess(worst_spend(MAX_REQUESTS), CAP_USD)
-        self.assertGreaterEqual(worst_spend(MAX_REQUESTS + 1), CAP_USD)
-        bounded = Ledger(cap_usd=1e9)
-        for _call in range(MAX_REQUESTS):
-            bounded.charge("read")
-        with self.assertRaises(CapExceeded):
-            bounded.charge("read")
 
     def test_cleanup_failure_does_not_hide_the_load(self):
         self.assertEqual(combine_exit(1, 1), 1)
         self.assertEqual(combine_exit(2, 1), 2)
         self.assertEqual(combine_exit(3, 1), 3)
         self.assertEqual(combine_exit(0, 1), 1)
+
+    def test_a_budget_stop_inside_a_writer_exits_2(self):
+        class StopAfterCreate(Ledger):
+            def charge(self, kind, nbytes=None):
+                if self.lambda_requests >= 1:
+                    raise CapExceeded(self.estimate())
+                return super().charge(kind, nbytes)
+        report = drive(scenario("5"), self._session(MemoryLog(), StopAfterCreate()))
+        self.assertEqual((report["stopped"], exit_code(report["stopped"])), ("cap", EXIT_CAP))
+
+    def test_a_client_error_fails_the_tier(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/append"):
+                return 400, {"code": "invalid_input", "field": "mutation_log.sequence"}, 1
+            return None
+
+        report = drive(Scenario("steady", 2, 1, False), self._session(MemoryLog(hook)))
+        self.assertEqual(report["stopped"], "error")
+
+    def test_log_check_reads_past_1280_entries(self):
+        count = 1281
+        device = "bulk-d0"
+        log = MemoryLog()
+        for seq in range(1, count + 1):
+            log.entries.append({
+                "delivery_seq": seq, "accepted_at_ms": 1, "writer_key": "k",
+                "writer_device": device, "writer_seq": seq, "authored_at_ms": 1,
+                "namespace": "load", "payload": PAYLOAD,
+            })
+        session = self._session(log)
+        session.accepted[device] = set(range(1, count + 1))
+        found = _pages(session)
+        self.assertEqual(len(found), count)
+        verify_log(found, session.accepted)
+        limits = [json.loads(body)["limit"] for path, body in log.seen if path.endswith("/list")]
+        self.assertGreater(len(limits), 1280 // 90)
+        self.assertTrue(all(limit == 90 for limit in limits))
 
     def test_writers_run_together(self):
         flight = Flight()
@@ -161,6 +191,9 @@ class CapAndRun(unittest.TestCase):
         self.assertEqual(report["summary"]["contention_503"], 0)
         self.assertIn("p50_ms", report["summary"])
         self.assertIn("p99_ms", report["summary"])
+        self.assertGreater(report["summary"]["partition_bytes"], 0)
+        self.assertGreater(report["summary"]["reads"], 0)
+        self.assertEqual(LIST_LIMIT, 90)
 
     def test_trim_acks_the_head_cursor(self):
         log = MemoryLog()
@@ -239,9 +272,13 @@ class CapAndRun(unittest.TestCase):
             self.assertGreater(session.other_503, 0)
 
     def test_ack_through_is_the_head_cursor(self):
+        state = {"heads": 0}
+
         def hook(path, _parsed, _log):
             if path.endswith("/head"):
-                return 200, {"cursor": 40}, 1
+                state["heads"] += 1
+                if state["heads"] == 1:
+                    return 200, {"cursor": 40}, 1
             return None
 
         log = MemoryLog(hook)
