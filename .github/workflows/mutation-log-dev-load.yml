@@ -1,0 +1,64 @@
+name: Mutation log DEV load
+
+# Manual only. Never on push or pull request. Run it after exemem-infra
+# #769 is deployed to DEV. The OIDC role is the already-approved DEV role
+# for this repo, ref main, and the cloud-backup-dev environment. This
+# workflow does not create or change an IAM role.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deployed:
+        description: "Type yes only after exemem-infra #769 is deployed to DEV"
+        required: true
+        type: string
+      level:
+        description: "Writers, or the trim case"
+        type: choice
+        options: ["5", "20", "100", "trim"]
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test the cap and the target guard
+        working-directory: scripts/mutation_log_load
+        run: python3 -m unittest test_guard.py test_cost.py
+      - name: Refuse a role or bucket outside DEV before assuming it
+        env:
+          LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          LASTDB_MUTATION_LOG_DEV_BUCKET: ${{ vars.LASTDB_MUTATION_LOG_DEV_BUCKET }}
+        working-directory: scripts/mutation_log_load
+        run: |
+          python3 -c 'from guard import allow_bucket, allow_role; import os; allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"]); allow_bucket(os.environ["LASTDB_MUTATION_LOG_DEV_BUCKET"])'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: mutation-log-load-${{ github.run_id }}
+      - name: Load synthetic writers and clean up the load prefix
+        env:
+          LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
+          LASTDB_MUTATION_LOG_DEV_BUCKET: ${{ vars.LASTDB_MUTATION_LOG_DEV_BUCKET }}
+          LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          LASTDB_MUTATION_LOG_DEV_SIGNING_KEY: ${{ secrets.LASTDB_MUTATION_LOG_DEV_SIGNING_KEY }}
+          LOAD_LEVEL: ${{ inputs.level }}
+          CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
+        run: >-
+          python3 scripts/mutation_log_load/run.py
+          --level "$LOAD_LEVEL"
+          --confirm-deployed "$CONFIRM_DEPLOYED"
