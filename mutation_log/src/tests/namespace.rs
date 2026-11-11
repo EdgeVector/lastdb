@@ -89,7 +89,7 @@ fn personal_database_cannot_be_granted_to_a_receiver() {
         1,
         1,
     );
-    assert!(!can_read(&receiver, &state, &sample));
+    assert!(!can_read(&receiver, &state, &sample, &hearth));
 
     let (share, publisher, _published) = shareable();
     let device_grant = step(

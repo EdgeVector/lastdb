@@ -4,8 +4,8 @@ use crate::{DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapsh
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
-/// One log per database. Writer tips are keyed by writer (node key, device).
-/// There is no separate log, cursor, or storage per device or per person.
+/// One log per database. Writer tips and device read positions are keyed by
+/// writer (node key, device). There is no separate log or storage per device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.
@@ -20,8 +20,8 @@ pub struct LogState {
     pub trimmed_tips: BTreeMap<Writer, u64>,
     /// Who may read or append. This list is not a storage path.
     pub grants: Vec<Grant>,
-    /// Highest delivery sequence each consumer has acknowledged.
-    pub acks: BTreeMap<PrincipalId, u64>,
+    /// Highest delivery sequence each reading device has acknowledged.
+    pub acks: BTreeMap<Writer, u64>,
     /// Retained entries in delivery order.
     pub entries: Vec<crate::StoredEntry>,
     /// Open appends, one per writer (node key, device).

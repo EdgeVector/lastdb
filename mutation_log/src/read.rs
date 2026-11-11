@@ -1,17 +1,33 @@
 use crate::{
     auth::can_read, DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, PrincipalId,
-    Stamp, StoredEntry, LIST_PAGE_LIMIT,
+    Snapshot, Stamp, StoredEntry, Writer, LIST_PAGE_LIMIT,
 };
 
 /// Head a reader is allowed to see.
 ///
-/// `cursor` is the delivery sequence of the last visible entry.
+/// `cursor` is the last delivery sequence scanned, including hidden entries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
-    /// Delivery sequence of the last visible entry.
+    /// Last delivery sequence scanned, including entries this reader cannot see.
     pub cursor: u64,
     /// Stamp of the last visible entry.
     pub stamp: Stamp,
+}
+
+/// Still-stored entries a device needs after its cursor expires.
+///
+/// The caller installs `snapshot` when `reset` is set, then applies `entries`.
+/// `next` is the scan cursor to ack after both are applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recovery {
+    /// Snapshot the caller uses to replace its state.
+    pub snapshot: Snapshot,
+    /// Visible entries still stored and not yet acked by this device.
+    pub entries: Vec<StoredEntry>,
+    /// Scan cursor covering `entries`, the snapshot, and hidden entries.
+    pub next: u64,
+    /// Whether this device has not yet been given `snapshot`.
+    pub reset: bool,
 }
 
 /// One page of entries the reader may see, in delivery order.
@@ -70,7 +86,7 @@ pub fn entry_visible(
     if stored.entry.database_id != database.database_id {
         return false;
     }
-    if !can_read(reader, database, &stored.entry) {
+    if !can_read(reader, database, &stored.entry, policy) {
         return false;
     }
     shareable_namespace_allowed(database, stored, policy)
@@ -88,7 +104,7 @@ fn shareable_namespace_allowed(
 }
 
 impl LogState {
-    /// Last entry this reader may see.
+    /// Last visible entry, with the cursor set to the last delivery scanned.
     pub fn head_for(
         &self,
         reader: &PrincipalId,
@@ -97,15 +113,42 @@ impl LogState {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        Ok(self
-            .entries
-            .iter()
-            .rev()
-            .find(|stored| entry_visible(self, stored, reader, policy))
-            .map(|stored| ScopedHead {
-                cursor: stored.delivery_seq,
-                stamp: stored.entry.stamp(),
-            }))
+        Ok(scoped_head(self, reader, policy))
+    }
+
+    /// Entries still stored for a device whose cursor is below the trim floor.
+    ///
+    /// `entries` includes every visible record this device has not acked, both
+    /// the ones at or below the snapshot and the ones after it. `reset` is
+    /// set until the device has been given the snapshot. `next` does not move
+    /// past an entry this page did not scan.
+    pub fn recover(
+        &self,
+        reader: &Writer,
+        now_ms: u64,
+        policy: &impl NamespacePolicy,
+    ) -> Result<Recovery, LogError> {
+        if !self.reader_allowed(&reader.key) {
+            return Err(LogError::Unauthorized);
+        }
+        let floor = self.effective_floor(now_ms);
+        let snapshot = self.snapshot.clone().unwrap_or(Snapshot {
+            through_delivery_seq: 0,
+            at_ms: 0,
+        });
+        let device_ack = self.acks.get(reader).copied().unwrap_or(0);
+        let page = recover_page(self, &reader.key, device_ack, policy);
+        let next = page
+            .next
+            .max(snapshot.through_delivery_seq)
+            .max(device_ack)
+            .max(floor);
+        Ok(Recovery {
+            reset: device_ack < snapshot.through_delivery_seq,
+            snapshot,
+            entries: page.entries,
+            next,
+        })
     }
 
     /// List visible entries after `after`. A cursor below the trim floor expires.
@@ -134,6 +177,46 @@ impl LogState {
         }
         Ok(page(self, reader, after, limit, policy))
     }
+}
+
+fn scoped_head(
+    state: &LogState,
+    reader: &PrincipalId,
+    policy: &impl NamespacePolicy,
+) -> Option<ScopedHead> {
+    let mut cursor = 0;
+    let mut stamp = None;
+    for stored in &state.entries {
+        cursor = stored.delivery_seq;
+        if entry_visible(state, stored, reader, policy) {
+            stamp = Some(stored.entry.stamp());
+        }
+    }
+    stamp.map(|stamp| ScopedHead { cursor, stamp })
+}
+
+fn recover_page(
+    state: &LogState,
+    reader: &PrincipalId,
+    device_ack: u64,
+    policy: &impl NamespacePolicy,
+) -> ListPage {
+    let mut entries = Vec::new();
+    let mut next = device_ack;
+    for stored in &state.entries {
+        if stored.delivery_seq <= device_ack {
+            continue;
+        }
+        next = stored.delivery_seq;
+        if !entry_visible(state, stored, reader, policy) {
+            continue;
+        }
+        entries.push(stored.clone());
+        if entries.len() == LIST_PAGE_LIMIT {
+            break;
+        }
+    }
+    ListPage { entries, next }
 }
 
 fn page(

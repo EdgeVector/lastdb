@@ -1,6 +1,6 @@
 use mutation_log::{
     step, AppendBatch, AppendOutcome, Capability, Command, ListPage, LogError, LogState,
-    NamespacePolicy, Outcome, PrincipalId, ScopedHead, Snapshot, Writer,
+    NamespacePolicy, Outcome, PrincipalId, Recovery, ScopedHead, Snapshot, Writer,
 };
 
 use crate::MutationLog;
@@ -81,10 +81,10 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
         )
     }
 
-    fn ack(&mut self, consumer: &PrincipalId, through: u64) -> Result<u64, LogError> {
+    fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError> {
         require_outcome(
             self.apply(Command::Ack {
-                consumer: consumer.clone(),
+                reader: reader.clone(),
                 through,
             })?,
             |outcome| match outcome {
@@ -92,6 +92,10 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
                 _ => None,
             },
         )
+    }
+
+    fn recover(&self, reader: &Writer, now_ms: u64) -> Result<Recovery, LogError> {
+        self.state.recover(reader, now_ms, &self.policy)
     }
 
     fn grant(

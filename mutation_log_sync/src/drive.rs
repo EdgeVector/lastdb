@@ -7,7 +7,9 @@ use mutation_log::{AppendOutcome, LogError, MutationLog, LIST_PAGE_LIMIT};
 ///
 /// On `Err`, `state` is unchanged. The port's own step also keeps its previous
 /// value when an append fails. A pull lists, then acks the scanned delivery
-/// sequence. A cursor below the trim floor restarts at the latest snapshot.
+/// sequence for this device. A cursor below the trim floor returns a reset
+/// snapshot plus the entries still stored for this device, and the ack is the
+/// cursor of that result.
 pub fn drive<L: MutationLog>(
     state: &SyncState,
     log: &mut L,
@@ -50,22 +52,38 @@ fn append<L: MutationLog>(
 
 fn pull<L: MutationLog>(
     log: &mut L,
-    reader: &mutation_log::PrincipalId,
+    reader: &mutation_log::Writer,
     after: u64,
     now_ms: u64,
 ) -> Result<Outcome, SyncError> {
-    let page = match log.list(reader, after, LIST_PAGE_LIMIT, now_ms) {
-        Ok(page) => page,
-        Err(LogError::CursorExpired { snapshot_through }) => {
-            log.list(reader, snapshot_through, LIST_PAGE_LIMIT, now_ms)?
+    match log.list(&reader.key, after, LIST_PAGE_LIMIT, now_ms) {
+        Ok(page) => {
+            log.ack(reader, page.next)?;
+            Ok(Outcome::Pulled {
+                cursor: page.next,
+                entries: page.entries,
+                reset: None,
+            })
         }
-        Err(error) => return Err(error.into()),
+        Err(LogError::CursorExpired { .. }) => recover(log, reader, now_ms),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn recover<L: MutationLog>(
+    log: &mut L,
+    reader: &mutation_log::Writer,
+    now_ms: u64,
+) -> Result<Outcome, SyncError> {
+    let recovered = log.recover(reader, now_ms)?;
+    let cursor = recovered.next;
+    let outcome = Outcome::Pulled {
+        reset: recovered.reset.then_some(recovered.snapshot),
+        entries: recovered.entries,
+        cursor,
     };
-    log.ack(reader, page.next)?;
-    Ok(Outcome::Pulled {
-        cursor: page.next,
-        entries: page.entries,
-    })
+    log.ack(reader, cursor)?;
+    Ok(outcome)
 }
 
 pub(crate) fn commit(state: &SyncState, outcome: &Outcome) -> SyncState {

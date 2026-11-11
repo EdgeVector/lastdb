@@ -2,14 +2,14 @@ use crate::error::SyncError;
 use crate::model::{writer_of, SyncEvent, SyncRole, SyncState};
 use mutation_log::{
     AppendBatch, DatabaseKind, DeviceId, Entry, Incorporation, LogError, Namespace, NamespaceKind,
-    NamespacePolicy, PrincipalId,
+    NamespacePolicy, PrincipalId, Writer,
 };
 
 /// An effect [`crate::drive`] applies through the port. The log is not here.
 pub(crate) enum Effect {
     Append(AppendBatch),
     Pull {
-        reader: PrincipalId,
+        reader: Writer,
         after: u64,
         now_ms: u64,
     },
@@ -35,7 +35,7 @@ pub(crate) fn propose(
             policy,
         ),
         SyncEvent::Pull { now_ms } => Ok(Effect::Pull {
-            reader: state.reader().clone(),
+            reader: read_writer(state),
             after: state.cursor,
             now_ms,
         }),
@@ -125,8 +125,19 @@ fn reject_app_private(
     Ok(())
 }
 
+/// Device this participant reads and acks as. A receiver has one too.
+pub(crate) fn read_writer(state: &SyncState) -> Writer {
+    let (principal, device) = match &state.role {
+        SyncRole::Owner { principal, device }
+        | SyncRole::Publisher { principal, device }
+        | SyncRole::Contributor { principal, device }
+        | SyncRole::Receiver { principal, device } => (principal, device),
+    };
+    writer_of(principal.clone(), device.clone())
+}
+
 /// Writer this participant appends as, when the role can append.
-pub(crate) fn role_writer(state: &SyncState) -> Option<mutation_log::Writer> {
+pub(crate) fn role_writer(state: &SyncState) -> Option<Writer> {
     match &state.role {
         SyncRole::Owner { principal, device }
         | SyncRole::Publisher { principal, device }

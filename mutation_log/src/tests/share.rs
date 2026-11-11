@@ -18,9 +18,9 @@ fn receiver_cannot_read_another_contributors_submission() {
     let other = principal("other");
     let submitted = entry(&state.database_id, &submission, "photos", 1, 5);
     let state = apply(&state, &submission, vec![submitted.clone()], 5);
-    assert!(!can_read(&receiver, &state, &submitted));
-    assert!(!can_read(&other, &state, &submitted));
-    assert!(can_read(&submission.key, &state, &submitted));
+    assert!(!can_read(&receiver, &state, &submitted, &hearth));
+    assert!(!can_read(&other, &state, &submitted, &hearth));
+    assert!(can_read(&submission.key, &state, &submitted, &hearth));
     assert!(filter_readable(&state.entries, &receiver, &state, &hearth).is_empty());
     assert!(filter_readable(&state.entries, &other, &state, &hearth).is_empty());
     assert_eq!(
@@ -52,8 +52,18 @@ fn receiver_cannot_read_another_key_or_database() {
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].entry.database_id, state.database_id);
     assert_eq!(visible[0].entry.writer.key, published.key);
-    assert!(!can_read(&receiver, &state, &state.entries[0].entry));
-    assert!(can_read(&receiver, &state, &state.entries[1].entry));
+    assert!(!can_read(
+        &receiver,
+        &state,
+        &state.entries[0].entry,
+        &hearth
+    ));
+    assert!(can_read(
+        &receiver,
+        &state,
+        &state.entries[1].entry,
+        &hearth
+    ));
 }
 
 #[test]

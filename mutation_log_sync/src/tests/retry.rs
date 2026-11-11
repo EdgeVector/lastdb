@@ -109,6 +109,7 @@ fn lost_reappend_response_does_not_drop_the_next_contribution() {
         share_kind(&publisher),
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");
@@ -147,6 +148,7 @@ fn retried_reappend_publishes_one_copy() {
         kind,
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");

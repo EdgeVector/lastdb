@@ -55,8 +55,8 @@ fn repeated_writer_seq_with_different_content_is_conflict() {
 #[test]
 fn reappend_of_a_trimmed_submission_is_rejected() {
     let (mut state, publisher, published, person, submission) = copied_submission();
-    state = ack(&state, &publisher, 3);
-    state = ack(&state, &person, 2);
+    state = ack(&state, &published, 3);
+    state = ack(&state, &submission, 2);
     state = snapshot(&state, &publisher, 4);
     state = trim(&state, &publisher, 4);
     assert!(state
@@ -73,7 +73,7 @@ fn trimmed_writer_seq_retry_is_duplicate() {
     let (state, publisher, published) = shareable();
     let first = entry(&state.database_id, &published, "photos", 1, 1);
     let mut state = apply(&state, &published, vec![first.clone()], 1);
-    state = ack(&state, &publisher, 1);
+    state = ack(&state, &published, 1);
     state = snapshot(&state, &publisher, 2);
     state = trim(&state, &publisher, 2);
     assert!(state.entries.is_empty());
@@ -93,7 +93,7 @@ fn trimmed_writer_seq_retry_is_duplicate() {
 
 #[test]
 fn trimmed_reappend_retry_is_duplicate() {
-    let (mut state, publisher, published, person, _submission) = copied_submission();
+    let (mut state, publisher, published, _person, submission) = copied_submission();
     let stored = state
         .entries
         .iter()
@@ -101,8 +101,8 @@ fn trimmed_reappend_retry_is_duplicate() {
         .expect("publisher entry")
         .entry
         .clone();
-    state = ack(&state, &publisher, 3);
-    state = ack(&state, &person, 3);
+    state = ack(&state, &published, 3);
+    state = ack(&state, &submission, 3);
     state = snapshot(&state, &publisher, 4);
     state = trim(&state, &publisher, 4);
     assert!(state.entries.is_empty());

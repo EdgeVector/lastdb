@@ -1,20 +1,41 @@
-use crate::{Capability, DatabaseKind, Entry, Grant, LogError, LogState, PrincipalId};
+use crate::{
+    Capability, DatabaseKind, Entry, Grant, LogError, LogState, NamespaceKind, NamespacePolicy,
+    PrincipalId,
+};
 
 /// Whether `principal` may read this entry.
 ///
 /// On a personal database, only an owner key reads. On a shareable database
-/// the publisher key reads every entry. A receiver reads entries whose writer
-/// key is the publisher key, including re-appends. A contributor also reads
-/// their own pending entries.
+/// the publisher key reads every entry except an app-private namespace. A
+/// receiver reads entries whose writer key is the publisher key, including
+/// re-appends, and does not read an app-private namespace. A contributor also
+/// reads their own pending entries. This matches the list filter.
 #[must_use]
-pub fn can_read(principal: &PrincipalId, database: &LogState, entry: &Entry) -> bool {
+pub fn can_read(
+    principal: &PrincipalId,
+    database: &LogState,
+    entry: &Entry,
+    policy: &impl NamespacePolicy,
+) -> bool {
     if entry.database_id != database.database_id {
+        return false;
+    }
+    if shareable_app_private(database, entry, policy) {
         return false;
     }
     match &database.kind {
         DatabaseKind::Personal => holds_owner(database, principal),
         DatabaseKind::Shareable { publisher } => share_read(database, principal, publisher, entry),
     }
+}
+
+fn shareable_app_private(
+    database: &LogState,
+    entry: &Entry,
+    policy: &impl NamespacePolicy,
+) -> bool {
+    matches!(database.kind, DatabaseKind::Shareable { .. })
+        && policy.classify(&entry.namespace) == NamespaceKind::AppPrivate
 }
 
 fn share_read(
@@ -78,8 +99,8 @@ impl LogState {
 
     /// Remove one grant. A missing grant succeeds and leaves the log unchanged.
     ///
-    /// Revoking a key's owner or submit grant clears every open append for
-    /// that key, on every device. A key that can no longer read loses its ack.
+    /// Revoking a key drops every device ack of that key. Revoking its owner
+    /// or submit grant also clears every open append for that key.
     pub fn revoke(
         &self,
         caller: &PrincipalId,
@@ -96,9 +117,7 @@ impl LogState {
         };
         let mut next = self.clone();
         next.grants.remove(index);
-        if !next.reader_allowed(principal) {
-            next.acks.remove(principal);
-        }
+        next.acks.retain(|writer, _| &writer.key != principal);
         if matches!(capability, Capability::Owner | Capability::Submit) {
             next.inflight.retain(|writer| &writer.key != principal);
         }
