@@ -1,6 +1,90 @@
-//! Ordinary raw reads use disk; private preparation can read its own flush log.
+//! Raw exact-key reads and finite read-budget accounting.
 
+use super::physical::PhysicalRead;
+use super::read::ReadContext;
 use super::*;
+
+impl ReadContext {
+    pub(in crate::storage::disk_pack) fn record_stage(&self, stage: &'static str, items: usize) {
+        if !tracing::enabled!(target: "lastdb::native_read_budget", tracing::Level::DEBUG) {
+            return;
+        }
+        let call = self
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let costs = call.costs();
+        let limits = call.budget();
+        tracing::debug!(
+            target: "lastdb::native_read_budget",
+            stage,
+            items,
+            examined_keys = costs.examined_keys,
+            key_limit = limits.keys,
+            charged_bytes = costs.budget_bytes,
+            "native preparation cumulative read costs"
+        );
+    }
+
+    /// Charge required memory results before their body is copied.
+    pub(in crate::storage::disk_pack) fn account_memory_record(
+        &self,
+        call: &mut PhysicalRead,
+        key_bytes: usize,
+        body_bytes: usize,
+    ) -> StorageResult<()> {
+        let result = key_bytes
+            .checked_add(body_bytes)
+            .ok_or_else(|| StorageError::ReadResourceLimit {
+                detail: "native memory record length overflow".into(),
+            })
+            .and_then(|bytes| {
+                self.require_room(call, 1, bytes as u64)?;
+                call.account_memory_record(key_bytes, body_bytes)
+                    .map_err(|error| call_error(error, call))
+            });
+        self.remembered(result)
+    }
+
+    fn require_room(&self, call: &PhysicalRead, keys: u64, bytes: u64) -> StorageResult<()> {
+        if let Some(error) = self.error() {
+            return Err(error);
+        }
+        let costs = call.costs();
+        let limits = call.budget();
+        if costs
+            .examined_keys
+            .checked_add(keys)
+            .is_none_or(|n| n > limits.keys)
+            || costs
+                .budget_bytes
+                .checked_add(bytes)
+                .is_none_or(|n| n > limits.bytes)
+        {
+            return Err(StorageError::ReadResourceLimit {
+                detail: format!(
+                    "native required work: examined_keys={}+{keys}/{}, charged_bytes={}+{bytes}/{}",
+                    costs.examined_keys, limits.keys, costs.budget_bytes, limits.bytes,
+                ),
+            });
+        }
+        Ok(())
+    }
+}
+
+fn call_error(error: laststore::Error, call: &PhysicalRead) -> StorageError {
+    if !matches!(error, laststore::Error::ReadBudgetExceeded) {
+        return map(error);
+    }
+    let costs = call.costs();
+    let limits = call.budget();
+    StorageError::ReadResourceLimit {
+        detail: format!(
+            "native call: examined_keys={}/{}, charged_bytes={}/{}",
+            costs.examined_keys, limits.keys, costs.budget_bytes, limits.bytes,
+        ),
+    }
+}
 
 impl PackRuntime {
     pub(crate) fn record_read_stage(&self, stage: &'static str, items: usize) {
@@ -61,8 +145,6 @@ impl PackRuntime {
         let result = (|| {
             context.require_room(&call, coordinates.len() as u64, 0)?;
             let mut out = Vec::with_capacity(coordinates.len());
-            // One immutable call and PendingBatch cover every ordered chunk.
-            // Both engine batch readers retain their 10,000-slot input cap.
             for chunk in coordinates.chunks(10_000) {
                 out.extend(self.read_chunk(context, &mut call, chunk, pending)?);
             }
@@ -111,7 +193,6 @@ impl PackRuntime {
     }
 }
 
-/// Opt-in diagnostics name only fixed record families, never user keys or data.
 fn trace_families(coordinates: &[(String, String)]) {
     if !tracing::enabled!(target: "lastdb::native_read_family", tracing::Level::DEBUG) {
         return;
@@ -131,7 +212,6 @@ fn trace_families(coordinates: &[(String, String)]) {
     }
 }
 
-/// The fixed name of the record family of one `main` key.
 fn record_family(key: &str) -> &'static str {
     let raw = crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
     let family = std::str::from_utf8(&raw)

@@ -1,15 +1,22 @@
-//! Capture entry points over the v2 home, and the shared finish and cleanup.
+//! Capture entry points, terminal settlement, local cancel, and legacy-capture retirement.
+
 use super::{
-    invalid, model::State, store::Store, ByteBackupCapture, Inner, PackRuntime, StorageResult,
+    invalid, object_name, protocol, run_source::RunSource, snapshot_cleanup::held_root,
+    store::Store, ByteBackupCapture, Inner, PackRuntime, State, StorageResult, MAX_OBJECTS,
+    RUN_INTENT_FILE, STATE_FORMAT,
 };
-use cloud_backup_protocol::v2::Begin;
+use cloud_backup_protocol::v2::{
+    jobs::{JobResult, JobStatus},
+    Begin,
+};
+use serde::Deserialize;
 use std::fs::File;
 use std::sync::Arc;
 
-pub(super) type PublicationGate<'a> = &'a (dyn Fn() -> StorageResult<File> + Sync);
+pub(in crate::storage::disk_backup::byte_backup) type PublicationGate<'a> =
+    &'a (dyn Fn() -> StorageResult<File> + Sync);
 
 impl PackRuntime {
-    /// Save the exact cut and its named hold before hashing or external work.
     pub async fn prepare_record_backup_capture(
         self: &Arc<Self>,
         begin: Begin,
@@ -18,8 +25,7 @@ impl PackRuntime {
     ) -> StorageResult<ByteBackupCapture> {
         prepare_capturing_local_files(self, begin, key, recovery, false).await
     }
-    /// The coordinator holds its owner lock and proves begin_submitted=false.
-    /// Only an intent with no held files or saved source state can renew its cut.
+
     pub async fn prepare_unsubmitted_record_backup_capture(
         self: &Arc<Self>,
         begin: Begin,
@@ -29,7 +35,6 @@ impl PackRuntime {
         prepare_capturing_local_files(self, begin, key, recovery, true).await
     }
 
-    /// Freeze an ordinary snapshot with no external file references.
     pub async fn prepare_publication_backup_capture(
         self: &Arc<Self>,
         begin: Begin,
@@ -49,7 +54,6 @@ impl PackRuntime {
         .await
     }
 
-    /// Reopen this publication's exact saved cut without materializing files.
     pub async fn resume_publication_backup_capture(
         self: &Arc<Self>,
         key: &[u8; 32],
@@ -57,25 +61,33 @@ impl PackRuntime {
         super::run_capture::resume(self, key).await
     }
 
-    /// Resume only the saved cut. A missing source still permits exact close.
     pub async fn resume_byte_backup_capture(
         self: &Arc<Self>,
         key: &[u8; 32],
     ) -> StorageResult<ByteBackupCapture> {
         let capture = super::run_capture::resume(self, key).await?;
-        // A capture that stopped after sealing local files still holds those
-        // rows in the saved cut. Drop the live copies. Absent rows do nothing.
         if let Err(error) = crate::storage::local_file_ref::release_catalog(self).await {
             tracing::error!(%error, "local file reference release after backup resume");
         }
         Ok(capture)
     }
+
+    pub async fn cancel_unsubmitted_byte_backup_capture(
+        self: &Arc<Self>,
+        begin: &Begin,
+        key: &[u8; 32],
+    ) -> StorageResult<()> {
+        super::snapshot_cleanup::cancel(self, begin, key).await
+    }
+
+    pub fn retire_previous_backup_capture(&self, dropped: Option<&str>) -> StorageResult<bool> {
+        self.require_ordinary_backup_home()?;
+        let _admission = super::super::NativeCloudWorkGuard::acquire()?;
+        let store = Store::open(self.physical.path(), &self.space_policy)?;
+        retire_previous_format(self, &store, dropped)
+    }
 }
 
-/// Seal local file references into cas, capture that run, then delete the
-/// live rows. The hold keeps the sealed bytes. A release failure after a
-/// successful capture still returns the capture: the upload can proceed, and
-/// the next capture deletes the leftover live rows.
 async fn prepare_capturing_local_files(
     runtime: &Arc<PackRuntime>,
     begin: Begin,
@@ -92,7 +104,8 @@ async fn prepare_capturing_local_files(
     }
     prepared
 }
-pub(super) fn finish(
+
+pub(in crate::storage::disk_backup::byte_backup) fn finish(
     inner: Inner,
     key: &[u8; 32],
     admit_export: bool,
@@ -120,8 +133,6 @@ pub(super) fn finish(
     if active && admit_export {
         inner.require_available()?;
     }
-    // Recovery must still obtain a handle for exact terminal/local cancellation.
-    // Content APIs recheck eligibility before they expose the retained cut.
     if !state.ready && active && inner.available() {
         super::run_source::certify(&inner, key)?;
         super::planner::build(&inner, &mut state, key)?;
@@ -134,15 +145,160 @@ pub(super) fn finish(
     capture.finish_terminal()?;
     Ok(capture)
 }
-pub(super) fn clear_previous(store: &Store, state: &State) -> StorageResult<()> {
+
+pub(in crate::storage::disk_backup::byte_backup) fn clear_previous(
+    store: &Store,
+    state: &State,
+) -> StorageResult<()> {
     for index in 0..=state.objects {
-        for name in [
-            super::model::object_name(index),
-            format!("payload-{index:08}.enc"),
-        ] {
+        for name in [object_name(index), format!("payload-{index:08}.enc")] {
             store.remove(&name)?;
             store.remove(&format!("{name}.pending"))?;
         }
     }
     Ok(())
+}
+
+impl ByteBackupCapture {
+    pub fn terminal(&self, result: &JobResult) -> StorageResult<()> {
+        let mut state = self.lock()?;
+        self.inner.require_idle()?;
+        if state.local_cancelled {
+            return Err(invalid(
+                "byte locally cancelled source has no cloud terminal",
+            ));
+        }
+        result.validate_for_begin(&state.begin).map_err(protocol)?;
+        if matches!(result.status, JobStatus::Active) {
+            return Err(invalid("byte source active result is not terminal"));
+        }
+        if let Some(prior) = &state.terminal {
+            if prior != result {
+                return Err(invalid("byte source terminal result changed"));
+            }
+        } else {
+            if let JobStatus::Published { backup } = &result.status {
+                self.inner.advance(&mut state)?;
+                if !state.ready
+                    || state.verified != state.objects
+                    || backup.root_receipt_id
+                        != super::planner::expected_receipt(
+                            &self.inner.object(&state, state.objects - 1)?.input,
+                        )?
+                        .receipt_id
+                {
+                    return Err(invalid("byte accepted result does not cover source"));
+                }
+            }
+            let mut confirmed = state.clone();
+            confirmed.terminal = Some(result.clone());
+            self.inner.store.write("job.json", &confirmed)?;
+            *state = confirmed;
+        }
+        drop(state);
+        self.finish_terminal()
+    }
+
+    pub(in crate::storage::disk_backup::byte_backup) fn finish_terminal(
+        &self,
+    ) -> StorageResult<()> {
+        let mut state = self.lock()?;
+        if state.terminal.is_none() && !state.local_cancelled {
+            return Ok(());
+        }
+        self.inner.require_idle()?;
+        if !state.released {
+            if let Some(anchor) = &state.journal_anchor {
+                if state
+                    .terminal
+                    .as_ref()
+                    .is_some_and(|result| matches!(result.status, JobStatus::Published { .. }))
+                {
+                    self.inner.runtime.mutation_log.snapshot_accepted(anchor)?;
+                }
+            }
+            let root = held_root(&self.inner.runtime, state.reference_id);
+            RunSource::release_saved(&root)?;
+            self.inner.store.remove(RUN_INTENT_FILE)?;
+            let mut released = state.clone();
+            released.released = true;
+            self.inner.store.write("job.json", &released)?;
+            *state = released;
+        }
+        clear_previous(&self.inner.store, &state)
+    }
+}
+
+#[derive(Deserialize)]
+struct Located {
+    format: u16,
+    reference_id: uuid::Uuid,
+    objects: u64,
+}
+
+#[derive(Deserialize)]
+struct LocatedIntent {
+    reference_id: uuid::Uuid,
+    begin: LocatedBegin,
+}
+
+#[derive(Deserialize)]
+struct LocatedBegin {
+    job: LocatedJob,
+}
+
+#[derive(Deserialize)]
+struct LocatedJob {
+    commit_id: String,
+}
+
+pub(in crate::storage::disk_backup::byte_backup) fn retire_previous_format(
+    runtime: &PackRuntime,
+    store: &Store,
+    dropped: Option<&str>,
+) -> StorageResult<bool> {
+    let job = if store.exists("job.json")? {
+        let job: Located = store.read("job.json")?;
+        if job.format >= STATE_FORMAT {
+            return Ok(false);
+        }
+        Some(job)
+    } else {
+        None
+    };
+    let intent = if store.exists(RUN_INTENT_FILE)? {
+        Some(store.read::<LocatedIntent>(RUN_INTENT_FILE)?)
+    } else {
+        None
+    };
+    let dropped_intent = intent
+        .as_ref()
+        .is_some_and(|intent| Some(intent.begin.job.commit_id.as_str()) == dropped);
+    if job.is_none() && !dropped_intent {
+        return Ok(false);
+    }
+    let references = job
+        .as_ref()
+        .map(|job| job.reference_id)
+        .into_iter()
+        .chain(intent.map(|intent| intent.reference_id))
+        .filter(|id| !id.is_nil());
+    for reference in references {
+        let root = held_root(runtime, reference);
+        if root.try_exists()? {
+            RunSource::release_saved(&root)?;
+        }
+    }
+    if let Some(job) = &job {
+        let last = job.objects.min(MAX_OBJECTS);
+        for index in 0..=last {
+            for name in [object_name(index), format!("payload-{index:08}.enc")] {
+                store.remove(&name)?;
+                store.remove(&format!("{name}.pending"))?;
+            }
+        }
+    }
+    store.remove(RUN_INTENT_FILE)?;
+    store.remove("job.json")?;
+    Ok(true)
 }

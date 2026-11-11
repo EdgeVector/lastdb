@@ -1,15 +1,13 @@
 use super::*;
 
-pub(super) struct PreparedCommit {
+pub(in crate::storage::disk_pack) struct PreparedCommit {
     operations: Vec<HomeMutation>,
     batch_bytes: u64,
     space: SpaceReservation,
 }
 
 impl PreparedCommit {
-    /// A v2 batch: its bytes with the accepted prefix, and the space that
-    /// `prepare_run` reserved for them.
-    pub(super) fn for_run(
+    pub(in crate::storage::disk_pack) fn for_run(
         operations: Vec<HomeMutation>,
         batch_bytes: u64,
         space: SpaceReservation,
@@ -21,26 +19,26 @@ impl PreparedCommit {
         }
     }
 
-    pub(super) fn space(&self) -> &SpaceReservation {
+    pub(in crate::storage::disk_pack) fn space(&self) -> &SpaceReservation {
         &self.space
     }
 
-    pub(super) fn operations(&self) -> &[HomeMutation] {
+    pub(in crate::storage::disk_pack) fn operations(&self) -> &[HomeMutation] {
         &self.operations
     }
 
-    pub(super) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
+    pub(in crate::storage::disk_pack) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
         cas_delete::key_bytes(&self.operations)
     }
 }
 
 /// New operations and added space; the accepted prefix stays in the queue.
-pub(super) struct PreparedAppend {
+pub(in crate::storage::disk_pack) struct PreparedAppend {
     incoming: PreparedCommit,
 }
 
 impl PreparedAppend {
-    pub(super) fn reserve_capacity(
+    pub(in crate::storage::disk_pack) fn reserve_capacity(
         &self,
         previous: Option<&mut PreparedCommit>,
     ) -> StorageResult<()> {
@@ -55,13 +53,13 @@ impl PreparedAppend {
         Ok(())
     }
 
-    /// Reserved capacity and added space precede visible publication.
-    pub(super) fn finish(mut self, previous: Option<PreparedCommit>) -> PreparedCommit {
+    pub(in crate::storage::disk_pack) fn finish(
+        mut self,
+        previous: Option<PreparedCommit>,
+    ) -> PreparedCommit {
         if let Some(mut previous) = previous {
             previous.operations.append(&mut self.incoming.operations);
             self.incoming.operations = std::mem::take(&mut previous.operations);
-            // The write gate retains this exact prefix during preparation.
-            // Transfer the space quota without changing its ledger total.
             self.incoming.space.absorb(previous.space);
         }
         self.incoming
@@ -78,12 +76,10 @@ pub struct NativeFlushReceipt {
 }
 
 impl PackRuntime {
-    /// Most operations that one complete batch holds on this home.
     pub(crate) fn batch_operation_limit(&self) -> usize {
         physical::V2_BATCH_OPERATIONS
     }
 
-    /// Wake an accepted owner and capture the durable boundary after its flush.
     pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
         let target_sequence = self.flush_prefix().await?;
         let view = self.view.read().expect("native durable flush view");
@@ -95,7 +91,10 @@ impl PackRuntime {
         })
     }
 
-    pub(super) async fn ensure_namespace(self: &Arc<Self>, name: &str) -> StorageResult<()> {
+    pub(in crate::storage::disk_pack) async fn ensure_namespace(
+        self: &Arc<Self>,
+        name: &str,
+    ) -> StorageResult<()> {
         let key = format!("{NAMESPACES}{name}");
         let context = read::ReadContext::current(self).await?;
         let pending = transaction::PendingBatch::current(self);
@@ -113,7 +112,7 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(super) async fn mutate(
+    pub(in crate::storage::disk_pack) async fn mutate(
         self: &Arc<Self>,
         operations: Vec<HomeMutation>,
     ) -> StorageResult<()> {
@@ -130,21 +129,23 @@ impl PackRuntime {
         .await
     }
 
-    pub(super) fn commit(&self, operations: Vec<HomeMutation>) -> StorageResult<()> {
+    pub(in crate::storage::disk_pack) fn commit(
+        &self,
+        operations: Vec<HomeMutation>,
+    ) -> StorageResult<()> {
         if operations.is_empty() {
             return Ok(());
         }
-        self.commit_prepared(self.prepare_commit(operations)?)
+        let prepared = self.prepare_commit_extension(operations, None)?;
+        let changes = prepared
+            .operations
+            .iter()
+            .map(|operation| (operation.collection.clone(), operation.key.clone()))
+            .collect::<Vec<_>>();
+        self.commit_prepared_group(prepared, &changes, &[])
     }
 
-    pub(super) fn prepare_commit(
-        &self,
-        operations: Vec<HomeMutation>,
-    ) -> StorageResult<PreparedCommit> {
-        self.prepare_commit_extension(operations, None)
-    }
-
-    pub(super) fn prepare_append(
+    pub(in crate::storage::disk_pack) fn prepare_append(
         &self,
         operations: Vec<HomeMutation>,
         previous: Option<&PreparedCommit>,
@@ -168,16 +169,7 @@ impl PackRuntime {
         self.prepare_run(&self.physical, operations, previous)
     }
 
-    pub(super) fn commit_prepared(&self, prepared: PreparedCommit) -> StorageResult<()> {
-        let changes = prepared
-            .operations
-            .iter()
-            .map(|operation| (operation.collection.clone(), operation.key.clone()))
-            .collect::<Vec<_>>();
-        self.commit_prepared_group(prepared, &changes, &[])
-    }
-
-    pub(super) fn commit_prepared_group(
+    pub(in crate::storage::disk_pack) fn commit_prepared_group(
         &self,
         prepared: PreparedCommit,
         hidden_changes: &[(String, String)],
@@ -191,7 +183,7 @@ impl PackRuntime {
         self.commit_run(&self.physical, operations, space, hidden_changes, requests)
     }
 
-    pub(super) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
+    pub(in crate::storage::disk_pack) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(());
         }
@@ -226,7 +218,7 @@ pub(in crate::storage) struct WriteGuard {
     _publication: tokio::sync::OwnedMutexGuard<()>,
 }
 
-pub(super) fn prefix_batch_bytes(
+pub(in crate::storage::disk_pack) fn prefix_batch_bytes(
     previous: Option<&PreparedCommit>,
     incoming: &[HomeMutation],
     limit: usize,

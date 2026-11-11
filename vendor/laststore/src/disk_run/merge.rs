@@ -1,20 +1,161 @@
-//! Ordered merge of several sources, newest first.
+//! Bounded run ranges and ordered k-way merge of runs, newest first.
 
-use super::range::RunRange;
-use super::reader::RunReader;
+use super::reader::{IndexBlock, RunReader};
 use super::writer::RunWriter;
 use super::Found;
 use crate::Result;
-use std::ops::Bound;
+use std::ops::{Bound, Deref};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// One input of a merge: one run, or a sequence of runs in key order whose
-/// key ranges do not overlap.
-pub enum MergeSource<'a> {
-    /// One run inside its bounds.
+/// Borrowed or shared run reader backing a [`RunRange`].
+pub enum ReaderRef<'a> {
+    /// Borrowed reader for a single call.
+    Borrowed(&'a RunReader),
+    /// Shared reader for sequenced iteration.
+    Shared(Arc<RunReader>),
+}
+
+impl Deref for ReaderRef<'_> {
+    type Target = RunReader;
+
+    fn deref(&self) -> &RunReader {
+        match self {
+            Self::Borrowed(reader) => reader,
+            Self::Shared(reader) => reader,
+        }
+    }
+}
+
+/// Records of one run inside key bounds, in key order.
+pub struct RunRange<'a> {
+    reader: ReaderRef<'a>,
+    lower: Bound<Vec<u8>>,
+    upper: Bound<Vec<u8>>,
+    next_index: usize,
+    index: Option<IndexBlock>,
+    next_block: usize,
+    positioned: bool,
+    current: std::vec::IntoIter<(Vec<u8>, Found)>,
+    done: bool,
+}
+
+impl<'a> RunRange<'a> {
+    pub(super) fn new(reader: ReaderRef<'a>, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Self {
+        let next_index = match lower {
+            Bound::Included(key) | Bound::Excluded(key) => reader.index_for(key).unwrap_or(0),
+            Bound::Unbounded => 0,
+        };
+        Self {
+            reader,
+            lower: owned(lower),
+            upper: owned(upper),
+            next_index,
+            index: None,
+            next_block: 0,
+            positioned: false,
+            current: Vec::new().into_iter(),
+            done: false,
+        }
+    }
+
+    fn below_lower(&self, key: &[u8]) -> bool {
+        match &self.lower {
+            Bound::Included(lower) => key < lower.as_slice(),
+            Bound::Excluded(lower) => key <= lower.as_slice(),
+            Bound::Unbounded => false,
+        }
+    }
+
+    fn above_upper(&self, key: &[u8]) -> bool {
+        match &self.upper {
+            Bound::Included(upper) => key > upper.as_slice(),
+            Bound::Excluded(upper) => key >= upper.as_slice(),
+            Bound::Unbounded => false,
+        }
+    }
+
+    fn load_next_block(&mut self) -> Result<bool> {
+        loop {
+            let exhausted = match &self.index {
+                Some(index) => self.next_block >= index.blocks.len(),
+                None => true,
+            };
+            if exhausted {
+                if self.next_index >= self.reader.index_count() {
+                    return Ok(false);
+                }
+                let index = self.reader.read_index(self.next_index)?;
+                self.next_index += 1;
+                self.next_block = self.first_block_in(&index);
+                self.index = Some(index);
+                continue;
+            }
+            let index = self.index.as_ref().expect("index loaded");
+            let block = &index.blocks[self.next_block];
+            if self.above_upper(&block.first_key) {
+                return Ok(false);
+            }
+            let records = self.reader.read_data(block)?;
+            self.next_block += 1;
+            self.current = records.into_iter();
+            return Ok(true);
+        }
+    }
+
+    fn first_block_in(&mut self, index: &IndexBlock) -> usize {
+        if self.positioned {
+            return 0;
+        }
+        self.positioned = true;
+        match &self.lower {
+            Bound::Included(key) | Bound::Excluded(key) => index
+                .blocks
+                .partition_point(|b| b.first_key.as_slice() <= key.as_slice())
+                .saturating_sub(1),
+            Bound::Unbounded => 0,
+        }
+    }
+}
+
+fn owned(bound: Bound<&[u8]>) -> Bound<Vec<u8>> {
+    match bound {
+        Bound::Included(key) => Bound::Included(key.to_vec()),
+        Bound::Excluded(key) => Bound::Excluded(key.to_vec()),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+impl Iterator for RunRange<'_> {
+    type Item = Result<(Vec<u8>, Found)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.done {
+            if let Some((key, found)) = self.current.next() {
+                if self.below_lower(&key) {
+                    continue;
+                }
+                if self.above_upper(&key) {
+                    self.done = true;
+                    return None;
+                }
+                return Some(Ok((key, found)));
+            }
+            match self.load_next_block() {
+                Ok(true) => {}
+                Ok(false) => self.done = true,
+                Err(error) => {
+                    self.done = true;
+                    return Some(Err(error));
+                }
+            }
+        }
+        None
+    }
+}
+
+pub(crate) enum MergeSource<'a> {
     Run(RunRange<'a>),
-    /// Runs in key order; one run is open at a time.
     Sequence(RunSequence),
 }
 
@@ -29,10 +170,7 @@ impl Iterator for MergeSource<'_> {
     }
 }
 
-/// Records of runs in key order whose key ranges do not overlap, inside
-/// key bounds. It opens the next run only when the one before it ends, so a
-/// long sequence holds one open file.
-pub struct RunSequence {
+pub(crate) struct RunSequence {
     paths: std::vec::IntoIter<PathBuf>,
     key: [u8; 32],
     lower: Bound<Vec<u8>>,
@@ -42,8 +180,7 @@ pub struct RunSequence {
 }
 
 impl RunSequence {
-    /// The records of the runs at `paths`, in key order, inside the bounds.
-    pub fn new(
+    pub(crate) fn new(
         paths: Vec<PathBuf>,
         key: &[u8; 32],
         lower: Bound<Vec<u8>>,
@@ -96,9 +233,7 @@ impl Iterator for RunSequence {
     }
 }
 
-/// Records of several sources in key order. When sources hold the same
-/// key, the record from the earliest source wins, so pass the newest first.
-pub struct MergeIter<'a> {
+pub(crate) struct MergeIter<'a> {
     sources: Vec<MergeSource<'a>>,
     heads: Vec<Option<(Vec<u8>, Found)>>,
     started: bool,
@@ -106,13 +241,11 @@ pub struct MergeIter<'a> {
 }
 
 impl<'a> MergeIter<'a> {
-    /// Merges `sources`, newest first.
-    pub fn new(sources: Vec<RunRange<'a>>) -> Self {
+    pub(crate) fn new(sources: Vec<RunRange<'a>>) -> Self {
         Self::from_sources(sources.into_iter().map(MergeSource::Run).collect())
     }
 
-    /// Merges runs and run sequences, newest first.
-    pub fn from_sources(sources: Vec<MergeSource<'a>>) -> Self {
+    pub(crate) fn from_sources(sources: Vec<MergeSource<'a>>) -> Self {
         let heads = vec![None; sources.len()];
         Self {
             sources,
@@ -183,10 +316,7 @@ impl Iterator for MergeIter<'_> {
     }
 }
 
-/// Writes the merge of `sources` (newest first) into `writer`. A merge into
-/// the base passes `keep_tombstones = false`: no older run is left for a
-/// tombstone to hide. Returns the records written.
-pub fn merge_runs(
+pub(crate) fn merge_runs(
     sources: Vec<RunRange<'_>>,
     writer: &mut RunWriter,
     keep_tombstones: bool,

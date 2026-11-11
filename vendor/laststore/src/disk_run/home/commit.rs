@@ -1,7 +1,7 @@
 //! Commits (one level-0 run each) and tiered merges.
 
-use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
+use super::stream::run_key;
 use super::{RunHome, RunRoot};
 use crate::disk_run::space::MergeSpace;
 use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
@@ -11,12 +11,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// A level with this many runs is merged into one run on the next level.
-pub const MERGE_WIDTH: usize = 8;
-
-/// Most runs one merge reads. Each input holds one open file, so a level
-/// that grew while merges lagged is merged in slices of its oldest runs.
-pub const MAX_MERGE_INPUTS: usize = 64;
+pub(in crate::disk_run::home) const MERGE_WIDTH: usize = 8;
+pub(in crate::disk_run::home) const MAX_MERGE_INPUTS: usize = 64;
 
 /// Complete native stored mutation. The home derives its physical group.
 #[derive(Clone)]
@@ -46,42 +42,7 @@ pub struct RunCommit {
     pub run_bytes: u64,
 }
 
-/// What one merge step did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MergeKind {
-    /// The oldest runs of a full level became one run on the next level.
-    Tiered {
-        /// The level whose runs were merged.
-        level: usize,
-    },
-    /// One step of a base merge: base runs and the merging runs' records in
-    /// their key range became new base runs.
-    Base {
-        /// True at the last step, which removed the merging runs.
-        done: bool,
-    },
-}
-
-/// One published merge step.
-#[derive(Debug, Clone)]
-pub struct RunMerge {
-    /// The state this step installed; its frontier is unchanged.
-    pub root: RunRoot,
-    /// Generation of the CURRENT this step published.
-    pub generation: u64,
-    /// What the step did.
-    pub kind: MergeKind,
-    /// Runs the step read.
-    pub inputs: usize,
-    /// Records in the output runs.
-    pub records: u64,
-    /// Size of the output run files.
-    pub run_bytes: u64,
-    /// True for a base step: no older run is left, so it drops tombstones.
-    pub dropped_tombstones: bool,
-}
-
-pub(super) fn meta(summary: RunSummary) -> Result<RunMeta> {
+pub(in crate::disk_run::home) fn meta(summary: RunSummary) -> Result<RunMeta> {
     match (summary.first_key, summary.last_key) {
         (Some(first_key), Some(last_key)) => Ok(RunMeta {
             run_id: summary.run_id,
@@ -100,12 +61,7 @@ pub(super) fn meta(summary: RunSummary) -> Result<RunMeta> {
 }
 
 impl RunHome {
-    /// Write every operation into one new run, then publish it in a new
-    /// CURRENT. A read sees all of the commit or none of it. When two
-    /// operations name the same key, the later one wins.
-    ///
-    /// This call does not ack a logical write; the caller acks after it
-    /// returns.
+    /// Write every operation into one new run, then publish it in a new CURRENT.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
         self.refuse_if_poisoned()?;
         if operations.is_empty() {
@@ -116,8 +72,6 @@ impl RunHome {
             let key = run_key(&operation.collection, operation.key.as_bytes())?;
             records.push((key, operation.body));
         }
-        // Stable sort of the reversed list: for equal keys the last
-        // operation comes first, and dedup keeps the first of each key.
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
         let _commit = self.commit_lock()?;
@@ -125,8 +79,6 @@ impl RunHome {
         for (key, body) in &records {
             writer.push(key, body.as_deref())?;
         }
-        // Complete the bytes now. Durability overlaps CURRENT staging, but
-        // both prerequisites finish before CURRENT can name this run.
         let prepared = writer.prepare_finish()?;
         let run = meta(prepared.summary().clone())?;
         let records = run.records;
@@ -148,9 +100,7 @@ impl RunHome {
         })
     }
 
-    /// Publish `next`; when the publish fails before its rename, delete
-    /// the new run files that only `next` names.
-    pub(super) fn install_or_discard(
+    pub(in crate::disk_run::home) fn install_or_discard(
         &self,
         next: Manifest,
         fresh: &[Arc<RunFile>],
@@ -164,9 +114,7 @@ impl RunHome {
         installed
     }
 
-    /// Refuse a batch that [`RunHome::commit`] would refuse for its key
-    /// or value sizes, before any work. A writer calls it at admission, so
-    /// one oversized operation is refused alone and never fails a commit.
+    /// Refuse a batch that [`RunHome::commit`] would refuse for its key or value sizes.
     pub fn check_mutations(operations: &[HomeMutation]) -> Result<()> {
         for operation in operations {
             run_key(&operation.collection, operation.key.as_bytes())?;
@@ -183,22 +131,12 @@ impl RunHome {
         Ok(())
     }
 
-    /// Merge `inputs`, the oldest runs of `level`, into one run at the front
-    /// of the next level. Tombstones stay: older runs can hold the keys.
-    ///
-    /// The output hides what its inputs hid, less the versions the merge
-    /// dropped: for each key, the oldest input's hidden version stays hidden
-    /// and the newer input versions are gone.
-    ///
-    /// Commits continue during the merge; only the final publish waits for
-    /// a commit's publish. Reads that hold an older CURRENT keep the input
-    /// files until they end.
-    pub(super) fn merge_tiered(
+    pub(in crate::disk_run::home) fn merge_tiered(
         &self,
         level: usize,
         inputs: Vec<Arc<RunFile>>,
         policy: &SpacePolicy,
-    ) -> Result<RunMerge> {
+    ) -> Result<()> {
         if level + 1 >= MAX_LEVELS {
             return Err(Error::WriteCapacity(
                 "disk run home: no level is left for a merge".into(),
@@ -206,9 +144,6 @@ impl RunHome {
         }
         let space = MergeSpace::new(self.path(), policy)?;
         let output = self.write_merge(&inputs, true, &space)?;
-        let (records, run_bytes) = output
-            .as_ref()
-            .map_or((0, 0), |run| (run.records, run.file_bytes));
         let input_bytes: u64 = inputs.iter().map(|run| run.meta.record_bytes).sum();
         let hidden = inputs
             .iter()
@@ -228,8 +163,6 @@ impl RunHome {
             if next.levels.len() <= level + 1 {
                 next.levels.push(Vec::new());
             }
-            // Every input is newer than every run on the next level and
-            // older than every run left on its own level.
             let file = RunFile::new(&self.runs, run);
             if let Some(hidden) = hidden {
                 file.set_hidden(hidden);
@@ -239,24 +172,14 @@ impl RunHome {
         while next.levels.last().is_some_and(|l| l.is_empty()) {
             next.levels.pop();
         }
-        let installed = self.install_merge(next, &space)?;
+        let _installed = self.install_merge(next, &space)?;
         for run in &inputs {
             run.retire();
         }
         self.note_retired(&inputs);
-        Ok(RunMerge {
-            root: RunRoot(Arc::clone(&installed)),
-            generation: installed.generation,
-            kind: MergeKind::Tiered { level },
-            inputs: inputs.len(),
-            records,
-            run_bytes,
-            dropped_tombstones: false,
-        })
+        Ok(())
     }
 
-    /// Merge `inputs` (newest first) into one new durable run, or `None`
-    /// when nothing is left to write.
     fn write_merge(
         &self,
         inputs: &[Arc<RunFile>],
@@ -276,6 +199,6 @@ impl RunHome {
     }
 }
 
-pub(super) fn overflow() -> Error {
+pub(in crate::disk_run::home) fn overflow() -> Error {
     Error::WriteCapacity("disk run home: generation counter is full".into())
 }

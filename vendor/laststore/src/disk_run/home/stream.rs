@@ -1,94 +1,51 @@
-//! Bounded backup reads. Ordinary owner reads keep their existing fast path.
-use super::super::keys::{run_key, storage_key};
-use super::RunRead;
-use crate::disk_run::reader::stream::SelectedBody;
-use crate::disk_run::RunReader;
-use crate::{Error, Result};
-use sha2::{Digest, Sha256};
-use std::io::{self, Write};
+//! Run key encoding, bounded backup value reads, and bounded range cursor.
 
-/// Exact stored bytes copied without a file-sized allocation.
-pub struct CopiedRunBody {
-    /// Complete body length.
-    pub body_bytes: u64,
-    /// SHA-256 of those exact bytes.
-    pub body_sha256: [u8; 32],
-}
-struct Output<'a> {
-    out: &'a mut dyn Write,
-    hash: Sha256,
-    bytes: u64,
-}
-impl Write for Output<'_> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.out.write_all(bytes)?;
-        self.hash.update(bytes);
-        self.bytes = self
-            .bytes
-            .checked_add(bytes.len() as u64)
-            .ok_or_else(|| io::Error::other("run body size overflow"))?;
-        Ok(bytes.len())
+use super::range::RunRangePage;
+use super::read::RunRead;
+use crate::disk_run::codec::corrupt;
+use crate::disk_run::reader::stream::SelectedBody;
+use crate::disk_run::{RunReader, MAX_RUN_KEY_BYTES};
+use crate::{Error, Result};
+
+pub(in crate::disk_run::home) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
+    let len = u16::try_from(collection.len())
+        .map_err(|_| Error::Config("disk run home: collection name too long".into()))?;
+    let total = 2 + collection.len() + key.len();
+    if total > MAX_RUN_KEY_BYTES {
+        return Err(Error::Config(
+            "disk run home: storage key exceeds the run key limit".into(),
+        ));
     }
-    fn flush(&mut self) -> io::Result<()> {
-        self.out.flush()
-    }
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(collection.as_bytes());
+    out.extend_from_slice(key);
+    Ok(out)
 }
-impl RunRead {
-    /// Stream one normal-read body under this exact root. A tombstone returns None.
-    /// Large values use fixed buffers and no independent body-size cap.
-    pub fn copy_body_to(
-        &mut self,
-        collection: &str,
-        id: &[u8],
-        output: &mut dyn Write,
-    ) -> Result<Option<CopiedRunBody>> {
-        self.bounded_streams = true;
-        self.examine(1)?;
-        self.charge((collection.len() + id.len()) as u64)?;
-        let wanted = self.compound_key(collection, id)?;
-        let admission = self.stream_admission(wanted.len())?;
-        for slot in 0..self.runs.len() {
-            if !self.runs[slot].0.meta.covers(&wanted) {
-                continue;
-            }
-            let reserved = self.shared_metadata_bytes.max(self.retained_bytes())
-                + self.costs.budget_bytes
-                + wanted.len() as u64;
-            let reader = RunReader::open_bounded_with_reserve(
-                &self.runs[slot].0.path,
-                &self.key,
-                admission,
-                reserved,
-            )?;
-            self.costs.runs_opened += 1;
-            match reader.stream_body(
-                &wanted,
-                admission,
-                self.shared_metadata_bytes.max(self.retained_bytes())
-                    + self.costs.budget_bytes
-                    + wanted.len() as u64,
-            )? {
-                Some(SelectedBody::Deleted) => return Ok(None),
-                Some(SelectedBody::Value(body)) => {
-                    let mut out = Output {
-                        out: output,
-                        hash: Sha256::new(),
-                        bytes: 0,
-                    };
-                    let copied = body.copy(&mut out, u64::MAX)?;
-                    if copied != out.bytes {
-                        return Err(crate::disk_run::codec::corrupt("copied run body length"));
-                    }
-                    return Ok(Some(CopiedRunBody {
-                        body_bytes: copied,
-                        body_sha256: out.hash.finalize().into(),
-                    }));
-                }
-                None => {}
-            }
+
+pub(in crate::disk_run::home) fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.pop() {
+        if last < 0xff {
+            end.push(last + 1);
+            return Some(end);
         }
-        Ok(None)
     }
+    None
+}
+
+pub(in crate::disk_run::home) fn storage_key(collection: &str, run_key: &[u8]) -> Result<String> {
+    let at = 2 + collection.len();
+    if run_key.len() < at
+        || run_key[..2] != (collection.len() as u16).to_be_bytes()
+        || &run_key[2..at] != collection.as_bytes()
+    {
+        return Err(corrupt("run key outside its collection"));
+    }
+    String::from_utf8(run_key[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
+}
+
+impl RunRead {
     fn stream_admission(&self, extra: usize) -> Result<u64> {
         let logical = self
             .budget
@@ -105,6 +62,7 @@ impl RunRead {
             .min(global)
             .min(lastdb_model::storage_policy::BACKUP_RESOURCES.decoded_values_bytes))
     }
+
     fn compound_key(&self, collection: &str, key: &[u8]) -> Result<Vec<u8>> {
         let length = collection
             .len()
@@ -125,6 +83,7 @@ impl RunRead {
         self.stream_admission(usize::try_from(actual).map_err(|_| Error::ReadBudgetExceeded)?)?;
         Ok(wanted)
     }
+
     pub(in crate::disk_run::home) fn streamed_value(
         &mut self,
         collection: &str,
@@ -181,6 +140,7 @@ impl RunRead {
             }
         }
     }
+
     pub(in crate::disk_run::home) fn streamed_next_key(
         &mut self,
         collection: &str,
@@ -240,5 +200,126 @@ impl RunRead {
         )?;
         self.costs.runs_opened += 1;
         reader.stream_key(lower, upper, exclusive, admission, reserved)
+    }
+}
+
+pub(in crate::disk_run::home) struct BoundedRange<'a> {
+    owner: &'a mut RunRead,
+    collection: String,
+    lower: Vec<u8>,
+    upper: Option<Vec<u8>>,
+    exclusive: bool,
+    exhausted: bool,
+}
+
+impl<'a> BoundedRange<'a> {
+    pub(in crate::disk_run::home) fn new(
+        owner: &'a mut RunRead,
+        collection: &str,
+        lower: Vec<u8>,
+        upper: Option<Vec<u8>>,
+        exclusive: bool,
+    ) -> Self {
+        Self {
+            owner,
+            collection: collection.into(),
+            lower,
+            upper,
+            exclusive,
+            exhausted: false,
+        }
+    }
+
+    pub(in crate::disk_run::home) fn account(&mut self, key: usize, body: usize) -> Result<()> {
+        self.owner.account_memory_record(key, body)
+    }
+
+    pub(in crate::disk_run::home) fn page(
+        &mut self,
+        limit: usize,
+        yielding: Option<(usize, usize)>,
+        maximum: u64,
+    ) -> Result<RunRangePage> {
+        let mut records = Vec::new();
+        let mut last = false;
+        let mut resume = None;
+        while !self.exhausted && records.len() < limit {
+            if let Some((held, keys)) = yielding {
+                let rows = held + records.len();
+                let needed = keys.saturating_mul(rows).saturating_add(16) as u64;
+                if rows > 0
+                    && keys > 0
+                    && self.owner.costs.examined_keys.saturating_add(needed)
+                        > self.owner.budget.keys
+                    && last
+                {
+                    resume = Some(self.resume_key()?);
+                    break;
+                }
+            }
+            let Some(key) = self.next_key()? else {
+                self.exhausted = true;
+                break;
+            };
+            if self.owner.costs.examined_keys >= self.owner.budget.keys {
+                if yielding.is_some() && last {
+                    resume = Some(self.resume_key()?);
+                    break;
+                }
+                return Err(Error::ReadBudgetExceeded);
+            }
+            let value = self.value(&key, maximum)?;
+            self.lower = run_key(&self.collection, key.as_bytes())?;
+            self.exclusive = true;
+            last = true;
+            if let Some(value) = value {
+                records.push((key, value));
+            }
+        }
+        Ok(RunRangePage {
+            records,
+            exhausted: self.exhausted,
+            resume,
+        })
+    }
+
+    fn next_key(&mut self) -> Result<Option<String>> {
+        self.owner.streamed_next_key(
+            &self.collection,
+            &self.lower,
+            self.upper.as_deref(),
+            self.exclusive,
+        )
+    }
+
+    fn coordinate_bytes(&self) -> u64 {
+        (self.collection.capacity()
+            + self.lower.capacity()
+            + self.upper.as_ref().map_or(0, Vec::capacity)) as u64
+    }
+
+    fn value(&mut self, key: &str, maximum: u64) -> Result<Option<Vec<u8>>> {
+        let before = self.owner.shared_metadata_bytes;
+        self.owner.shared_metadata_bytes = before
+            .max(self.owner.retained_bytes())
+            .checked_add(self.coordinate_bytes())
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let value = self.owner.streamed_value(&self.collection, key, maximum);
+        self.owner.shared_metadata_bytes = before;
+        value
+    }
+
+    fn resume_key(&self) -> Result<String> {
+        let retained = self
+            .owner
+            .shared_metadata_bytes
+            .max(self.owner.retained_bytes())
+            .saturating_add(self.owner.costs.budget_bytes)
+            .saturating_add(self.coordinate_bytes())
+            .saturating_add(self.lower.len() as u64);
+        if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        storage_key(&self.collection, &self.lower)
     }
 }

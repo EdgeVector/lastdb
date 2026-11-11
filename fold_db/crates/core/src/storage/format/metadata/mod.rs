@@ -1,9 +1,10 @@
 //! The metadata namespace's typed capability and its only staging writer.
 //!
-//! Callers supply clock values. Nested encoders
-//! receive data, never this namespace handle. The existing native request
-//! owns commit and publication; staging here never creates a request or flush.
+//! Callers supply clock values. Nested encoders receive data, never this
+//! namespace handle. The existing native request owns commit and publication;
+//! staging here never creates a request or flush.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::schema::types::MutationAuthorClockState;
@@ -12,19 +13,44 @@ use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::YieldedScan;
 use crate::storage::StorageError;
+use serde::{Deserialize, Serialize};
 
-mod file_references;
 mod portable_author;
 pub(in crate::storage) const NATIVE_SHARED_SCOPE_KEY: &str = "native-shared-schema-scope";
-pub(crate) use file_references::{FileReferenceChange, FileRetention};
-pub(in crate::storage) use file_references::{
-    FILE_REFERENCE_PREFIX, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY,
-};
+pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
+pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
+pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 pub(in crate::storage) use portable_author::{
     initial_local_author, shared_metadata_key, validate_local_author, LOCAL_AUTHOR_KEY,
 };
 pub(crate) use portable_author::{CheckpointDirectory, DefinitionSet, JournalSchema};
 pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
+
+#[derive(Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+struct Reference {
+    live: bool,
+    pending_through: u64,
+}
+
+#[derive(Default)]
+pub(crate) struct FileReferenceChange {
+    pub(crate) live: Option<bool>,
+    pub(crate) pending_through: u64,
+    pub(crate) completed_through: u64,
+    pub(crate) local_detach: bool,
+}
+
+#[derive(Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum FileRetention {
+    #[default]
+    Uninitialized,
+    Log(Vec<u8>),
+    Records(Vec<u8>),
+    Files(Vec<u8>),
+    Complete,
+}
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
@@ -89,7 +115,6 @@ impl Metadata {
         }
         .await;
         result.map_err(|error| match error {
-            // Preserve capacity refusals for the clock queue's bounded retry.
             StorageError::WriteResourceLimit { detail } => {
                 SchemaError::WriteResourceLimit { detail }
             }
@@ -144,6 +169,108 @@ impl Metadata {
         Ok(())
     }
 
+    pub(crate) async fn stage_reset_rejoin_file_references(
+        &self,
+        after: Option<&[u8]>,
+    ) -> StorageResult<Option<Vec<u8>>> {
+        if after.is_none() && !matches!(self.file_retention().await?, FileRetention::Uninitialized)
+        {
+            self.stage_file_retention(&FileRetention::Uninitialized)
+                .await?;
+        }
+        let page = self
+            .rejoin_prefix_page(FILE_REFERENCE_PREFIX, after)
+            .await?;
+        if !page.rows.is_empty() {
+            self.stage_deletes(page.rows.into_iter().map(|(key, _)| key).collect())
+                .await?;
+        }
+        Ok(page.resume)
+    }
+
+    pub(crate) async fn stage_file_references(
+        &self,
+        changes: BTreeMap<String, FileReferenceChange>,
+    ) -> StorageResult<Vec<Vec<u8>>> {
+        if changes.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.require_scope()?;
+        let keys: Vec<_> = changes.keys().map(|path| reference_key(path)).collect();
+        let (state, rows) = futures::try_join!(
+            self.file_retention(),
+            self.metadata_store
+                .get_many(keys.iter().map(|key| key.as_bytes().to_vec()).collect()),
+        )?;
+        if rows.len() != keys.len() {
+            return Err(invalid_file_ref("incomplete file reference read"));
+        }
+        let can_retire = matches!(state, FileRetention::Files(_) | FileRetention::Complete);
+        let mut puts = Vec::new();
+        let mut deletes = Vec::new();
+        let mut retired = Vec::new();
+        for (((path, change), key), row) in changes.into_iter().zip(keys).zip(rows) {
+            let mut reference: Reference = row
+                .as_deref()
+                .map(serde_json::from_slice)
+                .transpose()
+                .map_err(invalid_file_ref)?
+                .unwrap_or_default();
+            reference.live = change.live.unwrap_or(reference.live);
+            reference.pending_through = reference.pending_through.max(change.pending_through);
+            if reference.pending_through <= change.completed_through {
+                reference.pending_through = 0;
+            }
+            if reference.live || reference.pending_through != 0 {
+                puts.push(EncodedMetadata {
+                    key,
+                    bytes: serde_json::to_vec(&reference).map_err(invalid_file_ref)?,
+                });
+            } else {
+                if row.is_some() {
+                    deletes.push(key.into_bytes());
+                }
+                if can_retire || change.local_detach {
+                    retired.push(path.into_bytes());
+                }
+            }
+        }
+        if !puts.is_empty() {
+            self.stage_batch(puts).await?;
+        }
+        if !deletes.is_empty() {
+            self.stage_deletes(deletes).await?;
+        }
+        Ok(retired)
+    }
+
+    pub(crate) async fn file_retention(&self) -> StorageResult<FileRetention> {
+        let row = self
+            .metadata_store
+            .get(FILE_RETENTION_KEY.as_bytes())
+            .await?;
+        Ok(row
+            .as_deref()
+            .map(serde_json::from_slice)
+            .transpose()
+            .map_err(invalid_file_ref)?
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn stage_file_retention(&self, state: &FileRetention) -> StorageResult<()> {
+        self.stage(EncodedMetadata {
+            key: FILE_RETENTION_KEY.into(),
+            bytes: serde_json::to_vec(state).map_err(invalid_file_ref)?,
+        })
+        .await
+    }
+
+    pub(crate) async fn has_file_reference(&self, path: &str) -> StorageResult<bool> {
+        self.metadata_store
+            .exists(reference_key(path).as_bytes())
+            .await
+    }
+
     fn require_scope(&self) -> StorageResult<()> {
         if !transaction::publication::active(&self.runtime) {
             return Err(StorageError::InvalidOperation(
@@ -195,6 +322,14 @@ impl Metadata {
             .scan_range_yielding(&start, &end, PAGE, 1)
             .await
     }
+}
+
+fn reference_key(path: &str) -> String {
+    format!("{FILE_REFERENCE_PREFIX}{path}")
+}
+
+fn invalid_file_ref(detail: impl std::fmt::Display) -> StorageError {
+    StorageError::InvalidOperation(format!("file reference index: {detail}"))
 }
 
 fn contribution_storage_error(error: &StorageError) -> SchemaError {

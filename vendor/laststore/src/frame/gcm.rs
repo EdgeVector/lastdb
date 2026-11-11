@@ -1,4 +1,4 @@
-use super::{as_io, buffer_size, source::Source};
+use super::stream::{as_io, buffer_size, Source};
 use crate::{Error, Result};
 use openssl::symm::{Cipher, Crypter, Mode};
 use std::io::{self, BufRead, Read};
@@ -18,8 +18,8 @@ pub(super) struct GcmReader {
 
 impl GcmReader {
     pub fn new(source: Arc<Source>, data_key: &[u8; 32]) -> Result<Self> {
-        let key = Zeroizing::new(super::super::chunk_key(data_key, source.header.chunk_uuid)?);
-        let nonce = super::super::counter_nonce(source.header.counter);
+        let key = Zeroizing::new(super::chunk_key(data_key, source.header.chunk_uuid)?);
+        let nonce = super::counter_nonce(source.header.counter);
         let mut cipher = Crypter::new(
             Cipher::aes_256_gcm(),
             Mode::Decrypt,
@@ -33,8 +33,6 @@ impl GcmReader {
         cipher
             .set_tag(&source.tag)
             .map_err(|_| Error::AeadAuthFail)?;
-        // Tiny metadata frames must not allocate and zeroize the bulk-stream
-        // allowance on every open. Empty frames still need finalization space.
         let input_bytes = usize::try_from(source.stored_bytes)
             .unwrap_or(usize::MAX)
             .min(buffer_size())

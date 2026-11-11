@@ -5,10 +5,6 @@
 //! memory lookup, so a write that committed in between cannot leave an old
 //! value. A record that a write puts enters memory after the flush puts the
 //! request on disk, under the same view lock that publishes the request.
-//!
-//! A native write request reads disk only: it must see its own private
-//! writes. A call whose captured view is older than the current view also
-//! reads disk only, so one call never mixes two revisions.
 
 use super::*;
 use crate::resident::RecordCoordinate;
@@ -16,17 +12,42 @@ use lastdb_model::record_value::StoredRecord;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 
+struct CurrentReceipt<'a> {
+    core: std::sync::MutexGuard<'a, crate::resident::CoreWarmSet>,
+    call: std::sync::MutexGuard<'a, super::physical::PhysicalRead>,
+    _view: std::sync::RwLockReadGuard<'a, super::view::NativeReadView>,
+}
+
+fn lock_current_receipt<'a>(
+    runtime: &'a PackRuntime,
+    context: &'a super::read::ReadContext,
+    view_label: &str,
+    core_label: &str,
+) -> Option<CurrentReceipt<'a>> {
+    let view = runtime.view.read().expect(view_label);
+    if view.revision != context.revision {
+        return None;
+    }
+    let call = context
+        .call
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let core = runtime.core.lock().expect(core_label);
+    Some(CurrentReceipt {
+        core,
+        call,
+        _view: view,
+    })
+}
+
 /// The memory answer of one read by record key.
 pub(crate) struct WarmRecordRead {
-    /// The view revision of the memory answer.
     revision: u64,
     coordinates: Vec<RecordCoordinate>,
     found: Vec<Option<Arc<StoredRecord>>>,
 }
 
 impl WarmRecordRead {
-    /// The memory value at each key position, in the order given. `None`
-    /// reads disk.
     pub(crate) fn take_found(&mut self) -> Vec<Option<Arc<StoredRecord>>> {
         std::mem::take(&mut self.found)
     }
@@ -41,7 +62,6 @@ pub(crate) struct WrittenRecord {
 }
 
 impl WrittenRecord {
-    /// `value` is the encoded record that the request puts at `key`.
     pub(crate) fn new(key: &str, record: Arc<StoredRecord>, value: &[u8]) -> Self {
         Self {
             coordinate: kv::coordinate(crate::storage::format::MAIN_NAMESPACE, key.as_bytes()),
@@ -51,14 +71,12 @@ impl WrittenRecord {
         }
     }
 
-    pub(super) fn bytes(&self) -> usize {
+    pub(in crate::storage::disk_pack) fn bytes(&self) -> usize {
         self.bytes
     }
 }
 
 impl PackRuntime {
-    /// Look up records by storage key in memory. `None` when this read must
-    /// read disk only.
     pub(crate) fn warm_records<K: AsRef<str>>(
         &self,
         keys: &[K],
@@ -76,7 +94,7 @@ impl PackRuntime {
             })
             .collect();
         let (revision, found) = if let Some(context) = read::ReadContext::captured(self) {
-            let Some(mut held) = logical_paths::lock_current_receipt(
+            let Some(mut held) = lock_current_receipt(
                 self,
                 &context,
                 "native record warm view",
@@ -85,7 +103,6 @@ impl PackRuntime {
                 return Ok(None);
             };
             let found = held.core.record_lookup(&coordinates);
-            // A memory hit costs the call the same read allowance as disk.
             for (key, hit) in keys.iter().zip(&found) {
                 if let Some((_, bytes)) = hit {
                     context.account_memory_record(&mut held.call, key.as_ref().len(), *bytes)?;
@@ -111,8 +128,6 @@ impl PackRuntime {
         }))
     }
 
-    /// Records that a disk read found after `read` missed them: the key
-    /// position, the decoded record and its encoded length.
     pub(crate) fn admit_read_records(
         &self,
         read: &WarmRecordRead,
@@ -135,9 +150,6 @@ impl PackRuntime {
             .admit_records(records);
     }
 
-    /// Stage the records that the current native write request puts. They
-    /// enter memory after the flush puts the request on disk. Staged bytes
-    /// above a quarter of the warm byte limit enter on a later read instead.
     pub(crate) fn stage_written_records(&self, records: Vec<WrittenRecord>) {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             pending.stage_warm_records(records, crate::resident::core_warm_bytes() / 4);
@@ -145,11 +157,7 @@ impl PackRuntime {
     }
 }
 
-/// The records that the committed requests put, in commit order. A record
-/// enters only when its request's final body at the key is the staged value
-/// and no later request changed the key. The caller publishes them under the
-/// view lock of the same commit.
-pub(super) fn committed_records(
+pub(in crate::storage::disk_pack) fn committed_records(
     requests: &[Arc<transaction::PendingBatch>],
 ) -> Vec<(RecordCoordinate, Arc<StoredRecord>, usize)> {
     let mut latest: HashMap<RecordCoordinate, (Arc<StoredRecord>, usize)> = HashMap::new();

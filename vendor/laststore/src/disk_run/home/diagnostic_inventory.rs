@@ -1,8 +1,8 @@
 //! Checkpoint-only newest-wins inventory; no key or body leaves this module.
-use super::diagnostic_cursor::InventoryCursor;
+use super::diagnostic::InventoryCursor;
 use super::manifest::Manifest;
 use super::RunHome;
-use crate::disk_run::reader::stream::SummaryCursor;
+use crate::disk_run::reader_diagnostic::SummaryCursor;
 use crate::{Error, Result};
 use serde::Serialize;
 use std::cmp::Reverse;

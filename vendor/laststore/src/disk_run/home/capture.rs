@@ -1,8 +1,11 @@
 //! Durable flat holds of unchanged run-home files. Never a second owner.
 use super::{
-    manifest::Manifest, read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts, CURRENT,
-    RUNS, RUN_HOME_MARKER,
+    manifest::Manifest,
+    open::{slots, ReadSlot},
+    read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts, CURRENT, RUNS,
+    RUN_HOME_MARKER,
 };
+use crate::disk_run::MetadataMemo;
 use crate::durability::sync_directory;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -23,6 +26,7 @@ pub enum CapturedRunKind {
     /// An immutable encrypted sorted run.
     Run,
 }
+
 /// One original native file and its durable flat hardlink.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,12 +68,15 @@ pub struct CapturedRunHome {
     #[serde(skip)]
     manifest: Arc<OnceLock<Arc<Manifest>>>,
 }
+
 fn invalid(message: &str) -> Error {
     Error::Config(message.into())
 }
+
 fn write_uuid<S: serde::Serializer>(value: &Uuid, out: S) -> std::result::Result<S::Ok, S::Error> {
     out.serialize_str(&value.to_string())
 }
+
 fn read_uuid<'de, D: serde::Deserializer<'de>>(input: D) -> std::result::Result<Uuid, D::Error> {
     let value = String::deserialize(input)?;
     Uuid::parse_str(&value).map_err(serde::de::Error::custom)
@@ -77,7 +84,6 @@ fn read_uuid<'de, D: serde::Deserializer<'de>>(input: D) -> std::result::Result<
 
 impl RunHome {
     /// Link one exact cut into an absent private directory on this filesystem.
-    /// This takes only the publication mutex; hashing occurs after this call.
     pub fn capture_files(&self, destination: &Path) -> Result<CapturedRunHome> {
         let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
         self.refuse_if_poisoned()?;
@@ -135,6 +141,7 @@ impl RunHome {
         Ok(capture)
     }
 }
+
 impl CapturedRunHome {
     fn link(
         &mut self,
@@ -164,14 +171,7 @@ impl CapturedRunHome {
         });
         Ok(())
     }
-    /// Reopen and authenticate a durable cut without touching live CURRENT.
-    pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        Self::open_bounded(
-            root,
-            key,
-            lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes,
-        )
-    }
+
     /// Reopen with explicit combined capture metadata-memory admission.
     pub fn open_bounded(root: &Path, key: &[u8; 32], maximum: u64) -> Result<Self> {
         let directory = fs::symlink_metadata(root)?;
@@ -188,7 +188,7 @@ impl CapturedRunHome {
             || metadata.mode() & 0o077 != 0
             || metadata.len().saturating_mul(3) > maximum
         {
-            return Err(crate::Error::ReadBudgetExceeded);
+            return Err(Error::ReadBudgetExceeded);
         }
         let mut capture: Self = serde_json::from_reader(file.take(64 * 1024 * 1024))
             .map_err(|_| invalid("run capture metadata format"))?;
@@ -198,7 +198,7 @@ impl CapturedRunHome {
         }
         let maximum = maximum
             .checked_sub(capture.file_metadata_bytes())
-            .ok_or(crate::Error::ReadBudgetExceeded)?;
+            .ok_or(Error::ReadBudgetExceeded)?;
         let manifest = Manifest::load_paths_bounded(
             &root.join("current"),
             root,
@@ -213,6 +213,7 @@ impl CapturedRunHome {
         let _ = capture.manifest.set(Arc::new(manifest));
         Ok(capture)
     }
+
     fn file_metadata_bytes(&self) -> u64 {
         (self.files.capacity() * std::mem::size_of::<CapturedRunFile>()
             + self
@@ -221,20 +222,19 @@ impl CapturedRunHome {
                 .map(|f| f.path.capacity() + f.held.capacity())
                 .sum::<usize>()) as u64
     }
+
     /// In-memory metadata retained by this durable cut, excluding file bodies.
     pub fn retained_bytes(&self) -> u64 {
         self.file_metadata_bytes() + self.manifest.get().map_or(0, |m| m.retained_bytes())
     }
+
     /// Additional bytes of a read-call slot vector at this exact cut.
     pub fn reader_bytes(&self) -> u64 {
         self.manifest.get().map_or(0, |m| {
-            m.newest_first().count()
-                * std::mem::size_of::<(
-                    Arc<super::manifest::RunFile>,
-                    Option<crate::disk_run::RunReader>,
-                )>()
+            m.newest_first().count() * std::mem::size_of::<ReadSlot>()
         }) as u64
     }
+
     fn validate_files(&self, manifest: &Manifest) -> Result<()> {
         let count = manifest
             .newest_first()
@@ -285,6 +285,7 @@ impl CapturedRunHome {
         }
         Ok(())
     }
+
     /// Open one unchanged held file. Callers separately verify its complete hash.
     pub fn reader(&self, native: &Path) -> Result<File> {
         let file = self
@@ -301,12 +302,13 @@ impl CapturedRunHome {
         }
         Ok(input)
     }
+
     /// Read the exact captured root while the same native owner keeps its lock.
     pub fn read(&self, owner: &RunHome, budget: ReadBudget) -> Result<RunRead> {
         if self.retained_bytes().saturating_add(self.reader_bytes())
             > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
         {
-            return Err(crate::Error::ReadBudgetExceeded);
+            return Err(Error::ReadBudgetExceeded);
         }
         if owner.identity != self.home_id {
             return Err(invalid("run capture owner identity"));
@@ -319,10 +321,10 @@ impl CapturedRunHome {
         let available = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(self.retained_bytes())
-            .ok_or(crate::Error::ReadBudgetExceeded)?;
-        let runs = super::read_only::slots(&manifest, available)?;
-        let shared_metadata_bytes = self.retained_bytes()
-            + (runs.capacity() * std::mem::size_of::<super::read_only::ReadSlot>()) as u64;
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let runs = slots(&manifest, available)?;
+        let shared_metadata_bytes =
+            self.retained_bytes() + (runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64;
         Ok(RunRead {
             bounded_streams: true,
             shared_metadata_bytes,
@@ -331,29 +333,12 @@ impl CapturedRunHome {
             key: owner.key,
             budget,
             costs: RunReadCosts::default(),
-            metadata: super::super::reader::MetadataMemo::new(0),
+            metadata: MetadataMemo::new(0),
             _owner_lock: Arc::clone(&owner.lock),
         })
     }
-    /// Remove only this capture's flat files after the caller proves release.
-    pub fn release(&self) -> Result<()> {
-        for file in &self.files {
-            match fs::remove_file(self.root.join(&file.held)) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-        match fs::remove_file(self.root.join("capture.json")) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-        sync_directory(&File::open(&self.root)?)?;
-        Ok(())
-    }
+
     /// Release only recognized flat capture links, including an interrupted capture.
-    /// The caller supplies the separate durable terminal or unsubmitted authority.
     pub fn release_saved(root: &Path) -> Result<()> {
         let entries = match fs::read_dir(root) {
             Ok(entries) => entries,

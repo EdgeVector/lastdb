@@ -1,32 +1,35 @@
 //! Owner capture of the main home (and, for a shared database, its CAS home).
-//! No second home owner or storage-format conversion.
+
 use super::{
-    capture::PublicationGate, invalid, model::State, protocol, run_source::RunSource,
-    store::private_directory, store::Store, ByteBackupCapture, Inner, PackRuntime, StorageResult,
-    RUN_INTENT_FILE,
+    capture::PublicationGate,
+    invalid, protocol,
+    run_source::RunSource,
+    snapshot_cleanup::{enter_clean_cut, held_root, hold_complete, publish_hold},
+    store::{private_directory, Store},
+    ByteBackupCapture, Inner, PackRuntime, State, StorageResult, RUN_INTENT_FILE, STATE_FORMAT,
 };
 use cloud_backup_protocol::{bytes_sha256, v2::Begin, Digest, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-use std::path::{Path, PathBuf};
+use std::os::unix::fs::DirBuilderExt;
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc, Mutex,
 };
-mod ready;
-pub(super) use ready::held_root;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Intent {
-    begin: Begin,
-    key_sha256: Digest,
-    reference_id: uuid::Uuid,
+pub(in crate::storage::disk_backup::byte_backup) struct Intent {
+    pub(in crate::storage::disk_backup::byte_backup) begin: Begin,
+    pub(in crate::storage::disk_backup::byte_backup) key_sha256: Digest,
+    pub(in crate::storage::disk_backup::byte_backup) reference_id: uuid::Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    journal_anchor: Option<super::super::mutation_log::LogAnchor>,
+    pub(in crate::storage::disk_backup::byte_backup) journal_anchor:
+        Option<super::super::mutation_log::LogAnchor>,
 }
-pub(super) async fn prepare(
+
+pub(in crate::storage::disk_backup::byte_backup) async fn prepare(
     runtime: &Arc<PackRuntime>,
     begin: Begin,
     key: &[u8; 32],
@@ -54,13 +57,12 @@ pub(super) async fn prepare(
             saved_cut(&source, &requested, &key_sha256)
         })
         .await?;
-    // Acquire app and native write locks in the same order as the app.
     let edit = publication_gate
         .filter(|_| !held)
         .map(|acquire| acquire())
         .transpose()?;
     let gate = if renew_unmaterialized && !held && runtime.serving.load(Ordering::Acquire) {
-        super::snapshot_cleanup::enter_clean_cut(runtime).await?
+        enter_clean_cut(runtime).await?
     } else {
         runtime.enter_write().await
     };
@@ -96,9 +98,7 @@ pub(super) async fn prepare(
             intent
         };
         let root = held_root(&runtime, intent.reference_id);
-        if renew_unmaterialized && root.try_exists()? && !ready::complete(&root)? {
-            // No source State or provider begin exists. Reuse exact local-only
-            // cancellation authority to retire an interrupted paired capture.
+        if renew_unmaterialized && root.try_exists()? && !hold_complete(&root)? {
             RunSource::release_saved(&root)?;
         }
         if !root.try_exists()? {
@@ -111,7 +111,7 @@ pub(super) async fn prepare(
         state.validate()?;
         store.write("job.json", &state)?;
         super::capture::finish(
-            inner(runtime, store, state, Some(run), admission),
+            make_inner(runtime, store, state, Some(run), admission),
             &key,
             true,
         )
@@ -119,7 +119,6 @@ pub(super) async fn prepare(
     .await
 }
 
-/// The cloud-work guard serializes sidecar access before the write gate.
 fn saved_cut(
     runtime: &PackRuntime,
     begin: &Begin,
@@ -130,9 +129,7 @@ fn saved_cut(
         return Err(invalid("run capture writer recovery"));
     }
     let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
-    // A capture saved by a program with an older capture format cannot
-    // resume; release it so the new snapshot starts clean.
-    super::previous_capture::retire(runtime, &store, None)?;
+    super::capture::retire_previous_format(runtime, &store, None)?;
     let previous = if store.exists("job.json")? {
         let old: State = store.read("job.json")?;
         old.validate()?;
@@ -153,7 +150,7 @@ fn saved_cut(
     if saved.begin != *begin || saved.key_sha256 != *key_sha256 || saved.reference_id.is_nil() {
         return Err(invalid("run capture intent differs"));
     }
-    let held = ready::complete(&held_root(runtime, saved.reference_id))?;
+    let held = hold_complete(&held_root(runtime, saved.reference_id))?;
     Ok((store, previous, Some(saved), held))
 }
 
@@ -179,22 +176,20 @@ fn renew_intent(
             "snapshot mutation log anchor changed before capture",
         ));
     }
-    // The caller still owns the same write gate as capture_pair. No source State,
-    // held directory, transfer input, or remote begin exists for this request.
-    // Old journal epochs remain retained until the replacement snapshot is accepted.
     intent.journal_anchor = runtime.mutation_log.snapshot_anchor(&runtime.physical)?;
     store.write(RUN_INTENT_FILE, intent)
 }
-pub(super) fn require_shared_hold(root: &Path) -> StorageResult<()> {
-    if !ready::complete(root)? {
+
+pub(in crate::storage::disk_backup::byte_backup) fn require_shared_hold(
+    root: &Path,
+) -> StorageResult<()> {
+    if !hold_complete(root)? {
         return Err(invalid("shared checkpoint hold is incomplete"));
     }
     Ok(())
 }
 
-/// Hold the main home and the node marker. Only a shared database checkpoint
-/// also holds its CAS home; a personal snapshot uploads record blobs by path.
-pub(super) fn capture_pair(
+pub(in crate::storage::disk_backup::byte_backup) fn capture_pair(
     runtime: &PackRuntime,
     root: &Path,
     with_cas: bool,
@@ -232,17 +227,19 @@ pub(super) fn capture_pair(
         return Err(invalid("run source node marker"));
     }
     fs::hard_link(&node, root.join(super::HELD_NODE_FILE))?;
-    ready::publish(root)?;
+    publish_hold(root)?;
     File::open(root.parent().ok_or_else(|| invalid("run capture parent"))?)?.sync_all()?;
     Ok(())
 }
+
 fn total_bytes(run: &RunSource) -> StorageResult<u64> {
     run.files
         .iter()
         .try_fold(0u64, |n, f| n.checked_add(f.bytes))
         .ok_or_else(|| invalid("run capture size overflow"))
 }
-fn inner(
+
+pub(in crate::storage::disk_backup::byte_backup) fn make_inner(
     runtime: Arc<PackRuntime>,
     store: Store,
     state: State,
@@ -258,6 +255,7 @@ fn inner(
         _admission: admission,
     }
 }
+
 fn reopen(
     runtime: Arc<PackRuntime>,
     store: Store,
@@ -288,9 +286,14 @@ fn reopen(
         }
         Some(source)
     };
-    super::capture::finish(inner(runtime, store, state, run, admission), key, admit)
+    super::capture::finish(
+        make_inner(runtime, store, state, run, admission),
+        key,
+        admit,
+    )
 }
-pub(super) async fn resume(
+
+pub(in crate::storage::disk_backup::byte_backup) async fn resume(
     runtime: &Arc<PackRuntime>,
     key: &[u8; 32],
 ) -> StorageResult<ByteBackupCapture> {
@@ -305,64 +308,6 @@ pub(super) async fn resume(
     })
     .await
 }
-pub(super) async fn cancel(
-    runtime: &Arc<PackRuntime>,
-    begin: &Begin,
-    key: &[u8; 32],
-) -> StorageResult<()> {
-    begin.validate().map_err(protocol)?;
-    runtime.require_ordinary_backup_home()?;
-    let admission = super::super::NativeCloudWorkGuard::acquire()?;
-    let runtime = Arc::clone(runtime);
-    let begin = begin.clone();
-    let key = zeroize::Zeroizing::new(*key);
-    crate::storage::disk_pack::run_blocking(move || {
-        let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
-        if !store.exists("job.json")? {
-            return cancel_intent(&runtime, &store, &begin, &key, None);
-        }
-        let mut state: State = store.read("job.json")?;
-        state.validate()?;
-        if state.begin != begin {
-            if !state.released || state.begin.job == begin.job {
-                return Err(invalid("run cancel identity"));
-            }
-            return cancel_intent(&runtime, &store, &begin, &key, Some(state.reference_id));
-        }
-        if state.terminal.is_some() || state.key_sha256 != bytes_sha256(key.as_ref()) {
-            return Err(invalid("run cancel identity"));
-        }
-        state.local_cancelled = true;
-        store.write("job.json", &state)?;
-        ByteBackupCapture {
-            inner: Arc::new(inner(runtime, store, state, None, admission)),
-        }
-        .finish_terminal()
-    })
-    .await
-}
-
-fn cancel_intent(
-    runtime: &PackRuntime,
-    store: &Store,
-    begin: &Begin,
-    key: &[u8; 32],
-    previous_reference: Option<uuid::Uuid>,
-) -> StorageResult<()> {
-    if !store.exists(RUN_INTENT_FILE)? {
-        return Ok(());
-    }
-    let intent: Intent = store.read(RUN_INTENT_FILE)?;
-    if intent.begin != *begin
-        || intent.key_sha256 != bytes_sha256(key)
-        || intent.reference_id.is_nil()
-        || previous_reference == Some(intent.reference_id)
-    {
-        return Err(invalid("run cancel intent"));
-    }
-    RunSource::release_saved(&held_root(runtime, intent.reference_id))?;
-    store.remove(RUN_INTENT_FILE)
-}
 
 fn new_state(
     run: &RunSource,
@@ -372,7 +317,7 @@ fn new_state(
 ) -> StorageResult<State> {
     let profile = run.profile()?;
     Ok(State {
-        format: super::model::STATE_FORMAT,
+        format: STATE_FORMAT,
         begin: intent.begin,
         reference_id: intent.reference_id,
         native_root: profile.native_root()?,

@@ -1,6 +1,55 @@
-//! Complete accepted requests share one bounded queue and disk owner.
+//! Complete accepted requests share one bounded queue, disk owner, and duty-cost tracker.
 
 use super::*;
+
+pub(crate) mod blocked {
+    use std::future::Future;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    static WRITE_SCOPES: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct Cost {
+        pub(crate) blocked: Duration,
+        pub(crate) scopes: u64,
+    }
+
+    #[derive(Default)]
+    struct JobCost {
+        blocked_us: AtomicU64,
+        scopes: AtomicU64,
+    }
+
+    tokio::task_local! {
+        static JOB: Arc<JobCost>;
+    }
+
+    pub(crate) async fn measure<F: Future>(work: F) -> (F::Output, Cost) {
+        let job = Arc::new(JobCost::default());
+        let output = JOB.scope(Arc::clone(&job), work).await;
+        let cost = Cost {
+            blocked: Duration::from_micros(job.blocked_us.load(Ordering::Acquire)),
+            scopes: job.scopes.load(Ordering::Acquire),
+        };
+        (output, cost)
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn opened() {
+        WRITE_SCOPES.fetch_add(1, Ordering::AcqRel);
+        let _ = JOB.try_with(|job| job.scopes.fetch_add(1, Ordering::AcqRel));
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn note(blocked: Duration) {
+        let micros = u64::try_from(blocked.as_micros()).unwrap_or(u64::MAX);
+        let _ = JOB.try_with(|job| job.blocked_us.fetch_add(micros, Ordering::AcqRel));
+    }
+
+    pub(crate) fn write_scopes() -> u64 {
+        WRITE_SCOPES.load(Ordering::Acquire)
+    }
+}
 
 pub(crate) async fn request_scope<T, E>(
     runtime: Arc<PackRuntime>,
@@ -9,10 +58,9 @@ pub(crate) async fn request_scope<T, E>(
 where
     E: From<StorageError>,
 {
-    scope(runtime, future, false).await
+    scope_inner(runtime, future, false).await
 }
 
-/// Return after the complete private background commit reaches disk.
 pub(crate) async fn background_scope<T, E>(
     runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -20,10 +68,10 @@ pub(crate) async fn background_scope<T, E>(
 where
     E: From<StorageError>,
 {
-    scope(runtime, future, true).await
+    scope_inner(runtime, future, true).await
 }
 
-async fn scope<T, E>(
+async fn scope_inner<T, E>(
     runtime: Arc<PackRuntime>,
     future: impl std::future::Future<Output = Result<T, E>>,
     background: bool,
@@ -43,46 +91,36 @@ where
         WRITE.scope(Arc::clone(&pending), future),
     )
     .await;
-    // A scope that staged nothing is not counted as a writer (`blocked::opened`): a poll
-    // that opens an empty scope must not keep a background job in its duty-paced mode.
     if !pending.is_empty().unwrap_or(false) {
-        super::blocked::opened();
+        blocked::opened();
     }
-    // Refused complete mutations never publish their earlier private stages.
-    // Preserve this classification even if an inner helper changed its error.
     if let Some(error) = pending.preparation_limit() {
         return Err(error.into());
     }
     let result = result??;
     pending.require_final_format()?;
     if pending.is_empty()? {
-        // Preserve an explicit durability fence without adding an empty batch.
         let target = runtime.seal_queue();
         drop(gate);
         note_gate_hold(held_from, 0, 0, &BatchShape::default());
         runtime.wait_for_queue(target).await?;
-        super::blocked::note(held_from.elapsed());
+        blocked::note(held_from.elapsed());
         return Ok(result);
     }
     let operations = pending.freeze_operations();
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
-    // A merge can publish an equivalent physical root during logical
-    // preparation. Admission binds owned quota to this logical frontier.
     let publication = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
-    // A cancelled pre-admission caller cannot release the queue's older quota.
     let (prepared, gate, publication) =
         run_blocking(move || Ok((owner.prepare_queued(operations)?, gate, publication))).await?;
-    // Every caller waits for the complete snapshot and clean core publication.
-    // Publication, ownership transfer and worker creation contain no await.
     let pending_timing = Arc::clone(&pending);
     let sequence = runtime.accept_queued(pending, prepared)?;
     drop(publication);
     drop(gate);
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     runtime.wait_for_queue(sequence).await?;
-    super::blocked::note(if background {
+    blocked::note(if background {
         hold.saturating_add(pending_timing.flush_blocked())
     } else {
         held_from.elapsed()
@@ -90,9 +128,6 @@ where
     Ok(result)
 }
 
-/// The kinds of operation in one accepted batch, for a run that reads the log.
-/// The record, its alternate entries and its file share one batch and
-/// one sequence number.
 #[derive(Default)]
 struct BatchShape {
     record_puts: u32,
@@ -132,10 +167,6 @@ impl BatchShape {
     }
 }
 
-/// Say how long a request held the write gate, for a run that reads the log, and
-/// return the hold. The hold covers preparation, staging and acceptance. The
-/// durable wait comes after the gate is free and is not counted here. A batch that
-/// seals the queue keeps writers waiting through that wait too (`blocked.rs`).
 fn note_gate_hold(
     held_from: std::time::Instant,
     operations: usize,

@@ -16,9 +16,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
-mod bounded;
-mod reader;
-
 const MAGIC: &[u8; 8] = b"LDRCUR2\0";
 /// File name of the sealed list of runs and the frontier.
 pub const CURRENT: &str = "CURRENT";
@@ -65,8 +62,8 @@ impl RunMeta {
         after: Option<&[u8]>,
         through: Option<&[u8]>,
     ) -> bool {
-        after.map_or(true, |after| self.last_key.as_slice() > after)
-            && through.map_or(true, |through| self.first_key.as_slice() <= through)
+        after.is_none_or(|after| self.last_key.as_slice() > after)
+            && through.is_none_or(|through| self.first_key.as_slice() <= through)
     }
 
     /// True when the run can hold a key in `[lower, upper)`.
@@ -98,8 +95,17 @@ impl RunFile {
     }
 
     fn counted(runs: &Path, meta: RunMeta, hidden: u64) -> Arc<Self> {
+        let path = runs.join(format!("{}{RUN_SUFFIX}", meta.run_id));
+        Self::from_parts(meta, path, hidden)
+    }
+
+    pub(in crate::disk_run::home) fn from_parts(
+        meta: RunMeta,
+        path: PathBuf,
+        hidden: u64,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            path: runs.join(format!("{}{RUN_SUFFIX}", meta.run_id)),
+            path,
             meta,
             obsolete: AtomicBool::new(false),
             hidden: AtomicU64::new(hidden),
@@ -203,7 +209,7 @@ impl Manifest {
         out
     }
 
-    fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
+    pub(in crate::disk_run::home) fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
         if bytes.get(..8) != Some(MAGIC.as_slice()) || bytes.len() < 24 {
             return Err(corrupt("bad CURRENT"));
         }
