@@ -1,6 +1,6 @@
 """Refuse a copied home whose node marker is not an admitted format.
 
-Admission compares the marker file to the private and shared byte strings.
+Admission compares the marker file to the current record-home byte string.
 This proof copies a stopped generated home, changes that marker, and requires
 a second daemon to exit with the unsupported-format error. The copy stays
 under the generated temp root. A successful open fails the job.
@@ -15,7 +15,6 @@ from home_format import FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, sour
 from node import UnixConnection
 
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")
-SHARED_MARKER = source_constant(FORMAT, "SHARED_NODE_BYTES")
 BOOT_ERROR = source_constant("lastdb_node/src/host/recovery.rs", "LAST_BOOT_ERROR_FILE")
 # admit() rejects every other marker through invalid()
 # ("node range admission: {text}") in run_admission.rs.
@@ -68,7 +67,7 @@ def refuse(node, directory, marker, label):
     shutil.copytree(node.home, home, symlinks=True)
     path = home / "data" / MARKER_FILE
     require(path.read_bytes() == PRIVATE_MARKER, "the copy changed the node marker")
-    require(marker not in (PRIVATE_MARKER, SHARED_MARKER), f"{label} is still an admitted marker")
+    require(marker != PRIVATE_MARKER, f"{label} is still an admitted marker")
     path.write_bytes(marker)
     error_file = home / BOOT_ERROR
     error_file.unlink(missing_ok=True)

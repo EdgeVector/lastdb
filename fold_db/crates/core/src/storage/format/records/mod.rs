@@ -9,7 +9,6 @@ mod release;
 mod retention;
 mod store;
 
-pub(crate) use applied_deletes::ReclaimedDeletes;
 pub(crate) use file_crypto::{require_row, seal_file_row};
 pub(crate) use release::{
     alternate_bounds, release_families, AlternateAddress, RecordAddress, ReleaseFamily, ReleaseKind,
@@ -28,10 +27,10 @@ use crate::storage::{KvMutation, StorageError};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::alternate_field_key_id;
 use lastdb_model::record_value::{
-    FileMarker, InlineFile, InlineWrite, RecordValueError, StoredRecord, MAX_RECORD_BYTES,
+    FileMarker, InlineWrite, RecordValueError, StoredRecord, MAX_RECORD_BYTES,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
@@ -45,7 +44,7 @@ pub struct AlternateEntry {
 
 pub(in crate::storage) mod inline_files {
     use crate::storage::error::StorageResult;
-    use crate::storage::format::records::{applied_deletes, RecordAddress};
+    use crate::storage::format::records::RecordAddress;
     use crate::storage::{KvMutation, StorageError};
     use lastdb_model::record_value::{FileMarker, InlineFile};
 
@@ -66,12 +65,6 @@ pub(in crate::storage) mod inline_files {
     pub(crate) fn record_key(key: &str) -> Option<&str> {
         let (family, record) = key.split_once(':')?;
         (family == INLINE_FILE_FAMILY).then_some(record)
-    }
-
-    pub(in crate::storage) fn owning_record(key: &str) -> &str {
-        applied_deletes::record_key(key)
-            .or_else(|| record_key(key))
-            .unwrap_or(key)
     }
 
     pub(in crate::storage) fn address(record: &str) -> String {
@@ -109,35 +102,6 @@ impl RecordFormat {
         };
         let file = inline_files::decode_for(&row, marker)?;
         Ok(Some(file.bytes().map_err(FoldDbError::Database)?))
-    }
-
-    pub(in crate::storage::format::records) async fn inline_files(
-        &self,
-        wanted: Vec<(String, FileMarker)>,
-    ) -> StorageResult<BTreeMap<String, InlineFile>> {
-        if wanted.is_empty() {
-            return Ok(BTreeMap::new());
-        }
-        let keys = wanted
-            .iter()
-            .map(|(key, _)| inline_files::address(key).into_bytes())
-            .collect();
-        let rows = self.main_store.get_many(keys).await?;
-        if rows.len() != wanted.len() {
-            return Err(StorageError::InvalidOperation(
-                "the inline file read batch is incomplete".into(),
-            ));
-        }
-        wanted
-            .into_iter()
-            .zip(rows)
-            .map(|((key, marker), row)| {
-                let row = row.ok_or_else(|| {
-                    StorageError::InvalidOperation("a record's inline file row is missing".into())
-                })?;
-                Ok((key, inline_files::decode_for(&row, &marker)?))
-            })
-            .collect()
     }
 }
 
@@ -198,13 +162,6 @@ pub(crate) struct RecordChange {
     pub file_write: Option<FileWrite>,
     /// Puts or clears the inline file row. `None` keeps the row as it is.
     pub inline_write: Option<InlineWrite>,
-    pub portable: PortableEffect,
-}
-
-pub(crate) enum PortableEffect {
-    Local,
-    SharedAuthor(String),
-    SharedReplay,
 }
 
 /// Only this format module can create the batch or add primary/alternate rows.
@@ -240,8 +197,6 @@ pub(in crate::storage::format::records) fn encode(
             key: change.key.clone(),
             after: Arc::clone(&after),
             write: change.file_write,
-            shared: !matches!(change.portable, PortableEffect::Local),
-            needs_upload: matches!(change.portable, PortableEffect::SharedAuthor(_)),
         });
         if after.is_live() {
             match &change.inline_write {
@@ -266,9 +221,6 @@ pub(in crate::storage::format::records) fn encode(
         } else {
             main.push(inline_files::delete(&change.key));
             main.push(applied_deletes::encode(&change.key, &after.stamp)?);
-            if !matches!(change.portable, PortableEffect::Local) {
-                main.push(applied_deletes::encode_age(&change.key, &after.stamp)?);
-            }
             main.push(KvMutation::delete(change.key.into_string()));
         }
     }

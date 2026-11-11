@@ -15,10 +15,6 @@ pub mod local {
     };
 }
 
-pub(crate) mod publish {
-    pub(crate) use crate::byte_cloud_restore::recipient::{finish_run_context, published_context};
-}
-
 pub(crate) use download::check_capacity;
 use download::{bounded_bytes, verify_file};
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};

@@ -21,7 +21,6 @@ pub(crate) mod record_warm;
 mod rows;
 mod run_commit;
 pub(in crate::storage) mod run_node;
-mod shared_layout;
 pub(crate) mod transaction;
 mod view;
 mod write;
@@ -33,7 +32,7 @@ pub use crate::storage::disk_backup::NativeCloudWorkGuard;
 pub use crate::storage::disk_cleanup::{
     NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
 };
-pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES};
+pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
 pub use physical::CAS_COLLECTION;
 pub use read::PackReadScope;
 pub use run_node::{CAS_DIR, RUN_DIR};
@@ -112,39 +111,6 @@ pub struct PackRuntime {
 }
 
 impl PackRuntime {
-    pub(in crate::storage) fn require_ordinary_backup_home(&self) -> StorageResult<()> {
-        if self.physical.shared.is_some() {
-            return Err(shared_layout::invalid(
-                "dedicated shared homes use the shared snapshot command",
-            ));
-        }
-        Ok(())
-    }
-
-    /// True when this runtime serves a dedicated shared database home.
-    pub fn is_dedicated_shared_home(&self) -> bool {
-        self.physical.shared.is_some()
-    }
-
-    pub fn require_direct_shared_home(&self) -> StorageResult<()> {
-        if self.physical.shared.is_none() {
-            return Err(shared_layout::invalid(
-                "direct snapshot requires a dedicated shared disk home",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn require_staged_shared_rejoin(&self) -> StorageResult<()> {
-        self.require_direct_shared_home()?;
-        if self.serving.load(Ordering::Acquire) {
-            return Err(shared_layout::invalid(
-                "shared rejoin requires a staged home",
-            ));
-        }
-        Ok(())
-    }
-
     pub(crate) fn fresh_initialization_pending(&self) -> bool {
         self.initializing.load(Ordering::Acquire)
     }

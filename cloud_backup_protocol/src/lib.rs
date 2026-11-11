@@ -11,7 +11,6 @@ pub mod limits;
 pub mod manifest;
 mod primitives;
 pub mod recovery;
-pub mod shared;
 pub mod v2;
 
 pub use common::*;

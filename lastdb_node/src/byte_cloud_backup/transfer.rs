@@ -198,9 +198,6 @@ pub(super) fn cloud_error(error: cloud_backup_protocol::ProtocolError) -> Backup
 
 /// Register the cloud source a personal home uses for non-local record blobs.
 pub fn register_blob_source(host: &crate::host::Host) {
-    if host.db.db_ops().native_runtime().is_dedicated_shared_home() {
-        return;
-    }
     let source: Arc<dyn RecordBlobSource> = match blob_source(host) {
         Ok(source) => Arc::new(source),
         Err(reason) => {

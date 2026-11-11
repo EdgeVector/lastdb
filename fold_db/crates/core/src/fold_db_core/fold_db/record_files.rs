@@ -167,14 +167,6 @@ impl FoldDB {
                 marker,
                 version,
             } => {
-                if self.db_ops().records().dedicated_shared_home() {
-                    return match revision {
-                        Some(_) => Err(FoldDbError::Database(
-                            "record file bytes are missing".into(),
-                        )),
-                        None => Ok(None),
-                    };
-                }
                 let bytes = self
                     .download_record_file(&record_key, &version, &marker)
                     .await?;

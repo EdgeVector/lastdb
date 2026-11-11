@@ -11,20 +11,16 @@ use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::traits::YieldedScan;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
 mod portable_author;
-pub(in crate::storage) const NATIVE_SHARED_SCOPE_KEY: &str = "native-shared-schema-scope";
 pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
 pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
 pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 pub(in crate::storage) use portable_author::{
-    initial_local_author, shared_metadata_key, validate_local_author, LOCAL_AUTHOR_KEY,
+    initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };
-pub(crate) use portable_author::{CheckpointDirectory, DefinitionSet, JournalSchema};
-pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -154,40 +150,6 @@ impl Metadata {
         Ok(false)
     }
 
-    /// Grow the shared scope by aliases that no schema in this home uses yet.
-    pub(crate) async fn stage_shared_aliases<'a>(
-        &self,
-        names: impl IntoIterator<Item = &'a str>,
-    ) -> StorageResult<()> {
-        if let Some(bytes) = self.runtime.grown_shared_aliases(names)? {
-            self.stage(EncodedMetadata {
-                key: NATIVE_SHARED_SCOPE_KEY.into(),
-                bytes,
-            })
-            .await?;
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn stage_reset_rejoin_file_references(
-        &self,
-        after: Option<&[u8]>,
-    ) -> StorageResult<Option<Vec<u8>>> {
-        if after.is_none() && !matches!(self.file_retention().await?, FileRetention::Uninitialized)
-        {
-            self.stage_file_retention(&FileRetention::Uninitialized)
-                .await?;
-        }
-        let page = self
-            .rejoin_prefix_page(FILE_REFERENCE_PREFIX, after)
-            .await?;
-        if !page.rows.is_empty() {
-            self.stage_deletes(page.rows.into_iter().map(|(key, _)| key).collect())
-                .await?;
-        }
-        Ok(page.resume)
-    }
-
     pub(crate) async fn stage_file_references(
         &self,
         changes: BTreeMap<String, FileReferenceChange>,
@@ -257,20 +219,6 @@ impl Metadata {
             .unwrap_or_default())
     }
 
-    pub(crate) async fn stage_file_retention(&self, state: &FileRetention) -> StorageResult<()> {
-        self.stage(EncodedMetadata {
-            key: FILE_RETENTION_KEY.into(),
-            bytes: serde_json::to_vec(state).map_err(invalid_file_ref)?,
-        })
-        .await
-    }
-
-    pub(crate) async fn has_file_reference(&self, path: &str) -> StorageResult<bool> {
-        self.metadata_store
-            .exists(reference_key(path).as_bytes())
-            .await
-    }
-
     fn require_scope(&self) -> StorageResult<()> {
         if !transaction::publication::active(&self.runtime) {
             return Err(StorageError::InvalidOperation(
@@ -301,26 +249,6 @@ impl Metadata {
     async fn stage_deletes(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
         self.require_scope()?;
         self.metadata_store.batch_delete(keys).await
-    }
-
-    /// Read one bounded page of a private metadata family for rejoin.
-    async fn rejoin_prefix_page(
-        &self,
-        prefix: &str,
-        after: Option<&[u8]>,
-    ) -> StorageResult<YieldedScan> {
-        const PAGE: usize = 64;
-        self.require_scope()?;
-        let Some((&b':', stem)) = prefix.as_bytes().split_last() else {
-            return Err(StorageError::InvalidOperation(
-                "invalid metadata prefix".into(),
-            ));
-        };
-        let start = after.map_or_else(|| prefix.as_bytes().to_vec(), |key| [key, &[0]].concat());
-        let end = [stem, b";"].concat();
-        self.metadata_store
-            .scan_range_yielding(&start, &end, PAGE, 1)
-            .await
     }
 }
 

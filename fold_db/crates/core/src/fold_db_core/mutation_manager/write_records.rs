@@ -1,13 +1,12 @@
 //! Complete record replacements and their nested effects share one native commit.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::{InlineWrite, StoredRecord};
 
-use super::portable_journal::schema_fingerprint;
 use super::validation::{check_expectation, require_contribution_author, validate_field_value};
 use super::write_effects::ChangedRecord;
 use super::{AuthoredMutation, MutationManager};
@@ -16,8 +15,7 @@ use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FileWrite, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
-use crate::storage::format::metadata::DefinitionSet;
-use crate::storage::format::records::{PortableEffect, RecordAddress};
+use crate::storage::format::records::RecordAddress;
 
 impl MutationManager {
     /// One batch read supplies both preconditions and the old nested addresses.
@@ -30,7 +28,6 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self.load_schema_for_delta(schema_name).await?;
-        require_current_binding(&schema, &mutations)?;
         if let Some(admission) = mutations
             .first()
             .and_then(|item| item.mutation.contribution.as_ref())
@@ -54,22 +51,14 @@ impl MutationManager {
             addresses.push(records.record_address(&schema, &key)?);
             keys.push(key);
         }
-        let declared = self.declared_fields_for(schema_name, &mutations).await?;
         let stored = read_write_preimages(records, &addresses, &mutations).await?;
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        for ((authored, declared_fields), (key, (address, before))) in mutations
+        for (authored, (key, (address, before))) in mutations
             .iter_mut()
-            .zip(&declared)
             .zip(keys.iter().zip(addresses.into_iter().zip(stored)))
         {
-            changes.push(prepare_record(
-                &schema,
-                authored,
-                address,
-                before,
-                declared_fields.as_ref(),
-            )?);
+            changes.push(prepare_record(&schema, authored, address, before)?);
             changed.push(ChangedRecord {
                 mutation: &authored.mutation,
                 key,
@@ -97,73 +86,6 @@ impl MutationManager {
         }
         Ok(())
     }
-
-    /// Field names of each mutation's named definition. `None` when the write
-    /// names no definition, or the schema is local. A shared write that names
-    /// an unknown or incompatible definition is refused before the record changes.
-    async fn declared_fields_for(
-        &self,
-        schema_name: &str,
-        mutations: &[AuthoredMutation],
-    ) -> Result<Vec<Option<BTreeSet<String>>>, SchemaError> {
-        let named = mutations
-            .iter()
-            .any(|item| item.shared_schema.is_some() && item.mutation.definition_id.is_some());
-        if !named {
-            return Ok(vec![None; mutations.len()]);
-        }
-        let sets = self.db_ops.metadata().portable_definition_sets().await?;
-        let set = sets.get(schema_name);
-        mutations
-            .iter()
-            .map(
-                |item| match (&item.shared_schema, item.mutation.definition_id.as_deref()) {
-                    (Some(_), Some(id)) => Ok(Some(declared_fields(schema_name, set, id)?)),
-                    _ => Ok(None),
-                },
-            )
-            .collect()
-    }
-}
-
-fn declared_fields(
-    schema_name: &str,
-    set: Option<&DefinitionSet>,
-    raw_id: &str,
-) -> Result<BTreeSet<String>, SchemaError> {
-    let unknown = || {
-        SchemaError::InvalidData(format!(
-            "schema '{schema_name}' names an unknown definition '{raw_id}'"
-        ))
-    };
-    let id = raw_id
-        .parse::<schema_types::PortableSchemaId>()
-        .map_err(|_| unknown())?;
-    let Some(set) = set else {
-        return Err(unknown());
-    };
-    let Some(named) = set.accepted.get(&id) else {
-        return Err(unknown());
-    };
-    let current = set.current.verify(set.current.id()).map_err(|error| {
-        SchemaError::InvalidData(format!(
-            "schema '{schema_name}' definition '{raw_id}' cannot be verified: {error}"
-        ))
-    })?;
-    let named_definition = named.verify(&id).map_err(|error| {
-        SchemaError::InvalidData(format!(
-            "schema '{schema_name}' definition '{raw_id}' cannot be verified: {error}"
-        ))
-    })?;
-    match current.extends(named_definition) {
-        Ok(true) => Ok(named_definition.fields.iter().flatten().cloned().collect()),
-        Ok(false) => Err(SchemaError::InvalidData(format!(
-            "schema '{schema_name}' names an incompatible definition '{raw_id}'"
-        ))),
-        Err(error) => Err(SchemaError::InvalidData(format!(
-            "schema '{schema_name}' names an incompatible definition '{raw_id}': {error}"
-        ))),
-    }
 }
 
 async fn read_write_preimages(
@@ -177,9 +99,7 @@ async fn read_write_preimages(
         .zip(&stored)
         .enumerate()
         .filter(|(_, (mutation, record))| {
-            (mutation.shared_schema.is_some()
-                || mutation.mutation.mutation_type == MutationType::Purge)
-                && record.is_none()
+            mutation.mutation.mutation_type == MutationType::Purge && record.is_none()
         })
         .map(|(index, _)| index)
         .collect();
@@ -210,78 +130,22 @@ fn require_contribution_definition(schema: &Schema, expected: &str) -> Result<()
     ))
 }
 
-fn require_current_binding(
-    schema: &Schema,
-    mutations: &[AuthoredMutation],
-) -> Result<(), SchemaError> {
-    if let Some(binding) = mutations
-        .first()
-        .and_then(|item| item.shared_schema.as_ref())
-    {
-        if schema_fingerprint(schema)? != binding.local_sha256 {
-            return Err(SchemaError::InvalidData(
-                "shared schema differs from its admitted revision".into(),
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn prepare_record(
     schema: &Schema,
     authored: &mut AuthoredMutation,
     address: RecordAddress,
     before: Option<Arc<StoredRecord>>,
-    declared_fields: Option<&BTreeSet<String>>,
 ) -> Result<RecordChange, SchemaError> {
-    let AuthoredMutation {
-        mutation,
-        stamp,
-        shared_schema,
-    } = authored;
-    let portable = if let Some(binding) = shared_schema {
-        if mutation
-            .erase_caller
-            .is_some_and(|caller| caller.starts_with("ttl-sweep-"))
-        {
-            return Err(SchemaError::InvalidData(
-                "shared expiry policy is deferred".into(),
-            ));
-        }
-        if before.as_ref().is_some_and(|record| record.stamp >= *stamp) {
-            return Err(SchemaError::InvalidData(
-                "local write would lose to a newer shared stamp".into(),
-            ));
-        }
-        PortableEffect::SharedAuthor(binding.id.clone())
-    } else {
-        PortableEffect::Local
-    };
+    let AuthoredMutation { mutation, stamp } = authored;
     check_expectation(mutation, before.as_deref())?;
     require_contribution_author(mutation, before.as_deref())?;
-    let mut after = replace_record(
-        schema,
-        mutation,
-        stamp.clone(),
-        before.as_deref(),
-        declared_fields,
-    )?;
-    // A live shared record keeps the definition its log entry names.
-    if let Some(binding) = shared_schema.as_ref().filter(|_| after.is_live()) {
-        after.definition_id = Some(
-            binding
-                .id
-                .parse::<schema_types::PortableSchemaId>()
-                .map_err(SchemaError::InvalidData)?,
-        );
-    }
+    let after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
     Ok(RecordChange {
         key: address,
         before,
         after,
         file_write: mutation.file_write.take(),
         inline_write: mutation.inline_write.take(),
-        portable,
     })
 }
 
@@ -290,7 +154,6 @@ fn replace_record(
     mutation: &Mutation,
     stamp: Stamp,
     before: Option<&StoredRecord>,
-    declared_fields: Option<&BTreeSet<String>>,
 ) -> Result<StoredRecord, SchemaError> {
     if matches!(
         mutation.mutation_type,
@@ -298,22 +161,11 @@ fn replace_record(
     ) {
         return Ok(StoredRecord::erased(stamp));
     }
-    let mut fields: BTreeMap<String, serde_json::Value> = mutation
+    let fields: BTreeMap<String, serde_json::Value> = mutation
         .record_fields
         .iter()
         .map(|(field, value)| (field.clone(), value.clone()))
         .collect();
-    if mutation.mutation_type == MutationType::Replace {
-        if let (Some(declared), Some(before)) =
-            (declared_fields, before.filter(|record| record.is_live()))
-        {
-            for (field, value) in &before.fields {
-                if !declared.contains(field) {
-                    fields.insert(field.clone(), value.clone());
-                }
-            }
-        }
-    }
     for (field, value) in &fields {
         validate_field_value(&schema.name, schema, field, value)?;
     }

@@ -3,6 +3,7 @@ mod error;
 
 pub use error::{BackupError, Disposition, PauseReason, PauseState};
 
+use cloud_backup_protocol::Id;
 use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},

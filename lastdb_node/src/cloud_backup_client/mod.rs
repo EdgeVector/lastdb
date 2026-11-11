@@ -21,8 +21,6 @@ const _: () = assert!(
             == fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes
         && cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
             == fold_db::storage_policy::BACKUP_RESOURCES.durable_spool_bytes
-        && cloud_backup_protocol::shared::MAX_BATCH_FILE_BYTES
-            == fold_db::storage_policy::native_write::PENDING_MEMORY_BYTES
 );
 
 /// Explicit account credentials only. Construction starts no request or claim.

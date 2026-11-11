@@ -1,17 +1,16 @@
 //! Node home creation, format admission, and v2 run home opening.
 
-use super::shared_layout::{Scope, SharedHome};
 use super::*;
 use crate::storage::content_key_proof;
 use crate::storage::format::control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY};
 use crate::storage::format::metadata::{
     initial_local_author, validate_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY,
-    LOCAL_AUTHOR_KEY, NATIVE_SHARED_SCOPE_KEY,
+    LOCAL_AUTHOR_KEY,
 };
 use crate::storage::format::{
     CAS_KEY_LABEL, CREATION_INTENT as INTENT, CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE,
-    HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, PRIVATE_KEY_LABEL, RECORDS_COLLECTION,
-    RECORD_PROFILE, SHARED_RECORD_PROFILE, STAGED_NODE_MARKER as STAGED_MARKER,
+    HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE,
+    STAGED_NODE_MARKER as STAGED_MARKER,
 };
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunHome, RunRead};
@@ -19,14 +18,12 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 
-pub(in crate::storage) use crate::storage::format::PRIVATE_DIR;
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 
 /// The backup profile version of a node marker. Only the current marker has one.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     match bytes {
         RECORD_NODE_BYTES => Some(RECORD_PROFILE),
-        SHARED_NODE_BYTES => Some(SHARED_RECORD_PROFILE),
         _ => None,
     }
 }
@@ -53,11 +50,11 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
         RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), admit_budget).map_err(map)?;
     let _cas =
         RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), admit_budget).map_err(map)?;
-    verify_proofs(&mut main, key, version)?;
+    verify_proofs(&mut main, key)?;
     Ok(version)
 }
 
-fn verify_proofs(main: &mut RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
+fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
     let coordinates = vec![
         (RECORDS_COLLECTION.into(), CURRENT_KEY_FORMAT_KEY.into()),
         (RECORDS_COLLECTION.into(), DELETE_REPLAY_CUTOFF_KEY.into()),
@@ -90,13 +87,7 @@ fn verify_proofs(main: &mut RunRead, key: &[u8; 32], version: u16) -> StorageRes
         ));
     }
     validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
-    match version {
-        SHARED_RECORD_PROFILE if values[3].is_none() => {}
-        SHARED_RECORD_PROFILE => {
-            return Err(admission_invalid("shared root contains a private author"))
-        }
-        _ => validate_local_author(values[3].as_deref())?,
-    }
+    validate_local_author(values[3].as_deref())?;
     let proof = values[2]
         .as_deref()
         .ok_or_else(|| admission_invalid("the account proof is absent"))?;
@@ -135,7 +126,7 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
         if kind.is_file() && name == INTENT {
             continue;
         }
-        let run_home = [RUN_DIR, CAS_DIR, PRIVATE_DIR]
+        let run_home = [RUN_DIR, CAS_DIR]
             .into_iter()
             .any(|home| name == home || staging(name, home));
         if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
@@ -166,10 +157,6 @@ pub(in crate::storage) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8
     derive_key(node_key, CAS_KEY_LABEL)
 }
 
-pub(in crate::storage) fn private_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
-    derive_key(node_key, PRIVATE_KEY_LABEL)
-}
-
 fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
     let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, node_key);
     let mut key = zeroize::Zeroizing::new([0u8; 32]);
@@ -188,11 +175,7 @@ pub(in crate::storage::disk_pack) fn require_key(
     })
 }
 
-fn initialize_home(
-    home: &RunHome,
-    node_key: &[u8; 32],
-    scope: Option<&Scope>,
-) -> StorageResult<&'static [u8]> {
+fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'static [u8]> {
     let (collection, key) = kv::coordinate(MAIN_NAMESPACE, CURRENT_KEY_FORMAT_KEY.as_bytes());
     let mut rows = vec![
         HomeMutation {
@@ -206,19 +189,9 @@ fn initialize_home(
             body: Some(content_key_proof::create(node_key)?),
         },
     ];
-    let marker = if let Some(scope) = scope {
-        rows.push(HomeMutation {
-            collection: METADATA_NAMESPACE.into(),
-            key: NATIVE_SHARED_SCOPE_KEY.into(),
-            body: Some(scope.encode()?),
-        });
-        SHARED_NODE_BYTES
-    } else {
-        rows.extend(local_rows(home.identity())?);
-        RECORD_NODE_BYTES
-    };
+    rows.extend(local_rows(home.identity())?);
     home.commit(rows).map_err(map)?;
-    Ok(marker)
+    Ok(RECORD_NODE_BYTES)
 }
 
 fn local_rows(stream: uuid::Uuid) -> StorageResult<Vec<HomeMutation>> {
@@ -258,11 +231,7 @@ impl PackNamespacedStore {
             folder.sync_all()?;
             let main = RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?;
             drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-            let scope = Scope::requested()?;
-            if scope.is_some() {
-                create_private(path, node_key)?;
-            }
-            let marker = initialize_home(&main, node_key, scope.as_ref())?;
+            let marker = initialize_home(&main, node_key)?;
             drop(main);
             let staged = path.join(STAGED_MARKER);
             let mut file = OpenOptions::new()
@@ -284,13 +253,10 @@ impl PackNamespacedStore {
         node_key: Option<&[u8; 32]>,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        let version = admit(path, node_key)?;
+        admit(path, node_key)?;
         let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut v2 = physical::V2Home::new(home, cas);
-        if version == SHARED_RECORD_PROFILE {
-            open_shared(path, node_key, &mut v2)?;
-        }
         v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         let policy = space::policy_from_env()?;
         let root = v2.current_root();
@@ -299,36 +265,6 @@ impl PackNamespacedStore {
         store.runtime.resume_merges();
         Ok(store)
     }
-}
-
-fn create_private(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    let private = RunHome::create(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?;
-    private
-        .commit(local_rows(private.identity())?)
-        .map_err(map)?;
-    Ok(())
-}
-
-fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> StorageResult<()> {
-    let private = Arc::new(RunHome::open(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?);
-    shared_layout::journal::recover(v2, &private, &private_key(key))?;
-    let mut main = v2.home.read_root(&v2.home.current_root(), budget());
-    let scope = Scope::load(&mut main)?;
-    verify_private_author(&mut private.read_root(&private.current_root(), budget()))?;
-    v2.shared = Some(SharedHome {
-        private,
-        scope: Arc::new(RwLock::new(Arc::new(scope))),
-        journal_key: private_key(key),
-    });
-    Ok(())
-}
-
-pub(in crate::storage) fn verify_private_author(local: &mut RunRead) -> StorageResult<()> {
-    let (collection, author_key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
-    let author = local
-        .get_bounded(&collection, &author_key, 8192)
-        .map_err(map)?;
-    validate_local_author(author.as_deref())
 }
 
 pub(in crate::storage::disk_pack) fn complete_initialization(run_home: &Path) -> StorageResult<()> {

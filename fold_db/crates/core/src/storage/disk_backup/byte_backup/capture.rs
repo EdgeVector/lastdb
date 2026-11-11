@@ -1,7 +1,7 @@
 //! Capture entry points, terminal settlement, local cancel, and legacy-capture retirement.
 
 use super::{
-    invalid, object_name, protocol, run_source::RunSource, shared_run::held_root, store::Store,
+    hold::held_root, invalid, object_name, protocol, run_source::RunSource, store::Store,
     ByteBackupCapture, Inner, PackRuntime, State, StorageResult, MAX_OBJECTS, RUN_INTENT_FILE,
     STATE_FORMAT,
 };
@@ -77,11 +77,10 @@ impl PackRuntime {
         begin: &Begin,
         key: &[u8; 32],
     ) -> StorageResult<()> {
-        super::shared_run::cancel(self, begin, key).await
+        super::hold::cancel(self, begin, key).await
     }
 
     pub fn retire_previous_backup_capture(&self, dropped: Option<&str>) -> StorageResult<bool> {
-        self.require_ordinary_backup_home()?;
         let _admission = super::super::NativeCloudWorkGuard::acquire()?;
         let store = Store::open(self.physical.path(), &self.space_policy)?;
         retire_previous_format(self, &store, dropped)

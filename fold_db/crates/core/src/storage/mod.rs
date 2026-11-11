@@ -162,9 +162,7 @@ pub(crate) mod current_keys {
         if !CURRENT_FAMILIES.contains(&family) {
             return Err(unsupported("unknown key family"));
         }
-        if family == applied_deletes::DELETE_AGE_FAMILY {
-            applied_deletes::validate_age_key(key)?;
-        } else if let Some(record) =
+        if let Some(record) =
             applied_deletes::record_key(key).or_else(|| inline_files::record_key(key))
         {
             let rest = record

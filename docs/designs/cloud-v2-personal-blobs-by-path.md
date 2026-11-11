@@ -12,8 +12,7 @@ Decisions: `decision-2026-11-07-lastdb-blob-files-on-demand` and
 
 A personal snapshot or mutation log holds the main run home (`disk-run`) only.
 It holds no CAS runs: the run profile has no `cas` home, a log position has
-one frontier (`main`), and a log entry has one part. A dedicated shared
-database is out of scope and still backs up its CAS home with each snapshot.
+one frontier (`main`), and a log entry has one part.
 
 Each record file version is one B2 object at the path that every device
 derives from the record:
@@ -115,9 +114,6 @@ written:
   the file names that a backup job writes;
 - `recovery.json` and `active.json` in the backup store, with their pending
   copies.
-
-A dedicated shared home is left alone: only its policy file and its
-`recovery.json` and `active.json` are replaced, as before.
 
 Cloud points that the previous program published are pruned immediately when
 the first version 3 snapshot is accepted on the stream (`commits/prune`),

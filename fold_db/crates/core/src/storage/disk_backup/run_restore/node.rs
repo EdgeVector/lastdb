@@ -1,8 +1,8 @@
 //! Read-only physical and account proof for an inactive native node.
 
 use super::{
-    files, invalid, map, open_paired_runs, phase, read_budget, reserve_paired_metadata,
-    RunBackupProfile, RunRestoreFile, Stage, StorageResult,
+    files, invalid, map, open_paired_runs, phase, reserve_paired_metadata, RunBackupProfile,
+    RunRestoreFile, Stage, StorageResult,
 };
 use crate::storage::content_key_proof;
 use crate::storage::disk_backup::byte_backup::RunBackupHome;
@@ -11,9 +11,7 @@ use crate::storage::format::control::{
     validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
 };
 use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
-use crate::storage::format::{
-    METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE, SHARED_RECORD_PROFILE,
-};
+use crate::storage::format::{METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE};
 use lastdb_model::storage_policy::backup_decode as budget;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::fs::File;
@@ -25,52 +23,16 @@ pub struct RunNodeGuard {
     directory: File,
     marker: File,
     homes: [files::HomeBinding; 2],
-    private: Option<LocalRoot>,
     pub(in crate::storage::disk_backup::run_restore) main: RunRead,
     pub(in crate::storage::disk_backup::run_restore) cas: RunRead,
     pub(in crate::storage::disk_backup::run_restore) profile: RunBackupProfile,
     pub(in crate::storage::disk_backup::run_restore) files: Vec<RunRestoreFile>,
 }
 
-struct LocalRoot {
-    binding: files::HomeBinding,
-    read: RunRead,
-    profile: RunBackupHome,
-}
-
 #[derive(Clone, Copy)]
 enum NodeOpen {
     Exclusive,
-    Replayed,
     Snapshot,
-}
-
-impl LocalRoot {
-    fn open(root: &Path, key: &[u8; 32], budget: u64) -> StorageResult<Self> {
-        let name = run_node::PRIVATE_DIR;
-        let binding = files::prepare_home(root, name)?;
-        let mut read = RunRead::open_existing_bounded(
-            &root.join(name),
-            &run_node::private_key(key),
-            read_budget(),
-            budget,
-        )
-        .map_err(map)?;
-        run_node::verify_private_author(&mut read)?;
-        let profile = files::profile(root, name, &read)?;
-        Ok(Self {
-            binding,
-            read,
-            profile,
-        })
-    }
-
-    fn check(&self, root: &Path) -> StorageResult<()> {
-        let name = run_node::PRIVATE_DIR;
-        self.binding.check(root, name)?;
-        check_home(root, name, &self.read, &self.profile)?;
-        Ok(())
-    }
 }
 
 impl RunNodeGuard {
@@ -108,10 +70,7 @@ impl RunNodeGuard {
         if let Some(cas) = &self.profile.cas {
             check_home(&self.root, run_node::CAS_DIR, &self.cas, cas)?;
         }
-        if let Some(private) = &self.private {
-            private.check(&self.root)?;
-        }
-        files::require_root_members(&self.root, self.private.is_some())
+        files::require_root_members(&self.root)
     }
 
     pub(in crate::storage::disk_backup::run_restore) fn open(
@@ -141,24 +100,13 @@ impl RunNodeGuard {
         files::node_marker(root)?;
         let version = files::profile_version(root)?
             .ok_or_else(|| invalid("run restore logical profile is absent"))?;
-        let with_private = matches!(mode, NodeOpen::Replayed) && version == SHARED_RECORD_PROFILE;
-        files::require_root_members(root, with_private)?;
+        files::require_root_members(root)?;
         let homes = [
             files::prepare_home(root, run_node::RUN_DIR)?,
             files::prepare_home(root, run_node::CAS_DIR)?,
         ];
         let (mut main, mut cas) = open_paired_runs(root, key, shared)?;
-        let private = if with_private {
-            let max = lastdb_model::storage_policy::BACKUP_RESOURCES
-                .working_memory_bytes
-                .checked_sub(main.retained_bytes())
-                .and_then(|bytes| bytes.checked_sub(cas.retained_bytes()))
-                .ok_or_else(|| invalid("private run metadata exceeds memory admission"))?;
-            Some(LocalRoot::open(root, key, max)?)
-        } else {
-            None
-        };
-        reserve_roots(&mut main, &mut cas, private.as_ref())?;
+        reserve_roots(&mut main, &mut cas)?;
         let profile = files::backup_profile(root, version, &main, &cas)?;
         let mut entries = vec![RunRestoreFile {
             path: NODE_MARKER.into(),
@@ -174,7 +122,6 @@ impl RunNodeGuard {
             directory,
             marker,
             homes,
-            private,
             main,
             cas,
             profile,
@@ -189,11 +136,6 @@ impl RunNodeGuard {
 /// directory, or source-file writes.
 pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunNodeGuard> {
     RunNodeGuard::open(root, key)
-}
-
-/// Verify the rebuilt device-private state as well as the original shared roots.
-pub fn validate_replayed_shared_node(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    RunNodeGuard::open_mode(root, key, NodeOpen::Replayed).map(|_| ())
 }
 
 /// Account admission check against the inactive root's format markers and content-key proof.
@@ -233,17 +175,11 @@ pub(in crate::storage::disk_backup::run_restore) fn verify_account(
         return Err(invalid("run backup logical marker read is incomplete"));
     }
     validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
-    match version {
-        SHARED_RECORD_PROFILE if values[2].is_none() => {}
-        SHARED_RECORD_PROFILE => return Err(invalid("shared root contains a private author")),
-        _ => validate_local_author(values[2].as_deref())?,
-    }
+    validate_local_author(values[2].as_deref())?;
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("run backup logical marker is absent"))?;
-    if !matches!(version, RECORD_PROFILE | SHARED_RECORD_PROFILE)
-        || !lastdb_model::field_key_codec::current_key_format(marker)
-    {
+    if version != RECORD_PROFILE || !lastdb_model::field_key_codec::current_key_format(marker) {
         return Err(invalid(
             "run backup logical marker differs from its node profile",
         ));
@@ -288,31 +224,23 @@ fn check_home(
     files::home(root, name, reader, expected)
 }
 
-fn reserve_roots(
-    main: &mut RunRead,
-    cas: &mut RunRead,
-    private: Option<&LocalRoot>,
-) -> StorageResult<()> {
+fn reserve_roots(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {
     let files = main
         .referenced_runs()
         .count()
         .checked_add(cas.referenced_runs().count())
         .and_then(|count| count.checked_add(5))
-        .and_then(|count| {
-            count.checked_add(private.map_or(0, |root| root.read.referenced_runs().count() + 2))
-        })
         .ok_or_else(|| invalid("paired run file count overflow"))?;
     let inventories = (files as u64)
         .checked_mul(4 * budget::IDENTITY_MEMORY_BYTES)
         .ok_or_else(|| invalid("paired run inventory memory overflow"))?;
-    let shared = main
+    let retained = main
         .retained_bytes()
         .checked_add(cas.retained_bytes())
         .and_then(|bytes| bytes.checked_add(inventories))
-        .and_then(|bytes| bytes.checked_add(private.map_or(0, |root| root.read.retained_bytes())))
         .and_then(|bytes| {
             bytes.checked_add(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
         })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
-    reserve_paired_metadata(main, cas, shared)
+    reserve_paired_metadata(main, cas, retained)
 }

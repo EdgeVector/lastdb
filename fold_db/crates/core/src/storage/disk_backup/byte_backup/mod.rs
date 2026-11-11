@@ -3,10 +3,10 @@
 
 mod capture;
 mod codec;
+mod hold;
 mod planner;
 mod run_capture;
 mod run_source;
-mod shared_run;
 mod store;
 
 use crate::storage::cloud_backup_plan::ClientNativeFile;
@@ -31,7 +31,6 @@ pub const RUN_INTENT_FILE: &str = "run-intent.json";
 pub const HELD_NODE_FILE: &str = "node";
 
 pub use codec::*;
-pub use shared_run::SharedRunCapture;
 pub use store::ByteBackupReader;
 
 pub(in crate::storage::disk_backup::byte_backup) const STATE_FORMAT: u16 = 5;
