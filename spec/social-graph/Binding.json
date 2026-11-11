@@ -1,0 +1,34 @@
+{
+  "namespace": "social-graph",
+  "schema": {
+    "name": "Binding",
+    "descriptive_name": "Binding",
+    "purpose_statement": "One shareable database bound to one circle. The hash coordinate is circle_id and the range coordinate is database_id.",
+    "schema_type": "HashRange",
+    "record_keys": {
+      "primary": {
+        "kind": "hash_range",
+        "range_type": "String"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "circle_id",
+      "database_id",
+      "role",
+      "added_at"
+    ],
+    "field_types": {
+      "circle_id": "String",
+      "database_id": "String",
+      "role": "String",
+      "added_at": "DateTime"
+    },
+    "field_descriptions": {
+      "circle_id": "circle_id of the circle.",
+      "database_id": "Id of the shareable database bound to this circle.",
+      "role": "reader or contributor.",
+      "added_at": "When this database was bound, RFC 3339."
+    }
+  }
+}

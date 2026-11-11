@@ -1,0 +1,30 @@
+{
+  "namespace": "social",
+  "schema": {
+    "name": "Card",
+    "descriptive_name": "Card",
+    "purpose_statement": "The shareable card for one person. The hash coordinate is person_id.",
+    "schema_type": "Hash",
+    "record_keys": {
+      "primary": {
+        "kind": "hash"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "person_id",
+      "display_name",
+      "avatar"
+    ],
+    "field_types": {
+      "person_id": "String",
+      "display_name": "String",
+      "avatar": "String"
+    },
+    "field_descriptions": {
+      "person_id": "person_id of the person this card publishes.",
+      "display_name": "Name shown for this person.",
+      "avatar": "Inline thumbnail."
+    }
+  }
+}

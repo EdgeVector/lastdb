@@ -1,0 +1,40 @@
+{
+  "namespace": "social-graph",
+  "schema": {
+    "name": "Membership",
+    "descriptive_name": "Membership",
+    "purpose_statement": "One person's place in one circle. The hash coordinate is circle_id and the range coordinate is person_id.",
+    "schema_type": "HashRange",
+    "record_keys": {
+      "primary": {
+        "kind": "hash_range",
+        "range_type": "String"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "circle_id",
+      "person_id",
+      "role",
+      "added_at",
+      "added_via",
+      "removed_at"
+    ],
+    "field_types": {
+      "circle_id": "String",
+      "person_id": "String",
+      "role": "String",
+      "added_at": "DateTime",
+      "added_via": "String",
+      "removed_at": "DateTime"
+    },
+    "field_descriptions": {
+      "circle_id": "circle_id of the circle.",
+      "person_id": "person_id of the member.",
+      "role": "reader or contributor.",
+      "added_at": "When this membership was added, RFC 3339.",
+      "added_via": "How the member was added: link or manual.",
+      "removed_at": "When the member was removed, RFC 3339. Absent while they remain a member."
+    }
+  }
+}

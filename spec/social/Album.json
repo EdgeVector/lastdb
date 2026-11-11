@@ -1,0 +1,33 @@
+{
+  "namespace": "social",
+  "schema": {
+    "name": "Album",
+    "descriptive_name": "Album",
+    "purpose_statement": "A titled set of photos.",
+    "schema_type": "Hash",
+    "record_keys": {
+      "primary": {
+        "kind": "hash"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "title",
+      "description",
+      "cover_photo_id",
+      "created_at"
+    ],
+    "field_types": {
+      "title": "String",
+      "description": "String",
+      "cover_photo_id": "String",
+      "created_at": "DateTime"
+    },
+    "field_descriptions": {
+      "title": "Album title.",
+      "description": "Album description.",
+      "cover_photo_id": "photo_id of the cover photo.",
+      "created_at": "When this album was created, RFC 3339."
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "namespace": "social",
+  "schema": {
+    "name": "Photo",
+    "descriptive_name": "Photo",
+    "purpose_statement": "One photo. The hash coordinate is the content hash of the original bytes.",
+    "schema_type": "Hash",
+    "record_keys": {
+      "primary": {
+        "kind": "hash"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "photo_taken_at",
+      "photo_caption",
+      "image_width_pixels",
+      "image_height_pixels",
+      "file_media_type",
+      "file_size_bytes",
+      "camera_make",
+      "camera_model",
+      "geographic_latitude_degrees",
+      "geographic_longitude_degrees"
+    ],
+    "field_types": {
+      "photo_taken_at": "DateTime",
+      "photo_caption": "String",
+      "image_width_pixels": "Integer",
+      "image_height_pixels": "Integer",
+      "file_media_type": "String",
+      "file_size_bytes": "Integer",
+      "camera_make": "String",
+      "camera_model": "String",
+      "geographic_latitude_degrees": "Float",
+      "geographic_longitude_degrees": "Float"
+    },
+    "field_descriptions": {
+      "photo_taken_at": "When the photo was taken, RFC 3339.",
+      "photo_caption": "Caption.",
+      "image_width_pixels": "Width in pixels after EXIF orientation.",
+      "image_height_pixels": "Height in pixels after EXIF orientation.",
+      "file_media_type": "Media type of the original file.",
+      "file_size_bytes": "Byte length of the original file.",
+      "camera_make": "Camera manufacturer.",
+      "camera_model": "Camera model.",
+      "geographic_latitude_degrees": "Latitude in decimal degrees.",
+      "geographic_longitude_degrees": "Longitude in decimal degrees."
+    }
+  }
+}

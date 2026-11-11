@@ -1,0 +1,30 @@
+{
+  "namespace": "social-graph",
+  "schema": {
+    "name": "Circle",
+    "descriptive_name": "Circle",
+    "purpose_statement": "A named circle. The hash coordinate is circle_id.",
+    "schema_type": "Hash",
+    "record_keys": {
+      "primary": {
+        "kind": "hash"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "circle_id",
+      "name",
+      "created_at"
+    ],
+    "field_types": {
+      "circle_id": "String",
+      "name": "String",
+      "created_at": "DateTime"
+    },
+    "field_descriptions": {
+      "circle_id": "Stable id of this circle.",
+      "name": "Circle name.",
+      "created_at": "When this circle was created, RFC 3339."
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "namespace": "social-graph",
+  "schema": {
+    "name": "Person",
+    "descriptive_name": "Person",
+    "purpose_statement": "One person the owner has added. The hash coordinate person_id is the hash of node_key.",
+    "schema_type": "Hash",
+    "record_keys": {
+      "primary": {
+        "kind": "hash"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "person_id",
+      "node_key",
+      "contact_code",
+      "display_name",
+      "avatar",
+      "added_at"
+    ],
+    "field_types": {
+      "person_id": "String",
+      "node_key": "String",
+      "contact_code": "String",
+      "display_name": "String",
+      "avatar": "String",
+      "added_at": "DateTime"
+    },
+    "field_descriptions": {
+      "person_id": "Stable id of this person: the hash of node_key.",
+      "node_key": "Node key of this person. person_id is its hash.",
+      "contact_code": "Code another person uses to add this contact.",
+      "display_name": "Name shown for this person.",
+      "avatar": "Inline thumbnail.",
+      "added_at": "When this person was added, RFC 3339."
+    }
+  }
+}
