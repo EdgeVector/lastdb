@@ -2,13 +2,14 @@
 
 A contention 503 is HTTP 503 whose body is a ``ProtocolError`` with code
 ``retry_later`` and field ``mutation_log.transaction.conflict``. At 5, 20,
-and 100 writers the client retries it. At 5 and 20 writers a retry
-that succeeds is exit 3. At 100 writers a retry that succeeds and stays
-at or under 1% of write attempts is exit 0. Above 1% at 100 writers is
-exit 3. A
-write that is still failing after every retry is exit 3 only when that
-write left no partial row, the log invariants hold, and nothing
-acknowledged was lost. Otherwise it is exit 1.
+and 100 writers, and on the trim tier, the client retries it. At 5 and 20
+writers, and on the trim tier, a retry that succeeds is exit 3. At 100
+writers a retry that succeeds and stays at or under 1% of write attempts
+is exit 0. Above 1% at 100 writers is exit 3. A write that is still
+failing after every retry is exit 3 only when that write left no partial
+row, the log invariants hold, and nothing acknowledged was lost.
+Otherwise it is exit 1. Any other trim failure, including ``through``
+below 128 or a head cursor below 128, is exit 1.
 
 A throttle 503 is the same code with field
 ``mutation_log.transaction.throttled``,
@@ -108,10 +109,10 @@ def scaling_finding(kind, contention, attempts):
 
 
 def capacity_finding(throttles, kind, contention, attempts):
-    """A succeeded throttle, a retried conflict at 5 or 20, or contention above 1%."""
+    """A succeeded throttle, a retried conflict at 5, 20, or trim, or contention above 1%."""
     if throttles:
         return True
-    if kind == "full" and contention:
+    if kind in ("full", "trim") and contention:
         return True
     return scaling_finding(kind, contention, attempts)
 

@@ -126,19 +126,61 @@ class AmendedExits(unittest.TestCase):
         self.assertEqual(session.throttle_503, 0)
         self.assertGreater(session.other_503, 0)
 
-    def test_trim_does_not_retry_a_conflict(self):
+    def test_trim_retries_a_conflict_and_exits_3(self):
+        state = {"left": 1}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/append") and state["left"]:
+                state["left"] -= 1
+                return 503, CONFLICT, 3
+            return None
+
+        delays = []
+        session = self._session(MemoryLog(hook))
+        session.sleeper = delays.append
+        report = drive(scenario("trim"), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_SCALING)
+        self.assertGreater(delays[0], 0)
+        self.assertEqual(session.contention_unresolved, 0)
+        self.assertIn("contention retried", report["message"])
+
+    def test_trim_unresolved_conflict_with_an_intact_log_is_scaling(self):
         def hook(path, _parsed, _log):
             if path.endswith("/append"):
                 return 503, CONFLICT, 1
             return None
 
-        def refuse(_delay):
-            raise AssertionError("trim must not retry a conflict")
-
         session = self._session(MemoryLog(hook))
-        session.sleeper = refuse
+        session.sleeper = lambda _delay: None
         report = drive(scenario("trim"), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertGreater(report["summary"]["contention_unresolved"], 0)
+
+    def test_trim_through_below_128_stays_a_correctness_failure(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/trim"):
+                return 200, {"through": 1, "snapshot_due": False}, 1
+            return None
+
+        report = drive(scenario("trim"), self._session(MemoryLog(hook)))
         self.assertEqual(report["stopped"], "error")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
+        self.assertEqual(report["summary"]["contention_unresolved"], 0)
+
+    def test_trim_cursor_below_128_stays_a_correctness_failure(self):
+        state = {"heads": 0}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/head"):
+                state["heads"] += 1
+                if state["heads"] > 1:
+                    return 200, {"cursor": 1}, 1
+            return None
+
+        report = drive(scenario("trim"), self._session(MemoryLog(hook)))
+        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
 
     def test_ack_holds_rejects_a_partial_row_and_a_lost_delivery(self):
         entry = {"delivery_seq": 1, "writer_device": "d", "writer_seq": 1}

@@ -50,6 +50,8 @@ class Classifier(unittest.TestCase):
             self.assertFalse(is_throttle(503, body), body)
         self.assertTrue(capacity_finding(1, "full", 0, 10))
         self.assertTrue(capacity_finding(0, "full", 5, 10))
+        self.assertTrue(capacity_finding(0, "trim", 1, 10))
+        self.assertFalse(capacity_finding(0, "trim", 0, 10))
         self.assertFalse(capacity_finding(0, "full", 0, 10))
         self.assertTrue(capacity_finding(0, "steady", 2, 100))
         self.assertFalse(capacity_finding(0, "steady", 1, 100))

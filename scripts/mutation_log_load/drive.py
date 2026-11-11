@@ -104,7 +104,7 @@ class Session:
 
     def begin_tier(self, spec):
         self.device_prefix = "{0}{1}".format(spec.kind, spec.writers)
-        self.allow_contention = spec.kind in ("full", "steady")
+        self.allow_contention = spec.kind in ("full", "steady", "trim")
         self.tier_reads = self.ledger.snapshot()["reads"]
         self.samples = []
         self.errors = 0
