@@ -1,4 +1,4 @@
-//! Product-owned definitions of the format 14 whole-record home.
+//! Product-owned definitions of the format 15 whole-record home.
 //!
 //! Creation,
 //! admission, namespace opening and native routing share these definitions.
@@ -14,20 +14,19 @@
 pub(crate) mod bind;
 pub(crate) mod change_feed;
 pub(crate) mod control;
-pub(crate) mod field_keys;
 pub(crate) mod metadata;
 pub(crate) mod read;
 pub(crate) mod records;
 pub(crate) mod schemas;
 
 /// The home format: one stored record per primary key and record-owned files.
-pub const HOME_FORMAT: u32 = 14;
+pub const HOME_FORMAT: u32 = 15;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
-pub const RECORD_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\n";
+pub const RECORD_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\n";
 /// Backup profile of this home format.
-pub(in crate::storage) const RECORD_PROFILE: u16 = 12;
-pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 13;
-pub const SHARED_NODE_BYTES: &[u8] = b"format=14\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+pub(in crate::storage) const RECORD_PROFILE: u16 = 14;
+pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 15;
+pub const SHARED_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
 pub(in crate::storage) const PRIVATE_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/private";
 
 /// Clear node marker file inside the data directory.
@@ -49,15 +48,6 @@ pub(crate) const METADATA_NAMESPACE: &str = "metadata";
 pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
-pub(crate) const FIELD_KEYS_NAMESPACE: &str = "field_keys";
-pub(in crate::storage::format) const FIELD_KEY_BUNDLE_VERSION: u8 = 1;
-pub(crate) const FIELD_KEY_METADATA_VERSION: u8 = 2;
-pub(in crate::storage::format) const FIELD_KEY_NODE_DOMAIN: &str = "node";
-pub(in crate::storage::format) const FIELD_KEY_METADATA_PREFIX: &str = "fkb:";
-pub(in crate::storage::format) const FIELD_KEY_WRAP_PREFIX: &str = "fkw:";
-pub(in crate::storage::format) const FIELD_KEY_ID_MAX_BYTES: usize = 1024;
-pub(crate) const FIELD_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
-pub(in crate::storage::format) const FIELD_KEY_BUNDLE_MAX_BYTES: u64 = 4096;
 pub(crate) const CHANGE_FEED_NAMESPACE: &str = "change_feed";
 pub(crate) const CHANGE_FEED_LAST_SEQ_KEY: &str = "last_seq";
 pub(in crate::storage::format) const CHANGE_FEED_EVENT_PREFIX: &str = "event:";

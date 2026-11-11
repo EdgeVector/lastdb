@@ -70,7 +70,7 @@ impl FoldDB {
         request: &SchemaRecordKeysRequest<'_>,
     ) -> Result<(String, KeyPage), SchemaError> {
         let records = self.db_ops().records();
-        let comparison = records.key_comparison_context(schema).await?;
+        let comparison = records.key_comparison_context(schema)?;
         let page = records
             .list_record_keys(
                 schema,

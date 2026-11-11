@@ -146,7 +146,6 @@ fn map(error: laststore::Error) -> StorageError {
             NativeProofCause::Static("run restore owner lock busy")
         }
         laststore::Error::Config(_) => NativeProofCause::Configuration,
-        laststore::Error::NativeProof(code) => NativeProofCause::Static(code),
         other => return crate::storage::disk_pack::map(other),
     };
     StorageError::NativeProof {

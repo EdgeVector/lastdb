@@ -3,7 +3,6 @@
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
-use crate::commit_timing as timing;
 use crate::disk_run::space::MergeSpace;
 use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
 use crate::space::SpacePolicy;
@@ -108,28 +107,20 @@ impl RunHome {
     /// This call does not ack a logical write; the caller acks after it
     /// returns.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
-        let _total = timing::stage("v2_home_commit_us");
-        timing::count("v2_storage_mutations", operations.len() as u64);
         self.refuse_if_poisoned()?;
         if operations.is_empty() {
             return Err(Error::Config("disk run home: empty commit".into()));
         }
-        let key_timing = timing::stage("v2_key_encoding_us");
         let mut records = Vec::with_capacity(operations.len());
         for operation in operations.into_iter().rev() {
             let key = run_key(&operation.collection, operation.key.as_bytes())?;
             records.push((key, operation.body));
         }
-        drop(key_timing);
-        let sort_timing = timing::stage("v2_sort_dedup_us");
         // Stable sort of the reversed list: for equal keys the last
         // operation comes first, and dedup keeps the first of each key.
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
-        drop(sort_timing);
-        super::mutation_counts::record(&records);
-        let _commit = timing::during("v2_commit_lock_wait_us", || self.commit_lock())?;
-        let run_timing = timing::stage("v2_run_build_us");
+        let _commit = self.commit_lock()?;
         let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
         for (key, body) in &records {
             writer.push(key, body.as_deref())?;
@@ -138,7 +129,6 @@ impl RunHome {
         // both prerequisites finish before CURRENT can name this run.
         let prepared = writer.prepare_finish()?;
         let run = meta(prepared.summary().clone())?;
-        drop(run_timing);
         let records = run.records;
         let run_bytes = run.file_bytes;
         let run_id = run.run_id;
@@ -209,7 +199,6 @@ impl RunHome {
         inputs: Vec<Arc<RunFile>>,
         policy: &SpacePolicy,
     ) -> Result<RunMerge> {
-        let _total = timing::stage("v2_tiered_merge_us");
         if level + 1 >= MAX_LEVELS {
             return Err(Error::WriteCapacity(
                 "disk run home: no level is left for a merge".into(),
@@ -229,7 +218,7 @@ impl RunHome {
                 let output_bytes = output.as_ref().map_or(0, |run| run.record_bytes);
                 hidden.saturating_sub(input_bytes.saturating_sub(output_bytes))
             });
-        let _publish = timing::during("v2_publish_lock_wait_us", || self.publish_lock())?;
+        let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
@@ -274,7 +263,6 @@ impl RunHome {
         keep_tombstones: bool,
         space: &MergeSpace,
     ) -> Result<Option<RunMeta>> {
-        let _total = timing::stage("v2_merge_run_build_us");
         let readers = inputs
             .iter()
             .map(|run| RunReader::open(&run.path, &self.key))

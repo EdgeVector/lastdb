@@ -12,13 +12,18 @@ impl MutationManager {
         mutation: &Mutation,
     ) -> Result<KeyValue, SchemaError> {
         crate::schema::require_logical_layout(&schema.schema_type)?;
+        let record_keys = schema.require_record_keys()?;
         mutation
             .target()
-            .validate(schema.require_record_keys()?)
+            .validate(record_keys)
             .map_err(SchemaError::InvalidData)?;
-        self.db_ops
-            .field_keys()
-            .canonical_key(schema, mutation.key_value.clone())
+        let profile = record_keys
+            .primary
+            .range_profile()
+            .map_err(SchemaError::InvalidData)?;
+        let mut key = mutation.key_value.clone();
+        crate::schema::types::key_comparison::normalize::canonical_key(profile, &mut key)?;
+        Ok(key)
     }
 }
 

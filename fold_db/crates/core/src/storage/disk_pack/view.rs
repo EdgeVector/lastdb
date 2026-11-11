@@ -115,12 +115,8 @@ impl PackRuntime {
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
         // Checked before the view lock; published under it with the root.
-        let records = laststore::commit_timing::during("memory_record_check_us", || {
-            record_warm::committed_records(requests)
-        });
-        let mut view = laststore::commit_timing::during("memory_view_lock_wait_us", || {
-            self.view.write().expect("native complete read view")
-        });
+        let records = record_warm::committed_records(requests);
+        let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
             if requests.is_empty() {
@@ -130,12 +126,9 @@ impl PackRuntime {
         }
         for request in requests {
             // Later raw effects invalidate an earlier request's clean cache.
-            laststore::commit_timing::during("memory_invalidation_us", || {
-                self.invalidate_changed_records(&request.changed_coordinates());
-            });
+            self.invalidate_changed_records(&request.changed_coordinates());
         }
         if !records.is_empty() {
-            let _timing = laststore::commit_timing::stage("memory_record_install_us");
             self.core
                 .lock()
                 .expect("committed warm records")
@@ -145,10 +138,10 @@ impl PackRuntime {
         drop(view);
         // The last drop of a root deletes its retired run files, so it
         // happens after the view lock.
-        laststore::commit_timing::during("memory_old_root_release_us", || drop(replaced));
+        drop(replaced);
         // A merge can publish between the caller's read of `current` and
         // this install; take its root now, not at the next read.
-        laststore::commit_timing::during("memory_merge_adoption_us", || self.adopt_merged_root())?;
+        self.adopt_merged_root()?;
         Ok(())
     }
 

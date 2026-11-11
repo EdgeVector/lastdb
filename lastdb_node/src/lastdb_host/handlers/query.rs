@@ -131,7 +131,6 @@ pub(super) async fn capture_key_comparison<H: HostNode>(
         .db_ops()
         .records()
         .key_comparison_context(&schema)
-        .await
         .map(Some)
         .map_err(HostError::from)
 }

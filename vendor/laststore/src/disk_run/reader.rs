@@ -6,9 +6,10 @@ use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
 use crate::frame::{decode_frame_bounded, min_encoded_len, DecodeScratch, PreparedFrameKey};
-use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
+use std::fs::File;
 use std::ops::Bound;
+use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use uuid::Uuid;
 #[path = "reader/metadata.rs"]
@@ -21,12 +22,10 @@ pub(super) mod stream;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
-/// them and dropped after. The read receipt of the call counts each open,
-/// status, and read: the footer, top, and index blocks as footer bytes, the
-/// data blocks as payload bytes.
+/// them and dropped after.
 pub struct RunReader {
     reserved_memory: u64,
-    file: MeasuredFile,
+    file: File,
     data_key: [u8; 32],
     frame_key: Option<Box<PreparedFrameKey>>,
     footer: Footer,
@@ -86,7 +85,7 @@ impl RunReader {
             return Err(corrupt("stored block length over its limit"));
         }
         let mut frame = vec![0u8; len as usize];
-        measured::read_exact_at(&self.file, &mut frame, offset)?;
+        self.file.read_exact_at(&mut frame, offset)?;
         self.decode_checked_frame(&frame, counter, max, scratch)
     }
 
@@ -127,10 +126,6 @@ impl RunReader {
         number: usize,
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<IndexBlock> {
-        let _class = ReadClass::Footer.enter();
-        crate::read_receipt::update(|r| {
-            r.metadata_decodes = r.metadata_decodes.saturating_add(1);
-        });
         let entry = &self.top.indexes[number];
         let payload = self.read_frame_with(
             entry.offset,
@@ -164,7 +159,6 @@ impl RunReader {
         block: &BlockRef,
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<BlockRecords> {
-        let _class = ReadClass::Payload.enter();
         let payload = self.read_frame_with(
             block.offset,
             block.len,

@@ -2,19 +2,12 @@
 
 use crate::error::FoldDbResult;
 use crate::storage::disk_pack::PackNamespacedStore;
-use crate::storage::traits::NamespacedStore;
 use std::path::Path;
-use std::sync::Arc;
 
 pub(super) fn open_primary_store(
     path: &Path,
     node_key: &[u8; 32],
-) -> FoldDbResult<Arc<dyn NamespacedStore>> {
-    // Native open creates an empty home or reopens a home in the current
-    // format.
-    // A home derives its home key from the node key.
-    Ok(Arc::new(PackNamespacedStore::open_keyed(
-        path,
-        Some(node_key),
-    )?))
+) -> FoldDbResult<PackNamespacedStore> {
+    // Native open creates an empty home or reopens a home in the current format.
+    Ok(PackNamespacedStore::open_keyed(path, Some(node_key))?)
 }

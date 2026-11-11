@@ -71,7 +71,7 @@ impl RecordStore {
         from_range: Option<&str>,
     ) -> Result<Option<RecordSpan>, SchemaError> {
         let space = record_space_uuid(&schema.name);
-        let codec = self.key_codec_for_field_key(&space)?;
+        let codec = self.primary_codec(schema)?;
         let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
         let base = record_hash_prefix(&space, &storage_hash);
         let stored = |range: &str| {

@@ -5,15 +5,11 @@ pub mod core;
 pub mod admin_db;
 pub mod delete_ledger;
 pub mod record_store;
-/// Field key bundles are storage key material; the store lives in
-/// `storage`. This path stays for existing callers.
-pub use crate::storage::field_key_store;
 mod schema_operations;
 pub mod schema_store;
 pub mod search_index;
 mod storage_breakdown;
 // Re-exports
-pub use crate::storage::field_key_store::{FieldKeyBundle, FieldKeyStore};
 pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 pub use admin_db::{
     DbInventory, MainKeyClass, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,

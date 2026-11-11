@@ -38,10 +38,20 @@ impl DbOperations {
         schema
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
-        let old = self.schemas().get_schema(schema_name).await?;
-        self.field_keys()
-            .establish_schema_for_publication(schema, old.as_ref())
-            .await?;
+        let next = schema_field_key_profiles(schema)?;
+        if let Some(old) = self.schemas().get_schema(schema_name).await? {
+            let previous: HashMap<_, _> = schema_field_key_profiles(&old)?.into_iter().collect();
+            for (field_key, profile) in &next {
+                if previous
+                    .get(field_key)
+                    .is_some_and(|stored| stored != profile)
+                {
+                    return Err(SchemaError::InvalidData(
+                        "the schema range type differs from the stored field key profile".into(),
+                    ));
+                }
+            }
+        }
         self.schemas().store_schema(schema_name, schema).await
     }
 
@@ -153,4 +163,35 @@ impl DbOperations {
         })
         .await
     }
+}
+
+pub(crate) fn schema_field_key_profiles(
+    schema: &Schema,
+) -> Result<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>, SchemaError> {
+    let definitions = schema.require_record_keys()?;
+    let primary = definitions
+        .primary
+        .range_profile()
+        .map_err(SchemaError::InvalidData)?;
+    let mut result = Vec::with_capacity(definitions.alternates.len() + 1);
+    for (name, key) in &definitions.alternates {
+        let profile = key.range_profile().map_err(SchemaError::InvalidData)?;
+        let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
+        if !lastdb_model::field_key_id::is_canonical_field_key_id(&id) {
+            return Err(SchemaError::InvalidData(
+                "invalid alternate field key identity".into(),
+            ));
+        }
+        result.push((id, profile));
+    }
+    let space = lastdb_model::record_space::record_space_uuid(&schema.name);
+    if !lastdb_model::field_key_id::is_canonical_field_key_id(&space) {
+        return Err(SchemaError::InvalidData(
+            "invalid record space identity".into(),
+        ));
+    }
+    result.push((space, primary));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result.dedup();
+    Ok(result)
 }

@@ -3,9 +3,8 @@ use super::{invalid, map, RunNodeGuard, RunRestoreGuard, StorageResult};
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
 use crate::storage::format::{
-    field_keys::{node_bundle_storage_keys, open_frozen_typed_bundle, NODE_KEY_ROW_MAX_BYTES},
     records::{inline_files, RecordAddress},
-    FIELD_KEYS_NAMESPACE, RECORDS_COLLECTION, SCHEMAS_NAMESPACE,
+    RECORDS_COLLECTION, SCHEMAS_NAMESPACE,
 };
 use cloud_backup_protocol::Digest;
 use lastdb_model::record_value::{
@@ -114,13 +113,13 @@ fn read_at_root(
     query: &StagedRecordQuery<'_>,
     account_key: &[u8; 32],
 ) -> StorageResult<Option<StagedRecord>> {
-    // One catalog row, two key bundle rows, one record and one inline row.
+    // One catalog row, one record and one inline row.
     let mut budget = super::read_budget();
     budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
-    budget.keys = 5;
+    budget.keys = 3;
     let mut read = native.main.fork_bounded(budget).map_err(map)?;
     let schema = schema(&mut read, query.schema)?;
-    let codec = record_codec(&mut read, &schema, account_key)?;
+    let codec = record_codec(&schema, account_key)?;
     let address = record_address(&schema, &codec, &query.key)?;
     let Some(record) = read_record(&mut read, &address)? else {
         return Ok(None);
@@ -145,11 +144,7 @@ fn read_at_root(
     }))
 }
 
-fn record_codec(
-    read: &mut RunRead,
-    schema: &Schema,
-    account_key: &[u8; 32],
-) -> StorageResult<FieldKeyCodec> {
+fn record_codec(schema: &Schema, account_key: &[u8; 32]) -> StorageResult<FieldKeyCodec> {
     let primary = &schema
         .require_record_keys()
         .map_err(|_| invalid("staged schema has no record keys"))?
@@ -157,33 +152,19 @@ fn record_codec(
     let profile = primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
-    key_codec(read, &record_space_uuid(&schema.name), profile, account_key)
+    Ok(key_codec(
+        &record_space_uuid(&schema.name),
+        profile,
+        account_key,
+    ))
 }
 
 fn key_codec(
-    read: &mut RunRead,
     field: &str,
     profile: schema_types::field_range_profile::FieldRangeProfile,
     account_key: &[u8; 32],
-) -> StorageResult<FieldKeyCodec> {
-    let rows = node_bundle_storage_keys(field)?.map(|key| (FIELD_KEYS_NAMESPACE.into(), key));
-    let rows = read
-        .get_many_bounded(&rows, NODE_KEY_ROW_MAX_BYTES)
-        .map_err(map)?
-        .into_iter()
-        .collect::<laststore::Result<Vec<_>>>()
-        .map_err(map)?;
-    let [metadata, wrap] = rows.as_slice() else {
-        return Err(invalid("staged record key bundle batch"));
-    };
-    let bundle = open_frozen_typed_bundle(
-        field,
-        profile,
-        account_key,
-        metadata.as_deref(),
-        wrap.as_deref(),
-    )?;
-    Ok(bundle.key_codec(profile))
+) -> FieldKeyCodec {
+    FieldKeyCodec::from_node_key(account_key, field, profile)
 }
 
 fn record_address(

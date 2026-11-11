@@ -90,7 +90,7 @@ impl RecordFormat {
     ) -> Result<Vec<u8>, SchemaError> {
         let path = record_file_path(key.as_str(), version)?;
         if let Some(row) = self.file_store().await?.get(path.as_bytes()).await? {
-            require_row(self.content_key.as_ref(), marker, &row)?;
+            require_row(&self.content_key, marker, &row)?;
             return Ok(row);
         }
         let Some(plaintext) =
@@ -105,25 +105,15 @@ impl RecordFormat {
                 "retained portable file is missing".into(),
             ));
         };
-        let account_key = self
-            .content_key
-            .as_ref()
-            .ok_or_else(|| SchemaError::InvalidData("portable file lacks a content key".into()))?;
-        let (row, sha256) = seal_file_row(account_key, &plaintext)
+        let (row, sha256) = seal_file_row(&self.content_key, &plaintext)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         if sha256 != marker.sha256 {
             return Err(SchemaError::InvalidData(
                 "local file reference differs from its marker".into(),
             ));
         }
-        require_row(self.content_key.as_ref(), marker, &row)?;
+        require_row(&self.content_key, marker, &row)?;
         Ok(row)
-    }
-
-    fn account_key(&self) -> Result<&[u8; 32], FoldDbError> {
-        self.content_key.as_ref().ok_or_else(|| {
-            FoldDbError::SecurityError("local file encryption requires the account key".into())
-        })
     }
 
     pub(crate) fn admit_portable_file(
@@ -131,12 +121,8 @@ impl RecordFormat {
         marker: FileMarker,
         sealed: Vec<u8>,
     ) -> Result<FileWrite, SchemaError> {
-        require_row(self.content_key.as_ref(), &marker, &sealed)?;
-        let key = self
-            .content_key
-            .as_ref()
-            .ok_or_else(|| SchemaError::InvalidData("portable file lacks a content key".into()))?;
-        let (key, _) = file_key(key, &marker.sha256)
+        require_row(&self.content_key, &marker, &sealed)?;
+        let (key, _) = file_key(&self.content_key, &marker.sha256)
             .map_err(|_| SchemaError::InvalidData("portable file key".into()))?;
         let plaintext = crate::crypto::envelope::decrypt_envelope(&key, &sealed)
             .map_err(|_| SchemaError::InvalidData("portable file authentication".into()))?;
@@ -158,7 +144,7 @@ impl RecordFormat {
         name: Option<String>,
         media_type: Option<String>,
     ) -> Result<FileWrite, FoldDbError> {
-        let (row, sha256) = seal_file_row(self.account_key()?, plaintext)?;
+        let (row, sha256) = seal_file_row(&self.content_key, plaintext)?;
         let marker = FileMarker {
             name,
             media_type,
@@ -235,7 +221,7 @@ impl RecordFormat {
         row: &[u8],
         marker: &FileMarker,
     ) -> Result<Vec<u8>, FoldDbError> {
-        let (key, _) = file_key(self.account_key()?, &marker.sha256)?;
+        let (key, _) = file_key(&self.content_key, &marker.sha256)?;
         let plaintext =
             crate::crypto::envelope::decrypt_envelope(&key, row).map_err(file_crypto_error)?;
         if plaintext.len() as u64 != marker.size_bytes
@@ -285,7 +271,7 @@ pub(crate) fn seal_file_row(
 /// checks framing and the configured deterministic nonce, not the GCM tag;
 /// authenticated opening and plaintext-hash verification remain on reads.
 pub(crate) fn require_row(
-    content_key: Option<&[u8; 32]>,
+    content_key: &[u8; 32],
     marker: &FileMarker,
     row: &[u8],
 ) -> Result<(), SchemaError> {
@@ -303,8 +289,7 @@ pub(crate) fn require_row(
     {
         return Err(invalid());
     }
-    let account_key = content_key.ok_or_else(invalid)?;
-    let (_, nonce) = file_key(account_key, &marker.sha256).map_err(|_| invalid())?;
+    let (_, nonce) = file_key(content_key, &marker.sha256).map_err(|_| invalid())?;
     if row.get(1..1 + FILE_NONCE_SIZE) != Some(nonce.as_slice()) {
         return Err(invalid());
     }

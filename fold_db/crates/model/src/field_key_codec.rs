@@ -30,6 +30,20 @@ pub fn current_key_format(marker: &[u8]) -> bool {
     marker == KEY_FORMAT
 }
 
+/// Derive the deterministic 32-byte blind key for `field_key_id` from `node_key`
+/// via RFC 5869 HKDF-SHA256.
+#[must_use]
+pub fn derive_blind_key(node_key: &[u8; 32], field_key_id: &str) -> [u8; 32] {
+    let mut extract = Hmac::<Sha256>::new_from_slice(b"lastdb-field-blind-key-v1")
+        .expect("HMAC accepts any key length");
+    extract.update(node_key);
+    let prk = extract.finalize().into_bytes();
+    let mut expand = Hmac::<Sha256>::new_from_slice(&prk).expect("HMAC accepts any key length");
+    expand.update(field_key_id.as_bytes());
+    expand.update(&[1u8]);
+    expand.finalize().into_bytes().into()
+}
+
 /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
 ///
 /// MAC input (exact bytes):
@@ -78,6 +92,15 @@ impl FieldKeyCodec {
             blind_key,
             range_profile,
         }
+    }
+
+    #[must_use]
+    pub fn from_node_key(
+        node_key: &[u8; 32],
+        field_key_id: &str,
+        range_profile: FieldRangeProfile,
+    ) -> Self {
+        Self::new(derive_blind_key(node_key, field_key_id), range_profile)
     }
 
     /// Map API HashKey to storage-form hash segment.

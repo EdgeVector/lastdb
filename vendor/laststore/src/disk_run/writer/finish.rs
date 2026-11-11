@@ -18,24 +18,14 @@ impl PreparedRun {
     }
 
     pub(crate) fn finish(mut self) -> Result<RunSummary> {
-        let _durable = timing::stage("v2_run_durable_us");
-        timing::count("v2_run_file_flushes", 1);
-        timing::during("v2_run_file_flush_us", || {
-            sync_dirty_file(&self.writer.file)
-        })?;
+        sync_dirty_file(&self.writer.file)?;
         let path = &self.summary.path;
-        timing::during("v2_run_rename_us", || fs::rename(&self.writer.tmp, path))?;
+        fs::rename(&self.writer.tmp, path)?;
         if let Some(space) = &self.writer.space {
             space.output(path);
         }
-        timing::count("v2_run_directory_flushes", 1);
-        timing::during("v2_run_directory_flush_us", || {
-            sync_directory(&File::open(&self.writer.dir)?)
-        })?;
+        sync_directory(&File::open(&self.writer.dir)?)?;
         self.writer.finished = true;
-        timing::count("v2_run_records", self.writer.records);
-        timing::count("v2_run_tombstones", self.writer.tombstones);
-        timing::count("v2_run_record_bytes", self.writer.record_bytes);
         Ok(self.summary)
     }
 }
@@ -61,14 +51,13 @@ impl RunWriter {
             last_key: self.last_key.clone().unwrap_or_default(),
         };
         let top_entries = top.indexes.len();
-        let top = timing::during("v2_top_encoding_us", || top.encode());
+        let top = top.encode();
         if top.len() > MAX_TOP_BYTES || top_entries > MAX_INDEX_ENTRIES {
             return Err(Error::WriteCapacity(
                 "disk run: top block over its read limit; write smaller runs".into(),
             ));
         }
         let (top_offset, top_len) = self.write_frame(TOP_COUNTER, &top)?;
-        timing::count("v2_run_top_blocks", 1);
         let footer = Footer {
             run_id: self.run_id,
             top_offset,
@@ -80,11 +69,10 @@ impl RunWriter {
         if let Some(space) = &self.space {
             space.admit_run(FOOTER_BYTES as u64)?;
         }
-        timing::during("v2_run_write_us", || self.file.write_all(&footer.encode()))?;
+        self.file.write_all(&footer.encode())?;
         if let Some(space) = &self.space {
             space.materialize(FOOTER_BYTES as u64)?;
         }
-        timing::count("v2_run_written_bytes", FOOTER_BYTES as u64);
         let summary = RunSummary {
             path: self.dir.join(format!("{}{RUN_SUFFIX}", self.run_id)),
             run_id: self.run_id,

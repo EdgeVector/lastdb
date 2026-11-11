@@ -20,7 +20,7 @@ pub struct AlternateEntry {
 pub(super) fn encode(
     schema: &Schema,
     changes: &[RecordChange],
-    mut resolve: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
+    node_key: &[u8; 32],
 ) -> Result<Vec<KvMutation>, SchemaError> {
     let definitions = schema.require_record_keys()?;
     if definitions.alternates.is_empty() {
@@ -30,14 +30,17 @@ pub(super) fn encode(
     for change in changes {
         let before = change.before.as_ref().filter(|record| record.is_live());
         let after = change.after.is_live().then_some(&change.after);
-        for name in definitions.alternates.keys() {
+        for (name, definition) in &definitions.alternates {
             let old = before.and_then(|record| record.alternates.get(name)?.as_ref());
             let new = after.and_then(|record| record.alternates.get(name)?.as_ref());
             if old == new {
                 continue;
             }
             let field_key = alternate_field_key_id(schema, name);
-            let codec = resolve(&field_key)?;
+            let profile = definition
+                .range_profile()
+                .map_err(SchemaError::InvalidData)?;
+            let codec = FieldKeyCodec::from_node_key(node_key, &field_key, profile);
             if let Some(old) = old {
                 let key = AlternateAddress::new(&codec, &field_key, old, &change.key)?;
                 pointers.push(KvMutation::delete(key.into_string()));

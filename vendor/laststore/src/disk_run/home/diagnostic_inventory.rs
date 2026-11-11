@@ -106,12 +106,6 @@ pub(super) fn inventory(home: &RunHome, root: &Manifest, deadline: Instant) -> L
                 "memory_or_work_cap"
             })
         }
-        Err(Error::Config(message)) if message.starts_with("checkpoint audit cap: ") => {
-            report.stopped_reason = Some("memory_or_work_cap");
-            report.stopped_stage = message
-                .strip_prefix("checkpoint audit cap: ")
-                .map(str::to_string);
-        }
         Err(_) => report.stopped_reason = Some("record_read_failed"),
     }
     report.elapsed_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
@@ -237,7 +231,6 @@ fn collection_label(name: &[u8]) -> &'static str {
         "metadata",
         "schema_states",
         "schemas",
-        "field_keys",
         "change_feed",
         "cas_blobs",
     ];

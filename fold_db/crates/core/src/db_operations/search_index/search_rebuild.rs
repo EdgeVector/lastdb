@@ -66,7 +66,7 @@ async fn collect_schema_records(
     if searchable.as_ref().is_some_and(HashSet::is_empty) {
         return Ok(vec![]);
     }
-    let comparison = ops.records().key_comparison_context(schema).await?;
+    let comparison = ops.records().key_comparison_context(schema)?;
     let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
     let mut after: Option<String> = None;

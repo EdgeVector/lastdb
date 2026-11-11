@@ -105,7 +105,7 @@ impl RecordStore {
         let space = record_space_uuid(&schema.name);
         let base = match hash {
             Some(hash) => {
-                let codec = self.key_codec_for_field_key(&space)?;
+                let codec = self.primary_codec(schema)?;
                 record_hash_prefix(
                     &space,
                     &codec.storage_hash(&space, hash).map_err(codec_error)?,

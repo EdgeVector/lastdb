@@ -28,7 +28,6 @@ impl MutationManager {
         let schema = schema
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
-        self.db_ops.field_keys().load_schema(&schema).await?;
         Ok(schema)
     }
 }

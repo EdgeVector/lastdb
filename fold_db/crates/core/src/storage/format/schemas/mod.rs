@@ -7,9 +7,9 @@ mod state;
 mod tracking;
 
 use super::read::ReadStore;
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvStore, StorageError};
+use crate::storage::StorageError;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -29,15 +29,15 @@ enum EncodedSchema {
 
 #[derive(Clone)]
 pub(crate) struct SchemaFormat {
-    schemas_store: Arc<dyn KvStore>,
-    schema_states_store: Arc<dyn KvStore>,
+    schemas_store: PackKvStore,
+    schema_states_store: PackKvStore,
     runtime: Arc<PackRuntime>,
 }
 
 impl SchemaFormat {
     pub(in crate::storage::format) fn new(
-        schemas_store: Arc<dyn KvStore>,
-        schema_states_store: Arc<dyn KvStore>,
+        schemas_store: PackKvStore,
+        schema_states_store: PackKvStore,
         runtime: Arc<PackRuntime>,
     ) -> Self {
         Self {
@@ -49,8 +49,8 @@ impl SchemaFormat {
 
     pub(crate) fn readers(&self) -> (ReadStore, ReadStore) {
         (
-            ReadStore::new(Arc::clone(&self.schemas_store)),
-            ReadStore::new(Arc::clone(&self.schema_states_store)),
+            ReadStore::new(self.schemas_store.clone()),
+            ReadStore::new(self.schema_states_store.clone()),
         )
     }
 

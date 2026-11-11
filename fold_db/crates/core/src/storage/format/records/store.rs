@@ -4,31 +4,30 @@ use super::{EncodedRecords, RecordChange};
 use crate::schema::types::{FileWriteIssuer, Schema};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::record_file_uploaded_path;
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::{transaction, PackKvStore, PackNamespacedStore, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
-use crate::storage::{KvMutation, KvStore, NamespacedStore};
-use lastdb_model::field_key_codec::FieldKeyCodec;
+use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(crate) struct RecordFormat {
-    pub(super) main_store: Arc<dyn KvStore>,
-    file_owner: Arc<dyn NamespacedStore>,
+    pub(super) main_store: PackKvStore,
+    file_owner: PackNamespacedStore,
     pub(super) runtime: Arc<PackRuntime>,
-    pub(super) content_key: Option<[u8; 32]>,
+    pub(super) content_key: [u8; 32],
     pub(super) file_issuer: FileWriteIssuer,
     pub(super) metadata: Metadata,
 }
 
 impl RecordFormat {
     pub(in crate::storage::format) fn new(
-        main_store: Arc<dyn KvStore>,
-        file_owner: Arc<dyn NamespacedStore>,
+        main_store: PackKvStore,
+        file_owner: PackNamespacedStore,
         runtime: Arc<PackRuntime>,
-        content_key: Option<[u8; 32]>,
+        content_key: [u8; 32],
         metadata: Metadata,
     ) -> Self {
         Self {
@@ -42,7 +41,7 @@ impl RecordFormat {
     }
 
     pub(crate) fn reader(&self) -> ReadStore {
-        ReadStore::new(Arc::clone(&self.main_store))
+        ReadStore::new(self.main_store.clone())
     }
 
     pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
@@ -57,7 +56,6 @@ impl RecordFormat {
         &self,
         schema: &Schema,
         changes: Vec<RecordChange>,
-        resolve_codec: impl FnMut(&str) -> Result<FieldKeyCodec, SchemaError>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         if schema.file_required
@@ -79,16 +77,14 @@ impl RecordFormat {
             .inline_files(super::outgoing::kept_inline_files(&changes))
             .await?;
         let entries = super::outgoing::entries(schema, &changes, &kept)?;
-        let alternates = super::alternates::encode(schema, &changes, resolve_codec)?;
+        let alternates = super::alternates::encode(schema, &changes, &self.content_key)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         // Resolve the prior file version from the actual record preimage.
         // A provider cannot suppress cleanup or authorize a new reference.
         let (files, local_refs) = self
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
-        let written = encoded
-            .stage(self.main_store.as_ref(), &self.runtime)
-            .await?;
+        let written = encoded.stage(&self.main_store, &self.runtime).await?;
         self.stage_files(files).await?;
         self.metadata.stage_outgoing(entries).await?;
         self.runtime.stage_written_records(written);
@@ -157,7 +153,7 @@ impl RecordFormat {
                 change,
                 before.as_ref(),
                 &self.file_issuer,
-                self.content_key.as_ref(),
+                &self.content_key,
             )?;
             rows.extend(encoded);
             local_refs.forget.extend(plan.forget);
@@ -177,7 +173,7 @@ impl RecordFormat {
         Ok(())
     }
 
-    pub(super) async fn file_store(&self) -> StorageResult<Arc<dyn KvStore>> {
+    pub(super) async fn file_store(&self) -> StorageResult<PackKvStore> {
         self.file_owner
             .open_namespace(super::super::CAS_COLLECTION)
             .await

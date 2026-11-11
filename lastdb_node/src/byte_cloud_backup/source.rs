@@ -135,7 +135,7 @@ impl Source {
             .await?)
     }
     pub async fn blob_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.runtime.record_blob_bytes(key, &self.key).await?)
+        Ok(self.runtime.record_blob_bytes(key).await?)
     }
     pub async fn blobs_accepted(&self, uploaded: &[String], released: &[String]) -> Result<()> {
         Ok(self.runtime.blobs_accepted(uploaded, released).await?)

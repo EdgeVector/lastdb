@@ -17,7 +17,7 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
     ) -> Result<QueryRecords, SchemaError> {
         Self::require_supported_query(schema, filter.as_ref())?;
-        let comparison = self.db_ops.records().key_comparison_context(schema).await?;
+        let comparison = self.db_ops.records().key_comparison_context(schema)?;
         let filter = comparison.canonical_filter(filter)?.ok_or_else(|| {
             SchemaError::InvalidData("LastDB requires a Hash or HashRange key selector".into())
         })?;

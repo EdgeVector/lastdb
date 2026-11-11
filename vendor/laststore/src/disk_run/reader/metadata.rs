@@ -43,9 +43,6 @@ impl MetadataMemo {
             .iter()
             .find(|entry| entry.run == reader.run_id() && entry.number == number)
         {
-            crate::read_receipt::update(|r| {
-                r.metadata_decode_reuses = r.metadata_decode_reuses.saturating_add(1);
-            });
             return Ok(Arc::clone(&entry.block));
         }
         let block = Arc::new(reader.read_index_with(number, Some(scratch))?);

@@ -243,7 +243,6 @@ impl RunHome {
         start: Option<Vec<Arc<RunFile>>>,
         policy: &SpacePolicy,
     ) -> Result<RunMerge> {
-        let _total = crate::commit_timing::stage("v2_base_merge_us");
         let held = self.held();
         let (merging, cut) = match &start {
             Some(runs) => (runs.clone(), None),
@@ -281,8 +280,7 @@ impl RunHome {
         )?;
         let records = pieces.iter().flatten().map(|run| run.meta.records).sum();
         let run_bytes = pieces.iter().flatten().map(|run| run.meta.file_bytes).sum();
-        let _publish =
-            crate::commit_timing::during("v2_publish_lock_wait_us", || self.publish_lock())?;
+        let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;

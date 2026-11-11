@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::YieldedScan;
-use crate::storage::{KvStore, StorageError};
+use crate::storage::StorageError;
 
 mod file_references;
 mod portable_author;
@@ -28,7 +28,7 @@ pub use portable_author::{OutgoingPortablePage, PortablePeerProgress};
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
-    metadata_store: Arc<dyn KvStore>,
+    metadata_store: PackKvStore,
     runtime: Arc<PackRuntime>,
 }
 
@@ -40,7 +40,7 @@ struct EncodedMetadata {
 
 impl Metadata {
     pub(in crate::storage::format) fn new(
-        metadata_store: Arc<dyn KvStore>,
+        metadata_store: PackKvStore,
         runtime: Arc<PackRuntime>,
     ) -> Self {
         Self {

@@ -33,9 +33,11 @@ pub(crate) use store::RecordFormat;
 
 use crate::schema::types::FileWrite;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::{record_warm::WrittenRecord, transaction, PackRuntime};
+use crate::storage::disk_pack::{
+    record_warm::WrittenRecord, transaction, PackKvStore, PackRuntime,
+};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvMutation, KvStore, StorageError};
+use crate::storage::{KvMutation, StorageError};
 use lastdb_model::record_value::{InlineWrite, RecordValueError, StoredRecord, MAX_RECORD_BYTES};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -140,7 +142,7 @@ impl EncodedRecords {
     /// gets a namespace factory or starts an independent transaction.
     async fn stage(
         self,
-        main_store: &dyn KvStore,
+        main_store: &PackKvStore,
         runtime: &PackRuntime,
     ) -> Result<Vec<WrittenRecord>, SchemaError> {
         if !transaction::publication::active(runtime) {

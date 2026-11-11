@@ -89,13 +89,7 @@ pub fn encode_frame_with_stats(
     header: FrameHeader,
     payload: &[u8],
 ) -> Result<EncodedFrame> {
-    let compression_timing = crate::commit_timing::stage("frame_compression_us");
     let (mut stored, use_compressed) = compression::stored_payload(payload)?;
-    drop(compression_timing);
-    crate::commit_timing::count("frame_input_bytes", payload.len() as u64);
-    crate::commit_timing::count("frame_stored_bytes", stored.len() as u64);
-    crate::commit_timing::count("frame_compressed_frames", u64::from(use_compressed));
-    let encryption_timing = crate::commit_timing::stage("frame_encryption_us");
     let flags = if use_compressed { FLAG_ZSTD } else { 0 };
     let header_bytes = encode_header(header, stored.len() as u64, flags);
     let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
@@ -105,9 +99,7 @@ pub fn encode_frame_with_stats(
     let tag = cipher
         .encrypt_in_place_detached(nonce, &header_bytes, &mut stored)
         .map_err(|_| Error::AeadAuthFail)?;
-    drop(encryption_timing);
 
-    let _assembly_timing = crate::commit_timing::stage("frame_assembly_us");
     let mut out = Vec::with_capacity(HEADER_SIZE + stored.len() + TAG_SIZE);
     out.extend_from_slice(&header_bytes);
     out.extend_from_slice(&stored);

@@ -50,8 +50,7 @@ pub struct RecordStore {
     /// Validated once before serving. Only stopped-home maintenance can move
     /// this floor; replay cannot write its two metadata records.
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
-    /// Durable bundle resolver. `None` until `with_field_keys` attaches it.
-    field_keys: Option<crate::db_operations::FieldKeyStore>,
+    node_key: [u8; 32],
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
 }
@@ -62,21 +61,43 @@ impl RecordStore {
         &self.range_walks
     }
 
-    pub(crate) fn key_codec_for_field_key(
+    pub(crate) fn primary_codec(
         &self,
-        field_key_id: &str,
+        schema: &crate::schema::Schema,
     ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, crate::schema::SchemaError> {
-        let codec = self
-            .field_keys
-            .as_ref()
-            .map(|store| store.codec_for_field_key(field_key_id))
-            .transpose()?
-            .flatten();
-        codec.ok_or_else(|| {
-            crate::schema::SchemaError::InvalidData(
-                "the typed field key has no admitted range profile".into(),
-            )
-        })
+        let profile = schema
+            .require_record_keys()?
+            .primary
+            .range_profile()
+            .map_err(crate::schema::SchemaError::InvalidData)?;
+        let space = lastdb_model::record_space::record_space_uuid(&schema.name);
+        Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
+            &self.node_key,
+            &space,
+            profile,
+        ))
+    }
+
+    pub(crate) fn alternate_codec(
+        &self,
+        schema: &crate::schema::Schema,
+        name: &str,
+    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, crate::schema::SchemaError> {
+        let profile = schema
+            .require_record_keys()?
+            .alternates
+            .get(name)
+            .ok_or_else(|| {
+                crate::schema::SchemaError::InvalidData("alternate key is not declared".into())
+            })?
+            .range_profile()
+            .map_err(crate::schema::SchemaError::InvalidData)?;
+        let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
+        Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
+            &self.node_key,
+            &id,
+            profile,
+        ))
     }
 
     /// A read-only view with no raw-handle extraction or write methods.

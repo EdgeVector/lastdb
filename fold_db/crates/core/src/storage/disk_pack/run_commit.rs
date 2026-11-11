@@ -112,11 +112,9 @@ impl PackRuntime {
         }
         // The current roots hold this commit; a merge root holds the same data.
         let root = v2.current_root();
-        let publication_timing = laststore::commit_timing::stage("memory_publication_us");
         let (generation, frontier) = (root.generation(), root.frontier());
         self.install_committed(root, hidden_changes, requests)?;
         self.last_root.observe(generation, frontier);
-        drop(publication_timing);
         drop(space);
         self.failed.store(false, Ordering::Release);
         start_merges(

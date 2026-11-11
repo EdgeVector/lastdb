@@ -9,16 +9,11 @@ use std::io::Read;
 mod body;
 #[path = "stream/diagnostic.rs"]
 mod diagnostic;
-#[path = "stream/diagnostic_io.rs"]
-mod diagnostic_io;
 #[path = "stream/import.rs"]
 mod import;
-#[path = "stream/proof.rs"]
-mod proof;
 use body::copy_exact;
 pub(crate) use body::StreamBody;
 pub(crate) use diagnostic::SummaryCursor;
-pub(crate) use proof::{ProofBlock, ProofBounds, ProofHead};
 
 pub(crate) enum SelectedBody {
     Deleted,

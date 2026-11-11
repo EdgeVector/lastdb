@@ -71,8 +71,8 @@ impl RunSnapshotReader {
         if keys.len() > 1000 {
             return Err(bad_request("a Share exact read accepts at most 1000 keys"));
         }
-        let mut read = self.lookup(keys.len() + 4)?;
-        let codec = record_codec(&mut read, schema, account_key)?;
+        let mut read = self.lookup(keys.len() + 2)?;
+        let codec = record_codec(schema, account_key)?;
         let mut addresses = BTreeMap::new();
         for key in keys {
             let address = checked_address(schema, &codec, key)?;
@@ -108,7 +108,7 @@ impl RunSnapshotReader {
         account_key: &[u8; 32],
     ) -> StorageResult<SnapshotRecordPage> {
         let mut read = self.lookup(10_000)?;
-        let codec = record_codec(&mut read, schema, account_key)?;
+        let codec = record_codec(schema, account_key)?;
         let space = record_space_uuid(&schema.name);
         let (start, end) = page_bounds(&space, &codec, filter)?;
         if after.is_some_and(|cursor| cursor < start.as_str() || cursor >= end.as_str()) {
@@ -162,8 +162,8 @@ impl RunSnapshotReader {
         expected_revision: Option<&str>,
         account_key: &[u8; 32],
     ) -> Result<Option<(FileMarker, Vec<u8>)>, crate::error::FoldDbError> {
-        let mut read = self.lookup(6)?;
-        let codec = record_codec(&mut read, schema, account_key)?;
+        let mut read = self.lookup(4)?;
+        let codec = record_codec(schema, account_key)?;
         let address = checked_address(schema, &codec, key)?;
         let record = read_record(&mut read, &address)?;
         if let Some(record) = &record {

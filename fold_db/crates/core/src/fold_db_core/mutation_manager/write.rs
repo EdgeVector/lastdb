@@ -16,7 +16,6 @@ mod access_entry;
 mod batch_inner;
 mod create_update_batch;
 mod erase_guards;
-mod field_keys;
 mod layout;
 mod native;
 mod receipt_entry;
