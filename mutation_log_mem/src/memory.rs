@@ -105,6 +105,9 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
     }
 
     fn register_reader(&mut self, reader: &Writer) -> Result<(), LogError> {
+        if self.state.acks.contains_key(reader) && self.state.reader_allowed(&reader.key) {
+            return Ok(());
+        }
         self.state = self.state.register_reader(reader)?;
         Ok(())
     }

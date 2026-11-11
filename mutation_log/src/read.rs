@@ -5,14 +5,14 @@ use crate::{
 
 /// Head a reader is allowed to see.
 ///
-/// `cursor` is the last delivery sequence scanned, including hidden entries.
-/// `stamp` is the last visible entry, or the last entry when every one is hidden.
+/// `cursor` is the log head's delivery sequence. `stamp` is the last entry
+/// this reader can see, and it is absent when every stored entry is hidden.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
-    /// Last delivery sequence scanned, including entries this reader cannot see.
+    /// Log head delivery sequence. Hidden entries do not move it backward.
     pub cursor: u64,
-    /// Stamp of the last visible entry, or the last entry when none are visible.
-    pub stamp: Stamp,
+    /// Stamp of the last visible entry. Absent when this reader can see none.
+    pub stamp: Option<Stamp>,
 }
 
 /// Snapshot the caller downloads before applying the still-stored suffix.
@@ -185,20 +185,14 @@ fn scoped_head(
     reader: &PrincipalId,
     policy: &impl NamespacePolicy,
 ) -> Option<ScopedHead> {
-    let mut cursor = None;
-    let mut visible = None;
-    let mut last = None;
+    let cursor = state.head.as_ref().map(|head| head.delivery_seq)?;
+    let mut stamp = None;
     for stored in &state.entries {
-        cursor = Some(stored.delivery_seq);
-        last = Some(stored.entry.stamp());
         if entry_visible(state, stored, reader, policy) {
-            visible = Some(stored.entry.stamp());
+            stamp = Some(stored.entry.stamp());
         }
     }
-    Some(ScopedHead {
-        cursor: cursor?,
-        stamp: visible.or(last)?,
-    })
+    Some(ScopedHead { cursor, stamp })
 }
 
 fn reset_for(state: &LogState, start: u64, floor: u64) -> Result<Option<Reset>, LogError> {

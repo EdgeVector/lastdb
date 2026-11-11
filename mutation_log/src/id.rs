@@ -52,14 +52,14 @@ label_id!(
 /// Opaque pointer to snapshot bytes held by the shell.
 ///
 /// The core stores the pointer and returns it on reset. It does not store
-/// the bytes.
+/// the bytes. Any non-empty text without a control character is accepted.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotRef(String);
 
 impl SnapshotRef {
-    /// Reject an empty pointer or one longer than 256 bytes.
+    /// Reject an empty pointer or one that contains a control character.
     pub fn new(value: &str) -> Result<Self, LogError> {
-        if (1..=256).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_graphic()) {
+        if !value.is_empty() && value.chars().all(|ch| !ch.is_control()) {
             Ok(Self(value.to_owned()))
         } else {
             Err(LogError::InvalidId)
