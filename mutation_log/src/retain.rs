@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, PrincipalId, Snapshot,
-    SnapshotRef, StoredEntry, Writer, MAX_RETENTION_MS,
+    SnapshotRef, StoredEntry, SubmissionRecord, SubmissionStatus, Writer, MAX_RETENTION_MS,
 };
 
 impl LogState {
@@ -78,16 +78,18 @@ impl LogState {
     /// entries is refused unless a snapshot ref covers it. A young pending
     /// submission stays, including when the floor moves past it. A rejected
     /// one, an incorporated one, and one older than 30 days are dropped.
+    /// Dropping a pending submission records the writer, sequence, status,
+    /// and this `now_ms`. Those records stay for the life of the log.
     /// `caller` is the publisher key or an owner key.
     pub fn trim(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
         let floor = self.covered_floor(now_ms)?;
         let mut next = self.clone();
         let dropped = drop_covered(&mut next, floor, now_ms);
-        prune_marks(&mut next, now_ms);
-        let marks_changed =
-            next.rejected != self.rejected || next.expired_submissions != self.expired_submissions;
-        if !dropped && !marks_changed && floor == self.trimmed_through {
+        retain_submission_records(&mut next, now_ms);
+        let records_changed =
+            next.rejected != self.rejected || next.submission_records != self.submission_records;
+        if !dropped && !records_changed && floor == self.trimmed_through {
             return Ok(self.clone());
         }
         next.trimmed_through = floor;
@@ -114,8 +116,7 @@ impl LogState {
             return Err(LogError::UnknownSubmission);
         }
         let mut next = self.clone();
-        next.rejected
-            .insert((writer.clone(), writer_seq), stored.accepted_at_ms);
+        next.rejected.insert((writer.clone(), writer_seq));
         Ok(next)
     }
 
@@ -242,7 +243,7 @@ fn live_pending(state: &LogState, stored: &StoredEntry, now_ms: u64) -> bool {
     pending_submission(state, stored)
         && !state
             .rejected
-            .contains_key(&(stored.entry.writer.clone(), stored.entry.writer_seq))
+            .contains(&(stored.entry.writer.clone(), stored.entry.writer_seq))
         && now_ms.saturating_sub(stored.accepted_at_ms) < MAX_RETENTION_MS
 }
 
@@ -259,26 +260,51 @@ fn pending_submission(state: &LogState, stored: &StoredEntry) -> bool {
 
 fn note_dropped(state: &mut LogState, stored: &StoredEntry, now_ms: u64) {
     let key = (stored.entry.writer.clone(), stored.entry.writer_seq);
+    let rejected = state.rejected.remove(&key);
     let expired = pending_submission(state, stored)
-        && !state.rejected.contains_key(&key)
+        && !rejected
         && now_ms.saturating_sub(stored.accepted_at_ms) >= MAX_RETENTION_MS;
     let previous = state.trimmed_tips.get(&key.0).copied().unwrap_or(0);
     state
         .trimmed_tips
         .insert(key.0.clone(), previous.max(key.1));
     state.incorporated.remove(&key);
-    if expired {
-        state.expired_submissions.insert(key, now_ms);
+    if rejected || expired {
+        state.submission_records.insert(
+            (key.0.clone(), key.1),
+            SubmissionRecord {
+                writer: key.0,
+                writer_seq: key.1,
+                status: if rejected {
+                    SubmissionStatus::Rejected
+                } else {
+                    SubmissionStatus::Expired
+                },
+                time_ms: now_ms,
+            },
+        );
     }
 }
 
-fn prune_marks(state: &mut LogState, now_ms: u64) {
+fn retain_submission_records(state: &mut LogState, now_ms: u64) {
+    let stored: Vec<(Writer, u64)> = state
+        .entries
+        .iter()
+        .map(|row| (row.entry.writer.clone(), row.entry.writer_seq))
+        .collect();
     state
-        .rejected
-        .retain(|_, at| now_ms.saturating_sub(*at) < MAX_RETENTION_MS);
-    state
-        .expired_submissions
-        .retain(|_, at| now_ms.saturating_sub(*at) < MAX_RETENTION_MS);
+        .submission_records
+        .retain(|key, record| keep_submission_record(stored.contains(key), record.time_ms, now_ms));
+}
+
+/// Records stay for the life of the log. A record whose entry is still
+/// stored is kept even if [`forget_dropped_record`] changes.
+fn keep_submission_record(entry_stored: bool, dropped_at_ms: u64, now_ms: u64) -> bool {
+    entry_stored || !forget_dropped_record(dropped_at_ms, now_ms)
+}
+
+fn forget_dropped_record(_dropped_at_ms: u64, _now_ms: u64) -> bool {
+    false
 }
 
 fn basis_entry(state: &LogState, stored: &StoredEntry, policy: &impl NamespacePolicy) -> bool {

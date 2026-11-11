@@ -81,10 +81,15 @@ in place. Acking a scan cursor that covered the submission does not drop it.
 After 30 days, the author's retry and a re-append are `SubmissionExpired`,
 naming that writer and sequence. A rejected submission can be trimmed while
 it is still young. The author's retry and a re-append are then
-`SubmissionRejected`, naming that writer and sequence. Those two marks leave
-the log once max retention passes, and a later retry of the trimmed bytes is
-a duplicate. The `incorporated` set is stored with the log. Trim drops a key
-when the submission it names is dropped. A persistent adapter stores the sets
+`SubmissionRejected`, naming that writer and sequence. A rejection stays in
+force while the entry is stored, including after 30 days, so a re-append
+stays `SubmissionRejected` and a later drop is not recorded as expired.
+When trim drops the entry, the log keeps one record: the writer, the writer
+sequence, rejected or expired, and the time the entry was dropped. The
+record has no payload. Records are kept for the life of the log, so a later
+retry is never a duplicate. That keep-forever choice is one function. The
+`incorporated` set is stored with the log. Trim drops a key when the
+submission it names is dropped. A persistent adapter stores the sets
 alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp

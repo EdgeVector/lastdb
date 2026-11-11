@@ -167,13 +167,19 @@ fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'
 }
 
 fn submission_expired(state: &LogState, writer: &Writer, seq: u64) -> bool {
-    state
-        .expired_submissions
-        .contains_key(&(writer.clone(), seq))
+    record_status(state, writer, seq) == Some(crate::SubmissionStatus::Expired)
 }
 
 fn submission_rejected(state: &LogState, writer: &Writer, seq: u64) -> bool {
-    state.rejected.contains_key(&(writer.clone(), seq))
+    state.rejected.contains(&(writer.clone(), seq))
+        || record_status(state, writer, seq) == Some(crate::SubmissionStatus::Rejected)
+}
+
+fn record_status(state: &LogState, writer: &Writer, seq: u64) -> Option<crate::SubmissionStatus> {
+    state
+        .submission_records
+        .get(&(writer.clone(), seq))
+        .map(|record| record.status)
 }
 
 fn marked_expired(writer: &Writer, writer_seq: u64) -> LogError {

@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, Writer};
+use crate::{
+    DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, SubmissionRecord,
+    Writer,
+};
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
@@ -36,15 +39,18 @@ pub struct LogState {
     /// adapter stores this set with the log. Trim drops a key when the
     /// submission it names is dropped.
     pub incorporated: BTreeSet<(Writer, u64)>,
-    /// Pending submissions the publisher rejected, keyed by acceptance time.
+    /// Rejected pending submissions that are still stored.
     ///
-    /// Trim may drop them. The mark leaves once max retention passes.
-    pub rejected: BTreeMap<(Writer, u64), u64>,
-    /// Pending submissions dropped because they aged out, keyed by that time.
+    /// The key is `(writer, writer_seq)`. Trim moves a key into
+    /// [`SubmissionRecord`] when the entry is dropped. The key stays while
+    /// the entry is stored.
+    pub rejected: BTreeSet<(Writer, u64)>,
+    /// Dropped pending submissions, kept for the life of the log.
     ///
-    /// A retry or a re-append is [`LogError::SubmissionExpired`]. The mark
-    /// leaves once max retention passes after it was recorded.
-    pub expired_submissions: BTreeMap<(Writer, u64), u64>,
+    /// The value is the writer, sequence, rejected or expired, and the time
+    /// the entry was dropped. It has no payload. A persistent adapter stores
+    /// this map with the log.
+    pub submission_records: BTreeMap<(Writer, u64), SubmissionRecord>,
 }
 
 impl LogState {
@@ -64,8 +70,8 @@ impl LogState {
             snapshot: None,
             trimmed_through: 0,
             incorporated: BTreeSet::new(),
-            rejected: BTreeMap::new(),
-            expired_submissions: BTreeMap::new(),
+            rejected: BTreeSet::new(),
+            submission_records: BTreeMap::new(),
         }
     }
 

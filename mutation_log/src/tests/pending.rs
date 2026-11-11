@@ -30,11 +30,25 @@ fn expired_submission_is_not_a_duplicate() {
     state = cut(&state, &publisher, 1);
     state = trim_log(&state, &publisher, MAX_RETENTION_MS);
     assert!(state.entries.is_empty());
+    assert_record(
+        &state,
+        &submission,
+        SubmissionStatus::Expired,
+        MAX_RETENTION_MS,
+    );
     let retry = append_entries(&state, &submission, vec![secret]);
     assert_eq!(retry.err(), Some(expired(&submission, 1)));
     let copy = reappend(&state, &published, &submission, 1, 1, b"secret");
     let again = append_entries(&state, &published, vec![copy]);
     assert_eq!(again.err(), Some(expired(&submission, 1)));
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS * 2);
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS * 3);
+    assert_record(
+        &state,
+        &submission,
+        SubmissionStatus::Expired,
+        MAX_RETENTION_MS,
+    );
 }
 
 #[test]
@@ -100,39 +114,48 @@ fn a_rejected_submission_can_be_trimmed() {
 }
 
 #[test]
-fn marks_leave_after_max_retention() {
+fn rejected_at_retention_stays_rejected() {
+    // Accepted on day 0 and rejected on day 29. The day-30 trim used to drop
+    // the entry and the record together, and the retry came back Duplicate.
     let (mut state, publisher, published, _person, submission) = contributors();
+    state = cut(&state, &publisher, 0);
     let secret = pending(&state, &submission, 1, b"secret");
-    state = apply(&state, &submission, vec![secret], 0);
-    state = step(
-        &state,
-        Command::Reject {
-            caller: publisher.clone(),
-            writer: submission.clone(),
-            writer_seq: 1,
-        },
-        &hearth,
-    )
-    .expect("reject")
-    .state;
+    state = apply(&state, &submission, vec![secret.clone()], 0);
+    state = reject_pending(&state, &publisher, &submission);
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS);
+    assert_eq!(state.entries.len(), 1);
+    assert!(state.submission_records.is_empty());
+    assert_eq!(
+        reappend_secret(&state, &published, &submission).err(),
+        Some(rejected(&submission, 1))
+    );
     state = ack(&state, &published, 1);
     state = ack(&state, &submission, 1);
-    state = cut(&state, &publisher, 1);
-    state = trim_log(&state, &publisher, 1);
-    assert!(state.rejected.contains_key(&(submission, 1)));
+    state = cut(&state, &publisher, MAX_RETENTION_MS);
     state = trim_log(&state, &publisher, MAX_RETENTION_MS);
-    assert!(state.rejected.is_empty());
-
-    let (mut aged, publisher, published, _person, submission) = contributors();
-    let secret = pending(&aged, &submission, 1, b"secret");
-    aged = apply(&aged, &submission, vec![secret], 0);
-    aged = ack(&aged, &published, 1);
-    aged = ack(&aged, &submission, 1);
-    aged = cut(&aged, &publisher, 1);
-    aged = trim_log(&aged, &publisher, MAX_RETENTION_MS);
-    assert!(aged.expired_submissions.contains_key(&(submission, 1)));
-    aged = trim_log(&aged, &publisher, MAX_RETENTION_MS + MAX_RETENTION_MS);
-    assert!(aged.expired_submissions.is_empty());
+    assert!(state.entries.is_empty());
+    assert_record(
+        &state,
+        &submission,
+        SubmissionStatus::Rejected,
+        MAX_RETENTION_MS,
+    );
+    assert_eq!(
+        append_entries(&state, &submission, vec![secret]).err(),
+        Some(rejected(&submission, 1))
+    );
+    assert_eq!(
+        reappend_secret(&state, &published, &submission).err(),
+        Some(rejected(&submission, 1))
+    );
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS * 2);
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS * 3);
+    assert_record(
+        &state,
+        &submission,
+        SubmissionStatus::Rejected,
+        MAX_RETENTION_MS,
+    );
 }
 
 fn contributors() -> (LogState, PrincipalId, Writer, PrincipalId, Writer) {
@@ -160,6 +183,48 @@ fn ack_all(
     let state = ack(state, published, through);
     let state = ack(&state, submission, through);
     ack(&state, &writer_of(receiver, "phone"), through)
+}
+
+fn reject_pending(state: &LogState, caller: &PrincipalId, writer: &Writer) -> LogState {
+    step(
+        state,
+        Command::Reject {
+            caller: caller.clone(),
+            writer: writer.clone(),
+            writer_seq: 1,
+        },
+        &hearth,
+    )
+    .expect("reject")
+    .state
+}
+
+fn reappend_secret(
+    state: &LogState,
+    publisher: &Writer,
+    submission: &Writer,
+) -> Result<StepResult, LogError> {
+    let copy = reappend(state, publisher, submission, 1, 1, b"secret");
+    append_entries(state, publisher, vec![copy])
+}
+
+fn assert_record(state: &LogState, writer: &Writer, status: SubmissionStatus, time_ms: u64) {
+    let record = state
+        .submission_records
+        .get(&(writer.clone(), 1))
+        .expect("record");
+    assert_eq!(
+        record,
+        &SubmissionRecord {
+            writer: writer.clone(),
+            writer_seq: 1,
+            status,
+            time_ms,
+        }
+    );
+    let rendered = format!("{record:?}");
+    assert!(!rendered.contains("secret"));
+    assert!(!rendered.contains("payload"));
 }
 
 fn expired(writer: &Writer, writer_seq: u64) -> LogError {

@@ -42,7 +42,7 @@ pub use error::LogError;
 pub use id::{DatabaseId, DeviceId, Namespace, PrincipalId, SnapshotRef};
 pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
-    StoredEntry, Writer,
+    StoredEntry, SubmissionRecord, SubmissionStatus, Writer,
 };
 pub use namespace::{NamespaceKind, NamespacePolicy};
 pub use port::MutationLog;

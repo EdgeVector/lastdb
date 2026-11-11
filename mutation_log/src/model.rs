@@ -133,6 +133,31 @@ pub struct AppendBatch {
     pub accepted_at_ms: u64,
 }
 
+/// Why a dropped pending submission cannot be copied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionStatus {
+    /// The publisher rejected the submission.
+    Rejected,
+    /// The submission aged out before it was copied.
+    Expired,
+}
+
+/// A pending submission whose entry has been dropped.
+///
+/// The value is the writer, that writer's sequence, why it ended, and the
+/// time the entry was dropped. It carries no payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubmissionRecord {
+    /// Writer (node key, device) that stored the submission.
+    pub writer: Writer,
+    /// Writer sequence of that submission.
+    pub writer_seq: u64,
+    /// Rejected or expired.
+    pub status: SubmissionStatus,
+    /// When trim dropped the entry. The shell supplies this clock reading.
+    pub time_ms: u64,
+}
+
 /// A snapshot cut. The bytes live in the shell at `snapshot_ref`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
