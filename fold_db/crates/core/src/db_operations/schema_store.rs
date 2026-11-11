@@ -28,11 +28,12 @@ pub struct SchemaStore {
     pub(super) schema_states_store: ReadStore,
     pub(super) format: SchemaFormat,
     runtime: Arc<crate::storage::disk_pack::PackRuntime>,
+    content_key: [u8; 32],
     retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
-    pub(crate) fn new(format: SchemaFormat) -> Self {
+    pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32]) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
         Self {
@@ -40,6 +41,7 @@ impl SchemaStore {
             schema_states_store,
             format,
             runtime,
+            content_key,
             retention_floors: Arc::default(),
         }
     }
@@ -149,6 +151,12 @@ impl SchemaStore {
             }
         }
         self.format.put_schema(input).await?;
+        crate::storage::disk_backup::accepted::stage_schema_put(
+            &self.runtime,
+            &self.content_key,
+            schema_name,
+            schema,
+        )?;
         self.format.flush_schemas().await?;
         Ok(())
     }
@@ -211,6 +219,13 @@ impl SchemaStore {
         ];
         self.format.delete_schema(schema_name).await?;
         self.format.delete_states(state_keys).await?;
+        if existed {
+            crate::storage::disk_backup::accepted::stage_schema_drop(
+                &self.runtime,
+                &self.content_key,
+                schema_name,
+            )?;
+        }
         self.flush().await?;
         Ok(existed)
     }
