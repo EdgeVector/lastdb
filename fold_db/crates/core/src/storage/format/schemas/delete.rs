@@ -73,7 +73,7 @@ fn invalid() -> StorageError {
     StorageError::InvalidOperation("retention delete key differs from its owner/family".into())
 }
 
-pub(super) fn key(schema: &str, kind: StateKey) -> StorageResult<Vec<u8>> {
+fn key(schema: &str, kind: StateKey) -> StorageResult<Vec<u8>> {
     require_name(schema)?;
     Ok(match kind {
         StateKey::State => schema.to_owned(),

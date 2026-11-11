@@ -120,18 +120,6 @@ impl ReadStore {
         Self::decode_rows(rows)
     }
 
-    pub(crate) async fn scan_items_with_prefix_paged<T: DeserializeOwned + Send + Sync>(
-        &self,
-        prefix: &str,
-        limit: usize,
-    ) -> StorageResult<Vec<(String, T)>> {
-        let rows = self
-            .store
-            .scan_prefix_paged(prefix.as_bytes(), limit)
-            .await?;
-        Self::decode_rows(rows)
-    }
-
     pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(
         &self,
         start: &str,

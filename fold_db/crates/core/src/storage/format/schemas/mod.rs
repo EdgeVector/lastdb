@@ -24,7 +24,6 @@ enum EncodedSchema {
     SchemaDelete(Vec<u8>),
     StatePut(Row, Option<String>),
     StateBatch(Vec<Row>, Vec<String>),
-    StateOneDelete(Vec<u8>),
     StateDelete(Vec<Vec<u8>>),
 }
 
@@ -95,11 +94,6 @@ impl SchemaFormat {
             .await
     }
 
-    pub(crate) async fn delete_state(&self, schema: &str, kind: StateKey) -> StorageResult<()> {
-        self.write(EncodedSchema::StateOneDelete(delete::key(schema, kind)?))
-            .await
-    }
-
     pub(crate) async fn flush_schemas(&self) -> StorageResult<()> {
         self.schemas_store.flush().await
     }
@@ -130,9 +124,6 @@ impl SchemaFormat {
             EncodedSchema::StateBatch(rows, owners) => {
                 self.require_tracking_writable(&owners).await?;
                 self.schema_states_store.batch_put(rows).await
-            }
-            EncodedSchema::StateOneDelete(key) => {
-                self.schema_states_store.delete(&key).await.map(|_| ())
             }
             EncodedSchema::StateDelete(keys) => self.schema_states_store.batch_delete(keys).await,
         }
