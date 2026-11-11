@@ -1,11 +1,11 @@
 use super::*;
+use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
 use cloud_backup_protocol::{AccountId, Digest};
 use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::path::Path;
 
-use crate::byte_cloud_backup::store::AUTOMATIC_FILE as FILE;
 const MAX_INTERVAL: u64 = 7 * 86400;
-/// Version 3: personal backups hold the main home only and record blobs
-/// upload by path. A version 2 file is retired by `previous::retire`.
 pub(in crate::byte_cloud_backup) const VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,6 +28,7 @@ pub struct AutomaticBackupStatus {
     pub snapshot_reason: Option<String>,
     pub paused: Option<PauseState>,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Pending {
@@ -35,6 +36,7 @@ pub(super) struct Pending {
     pub revision: u64,
     pub work: Work,
 }
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Policy {
@@ -47,6 +49,7 @@ pub(super) struct Policy {
     pub pending: Option<Pending>,
     pub cleanup: Option<Id>,
 }
+
 impl Policy {
     pub(super) fn new(
         account: AccountId,
@@ -66,8 +69,7 @@ impl Policy {
             cleanup: None,
         }
     }
-    /// A disabled setting with this cadence and no backup baseline: the
-    /// first run takes a snapshot.
+
     pub(super) fn empty_state(log: u64, snapshot: u64) -> AutomaticBackupStatus {
         AutomaticBackupStatus {
             enabled: false,
@@ -88,10 +90,12 @@ impl Policy {
             paused: None,
         }
     }
+
     pub fn save(&self, host: &crate::host::Host) -> Result<()> {
         self.validate(host)?;
         Store::write_configuration(&host.home, FILE, self)
     }
+
     fn validate(&self, host: &crate::host::Host) -> Result<()> {
         let runtime = native(host)?;
         if self.version != VERSION
@@ -113,6 +117,7 @@ impl Policy {
         }
         Ok(())
     }
+
     pub fn require_connection(&self, host: &crate::host::Host) -> Result<()> {
         let binding = super::super::connection::automatic_binding(host)?;
         if binding
@@ -127,6 +132,7 @@ impl Policy {
         }
         Ok(())
     }
+
     pub fn validate_job(&self, saved: &Saved) -> Result<()> {
         let pending = self.pending.as_ref().ok_or(BackupError::Invalid)?;
         if saved.account != self.account
@@ -141,31 +147,21 @@ impl Policy {
         Ok(())
     }
 }
-/// Retire a version 2 policy (its setting kept, its baseline dropped) before
-/// the current one is read.
-fn retire_previous(
-    home: &std::path::Path,
-    runtime: &fold_db::storage::disk_pack::PackRuntime,
-) -> Result<()> {
-    let version = store::read::<super::cleanup::Version>(&Store::base(home).join(FILE))?;
-    if version.is_some_and(|v| v.version == super::cleanup::PREVIOUS_VERSION) {
-        super::cleanup::retire_previous_policy(home, runtime)?;
-    }
-    Ok(())
-}
+
 pub(super) fn load(host: &crate::host::Host) -> Result<Option<Policy>> {
-    retire_previous(&host.home, &host.db.db_ops().native_runtime())?;
     let policy: Option<Policy> = store::read(&Store::base(&host.home).join(FILE))?;
     if let Some(policy) = &policy {
         policy.validate(host)?;
     }
     Ok(policy)
 }
+
 pub(in crate::byte_cloud_backup) fn status(
     host: &crate::host::Host,
 ) -> Result<Option<AutomaticBackupStatus>> {
     Ok(load(host)?.map(|policy| policy.state))
 }
+
 pub(in crate::byte_cloud_backup) fn configure(
     host: &crate::host::Host,
     enabled: bool,
@@ -233,4 +229,107 @@ pub(in crate::byte_cloud_backup) fn configure(
     native(host)?.configure_mutation_log(true)?;
     host.byte_backup.wake();
     Ok(())
+}
+
+pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
+    retire_at(&Store::base(&host.home), id)
+}
+
+pub(in crate::byte_cloud_backup) fn retire_at(base: &Path, id: &Id) -> Result<()> {
+    if !super::reserved(id) {
+        return Err(BackupError::Identity);
+    }
+    let root = base.join("jobs").join(id.as_str());
+    let previous = store::state_at(base, id)?;
+    let active = Store::active_at(base)?;
+    if previous.is_none() && active.as_ref() != Some(id) {
+        return remove_directory(&root);
+    }
+    let saved = previous.ok_or(BackupError::Missing)?;
+    if saved.automatic_revision.is_none() || !saved.terminal() || active.as_ref() == Some(id) {
+        return Err(BackupError::Identity);
+    }
+    super::super::blobs::remove_plan(&root)?;
+    File::open(&root)?.sync_all()?;
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        if files.len() >= 32768 {
+            return Err(BackupError::Limit);
+        }
+        let name = entry.file_name();
+        let name = name.to_str().ok_or(BackupError::Invalid)?;
+        if !allowed(name) {
+            return Err(BackupError::Invalid);
+        }
+        super::super::store::size(&entry.path())?;
+        if ["state.json", "terminal.json"].contains(&name) {
+            continue;
+        }
+        files.push(entry.path());
+    }
+    for path in files {
+        super::super::store::remove_owned(&path)?;
+    }
+    File::open(&root)?.sync_all()?;
+    store::remove_owned(&root.join("terminal.json"))?;
+    File::open(&root)?.sync_all()?;
+    store::remove_owned(&root.join("state.json"))?;
+    File::open(&root)?.sync_all()?;
+    remove_directory(&root)
+}
+
+fn remove_directory(root: &Path) -> Result<()> {
+    match fs::remove_dir(root) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
+    Ok(())
+}
+
+fn allowed(name: &str) -> bool {
+    if [
+        "state.json",
+        "state.pending",
+        "terminal.json",
+        "terminal.pending",
+        "recovery.json",
+        "recovery.pending",
+        "pause.json",
+        "pause.pending",
+        "log-plan.json",
+        "log-plan.pending",
+        "inventory-index.json",
+        "inventory-index.pending",
+        "close.json",
+        "close.pending",
+        "blobs.json",
+        "blobs.pending",
+    ]
+    .contains(&name)
+    {
+        return true;
+    }
+    [
+        "log-object-",
+        "log-file-",
+        "log-payload-",
+        "inventory-page-",
+        "blob-upload-",
+        "blob-uploaded-",
+        "blob-release-",
+    ]
+    .into_iter()
+    .any(|prefix| {
+        name.strip_prefix(prefix)
+            .and_then(|tail| tail.split_once('.'))
+            .is_some_and(|(digits, extension)| {
+                !digits.is_empty()
+                    && digits.len() <= 8
+                    && digits.bytes().all(|b| b.is_ascii_digit())
+                    && ["json", "pending", "enc"].contains(&extension)
+            })
+    })
 }

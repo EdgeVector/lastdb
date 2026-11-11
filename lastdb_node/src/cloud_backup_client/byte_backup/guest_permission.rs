@@ -48,12 +48,6 @@ enum Operation {
     Append,
 }
 
-/// A bearer credential for encrypted bytes. The publication key is separate.
-pub struct GuestReadPermission(GuestPermission);
-
-/// A bearer credential for append access to one private contribution stream.
-pub struct GuestAppendPermission(GuestPermission);
-
 struct GuestPermission {
     authorization: Zeroizing<String>,
     stream: Stream,
@@ -62,103 +56,62 @@ struct GuestPermission {
     publisher_public_key: Digest,
 }
 
-impl GuestReadPermission {
-    /// The callback signs the exact domain-separated bytes with the account key.
-    pub fn sign(
-        stream: Stream,
-        environment: ShareEnvironment,
-        expires_at: &str,
-        account_public_key: [u8; 32],
-        sign: impl FnOnce(&[u8]) -> [u8; 64],
-    ) -> Result<Self> {
-        GuestPermission::sign(
-            Operation::Read,
-            stream,
-            environment,
-            expires_at,
-            account_public_key,
-            sign,
-        )
-        .map(Self)
-    }
+macro_rules! guest_permission_type {
+    ($name:ident, $op:expr) => {
+        pub struct $name(GuestPermission);
 
-    /// Validate the wire form and signature without contacting Exemem.
-    pub fn parse(authorization: &str) -> Result<Self> {
-        GuestPermission::parse(authorization, Operation::Read).map(Self)
-    }
+        impl $name {
+            pub fn sign(
+                stream: Stream,
+                environment: ShareEnvironment,
+                expires_at: &str,
+                account_public_key: [u8; 32],
+                sign: impl FnOnce(&[u8]) -> [u8; 64],
+            ) -> Result<Self> {
+                GuestPermission::sign(
+                    $op,
+                    stream,
+                    environment,
+                    expires_at,
+                    account_public_key,
+                    sign,
+                )
+                .map(Self)
+            }
 
-    /// Exact Authorization header value. Keep it out of logs and URLs.
-    pub fn authorization(&self) -> &str {
-        &self.0.authorization
-    }
+            pub fn parse(authorization: &str) -> Result<Self> {
+                GuestPermission::parse(authorization, $op).map(Self)
+            }
 
-    pub fn stream(&self) -> &Stream {
-        &self.0.stream
-    }
+            pub fn authorization(&self) -> &str {
+                &self.0.authorization
+            }
 
-    pub fn environment(&self) -> ShareEnvironment {
-        self.0.environment
-    }
+            pub fn stream(&self) -> &Stream {
+                &self.0.stream
+            }
 
-    pub fn publisher_public_key(&self) -> &Digest {
-        &self.0.publisher_public_key
-    }
+            pub fn environment(&self) -> ShareEnvironment {
+                self.0.environment
+            }
 
-    /// Signed permission expiry in Unix milliseconds.
-    pub fn expires_ms(&self) -> u64 {
-        self.0.expires_ms
-    }
+            pub fn publisher_public_key(&self) -> &Digest {
+                &self.0.publisher_public_key
+            }
 
-    pub(super) fn into_read_scope(self) -> (Stream, u64) {
-        (self.0.stream, self.0.expires_ms)
-    }
+            pub fn expires_ms(&self) -> u64 {
+                self.0.expires_ms
+            }
+        }
+    };
 }
 
-impl GuestAppendPermission {
-    /// The callback signs the exact domain-separated bytes with the account key.
-    pub fn sign(
-        stream: Stream,
-        environment: ShareEnvironment,
-        expires_at: &str,
-        account_public_key: [u8; 32],
-        sign: impl FnOnce(&[u8]) -> [u8; 64],
-    ) -> Result<Self> {
-        GuestPermission::sign(
-            Operation::Append,
-            stream,
-            environment,
-            expires_at,
-            account_public_key,
-            sign,
-        )
-        .map(Self)
-    }
+guest_permission_type!(GuestReadPermission, Operation::Read);
+guest_permission_type!(GuestAppendPermission, Operation::Append);
 
-    /// Validate the wire form and signature without contacting Exemem.
-    pub fn parse(authorization: &str) -> Result<Self> {
-        GuestPermission::parse(authorization, Operation::Append).map(Self)
-    }
-
-    /// Exact Authorization header value. Keep it out of logs and URLs.
-    pub fn authorization(&self) -> &str {
-        &self.0.authorization
-    }
-
-    pub fn stream(&self) -> &Stream {
-        &self.0.stream
-    }
-
-    pub fn environment(&self) -> ShareEnvironment {
-        self.0.environment
-    }
-
-    pub fn publisher_public_key(&self) -> &Digest {
-        &self.0.publisher_public_key
-    }
-
-    /// Signed permission expiry in Unix milliseconds.
-    pub fn expires_ms(&self) -> u64 {
-        self.0.expires_ms
+impl GuestReadPermission {
+    pub(super) fn into_read_scope(self) -> (Stream, u64) {
+        (self.0.stream, self.0.expires_ms)
     }
 }
 

@@ -18,25 +18,14 @@ pub mod local {
 
 pub(crate) mod publish {
     pub(crate) use crate::byte_cloud_restore::recipient::{
-        activate_owned_home, finish_run_context, published_context, sync_owned_tree,
-        sync_publish_parents,
-    };
-}
-
-mod keys {
-    pub(in crate::byte_cloud_restore) use crate::byte_cloud_restore::inventory::RecoveryDecryption;
-}
-
-mod closure {
-    pub(in crate::byte_cloud_restore) use crate::byte_cloud_restore::restore_closure as restore;
-    pub(in crate::byte_cloud_restore) use crate::byte_cloud_restore::{
-        load_closure as load, snapshot_closure as snapshot,
+        activate_owned_home, sync_owned_tree, sync_publish_parents,
     };
 }
 
 pub(crate) use download::check_capacity;
 use download::{bounded_bytes, verify_file};
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
+use inventory::RecoveryDecryption;
 pub use inventory::RecoveryKeys;
 pub(crate) use recipient::GuestReplayCache;
 pub use session::RestoreSession;
@@ -48,12 +37,11 @@ use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::{Digest, ErrorCode, NativeRoot};
 use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
+pub(super) const RESTORE_RECEIPT_NAME: &str = "byte-cloud-restore-receipt.json";
+pub(super) const RESTORE_RECEIPT_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,44 +53,54 @@ pub struct RestoreReport {
     pub destination: PathBuf,
 }
 
-pub(crate) struct VerifiedNativeContext<'a> {
+pub(super) struct VerifiedNativeContext<'a> {
     pub root: &'a Path,
     pub destination: &'a Path,
     pub session_id: uuid::Uuid,
     pub commit_sha256: &'a Digest,
     pub native_root: &'a NativeRoot,
-    pub receipt_name: &'static str,
-    pub receipt_version: u8,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct NativeInventory {
+pub(super) struct NativeInventory {
     pub files: u64,
     pub bytes: u64,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct NativeFileProof {
+pub(super) struct NativeFileProof {
     pub path: String,
     pub sha256: Digest,
     pub bytes: u64,
 }
 
-impl VerifiedNativeContext<'_> {
+impl<'a> VerifiedNativeContext<'a> {
+    pub fn new(session: &'a RestoreSession, native_root: &'a NativeRoot) -> Self {
+        Self {
+            root: &session.root,
+            destination: &session.selection.destination,
+            session_id: session.selection.session_id,
+            commit_sha256: &session.accepted().commit_sha256,
+            native_root,
+        }
+    }
+
     pub fn data_root(&self) -> PathBuf {
         self.root.join("home/data")
     }
+
     pub fn published(&self) -> Result<Option<RestoreReport>> {
-        publish::published_context(self)
+        recipient::published_context(self)
     }
+
     pub fn finish_run(
         &self,
         identity_seed: &[u8; 32],
         inventory: NativeInventory,
         proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
     ) -> Result<RestoreReport> {
-        publish::finish_run_context(self, identity_seed, inventory, proof)
+        recipient::finish_run_context(self, identity_seed, inventory, proof)
     }
 }
 
@@ -205,7 +203,7 @@ fn reader_error(reader: &ByteBackupReader, error: BackupTransportError) -> Resto
 async fn restore_closure(
     session: &RestoreSession,
     client: &ByteBackupReader,
-    decryption: &keys::RecoveryDecryption,
+    decryption: &RecoveryDecryption,
     identity_seed: &[u8; 32],
 ) -> Result<RestoreReport> {
     let (inventory, bytes) = load_closure(session, client).await?;
@@ -221,18 +219,8 @@ async fn restore_closure(
         drop(inventory);
         return logs::restore(session, client, decryption, identity_seed, root).await;
     }
-    let accepted = session.accepted();
     let root = snapshot_closure(session, decryption, &bytes)?;
-    let context = VerifiedNativeContext {
-        root: &session.root,
-        destination: &session.selection.destination,
-        session_id: session.selection.session_id,
-        commit_sha256: &accepted.commit_sha256,
-        native_root: &root.native_root,
-        receipt_name: "byte-cloud-restore-receipt.json",
-        receipt_version: 2,
-    };
-    if let Some(report) = context.published()? {
+    if let Some(report) = VerifiedNativeContext::new(session, &root.native_root).published()? {
         return Ok(report);
     }
     runs::restore(session, client, decryption, identity_seed, &root, inventory).await
@@ -240,7 +228,7 @@ async fn restore_closure(
 
 fn snapshot_closure(
     session: &RestoreSession,
-    decryption: &keys::RecoveryDecryption,
+    decryption: &RecoveryDecryption,
     bytes: &[u8],
 ) -> Result<ClientRoot> {
     let accepted = session.accepted();
@@ -280,54 +268,4 @@ async fn load_closure(
         return Err(RestoreError::Invalid("client root destination"));
     }
     Ok((inventory, bytes))
-}
-
-pub(super) fn report_owner_file(path: &Path, new: bool) -> Result<File> {
-    if !new && !fs::symlink_metadata(path)?.is_file() {
-        return Err(RestoreError::Invalid("owned file"));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).mode(0o600);
-    if new {
-        options.create_new(true);
-    }
-    Ok(options.open(path)?)
-}
-
-pub(super) fn report_read_json<T: serde::de::DeserializeOwned>(path: &Path, max: u64) -> Result<T> {
-    if !fs::symlink_metadata(path)?.is_file() {
-        return Err(RestoreError::Invalid("metadata file"));
-    }
-    let mut bytes = Vec::new();
-    File::open(path)?.take(max + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > max {
-        return Err(RestoreError::Limit("metadata bytes"));
-    }
-    serde_json::from_slice(&bytes).map_err(|_| RestoreError::Invalid("metadata JSON"))
-}
-
-pub(super) fn report_atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let bytes = cloud_backup_protocol::canonical_bytes(value)?;
-    if bytes.len() > 256 * 1024 {
-        return Err(RestoreError::Limit("saved metadata"));
-    }
-    let pending = path.with_extension("pending");
-    if pending.try_exists()? && !fs::symlink_metadata(&pending)?.is_file() {
-        return Err(RestoreError::Invalid("metadata temporary"));
-    }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&pending)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    fs::rename(pending, path)?;
-    File::open(
-        path.parent()
-            .ok_or(RestoreError::Invalid("metadata parent"))?,
-    )?
-    .sync_all()?;
-    Ok(())
 }

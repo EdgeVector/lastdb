@@ -1,4 +1,3 @@
-use super::source_diagnostic;
 use crate::cloud_backup_client::byte_backup::BackupTransportError;
 use fold_db::storage::error::NativeProofCause;
 use serde::{Deserialize, Serialize};
@@ -60,6 +59,7 @@ pub enum BackupError {
     PublicationEditPending,
     Cloud(BackupTransportError),
 }
+
 impl BackupError {
     pub(super) fn label(&self) -> &'static str {
         match self {
@@ -83,100 +83,7 @@ impl BackupError {
             Self::Cloud(error) => cloud_label(error),
         }
     }
-}
-fn cloud_label(error: &BackupTransportError) -> &'static str {
-    use cloud_backup_protocol::ErrorCode;
-    match error {
-        BackupTransportError::Authentication => "native backup credentials were refused",
-        BackupTransportError::Protocol(error) => match error.code {
-            ErrorCode::QuotaExceeded => {
-                "native backup cloud quota reached; the saved job retains its source"
-            }
-            ErrorCode::ResourceLimit => "native backup cloud resource limit reached",
-            ErrorCode::Unauthorized
-            | ErrorCode::GenerationConflict
-            | ErrorCode::StreamAuthorityConflict
-            | ErrorCode::PredecessorConflict => {
-                "native backup cloud authority changed; close or review this job"
-            }
-            ErrorCode::IntegrityMismatch
-            | ErrorCode::IdentityConflict
-            | ErrorCode::RecoveryKeyMismatch => {
-                "native backup cloud identity or byte proof differs"
-            }
-            ErrorCode::ProviderPending | ErrorCode::OutcomeUnknown | ErrorCode::RetryLater => {
-                "native backup awaits cloud verification; resume this job"
-            }
-            ErrorCode::UnsupportedCapability => "native backup cloud capability is unsupported",
-            _ => "native backup cloud request was refused; the saved job retains its source",
-        },
-        BackupTransportError::Integrity(_) => {
-            "native backup upload bytes differ from the saved input"
-        }
-        _ => "native backup cloud request failed; resume this job",
-    }
-}
-impl std::fmt::Display for BackupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.label())
-    }
-}
-impl std::error::Error for BackupError {}
-impl From<BackupTransportError> for BackupError {
-    fn from(value: BackupTransportError) -> Self {
-        Self::Cloud(value)
-    }
-}
-impl From<std::io::Error> for BackupError {
-    fn from(_: std::io::Error) -> Self {
-        Self::Disk
-    }
-}
-impl From<cloud_backup_protocol::ProtocolError> for BackupError {
-    fn from(_: cloud_backup_protocol::ProtocolError) -> Self {
-        Self::Invalid
-    }
-}
-impl From<fold_db::cloud_backup_plan::PlanError> for BackupError {
-    fn from(error: fold_db::cloud_backup_plan::PlanError) -> Self {
-        use fold_db::cloud_backup_plan::PlanError;
-        match error {
-            PlanError::SourceLength => Self::Identity,
-            PlanError::ExtentBound => Self::Limit,
-            PlanError::Invalid(_) | PlanError::Protocol(_) => Self::Invalid,
-        }
-    }
-}
-impl From<fold_db::storage::StorageError> for BackupError {
-    fn from(error: fold_db::storage::StorageError) -> Self {
-        use fold_db::storage::StorageError;
-        source_diagnostic::report(&error);
-        match error {
-            StorageError::NativeProof { cause, .. } => Self::from(cause),
-            StorageError::ReadResourceLimit { .. }
-            | StorageError::WriteResourceLimit { .. }
-            | StorageError::RecordTooLarge { .. }
-            | StorageError::MutationLimit { .. } => Self::Limit,
-            StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
-            StorageError::SnapshotCompactionPending => Self::Compacting,
-            StorageError::PublicationEditPending => Self::PublicationEditPending,
-            StorageError::PublicationFile => Self::PublicationFile,
-            _ => Self::Source,
-        }
-    }
-}
 
-impl From<NativeProofCause> for BackupError {
-    fn from(cause: NativeProofCause) -> Self {
-        match cause {
-            NativeProofCause::ReadResource | NativeProofCause::WriteResource => Self::Limit,
-            NativeProofCause::Io { .. } | NativeProofCause::StorageFull => Self::Disk,
-            _ => Self::Source,
-        }
-    }
-}
-
-impl BackupError {
     pub fn pause_state(&self) -> PauseState {
         use cloud_backup_protocol::ErrorCode;
         use PauseReason as P;
@@ -238,6 +145,92 @@ impl BackupError {
                 Disposition::Attention
             },
             reason,
+        }
+    }
+}
+
+fn cloud_label(error: &BackupTransportError) -> &'static str {
+    use cloud_backup_protocol::ErrorCode;
+    match error {
+        BackupTransportError::Authentication => "native backup credentials were refused",
+        BackupTransportError::Protocol(error) => match error.code {
+            ErrorCode::QuotaExceeded => {
+                "native backup cloud quota reached; the saved job retains its source"
+            }
+            ErrorCode::ResourceLimit => "native backup cloud resource limit reached",
+            ErrorCode::Unauthorized
+            | ErrorCode::GenerationConflict
+            | ErrorCode::StreamAuthorityConflict
+            | ErrorCode::PredecessorConflict => {
+                "native backup cloud authority changed; close or review this job"
+            }
+            ErrorCode::IntegrityMismatch
+            | ErrorCode::IdentityConflict
+            | ErrorCode::RecoveryKeyMismatch => {
+                "native backup cloud identity or byte proof differs"
+            }
+            ErrorCode::ProviderPending | ErrorCode::OutcomeUnknown | ErrorCode::RetryLater => {
+                "native backup awaits cloud verification; resume this job"
+            }
+            ErrorCode::UnsupportedCapability => "native backup cloud capability is unsupported",
+            _ => "native backup cloud request was refused; the saved job retains its source",
+        },
+        BackupTransportError::Integrity(_) => {
+            "native backup upload bytes differ from the saved input"
+        }
+        _ => "native backup cloud request failed; resume this job",
+    }
+}
+
+impl std::fmt::Display for BackupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+impl std::error::Error for BackupError {}
+impl From<BackupTransportError> for BackupError {
+    fn from(value: BackupTransportError) -> Self {
+        Self::Cloud(value)
+    }
+}
+impl From<std::io::Error> for BackupError {
+    fn from(_: std::io::Error) -> Self {
+        Self::Disk
+    }
+}
+impl From<cloud_backup_protocol::ProtocolError> for BackupError {
+    fn from(_: cloud_backup_protocol::ProtocolError) -> Self {
+        Self::Invalid
+    }
+}
+impl From<fold_db::cloud_backup_plan::PlanError> for BackupError {
+    fn from(error: fold_db::cloud_backup_plan::PlanError) -> Self {
+        use fold_db::cloud_backup_plan::PlanError;
+        match error {
+            PlanError::SourceLength => Self::Identity,
+            PlanError::ExtentBound => Self::Limit,
+            PlanError::Invalid(_) | PlanError::Protocol(_) => Self::Invalid,
+        }
+    }
+}
+impl From<fold_db::storage::StorageError> for BackupError {
+    fn from(error: fold_db::storage::StorageError) -> Self {
+        use fold_db::storage::StorageError;
+        match error {
+            StorageError::NativeProof { cause, .. } => match cause {
+                NativeProofCause::ReadResource | NativeProofCause::WriteResource => Self::Limit,
+                NativeProofCause::Io { .. } | NativeProofCause::StorageFull => Self::Disk,
+                _ => Self::Source,
+            },
+            StorageError::ReadResourceLimit { .. }
+            | StorageError::WriteResourceLimit { .. }
+            | StorageError::RecordTooLarge { .. }
+            | StorageError::MutationLimit { .. } => Self::Limit,
+            StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
+            StorageError::SnapshotCompactionPending => Self::Compacting,
+            StorageError::PublicationEditPending => Self::PublicationEditPending,
+            StorageError::PublicationFile => Self::PublicationFile,
+            _ => Self::Source,
         }
     }
 }

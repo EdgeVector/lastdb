@@ -1,7 +1,7 @@
 //! Restore the exact paired disk V2 files, verify extent coverage, and open run restore proof.
 use super::{
-    bounded_bytes, download, inventory::Inventory, keys::RecoveryDecryption, local, native,
-    verify_file, ByteBackupReader, NativeFileProof, NativeInventory, RestoreError, RestoreReport,
+    bounded_bytes, download, inventory::Inventory, local, native, verify_file, ByteBackupReader,
+    NativeFileProof, NativeInventory, RecoveryDecryption, RestoreError, RestoreReport,
     RestoreSession, Result, VerifiedNativeContext,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
@@ -17,10 +17,6 @@ use fold_db::storage::disk_pack::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) mod coverage {
-    pub(in crate::byte_cloud_restore) use crate::byte_cloud_restore::runs::Coverage;
-}
-
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupReader,
@@ -30,17 +26,8 @@ pub(super) async fn restore(
     inventory: Inventory,
 ) -> Result<RestoreReport> {
     let total = stage(session, client, decryption, root, inventory).await?;
-    let context = VerifiedNativeContext {
-        root: &session.root,
-        destination: &session.selection.destination,
-        session_id: session.selection.session_id,
-        commit_sha256: &session.accepted().commit_sha256,
-        native_root: &root.native_root,
-        receipt_name: "byte-cloud-restore-receipt.json",
-        receipt_version: 2,
-    };
     let proof = verify_stage(session, decryption, root)?;
-    context.finish_run(identity_seed, total, &proof)
+    VerifiedNativeContext::new(session, &root.native_root).finish_run(identity_seed, total, &proof)
 }
 
 pub(super) async fn stage(
@@ -50,7 +37,7 @@ pub(super) async fn stage(
     root: &ClientRoot,
     mut inventory: Inventory,
 ) -> Result<NativeInventory> {
-    let mut coverage = Coverage::new(root, session, &mut inventory)?;
+    let mut coverage = Coverage::new_pages(&root.pages, session, &mut inventory)?;
     let mut total = NativeInventory { files: 0, bytes: 0 };
     for batch in root
         .pages
@@ -78,7 +65,10 @@ pub(super) async fn stage(
             if page.page_index != expected.page_index {
                 return Err(RestoreError::Invalid("run page identity"));
             }
-            coverage.page(&page.native_files, &mut inventory)?;
+            coverage.page_with(&page.native_files, &mut inventory, |file| {
+                run_backup_destination(file.path.as_str())
+                    .map_err(|_| RestoreError::Invalid("run native path"))
+            })?;
             add_totals(&mut total, &page, root)?;
             native::restore_at(
                 session,
@@ -95,8 +85,6 @@ pub(super) async fn stage(
     }
     coverage.finish()?;
     inventory.finish()?;
-    drop(coverage);
-    drop(inventory);
     Ok(total)
 }
 
@@ -151,7 +139,7 @@ fn add_totals(total: &mut NativeInventory, page: &ClientPage, root: &ClientRoot)
     Ok(())
 }
 
-pub(in crate::byte_cloud_restore) struct Coverage {
+pub(super) struct Coverage {
     metadata: BTreeSet<[u8; 32]>,
     data: BTreeMap<[u8; 32], Object>,
 }
@@ -161,15 +149,7 @@ struct Object {
 }
 
 impl Coverage {
-    pub(in crate::byte_cloud_restore) fn new(
-        root: &ClientRoot,
-        session: &RestoreSession,
-        inventory: &mut Inventory,
-    ) -> Result<Self> {
-        Self::new_pages(&root.pages, session, inventory)
-    }
-
-    pub(in crate::byte_cloud_restore) fn new_pages(
+    pub(super) fn new_pages(
         pages: &[ClientPageReference],
         session: &RestoreSession,
         inventory: &mut Inventory,
@@ -200,18 +180,7 @@ impl Coverage {
         Ok(())
     }
 
-    pub(in crate::byte_cloud_restore) fn page(
-        &mut self,
-        files: &[ClientNativeFile],
-        inventory: &mut Inventory,
-    ) -> Result<()> {
-        self.page_with(files, inventory, |file| {
-            run_backup_destination(file.path.as_str())
-                .map_err(|_| RestoreError::Invalid("run native path"))
-        })
-    }
-
-    pub(in crate::byte_cloud_restore) fn page_with(
+    pub(super) fn page_with(
         &mut self,
         files: &[ClientNativeFile],
         inventory: &mut Inventory,
@@ -254,7 +223,7 @@ impl Coverage {
         Ok(())
     }
 
-    pub(in crate::byte_cloud_restore) fn finish(&self) -> Result<()> {
+    pub(super) fn finish(&self) -> Result<()> {
         for object in self.data.values() {
             let mut cursor = 0;
             for (&start, &end) in &object.ranges {
