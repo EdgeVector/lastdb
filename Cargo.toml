@@ -37,6 +37,8 @@ members = [
     "cloud_backup_plan",
     # Pure unified mutation log (one log per database). No I/O.
     "mutation_log",
+    # In-memory MutationLog adapter. Off unless the caller enables it.
+    "mutation_log_mem",
     "lastdb_storage_policy",
 
     # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal

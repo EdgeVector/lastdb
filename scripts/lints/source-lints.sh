@@ -20,6 +20,7 @@ CRATES=(
   cloud_backup_client
   cloud_backup_plan
   mutation_log
+  mutation_log_mem
   app_identity_crypto
   folddb_profile
   env_flag

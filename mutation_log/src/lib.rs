@@ -3,8 +3,10 @@
 //! One ordered log per `database_id`, for a personal database and for a
 //! shareable database. This crate holds the types, the read rule, and the
 //! apply step. It reads no clock, opens no file or socket, and stores nothing.
-//! The shell passes time, ids, and a [`NamespacePolicy`]. A later port
-//! (`MutationLog`) will persist the [`LogState`] this step returns.
+//! The shell passes time, ids, and a [`NamespacePolicy`]. The `MutationLog`
+//! port and the in-memory adapter live in `mutation_log_mem`. That adapter
+//! stays off unless the caller enables its config. This crate still stores
+//! nothing.
 //!
 //! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
 //! log is not the local record model (`lastdb_model`) and not the current

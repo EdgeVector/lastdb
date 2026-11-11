@@ -1,7 +1,9 @@
 # Unified cloud mutation log
 
-Status: accepted for the pure core. Tom Tang, 10 November 2026.
-The live Share path is unchanged until a later change adopts this log.
+Status: accepted. Tom Tang, 10 November 2026.
+`mutation_log` is the pure core. `mutation_log_mem` is the `MutationLog`
+port and the in-memory adapter. The adapter stays off unless a caller
+enables `MutationLogConfig`. The live Share path does not construct it.
 
 ## Decision
 
@@ -151,13 +153,26 @@ Pure core, no I/O, crate `mutation_log`:
 - `mutation_log/src/tests/` — the invariant, including app-private namespaces
   and the refusal to grant a personal database to a receiver
 
+In-memory port, crate `mutation_log_mem`. The same port serves a personal
+database and a shareable database. There is no format parameter and no
+contributor cap. `MutationLogConfig` defaults off. `open` returns nothing
+unless the caller passes an enabled value. The product does not read
+`LASTDB_MUTATION_LOG` and does not construct the adapter, so the live Share
+path is unchanged. The shell classifies a string with `env_flag::truthy`
+and does not read the process environment itself.
+
+- `mutation_log_mem/src/lib.rs` — config, default off
+- `mutation_log_mem/src/port.rs` — `MutationLog`: append, head, list, ack,
+  grant, revoke, snapshot
+- `mutation_log_mem/src/memory.rs` — in-memory adapter over `step`
+- `mutation_log_mem/src/tests.rs` — the same sharing rules, through the port
+
 ## Later changes
 
-These are not this change.
+These are not the current code.
 
-- A `MutationLog` port and an in-memory adapter behind a flag. The flag stays
-  off. No Exemem call and no change to the live Share path.
-- `shared_sync` steps one log per database through that port.
+- `shared_sync` steps one log per database through `MutationLog`. That is
+  the product call site. It stays off unless `MutationLogConfig` is enabled.
 - Exemem's read path enforces `can_read` for stored bytes.
 - The official-namespace module supplies `NamespacePolicy`.
 - One node registers an owned shareable database beside `personal`. The SDK
