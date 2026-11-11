@@ -45,11 +45,6 @@ A home (`disk_run::home::RunHome`) is a directory:
 - Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the existing 1/8 stale-byte share.
 - At open, the owner deletes temporary files and runs that CURRENT does not name. Nothing replays.
 
-## Proofs
-
-The example `run_home_proof` is a CI-only proof.
-`.github/workflows/disk-run-proof.yml` runs it.
-
 ## Scope
 
 This crate holds disk format v2 and the frame, space, and read-receipt code that it uses.

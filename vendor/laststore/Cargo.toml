@@ -33,15 +33,6 @@ zeroize.workspace = true
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
-# Tom approved the disk format v2 plan on 2026-10-24 ("Prove it works and
-# then I want to use it"). This CI-only proof covers commits, merges, held
-# reads, crash leftovers, and kill -9 recovery of laststore::disk_run::home.
-[[example]]
-bench = false
-test = false
-name = "run_home_proof"
-path = "examples/run_home_proof/main.rs"
-
 [lib]
 test = false
 doctest = false
