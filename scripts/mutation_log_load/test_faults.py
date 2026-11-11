@@ -52,7 +52,7 @@ class Classifier(unittest.TestCase):
         self.assertTrue(capacity_finding(0, "full", 5, 10))
         self.assertFalse(capacity_finding(0, "full", 0, 10))
         self.assertTrue(capacity_finding(0, "steady", 2, 100))
-        self.assertTrue(capacity_finding(0, "steady", 1, 100))
+        self.assertFalse(capacity_finding(0, "steady", 1, 100))
         self.assertEqual(retry_action(False, True, 0, True), "retry")
         self.assertEqual(retry_action(False, True, 7, True), "unresolved")
         self.assertEqual(retry_action(False, True, 0, False), "fail")

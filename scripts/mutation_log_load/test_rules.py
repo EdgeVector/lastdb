@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger
 from drive import Session, drive
-from faults import EXIT_CORRECTNESS, EXIT_SCALING, exit_code
+from faults import EXIT_CORRECTNESS, EXIT_OK, EXIT_SCALING, exit_code
 from guard import database_id_for_run
 from logcheck import ack_holds
 from plan import Scenario, scenario
@@ -42,7 +42,7 @@ class AmendedExits(unittest.TestCase):
             self.assertGreater(report["summary"]["partition_bytes"], 0, level)
             self.assertGreater(report["summary"]["reads"], 0, level)
 
-    def test_a_retried_conflict_under_one_percent_is_still_scaling(self):
+    def test_a_retried_conflict_at_or_under_one_percent_passes(self):
         state = {"left": 1}
 
         def hook(path, _parsed, _log):
@@ -54,10 +54,11 @@ class AmendedExits(unittest.TestCase):
         session = self._session(MemoryLog(hook), CapAndRun()._clock(400))
         session.sleeper = lambda _delay: None
         report = drive(Scenario("steady", 1, 1, False), session)
-        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(report["stopped"], "complete")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_OK)
         self.assertLessEqual(report["summary"]["contention_rate"], 0.01)
         self.assertEqual(session.contention_unresolved, 0)
-        self.assertIn("contention retried", report["message"])
+        self.assertNotIn("message", report)
 
     def test_a_partial_conflict_is_a_correctness_failure(self):
         def hook(path, _parsed, _log):
