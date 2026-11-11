@@ -18,7 +18,7 @@ use crate::host::Host;
 use super::cutover;
 use super::http::{self, Endpoint};
 use super::paths;
-use super::registry::Owner;
+use super::registry::Database;
 use super::wire;
 
 #[derive(Clone)]
@@ -77,7 +77,7 @@ impl CloudLog {
         self.member_revision
     }
 
-    pub(crate) async fn service_view(&self, owner: &Owner) -> cutover::ServiceView {
+    pub(crate) async fn service_view(&self, database: &Database) -> cutover::ServiceView {
         let Ok(body) = canonical_bytes(&serde_json::json!({
             "database_id": self.database_id.as_str(),
         })) else {
@@ -96,7 +96,9 @@ impl CloudLog {
             )
             .await
         {
-            Ok((status, bytes)) => cutover::classify(status, &bytes, owner, self.environment_label),
+            Ok((status, bytes)) => {
+                cutover::classify(status, &bytes, database, self.environment_label)
+            }
             Err(_) => cutover::ServiceView::Unavailable,
         }
     }
@@ -107,6 +109,25 @@ impl CloudLog {
 
     pub(crate) fn device(&self) -> &mutation_log::DeviceId {
         &self.device
+    }
+
+    pub(crate) async fn post_status(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+    ) -> Result<(u16, Vec<u8>), ()> {
+        self.endpoint
+            .post_exchange(
+                &self.keypair,
+                &self.scope,
+                &self.database_id,
+                path,
+                &body,
+                self.member_revision,
+                65_536,
+            )
+            .await
+            .map_err(|_| ())
     }
 
     pub(crate) fn reader(&self) -> Writer {
@@ -278,25 +299,22 @@ impl MutationLog for CloudLog {
         Ok(response.tip.get())
     }
 
-    fn register_reader(&mut self, reader: &Writer) -> Result<(), LogError> {
-        let body = cursor_body(self, reader, 0)?;
-        self.call(paths::REGISTER_READER, body).map(|_| ())
+    fn register_reader(&mut self, _reader: &Writer) -> Result<(), LogError> {
+        // G records the device inside list and append. This does not post a route.
+        Ok(())
     }
 
     fn recover(
         &self,
-        reader: &Writer,
-        local_cursor: u64,
-        now_ms: u64,
+        _reader: &Writer,
+        _local_cursor: u64,
+        _now_ms: u64,
     ) -> Result<Recovery, LogError> {
-        let body = json_body(&wire::ListRequest {
-            database_id: self.database_id.as_str(),
-            reader: reader.key.as_str(),
-            after: DecimalU64::new(local_cursor),
-            limit: DecimalU64::new(mutation_log::LIST_PAGE_LIMIT as u64),
-            now_ms: DecimalU64::new(now_ms),
-        })?;
-        wire::recovery(&self.call(paths::RECOVER, body)?)
+        // G returns snapshot_through on the list error. There is no recover route.
+        // byte_cloud_restore::native::restore_at installs an owner byte-backup
+        // file set. It does not install I's mutation-log/delivery/snapshot parts
+        // into databases/<id>/data. The cursor must not advance.
+        Err(LogError::SnapshotRequired)
     }
 
     fn grant(
@@ -356,15 +374,6 @@ impl MutationLog for CloudLog {
             serde_json::from_slice(&bytes).map_err(|_| LogError::UnexpectedOutcome)?;
         Ok(response.tip.get())
     }
-}
-
-fn cursor_body(log: &CloudLog, reader: &Writer, through: u64) -> Result<Vec<u8>, LogError> {
-    json_body(&wire::CursorRequest {
-        database_id: log.database_id.as_str(),
-        node_public_key: reader.key.as_str(),
-        device_id: reader.device.as_str(),
-        delivery_seq: DecimalU64::new(through),
-    })
 }
 
 fn json_body<T: Serialize>(value: &T) -> Result<Vec<u8>, LogError> {

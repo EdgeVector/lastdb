@@ -2,8 +2,8 @@
 
 use cloud_backup_protocol::{DecimalU64, Id};
 use mutation_log::{
-    AppendBatch, AppendOutcome, Capability, Entry, Incorporation, ListPage, LogError, Recovery,
-    Reset, Snapshot, SnapshotRef, StoredEntry, Writer,
+    AppendBatch, AppendOutcome, Capability, Entry, Incorporation, ListPage, LogError, Snapshot,
+    SnapshotRef, StoredEntry, Writer,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +64,7 @@ pub(crate) struct PageResponse {
     pub entries: Vec<StoredWire>,
     pub next: DecimalU64,
     #[serde(default)]
-    pub reset: Option<SnapshotResetWire>,
+    pub reset: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -94,40 +94,12 @@ pub(crate) struct IncorporatedBody {
     pub writer_seq: DecimalU64,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SnapshotResetWire {
-    pub snapshot: SnapshotReferenceWire,
-    pub next: DeliveryCursorWire,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct SnapshotReferenceWire {
-    pub database_id: String,
-    pub through_delivery_seq: DecimalU64,
-    pub at_ms: DecimalU64,
-    pub snapshot_ref: String,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct DeliveryCursorWire {
-    pub database_id: String,
-    pub delivery_seq: DecimalU64,
-}
-
 #[derive(Serialize)]
 pub(crate) struct AckRequest<'a> {
     pub database_id: &'a str,
     pub node_public_key: &'a str,
     pub device_id: &'a str,
     pub through: DecimalU64,
-}
-
-#[derive(Serialize)]
-pub(crate) struct CursorRequest<'a> {
-    pub database_id: &'a str,
-    pub node_public_key: &'a str,
-    pub device_id: &'a str,
-    pub delivery_seq: DecimalU64,
 }
 
 #[derive(Serialize)]
@@ -179,13 +151,6 @@ pub(crate) struct SnapshotResponse {
 pub(crate) struct SnapshotBytesRequest<'a> {
     pub database_id: &'a str,
     pub snapshot_ref: &'a str,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct ServiceError {
-    pub code: String,
-    #[serde(default)]
-    pub snapshot_through: Option<DecimalU64>,
 }
 
 pub(crate) fn append_request(batch: &AppendBatch) -> Result<Vec<u8>, LogError> {
@@ -263,19 +228,6 @@ pub(crate) fn list_page(body: &[u8]) -> Result<ListPage, LogError> {
     })
 }
 
-pub(crate) fn recovery(body: &[u8]) -> Result<Recovery, LogError> {
-    let page = page_response(body)?;
-    let next = match &page.reset {
-        Some(reset) => reset.next.delivery_seq.get(),
-        None => page.next.get(),
-    };
-    Ok(Recovery {
-        reset: page.reset.map(reset_of).transpose()?,
-        entries: stored_entries(page.entries)?,
-        next,
-    })
-}
-
 pub(crate) fn snapshot(body: &[u8]) -> Result<Snapshot, LogError> {
     let response: SnapshotResponse =
         serde_json::from_slice(body).map_err(|_| LogError::UnexpectedOutcome)?;
@@ -287,15 +239,36 @@ pub(crate) fn snapshot(body: &[u8]) -> Result<Snapshot, LogError> {
 }
 
 pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
-    let error: ServiceError = serde_json::from_slice(body).ok()?;
-    match error.code.as_str() {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let code = value
+        .get("code")
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    let field = value
+        .get("field")
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    let through = json_u64(value.get("snapshot_through")).unwrap_or(0);
+    match code {
         "cursor_expired" => Some(LogError::CursorExpired {
-            snapshot_through: error.snapshot_through.map(|value| value.get()).unwrap_or(0),
+            snapshot_through: through,
+        }),
+        // G e37d7c851: list cursor expiry is HTTP 409 predecessor_conflict.
+        "predecessor_conflict" if field == "mutation_log.cursor" => Some(LogError::CursorExpired {
+            snapshot_through: through,
         }),
         "conflict" => Some(LogError::Conflict),
         "unauthorized" => Some(LogError::Unauthorized),
         _ => None,
     }
+}
+
+fn json_u64(value: Option<&serde_json::Value>) -> Option<u64> {
+    let value = value?;
+    if let Some(number) = value.as_u64() {
+        return Some(number);
+    }
+    value.as_str()?.parse().ok()
 }
 
 pub(crate) fn capability_name(capability: &Capability) -> &'static str {
@@ -358,25 +331,13 @@ fn writer_of(key: &str, device: &str) -> Result<Writer, LogError> {
     })
 }
 
-fn reset_of(wire: SnapshotResetWire) -> Result<Reset, LogError> {
-    if wire.snapshot.at_ms.get() == 0 {
-        return Err(LogError::InvalidEntry);
-    }
-    Ok(Reset {
-        snapshot_ref: SnapshotRef::new(&wire.snapshot.snapshot_ref)?,
-        through: wire.snapshot.through_delivery_seq.get(),
-        at_ms: wire.snapshot.at_ms.get(),
-    })
-}
-
 pub(crate) fn operation(path: &str) -> &'static str {
     match path {
+        paths::CREATE => "create-database",
         paths::APPEND => "append",
         paths::HEAD => "head",
         paths::LIST => "list",
         paths::ACK => "ack",
-        paths::RECOVER => "recover",
-        paths::REGISTER_READER => "register-reader",
         paths::GRANT => "grant",
         paths::REVOKE => "revoke",
         paths::SNAPSHOT => "snapshot",

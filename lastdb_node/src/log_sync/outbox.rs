@@ -22,11 +22,14 @@ pub(crate) struct OutboxNote {
     pub mutation_id: String,
 }
 
-/// Clone log payloads only after Exemem has confirmed signed-only for this home.
-pub fn capture_mutations(home: &Path, mutations: &[Mutation]) -> Option<Vec<OutboxNote>> {
-    let owner = registry::owner(home)?;
-    let commit = cutover::remembered(home)?;
-    if commit.database_id != owner.id {
+/// Clone log payloads only after Exemem has confirmed this store's database.
+pub fn capture_mutations(
+    home: &Path,
+    data_dir: &Path,
+    mutations: &[Mutation],
+) -> Option<Vec<OutboxNote>> {
+    let database = registry::database_at(home, data_dir)?;
+    if !cutover::captures(&database.id) {
         return None;
     }
     let now = fold_db::clock::unix_millis();
@@ -37,15 +40,15 @@ pub fn capture_mutations(home: &Path, mutations: &[Mutation]) -> Option<Vec<Outb
     Some(notes)
 }
 
-pub fn store_outbox(home: &Path, notes: Option<Vec<OutboxNote>>) {
+pub fn store_outbox(home: &Path, data_dir: &Path, notes: Option<Vec<OutboxNote>>) {
     let Some(notes) = notes else {
         return;
     };
-    let Some(owner) = registry::owner(home) else {
+    let Some(database) = registry::database_at(home, data_dir) else {
         return;
     };
     for note in notes {
-        let path = outbox_dir(home, &owner.id).join(safe_name(&note.mutation_id));
+        let path = outbox_dir(home, &database.id).join(safe_name(&note.mutation_id));
         match serde_json::to_vec(&note) {
             Ok(bytes) if bytes.len() <= FILE_LIMIT => {
                 if let Err(error) = disk::write_private(&path, &bytes) {

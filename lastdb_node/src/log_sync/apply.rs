@@ -1,4 +1,9 @@
 //! Apply a pulled page on the booted store. The caller acks only after this returns.
+//!
+//! A reset is not installed. `byte_cloud_restore::native::restore_at` writes a
+//! byte-backup file set into the owner home. I serves mutation-log snapshot
+//! parts at `POST /api/cloud/backups/v2/mutation-log/delivery/snapshot`. No
+//! function in this tree installs those parts into `databases/<id>/data`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

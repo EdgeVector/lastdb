@@ -5,19 +5,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mutation_log::{DatabaseId, DatabaseKind, DeviceId, Namespace, PrincipalId};
-use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
+use mutation_log_sync::{SyncError, SyncState};
 use serde::Deserialize;
 
 use crate::host::Host;
 
-use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
 use super::cutover::{self, Commit, Gate, ServiceView};
 use super::disk;
 use super::http;
-use super::outbox;
-use super::registry::{self, Owner};
+use super::native;
+use super::registry::{self, Database};
+use super::run;
 use super::session;
 
 const GRANTS_LIMIT: usize = 65_536;
@@ -25,16 +24,10 @@ const GRANTS_LIMIT: usize = 65_536;
 static CLOSED_WARNED: AtomicBool = AtomicBool::new(false);
 static AUTHORITY_WARNED: AtomicBool = AtomicBool::new(false);
 
-enum Pause {
+pub(super) enum Pause {
     Idle,
     Retry,
     Snapshot,
-}
-
-struct Ready {
-    commit: Commit,
-    log: CloudLog,
-    state: SyncState,
 }
 
 enum Prep {
@@ -52,40 +45,55 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
 }
 
 async fn one_turn(host: &Host) -> Pause {
-    match prepare(host).await {
+    let databases = registry::databases(&host.home);
+    if databases.is_empty() {
+        return Pause::Idle;
+    }
+    let mut pause = Pause::Snapshot;
+    for database in &databases {
+        let next = if database.native {
+            native::turn(host, database).await
+        } else {
+            receipt_turn(host, database).await
+        };
+        pause = shorter(pause, next);
+    }
+    pause
+}
+
+async fn receipt_turn(host: &Host, database: &Database) -> Pause {
+    match prepare(host, database).await {
         Prep::Pause(pause) => pause,
-        Prep::Ready(ready) => run_ready(host, ready).await,
+        Prep::Ready(ready) => run::run_ready(host, ready).await,
     }
 }
 
-async fn prepare(host: &Host) -> Prep {
-    let Some(owner) = registry::owner(&host.home) else {
-        return Prep::Pause(Pause::Idle);
-    };
-    note_ready(&host.home);
+async fn prepare(host: &Host, database: &Database) -> Prep {
+    note_ready(&host.home, database);
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "device id is unavailable");
-            cutover::observe(&owner.id, ServiceView::Unavailable);
-            return paused(&host.home);
+            cutover::observe(&database.id, ServiceView::Unavailable);
+            return paused_prep(&database.id);
         }
     };
-    let log = match CloudLog::connect(host, &owner.id, &device, probe_revision(&host.home, &owner))
-        .await
-    {
+    let wanted = probe_revision(&host.home, &database.id, &database.kind);
+    let log = match CloudLog::connect(host, &database.id, &device, wanted).await {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
-            cutover::observe(&owner.id, ServiceView::Unavailable);
-            return paused(&host.home);
+            cutover::observe(&database.id, ServiceView::Unavailable);
+            return paused_prep(&database.id);
         }
     };
-    let view = log.service_view(&owner).await;
-    cutover::observe(&owner.id, view);
-    match cutover::gate(&host.home) {
-        Gate::Legacy => Prep::Pause(Pause::Idle),
-        Gate::Closed(_) => {
+    let view = log.service_view(database).await;
+    cutover::observe(&database.id, view);
+    match cutover::gate_for(&database.id) {
+        Gate::Legacy | Gate::Native | Gate::Closed(cutover::Hold::Native) => {
+            Prep::Pause(Pause::Idle)
+        }
+        Gate::Closed(cutover::Hold::Receipt(_)) => {
             warn_once(
                 &CLOSED_WARNED,
                 "signed-only confirmation is unavailable and legacy resume stays closed",
@@ -96,14 +104,18 @@ async fn prepare(host: &Host) -> Prep {
     }
 }
 
-fn paused(home: &Path) -> Prep {
-    match cutover::gate(home) {
-        Gate::Closed(_) => Prep::Pause(Pause::Retry),
-        _ => Prep::Pause(Pause::Idle),
+fn paused_prep(database_id: &str) -> Prep {
+    Prep::Pause(paused_for(database_id))
+}
+
+pub(super) fn paused_for(database_id: &str) -> Pause {
+    match cutover::gate_for(database_id) {
+        Gate::Closed(_) => Pause::Retry,
+        Gate::Legacy | Gate::SignedOnly(_) | Gate::Native => Pause::Idle,
     }
 }
 
-async fn open_signed(host: &Host, commit: Commit, mut log: CloudLog, device: &str) -> Prep {
+async fn open_signed(host: &Host, commit: Commit, log: CloudLog, device: &str) -> Prep {
     if commit.database_kind != "personal" && !publisher_is_this_node(host, &commit.database_id) {
         warn_once(
             &AUTHORITY_WARNED,
@@ -116,17 +128,73 @@ async fn open_signed(host: &Host, commit: Commit, mut log: CloudLog, device: &st
     } else {
         commit.grant_revision
     };
+    finish_open(
+        host,
+        &commit.database_id,
+        &commit.database_kind,
+        wanted,
+        log,
+        device,
+        ServiceView::Unavailable,
+    )
+    .await
+}
+
+pub(super) async fn open_native(
+    host: &Host,
+    database: &Database,
+    revision: u64,
+    log: CloudLog,
+    device: &str,
+) -> Pause {
+    if !native_publisher(host, &database.id) {
+        warn_once(
+            &AUTHORITY_WARNED,
+            "named database authority is not this node and sync stays closed",
+        );
+        return Pause::Idle;
+    }
+    match finish_open(
+        host,
+        &database.id,
+        &database.kind,
+        revision,
+        log,
+        device,
+        ServiceView::Unavailable,
+    )
+    .await
+    {
+        Prep::Pause(pause) => {
+            if matches!(pause, Pause::Retry) {
+                cutover::observe_native(&database.id, cutover::NativeView::Unavailable);
+            }
+            paused_for(&database.id)
+        }
+        Prep::Ready(ready) => run::run_ready(host, ready).await,
+    }
+}
+
+async fn finish_open(
+    host: &Host,
+    database_id: &str,
+    kind: &str,
+    wanted: u64,
+    mut log: CloudLog,
+    device: &str,
+    unavailable: ServiceView,
+) -> Prep {
     if log.member_revision() != wanted {
-        log = match CloudLog::connect(host, &commit.database_id, device, wanted).await {
+        log = match CloudLog::connect(host, database_id, device, wanted).await {
             Ok(log) => log,
             Err(error) => {
                 tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
-                cutover::observe(&commit.database_id, ServiceView::Unavailable);
+                cutover::observe(database_id, unavailable);
                 return Prep::Pause(Pause::Retry);
             }
         };
     }
-    let state = match opened_state(&commit, &log, device, &host.home) {
+    let state = match run::opened_state(database_id, kind, &log, device, &host.home) {
         Ok(state) => state,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync state was refused");
@@ -134,7 +202,12 @@ async fn open_signed(host: &Host, commit: Commit, mut log: CloudLog, device: &st
         }
     };
     match resume_state(&log, state).await {
-        Ok(state) => Prep::Ready(Ready { commit, log, state }),
+        Ok(state) => Prep::Ready(run::Ready {
+            database_id: database_id.to_owned(),
+            shareable: kind != "personal",
+            log,
+            state,
+        }),
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync resume failed");
             Prep::Pause(Pause::Retry)
@@ -142,155 +215,17 @@ async fn open_signed(host: &Host, commit: Commit, mut log: CloudLog, device: &st
     }
 }
 
-async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
-    if drain_outbox(
-        &ready.log,
-        &mut ready.state,
-        &host.home,
-        &ready.commit.database_id,
-    )
-    .await
-    .is_err()
-    {
-        return Pause::Retry;
-    }
-    pull_and_ack(host, &mut ready).await
-}
-
-async fn drain_outbox(
-    log: &CloudLog,
-    state: &mut SyncState,
-    home: &Path,
-    database_id: &str,
-) -> Result<(), ()> {
-    let notes = outbox::pending(home, database_id).map_err(|_| {
-        tracing::warn!(target: "lastdbd::log_sync", "cannot read the log outbox");
-    })?;
-    for (path, note) in notes {
-        let namespace = Namespace::new(&note.namespace).map_err(|_| {
-            tracing::warn!(target: "lastdbd::log_sync", "queued mutation namespace was refused");
-        })?;
-        let event = SyncEvent::Append {
-            namespace,
-            payload: note.payload,
-            authored_at_ms: note.authored_at_ms,
-            accepted_at_ms: note.accepted_at_ms,
-        };
-        match log.drive_once(state.clone(), event).await {
-            Ok((next, Outcome::Appended { .. } | Outcome::Duplicate { .. })) => {
-                *state = next;
-                if let Err(error) = outbox::remove(&path) {
-                    tracing::warn!(
-                        target: "lastdbd::log_sync",
-                        error = %error,
-                        "queued mutation was appended and the local note remains"
-                    );
-                }
-            }
-            Ok(_) => {
-                tracing::warn!(target: "lastdbd::log_sync", "append returned an unexpected outcome");
-                return Err(());
-            }
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::log_sync", error = %error, "append failed");
-                return Err(());
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
-    let event = SyncEvent::Pull {
-        now_ms: fold_db::clock::unix_millis(),
-    };
-    let (next, outcome) = match ready.log.drive_once(ready.state.clone(), event).await {
-        Ok(pulled) => pulled,
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "pull failed");
-            return Pause::Retry;
-        }
-    };
-    ready.state = next;
-    let shareable = ready.commit.database_kind == "shareable";
-    let plan = match apply::apply_page(
-        host,
-        &ready.log,
-        &mut ready.state,
-        &outcome,
-        &ready.commit.database_id,
-        shareable,
-    )
-    .await
-    {
-        Ok(plan) => plan,
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "pulled page was not applied");
-            return Pause::Retry;
-        }
-    };
-    match plan {
-        PagePlan::SnapshotHeld => Pause::Snapshot,
-        PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => {
-            finish_ack(host, &ready.log, &ready.commit.database_id, seq).await
-        }
-        PagePlan::Hold(None) => Pause::Retry,
-    }
-}
-
-async fn finish_ack(host: &Host, log: &CloudLog, database_id: &str, seq: u64) -> Pause {
-    if let Err(error) = log.ack_through(log.reader(), seq).await {
-        tracing::warn!(target: "lastdbd::log_sync", error = %error, "ack failed");
-        return Pause::Retry;
-    }
-    if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
-        tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
-        return Pause::Retry;
-    }
-    Pause::Idle
-}
-
 async fn resume_state(log: &CloudLog, state: SyncState) -> Result<SyncState, SyncError> {
     log.resumed(state).await
 }
 
-fn opened_state(
-    commit: &Commit,
-    log: &CloudLog,
-    device: &str,
-    home: &Path,
-) -> Result<SyncState, String> {
-    let database_id =
-        DatabaseId::new(&commit.database_id).map_err(|_| "database id was refused")?;
-    let principal =
-        PrincipalId::new(log.principal().as_str()).map_err(|_| "node key was refused")?;
-    let device = DeviceId::new(device).map_err(|_| "device id was refused")?;
-    let (kind, role) = if commit.database_kind == "personal" {
-        (
-            DatabaseKind::Personal,
-            SyncRole::Owner { principal, device },
-        )
-    } else {
-        (
-            DatabaseKind::Shareable {
-                publisher: principal.clone(),
-            },
-            SyncRole::Publisher { principal, device },
-        )
-    };
-    let cursor = session::load_cursor(home, &commit.database_id)?;
-    SyncState::open(database_id, kind, role)
-        .map(|state| state.with_cursor(cursor))
-        .map_err(|error| error.to_string())
-}
-
 /// Revision for the confirmation read. A missing or unreadable grants file does
 /// not stop legacy resume. After a verified commit, that revision is the fallback.
-fn probe_revision(home: &Path, owner: &Owner) -> u64 {
-    if owner.kind == "personal" {
+pub(super) fn probe_revision(home: &Path, database_id: &str, kind: &str) -> u64 {
+    if kind == "personal" {
         return 0;
     }
-    let path = home.join("databases").join(&owner.id).join("grants.json");
+    let path = home.join("databases").join(database_id).join("grants.json");
     if let Ok(Some(bytes)) = disk::read_limited(&path, GRANTS_LIMIT) {
         if let Ok(grants) = serde_json::from_slice::<GrantsFile>(&bytes) {
             if grants.revision != 0 {
@@ -298,17 +233,14 @@ fn probe_revision(home: &Path, owner: &Owner) -> u64 {
             }
         }
     }
-    cutover::remembered(home)
-        .filter(|commit| commit.database_id == owner.id)
-        .map(|commit| commit.grant_revision)
-        .unwrap_or(0)
+    cutover::receipt_revision(database_id).unwrap_or(0)
 }
 
-fn note_ready(home: &Path) {
+fn note_ready(home: &Path, database: &Database) {
     let Ok(environment) = http::environment_label(home) else {
         return;
     };
-    if let Err(error) = cutover::publish_daemon_ready(home, environment) {
+    if let Err(error) = cutover::publish_daemon_ready(home, environment, database) {
         tracing::warn!(
             target: "lastdbd::log_sync",
             error = %error,
@@ -317,7 +249,23 @@ fn note_ready(home: &Path) {
     }
 }
 
-fn warn_once(flag: &AtomicBool, message: &str) {
+fn shorter(current: Pause, next: Pause) -> Pause {
+    if pause_rank(next) < pause_rank(current) {
+        next
+    } else {
+        current
+    }
+}
+
+fn pause_rank(pause: Pause) -> u8 {
+    match pause {
+        Pause::Idle => 0,
+        Pause::Retry => 1,
+        Pause::Snapshot => 2,
+    }
+}
+
+pub(super) fn warn_once(flag: &AtomicBool, message: &str) {
     if !flag.swap(true, Ordering::Relaxed) {
         tracing::warn!(target: "lastdbd::log_sync", "{message}");
     }
@@ -334,6 +282,13 @@ async fn sleep_interruptible(shutdown: &AtomicBool, pause: Pause) {
             return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+pub(super) fn native_publisher(host: &Host, database_id: &str) -> bool {
+    match grants_authority(&host.home, database_id) {
+        Some(publisher) => publisher == hex::encode(host.keypair.public_key_bytes()),
+        None => true,
     }
 }
 

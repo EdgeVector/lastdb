@@ -6,9 +6,11 @@ use mutation_log::{AppendOutcome, LogError, MutationLog, LIST_PAGE_LIMIT};
 /// Apply one participant event through `log`.
 ///
 /// On `Err`, `state` is unchanged. The port's own step also keeps its previous
-/// value when an append fails. A pull returns a page or a reset and does not
-/// ack. The caller applies that result, persists it, then acks the cursor.
-/// The first pull of a device records a zero ack without moving that cursor.
+/// value when an append fails. A pull returns a page and does not ack. The
+/// caller applies that result, persists it, then acks the cursor. The cloud
+/// adapter does not post `register-reader` or `recover`: G records the device
+/// on list, and a cursor below the floor is that list error. The local port
+/// still records its reader. A cloud cursor expiry does not move the cursor.
 pub fn drive<L: MutationLog>(
     state: &SyncState,
     log: &mut L,
