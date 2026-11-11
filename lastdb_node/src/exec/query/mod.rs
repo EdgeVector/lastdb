@@ -320,7 +320,8 @@ async fn execute_query_rows_windowed(
     let comparison = capture_key_comparison(host, &query.schema_name).await?;
     let sort_order = query.sort_order.clone();
     let future = async move {
-        let executor = host.records().query_executor();
+        let records = host.records();
+        let executor = records.query_executor();
         let resumable = window.is_some() && !matches!(query.sort_order, Some(SortOrder::Desc));
         let (result, end) = match window {
             Some(w) if resumable => {
