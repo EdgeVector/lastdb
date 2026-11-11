@@ -35,12 +35,10 @@ pub(crate) enum AdminSchemaCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminStorageCommand {
-    /// Inspect live record storage by schema. This may walk a large part of the store.
+    /// Inspect live record storage by schema.
     Inventory {
-        /// Compatibility flag (schema-level record storage is always reported).
         #[arg(long)]
         by_schema: bool,
-        /// Limit human output rows (0 prints all).
         #[arg(long)]
         limit: Option<usize>,
         #[arg(long)]
@@ -57,12 +55,9 @@ pub(crate) enum AdminStorageCommand {
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
     /// Reclaim already-deleted v2 data in both active stores.
-    /// The request survives a restart. Backup copies are outside this operation.
     Cleanup {
-        /// Read the last request without a new cleanup request.
         #[arg(long)]
         status: bool,
-        /// Wait for completion, read release, or the client deadline.
         #[arg(long)]
         wait: bool,
         #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
@@ -70,9 +65,8 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Read the durable record hard-delete audit trail (purge and delete), oldest first.
+    /// Read the durable record hard-delete audit trail, oldest first.
     DeleteLedger {
-        /// Return at most N rows, oldest first. 0 (default) returns everything.
         #[arg(long, default_value_t = 0)]
         limit: u64,
         #[arg(long)]
@@ -94,7 +88,6 @@ pub(crate) enum AdminBackupCommand {
     RecoverCredentialsHome {
         #[command(flatten)]
         args: RecoverCredentialsArgs,
-        /// Use the restricted existing DEV account path and temporary home rules.
         #[arg(long, conflicts_with = "invite_code_file")]
         existing_dev: bool,
     },
@@ -104,7 +97,7 @@ pub(crate) enum AdminBackupCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminSharedCommand {
-    /// Upload a frozen DEV database snapshot, then upload the writer’s queued changes.
+    /// Upload a frozen DEV database snapshot, then upload the writer's queued changes.
     Snapshot(SnapshotArgs),
     /// Restore a held shared snapshot and its captured tails into a fresh home.
     Restore(SharedRestoreCommand),
@@ -118,9 +111,7 @@ pub(crate) enum AdminSharedCommand {
 pub(crate) enum SchemaInspectCommand {
     /// Print identity, key fields, field list, and legal query shapes.
     Show {
-        /// Schema identity hash, `app/Name`, or descriptive name.
         name: String,
-        /// Emit the raw `schema` object.
         #[arg(long)]
         json: bool,
     },
@@ -128,46 +119,25 @@ pub(crate) enum SchemaInspectCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SchemaRetentionCommand {
-    /// Read the current policy for one installed schema.
-    ///
-    /// Prints the TTL and its source: `manifest` (declared by an app manifest)
-    /// or `operator` (set with `set`).
+    /// Read the current retention policy for one installed schema.
     Get {
         #[arg(long)]
         schema: String,
         #[arg(long)]
         json: bool,
     },
-    /// Set a positive human-readable duration such as `15m`, `24h`, or `7d`.
-    ///
-    /// A policy deletes records for good. Range and HashRange records expire
-    /// by the entry time at the front of the range key: unix seconds,
-    /// zero-padded to 20 digits. A range key without that prefix never
-    /// expires. A Range schema loses every old record at the next sweep, those
-    /// written before the policy included. A HashRange schema does the same in
-    /// each partition that receives a later write. Hash and Single records
-    /// expire by the time since the last write after the policy is set; older
-    /// records are not tracked.
-    ///
-    /// This sets an OPERATOR policy. It wins over a TTL that an app manifest
-    /// declared (`retention` key) until `clear` removes it. A schema declared
-    /// from a manifest with `retention` has two installed names that share one
-    /// policy: setting it through either name covers both. For any other
-    /// schema the policy covers only the schema name given here. Every change
-    /// writes a row to `<home>/logs/retention-audit.jsonl`.
+    /// Set an operator retention TTL (`15m`, `24h`, `7d`).
     Set {
         #[arg(long)]
         schema: String,
         #[arg(long)]
         ttl: String,
-        /// HashRange partitions to cover that have no write since the policy (repeatable).
         #[arg(long = "hash")]
         hash_partitions: Vec<String>,
         #[arg(long)]
         json: bool,
     },
-    /// Track existing personal records under the current TTL, in durable pages.
-    /// The original write times stay intact. Old records can expire at once.
+    /// Track existing personal records under the current TTL in durable pages.
     Backfill {
         #[arg(long)]
         schema: String,
@@ -178,19 +148,10 @@ pub(crate) enum SchemaRetentionCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Clear the current policy for one installed schema.
-    ///
-    /// An operator policy that overrides a manifest policy is removed and the
-    /// manifest policy is back in force. When the manifest TTL is shorter, the
-    /// clear needs `--confirm-expire-existing`: records between the two TTLs
-    /// expire for good. Any other policy is removed with its age tracking and
-    /// the manifest-name aliases; a manifest policy then returns at the next
-    /// declare.
+    /// Clear the current operator retention policy for one installed schema.
     Clear {
         #[arg(long)]
         schema: String,
-        /// Confirm that clearing puts a SHORTER manifest TTL in force, so that
-        /// records between the two TTLs expire for good.
         #[arg(long)]
         confirm_expire_existing: bool,
         #[arg(long)]
@@ -200,13 +161,10 @@ pub(crate) enum SchemaRetentionCommand {
 
 #[derive(Args, Debug)]
 pub(crate) struct SchemaDropArgs {
-    /// Canonical name or identity hash of one installed schema.
     #[arg(long)]
     pub(crate) schema: Option<String>,
-    /// Drop every installed identity owned by this app id.
     #[arg(long)]
     pub(crate) owner_app: Option<String>,
-    /// Refuse if nothing was dropped.
     #[arg(long)]
     pub(crate) must_exist: bool,
     #[arg(long)]

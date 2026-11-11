@@ -1,24 +1,21 @@
-//! HTTP/1.1 request framing for the Unix-domain socket.
-//!
-//! **I4 (side-channel closure).** This module does not log a request line,
-//! header value, or body byte. A parse failure uses a content-free
-//! [`UdsHttpError`] variant, so the error cannot disclose request content.
+//! Minimal HTTP/1.1 framing and connection deadlines for the Unix-domain socket.
 
 use std::io::{self, BufRead, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::time::{Duration, Instant};
 
 use fold_db::access::AccessContext;
 
 /// Largest single request/header line accepted, in bytes (excluding CRLF).
 pub const MAX_LINE_LEN: usize = 8 * 1024;
-
 /// Largest total header-section size accepted, in bytes.
 pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
-
-/// Largest number of header lines accepted.
-pub const MAX_HEADER_COUNT: usize = 256;
-
 /// Largest general request body accepted, in bytes.
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
+
+const MAX_HEADER_COUNT: usize = 256;
+const BUSY_ERROR_QUEUE_FULL: &str = "uds_worker_queue_full";
+const UDS_CONN_BUDGET: Duration = Duration::from_secs(10);
 
 /// A request read off the control socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +26,7 @@ pub struct UdsRequest {
     pub target: String,
     /// Header lines in wire order, each `(name, value)` trimmed.
     pub headers: Vec<(String, String)>,
-    /// Request body — exactly `Content-Length` bytes, or empty when absent.
+    /// Request body — `Content-Length` bytes, or empty when absent.
     pub body: Vec<u8>,
 }
 
@@ -43,86 +40,69 @@ impl UdsRequest {
     }
 }
 
-/// Why reading a control-socket request failed (content-free for **I4**).
-#[derive(Debug)]
-pub enum UdsHttpError {
-    /// Underlying transport error reading the stream.
-    Io(io::Error),
-    /// The peer closed the connection before sending any request line.
+/// An HTTP/1.1 response to write back over the control socket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UdsResponse {
+    /// Numeric HTTP status code.
+    pub status: u16,
+    /// Reason phrase for the status line.
+    pub reason: &'static str,
+    /// Extra response headers in wire order.
+    pub headers: Vec<(String, String)>,
+    /// Response body bytes.
+    pub body: Vec<u8>,
+}
+
+impl UdsResponse {
+    /// Build a response with status, reason, and body and no extra headers.
+    pub fn new(status: u16, reason: &'static str, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            reason,
+            headers: Vec::new(),
+            body,
+        }
+    }
+
+    /// Append a header to the response, returning `self` for chaining.
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+}
+
+enum UdsHttpError {
+    Io,
     Empty,
-    /// A request or header line exceeded the configured length cap.
     LineTooLong,
-    /// The stream ended in the middle of the request line, headers, or body.
     UnexpectedEof,
-    /// The request line was not `METHOD SP target SP HTTP-version`.
     MalformedRequestLine,
-    /// The HTTP version was neither `HTTP/1.0` nor `HTTP/1.1`.
     UnsupportedHttpVersion,
-    /// A header line had no `:` separator or an empty/invalid field name.
     MalformedHeader,
-    /// The header section exceeded the total-size or count cap.
     HeadersTooLarge,
-    /// `Content-Length` was absent-but-required, unparseable, or contradictory.
     InvalidContentLength,
-    /// The declared body length exceeded the request's body allowance.
     BodyTooLarge,
-    /// The request carried a `Transfer-Encoding` header.
     UnsupportedTransferEncoding,
 }
 
-impl std::fmt::Display for UdsHttpError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "control-socket read error: {e}"),
-            Self::Empty => write!(f, "connection closed before a request was sent"),
-            Self::LineTooLong => write!(f, "request or header line exceeds the length cap"),
-            Self::UnexpectedEof => write!(f, "connection ended mid-request"),
-            Self::MalformedRequestLine => write!(f, "malformed HTTP request line"),
-            Self::UnsupportedHttpVersion => write!(f, "unsupported HTTP version"),
-            Self::MalformedHeader => write!(f, "malformed HTTP header line"),
-            Self::HeadersTooLarge => write!(f, "header section exceeds the size or count cap"),
-            Self::InvalidContentLength => {
-                write!(f, "missing, invalid, or contradictory Content-Length")
-            }
-            Self::BodyTooLarge => write!(f, "request body exceeds the size cap"),
-            Self::UnsupportedTransferEncoding => {
-                write!(
-                    f,
-                    "Transfer-Encoding is not supported on the control socket"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for UdsHttpError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
 impl From<io::Error> for UdsHttpError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
+    fn from(_: io::Error) -> Self {
+        Self::Io
     }
 }
 
 fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, UdsHttpError> {
     let mut buf = Vec::new();
-    let mut limited = reader.take((max as u64) + 2);
-    let n = limited.read_until(b'\n', &mut buf)?;
+    let n = reader.take((max as u64) + 2).read_until(b'\n', &mut buf)?;
     if n == 0 {
         return Ok(None);
     }
     if buf.last() != Some(&b'\n') {
-        return if buf.len() >= max + 2 {
-            Err(UdsHttpError::LineTooLong)
+        return Err(if buf.len() >= max + 2 {
+            UdsHttpError::LineTooLong
         } else {
-            Err(UdsHttpError::UnexpectedEof)
-        };
+            UdsHttpError::UnexpectedEof
+        });
     }
     buf.pop();
     if buf.last() == Some(&b'\r') {
@@ -139,7 +119,7 @@ fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     let mut parts = s.split(' ');
     let method = parts
         .next()
-        .filter(|m| !m.is_empty())
+        .filter(|m| !m.is_empty() && m.bytes().all(|b| b.is_ascii_graphic()))
         .ok_or(UdsHttpError::MalformedRequestLine)?;
     let target = parts
         .next()
@@ -152,9 +132,6 @@ fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     if version != "HTTP/1.0" && version != "HTTP/1.1" {
         return Err(UdsHttpError::UnsupportedHttpVersion);
     }
-    if !method.bytes().all(|b| b.is_ascii_graphic()) {
-        return Err(UdsHttpError::MalformedRequestLine);
-    }
     Ok((method.to_string(), target.to_string()))
 }
 
@@ -162,14 +139,13 @@ fn parse_header(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     let s = std::str::from_utf8(line).map_err(|_| UdsHttpError::MalformedHeader)?;
     let idx = s.find(':').ok_or(UdsHttpError::MalformedHeader)?;
     let name = s[..idx].trim();
-    let value = s[idx + 1..].trim();
     if name.is_empty() || name.bytes().any(|b| b == b' ' || b == b'\t') {
         return Err(UdsHttpError::MalformedHeader);
     }
-    Ok((name.to_string(), value.to_string()))
+    Ok((name.to_string(), s[idx + 1..].trim().to_string()))
 }
 
-fn read_request_with_owner_blob<R: BufRead>(
+fn read_request<R: BufRead>(
     mut reader: R,
     allow_owner_blob: bool,
 ) -> Result<UdsRequest, UdsHttpError> {
@@ -177,8 +153,7 @@ fn read_request_with_owner_blob<R: BufRead>(
         return Err(UdsHttpError::Empty);
     };
     let (method, target) = parse_request_line(&request_line)?;
-
-    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut headers = Vec::new();
     let mut header_bytes = 0usize;
     loop {
         let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::UnexpectedEof)?;
@@ -191,14 +166,12 @@ fn read_request_with_owner_blob<R: BufRead>(
         }
         headers.push(parse_header(&line)?);
     }
-
     if headers
         .iter()
         .any(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding"))
     {
         return Err(UdsHttpError::UnsupportedTransferEncoding);
     }
-
     let body = read_body(&mut reader, &headers, &method, &target, allow_owner_blob)?;
     Ok(UdsRequest {
         method,
@@ -224,34 +197,12 @@ fn read_body(
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
             .and_then(|(_, value)| value.split(';').next())
-            .is_some_and(|value| {
-                value
-                    .trim()
-                    .eq_ignore_ascii_case("application/octet-stream")
-            });
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
     let maximum = if raw_blob {
         fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
     } else {
         MAX_BODY_LEN as u64
     };
-    let content_length = resolve_content_length(headers, maximum)?;
-    let mut body = Vec::new();
-    body.try_reserve_exact(content_length)
-        .map_err(|_| UdsHttpError::Io(io::Error::other("request body allocation refused")))?;
-    body.resize(content_length, 0);
-    reader
-        .read_exact(&mut body)
-        .map_err(|error| match error.kind() {
-            io::ErrorKind::UnexpectedEof => UdsHttpError::UnexpectedEof,
-            _ => UdsHttpError::Io(error),
-        })?;
-    Ok(body)
-}
-
-fn resolve_content_length(
-    headers: &[(String, String)],
-    maximum: u64,
-) -> Result<usize, UdsHttpError> {
     let mut length = 0usize;
     let mut seen = false;
     for (name, value) in headers {
@@ -270,17 +221,125 @@ fn resolve_content_length(
     if length as u64 > maximum {
         return Err(UdsHttpError::BodyTooLarge);
     }
-    Ok(length)
+    let mut body = Vec::new();
+    body.try_reserve_exact(length)
+        .map_err(|_| UdsHttpError::Io)?;
+    body.resize(length, 0);
+    reader.read_exact(&mut body).map_err(|e| {
+        if e.kind() == io::ErrorKind::UnexpectedEof {
+            UdsHttpError::UnexpectedEof
+        } else {
+            UdsHttpError::Io
+        }
+    })?;
+    Ok(body)
 }
 
-/// Build the owner [`AccessContext`] for a request accepted on the control socket.
-pub fn uds_access_context(owner_user_id: &str) -> AccessContext {
-    AccessContext::owner(owner_user_id)
+fn write_response<W: Write>(w: &mut W, resp: &UdsResponse) -> io::Result<()> {
+    write!(w, "HTTP/1.1 {} {}\r\n", resp.status, resp.reason)?;
+    write!(
+        w,
+        "Content-Length: {}\r\nConnection: close\r\n",
+        resp.body.len()
+    )?;
+    for (name, value) in &resp.headers {
+        if !name.eq_ignore_ascii_case("content-length") && !name.eq_ignore_ascii_case("connection")
+        {
+            write!(w, "{name}: {value}\r\n")?;
+        }
+    }
+    write!(w, "\r\n")?;
+    w.write_all(&resp.body)?;
+    w.flush()
 }
 
-mod serve;
+pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
+    let body = format!(r#"{{"status":"busy","error":"{BUSY_ERROR_QUEUE_FULL}"}}"#);
+    let resp = UdsResponse::new(503, "Service Unavailable", body.into_bytes())
+        .with_header("Content-Type", "application/json")
+        .with_header("Retry-After", "1");
+    let mut w = DeadlineStream {
+        stream,
+        deadline: Instant::now() + Duration::from_secs(2),
+    };
+    write_response(&mut w, &resp)?;
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    Ok(())
+}
 
-pub use serve::{
-    error_response, finish_connection, receive_connection, write_busy_and_close, write_response,
-    UdsResponse, BUSY_ERROR_QUEUE_FULL,
-};
+struct DeadlineStream<'a> {
+    stream: &'a UnixStream,
+    deadline: Instant,
+}
+
+impl DeadlineStream<'_> {
+    fn arm(&self, set: impl Fn(Option<Duration>) -> io::Result<()>) -> io::Result<()> {
+        let remaining = self.deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "uds: aggregate per-connection deadline exhausted",
+            ));
+        }
+        set(Some(remaining))
+    }
+}
+
+impl Read for DeadlineStream<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.arm(|d| self.stream.set_read_timeout(d))?;
+        (&*self.stream).read(buf)
+    }
+}
+
+impl Write for DeadlineStream<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.arm(|d| self.stream.set_write_timeout(d))?;
+        (&*self.stream).write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        (&*self.stream).flush()
+    }
+}
+
+/// Parse one request with the connection deadline and owner access context.
+pub fn receive_connection(
+    stream: &mut UnixStream,
+    owner_user_id: &str,
+) -> io::Result<Option<(UdsRequest, AccessContext)>> {
+    let read_half = stream.try_clone()?;
+    let deadline = Instant::now() + UDS_CONN_BUDGET;
+    let base = AccessContext::owner(owner_user_id);
+    let reader = io::BufReader::new(DeadlineStream {
+        stream: &read_half,
+        deadline,
+    });
+    match read_request(reader, base.is_owner) {
+        Ok(request) => Ok(Some((request, base))),
+        Err(UdsHttpError::Empty | UdsHttpError::Io) => Ok(None),
+        Err(error) => {
+            let (status, reason) = match error {
+                UdsHttpError::UnsupportedHttpVersion => (505, "HTTP Version Not Supported"),
+                UdsHttpError::LineTooLong | UdsHttpError::HeadersTooLarge => {
+                    (431, "Request Header Fields Too Large")
+                }
+                UdsHttpError::BodyTooLarge => (413, "Payload Too Large"),
+                _ => (400, "Bad Request"),
+            };
+            finish_connection(stream, &UdsResponse::new(status, reason, reason.into()))?;
+            Ok(None)
+        }
+    }
+}
+
+/// Write one final response with a fresh deadline and explicit EOF.
+pub fn finish_connection(stream: &mut UnixStream, response: &UdsResponse) -> io::Result<()> {
+    let mut w = DeadlineStream {
+        stream,
+        deadline: Instant::now() + UDS_CONN_BUDGET,
+    };
+    write_response(&mut w, response)?;
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    Ok(())
+}

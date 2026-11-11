@@ -41,8 +41,7 @@ fn thumbnail_metadata(
         return Ok(serde_json::Value::Null);
     };
     let path = base.join(&thumbnail.source);
-    let bytes =
-        std::fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     Ok(serde_json::json!({
         "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
         "name": thumbnail.name,
@@ -60,20 +59,10 @@ fn placement(value: Option<&str>) -> Result<&'static str, String> {
     }
 }
 
-pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
-    if durable {
-        durable_mutation_client_timeout()
-    } else {
-        Duration::from_secs(10)
-    }
-}
-
-/// Write the exact JSON body of the node's mutation receipt.
-pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), String> {
-    let body = response
+fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), String> {
+    let (_, body) = response
         .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .ok_or_else(|| "mutation response had no body".to_string())?;
+        .ok_or("mutation response had no body")?;
     if response.starts_with("HTTP/1.1 202 ") {
         let receipt: serde_json::Value =
             serde_json::from_str(body).map_err(|_| "invalid mutation submission receipt")?;
@@ -96,6 +85,46 @@ pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> 
         .map_err(|e| format!("flush mutation receipt: {e}"))
 }
 
+fn submit_input_file(
+    target: &DatabaseTarget,
+    base: &Path,
+    body: &serde_json::Value,
+    file: &InputFile,
+    placement: &str,
+) -> Result<(), String> {
+    if placement == "inline" && file.thumbnail.is_some() {
+        return Err("an inline file input takes no thumbnail".into());
+    }
+    if file.local && placement == "inline" {
+        return Err("a local file reference cannot be an inline file".into());
+    }
+    let source = base.join(&file.source);
+    let thumb = thumbnail_metadata(base, file.thumbnail.as_ref())?;
+    let receipt = if file.local {
+        let source = std::fs::canonicalize(&source)
+            .map_err(|e| format!("open {}: {e}", source.display()))?;
+        let metadata = serde_json::json!({
+            "mutation": body, "name": file.name, "media_type": file.media_type,
+            "placement": placement, "local_path": source, "thumbnail": thumb,
+        });
+        let raw = post_json_with_timeout(
+            &target.socket,
+            &target.path(PUT_BLOB_PATH),
+            &metadata,
+            admin_scan_client_timeout(),
+        )?;
+        parse_json_response(&raw, PUT_BLOB_PATH)?
+    } else {
+        let metadata = serde_json::json!({
+            "mutation": body, "name": file.name, "media_type": file.media_type,
+            "placement": placement, "thumbnail": thumb,
+        });
+        put_record_file(target, &metadata, &source)?
+    };
+    println!("{receipt}");
+    Ok(())
+}
+
 pub(super) fn mutate_command(
     target: &DatabaseTarget,
     request_file: &Path,
@@ -107,7 +136,9 @@ pub(super) fn mutate_command(
     }
     let text = if request_file == Path::new("-") {
         let mut text = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)
+        std::io::stdin()
+            .lock()
+            .read_to_string(&mut text)
             .map_err(|e| format!("read mutation: {e}"))?;
         text
     } else {
@@ -119,8 +150,8 @@ pub(super) fn mutate_command(
         if body.get("file").is_none() {
             return Err("record input requires an explicit file object or null".into());
         }
-        let input: RecordInput = serde_json::from_value(body)
-            .map_err(|error| format!("invalid record input: {error}"))?;
+        let input: RecordInput =
+            serde_json::from_value(body).map_err(|e| format!("invalid record input: {e}"))?;
         body = input.mutation;
         Some((input.file, placement(input.placement.as_deref())?))
     } else {
@@ -132,52 +163,12 @@ pub(super) fn mutate_command(
     if let Some(object) = body.as_object_mut().filter(|_| durable) {
         object.insert("durability".into(), serde_json::json!("durable"));
     }
-    lastdb_node::exec::parse_mutation_body(
-        serde_json::to_vec(&body)
-            .map_err(|e| e.to_string())?
-            .as_slice(),
-    )
-    .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
-    let socket = &target.socket;
+    lastdb_node::exec::parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+        .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
     let base = request_file.parent().unwrap_or_else(|| Path::new(""));
     let (route, body) = match file {
         Some((Some(file), placement)) => {
-            if placement == "inline" && file.thumbnail.is_some() {
-                return Err("an inline file input takes no thumbnail".into());
-            }
-            if file.local && placement == "inline" {
-                return Err("a local file reference cannot be an inline file".into());
-            }
-            let source = base.join(&file.source);
-            if file.local {
-                let source = std::fs::canonicalize(&source)
-                    .map_err(|error| format!("open {}: {error}", source.display()))?;
-                let metadata = serde_json::json!({
-                    "mutation": body,
-                    "name": file.name,
-                    "media_type": file.media_type,
-                    "placement": placement,
-                    "local_path": source,
-                    "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
-                });
-                let raw = post_json_with_timeout(
-                    socket,
-                    &target.path("/api/db/put-blob"),
-                    &metadata,
-                    admin_scan_client_timeout(),
-                )?;
-                let receipt = parse_json_response(&raw, "/api/db/put-blob")?;
-                println!("{receipt}");
-                return Ok(());
-            }
-            let metadata = serde_json::json!({
-                "mutation": body, "name": file.name, "media_type": file.media_type,
-                "placement": placement,
-                "thumbnail": thumbnail_metadata(base, file.thumbnail.as_ref())?,
-            });
-            let receipt = put_record_file(target, &metadata, &source)?;
-            println!("{receipt}");
-            return Ok(());
+            return submit_input_file(target, base, &body, &file, placement);
         }
         Some((None, placement)) => (
             "/api/db/delete-blob",
@@ -185,70 +176,17 @@ pub(super) fn mutate_command(
         ),
         None => ("/api/mutation", body),
     };
-    send_mutation(target, route, &body, durable, mutation_id)
-}
-
-fn send_mutation(
-    target: &DatabaseTarget,
-    route: &str,
-    body: &serde_json::Value,
-    durable: bool,
-    mutation_id: Option<uuid::Uuid>,
-) -> Result<(), String> {
     let id = (target.is_explicit() && route == "/api/mutation")
         .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
-    let describe_error = |error| match id {
-        Some(id) => format!("{error} (mutation ID {id})"),
-        None => error,
+    let with_id = |err: String| id.map_or(err.clone(), |id| format!("{err} (mutation ID {id})"));
+    let timeout = if durable {
+        durable_mutation_client_timeout()
+    } else {
+        Duration::from_secs(10)
     };
-    let raw = post_json_with_id(
-        &target.socket,
-        &target.path(route),
-        body,
-        mutate_client_timeout(durable),
-        id,
-    )
-    .map_err(describe_error)?;
-    let mut stdout = std::io::stdout().lock();
-    write_mutate_receipt(&mut stdout, &raw).map_err(describe_error)
-}
-
-fn put_blob_request(
-    path: &str,
-    bytes: &[u8],
-    metadata: &serde_json::Value,
-) -> Result<Vec<u8>, String> {
-    admit_local_file_input(bytes.len() as u64)?;
-    let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
-    let body_length = json
-        .len()
-        .checked_add(bytes.len())
-        .ok_or("local file request length overflow")?;
-    let head = format!(
-        "POST {path} HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/octet-stream\r\n\
-         X-LastDB-File-Blob-Metadata-Length: {}\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        json.len(),
-        body_length
-    );
-    let capacity = head
-        .len()
-        .checked_add(body_length)
-        .ok_or_else(|| "local file request length overflow".to_string())?;
-    admit_local_file_input(capacity as u64)?;
-    let mut request = Vec::new();
-    request
-        .try_reserve_exact(capacity)
-        .map_err(|_| "local file request allocation refused".to_string())?;
-    request.extend_from_slice(head.as_bytes());
-    request.extend_from_slice(&json);
-    request.extend_from_slice(bytes);
-    Ok(request)
+    let raw = post_json_with_id(&target.socket, &target.path(route), &body, timeout, id)
+        .map_err(with_id)?;
+    write_mutate_receipt(&mut std::io::stdout().lock(), &raw).map_err(with_id)
 }
 
 fn admit_local_file_input(bytes: u64) -> Result<(), String> {
@@ -258,7 +196,19 @@ fn admit_local_file_input(bytes: u64) -> Result<(), String> {
     Ok(())
 }
 
-fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, String> {
+fn put_record_file(
+    target: &DatabaseTarget,
+    metadata: &serde_json::Value,
+    source: &Path,
+) -> Result<serde_json::Value, String> {
+    let mut input =
+        std::fs::File::open(source).map_err(|e| format!("open {}: {e}", source.display()))?;
+    admit_local_file_input(
+        input
+            .metadata()
+            .map_err(|e| format!("file metadata: {e}"))?
+            .len(),
+    )?;
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -266,40 +216,45 @@ fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, Strin
             .read(&mut buffer)
             .map_err(|e| format!("read local file input: {e}"))?;
         if count == 0 {
-            return Ok(bytes);
+            break;
         }
         let length = bytes
             .len()
             .checked_add(count)
-            .ok_or_else(|| "local file input length overflow".to_string())?;
+            .ok_or("local file input length overflow")?;
         admit_local_file_input(length as u64)?;
         if length > bytes.capacity() {
-            let maximum =
-                fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
-            let capacity = bytes.capacity().saturating_mul(2).max(length).min(maximum);
+            let max = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
+            let cap = bytes.capacity().saturating_mul(2).max(length).min(max);
             bytes
-                .try_reserve_exact(capacity - bytes.len())
-                .map_err(|_| "local file input allocation refused".to_string())?;
+                .try_reserve_exact(cap - bytes.len())
+                .map_err(|_| "local file input allocation refused")?;
         }
         bytes.extend_from_slice(&buffer[..count]);
     }
-}
-
-fn put_record_file(
-    target: &DatabaseTarget,
-    metadata: &serde_json::Value,
-    source: &Path,
-) -> Result<serde_json::Value, String> {
-    let input = std::fs::File::open(source)
-        .map_err(|error| format!("open {}: {error}", source.display()))?;
-    admit_local_file_input(
-        input
-            .metadata()
-            .map_err(|error| format!("file metadata: {error}"))?
-            .len(),
-    )?;
-    let bytes = read_local_file_input(input)?;
-    let request = put_blob_request(&target.path(PUT_BLOB_PATH), &bytes, metadata)?;
+    let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
+    let body_length = json
+        .len()
+        .checked_add(bytes.len())
+        .ok_or("local file request length overflow")?;
+    let head = format!(
+        "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/octet-stream\r\nX-LastDB-File-Blob-Metadata-Length: {}\r\nContent-Length: {body_length}\r\nConnection: close\r\n\r\n",
+        target.path(PUT_BLOB_PATH),
+        client_headers(),
+        json.len(),
+    );
+    let capacity = head
+        .len()
+        .checked_add(body_length)
+        .ok_or("local file request length overflow")?;
+    admit_local_file_input(capacity as u64)?;
+    let mut request = Vec::new();
+    request
+        .try_reserve_exact(capacity)
+        .map_err(|_| "local file request allocation refused")?;
+    request.extend_from_slice(head.as_bytes());
+    request.extend_from_slice(&json);
+    request.extend_from_slice(&bytes);
     drop(bytes);
     let response = request_with_timeout(&target.socket, &request, admin_scan_client_timeout())?;
     parse_json_response(&response, PUT_BLOB_PATH)

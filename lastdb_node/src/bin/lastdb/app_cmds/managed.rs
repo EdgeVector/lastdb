@@ -41,6 +41,7 @@ fn resolutions(
     let (trust, _) = registry::resolve_list_trust_key(None)?;
     let index = registry::IndexLocation::resolve(source.index.as_deref())?
         .describe_interface(channel, list.api_version);
+    let trust_str = format!("pinned:{}", app_identity_crypto::key_id(&trust));
     Ok(list
         .apps
         .into_iter()
@@ -56,7 +57,7 @@ fn resolutions(
             proved_at: entry.published_at.clone(),
             proof_run: String::new(),
             index: index.clone(),
-            trust: format!("pinned:{}", app_identity_crypto::key_id(&trust)),
+            trust: trust_str.clone(),
             list_entry: Some(entry),
         })
         .collect())
@@ -85,8 +86,7 @@ pub(super) fn install(home: &Path, input: &AppInstall) -> Result<(), String> {
         )?);
     }
     print_pretty_json(&results);
-    registry::managed_poll::install()?;
-    Ok(())
+    registry::managed_poll::install()
 }
 
 struct UpgradePass<'a> {
@@ -100,8 +100,6 @@ impl UpgradePass<'_> {
     fn upgrade_app(&mut self, app: &str) -> Result<Option<serde_json::Value>, String> {
         let current = installed(app)?;
         let mut source = self.input.source.clone();
-        // Old private receipts remain installed. A background pass can still
-        // service other apps without fetching credentials or substituting an index.
         if source.index.is_none() && current.index.trim().starts_with("lastsecrets://") {
             let error = "saved private registry index is no longer supported";
             return if self.polling {
@@ -125,18 +123,17 @@ impl UpgradePass<'_> {
                 .is_some_and(|d| d.as_secs() < 3600)
         {
             let _lock = host::lock(&root)?;
-            let current = installed(app)?;
-            host::verify_or_restore(&root, self.home, &current)?;
+            host::verify_or_restore(&root, self.home, &installed(app)?)?;
             return Ok(None);
         }
         source.index = source.index.or_else(|| Some(current.index.clone()));
-        let cache_key = (
+        let key = (
             source.index.as_deref().unwrap_or_default().to_owned(),
             channel.to_owned(),
         );
         let rows = self
             .lists
-            .entry(cache_key)
+            .entry(key)
             .or_insert_with(|| resolutions(self.home, &source, channel))
             .as_ref()
             .map_err(Clone::clone)?;
@@ -217,9 +214,19 @@ pub(super) fn command(home: &Path, command: AppManagedCommand) -> Result<(), Str
                             host::verify_state(&root, &receipt)
                         };
                         failed |= probe.is_err();
-                        rows.push(json!({"app": app, "state": if probe.is_err() {"red"} else if receipt.inactive {"inactive"} else {"current"},
-                            "installed_release": receipt.sha, "active_release": std::fs::read_link(root.join("current")).ok(),
-                            "prior_release": std::fs::read_link(root.join("previous")).ok(), "probe": probe.err(), "receipt": receipt}));
+                        let state = if probe.is_err() {
+                            "red"
+                        } else if receipt.inactive {
+                            "inactive"
+                        } else {
+                            "current"
+                        };
+                        rows.push(json!({
+                            "app": app, "state": state, "installed_release": receipt.sha,
+                            "active_release": std::fs::read_link(root.join("current")).ok(),
+                            "prior_release": std::fs::read_link(root.join("previous")).ok(),
+                            "probe": probe.err(), "receipt": receipt
+                        }));
                     }
                     Err(error) => {
                         failed = true;

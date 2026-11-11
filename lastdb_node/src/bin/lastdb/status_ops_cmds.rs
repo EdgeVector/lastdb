@@ -17,13 +17,14 @@ impl DatabaseTarget {
     }
 
     pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        match self.selector.as_deref() {
-            Some(selector) => Cow::Owned(format!(
+        if let Some(selector) = self.selector.as_deref() {
+            Cow::Owned(format!(
                 "{DATABASE_SCOPE_PREFIX}{selector}{}",
                 path.strip_prefix("/api")
                     .expect("database path starts with /api")
-            )),
-            None => Cow::Borrowed(path),
+            ))
+        } else {
+            Cow::Borrowed(path)
         }
     }
 
@@ -43,41 +44,35 @@ fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
     if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
         return Ok(selector.to_owned());
     }
-    let response = read_databases(socket)?;
-    let id = databases(&response)?
+    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
+    let response = parse_json_response(&raw, "database list")?;
+    let list = response["databases"]
+        .as_array()
+        .ok_or("missing database list")?;
+    let id = list
         .iter()
-        .find(|database| database["name"].as_str() == Some(selector))
-        .and_then(|database| database["id"].as_str())
+        .find(|db| db["name"].as_str() == Some(selector))
+        .and_then(|db| db["id"].as_str())
         .filter(|id| cloud_backup_protocol::Id::try_from((*id).to_owned()).is_ok())
         .ok_or("database is not registered on this node")?;
     Ok(id.to_owned())
 }
 
-fn read_databases(socket: &Path) -> Result<serde_json::Value, String> {
-    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
-    parse_json_response(&raw, "database list")
-}
-
-fn databases(response: &serde_json::Value) -> Result<&[serde_json::Value], String> {
-    response["databases"]
-        .as_array()
-        .map(Vec::as_slice)
-        .ok_or("missing database list".into())
-}
-
 pub(super) fn list_databases(data_dir: Option<PathBuf>, json: bool) -> Result<(), String> {
     let target = DatabaseTarget::open(data_dir, None)?;
-    let response = read_databases(&target.socket)?;
+    let raw = get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?;
+    let response = parse_json_response(&raw, "database list")?;
     if json {
         println!("{response}");
     } else {
-        for database in databases(&response)? {
-            let id = database["id"].as_str().ok_or("database has no ID")?;
-            let name = database["name"].as_str().unwrap_or(id);
-            let access = database["access"]
-                .as_str()
-                .ok_or("database has no access mode")?;
-            let state = database["state"].as_str().ok_or("database has no state")?;
+        let list = response["databases"]
+            .as_array()
+            .ok_or("missing database list")?;
+        for db in list {
+            let id = db["id"].as_str().ok_or("database has no ID")?;
+            let name = db["name"].as_str().unwrap_or(id);
+            let access = db["access"].as_str().ok_or("database has no access mode")?;
+            let state = db["state"].as_str().ok_or("database has no state")?;
             println!("{name}\t{id}\t{access}\t{state}");
         }
     }
@@ -94,55 +89,30 @@ pub(crate) fn truncate_label(label: &str, max: usize) -> String {
 }
 
 pub(crate) fn inventory_client_timeout(timeout_secs: Option<u64>) -> Duration {
-    match timeout_secs {
-        Some(secs) if secs > 0 => Duration::from_secs(secs),
-        _ => admin_scan_client_timeout(),
-    }
-}
-
-pub(crate) const DEFAULT_STATUS_CLIENT_TIMEOUT_SECS: u64 =
-    lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS;
-
-pub(crate) fn status_default_client_timeout() -> Duration {
-    lastdb_node::exec::admin_handler_timeout_override()
-        .unwrap_or(Duration::from_secs(DEFAULT_STATUS_CLIENT_TIMEOUT_SECS))
-}
-
-pub(crate) fn status_client_timeout(timeout_secs: Option<u64>, default: Duration) -> Duration {
-    match timeout_secs {
-        Some(secs) if secs > 0 => Duration::from_secs(secs),
-        _ => default,
-    }
+    timeout_secs
+        .filter(|s| *s > 0)
+        .map_or_else(admin_scan_client_timeout, Duration::from_secs)
 }
 
 pub(crate) fn write_product_file_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create out dir {}: {e}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create out dir {}: {e}", parent.display()))?;
     }
-    let tmp = {
-        let mut name = path.as_os_str().to_owned();
-        name.push(format!(".tmp.{}", std::process::id()));
-        PathBuf::from(name)
-    };
-    match std::fs::write(&tmp, bytes) {
-        Ok(()) => match std::fs::rename(&tmp, path) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                Err(format!("rename inventory out to {}: {e}", path.display()))
-            }
-        },
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(format!("write inventory temp {}: {e}", tmp.display()))
-        }
+    let mut name = path.as_os_str().to_owned();
+    name.push(format!(".tmp.{}", std::process::id()));
+    let tmp = PathBuf::from(name);
+    if let Err(e) = std::fs::write(&tmp, bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("write inventory temp {}: {e}", tmp.display()));
     }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("rename inventory out to {}: {e}", path.display()));
+    }
+    Ok(())
 }
 
-/// `lastdb status` exit code when the owner socket did not answer `/health`.
 pub(super) const STATUS_UNREACHABLE_EXIT: i32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,21 +121,16 @@ pub(super) enum StatusRun {
     Unreachable,
 }
 
-pub(super) fn status_unreachable_line(reason: &str) -> String {
-    format!("lastdbd: not reachable — {reason}")
-}
-
 fn probe_status_json(socket: &Path, timeout: Duration) -> Result<serde_json::Value, String> {
     let req = format!(
         "GET /api/status HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
         client_headers()
     );
     let raw = request_readonly_with_retry(socket, req.as_bytes(), timeout)?;
-    let envelope = parse_json_response(&raw, "status")?;
-    envelope
+    parse_json_response(&raw, "status")?
         .get("status")
         .cloned()
-        .ok_or_else(|| "status response missing status object".to_string())
+        .ok_or_else(|| "status response missing status object".into())
 }
 
 pub(super) fn status(
@@ -173,7 +138,12 @@ pub(super) fn status(
     json: bool,
     timeout_secs: Option<u64>,
 ) -> Result<StatusRun, String> {
-    let probe_timeout = status_client_timeout(timeout_secs, status_default_client_timeout());
+    let default_timeout = lastdb_node::exec::admin_handler_timeout_override().unwrap_or(
+        Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
+    );
+    let probe_timeout = timeout_secs
+        .filter(|s| *s > 0)
+        .map_or(default_timeout, Duration::from_secs);
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     let health = probe_health(&socket);
     let running = health.is_ok();
@@ -185,10 +155,10 @@ pub(super) fn status(
 
     let store_root = home.join("data");
     if let Err(e) = &health {
-        println!("{}", status_unreachable_line(e));
+        println!("lastdbd: not reachable — {e}");
         println!("Home: {}", home.display());
         println!("Socket: {}", socket.display());
-        for line in layout_status_lines(&store_root) {
+        if let Some(line) = layout_status_line(&store_root) {
             println!("{line}");
         }
         return Ok(StatusRun::Unreachable);
@@ -211,24 +181,22 @@ pub(super) fn status(
             println!("Uptime: {up}s");
         }
     }
-    for line in layout_status_lines(&store_root) {
+    if let Some(line) = layout_status_line(&store_root) {
         println!("{line}");
     }
     Ok(StatusRun::Serving)
 }
 
-pub(super) fn status_json(
+fn status_json(
     home: &Path,
     socket: &Path,
     running: bool,
     health_err: Option<&str>,
     timeout: Duration,
 ) -> Result<StatusRun, String> {
-    let status_val = if running {
-        probe_status_json(socket, timeout).ok()
-    } else {
-        None
-    };
+    let status_val = running
+        .then(|| probe_status_json(socket, timeout).ok())
+        .flatten();
     let daemon_build = status_val
         .as_ref()
         .and_then(|s| s.pointer("/build/version"))
@@ -242,7 +210,10 @@ pub(super) fn status_json(
     let daemon_status = if running {
         "serving".to_string()
     } else {
-        status_unreachable_line(health_err.unwrap_or("socket unreachable"))
+        format!(
+            "lastdbd: not reachable — {}",
+            health_err.unwrap_or("socket unreachable")
+        )
     };
     let payload = serde_json::json!({
         "home": home.display().to_string(),
@@ -255,8 +226,7 @@ pub(super) fn status_json(
         "cli_build": cli_build,
         "build_agreement": build_agreement,
         "notes": [
-            "daemon_build is what the PROCESS reports; cli_build is this binary. \
-             null daemon_build = no status reply, build unknown — not agreement",
+            "daemon_build is what the PROCESS reports; cli_build is this binary. null daemon_build = no status reply, build unknown — not agreement",
         ],
     });
     println!(
@@ -264,30 +234,23 @@ pub(super) fn status_json(
         serde_json::to_string_pretty(&payload)
             .map_err(|e| format!("serialize status json: {e}"))?
     );
-    if running {
-        Ok(StatusRun::Serving)
+    Ok(if running {
+        StatusRun::Serving
     } else {
-        Ok(StatusRun::Unreachable)
-    }
+        StatusRun::Unreachable
+    })
 }
 
-pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
-    run_layout_status_line(store_root).into_iter().collect()
-}
-
-fn run_layout_status_line(store_root: &Path) -> Option<String> {
+fn layout_status_line(store_root: &Path) -> Option<String> {
     use fold_db::storage::disk_pack::{
         HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES,
     };
-    let marker = std::fs::read(store_root.join(NODE_MARKER)).ok()?;
-    match marker.as_slice() {
+    match std::fs::read(store_root.join(NODE_MARKER)).ok()?.as_slice() {
         SHARED_NODE_BYTES => Some(format!(
-            "Layout: format {HOME_FORMAT} shared home (disk-run for shared records, \
-             disk-cas for shared file blobs, disk-private for device-only state)"
+            "Layout: format {HOME_FORMAT} shared home (disk-run for shared records, disk-cas for shared file blobs, disk-private for device-only state)"
         )),
         RECORD_NODE_BYTES => Some(format!(
-            "Layout: format {HOME_FORMAT} record home (disk-run for records, \
-             disk-cas for file blobs, typed range keys)"
+            "Layout: format {HOME_FORMAT} record home (disk-run for records, disk-cas for file blobs, typed range keys)"
         )),
         _ => None,
     }

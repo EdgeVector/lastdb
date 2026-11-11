@@ -1,23 +1,16 @@
 //! Install instructions, atomic command links, and publisher transitions.
 
-use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::{managed::ManagedReceipt, ListEntry, Resolution};
 use crate::profile::endpoints::{
     registry_ci_publisher_keys_for, registry_index_url_for, Environment,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InstallStep {
-    pub argv: Vec<String>,
-    #[serde(default = "default_timeout")]
-    pub timeout_s: u64,
-    #[serde(default = "default_exits")]
-    pub accept_exit: Vec<i32>,
-}
 
 fn default_timeout() -> u64 {
     30
@@ -29,9 +22,18 @@ fn default_exits() -> Vec<i32> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct InstallStep {
+    pub argv: Vec<String>,
+    #[serde(default = "default_timeout")]
+    pub timeout_s: u64,
+    #[serde(default = "default_exits")]
+    pub accept_exit: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstallLink {
     pub source: String,
-    /// A command name; links are confined to the user's ~/.local/bin.
     pub command: String,
 }
 
@@ -50,7 +52,7 @@ pub struct InstallPlan {
     pub requires: Vec<String>,
 }
 
-pub fn relative(path: &str) -> Result<PathBuf, String> {
+fn relative(path: &str) -> Result<PathBuf, String> {
     let p = Path::new(path);
     if p.as_os_str().is_empty()
         || p.is_absolute()
@@ -87,15 +89,15 @@ impl InstallPlan {
         if self.probe.is_empty() || self.links.is_empty() {
             return Err("install needs links and at least one probe".into());
         }
-        let mut commands = std::collections::HashSet::new();
+        let mut commands = HashSet::new();
         for link in &self.links {
             relative(&link.source)?;
-            if link.command.starts_with('-')
+            if link.command.is_empty()
+                || link.command.starts_with('-')
                 || !link
                     .command
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                || link.command.is_empty()
                 || !commands.insert(&link.command)
             {
                 return Err("invalid or duplicate install command".into());
@@ -115,23 +117,20 @@ impl InstallPlan {
                 return Err("invalid install step or timeout (1..600 seconds)".into());
             }
         }
-        for app in &self.requires {
-            if !super::valid_app_id(app) {
-                return Err("invalid required app".into());
-            }
+        if self.requires.iter().any(|app| !super::valid_app_id(app)) {
+            return Err("invalid required app".into());
         }
         Ok(())
     }
 
     pub fn consent_hash(&self) -> Result<String, String> {
-        use sha2::{Digest, Sha256};
         let value = serde_json::to_value(self).map_err(|e| e.to_string())?;
         let bytes = app_identity_crypto::canonicalize(&value).map_err(|e| e.to_string())?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
 }
 
-pub(crate) fn bin_root() -> Result<PathBuf, String> {
+fn bin_root() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(|p| PathBuf::from(p).join(".local/bin"))
         .ok_or_else(|| "HOME is required".into())
@@ -165,7 +164,8 @@ pub(crate) fn flip(link: &Path, target: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    validate_sources(&root.join("current/source"), plan)?;
+    let source_dir = root.join("current/source");
+    validate_sources(&source_dir, plan)?;
     let bin = bin_root()?;
     fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
     for link in &plan.links {
@@ -179,17 +179,18 @@ pub(crate) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
                 target.display()
             ));
         }
-        flip(&target, &root.join("current/source").join(&link.source))?;
+        flip(&target, &source_dir.join(&link.source))?;
     }
     Ok(())
 }
 
 pub(crate) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    validate_sources(&root.join("current/source"), plan)?;
+    let source_dir = root.join("current/source");
+    validate_sources(&source_dir, plan)?;
+    let bin = bin_root()?;
     for link in &plan.links {
-        let expected = root.join("current/source").join(&link.source);
-        let actual = fs::read_link(bin_root()?.join(&link.command)).map_err(|e| e.to_string())?;
-        if actual != expected {
+        let actual = fs::read_link(bin.join(&link.command)).map_err(|e| e.to_string())?;
+        if actual != source_dir.join(&link.source) {
             return Err(format!("command link drift: {}", link.command));
         }
     }
@@ -197,9 +198,10 @@ pub(crate) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
 }
 
 pub(crate) fn snapshot(plan: &InstallPlan) -> Result<Vec<(PathBuf, Option<PathBuf>)>, String> {
-    let mut result = Vec::new();
+    let bin = bin_root()?;
+    let mut result = Vec::with_capacity(plan.links.len());
     for link in &plan.links {
-        let path = bin_root()?.join(&link.command);
+        let path = bin.join(&link.command);
         if path
             .symlink_metadata()
             .is_ok_and(|m| !m.file_type().is_symlink())
@@ -209,7 +211,8 @@ pub(crate) fn snapshot(plan: &InstallPlan) -> Result<Vec<(PathBuf, Option<PathBu
                 path.display()
             ));
         }
-        result.push((path.clone(), fs::read_link(path).ok()));
+        let prior = fs::read_link(&path).ok();
+        result.push((path, prior));
     }
     Ok(result)
 }
@@ -240,8 +243,8 @@ pub(crate) fn authorized_transition(
     }
     [Environment::Dev, Environment::Prod]
         .into_iter()
-        .any(|environment| {
-            let source = match (environment, resolution.app_id.as_str()) {
+        .any(|env| {
+            let source = match (env, resolution.app_id.as_str()) {
                 (Environment::Prod, "brain" | "lastsecrets" | "search") => {
                     format!("https://github.com/EdgeVector/{}.git", resolution.app_id)
                 }
@@ -250,8 +253,8 @@ pub(crate) fn authorized_transition(
                 }
                 _ => return false,
             };
-            let base = registry_index_url_for(environment);
-            let (owner, delegate) = registry_ci_publisher_keys_for(environment);
+            let base = registry_index_url_for(env);
+            let (owner, delegate) = registry_ci_publisher_keys_for(env);
             let allowed_keys = (prior.publisher == owner && entry.publisher_key == delegate)
                 || (prior.publisher == delegate && entry.publisher_key == owner);
             !delegate.is_empty()

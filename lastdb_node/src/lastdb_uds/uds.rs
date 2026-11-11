@@ -1,126 +1,66 @@
-//! Unix-domain-socket bind and accept path (invariant **I3a** in
-//! `exemem-workspace/docs/designs/app_security_model.md`).
-//!
-//! The default Unix socket serves the node's data routes. Kernel peer
-//! credentials establish the same-user gate; a client header does not establish
-//! caller identity. The optional `app-isolation` feature adds the macOS
-//! code-signature check and per-app jailed sockets.
-//!
-//! This module owns the socket path, bind, owner-only permissions, stale-socket
-//! removal, and cleanup on drop. [`UdsSocket::serve`] accepts connections,
-//! checks peer credentials, and passes accepted streams with their access
-//! posture to a callback. The injected verifier can upgrade that posture when
-//! app isolation is enabled. [`super::uds_http`] reads and serves each request;
-//! this module does not parse HTTP.
-//!
-//! The transport is Unix-only. The default owner socket uses the same-user
-//! device-trust posture without requiring a code signature.
+//! Unix-domain-socket bind, stale-socket cleanup, peer-credential gate, and accept loop.
 
 use std::io;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use fold_db::access::peer_cred::read_peer_credential;
+use fold_db::access::PeerCredVerdict;
 
 /// File name of the node's Unix-domain control socket within its data dir.
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 
-/// Suffix of the temporary sibling [`UdsSocket::bind_at`] binds before the
-/// atomic rename into place.
-///
-/// It is part of the length budget: the temp path is longer than the final one,
-/// so a socket path that fits `sockaddr_un` on its own can still fail to bind.
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
-
-/// Owner-only permission bits applied to the bound socket file (`rw-------`).
-///
-/// The same-user peer-credential gate (I3a) is the authoritative check; these
-/// filesystem permissions are a cheap second layer that keeps another OS user
-/// from even opening the socket. Group/other are denied.
 const SOCKET_MODE: u32 = 0o600;
-
-/// Conservative upper bound on the socket path length, in bytes.
-///
-/// `sockaddr_un::sun_path` is 108 bytes on Linux and 104 on macOS (both
-/// NUL-terminated). We validate against the smaller (macOS) limit on every
-/// platform so a socket path that binds on Linux but not on macOS is rejected
-/// uniformly and early, rather than failing deep in `bind` on one OS only.
-/// The usable length is one less than the buffer to leave room for the NUL.
 const MAX_SOCKET_PATH_LEN: usize = 104 - 1;
+const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const FD_EXHAUSTION_MAX_BACKOFF: Duration = Duration::from_secs(1);
+const FD_EXHAUSTION_SUMMARY_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Derive the node's control-socket path from its data directory.
-///
-/// Pure: `<data_dir>/folddb.sock`. Does not touch the filesystem.
+/// Derive `<data_dir>/folddb.sock`.
 pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)
 }
 
-/// Reject a socket path too long for the platform's `sockaddr_un`.
-///
-/// Binding a `UnixListener` at an over-long path fails inside `bind` with a
-/// platform-specific error; checking up front yields a clear, portable error
-/// and keeps the failure off the bind path.
 fn validate_socket_path_len(path: &Path) -> io::Result<()> {
     let len = path.as_os_str().len();
     if len > MAX_SOCKET_PATH_LEN {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "socket path is {len} bytes, exceeds the {MAX_SOCKET_PATH_LEN}-byte \
-                 sockaddr_un limit",
+                "socket path is {len} bytes, exceeds the {MAX_SOCKET_PATH_LEN}-byte sockaddr_un limit"
             ),
         ));
     }
     Ok(())
 }
 
-/// Temp sibling path [`UdsSocket::bind_at`] binds before renaming into place.
-///
-/// Shared with [`preflight_data_dir`] so the up-front check measures exactly the
-/// path bind will use, instead of a re-derivation that could drift from it.
 fn tmp_socket_path(path: &Path) -> PathBuf {
-    let tmp_file_name = format!(
-        "{}{SOCKET_TMP_SUFFIX}",
-        path.file_name().map_or_else(
-            || SOCKET_FILE_NAME.to_string(),
-            |n| n.to_string_lossy().into_owned()
-        )
+    let name = path.file_name().map_or_else(
+        || SOCKET_FILE_NAME.to_string(),
+        |n| n.to_string_lossy().into_owned(),
     );
-    path.with_file_name(tmp_file_name)
+    path.with_file_name(format!("{name}{SOCKET_TMP_SUFFIX}"))
 }
 
-/// Reject a data dir whose socket cannot be bound, BEFORE any boot work runs.
-///
-/// Pure and I/O-free — it measures path lengths only — so the node can call it
-/// the moment the data dir is resolved. That ordering matters for two reasons,
-/// all of which bit a real run (a copy-on-write proof, 2026-08-03):
-///
-/// 1. **Cost.** `bind` currently happens after `Host::boot`, so a data dir that
-///    can never serve still pays a full open + decrypt proof + executor build.
-/// 2. **False crash attribution.** The session ledger records a session start
-///    before the bind, so a bind refusal leaves no clean-shutdown record and the
-///    NEXT boot reports "previous session ended UNCLEANLY" — promoting a static
-///    configuration error to Sentry as a crash.
-///
-/// Checks the socket and its temporary rename sibling, and reports the budget
-/// a caller can actually act on.
+/// Reject a data dir whose socket cannot fit `sockaddr_un` before boot work runs.
 pub fn preflight_data_dir(data_dir: &Path) -> io::Result<()> {
-    // The temp sibling is the binding constraint, so measure it — but report the
-    // real socket path, which is the thing an operator can shorten.
     let worst = socket_path(data_dir);
     if tmp_socket_path(&worst).as_os_str().len() <= MAX_SOCKET_PATH_LEN {
         return Ok(());
     }
-    // Budget for the data dir itself: the limit, less the socket file name, its
-    // temp suffix, and the path separator joining them.
-    let overhead = SOCKET_FILE_NAME.len() + SOCKET_TMP_SUFFIX.len() + 1;
-    let max_data_dir = MAX_SOCKET_PATH_LEN.saturating_sub(overhead);
+    let max_data_dir =
+        MAX_SOCKET_PATH_LEN.saturating_sub(SOCKET_FILE_NAME.len() + SOCKET_TMP_SUFFIX.len() + 1);
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "data dir {} is too deep to host a Unix control socket: its socket path {} \
-             is {} bytes, and binding needs {} more for the atomic temp sibling, over the \
-             {MAX_SOCKET_PATH_LEN}-byte sockaddr_un limit. Use a data dir at most \
-             {max_data_dir} bytes long.",
+            "data dir {} is too deep to host a Unix control socket: its socket path {} is {} bytes, \
+             and binding needs {} more for the atomic temp sibling, over the {MAX_SOCKET_PATH_LEN}-byte \
+             sockaddr_un limit. Use a data dir at most {max_data_dir} bytes long.",
             data_dir.display(),
             worst.display(),
             worst.as_os_str().len(),
@@ -129,54 +69,22 @@ pub fn preflight_data_dir(data_dir: &Path) -> io::Result<()> {
     ))
 }
 
-/// Remove a stale socket file left at `path` by a crashed prior run.
-///
-/// Only a *socket* file is removed — never a regular file or directory — so a
-/// mistyped data dir pointing at real data can't be clobbered. A missing path
-/// is fine (nothing to clean). On a single-user, single-node device an existing
-/// socket here is always our own stale leftover; removing it lets `bind`
-/// succeed instead of failing with `AddrInUse`.
 fn remove_stale_socket(path: &Path) -> io::Result<()> {
     match std::fs::symlink_metadata(path) {
-        Ok(meta) => {
-            use std::os::unix::fs::FileTypeExt;
-            if meta.file_type().is_socket() {
-                std::fs::remove_file(path)
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    format!(
-                        "refusing to remove non-socket file at socket path {}",
-                        path.display()
-                    ),
-                ))
-            }
-        }
+        Ok(meta) if meta.file_type().is_socket() => std::fs::remove_file(path),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "refusing to remove non-socket file at socket path {}",
+                path.display()
+            ),
+        )),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
 }
 
-/// Whether a *live* node is currently listening on the socket at `path`.
-///
-/// [`remove_stale_socket`] only inspects the inode TYPE — it cannot tell a
-/// crashed run's leftover socket file (safe to remove) from one a live node is
-/// still serving (must NOT be removed). A successful `connect()` proves a peer
-/// is accepting on the path, i.e. a live owner; `ConnectionRefused` (the inode
-/// exists but nothing is accepting) and `NotFound` (no inode) both mean the path
-/// is free to claim. This is the single-instance guard at the socket layer: it
-/// turns a would-be silent double-bind — two processes serving the same data dir,
-/// the inconsistent-writes failure mode — into a clean refusal at bind time.
-fn socket_has_live_listener(path: &Path) -> bool {
-    use std::os::unix::net::UnixStream;
-    UnixStream::connect(path).is_ok()
-}
-
-/// An owned, bound Unix-domain control socket with managed lifecycle.
-///
-/// Binding removes any stale socket first and restricts the file to `0o600`;
-/// dropping removes the socket file so the next start can rebind cleanly. The
-/// accept loop in [`Self::serve`] uses the bound listener.
+/// Bound Unix-domain control socket (`0o600`), unlinked on drop.
 #[derive(Debug)]
 pub struct UdsSocket {
     path: PathBuf,
@@ -184,38 +92,13 @@ pub struct UdsSocket {
 }
 
 impl UdsSocket {
-    /// Bind a control socket at an explicit `path`.
-    ///
-    /// Validates the path length, removes any stale socket, binds owner-only
-    /// (`0o600`), and removes the socket file on drop.
+    /// Bind a control socket at `path` via an owner-only temp sibling and atomic rename.
     pub fn bind_at(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
         validate_socket_path_len(&path)?;
-        // Bind at a temp path, tighten to owner-only, then atomically rename
-        // into place — so the FINAL socket path never exists at the process
-        // umask mode. `UnixListener::bind` creates the inode at `0o777 & ~umask`
-        // (commonly 0o755); tightening it with a *separate* `set_permissions`
-        // afterward leaves a window where another OS user could `connect()`.
-        // The same-user peer-cred gate (I3a) is still the authoritative check,
-        // but binding owner-only and revealing the path atomically closes the
-        // filesystem window at the source without mutating the process-global
-        // umask. A listening AF_UNIX socket survives a rename of its path —
-        // the fd, not the path, carries the listening state; the `serve` tests
-        // exercise a connect after bind. (sec review 2026-06-15.)
-        // Derive the temp name from the REAL target file name, not the hardcoded
-        // owner-socket constant: `bind_at` also binds app-runtime sockets, and a
-        // constant `folddb.sock.tmp` would mislabel those binds.
         let tmp_path = tmp_socket_path(&path);
         validate_socket_path_len(&tmp_path)?;
-        // Single-instance guard: if a live node is already listening here, REFUSE
-        // rather than unlink-and-rebind. `remove_stale_socket` only checks the
-        // inode type, so without this a second node would silently delete the live
-        // socket file and rename its own in — leaving two processes serving the
-        // same data dir (the inconsistent-writes failure mode). The desktop app's
-        // last-wins takeover stops the prior owner BEFORE binding, so in the happy
-        // path the socket is already free; this is the safety net for when that
-        // didn't run or didn't complete.
-        if socket_has_live_listener(&path) {
+        if UnixStream::connect(&path).is_ok() {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
                 format!(
@@ -231,7 +114,6 @@ impl UdsSocket {
             std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(SOCKET_MODE))
                 .and_then(|()| std::fs::rename(&tmp_path, &path))
         {
-            // Don't leak the temp socket on a failed tighten/rename.
             let _ = std::fs::remove_file(&tmp_path);
             return Err(e);
         }
@@ -242,62 +124,139 @@ impl UdsSocket {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Run the control-socket accept loop until `shutdown` is set.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub fn serve<F>(
+        &self,
+        owner_uid: u32,
+        shutdown: &AtomicBool,
+        mut on_accept: F,
+    ) -> io::Result<()>
+    where
+        F: FnMut(UnixStream),
+    {
+        self.listener.set_nonblocking(true)?;
+        let mut fd_episode = FdExhaustionEpisode::default();
+        while !shutdown.load(Ordering::Relaxed) {
+            let (stream, _) = match self.listener.accept() {
+                Ok(conn) => {
+                    fd_episode.on_recovered(Instant::now());
+                    conn
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    wait_for_pending_connection(self.listener.as_raw_fd(), ACCEPT_POLL_INTERVAL);
+                    continue;
+                }
+                Err(e)
+                    if matches!(
+                        e.raw_os_error(),
+                        Some(code) if code == libc::EMFILE || code == libc::ENFILE
+                    ) =>
+                {
+                    let backoff = fd_episode.on_failure(&e, Instant::now());
+                    std::thread::sleep(backoff);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            if let Err(e) = stream.set_nonblocking(false) {
+                tracing::warn!(error = %e, "dropping control-socket connection: could not restore blocking mode");
+                continue;
+            }
+            match read_peer_credential(stream.as_raw_fd()).map(|c| c.evaluate(owner_uid)) {
+                Ok(PeerCredVerdict::SameUser { .. }) => on_accept(stream),
+                Ok(PeerCredVerdict::ForeignUser {
+                    peer_uid,
+                    owner_uid,
+                }) => {
+                    tracing::warn!(
+                        peer_uid,
+                        owner_uid,
+                        "dropping control-socket connection from a foreign OS user"
+                    );
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "dropping control-socket connection: peer-credential read failed"
+                ),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Drop for UdsSocket {
     fn drop(&mut self) {
-        // Best-effort: a failed unlink on shutdown is non-fatal — the next
-        // `bind` removes a stale socket anyway. We only skip the error.
         let _ = std::fs::remove_file(&self.path);
     }
 }
 
-/// Verdict for a connection accepted on the control socket (invariant **I3a**).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UdsConnVerdict {
-    /// Same-user peer.
-    Accepted {
-        /// Peer process id, when reported by the platform.
-        pid: Option<i32>,
-    },
-    /// Different OS user. Drop the connection.
-    Rejected {
-        /// OS user id of the connecting peer.
-        peer_uid: u32,
-        /// OS user id of the node owner.
-        owner_uid: u32,
-    },
-}
-
-impl UdsConnVerdict {
-    /// Whether this connection passed the same-user gate.
-    pub fn is_accepted(&self) -> bool {
-        matches!(self, Self::Accepted { .. })
+fn wait_for_pending_connection(fd: RawFd, timeout: Duration) {
+    let mut pending = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+    // SAFETY: `pending` is a valid single-element `pollfd` on this stack frame.
+    unsafe {
+        libc::poll(&raw mut pending, 1, timeout_ms);
     }
 }
 
-/// Read the peer credential off a connected control-socket stream and apply the
-/// same-user gate against `owner_uid` (invariant **I3a**).
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-pub fn evaluate_connection(
-    stream: &std::os::unix::net::UnixStream,
-    owner_uid: u32,
-) -> io::Result<UdsConnVerdict> {
-    use fold_db::access::peer_cred::read_peer_credential;
-    use fold_db::access::PeerCredVerdict;
-    use std::os::unix::io::AsRawFd;
-
-    let cred = read_peer_credential(stream.as_raw_fd())?;
-    Ok(match cred.evaluate(owner_uid) {
-        PeerCredVerdict::SameUser { pid } => UdsConnVerdict::Accepted { pid },
-        PeerCredVerdict::ForeignUser {
-            peer_uid,
-            owner_uid,
-        } => UdsConnVerdict::Rejected {
-            peer_uid,
-            owner_uid,
-        },
-    })
+#[derive(Default)]
+struct FdExhaustionEpisode {
+    started_at: Option<Instant>,
+    last_reported_at: Option<Instant>,
+    attempts: u64,
 }
 
-mod accept;
+impl FdExhaustionEpisode {
+    fn on_failure(&mut self, error: &io::Error, now: Instant) -> Duration {
+        self.attempts = self.attempts.saturating_add(1);
+        let started_at = *self.started_at.get_or_insert(now);
+        let doublings = u32::try_from(self.attempts.saturating_sub(1))
+            .unwrap_or(u32::MAX)
+            .min(u32::BITS - 1);
+        let backoff = ACCEPT_POLL_INTERVAL
+            .saturating_mul(1_u32 << doublings)
+            .min(FD_EXHAUSTION_MAX_BACKOFF);
+        let backoff_ms = u64::try_from(backoff.as_millis()).unwrap_or(u64::MAX);
+
+        if self.attempts == 1 {
+            self.last_reported_at = Some(now);
+            tracing::error!(
+                error = %error,
+                backoff_ms,
+                "control-socket accept hit fd exhaustion; backing off and keeping listener alive"
+            );
+        } else if self
+            .last_reported_at
+            .is_none_or(|last| now.duration_since(last) >= FD_EXHAUSTION_SUMMARY_INTERVAL)
+        {
+            self.last_reported_at = Some(now);
+            tracing::warn!(
+                error = %error,
+                failed_accepts = self.attempts,
+                elapsed_ms = u64::try_from(now.duration_since(started_at).as_millis()).unwrap_or(u64::MAX),
+                backoff_ms,
+                "control-socket accept still out of file descriptors; listener alive"
+            );
+        }
+        backoff
+    }
+
+    fn on_recovered(&mut self, now: Instant) {
+        if let Some(started_at) = self.started_at.take() {
+            let attempts = std::mem::take(&mut self.attempts);
+            self.last_reported_at = None;
+            tracing::warn!(
+                failed_accepts = attempts,
+                elapsed_ms =
+                    u64::try_from(now.duration_since(started_at).as_millis()).unwrap_or(u64::MAX),
+                "control-socket accept succeeded again after fd exhaustion"
+            );
+        }
+    }
+}

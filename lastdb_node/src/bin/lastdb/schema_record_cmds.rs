@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn percent_encode_query(value: &str) -> String {
+fn percent_encode_query(value: &str) -> String {
     let mut out = String::new();
     for byte in value.bytes() {
         match byte {
@@ -29,28 +29,24 @@ pub(crate) fn list_record_keys(
         percent_encode_query(&args.schema),
         args.limit.max(1)
     );
-    if let Some(name) = args.key_name.as_deref() {
-        path.push_str("&key_name=");
-        path.push_str(&percent_encode_query(name));
-    }
-    if let Some(hash) = args.key_hash.as_deref() {
-        path.push_str("&hash=");
-        path.push_str(&percent_encode_query(hash));
-    }
-    if let Some(cursor) = args.cursor.as_deref() {
-        path.push_str("&cursor=");
-        path.push_str(&percent_encode_query(cursor));
+    for (param, opt) in [
+        ("key_name", args.key_name.as_deref()),
+        ("hash", args.key_hash.as_deref()),
+        ("cursor", args.cursor.as_deref()),
+    ] {
+        if let Some(val) = opt {
+            path.push_str(&format!("&{param}={}", percent_encode_query(val)));
+        }
     }
     let response = get_path(
         socket,
         &target.path(&path),
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
-    let value = parse_json_response(&response, "list")?;
-    let report = value
+    let report = parse_json_response(&response, "list")?
         .get("list")
         .cloned()
-        .ok_or_else(|| "response missing list field".to_string())?;
+        .ok_or("response missing list field")?;
     if let Some(name) = args.key_name.as_deref() {
         if report["key_name"].as_str() != Some(name) {
             return Err("node did not honor the requested alternate key; upgrade LastDB".into());
@@ -93,7 +89,6 @@ fn print_list_record_keys_human(report: &serde_json::Value) {
     let hash_filter = report
         .get("hash_filter")
         .and_then(serde_json::Value::as_str);
-    let layout = if ranged { " hash+range" } else { " hash" };
     let partition = hash_filter
         .map(|h| format!(" --key-hash {h:?}"))
         .unwrap_or_default();
@@ -103,9 +98,10 @@ fn print_list_record_keys_human(report: &serde_json::Value) {
         .map(|name| format!(" --key-name {name}"))
         .unwrap_or_default();
     eprintln!(
-        "lastdb get-keys {schema}{key_flag}{partition} — {} key{}{layout}{}",
+        "lastdb get-keys {schema}{key_flag}{partition} — {} key{}{}{}",
         keys.len(),
         if keys.len() == 1 { "" } else { "s" },
+        if ranged { " hash+range" } else { " hash" },
         if has_more { " (more)" } else { "" }
     );
     if !key_flag.is_empty() {
@@ -147,8 +143,9 @@ pub(crate) fn schema_drop_command(
     must_exist: bool,
     json_only: bool,
 ) -> Result<(), String> {
-    let home = lastdb_node::host::resolve_home(data_dir)?;
-    let socket = home.join("data").join("folddb.sock");
+    let socket = lastdb_node::host::resolve_home(data_dir)?
+        .join("data")
+        .join("folddb.sock");
     let mut body = serde_json::json!({ "must_exist": must_exist });
     if let Some(schema) = schema {
         body["schema"] = serde_json::Value::String(schema);
@@ -161,7 +158,7 @@ pub(crate) fn schema_drop_command(
         println!(
             "{}",
             serde_json::to_string_pretty(&response)
-                .map_err(|error| format!("serialize schema drop response: {error}"))?
+                .map_err(|e| format!("serialize schema drop response: {e}"))?
         );
         return Ok(());
     }
@@ -172,30 +169,11 @@ pub(crate) fn schema_drop_command(
         .unwrap_or_default();
     if dropped.is_empty() {
         println!("no installed schema dropped");
-        return Ok(());
-    }
-    for name in dropped {
-        if let Some(name) = name.as_str() {
+    } else {
+        for name in dropped.iter().filter_map(serde_json::Value::as_str) {
             println!("dropped {name}");
         }
     }
-    Ok(())
-}
-
-pub(crate) fn schema_show_command(
-    target: &DatabaseTarget,
-    name: &str,
-    json_only: bool,
-) -> Result<(), String> {
-    let schema = fetch_schema(target, name)?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&schema).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
-    print_schema_show_human(&schema);
     Ok(())
 }
 
@@ -212,45 +190,42 @@ pub(crate) fn fetch_schema(
     }
     let path = format!("/api/schema/{}", percent_encode_query(name));
     let response = get_path(socket, &target.path(&path), Duration::from_secs(10))?;
-    let value = parse_json_response(&response, "schema")?;
-    value
+    parse_json_response(&response, "schema")?
         .get("schema")
         .cloned()
-        .ok_or_else(|| "response missing schema field".to_string())
+        .ok_or_else(|| "response missing schema field".into())
 }
 
-pub(crate) fn print_schema_show_human(schema: &serde_json::Value) {
-    for line in schema_show_lines(schema) {
-        println!("{line}");
+pub(crate) fn schema_show_command(
+    target: &DatabaseTarget,
+    name: &str,
+    json_only: bool,
+) -> Result<(), String> {
+    let schema = fetch_schema(target, name)?;
+    if json_only {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&schema).map_err(|e| format!("serialize: {e}"))?
+        );
+        return Ok(());
     }
-}
-
-pub(crate) fn schema_show_lines(schema: &serde_json::Value) -> Vec<String> {
-    let name = schema
-        .get("name")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("?");
-    let descriptive = schema
-        .get("descriptive_name")
-        .and_then(serde_json::Value::as_str);
-    let identity = schema
-        .get("identity_hash")
-        .and_then(serde_json::Value::as_str);
-    let owner = schema
-        .get("owner_app_id")
-        .and_then(serde_json::Value::as_str);
-    let schema_type = schema
-        .get("schema_type")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("?");
-    let state = schema
-        .get("state")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("?");
-    let ranged = schema
-        .pointer("/record_keys/primary/kind")
-        .and_then(serde_json::Value::as_str)
-        == Some("hash_range");
+    let str_of = |k: &str| schema.get(k).and_then(serde_json::Value::as_str);
+    println!("schema {}", str_of("name").unwrap_or("?"));
+    for (key, label) in [
+        ("descriptive_name", "descriptive_name"),
+        ("identity_hash", "identity_hash"),
+        ("owner_app_id", "owner_app"),
+    ] {
+        if let Some(val) = str_of(key) {
+            println!("{label} {val}");
+        }
+    }
+    let schema_type = str_of("schema_type").unwrap_or("?");
+    println!("type {schema_type}");
+    println!("state {}", str_of("state").unwrap_or("?"));
+    if let Some(keys) = schema.get("record_keys") {
+        println!("record_keys {keys}");
+    }
     let fields = schema
         .get("fields")
         .and_then(serde_json::Value::as_array)
@@ -261,31 +236,18 @@ pub(crate) fn schema_show_lines(schema: &serde_json::Value) -> Vec<String> {
                 .join(", ")
         })
         .unwrap_or_default();
-
-    let mut lines = Vec::new();
-    lines.push(format!("schema {name}"));
-    if let Some(d) = descriptive {
-        lines.push(format!("descriptive_name {d}"));
-    }
-    if let Some(id) = identity {
-        lines.push(format!("identity_hash {id}"));
-    }
-    if let Some(app) = owner {
-        lines.push(format!("owner_app {app}"));
-    }
-    lines.push(format!("type {schema_type}"));
-    lines.push(format!("state {state}"));
-    if let Some(keys) = schema.get("record_keys") {
-        lines.push(format!("record_keys {keys}"));
-    }
     if fields.is_empty() {
-        lines.push("fields (none)".to_string());
+        println!("fields (none)");
     } else {
-        lines.push(format!("fields {fields}"));
+        println!("fields {fields}");
     }
-    lines.push("queries:".to_string());
+    println!("queries:");
+    let ranged = schema
+        .pointer("/record_keys/primary/kind")
+        .and_then(serde_json::Value::as_str)
+        == Some("hash_range");
     for q in legal_query_shapes(schema_type, Some("HASH"), ranged.then_some("RANGE")) {
-        lines.push(format!("  {q}"));
+        println!("  {q}");
     }
-    lines
+    Ok(())
 }

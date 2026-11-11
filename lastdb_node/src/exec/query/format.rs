@@ -9,9 +9,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::execute_query;
-use crate::exec::reject::Reject;
 use crate::exec::reply::{error_response, render, HostError};
-use crate::exec::wire::{body_object, parse_query_body, QueryRequest};
+use crate::exec::wire::{body_object, parse_query_body, QueryRequest, Reject};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -24,7 +23,6 @@ struct QueryBatchRequest {
     queries: Vec<Value>,
 }
 
-/// `POST /api/queries/batch` — several independent queries in one request.
 pub(in crate::exec) async fn execute_query_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -36,7 +34,6 @@ pub(in crate::exec) async fn execute_query_batch_route(
         Ok(queries) => queries,
         Err(response) => return response,
     };
-
     let items = queries
         .into_iter()
         .enumerate()
@@ -51,24 +48,26 @@ pub(in crate::exec) async fn execute_query_batch_route(
                 cursor,
                 response_format,
             } = match parse_query_body(obj) {
-                Ok(query) => query,
-                Err(response) => return (index, response),
+                Ok(q) => q,
+                Err(resp) => return (index, resp),
             };
-            let response = render(
+            let resp = render(
                 execute_query(host, query, limit, offset, cursor, response_format).await,
                 ctx,
             );
-            (index, response)
+            (index, resp)
         });
     let scope = match host.db.db_ops().read_scope().await {
         Ok(scope) => scope,
         Err(error) => return error_response(503, &error.to_string(), ctx),
     };
-    let future = futures::stream::iter(items)
-        .buffer_unordered(QUERY_BATCH_CONCURRENCY)
-        .collect();
-    let finished: Vec<(usize, UdsResponse)> = scope.run_shared(future).await;
-
+    let finished: Vec<(usize, UdsResponse)> = scope
+        .run_shared(
+            futures::stream::iter(items)
+                .buffer_unordered(QUERY_BATCH_CONCURRENCY)
+                .collect(),
+        )
+        .await;
     let results = batch_results(finished);
     render(
         Ok(serde_json::json!({ "count": results.len(), "results": results })),
@@ -84,9 +83,7 @@ pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) ->
             let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
                 Value::String(String::from_utf8_lossy(&response.body).into_owned())
             });
-            let mut entry = serde_json::json!({ "status": response.status });
-            entry["response"] = body;
-            entry
+            serde_json::json!({ "status": response.status, "response": body })
         })
         .collect()
 }
@@ -152,11 +149,14 @@ pub(super) fn cursor_payload(
     comparison: Option<String>,
 ) -> Value {
     let has_more = page.len() > limit || resume.is_some();
-    if page.len() > limit {
-        page.truncate(limit);
-    }
+    page.truncate(limit);
     let next_cursor = resume
-        .or_else(|| next_cursor_for(&page, has_more))
+        .or_else(|| {
+            has_more
+                .then(|| page.last()?.get("key"))
+                .flatten()
+                .and_then(|k| serde_json::from_value::<KeyValue>(k.clone()).ok())
+        })
         .map(|key| QueryCursor::new(key, comparison));
     let mut payload = page_payload(page, total_count, limit, offset, has_more, None);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
@@ -170,9 +170,7 @@ pub(super) fn overfetched_offset_payload(
     offset: usize,
 ) -> Value {
     let has_more = page.len() > limit;
-    if page.len() > limit {
-        page.truncate(limit);
-    }
+    page.truncate(limit);
     page_payload(page, Some(total_count), limit, offset, has_more, None)
 }
 
@@ -181,15 +179,6 @@ pub(super) fn materialized_page_payload(results: Vec<Value>, limit: usize, offse
     let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
     let has_more = offset.saturating_add(page.len()) < total_count;
     page_payload(page, Some(total_count), limit, offset, has_more, None)
-}
-
-fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
-    if !has_more {
-        return None;
-    }
-    page.last()
-        .and_then(|row| row.get("key"))
-        .and_then(|key| serde_json::from_value::<KeyValue>(key.clone()).ok())
 }
 
 pub(super) fn format_rows(
@@ -221,7 +210,6 @@ fn format_row(
     Value::Object(row)
 }
 
-/// Render an already ordered page read from one verified database view.
 pub(in crate::exec) fn verified_query_page(
     records: Vec<(KeyValue, fold_db::fold_db_core::query::Record)>,
     compact: bool,
@@ -234,14 +222,13 @@ pub(in crate::exec) fn verified_query_page(
     let key_form = (!records.is_empty()).then_some("api");
     let rows = records
         .into_iter()
-        .map(|(key, record)| format_row(&key, record, compact))
+        .map(|(k, r)| format_row(&k, r, compact))
         .collect();
     let mut payload = page_payload(rows, total_count, limit, offset, has_more, key_form);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
 }
 
-/// Format a verified alternate page with the standard primary and matched keys.
 pub(in crate::exec) fn format_alternate_page(
     page: AlternatePage,
     compact: bool,
@@ -266,15 +253,15 @@ pub(in crate::exec) fn format_alternate_page(
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);
     }
-    let next = if page.has_more {
-        page.entries.last().map(|entry| {
+    let next = page
+        .has_more
+        .then(|| page.entries.last())
+        .flatten()
+        .map(|entry| {
             let mut cursor = QueryCursor::new(entry.matched.clone(), Some(page.comparison));
             cursor.alternate_primary = Some(entry.primary.clone());
             cursor
-        })
-    } else {
-        None
-    };
+        });
     let mut payload = page_payload(results, None, limit, 0, page.has_more, None);
     payload["next_cursor"] =
         serde_json::to_value(next).map_err(|_| HostError::internal("invalid alternate cursor"))?;

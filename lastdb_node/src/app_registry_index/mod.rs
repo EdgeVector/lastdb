@@ -1,65 +1,37 @@
-//! Anonymous installation from a KMS-signed S3 list for one exact API version.
-//! Every entry also carries a publisher Ed25519 signature over RFC 8785 fields.
-//! Verified cached lists survive failed downloads and reject sequence rollback.
+//! Signed registry interface lists, rollback-safe caching, and app resolution.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use app_identity_crypto::{verifying_key_from_base64, VerifyingKey};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 mod install;
-mod list_cache;
 pub mod managed;
 mod managed_manifest;
 pub mod managed_poll;
-
-mod managed_links {
-    pub(crate) use crate::app_registry_index::managed_manifest::{
-        flip, install, restore, snapshot, validate_sources, verify,
-    };
-}
-
-mod managed_process {
-    pub(crate) use crate::app_registry_index::managed_poll::steps;
-}
-
-mod managed_publisher {
-    pub(crate) use crate::app_registry_index::managed_manifest::authorized_transition;
-}
 
 pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
     REGISTRY_LIST_PUBKEY_B64,
 };
 pub use install::{install_pinned, running_node, RECEIPT_FILE};
-pub use list_cache::fetch_list;
 
-/// The channel a public install reads when none is named.
 pub const DEFAULT_CHANNEL: &str = "stable";
-
-/// Public list base. Fetch `<base>/<channel>/api/<api_version>.json` and `.sig`.
 pub const DEFAULT_INDEX_BASE_URL: &str =
     crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
-
-/// Environment override for the index location (a URL base or a directory).
 pub const INDEX_LOCATION_ENV: &str = "LASTDB_REGISTRY_INDEX";
-/// Environment override for the trusted verifying key.
 pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Where a channel's index files live.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexLocation {
-    /// `<base>/<channel>.json` over HTTP(S).
     Url(String),
-    /// `<dir>/<channel>.json` on the local filesystem.
     Dir(PathBuf),
 }
 
 impl IndexLocation {
-    /// Address of the list for one exact interface version.
     #[must_use]
     pub fn describe_interface(&self, channel: &str, api: u32) -> String {
         let path = app_identity_crypto::interface_list_path(channel, api);
@@ -69,10 +41,6 @@ impl IndexLocation {
         }
     }
 
-    /// Download one list and its detached signature. No credentials are sent.
-    ///
-    /// # Errors
-    /// An invalid channel, insecure URL, or a failed transport or filesystem read.
     pub async fn fetch_interface(
         &self,
         channel: &str,
@@ -105,7 +73,6 @@ impl IndexLocation {
         }
     }
 
-    /// `--index` flag, then `$LASTDB_REGISTRY_INDEX`, then the public tap.
     pub fn resolve(flag: Option<&str>) -> Result<Self, String> {
         let raw = flag
             .map(str::to_string)
@@ -115,8 +82,6 @@ impl IndexLocation {
         Self::from_raw(&raw)
     }
 
-    /// # Errors
-    /// A `lastsecrets://` locator is not an index location.
     pub fn from_raw(raw: &str) -> Result<Self, String> {
         let raw = raw.trim().trim_end_matches('/');
         if raw.starts_with("lastsecrets://") {
@@ -139,9 +104,8 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
         .send()
         .await
         .map_err(|e| format!("GET {url} failed: {e}"))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("GET {url} returned {}", status.as_u16()));
+    if !response.status().is_success() {
+        return Err(format!("GET {url} returned {}", response.status().as_u16()));
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response
@@ -157,7 +121,6 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
     Ok(bytes)
 }
 
-/// Where the trusted verifying key came from, so the CLI can say so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustSource {
     Pinned,
@@ -165,7 +128,6 @@ pub enum TrustSource {
     Env,
 }
 
-/// Resolve the KMS list verifying key (`--trust-key`, `$LASTDB_REGISTRY_TRUST_KEY`, or pinned).
 pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, TrustSource), String> {
     if let Some(raw) = flag {
         return Ok((parse_trust_key(raw, "--trust-key")?, TrustSource::Flag));
@@ -191,7 +153,6 @@ fn parse_trust_key(raw: &str, what: &str) -> Result<VerifyingKey, String> {
         .map_err(|e| format!("{what} is not a valid base64 Ed25519 public key: {e:?}"))
 }
 
-/// Contract version ranges this node supports.
 #[derive(Debug, Clone, Copy)]
 pub struct ContractVersions {
     pub api_version: u32,
@@ -200,14 +161,12 @@ pub struct ContractVersions {
     pub min_supported_outbox_format_version: u32,
 }
 
-/// The running LastDB version and how it was determined.
 #[derive(Debug, Clone)]
 pub struct NodeVersion<'a> {
     pub version: &'a str,
     pub source: &'a str,
 }
 
-/// What `lastdb app list APP` answers: the one proved row for this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Resolution {
     #[serde(skip)]
@@ -227,7 +186,6 @@ pub struct Resolution {
     pub trust: String,
 }
 
-/// Fetch the signed interface list and select one app.
 pub async fn resolve(
     location: &IndexLocation,
     channel: &str,
@@ -255,9 +213,9 @@ pub async fn resolve(
         })?;
     Ok(Resolution {
         list_entry: Some(entry.clone()),
-        app_id: entry.app_id.clone(),
+        app_id: entry.app_id,
         channel: channel.to_string(),
-        source: entry.source.clone(),
+        source: entry.source,
         lastdb_version: node_version.version.to_string(),
         lastdb_version_source: node_version.source.to_string(),
         app_version: entry.app_version,
@@ -276,4 +234,137 @@ pub async fn resolve(
             app_identity_crypto::key_id(trust)
         ),
     })
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredList {
+    payload_sha256: String,
+    bytes: Vec<u8>,
+    signature: Vec<u8>,
+}
+
+pub async fn fetch_list(
+    location: &IndexLocation,
+    channel: &str,
+    api: u32,
+    trust: &VerifyingKey,
+) -> Result<InterfaceList, String> {
+    validate_channel(channel)?;
+    let download = location
+        .fetch_interface(channel, api)
+        .await
+        .and_then(|(bytes, signature)| {
+            let list = InterfaceList::load(&bytes, &signature, trust, channel, api)?;
+            Ok((
+                StoredList {
+                    payload_sha256: fold_db::hex::sha256_hex(&bytes),
+                    bytes,
+                    signature,
+                },
+                list,
+            ))
+        });
+
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+        .ok_or("HOME or XDG_STATE_HOME is required for the registry cache")?;
+    let base_root = state.join("lastdb-app-registry");
+    let root = if matches!(location, IndexLocation::Url(base) if base == DEFAULT_INDEX_BASE_URL) {
+        base_root
+    } else {
+        base_root.join("sources").join(fold_db::hex::sha256_hex(
+            location.describe_interface(channel, api).as_bytes(),
+        ))
+    };
+    let path = root.join(channel).join("api").join(format!("{api}.json"));
+    let parent = path.parent().ok_or("registry cache parent missing")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path.with_extension("lock"))
+        .map_err(|e| e.to_string())?;
+    lock.lock().map_err(|e| e.to_string())?;
+
+    let cached = if path.exists() {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let value: StoredList =
+            serde_json::from_slice(&bytes).map_err(|e| format!("invalid registry cache: {e}"))?;
+        if value.payload_sha256 != fold_db::hex::sha256_hex(&value.bytes) {
+            return Err("registry cache digest mismatch".into());
+        }
+        let list = InterfaceList::load(&value.bytes, &value.signature, trust, channel, api)?;
+        Some((value, list))
+    } else {
+        None
+    };
+
+    let accepted = accept_list(download, cached, &path, parent)?;
+    if let Ok(generated) = chrono::DateTime::parse_from_rfc3339(&accepted.generated_at) {
+        if chrono::Utc::now()
+            .signed_duration_since(generated)
+            .num_days()
+            >= 7
+        {
+            eprintln!(
+                "note: registry list was generated at {} (at least 7 days ago)",
+                accepted.generated_at
+            );
+        }
+    }
+    Ok(accepted)
+}
+
+fn accept_list(
+    download: Result<(StoredList, InterfaceList), String>,
+    cached: Option<(StoredList, InterfaceList)>,
+    path: &Path,
+    parent: &Path,
+) -> Result<InterfaceList, String> {
+    let (value, list) = match download {
+        Ok(value) => value,
+        Err(error) => {
+            return cached.map_or_else(
+                || Err(error.clone()),
+                |(_, prior)| {
+                    eprintln!(
+                        "note: registry download rejected; using stored seq {}: {error}",
+                        prior.seq
+                    );
+                    Ok(prior)
+                },
+            );
+        }
+    };
+    if let Some((prior, old)) = cached {
+        if list.seq < old.seq
+            || (list.seq == old.seq && value.payload_sha256 != prior.payload_sha256)
+        {
+            eprintln!(
+                "note: registry sequence rejected; retaining stored seq {}",
+                old.seq
+            );
+            return Ok(old);
+        }
+        if list.seq == old.seq {
+            return Ok(old);
+        }
+    }
+    let temp = path.with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::write(
+        &temp,
+        serde_json::to_vec(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::File::open(&temp)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(&temp, path).map_err(|e| e.to_string())?;
+    std::fs::File::open(parent)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(list)
 }

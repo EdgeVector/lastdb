@@ -1,16 +1,14 @@
 //! LaunchAgent updater and bounded install step execution.
 
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
 use super::managed_manifest::InstallStep;
-use std::{
-    path::Path,
-    process::{Command, Stdio},
-    time::{Duration, Instant},
-};
 
 #[cfg(target_os = "macos")]
 pub fn install() -> Result<(), String> {
     use std::{fs, path::PathBuf};
-    // Explicit alternate roots are disposable installs, not the user's app fleet.
     if std::env::var_os("LASTDB_APPS_ROOT").is_some() {
         return Ok(());
     }
@@ -21,12 +19,12 @@ pub fn install() -> Result<(), String> {
     fs::create_dir_all(&state).map_err(|e| e.to_string())?;
     let label = "com.edgevector.lastdb-app-registry";
     let plist = agents.join(format!("{label}.plist"));
-    let escape = |s: &str| {
-        s.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-    };
-    let user_home = escape(&home.display().to_string());
+    let user_home = home
+        .display()
+        .to_string()
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     let apps_off = std::env::var("LAST_STACK_APPS_OFF").unwrap_or_else(|_| "0".into());
     if apps_off != "0" && apps_off != "1" {
         return Err("LAST_STACK_APPS_OFF must be 0 or 1".into());
@@ -53,9 +51,8 @@ pub fn install() -> Result<(), String> {
         .output()
         .map_err(|e| e.to_string())?;
     let domain = format!("gui/{}", String::from_utf8_lossy(&uid.stdout).trim());
-    let service = format!("{domain}/{label}");
     let _ = Command::new("launchctl")
-        .args(["bootout", &service])
+        .args(["bootout", &format!("{domain}/{label}")])
         .output();
     let result = Command::new("launchctl")
         .args(["bootstrap", &domain])
@@ -80,12 +77,12 @@ pub(crate) fn steps(
     list: &[InstallStep],
 ) -> Result<(), String> {
     for step in list {
-        run(source, home, app, step)?;
+        run_step(source, home, app, step)?;
     }
     Ok(())
 }
 
-fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {
+fn run_step(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {
     let mut cmd = Command::new(&step.argv[0]);
     #[cfg(unix)]
     {
@@ -107,6 +104,7 @@ fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), 
         "SSH_AUTH_SOCK",
         "LASTDB_APPS_ROOT",
         "LANG",
+        "LAST_STACK_APPS_OFF",
     ] {
         if let Some(value) = std::env::var_os(key) {
             cmd.env(key, value);
@@ -121,9 +119,7 @@ fn run(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), 
         .env("LASTDB_APP_ID", app)
         .env("LASTDB_APP_SOURCE_DIR", source)
         .env("LAST_STACK_SETUP_PRESERVE_SERVICES", "1");
-    if let Some(value) = std::env::var_os("LAST_STACK_APPS_OFF") {
-        cmd.env("LAST_STACK_APPS_OFF", value);
-    }
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("cannot run {}: {e}", step.argv[0]))?;

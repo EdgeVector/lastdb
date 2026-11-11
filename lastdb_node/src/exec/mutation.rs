@@ -5,12 +5,9 @@ use std::future::Future;
 use std::pin::Pin;
 
 use fold_db::access::AccessContext;
-use fold_db::fold_db_core::mutation_manager::{
-    MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-};
+use fold_db::fold_db_core::mutation_manager::{MutationManager, ResidentCommitReceipt};
 use fold_db::record_value::InlineWrite;
-use fold_db::schema::types::operations::MutationConvergence;
-use fold_db::schema::types::{FileWrite, Mutation, Schema, SchemaError};
+use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
 use serde_json::Value;
 
 use super::reply::{content_free, render, HostError};
@@ -57,7 +54,6 @@ pub(in crate::exec) async fn execute_mutations_batch_route(
     render(execute_mutations_batch(host, batch).await, ctx)
 }
 
-/// Preserve route scopes, handlers, and budgets when a mutation runs off the socket worker.
 pub fn execute_deferred_mutation<'a>(
     route: DataRoute,
     req: &'a UdsRequest,
@@ -74,15 +70,23 @@ pub fn execute_deferred_mutation<'a>(
     })
 }
 
-/// Resolve schema, validate fields, stamp UUID + pubkey, and commit one parsed mutation.
 pub(in crate::exec) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {
     let requested = parsed.mutation.schema_name.clone();
-    let canonical = resolve_required_schema_name(host, &requested)?;
+    let canonical = resolve_schema_name(host, &requested)?
+        .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
     validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields).await?;
-    let payload_bytes = fields_payload_bytes(&parsed.mutation.record_fields)
+    let payload_bytes: usize = parsed
+        .mutation
+        .record_fields
+        .values()
+        .map(|v| match v {
+            Value::String(s) => s.len(),
+            other => other.to_string().len(),
+        })
+        .sum::<usize>()
         + parsed
             .mutation
             .file_write
@@ -105,11 +109,17 @@ pub(in crate::exec) async fn commit_parsed_mutation(
         .last()
         .cloned()
         .ok_or_else(|| HostError::internal("Mutation returned no IDs"))?;
-    Ok(mutation_response(
-        &mutation_id,
-        parsed.convergence.waits(),
+    let drained = parsed.convergence.waits();
+    Ok(commit_json(
         &receipt,
-        payload_bytes,
+        serde_json::json!({
+            "mutation_id": mutation_id,
+            "record_revision": receipt.record_revisions.get(&mutation_id),
+            "success": true,
+            "background_tasks_drained": drained,
+            "convergence_pending": !drained,
+            "size": payload_bytes,
+        }),
     ))
 }
 
@@ -117,12 +127,19 @@ async fn execute_mutations_batch(
     host: &Host,
     batch: Vec<ParsedMutation>,
 ) -> Result<Value, HostError> {
-    let convergence = batch_convergence(&batch)?;
+    if batch.is_empty() {
+        return Err(HostError::new(
+            400,
+            "Mutation batch must contain at least one mutation",
+        ));
+    }
+    let drained = batch.iter().any(|item| item.convergence.waits());
     let public_key = host.public_key();
     let mut mutations = Vec::with_capacity(batch.len());
     for mut parsed in batch {
         let requested = parsed.mutation.schema_name.clone();
-        let canonical = resolve_required_schema_name(host, &requested)?;
+        let canonical = resolve_schema_name(host, &requested)?
+            .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
         validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields)
             .await?;
         parsed.mutation.schema_name = canonical;
@@ -130,26 +147,19 @@ async fn execute_mutations_batch(
         parsed.mutation.pub_key.clone_from(&public_key);
         mutations.push(parsed.mutation);
     }
-
     let count = mutations.len();
     let receipt = start_core_commit(host.db.mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
-    Ok(batch_response(&receipt, count, convergence.waits()))
-}
-
-fn batch_convergence(batch: &[ParsedMutation]) -> Result<MutationConvergence, HostError> {
-    if batch.is_empty() {
-        return Err(HostError::new(
-            400,
-            "Mutation batch must contain at least one mutation",
-        ));
-    }
-    if batch.iter().any(|item| item.convergence.waits()) {
-        Ok(MutationConvergence::Sync)
-    } else {
-        Ok(MutationConvergence::Async)
-    }
+    Ok(commit_json(
+        &receipt,
+        serde_json::json!({
+            "mutation_ids": &receipt.mutation_ids,
+            "count": count,
+            "background_tasks_drained": drained,
+            "convergence_pending": !drained,
+        }),
+    ))
 }
 
 fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {
@@ -166,176 +176,93 @@ fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {
     }
 }
 
-fn mutation_writable_field_names(schema: &Schema) -> Vec<String> {
-    let mut names = schema.fields.clone().unwrap_or_default();
-    names.sort();
-    names.dedup();
-    names
-}
-
-fn mutation_field_is_writable(schema: &Schema, field: &str) -> bool {
-    schema
-        .fields
-        .as_ref()
-        .is_some_and(|plain| plain.iter().any(|name| name == field))
-}
-
-fn mutation_unknown_fields(
-    schema: &Schema,
-    record_fields: &HashMap<String, Value>,
-) -> Option<(Vec<String>, Vec<String>)> {
-    if record_fields.is_empty() {
-        return None;
-    }
-    let mut unknown: Vec<String> = record_fields
-        .keys()
-        .filter(|field| !mutation_field_is_writable(schema, field))
-        .cloned()
-        .collect();
-    if unknown.is_empty() {
-        None
-    } else {
-        unknown.sort();
-        Some((unknown, mutation_writable_field_names(schema)))
-    }
-}
-
-fn unknown_fields_body(schema_name: &str, unknown: &[String], available: &[String]) -> Value {
-    let quoted_unknown = unknown
-        .iter()
-        .map(|f| format!("'{f}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let plural = if unknown.len() == 1 { "" } else { "s" };
-    let available_summary = if available.is_empty() {
-        "<none>".to_string()
-    } else {
-        available.join(", ")
-    };
-    let message = format!(
-        "Field{plural} {quoted_unknown} not writable on schema '{schema_name}'. Available: {available_summary}",
-    );
-    serde_json::json!({
-        "ok": false,
-        "error": "unknown_fields",
-        "message": message,
-        "schema_name": schema_name,
-        "unknown_fields": unknown,
-        "available_fields": available,
-    })
-}
-
 async fn validate_mutation_fields(
     host: &Host,
     requested: &str,
     canonical: &str,
     record_fields: &HashMap<String, Value>,
 ) -> Result<(), HostError> {
+    if record_fields.is_empty() {
+        return Ok(());
+    }
     let Ok(Some(schema)) = host.db.schema_manager().resolve_schema(canonical).await else {
         return Ok(());
     };
-    if let Some((unknown, available)) = mutation_unknown_fields(&schema, record_fields) {
-        tracing::info!(
-            target: "lastdb_node::exec",
-            schema = %requested,
-            unknown_fields = ?unknown,
-            "execute_mutation: rejecting unknown fields"
-        );
-        return Err(HostError::new(
-            400,
-            unknown_fields_body(requested, &unknown, &available).to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn fields_payload_bytes(fields: &HashMap<String, Value>) -> usize {
-    fields
-        .values()
-        .map(|v| match v {
-            Value::String(s) => s.len(),
-            other => other.to_string().len(),
+    let mut unknown: Vec<String> = record_fields
+        .keys()
+        .filter(|f| {
+            !schema
+                .fields
+                .as_ref()
+                .is_some_and(|plain| plain.iter().any(|n| n == *f))
         })
-        .sum()
-}
-
-fn resolve_required_schema_name(host: &Host, requested: &str) -> Result<String, HostError> {
-    resolve_schema_name(host, requested)?
-        .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))
-}
-
-fn operations_json(operations: &ResidentCommitOperations) -> Value {
-    serde_json::json!({
-        "created": operations.created,
-        "updated": operations.updated,
-        "deleted": operations.deleted,
-        "total": operations.total(),
-    })
-}
-
-fn stages_json(stages: &ResidentCommitStages) -> Value {
-    serde_json::json!({
-        "prepare": stages.prepare_us,
-        "ack": stages.ack_us,
-    })
-}
-
-fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
-    serde_json::json!({
-        "revision": receipt.revision,
-        "record_revisions": receipt.record_revisions,
-        "operations": operations_json(&receipt.operations),
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": stages_json(&receipt.stages),
-    })
-}
-
-fn extend_json(base: Value, extra: Value) -> Value {
-    let Value::Object(mut base_map) = base else {
-        return extra;
-    };
-    let Value::Object(extra_map) = extra else {
-        return Value::Object(base_map);
-    };
-    for (key, value) in extra_map {
-        base_map.insert(key, value);
+        .cloned()
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
     }
-    Value::Object(base_map)
+    unknown.sort();
+    let mut available = schema.fields.clone().unwrap_or_default();
+    available.sort();
+    available.dedup();
+    tracing::info!(
+        target: "lastdb_node::exec",
+        schema = %requested,
+        unknown_fields = ?unknown,
+        "execute_mutation: rejecting unknown fields"
+    );
+    let quoted = unknown
+        .iter()
+        .map(|f| format!("'{f}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let plural = if unknown.len() == 1 { "" } else { "s" };
+    let avail = if available.is_empty() {
+        "<none>".to_string()
+    } else {
+        available.join(", ")
+    };
+    let message =
+        format!("Field{plural} {quoted} not writable on schema '{requested}'. Available: {avail}");
+    let body = serde_json::json!({
+        "ok": false,
+        "error": "unknown_fields",
+        "message": message,
+        "schema_name": requested,
+        "unknown_fields": unknown,
+        "available_fields": available,
+    });
+    Err(HostError::new(400, body.to_string()))
 }
 
-fn mutation_response(
-    mutation_id: &str,
-    background_tasks_drained: bool,
-    receipt: &ResidentCommitReceipt,
-    payload_bytes: usize,
-) -> Value {
-    extend_json(
-        commit_core_json(receipt),
+fn commit_json(receipt: &ResidentCommitReceipt, extra: Value) -> Value {
+    let mut map = serde_json::Map::new();
+    map.insert("revision".into(), serde_json::json!(receipt.revision));
+    map.insert(
+        "record_revisions".into(),
+        serde_json::json!(receipt.record_revisions),
+    );
+    map.insert(
+        "operations".into(),
         serde_json::json!({
-            "mutation_id": mutation_id,
-            "record_revision": receipt.record_revisions.get(mutation_id),
-            "success": true,
-            "background_tasks_drained": background_tasks_drained,
-            "convergence_pending": !background_tasks_drained,
-            "size": payload_bytes
+            "created": receipt.operations.created,
+            "updated": receipt.operations.updated,
+            "deleted": receipt.operations.deleted,
+            "total": receipt.operations.total(),
         }),
-    )
-}
-
-fn batch_response(
-    receipt: &ResidentCommitReceipt,
-    count: usize,
-    background_tasks_drained: bool,
-) -> Value {
-    extend_json(
-        commit_core_json(receipt),
-        serde_json::json!({
-            "mutation_ids": &receipt.mutation_ids,
-            "count": count,
-            "background_tasks_drained": background_tasks_drained,
-            "convergence_pending": !background_tasks_drained,
-        }),
-    )
+    );
+    map.insert(
+        "durability".into(),
+        serde_json::json!(receipt.durability.as_str()),
+    );
+    map.insert(
+        "resident_stages_us".into(),
+        serde_json::json!({ "prepare": receipt.stages.prepare_us, "ack": receipt.stages.ack_us }),
+    );
+    if let Value::Object(extra_map) = extra {
+        map.extend(extra_map);
+    }
+    Value::Object(map)
 }
 
 type CoreCommitFuture<'a> =

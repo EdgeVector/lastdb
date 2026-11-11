@@ -1,9 +1,4 @@
-//! Persistent service-home configuration for the minimal `lastdbd` daemon.
-//!
-//! `brew services start lastdb` cannot pass `--data-dir`, and the formula should
-//! not bake a personal path into its service block. This module provides a small
-//! per-user config file that `lastdbd` reads only when no explicit CLI/env home
-//! override is present.
+//! Persistent service-home configuration for `lastdbd` when no CLI/env home override is set.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,13 +16,13 @@ pub fn explicit_home_override_present() -> bool {
     std::env::var_os(crate::profile::paths::LASTDB_HOME_ENV).is_some()
 }
 
-pub fn config_path() -> Result<PathBuf, String> {
+fn config_path() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os(CONFIG_ENV) {
         return Ok(PathBuf::from(path));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
-        "Cannot locate lastdb admin service-home config: HOME is not set".to_string()
-    })?;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or("Cannot locate lastdb admin service-home config: HOME is not set")?;
     let rel = if cfg!(target_os = "macos") {
         MACOS_CONFIG_REL
     } else {
@@ -39,15 +34,8 @@ pub fn config_path() -> Result<PathBuf, String> {
 pub fn configured_home() -> Result<Option<PathBuf>, String> {
     let path = config_path()?;
     match fs::read_to_string(&path) {
-        Ok(raw) => {
-            let raw = raw.trim();
-            if raw.is_empty() {
-                return Ok(None);
-            }
-            let home = normalize_home_path(raw)?;
-            reject_primary_live_home(&home)?;
-            Ok(Some(home))
-        }
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => validate_service_home(raw.trim()).map(Some),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!(
             "Failed to read lastdb admin service-home config {}: {e}",
@@ -57,9 +45,7 @@ pub fn configured_home() -> Result<Option<PathBuf>, String> {
 }
 
 pub fn set_configured_home(raw_home: &Path) -> Result<String, String> {
-    let home = normalize_home_path(raw_home)?;
-    reject_primary_live_home(&home)?;
-
+    let home = validate_service_home(raw_home)?;
     let path = config_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
@@ -115,36 +101,26 @@ pub fn clear_configured_home() -> Result<String, String> {
     }
 }
 
-fn normalize_home_path(path: impl AsRef<Path>) -> Result<PathBuf, String> {
-    let expanded = crate::profile::paths::expand_tilde_path(path)?;
-    if !expanded.is_absolute() {
+fn validate_service_home(raw: impl AsRef<Path>) -> Result<PathBuf, String> {
+    let home = crate::profile::paths::expand_tilde_path(raw)?;
+    if !home.is_absolute() {
         return Err(format!(
             "lastdbd service home must be absolute after ~ expansion (got {})",
-            expanded.display()
+            home.display()
         ));
     }
-    Ok(expanded)
-}
-
-fn reject_primary_live_home(home: &Path) -> Result<(), String> {
-    let Some(primary) = primary_live_home() else {
-        return Ok(());
-    };
-    if canonical_if_exists(home) == primary {
-        return Err(format!(
-            "Refusing to configure lastdbd service home as the primary live database home {}. Choose a separate directory for a second node.",
-            primary.display()
-        ));
+    if let Some(user_home) = std::env::var_os("HOME").map(PathBuf::from) {
+        let primary = user_home.join(crate::profile::paths::LASTDB_DIR);
+        if primary.is_dir() {
+            let canon_primary = fs::canonicalize(&primary).unwrap_or(primary);
+            let canon_home = fs::canonicalize(&home).unwrap_or_else(|_| home.clone());
+            if canon_home == canon_primary {
+                return Err(format!(
+                    "Refusing to configure lastdbd service home as the primary live database home {}. Choose a separate directory for a second node.",
+                    canon_primary.display()
+                ));
+            }
+        }
     }
-    Ok(())
-}
-
-fn primary_live_home() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let primary = home.join(crate::profile::paths::LASTDB_DIR);
-    primary.is_dir().then(|| canonical_if_exists(&primary))
-}
-
-fn canonical_if_exists(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    Ok(home)
 }

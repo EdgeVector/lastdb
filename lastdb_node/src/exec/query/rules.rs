@@ -22,7 +22,7 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
     if query.expected_total_count.is_some() && !can_push_down_key_restricted(query) {
         return Err(HostError::new(
             400,
-            "expected_total_count requires a keyed query".to_string(),
+            "expected_total_count requires a keyed query",
         ));
     }
     if has_cursor
@@ -31,8 +31,7 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
     {
         return Err(HostError::new(
             400,
-            "Query cursors require ascending keyed reads; use an offset for descending reads"
-                .to_string(),
+            "Query cursors require ascending keyed reads; use an offset for descending reads",
         ));
     }
     Ok(())
@@ -49,19 +48,19 @@ pub(super) fn prepare_comparison(
     cursor: Option<QueryCursor>,
     comparison: Option<&KeyComparisonContext>,
 ) -> Result<PreparedQuery, HostError> {
-    if let Some(comparison) = comparison {
-        query.filter = comparison
+    if let Some(cmp) = comparison {
+        query.filter = cmp
             .canonical_filter(query.filter.take())
             .map_err(HostError::from)?;
     }
     let binding = comparison
-        .map(|comparison| {
-            let request = (&query.filter, query.include_tombstones, &query.sort_order);
-            comparison.cursor_binding(&request).map_err(HostError::from)
+        .map(|cmp| {
+            cmp.cursor_binding(&(&query.filter, query.include_tombstones, &query.sort_order))
         })
-        .transpose()?;
-    if let Some(cursor) = cursor.as_ref() {
-        match cursor.comparison.as_deref() {
+        .transpose()
+        .map_err(HostError::from)?;
+    if let Some(c) = cursor.as_ref() {
+        match c.comparison.as_deref() {
             Some(received) if binding.as_deref() != Some(received) => {
                 return Err(HostError::new(
                     409,
@@ -77,26 +76,22 @@ pub(super) fn prepare_comparison(
             _ => {}
         }
     }
-    let record = cursor
+    if cursor
         .as_ref()
         .map(QueryCursor::record_position)
         .transpose()
-        .map_err(|error| HostError::new(400, error))?
-        .flatten();
-    if record.is_some() {
+        .map_err(|e| HostError::new(400, e))?
+        .flatten()
+        .is_some()
+    {
         return Err(HostError::new(
             400,
             "record cursors are unsupported on /api/query; continue a keyed read with its next_cursor",
         ));
     }
-    let cursor = cursor.map(QueryCursor::into_key);
-    let cursor = if let Some(comparison) = comparison {
-        cursor
-            .map(|key| comparison.canonical_key(key))
-            .transpose()
-            .map_err(HostError::from)?
-    } else {
-        cursor
+    let cursor = match (cursor.map(QueryCursor::into_key), comparison) {
+        (Some(key), Some(cmp)) => Some(cmp.canonical_key(key).map_err(HostError::from)?),
+        (cursor, _) => cursor,
     };
     Ok(PreparedQuery {
         query,
@@ -113,36 +108,37 @@ pub(super) fn keyed_window(
     total: Option<usize>,
 ) -> Result<Option<KeyWindow>, HostError> {
     if let Some(total) = total {
-        if let Some(expected) = query.expected_total_count {
-            if expected != total {
-                return Err(HostError::new(
-                    409,
-                    "expected_total_count did not match the keyed count".to_string(),
-                ));
-            }
+        if query
+            .expected_total_count
+            .is_some_and(|expected| expected != total)
+        {
+            return Err(HostError::new(
+                409,
+                "expected_total_count did not match the keyed count",
+            ));
         }
     } else if query.expected_total_count.is_some() {
         return Err(HostError::new(
             400,
-            "expected_total_count is unavailable for this query".to_string(),
+            "expected_total_count is unavailable for this query",
         ));
     }
-
-    if descending_cross_hash_batch(query)
-        || (matches!(query.sort_order, Some(SortOrder::Desc)) && total.is_none())
-    {
+    let desc = matches!(query.sort_order, Some(SortOrder::Desc));
+    let cross_hash = desc
+        && matches!(&query.filter, Some(HashRangeFilter::HashRangeKeys(keys))
+            if keys.first().is_some_and(|(h, _)| keys.iter().any(|(o, _)| o != h)));
+    if cross_hash || (desc && total.is_none()) {
         return Ok(None);
     }
-
-    let overfetch_limit = limit.saturating_add(1);
+    let overfetch = limit.saturating_add(1);
     let window = if let Some(after) = cursor {
-        KeyWindow::after(after.clone(), overfetch_limit)
-    } else if let Some(total) = total {
-        let (asc_offset, asc_limit) =
-            page_window_for(query.sort_order.as_ref(), total, offset, overfetch_limit);
+        KeyWindow::after(after.clone(), overfetch)
+    } else if let (true, Some(total)) = (desc, total) {
+        let asc_offset = total.saturating_sub(offset.saturating_add(overfetch));
+        let asc_limit = total.saturating_sub(offset).saturating_sub(asc_offset);
         KeyWindow::offset(asc_offset, asc_limit)
     } else {
-        KeyWindow::offset(offset, overfetch_limit)
+        KeyWindow::offset(offset, overfetch)
     };
     Ok(Some(window))
 }
@@ -154,63 +150,28 @@ pub(super) fn can_push_down_key_restricted(query: &Query) -> bool {
         .is_some_and(HashRangeFilter::is_key_restricted)
 }
 
-fn descending_cross_hash_batch(query: &Query) -> bool {
-    if !matches!(query.sort_order, Some(SortOrder::Desc)) {
-        return false;
-    }
-    let Some(HashRangeFilter::HashRangeKeys(keys)) = &query.filter else {
-        return false;
-    };
-    keys.first()
-        .is_some_and(|(hash, _)| keys.iter().any(|(other, _)| other != hash))
-}
-
 pub(super) fn key_restricted_count_is_required(query: &Query, cursor: Option<&KeyValue>) -> bool {
     query.expected_total_count.is_some()
         || (cursor.is_none() && matches!(query.sort_order.as_ref(), Some(SortOrder::Desc)))
 }
 
-fn page_window_for(
-    sort_order: Option<&SortOrder>,
-    total: usize,
-    offset: usize,
-    limit: usize,
-) -> (usize, usize) {
-    match sort_order {
-        Some(SortOrder::Desc) => {
-            let asc_offset = total.saturating_sub(offset.saturating_add(limit));
-            let asc_limit = total.saturating_sub(offset).saturating_sub(asc_offset);
-            (asc_offset, asc_limit)
-        }
-        _ => (offset, limit),
-    }
-}
-
-fn looks_like_schema_identity(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn product_schema_name(requested: &str, schema: Option<&Schema>) -> String {
-    schema
-        .and_then(|schema| schema.descriptive_name.clone())
-        .or_else(|| (!looks_like_schema_identity(requested)).then(|| requested.to_string()))
-        .or_else(|| {
-            schema.and_then(|schema| {
-                (!looks_like_schema_identity(&schema.name)).then(|| schema.name.clone())
-            })
-        })
-        .or_else(|| {
-            schema
-                .and_then(|schema| schema.owner_app_id.as_deref())
-                .map(|owner| format!("{owner}/<unnamed-schema>"))
-        })
-        .unwrap_or_else(|| "<unnamed-product-schema>".to_string())
+fn looks_like_identity(v: &str) -> bool {
+    v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema>) -> HostError {
-    let schema_name = product_schema_name(requested, schema);
-    let schema_id = schema.map_or(requested, |schema| schema.name.as_str());
-    let record_keys = schema.and_then(|schema| schema.record_keys.as_ref());
+    let schema_name = schema
+        .and_then(|s| s.descriptive_name.clone())
+        .or_else(|| (!looks_like_identity(requested)).then(|| requested.to_string()))
+        .or_else(|| schema.and_then(|s| (!looks_like_identity(&s.name)).then(|| s.name.clone())))
+        .or_else(|| {
+            schema
+                .and_then(|s| s.owner_app_id.as_deref())
+                .map(|o| format!("{o}/<unnamed-schema>"))
+        })
+        .unwrap_or_else(|| "<unnamed-product-schema>".to_string());
+    let schema_id = schema.map_or(requested, |s| s.name.as_str());
+    let record_keys = schema.and_then(|s| s.record_keys.as_ref());
     let message = format!(
         "full_schema_scan_not_allowed: unfiltered query on product schema \
          '{schema_name}' is not supported; add a keyed filter using the \
@@ -238,16 +199,15 @@ pub(super) fn sort_rows(
     sort_order: Option<&SortOrder>,
     range_comparison: Option<&RangeKeyComparison>,
 ) -> Result<(), HostError> {
-    if let Some(comparison) = range_comparison {
+    if let Some(cmp) = range_comparison {
         for row in &*rows {
-            comparison
-                .validate_value(row["key"]["range"].as_str().unwrap_or(""))
+            cmp.validate_value(row["key"]["range"].as_str().unwrap_or(""))
                 .map_err(SchemaError::InvalidData)?;
         }
     }
     let mut error = None;
     rows.sort_by(
-        |left, right| match compare_rows(left, right, sort_order, range_comparison) {
+        |a, b| match compare_rows(a, b, sort_order, range_comparison) {
             Ok(order) => order,
             Err(detail) => {
                 error.get_or_insert(detail);
@@ -255,7 +215,7 @@ pub(super) fn sort_rows(
             }
         },
     );
-    error.map_or(Ok(()), |error| Err(error.into()))
+    error.map_or(Ok(()), |e| Err(e.into()))
 }
 
 fn compare_rows(
@@ -264,22 +224,23 @@ fn compare_rows(
     sort_order: Option<&SortOrder>,
     range_comparison: Option<&RangeKeyComparison>,
 ) -> Result<Ordering, SchemaError> {
-    let a_range = a["key"]["range"].as_str().unwrap_or("");
-    let b_range = b["key"]["range"].as_str().unwrap_or("");
-    let range_order = if let Some(comparison) = range_comparison {
-        comparison
-            .compare(a_range, b_range)
-            .map_err(SchemaError::InvalidData)?
-    } else {
-        a_range.cmp(b_range)
+    let (ar, br) = (
+        a["key"]["range"].as_str().unwrap_or(""),
+        b["key"]["range"].as_str().unwrap_or(""),
+    );
+    let range_order = match range_comparison {
+        Some(cmp) => cmp.compare(ar, br).map_err(SchemaError::InvalidData)?,
+        None => ar.cmp(br),
     };
-    let primary = match sort_order {
-        Some(SortOrder::Desc) => range_order.reverse(),
-        _ => range_order,
+    let primary = if matches!(sort_order, Some(SortOrder::Desc)) {
+        range_order.reverse()
+    } else {
+        range_order
     };
     Ok(primary.then(range_order).then_with(|| {
-        let a_hash = a["key"]["hash"].as_str().unwrap_or("");
-        let b_hash = b["key"]["hash"].as_str().unwrap_or("");
-        a_hash.cmp(b_hash)
+        a["key"]["hash"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["key"]["hash"].as_str().unwrap_or(""))
     }))
 }

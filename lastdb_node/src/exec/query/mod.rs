@@ -26,10 +26,6 @@ pub(in crate::exec) use format::{
 };
 use format::{cursor_payload, format_rows, materialized_page_payload, overfetched_offset_payload};
 
-const DEFAULT_QUERY_LIMIT: usize = 100;
-const MAX_QUERY_LIMIT: usize = 1000;
-
-/// Reply shape for a query request.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(in crate::exec) enum QueryResponseFormat {
@@ -41,7 +37,7 @@ pub(in crate::exec) enum QueryResponseFormat {
 
 #[must_use]
 pub(in crate::exec) fn clamp_request_limit(limit: Option<usize>) -> usize {
-    limit.unwrap_or(DEFAULT_QUERY_LIMIT).min(MAX_QUERY_LIMIT)
+    limit.unwrap_or(100).min(1000)
 }
 
 pub(in crate::exec) async fn execute_query_route(
@@ -56,7 +52,7 @@ pub(in crate::exec) async fn execute_query_route(
         cursor,
         response_format,
     } = match body_object(req).and_then(parse_query_body) {
-        Ok(query) => query,
+        Ok(q) => q,
         Err(resp) => return resp,
     };
     render(
@@ -65,7 +61,6 @@ pub(in crate::exec) async fn execute_query_route(
     )
 }
 
-/// Execute `POST /api/query`: resolve the schema, enforce keyed rules, and render the page.
 pub(in crate::exec) async fn execute_query(
     host: &Host,
     query: Query,
@@ -79,7 +74,7 @@ pub(in crate::exec) async fn execute_query(
         .db_ops()
         .read_scope()
         .await
-        .map_err(|error| HostError::new(503, error.to_string()))?;
+        .map_err(|e| HostError::new(503, e.to_string()))?;
     scope
         .run_result(Box::pin(execute_query_scoped(
             host,
@@ -100,7 +95,7 @@ async fn execute_query_scoped(
     cursor: Option<QueryCursor>,
     response_format: QueryResponseFormat,
 ) -> Result<Value, HostError> {
-    let requested_schema_name = query.schema_name.clone();
+    let requested_schema = query.schema_name.clone();
     match resolve_schema_name(host, &query.schema_name)? {
         Some(canonical) => query.schema_name = canonical,
         None if is_app_owned_schema_ref(&query.schema_name) => {
@@ -124,9 +119,9 @@ async fn execute_query_scoped(
             .db
             .schema_manager()
             .get_schema_metadata(&query.schema_name)
-            .map_err(|error| HostError::internal(error.to_string()))?;
+            .map_err(|e| HostError::internal(e.to_string()))?;
         return Err(rules::full_schema_scan_rejection(
-            &requested_schema_name,
+            &requested_schema,
             schema.as_ref(),
         ));
     }
@@ -171,14 +166,10 @@ async fn alternate_execute(
             "alternate pages use cursors rather than offsets",
         ));
     }
-    if cursor
-        .as_ref()
-        .is_some_and(|cursor| cursor.record.is_some())
-    {
+    if cursor.as_ref().is_some_and(|c| c.record.is_some()) {
         return Err(HostError::new(
             400,
-            "a record cursor continues only an unfiltered read; continue an alternate page with \
-             the next_cursor of that page",
+            "a record cursor continues only an unfiltered read; continue an alternate page with the next_cursor of that page",
         ));
     }
     if response_format == QueryResponseFormat::Count {
@@ -225,10 +216,9 @@ async fn capture_key_comparison(
 }
 
 fn is_app_owned_schema_ref(name: &str) -> bool {
-    let Some((owner_app_id, local_name)) = name.trim().split_once('/') else {
-        return false;
-    };
-    !owner_app_id.is_empty() && !local_name.is_empty() && !local_name.contains('/')
+    name.trim()
+        .split_once('/')
+        .is_some_and(|(app, local)| !app.is_empty() && !local.is_empty() && !local.contains('/'))
 }
 
 async fn count_rows(host: &Host, query: &Query) -> Result<Option<usize>, HostError> {
@@ -251,62 +241,61 @@ struct QueryRun<'a> {
 impl QueryRun<'_> {
     async fn execute(self, query: Query) -> Result<Value, HostError> {
         if self.response_format == QueryResponseFormat::Count {
-            return self.count_only(query).await;
+            if !rules::can_push_down_key_restricted(&query)
+                || query.include_tombstones
+                || self.cursor.is_some()
+                || self.offset != 0
+            {
+                return Err(HostError::new(
+                    400,
+                    "count replies require keyed live reads without continuation",
+                ));
+            }
+            let count = count_rows(self.host, &query)
+                .await?
+                .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
+            if query
+                .expected_total_count
+                .is_some_and(|expected| expected != count)
+            {
+                return Err(HostError::new(
+                    409,
+                    "expected_total_count differs from the exact keyed count",
+                ));
+            }
+            return Ok(serde_json::json!({"total_count": count, "exact": true}));
         }
-        if rules::can_push_down_key_restricted(&query) {
-            return self.key_restricted(query).await;
+        if !rules::can_push_down_key_restricted(&query) {
+            return self.bounded_fallback(query).await;
         }
-        self.bounded_fallback(query).await
-    }
-
-    async fn count_only(&self, query: Query) -> Result<Value, HostError> {
-        if !rules::can_push_down_key_restricted(&query)
-            || query.include_tombstones
-            || self.cursor.is_some()
-            || self.offset != 0
-        {
-            return Err(HostError::new(
-                400,
-                "count replies require keyed live reads without continuation",
-            ));
-        }
-        let count = count_rows(self.host, &query)
-            .await?
-            .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
-        if query
-            .expected_total_count
-            .is_some_and(|expected| expected != count)
-        {
-            return Err(HostError::new(
-                409,
-                "expected_total_count differs from the exact keyed count",
-            ));
-        }
-        Ok(serde_json::json!({"total_count": count, "exact": true}))
-    }
-
-    async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
-        let host = self.host;
-        let (limit, offset) = (self.limit, self.offset);
         let total = if rules::key_restricted_count_is_required(&query, self.cursor.as_ref()) {
-            count_rows(host, &query).await?
+            count_rows(self.host, &query).await?
         } else {
             None
         };
-        let Some(window) = rules::keyed_window(&query, limit, offset, self.cursor.as_ref(), total)?
+        let Some(window) =
+            rules::keyed_window(&query, self.limit, self.offset, self.cursor.as_ref(), total)?
         else {
             return self.bounded_fallback(query).await;
         };
-
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
         let (page, end) =
-            execute_query_rows_windowed(host, query, Some(window), self.response_format).await?;
+            execute_query_rows_windowed(self.host, query, Some(window), self.response_format)
+                .await?;
         Ok(match (uses_cursor, total) {
-            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset),
+            (false, Some(total)) => {
+                overfetched_offset_payload(page, total, self.limit, self.offset)
+            }
             (_, total) => {
                 let resume = end.resume.map(|PageResume::Key(key)| key);
-                let comparison = self.comparison.clone();
-                cursor_payload(page, total, limit, offset, resume, comparison)
+                cursor_payload(
+                    page,
+                    total,
+                    self.limit,
+                    self.offset,
+                    resume,
+                    self.comparison,
+                )
             }
         })
     }
@@ -334,20 +323,18 @@ async fn execute_query_rows_windowed(
         let executor = host.db.query_executor();
         let resumable = window.is_some() && !matches!(query.sort_order, Some(SortOrder::Desc));
         let (result, end) = match window {
-            Some(window) if resumable => {
-                fold_db::db_operations::with_query_page_tally(executor.query_window(query, window))
-                    .await
+            Some(w) if resumable => {
+                fold_db::db_operations::with_query_page_tally(executor.query_window(query, w)).await
             }
-            Some(window) => (
-                executor.query_window(query, window).await,
-                PageEnd::default(),
-            ),
+            Some(w) => (executor.query_window(query, w).await, PageEnd::default()),
             None => (executor.query(query).await, PageEnd::default()),
         };
-        let records = result.map_err(HostError::from)?;
-        let mut results = format_rows(records, response_format == QueryResponseFormat::Values);
-        let range_comparison = KeyComparisonContext::capture_current_range_comparison();
-        rules::sort_rows(&mut results, sort_order.as_ref(), range_comparison.as_ref())?;
+        let mut results = format_rows(
+            result.map_err(HostError::from)?,
+            response_format == QueryResponseFormat::Values,
+        );
+        let range_cmp = KeyComparisonContext::capture_current_range_comparison();
+        rules::sort_rows(&mut results, sort_order.as_ref(), range_cmp.as_ref())?;
         Ok((results, end))
     };
     if let Some(comparison) = comparison {
