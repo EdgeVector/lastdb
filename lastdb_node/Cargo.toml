@@ -34,6 +34,7 @@ cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 database_policy = { path = "../database_policy" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
+mutation_log = { path = "../mutation_log" }
 laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
 observability = { workspace = true }
