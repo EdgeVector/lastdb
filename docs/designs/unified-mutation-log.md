@@ -186,8 +186,6 @@ share home.
 
 Contributor rules check the caller's schema string
 (`lastdb_node/src/share_contribution/apply.rs`) and do not name a catalog.
-The legacy shared snapshot, shared-writer CLI, and shared recovery scripts
-are deleted with the shared v1 client. They are not a namespace list.
 `photos/Comment` in the contributor proof and the SDK readme is an example,
 not a standard schema.
 
