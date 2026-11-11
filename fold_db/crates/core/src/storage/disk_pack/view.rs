@@ -2,6 +2,7 @@
 
 use super::*;
 use laststore::disk_run::home::RunHomeDiagnostics;
+use std::sync::atomic::AtomicU64;
 
 /// A read-only operational boundary; this method never wakes a flush worker.
 #[derive(serde::Serialize)]

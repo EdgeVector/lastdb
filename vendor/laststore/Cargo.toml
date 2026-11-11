@@ -6,7 +6,6 @@ version = "0.1.0"
 # be published either. cargo-deny allows wildcard path deps only in private crates.
 publish = false
 edition.workspace = true
-rust-version = "1.75"
 description = "Last Store — the LastDB disk engine (disk format v2: sorted, encrypted run files)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/EdgeVector/laststore"
