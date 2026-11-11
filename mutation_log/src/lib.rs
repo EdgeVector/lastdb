@@ -5,8 +5,8 @@
 //! crate holds the types, the read rule, and the apply step. It reads no
 //! clock, opens no file or socket, and stores nothing. The shell passes time,
 //! ids, and a [`NamespacePolicy`]. [`MutationLog`] is the port. The in-memory
-//! adapter lives in `mutation_log_mem` and stays off unless the caller enables
-//! its config. This crate still stores nothing.
+//! adapter lives in `mutation_log_mem`. There is no flag. This crate still
+//! stores nothing. The daemon does not call the log yet.
 //!
 //! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
 //! log is not the local record model (`lastdb_model`) and not the current
@@ -44,7 +44,7 @@ pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
     StoredEntry, SubmissionRecord, SubmissionStatus, Writer,
 };
-pub use namespace::{NamespaceKind, NamespacePolicy};
+pub use namespace::{classify_shareable, NamespaceKind, NamespacePolicy, SHAREABLE_NAMESPACES};
 pub use port::MutationLog;
 pub use read::{
     entry_visible, filter_readable, merge_order, ListPage, Recovery, Reset, ScopedHead,

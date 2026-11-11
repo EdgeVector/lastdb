@@ -135,3 +135,68 @@ fn share_snapshot_omits_submissions_and_app_private_entries() {
     assert_eq!(basis[0].entry.namespace.as_str(), "photos");
     assert_eq!(basis[0].entry.writer.key, published.key);
 }
+
+fn store(
+    state: &LogState,
+    writer: &Writer,
+    namespace_name: &str,
+    policy: &impl NamespacePolicy,
+) -> Result<LogState, LogError> {
+    let begun = step(
+        state,
+        Command::BeginAppend {
+            writer: writer.clone(),
+        },
+        policy,
+    )?;
+    let appended = step(
+        &begun.state,
+        Command::Append(AppendBatch {
+            writer: writer.clone(),
+            entries: vec![entry(&state.database_id, writer, namespace_name, 1, 1)],
+            accepted_at_ms: 1,
+        }),
+        policy,
+    )?;
+    Ok(step(
+        &appended.state,
+        Command::FinishAppend {
+            writer: writer.clone(),
+        },
+        policy,
+    )?
+    .state)
+}
+
+#[test]
+fn shareable_database_accepts_each_listed_namespace() {
+    assert!(SHAREABLE_NAMESPACES.contains(&"social"));
+    for name in SHAREABLE_NAMESPACES {
+        let (state, _publisher, writer) = shareable();
+        let stored = store(&state, &writer, name, &classify_shareable).expect("listed namespace");
+        assert_eq!(stored.entries.len(), 1);
+        assert_eq!(stored.entries[0].entry.namespace.as_str(), *name);
+    }
+}
+
+#[test]
+fn shareable_database_rejects_hearth_photometa() {
+    let (state, _publisher, writer) = shareable();
+    let refused = store(&state, &writer, "hearth", &classify_shareable);
+    assert_eq!(refused, Err(LogError::AppPrivateNamespace));
+    assert!(state.entries.is_empty());
+}
+
+#[test]
+fn personal_database_accepts_an_unlisted_namespace() {
+    let owner = principal("owner");
+    let phone = writer_of(&owner, "phone");
+    let state = grant_owner(
+        &LogState::open(database("personal"), DatabaseKind::Personal),
+        &owner,
+        &owner,
+    );
+    let stored = store(&state, &phone, "hearth", &classify_shareable).expect("personal namespace");
+    assert_eq!(stored.entries.len(), 1);
+    assert_eq!(stored.entries[0].entry.namespace.as_str(), "hearth");
+}
