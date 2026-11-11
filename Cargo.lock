@@ -762,6 +762,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "database_cutover"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,6 +1856,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloud_backup_protocol",
+ "database_cutover",
  "dirs",
  "fold_db",
  "futures",

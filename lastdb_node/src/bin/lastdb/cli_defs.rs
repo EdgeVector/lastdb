@@ -6,6 +6,8 @@ use super::*;
 mod admin;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
+#[path = "cli_defs/cutover.rs"]
+mod cutover;
 #[path = "cli_defs/app/lifecycle.rs"]
 mod lifecycle;
 #[path = "cli_defs/share.rs"]
@@ -13,6 +15,7 @@ mod share;
 
 pub(super) use admin::*;
 pub(super) use cloud::*;
+pub(super) use cutover::*;
 pub(crate) use lifecycle::AppLifecycleCommand;
 pub(super) use share::*;
 
@@ -126,6 +129,9 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AppCommand,
     },
+    /// Validate DEV evidence and prepare one inactive per-database cutover request.
+    #[command(subcommand)]
+    Cutover(CutoverCommand),
 }
 
 #[derive(Subcommand, Debug)]

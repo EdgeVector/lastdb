@@ -28,6 +28,8 @@ use status_ops_cmds::*;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
 use mutate_cmds::*;
+#[path = "lastdb/cutover_cmds.rs"]
+mod cutover_cmds;
 
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -333,5 +335,11 @@ fn run(cli: Cli) -> Result<(), String> {
             json,
         ),
         Command::App { action } => app_command(cli.data_dir, action),
+        Command::Cutover(action) => {
+            if cli.data_dir.is_some() {
+                return Err("cutover does not open a data directory".into());
+            }
+            cutover_cmds::run(action)
+        }
     }
 }
