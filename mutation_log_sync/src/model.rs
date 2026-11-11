@@ -1,0 +1,150 @@
+use crate::error::SyncError;
+use mutation_log::{
+    DatabaseId, DatabaseKind, LogError, Namespace, PrincipalId, StoredEntry, StreamId,
+};
+
+/// What one participant does next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyncEvent {
+    /// Append one local mutation on this participant's stream.
+    Append {
+        /// Namespace of the schema, without the schema name.
+        namespace: Namespace,
+        /// Opaque record bytes. Synthetic in tests.
+        payload: Vec<u8>,
+        /// When the participant composed the mutation.
+        authored_at_ms: u64,
+        /// When the shell accepted it.
+        accepted_at_ms: u64,
+    },
+    /// Read the next page this participant is allowed to see.
+    Pull {
+        /// Shell clock, used for retention.
+        now_ms: u64,
+    },
+    /// Publisher copies one submission onto the publisher stream.
+    Reappend {
+        /// The submission entry the publisher read.
+        entry: mutation_log::Entry,
+        /// When the shell accepted the copy.
+        accepted_at_ms: u64,
+    },
+}
+
+/// What [`crate::drive`] did to the log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The batch was stored.
+    Appended {
+        /// Delivery sequences assigned to the new entries.
+        delivery_seqs: Vec<u64>,
+        /// Next writer sequence for this participant.
+        next_seq: u64,
+    },
+    /// The batch was already stored.
+    Duplicate,
+    /// Entries this participant may apply locally.
+    Pulled {
+        /// Visible entries, oldest first.
+        entries: Vec<StoredEntry>,
+        /// Cursor for the next pull.
+        cursor: u64,
+    },
+}
+
+/// How this participant uses the database.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyncRole {
+    /// A device of a personal database.
+    Device {
+        /// Device principal.
+        principal: PrincipalId,
+        /// Device stream.
+        stream: StreamId,
+    },
+    /// Author of a shareable database's publisher stream.
+    Publisher {
+        /// Publisher principal.
+        principal: PrincipalId,
+    },
+    /// Reader of a shareable database's publisher stream.
+    Receiver {
+        /// Receiver principal.
+        principal: PrincipalId,
+    },
+    /// Writer of one submission stream.
+    Contributor {
+        /// Contributor principal.
+        principal: PrincipalId,
+        /// Submission stream.
+        stream: StreamId,
+    },
+}
+
+/// One participant's cursor and writer sequence for one database.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncState {
+    pub(crate) database_id: DatabaseId,
+    pub(crate) kind: DatabaseKind,
+    pub(crate) role: SyncRole,
+    pub(crate) cursor: u64,
+    pub(crate) next_seq: u64,
+}
+
+impl SyncState {
+    /// Start a participant at writer sequence 1 and cursor 0.
+    ///
+    /// A personal database accepts a device only. A shareable database accepts
+    /// a publisher, a receiver, or a contributor, and rejects a device grant.
+    pub fn open(
+        database_id: DatabaseId,
+        kind: DatabaseKind,
+        role: SyncRole,
+    ) -> Result<Self, SyncError> {
+        check_role(&kind, &role)?;
+        Ok(Self {
+            database_id,
+            kind,
+            role,
+            cursor: 0,
+            next_seq: 1,
+        })
+    }
+
+    pub(crate) fn reader(&self) -> &PrincipalId {
+        match &self.role {
+            SyncRole::Device { principal, .. }
+            | SyncRole::Publisher { principal }
+            | SyncRole::Receiver { principal }
+            | SyncRole::Contributor { principal, .. } => principal,
+        }
+    }
+}
+
+fn check_role(kind: &DatabaseKind, role: &SyncRole) -> Result<(), SyncError> {
+    match kind {
+        DatabaseKind::Personal => personal_role(role),
+        DatabaseKind::Shareable { publisher, .. } => shareable_role(publisher, role),
+    }
+}
+
+fn personal_role(role: &SyncRole) -> Result<(), SyncError> {
+    match role {
+        SyncRole::Device { .. } => Ok(()),
+        SyncRole::Publisher { .. } | SyncRole::Receiver { .. } | SyncRole::Contributor { .. } => {
+            Err(LogError::PersonalNotShareable.into())
+        }
+    }
+}
+
+fn shareable_role(publisher: &PrincipalId, role: &SyncRole) -> Result<(), SyncError> {
+    match role {
+        SyncRole::Device { .. } => Err(LogError::DeviceGrantNotShareable.into()),
+        SyncRole::Publisher { principal } if principal != publisher => {
+            Err(LogError::Unauthorized.into())
+        }
+        SyncRole::Publisher { .. } | SyncRole::Receiver { .. } | SyncRole::Contributor { .. } => {
+            Ok(())
+        }
+    }
+}

@@ -157,6 +157,7 @@ Pure core, no I/O, crate `mutation_log`:
 - `mutation_log/src/append.rs` — dedupe, gap, app-private rejection
 - `mutation_log/src/auth.rs` — `can_read`, grant, revoke
 - `mutation_log/src/read.rs` — `filter_readable`, list, merge order
+- `mutation_log/src/cursor.rs` — receiver cursor in the publisher stream sequence
 - `mutation_log/src/retain.rs` — ack, snapshot, trim floor
 - `mutation_log/src/namespace.rs` — `NamespacePolicy`
 - `mutation_log/src/tests/` — the invariant, including app-private namespaces
@@ -176,12 +177,24 @@ and does not read the process environment itself.
 - `mutation_log_mem/src/memory.rs` — in-memory adapter over `step`
 - `mutation_log_mem/src/tests.rs` — the same sharing rules, through the port
 
+Shared-sync step, crate `mutation_log_sync`. Personal devices and share
+participants call the same `drive`. There is no format parameter and no
+contributor cap. `select_path` returns the existing `lastdb_node` shared-sync
+worker when `MutationLogConfig` is off, and it does not build a log. The
+worker does not call this crate, and the product still does not read
+`LASTDB_MUTATION_LOG`.
+
+- `mutation_log_sync/src/lib.rs` — `select_path`
+- `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
+- `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`
+- `mutation_log_sync/src/tests/` — personal round trip, share round trip, flag off
+
 ## Later changes
 
 These are not the current code.
 
-- `shared_sync` steps one log per database through `MutationLog`. That is
-  the product call site. It stays off unless `MutationLogConfig` is enabled.
+- The `lastdb_node` shared-sync worker adopts `select_path` when a shell
+  passes an enabled `MutationLogConfig`. Today the worker stays the existing path.
 - Exemem's read path enforces `can_read` for stored bytes.
 - The official-namespace module supplies `NamespacePolicy`.
 - One node registers an owned shareable database beside `personal`. The SDK
