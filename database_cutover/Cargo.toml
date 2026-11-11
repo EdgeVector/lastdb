@@ -3,7 +3,7 @@ name = "database_cutover"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "DEV-only inactive per-database cutover request. No signed-only activation, no I/O, no clock, no deletion."
+description = "Read-only evidence check for one existing database. Same checks in dev and prod. No I/O, no clock, no activation."
 
 [dependencies]
 serde = { workspace = true }

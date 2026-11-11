@@ -1,11 +1,10 @@
-//! Read evidence and write one inactive cutover request. This file does not open the daemon socket.
+//! Read cutover evidence. This file does not open the daemon socket and does not write.
 
 use std::path::{Path, PathBuf};
 
 use database_cutover::{
-    parse_bundle, parse_proof, parse_request, EvidenceBytes, Request, DAEMON_READY_FILE,
-    DELIVERY_READY_FILE, FINAL_WRITES_FILE, GRANTS_FILE, LEGACY_POSITION_FILE, MAX_EVIDENCE_BYTES,
-    SNAPSHOT_FILE,
+    parse_bundle, EvidenceBytes, DAEMON_READY_FILE, DELIVERY_READY_FILE, FINAL_WRITES_FILE,
+    GRANTS_FILE, LEGACY_POSITION_FILE, MAX_EVIDENCE_BYTES, SNAPSHOT_FILE,
 };
 
 pub(crate) fn load_bundle(dir: &Path) -> Result<database_cutover::Bundle, String> {
@@ -25,33 +24,6 @@ pub(crate) fn load_bundle(dir: &Path) -> Result<database_cutover::Bundle, String
         delivery_ready: &delivery_ready,
     };
     parse_bundle(&files).map_err(|refusal| refusal.to_string())
-}
-
-pub(crate) fn load_request(path: &Path) -> Result<Option<Request>, String> {
-    if !path.exists() {
-        let _located = locate(path)?;
-        return Ok(None);
-    }
-    let bytes = read_bounded(path)?;
-    parse_request(&bytes)
-        .map(Some)
-        .map_err(|refusal| refusal.to_string())
-}
-
-pub(crate) fn load_proof(path: &Path) -> Result<database_cutover::SecondDeviceProof, String> {
-    let bytes = read_bounded(path)?;
-    parse_proof(&bytes).map_err(|refusal| refusal.to_string())
-}
-
-pub(crate) fn write_request(path: &Path, request: &Request) -> Result<(), String> {
-    let located = locate(path)?;
-    let mut bytes = serde_json::to_vec_pretty(request)
-        .map_err(|_| "cannot encode the cutover request".to_owned())?;
-    bytes.push(b'\n');
-    let partial = partial_path(&located);
-    refuse_primary(&partial)?;
-    std::fs::write(&partial, &bytes).map_err(|_| format!("cannot write {}", partial.display()))?;
-    std::fs::rename(&partial, &located).map_err(|_| format!("cannot replace {}", path.display()))
 }
 
 fn require_dir(path: &Path) -> Result<PathBuf, String> {
@@ -101,12 +73,6 @@ fn locate(path: &Path) -> Result<PathBuf, String> {
     };
     refuse_primary(&located)?;
     Ok(located)
-}
-
-fn partial_path(path: &Path) -> PathBuf {
-    let mut partial = path.as_os_str().to_owned();
-    partial.push(".partial");
-    PathBuf::from(partial)
 }
 
 fn refuse_primary(path: &Path) -> Result<(), String> {

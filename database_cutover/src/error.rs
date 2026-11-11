@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// One reason a cutover decision was refused. The previous record stays as it was.
+/// One reason an evidence check was refused. Nothing was written.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
     /// The evidence file is larger than [`crate::MAX_EVIDENCE_BYTES`] or is not the schema.
@@ -8,8 +8,10 @@ pub enum Reason {
         /// Evidence file name.
         file: &'static str,
     },
-    /// `environment` is not `dev`.
-    NotDev {
+    /// The named environment is not `dev` or `prod`.
+    InvalidEnvironment,
+    /// This file's environment is not the realm the operator named.
+    Environment {
         /// Evidence file name.
         file: &'static str,
     },
@@ -47,16 +49,6 @@ pub enum Reason {
     Daemon,
     /// Lane I has not promised to close legacy bearer reads after a future service commit.
     Delivery,
-    /// An inactive request already exists and this evidence is not that request.
-    RequestDiffers,
-    /// The stored request disagrees with its own evidence digest.
-    RecordInconsistent,
-    /// The proof names the same device that is migrating.
-    SameDevice,
-    /// The second device did not ack the final legacy position, or keyed reads differ.
-    SecondDevice,
-    /// The stored file is not an inactive DEV request, or it activates or allows retirement.
-    RecordRejected,
 }
 
 impl Reason {
@@ -65,7 +57,8 @@ impl Reason {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Unreadable { .. } => "unreadable",
-            Self::NotDev { .. } => "not_dev",
+            Self::InvalidEnvironment => "invalid_environment",
+            Self::Environment { .. } => "environment",
             Self::Schema { .. } => "schema",
             Self::Kind { .. } => "kind",
             Self::Database { .. } => "database",
@@ -77,11 +70,6 @@ impl Reason {
             Self::Grants => "grants",
             Self::Daemon => "daemon",
             Self::Delivery => "delivery",
-            Self::RequestDiffers => "request_differs",
-            Self::RecordInconsistent => "record_inconsistent",
-            Self::SameDevice => "same_device",
-            Self::SecondDevice => "second_device",
-            Self::RecordRejected => "record_rejected",
         }
     }
 
@@ -90,7 +78,10 @@ impl Reason {
             Self::Unreadable { file } => {
                 format!("{file} is missing, too large, or not this schema")
             }
-            Self::NotDev { file } => format!("{file} environment is not dev"),
+            Self::InvalidEnvironment => "the named environment is not dev or prod".to_owned(),
+            Self::Environment { file } => {
+                format!("{file} environment is not the named realm")
+            }
             Self::Schema { file } => format!("{file} schema is not {}", crate::SCHEMA),
             Self::Kind { file } => format!("{file} kind is not the required value"),
             Self::Database { file } => {
@@ -116,19 +107,6 @@ impl Reason {
                 "delivery has not promised to close legacy bearer reads after a service commit"
                     .to_owned()
             }
-            Self::RequestDiffers => {
-                "a request already exists for this database and the evidence differs".to_owned()
-            }
-            Self::RecordInconsistent => {
-                "the stored request does not match its evidence digest".to_owned()
-            }
-            Self::SameDevice => "the second device is the migrating device".to_owned(),
-            Self::SecondDevice => {
-                "second-device ack or keyed reads do not match the final position".to_owned()
-            }
-            Self::RecordRejected => {
-                "the file is not an inactive DEV request, or it would change access".to_owned()
-            }
         }
     }
 }
@@ -139,7 +117,7 @@ impl fmt::Display for Reason {
     }
 }
 
-/// Every problem found in one decision. Empty is not a refusal.
+/// Every problem found in one check. Empty is not a refusal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
     reasons: Vec<Reason>,

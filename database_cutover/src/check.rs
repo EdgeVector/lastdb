@@ -28,45 +28,65 @@ struct Scope<'a> {
     database_kind: &'a str,
 }
 
-pub(crate) fn problems(expected_database_id: &str, bundle: &Bundle) -> Vec<Reason> {
+pub(crate) fn problems(
+    expected_database_id: &str,
+    expected_environment: &str,
+    bundle: &Bundle,
+) -> Vec<Reason> {
     let mut reasons = Vec::new();
     if !label_ok(expected_database_id) {
         push(&mut reasons, Reason::InvalidDatabaseId);
+    }
+    let realm_named = realm_ok(expected_environment);
+    if !realm_named {
+        push(&mut reasons, Reason::InvalidEnvironment);
     }
     let reference_kind = bundle.snapshot.database_kind.as_str();
     check_scope(
         &scope(SNAPSHOT_FILE, &bundle.snapshot, SNAPSHOT_KIND),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
     check_scope(
         &legacy_scope(&bundle.legacy),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
     check_scope(
         &writes_scope(bundle),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
     check_scope(
         &grants_scope(&bundle.grants),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
     check_scope(
         &daemon_scope(&bundle.daemon),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
     check_scope(
         &delivery_scope(&bundle.delivery),
         expected_database_id,
+        expected_environment,
+        realm_named,
         reference_kind,
         &mut reasons,
     );
@@ -166,11 +186,13 @@ fn delivery_scope(delivery: &DeliveryReady) -> Scope<'_> {
 fn check_scope(
     scope: &Scope<'_>,
     expected_db: &str,
+    expected_environment: &str,
+    realm_named: bool,
     reference_kind: &str,
     reasons: &mut Vec<Reason>,
 ) {
-    if scope.environment != "dev" {
-        push(reasons, Reason::NotDev { file: scope.file });
+    if realm_named && scope.environment != expected_environment {
+        push(reasons, Reason::Environment { file: scope.file });
     }
     if scope.schema != SCHEMA {
         push(reasons, Reason::Schema { file: scope.file });
@@ -306,6 +328,10 @@ fn delivery_ok(delivery: &DeliveryReady, revision: u64) -> bool {
         && revision >= 1
         && delivery.grant_revision == revision
         && label_ok(&delivery.service_revision)
+}
+
+fn realm_ok(value: &str) -> bool {
+    value == "dev" || value == "prod"
 }
 
 pub(crate) fn label_ok(value: &str) -> bool {

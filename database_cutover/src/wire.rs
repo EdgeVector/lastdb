@@ -1,10 +1,13 @@
-//! Evidence files Lane E and Lane I write. This crate checks them and does not fetch them.
+//! Evidence files for one existing database. This crate checks them and does not fetch them.
+//!
+//! A fresh named database does not produce these files. The same field checks
+//! apply when `environment` is `dev` and when it is `prod`.
 
 use serde::{Deserialize, Serialize};
 
 /// Schema stamp on every cutover file.
 pub const SCHEMA: &str = "lastdb.database_cutover/v1";
-/// Largest evidence or record file this decision will parse.
+/// Largest evidence file this check will parse.
 pub const MAX_EVIDENCE_BYTES: usize = 65_536;
 /// Personal database. One active owner grant. No receiver grant.
 pub const KIND_PERSONAL: &str = "personal";
@@ -59,7 +62,7 @@ pub struct SnapshotReceipt {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database this snapshot covers.
     pub database_id: String,
@@ -87,7 +90,7 @@ pub struct LegacyPosition {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database this position belongs to.
     pub database_id: String,
@@ -109,7 +112,7 @@ pub struct FinalWrites {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database that was fenced.
     pub database_id: String,
@@ -119,7 +122,7 @@ pub struct FinalWrites {
     pub fence_position: String,
     /// Canonical decimal observed after the drain. It must equal the fence.
     pub position_after_drain: String,
-    /// Appends accepted after the fence. A request requires zero.
+    /// Appends accepted after the fence. This check requires zero.
     pub legacy_appends_after_fence: u64,
     /// The fresh snapshot includes `fence_position`.
     pub snapshot_covers_fence: bool,
@@ -133,7 +136,7 @@ pub struct NodeKeyGrants {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database these grants cover.
     pub database_id: String,
@@ -156,15 +159,15 @@ pub struct DaemonReady {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database the adapter will switch only after Exemem commits.
     pub database_id: String,
     /// [`KIND_PERSONAL`] or [`KIND_SHAREABLE`].
     pub database_kind: String,
-    /// Adapter revision the operator can compare with the deployed DEV binary.
+    /// Adapter revision the operator can compare with the deployed binary for this realm.
     pub adapter_revision: String,
-    /// Device that is migrating. The second-device proof must name a different device.
+    /// Device that is migrating. Retirement of old rows is not this check.
     pub migrating_device_id: String,
     /// The adapter will honor a future service commit. This is not that commit.
     pub accepts_cutover_record: bool,
@@ -183,13 +186,13 @@ pub struct DeliveryReady {
     pub kind: String,
     /// [`SCHEMA`].
     pub schema: String,
-    /// `dev`.
+    /// `dev` or `prod`. Every file uses the realm the operator named.
     pub environment: String,
     /// Database whose legacy reads I will close after Exemem commits.
     pub database_id: String,
     /// [`KIND_PERSONAL`] or [`KIND_SHAREABLE`].
     pub database_kind: String,
-    /// Service revision the operator can compare with the deployed DEV service.
+    /// Service revision the operator can compare with the deployed service for this realm.
     pub service_revision: String,
     /// Same integer as [`NodeKeyGrants::revision`].
     pub grant_revision: u64,
@@ -216,30 +219,6 @@ pub struct Bundle {
     pub daemon: DaemonReady,
     /// Lane I readiness.
     pub delivery: DeliveryReady,
-}
-
-/// Second-device proof. It does not authorize deletion.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecondDeviceProof {
-    /// `second_device_proof`.
-    pub kind: String,
-    /// [`SCHEMA`].
-    pub schema: String,
-    /// `dev`.
-    pub environment: String,
-    /// Database the device read.
-    pub database_id: String,
-    /// Device that acked. Not the migrating device.
-    pub device_id: String,
-    /// Canonical decimal the device acked.
-    pub acked_through_legacy_position: String,
-    /// Keyed reads on this device matched the migrated database.
-    pub keyed_reads_match: bool,
-    /// How many keys were compared. Zero only for an empty database.
-    pub compared_keys: u64,
-    /// The database has no records. Allowed only at legacy position zero.
-    pub empty_database: bool,
 }
 
 pub(crate) fn within_member_cap(len: usize) -> bool {

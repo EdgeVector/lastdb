@@ -129,7 +129,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AppCommand,
     },
-    /// Validate DEV evidence and prepare one inactive per-database cutover request.
+    /// Check evidence for one existing database. Exemem commits signed-only.
     #[command(subcommand)]
     Cutover(CutoverCommand),
 }

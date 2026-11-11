@@ -3,10 +3,9 @@
 use serde::de::DeserializeOwned;
 
 use crate::error::{Reason, Refusal};
-use crate::record::{Request, REQUEST_FILE};
 use crate::wire::{
-    Bundle, SecondDeviceProof, DAEMON_READY_FILE, DELIVERY_READY_FILE, FINAL_WRITES_FILE,
-    GRANTS_FILE, LEGACY_POSITION_FILE, MAX_EVIDENCE_BYTES, SNAPSHOT_FILE,
+    Bundle, DAEMON_READY_FILE, DELIVERY_READY_FILE, FINAL_WRITES_FILE, GRANTS_FILE,
+    LEGACY_POSITION_FILE, MAX_EVIDENCE_BYTES, SNAPSHOT_FILE,
 };
 
 /// The six evidence files, as bytes the shell already read.
@@ -59,34 +58,6 @@ pub fn parse_bundle(files: &EvidenceBytes<'_>) -> Result<Bundle, Refusal> {
             file: SNAPSHOT_FILE,
         }))
     }
-}
-
-/// Parse a second-device proof. The body is not included in the error.
-pub fn parse_proof(bytes: &[u8]) -> Result<SecondDeviceProof, Refusal> {
-    let mut reasons = Vec::new();
-    let proof = parse_one("second-device.json", bytes, &mut reasons);
-    if let Some(refusal) = Refusal::new(reasons) {
-        return Err(refusal);
-    }
-    proof.ok_or_else(|| {
-        Refusal::one(Reason::Unreadable {
-            file: "second-device.json",
-        })
-    })
-}
-
-/// Parse an inactive request. A signed-only file, a receipt object, or a retirement grant fails.
-pub fn parse_request(bytes: &[u8]) -> Result<Request, Refusal> {
-    let mut reasons = Vec::new();
-    let request = parse_one::<Request>(REQUEST_FILE, bytes, &mut reasons);
-    if let Some(refusal) = Refusal::new(reasons) {
-        return Err(refusal);
-    }
-    let Some(request) = request else {
-        return Err(Refusal::one(Reason::Unreadable { file: REQUEST_FILE }));
-    };
-    request.consistent().map_err(Refusal::one)?;
-    Ok(request)
 }
 
 fn parse_one<T: DeserializeOwned>(
