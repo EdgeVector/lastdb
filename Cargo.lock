@@ -3187,6 +3187,14 @@ name = "mutation_log"
 version = "0.1.0"
 
 [[package]]
+name = "mutation_log_mem"
+version = "0.1.0"
+dependencies = [
+ "env_flag",
+ "mutation_log",
+]
+
+[[package]]
 name = "mutually_exclusive_features"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

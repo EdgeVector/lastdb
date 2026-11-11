@@ -111,6 +111,10 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "2"
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log)" -- cargo clippy --locked -p mutation_log --lib --tests -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+      - name: cargo clippy (mutation_log_mem in-memory port)
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log_mem)" -- cargo clippy --locked -p mutation_log_mem --lib --tests -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
       - name: Schema core statics gate
         run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
       - name: Assert fastembed is NOT compiled in the Mini gate lane

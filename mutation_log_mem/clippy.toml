@@ -1,0 +1,31 @@
+# Crate-local Clippy config. Clippy loads this file and stops, so these bans
+# do not apply to the rest of the workspace.
+#
+# Paths that are not in this crate's dependency graph set allow-invalid so the
+# config still loads. A later edit that adds the crate and calls the path is denied.
+
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "pass accepted_at_ms and now_ms into the step" },
+  { path = "std::time::Instant::now", reason = "pass accepted_at_ms and now_ms into the step" },
+  { path = "chrono::Utc::now", reason = "pass accepted_at_ms and now_ms into the step", allow-invalid = true },
+  { path = "chrono::Local::now", reason = "pass accepted_at_ms and now_ms into the step", allow-invalid = true },
+  { path = "std::env::var", reason = "the caller passes the flag string" },
+  { path = "std::env::var_os", reason = "the caller passes the flag string" },
+  { path = "std::env::vars", reason = "the caller passes the flag string" },
+  { path = "std::fs::read", reason = "this adapter holds the log in memory" },
+  { path = "std::fs::write", reason = "this adapter holds the log in memory" },
+  { path = "std::fs::File::open", reason = "this adapter holds the log in memory" },
+  { path = "std::fs::File::create", reason = "this adapter holds the log in memory" },
+  { path = "std::thread::spawn", reason = "the product shell owns threads" },
+  { path = "std::net::TcpStream::connect", reason = "the product shell owns the network" },
+  { path = "uuid::Uuid::new_v4", reason = "the shell supplies ids", allow-invalid = true },
+  { path = "rand::thread_rng", reason = "randomness stays in the shell", allow-invalid = true },
+]
+
+disallowed-types = [
+  { path = "std::sync::OnceLock", reason = "no process-global state" },
+  { path = "std::sync::LazyLock", reason = "no process-global state" },
+  { path = "std::fs::File", reason = "this adapter holds the log in memory" },
+  { path = "std::net::TcpStream", reason = "the product shell owns the network" },
+  { path = "reqwest::Client", reason = "the product shell owns the network", allow-invalid = true },
+]
