@@ -1,10 +1,8 @@
 //! Optional native mutation log. Durable commit bytes remain native encrypted files.
 mod capture;
 mod model;
-mod previous;
-mod recording;
 mod retention;
-mod store;
+use retention as store;
 
 use crate::storage::disk_pack::physical::V2Home;
 use crate::storage::disk_pack::PackRuntime;
@@ -13,10 +11,12 @@ pub use capture::{
     log_path, FrozenLogCapture, FrozenLogFile, MutationLogCapture, MutationLogReader,
 };
 use cloud_backup_protocol::Id;
+pub(in crate::storage) use model::Recording;
 pub use model::{CommitRole, Frontiers, LogAnchor, LogEntry, LogPart, LogPosition};
 use model::{EpochState, Index, LOG_VERSION};
-pub(in crate::storage) use recording::Recording;
-use std::path::PathBuf;
+use serde::Deserialize;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 fn invalid(reason: &str) -> StorageError {
@@ -40,9 +40,17 @@ struct Cache {
     loaded: bool,
     index: Option<Index>,
 }
+
+#[derive(Deserialize)]
+struct PreviousIndex {
+    version: u16,
+    epochs: Vec<Id>,
+    cleanup: Vec<Id>,
+}
+
 /// The version 2 log lives in its own directory inside the run home's log
-/// directory. A version 1 log (with CAS parts) is never read; the retirement
-/// of the previous automatic backup policy removes it (`previous.rs`).
+/// directory. A version 1 log (with CAS parts) is never read; retiring the
+/// previous automatic backup policy removes it.
 const LOG_ROOT: &str = "main-v2";
 
 pub(in crate::storage) struct MutationLog {
@@ -50,6 +58,7 @@ pub(in crate::storage) struct MutationLog {
     main_home: Id,
     cache: Mutex<Cache>,
 }
+
 impl MutationLog {
     pub fn new(v2: &V2Home) -> Self {
         Self {
@@ -270,6 +279,51 @@ impl MutationLog {
             gap,
         })
     }
+
+    fn retire_version_one(&self) -> StorageResult<bool> {
+        let directory = self
+            .root
+            .parent()
+            .ok_or_else(|| invalid("mutation log directory parent"))?;
+        if !directory.try_exists()? {
+            return Ok(false);
+        }
+        store::directory(directory)?;
+        let index: Option<PreviousIndex> = store::read(&directory.join("index.json"))?;
+        let mut removed = remove_tree(&directory.join("captures"))?;
+        if let Some(index) = &index {
+            if index.version != 1 {
+                return Err(invalid("previous mutation log version"));
+            }
+            for epoch in index.epochs.iter().chain(&index.cleanup) {
+                if uuid::Uuid::parse_str(epoch.as_str()).is_err() || epoch.as_str() == LOG_ROOT {
+                    return Err(invalid("previous mutation log epoch name"));
+                }
+                removed |= remove_tree(&store::epoch(directory, epoch))?;
+            }
+        }
+        for name in ["index.pending", "index.json"] {
+            let path = directory.join(name);
+            if fs::symlink_metadata(&path).is_ok() {
+                store::remove_metadata(&path)?;
+                removed = true;
+            }
+        }
+        if removed {
+            File::open(directory)?.sync_all()?;
+        }
+        Ok(removed)
+    }
+}
+
+fn remove_tree(path: &Path) -> StorageResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => store::directory(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    }
+    fs::remove_dir_all(path)?;
+    Ok(true)
 }
 
 fn frontiers(v2: &V2Home) -> Frontiers {
@@ -287,7 +341,15 @@ impl PackRuntime {
     pub fn configure_mutation_log(&self, enabled: bool) -> StorageResult<()> {
         self.mutation_log.configure(enabled)
     }
+
     pub fn mutation_log_status(&self) -> StorageResult<MutationLogStatus> {
         self.mutation_log.status(&self.physical)
+    }
+
+    /// Remove the version 1 mutation log of the previous program from a personal home.
+    pub fn retire_previous_mutation_log(&self) -> StorageResult<bool> {
+        self.require_ordinary_backup_home()?;
+        let _admission = super::NativeCloudWorkGuard::acquire()?;
+        self.mutation_log.retire_version_one()
     }
 }

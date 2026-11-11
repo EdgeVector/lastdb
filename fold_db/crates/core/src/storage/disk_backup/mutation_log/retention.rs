@@ -1,20 +1,180 @@
-//! Release known native log files only after the exact accepted recovery point.
+//! Exact private metadata store and release after an accepted recovery point.
 use super::*;
+use serde::{de::DeserializeOwned, Serialize};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+
+pub(super) const MAX_JSON: u64 = cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
+pub(super) const MAX_EPOCHS: usize = 32;
+pub(super) const MAX_ENTRIES: u64 = 131_072;
+
+pub(super) fn epoch(root: &Path, id: &Id) -> PathBuf {
+    root.join(id.as_str())
+}
+
+pub(super) fn entry(root: &Path, id: &Id, sequence: u64) -> StorageResult<PathBuf> {
+    if sequence == 0 || sequence > MAX_ENTRIES {
+        return Err(invalid("mutation log sequence resource bound"));
+    }
+    Ok(epoch(root, id).join(format!("{sequence:020}")))
+}
+
+pub(super) fn directory(path: &Path) -> StorageResult<()> {
+    let info = fs::symlink_metadata(path)?;
+    if !info.is_dir()
+        || info.uid() != unsafe { libc::geteuid() }
+        || info.mode() & 0o077 != 0
+        || path.canonicalize()? != path
+    {
+        return Err(invalid("mutation log private directory"));
+    }
+    Ok(())
+}
+
+pub(super) fn create(path: &Path) -> StorageResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid("mutation log directory parent"))?;
+    directory(parent)?;
+    fs::DirBuilder::new().mode(0o700).create(path)?;
+    directory(path)?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+pub(super) fn read<T: DeserializeOwned>(path: &Path) -> StorageResult<Option<T>> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => private(&info)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    directory(
+        path.parent()
+            .ok_or_else(|| invalid("mutation log metadata parent"))?,
+    )?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let before = file.metadata()?;
+    private(&before)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_JSON + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 != before.len() {
+        return Err(invalid("mutation log metadata length"));
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|_| invalid("mutation log metadata format"))
+}
+
+pub(super) fn write<T: Serialize>(path: &Path, value: &T) -> StorageResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid("mutation log metadata parent"))?;
+    directory(parent)?;
+    let bytes = cloud_backup_protocol::v2::hash::canonical_bytes(value)
+        .map_err(|_| invalid("mutation log metadata encoding"))?;
+    if bytes.len() as u64 > MAX_JSON {
+        return Err(invalid("mutation log metadata resource bound"));
+    }
+    for candidate in [path.to_owned(), path.with_extension("pending")] {
+        match fs::symlink_metadata(candidate) {
+            Ok(info) => private(&info)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let pending = path.with_extension("pending");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&pending)?;
+    private(&file.metadata()?)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    fs::rename(pending, path)?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn private(info: &fs::Metadata) -> StorageResult<()> {
+    if !info.is_file()
+        || info.uid() != unsafe { libc::geteuid() }
+        || info.mode() & 0o077 != 0
+        || info.nlink() != 1
+        || info.len() > MAX_JSON
+    {
+        return Err(invalid("mutation log private metadata"));
+    }
+    Ok(())
+}
+
+pub(super) fn remove_metadata(path: &Path) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => private(&info)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    directory(
+        path.parent()
+            .ok_or_else(|| invalid("mutation log cleanup parent"))?,
+    )?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+pub(super) fn remove_part(path: &Path, bytes: u64) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => {
+            if !info.is_file()
+                || info.uid() != unsafe { libc::geteuid() }
+                || info.mode() & 0o077 != 0
+                || info.len() != bytes
+            {
+                return Err(invalid("mutation log cleanup file identity"));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    directory(
+        path.parent()
+            .ok_or_else(|| invalid("mutation log cleanup parent"))?,
+    )?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+pub(super) fn remove_empty(path: &Path) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => directory(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    fs::remove_dir(path)?;
+    Ok(())
+}
 
 fn read_entry(log: &MutationLog, epoch: &Id, sequence: u64) -> StorageResult<LogEntry> {
-    store::read(&store::entry(&log.root, epoch, sequence)?.join("entry.json"))?
+    read(&entry(&log.root, epoch, sequence)?.join("entry.json"))?
         .ok_or_else(|| invalid("complete mutation log entry is absent"))
 }
 
-fn parts(directory: &std::path::Path, entry: &LogEntry) -> StorageResult<()> {
+fn parts(directory: &Path, entry: &LogEntry) -> StorageResult<()> {
     for part in &entry.parts {
         let parent = directory.join(part.role.directory());
-        store::remove_part(
+        remove_part(
             &parent.join(format!("{}.ldrun", part.run_id.as_str())),
             part.bytes,
         )?;
         if parent.try_exists()? {
-            std::fs::File::open(&parent)?.sync_all()?;
+            File::open(&parent)?.sync_all()?;
         }
     }
     Ok(())
@@ -41,7 +201,7 @@ impl MutationLog {
                 };
             }
             if position.sequence > state.head.sequence
-                || position.sequence - cursor.sequence > super::store::MAX_ENTRIES
+                || position.sequence - cursor.sequence > MAX_ENTRIES
             {
                 return Err(invalid("mutation log acknowledgement bound"));
             }
@@ -53,19 +213,18 @@ impl MutationLog {
                 return Err(invalid("mutation log exact acknowledgement"));
             }
             state.acknowledged = state.acknowledged.max(position.sequence);
-            store::write(
-                &store::epoch(&self.root, &position.epoch).join("state.json"),
+            write(
+                &epoch(&self.root, &position.epoch).join("state.json"),
                 &state,
             )?;
             (released, cursor)
         };
-        // Native writes use the active journal while old file removals run outside its lock.
         let mut bytes = 0u64;
         for sequence in released.sequence + 1..=end.sequence {
-            let entry = read_entry(self, &end.epoch, sequence)?;
-            parts(&store::entry(&self.root, &end.epoch, sequence)?, &entry)?;
+            let log_entry = read_entry(self, &end.epoch, sequence)?;
+            parts(&entry(&self.root, &end.epoch, sequence)?, &log_entry)?;
             bytes = bytes
-                .checked_add(entry.bytes()?)
+                .checked_add(log_entry.bytes()?)
                 .ok_or_else(|| invalid("mutation log released size overflow"))?;
         }
         let _owner = self.lock()?;
@@ -78,8 +237,8 @@ impl MutationLog {
             .checked_sub(bytes)
             .ok_or_else(|| invalid("mutation log retained release counter"))?;
         state.released = end;
-        store::write(
-            &store::epoch(&self.root, &state.anchor.epoch).join("state.json"),
+        write(
+            &epoch(&self.root, &state.anchor.epoch).join("state.json"),
             &state,
         )
     }
@@ -103,70 +262,69 @@ impl MutationLog {
                 .cloned()
                 .collect::<Vec<_>>()
         };
-        for epoch in previous {
-            self.release_epoch(&epoch, anchor)?;
+        for old in previous {
+            self.release_epoch(&old, anchor)?;
         }
         self.finish_cleanup()
     }
 
-    fn release_epoch(&self, epoch: &Id, covering: &LogAnchor) -> StorageResult<()> {
-        let state = self.state(epoch)?;
+    fn release_epoch(&self, old: &Id, covering: &LogAnchor) -> StorageResult<()> {
+        let state = self.state(old)?;
         if state.head.frontiers.main > covering.frontiers.main {
             return Err(invalid("snapshot does not cover the old mutation log"));
         }
         for sequence in 1..=state.head.sequence {
-            self.remove_entry(epoch, sequence, false)?;
+            self.remove_entry(old, sequence, false)?;
         }
-        if state.head.sequence < store::MAX_ENTRIES {
-            self.remove_entry(epoch, state.head.sequence + 1, true)?;
+        if state.head.sequence < MAX_ENTRIES {
+            self.remove_entry(old, state.head.sequence + 1, true)?;
         }
-        // The durable index must not forget sequence removals that can reappear.
-        std::fs::File::open(store::epoch(&self.root, epoch))?.sync_all()?;
+        File::open(epoch(&self.root, old))?.sync_all()?;
         let mut cache = self.lock()?;
         let index = cache
             .index
             .as_mut()
             .ok_or_else(|| invalid("mutation log cleanup owner"))?;
-        if index.active.as_ref() == Some(epoch) {
+        if index.active.as_ref() == Some(old) {
             return Err(invalid("active mutation log cannot be removed"));
         }
         let mut saved = index.clone();
-        saved.epochs.retain(|id| id != epoch);
-        if !saved.cleanup.contains(epoch) {
-            saved.cleanup.push(epoch.clone());
+        saved.epochs.retain(|id| id != old);
+        if !saved.cleanup.contains(old) {
+            saved.cleanup.push(old.clone());
         }
-        store::write(&self.root.join("index.json"), &saved)?;
+        write(&self.root.join("index.json"), &saved)?;
         *index = saved;
         Ok(())
     }
 
-    fn remove_entry(&self, epoch: &Id, sequence: u64, incomplete: bool) -> StorageResult<()> {
-        let directory = store::entry(&self.root, epoch, sequence)?;
-        if !directory.try_exists()? {
+    fn remove_entry(&self, old: &Id, sequence: u64, incomplete: bool) -> StorageResult<()> {
+        let dir = entry(&self.root, old, sequence)?;
+        if !dir.try_exists()? {
             return Ok(());
         }
-        store::directory(&directory)?;
-        let entry: Option<LogEntry> = store::read(&directory.join(if incomplete {
+        directory(&dir)?;
+        let saved: Option<LogEntry> = read(&dir.join(if incomplete {
             "pending.json"
         } else {
             "entry.json"
         }))?;
-        if let Some(entry) = entry {
-            if entry.epoch != *epoch || entry.sequence != sequence || entry.parts.len() > 1 {
+        if let Some(saved) = saved {
+            if saved.epoch != *old || saved.sequence != sequence || saved.parts.len() > 1 {
                 return Err(invalid("mutation log cleanup entry identity"));
             }
-            parts(&directory, &entry)?;
+            parts(&dir, &saved)?;
         }
-        store::remove_empty(&directory.join(CommitRole::Main.directory()))?;
+        remove_empty(&dir.join(CommitRole::Main.directory()))?;
         for name in [
             "entry.json",
             "entry.pending",
             "pending.json",
             "pending.pending",
         ] {
-            store::remove_metadata(&directory.join(name))?;
+            remove_metadata(&dir.join(name))?;
         }
-        store::remove_empty(&directory)
+        remove_empty(&dir)
     }
 
     fn finish_cleanup(&self) -> StorageResult<()> {
@@ -175,13 +333,13 @@ impl MutationLog {
             .index
             .as_ref()
             .map_or_else(Vec::new, |index| index.cleanup.clone());
-        for epoch in retired {
-            let directory = store::epoch(&self.root, &epoch);
-            if directory.try_exists()? {
+        for old in retired {
+            let dir = epoch(&self.root, &old);
+            if dir.try_exists()? {
                 for name in ["state.json", "state.pending"] {
-                    store::remove_metadata(&directory.join(name))?;
+                    remove_metadata(&dir.join(name))?;
                 }
-                store::remove_empty(&directory)?;
+                remove_empty(&dir)?;
             }
             let mut cache = self.lock()?;
             let index = cache
@@ -189,8 +347,8 @@ impl MutationLog {
                 .as_mut()
                 .ok_or_else(|| invalid("mutation log retired cleanup owner"))?;
             let mut saved = index.clone();
-            saved.cleanup.retain(|id| id != &epoch);
-            store::write(&self.root.join("index.json"), &saved)?;
+            saved.cleanup.retain(|id| id != &old);
+            write(&self.root.join("index.json"), &saved)?;
             *index = saved;
         }
         Ok(())

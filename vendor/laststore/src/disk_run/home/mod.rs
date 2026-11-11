@@ -21,7 +21,6 @@ mod cleanup;
 mod commit;
 mod diagnostic;
 mod diagnostic_inventory;
-mod maintenance;
 mod manifest;
 mod manifest_bounded;
 mod open;
@@ -99,23 +98,13 @@ pub struct RunHomeStatus {
 }
 
 impl RunHomeStatus {
-    fn parts(&self) -> impl Iterator<Item = &(usize, u64, u64)> {
-        self.levels.iter().chain([&self.merging, &self.base])
-    }
-
-    /// Runs that CURRENT names.
-    pub fn runs(&self) -> usize {
-        self.parts().map(|part| part.0).sum()
-    }
-
-    /// Records of every run, tombstones and hidden versions included.
-    pub fn records(&self) -> u64 {
-        self.parts().map(|part| part.1).sum()
-    }
-
     /// File bytes of every run.
     pub fn file_bytes(&self) -> u64 {
-        self.parts().map(|part| part.2).sum()
+        self.levels
+            .iter()
+            .chain([&self.merging, &self.base])
+            .map(|part| part.2)
+            .sum()
     }
 }
 

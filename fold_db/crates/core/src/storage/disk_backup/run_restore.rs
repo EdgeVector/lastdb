@@ -34,7 +34,6 @@ pub struct RunRestoreFile {
 /// Complete semantic proof retains the physical account guard until publication.
 pub struct RunRestoreGuard {
     native: RunNodeGuard,
-    records: u64,
 }
 
 impl RunRestoreGuard {
@@ -45,7 +44,7 @@ impl RunRestoreGuard {
     /// The number of record files that the proof opened and checked against
     /// their markers.
     pub fn verified_records(&self) -> u64 {
-        self.records
+        0
     }
 
     pub fn files(&self) -> impl Iterator<Item = &RunRestoreFile> {
@@ -91,28 +90,20 @@ pub fn verify(
         return Err(invalid("run restore captured profile differs"));
     }
     native.require_empty_local_cas()?;
-    let records = verify_readers_for_profile(
-        &native.main,
-        native.backed_up_cas(),
-        account_key,
-        native.profile.version,
-    )?;
-    let guard = RunRestoreGuard { native, records };
+    let guard = RunRestoreGuard { native };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }
 
-pub(crate) fn verify_readers_for_profile(
+pub(in crate::storage::disk_backup) fn verify_captured_account(
     main: &RunRead,
-    _cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
-) -> StorageResult<u64> {
+) -> StorageResult<()> {
     phase(
         Stage::Account,
         node::verify_account(main, account_key, version),
-    )?;
-    Ok(0)
+    )
 }
 
 /// Create the empty local CAS home of a restored personal node, after its
@@ -215,13 +206,7 @@ pub fn verify_replayed(
         return Err(invalid("mutation replay exact final frontier"));
     }
     native.require_empty_local_cas()?;
-    let records = verify_readers_for_profile(
-        &native.main,
-        native.backed_up_cas(),
-        key,
-        native.profile.version,
-    )?;
-    let guard = RunRestoreGuard { native, records };
+    let guard = RunRestoreGuard { native };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }

@@ -89,7 +89,7 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
-    Ok(crate::storage::disk_pack::run_admission::profile(&bytes))
+    Ok(crate::storage::disk_pack::run_node::profile(&bytes))
 }
 
 pub(super) fn require_root_members(root: &Path, private: bool) -> StorageResult<()> {

@@ -117,21 +117,6 @@ impl Read for Payload {
         if output.is_empty() {
             return Ok(0);
         }
-        self.prepare()?;
-        match self {
-            Self::Raw(reader) => reader.read(output),
-            Self::Compressed(reader) => reader.read(output),
-            Self::CompressedPending(_, _) => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "streamed frame decoder is unavailable",
-            )),
-            Self::Finished => Ok(0),
-        }
-    }
-}
-
-impl Payload {
-    fn prepare(&mut self) -> io::Result<()> {
         if let Self::CompressedPending(input, window_log) = self {
             let input = input.take().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "streamed frame decoder failed")
@@ -140,13 +125,19 @@ impl Payload {
             decoder.window_log_max(*window_log)?;
             *self = Self::Compressed(Box::new(decoder));
         }
-        Ok(())
+        match self {
+            Self::Raw(reader) => reader.read(output),
+            Self::Compressed(reader) => reader.read(output),
+            Self::CompressedPending(_, _) => unreachable!(),
+            Self::Finished => Ok(0),
+        }
     }
+}
 
+impl Payload {
     fn finish(&mut self) -> io::Result<()> {
         let mut payload = std::mem::replace(self, Self::Finished);
-        let mut extra = [0];
-        if payload.read(&mut extra)? != 0 {
+        if payload.read(&mut [0])? != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "streamed frame has excess plaintext",
@@ -154,10 +145,7 @@ impl Payload {
         }
         match payload {
             Self::Raw(mut reader) => reader.verify_consumed(),
-            Self::Compressed(reader) => {
-                let mut inner = (*reader).finish();
-                inner.verify_consumed()
-            }
+            Self::Compressed(reader) => (*reader).finish().verify_consumed(),
             Self::CompressedPending(_, _) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "streamed frame decoder is unavailable",
@@ -184,8 +172,7 @@ impl VerifiedFrameReader {
         encoded_bytes: u64,
         data_key: &[u8; 32],
     ) -> Result<Self> {
-        let maximum_payload = MAX_DECOMPRESSED_FRAME_BYTES;
-        let window = maximum_payload
+        let window = MAX_DECOMPRESSED_FRAME_BYTES
             .max(1024)
             .checked_next_power_of_two()
             .ok_or(Error::ReadBudgetExceeded)?;
@@ -204,26 +191,22 @@ impl VerifiedFrameReader {
                     "streamed decompressed frame exceeds existing limit".into(),
                 ));
             }
-            if expected > maximum_payload as u64 {
-                return Err(Error::ReadBudgetExceeded);
-            }
             (
                 Payload::CompressedPending(Some(Box::new(plain)), window.ilog2()),
                 expected,
                 true,
             )
         };
-        let memory_bytes = buffer_bytes
-            + if compressed {
-                decoder_reserve(window) as u64
-            } else {
-                0
-            };
+        let decoder_bytes = if compressed {
+            (window + 2 * buffer_size()) as u64
+        } else {
+            0
+        };
         Ok(Self {
             source,
             payload,
             payload_len,
-            memory_bytes,
+            memory_bytes: buffer_bytes + decoder_bytes,
             delivered: 0,
             finished: false,
             failed: false,
@@ -293,10 +276,6 @@ impl Read for VerifiedFrameReader {
 
 pub(super) fn buffer_size() -> usize {
     lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize
-}
-
-fn decoder_reserve(window: usize) -> usize {
-    window + 2 * buffer_size()
 }
 
 pub(super) fn as_io(error: Error) -> io::Error {

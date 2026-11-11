@@ -1,5 +1,8 @@
-//! Ordinary and backup-bounded CURRENT loaders.
-use super::manifest::{Manifest, RunFile, RunMeta, MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS};
+//! Ordinary and backup-bounded CURRENT decoding and loaders.
+
+use super::manifest::{
+    Manifest, RunFile, RunMeta, MAGIC, MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS,
+};
 use crate::disk_run::codec::{corrupt, get_len, get_slice, get_varint};
 use crate::disk_run::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::frame::{decode_frame, min_encoded_len, VerifiedFrameReader};
@@ -13,10 +16,17 @@ use std::sync::Arc;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-const MAGIC: &[u8; 8] = b"LDRCUR2\0";
 const ARC_HEADER: usize = 2 * size_of::<usize>();
 
 impl Manifest {
+    pub(in crate::disk_run::home) fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
+        decode_with(bytes, runs, &mut Admission::unbounded())
+    }
+
+    pub(super) fn check_shape(&self) -> Result<()> {
+        check_shape_with(self, &mut Admission::unbounded())
+    }
+
     pub(in crate::disk_run::home) fn load_paths(
         current: &Path,
         runs: &Path,
@@ -45,10 +55,9 @@ impl Manifest {
         home_id: Uuid,
         maximum: u64,
     ) -> Result<Self> {
-        let maximum =
-            maximum.min(lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes);
-        let minimum = 2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
-        if maximum < minimum {
+        let policy = &lastdb_model::storage_policy::BACKUP_RESOURCES;
+        let maximum = maximum.min(policy.working_memory_bytes);
+        if maximum < 2 * policy.stream_buffer_bytes + 16 {
             return Err(Error::ReadBudgetExceeded);
         }
         let file = OpenOptions::new()
@@ -61,10 +70,8 @@ impl Manifest {
         }
         let mut input = VerifiedFrameReader::open(&file, 0, length, key)?;
         let bytes = input.payload_len();
-        if bytes
-            .checked_add(input.memory_bytes())
-            .is_none_or(|n| n > maximum)
-        {
+        let reader_mem = input.memory_bytes();
+        if bytes.checked_add(reader_mem).is_none_or(|n| n > maximum) {
             return Err(Error::ReadBudgetExceeded);
         }
         let count = usize::try_from(bytes).map_err(|_| Error::ReadBudgetExceeded)?;
@@ -73,21 +80,20 @@ impl Manifest {
             .try_reserve_exact(count)
             .map_err(|_| Error::ReadBudgetExceeded)?;
         if (payload.capacity() as u64)
-            .checked_add(input.memory_bytes())
+            .checked_add(reader_mem)
             .is_none_or(|n| n > maximum)
         {
             return Err(Error::ReadBudgetExceeded);
         }
         payload.resize(count, 0);
         input.read_exact(&mut payload)?;
-        let mut extra = [0];
-        if input.read(&mut extra)? != 0 {
+        if input.read(&mut [0])? != 0 {
             return Err(corrupt("CURRENT length"));
         }
         drop(input);
         let mut budget = Admission::new(maximum, payload.capacity() as u64)?;
         budget.add((size_of::<Self>() + ARC_HEADER) as u64)?;
-        let manifest = decode(&payload, runs, &mut budget)?;
+        let manifest = decode_with(&payload, runs, &mut budget)?;
         if manifest.home_id != home_id {
             return Err(corrupt("CURRENT names another home"));
         }
@@ -115,7 +121,7 @@ impl Manifest {
     }
 }
 
-fn decode(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Manifest> {
+fn decode_with(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Manifest> {
     if bytes.get(..8) != Some(MAGIC.as_slice()) || bytes.len() < 24 {
         return Err(corrupt("bad CURRENT"));
     }
@@ -147,7 +153,7 @@ fn decode(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Manifest>
         merge_cut,
         base,
     };
-    check_shape(&manifest, budget)?;
+    check_shape_with(&manifest, budget)?;
     Ok(manifest)
 }
 
@@ -197,9 +203,8 @@ fn run_list(
     Ok(runs)
 }
 
-fn check_shape(manifest: &Manifest, budget: &mut Admission) -> Result<()> {
-    let count = manifest.newest_first().count();
-    let mut ids = budget.array(count)?;
+fn check_shape_with(manifest: &Manifest, budget: &mut Admission) -> Result<()> {
+    let mut ids = budget.array(manifest.newest_first().count())?;
     ids.extend(manifest.newest_first().map(|run| run.meta.run_id));
     ids.sort_unstable();
     if ids.windows(2).any(|pair| pair[0] == pair[1]) {
@@ -225,6 +230,12 @@ struct Admission {
 }
 
 impl Admission {
+    fn unbounded() -> Self {
+        Self {
+            maximum: u64::MAX,
+            used: 0,
+        }
+    }
     fn new(maximum: u64, used: u64) -> Result<Self> {
         let mut budget = Self { maximum, used: 0 };
         budget.add(used)?;

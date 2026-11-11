@@ -4,7 +4,7 @@ use super::{
     capture::PublicationGate,
     invalid, protocol,
     run_source::RunSource,
-    snapshot_cleanup::{enter_clean_cut, held_root, hold_complete, publish_hold},
+    shared_run::{enter_clean_cut, held_root, hold_complete, publish_hold},
     store::{private_directory, Store},
     ByteBackupCapture, Inner, PackRuntime, State, StorageResult, RUN_INTENT_FILE, STATE_FORMAT,
 };
@@ -222,7 +222,7 @@ pub(in crate::storage::disk_backup::byte_backup) fn capture_pair(
     let meta = fs::symlink_metadata(&node)?;
     if !meta.is_file()
         || meta.len() > 128
-        || crate::storage::disk_pack::run_admission::profile(&fs::read(&node)?).is_none()
+        || crate::storage::disk_pack::run_node::profile(&fs::read(&node)?).is_none()
     {
         return Err(invalid("run source node marker"));
     }

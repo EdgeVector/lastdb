@@ -1,30 +1,52 @@
 //! One immutable bounded native log range, retained through an exact cloud terminal.
-mod absent;
 mod model;
-mod reader;
 mod retirement;
-mod terminal;
 use super::*;
 use cloud_backup_protocol::v2::Begin;
-pub use model::{log_path, FrozenLogCapture, FrozenLogFile};
-pub use reader::MutationLogReader;
+pub use model::{log_path, FrozenLogCapture, FrozenLogFile, MutationLogReader};
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 pub struct MutationLogCapture {
-    inner: Arc<Inner>,
+    pub(super) inner: Arc<Inner>,
 }
-struct Inner {
-    runtime: Arc<PackRuntime>,
-    directory: PathBuf,
-    state: Mutex<FrozenLogCapture>,
-    readers: AtomicUsize,
+pub(super) struct Inner {
+    pub(super) runtime: Arc<PackRuntime>,
+    pub(super) directory: PathBuf,
+    pub(super) state: Mutex<FrozenLogCapture>,
+    pub(super) readers: AtomicUsize,
     _admission: super::super::NativeCloudWorkGuard,
 }
 
 impl PackRuntime {
+    pub fn mutation_log_capture_materialized(&self, request: &Id) -> StorageResult<bool> {
+        let root = self.mutation_log.root.join("captures");
+        let state: Option<FrozenLogCapture> =
+            store::read(&root.join(request.as_str()).join("capture.json"))?;
+        if let Some(state) = state {
+            state.validate()?;
+            if state.begin.job.commit_id != *request
+                || state.anchor.main_home != self.mutation_log.main_home
+            {
+                return Err(invalid("mutation capture replacement identity"));
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// The coordinator holds its owner lock and saves the local-only intent first.
+    pub fn cancel_unmaterialized_mutation_log_capture(&self, request: &Id) -> StorageResult<()> {
+        let _admission = super::super::NativeCloudWorkGuard::acquire()?;
+        if self.mutation_log_capture_materialized(request)? {
+            return Err(invalid("frozen mutation capture cannot be replaced"));
+        }
+        cancel_absent(&self.mutation_log.root.join("captures"), request)
+    }
+
     /// The coordinator proves no begin submission under its durable owner lock.
     /// Cancellation must not create an otherwise absent capture.
     pub fn cancel_unsubmitted_mutation_log_capture(
@@ -36,7 +58,7 @@ impl PackRuntime {
         let directory = root.join(begin.job.commit_id.as_str());
         let Some(state): Option<FrozenLogCapture> = store::read(&directory.join("capture.json"))?
         else {
-            return absent::cancel(&root, &begin.job.commit_id);
+            return cancel_absent(&root, &begin.job.commit_id);
         };
         state.validate()?;
         if state.begin != *begin || state.anchor.main_home != self.mutation_log.main_home {
@@ -139,6 +161,16 @@ impl PackRuntime {
     }
 }
 
+fn cancel_absent(root: &Path, request: &Id) -> StorageResult<()> {
+    let directory = root.join(request.as_str());
+    store::remove_metadata(&directory.join("capture.pending"))?;
+    store::remove_empty(&directory)?;
+    if root.try_exists()? {
+        File::open(root)?.sync_all()?;
+    }
+    retirement::cancel_absent(root, request)
+}
+
 fn plan(
     runtime: &PackRuntime,
     begin: &Begin,
@@ -205,7 +237,7 @@ fn plan(
 
 fn retain(
     runtime: &PackRuntime,
-    directory: &std::path::Path,
+    directory: &Path,
     epoch: &Id,
     file: &FrozenLogFile,
 ) -> StorageResult<()> {
@@ -230,7 +262,7 @@ fn retain(
     Ok(())
 }
 
-fn input(path: &std::path::Path, bytes: u64) -> StorageResult<File> {
+pub(super) fn input(path: &Path, bytes: u64) -> StorageResult<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)

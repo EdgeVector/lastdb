@@ -7,7 +7,6 @@ mod planner;
 mod run_capture;
 mod run_source;
 mod shared_run;
-mod snapshot_cleanup;
 mod store;
 
 use crate::storage::cloud_backup_plan::ClientNativeFile;

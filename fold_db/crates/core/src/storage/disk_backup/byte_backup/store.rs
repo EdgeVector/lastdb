@@ -257,11 +257,10 @@ impl ByteBackupCapture {
             .as_ref()
             .map(|name| input(&self.inner.store.root.join(name)))
             .transpose()?;
-        if payload.as_ref().is_some_and(|file| {
-            file.metadata()
-                .map_or(true, |meta| meta.len() != object.input.object.bytes.get())
-        }) {
-            return Err(invalid("byte source encrypted metadata length"));
+        if let Some(file) = &payload {
+            if file.metadata()?.len() != object.input.object.bytes.get() {
+                return Err(invalid("byte source encrypted metadata length"));
+            }
         }
         self.inner.readers.fetch_add(1, Ordering::AcqRel);
         Ok(ByteBackupReader {
@@ -291,10 +290,6 @@ pub struct ByteBackupReader {
 }
 
 impl ByteBackupReader {
-    pub fn input(&self) -> &cloud_backup_protocol::v2::transfer::TransferInput {
-        &self.object.input
-    }
-
     fn open_segment(&mut self, part: &Segment) -> io::Result<()> {
         if self
             .inner

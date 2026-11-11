@@ -5,18 +5,16 @@
 
 pub(in crate::storage) mod applied_deletes;
 mod file_crypto;
-mod file_install;
-mod maintenance;
 mod release;
 mod retention;
 mod store;
 
 pub(crate) use applied_deletes::ReclaimedDeletes;
 pub(crate) use file_crypto::{require_row, seal_file_row};
-pub use maintenance::RecordDeleteLedgerEntry;
 pub(crate) use release::{
     alternate_bounds, release_families, AlternateAddress, RecordAddress, ReleaseFamily, ReleaseKind,
 };
+pub use retention::RecordDeleteLedgerEntry;
 pub(crate) use store::RecordFormat;
 
 use crate::error::FoldDbError;

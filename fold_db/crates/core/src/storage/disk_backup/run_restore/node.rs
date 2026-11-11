@@ -74,12 +74,6 @@ impl LocalRoot {
 }
 
 impl RunNodeGuard {
-    /// The CAS reader the proof checks file rows in: only a shared database
-    /// backs up its CAS home.
-    pub(in crate::storage::disk_backup::run_restore) fn backed_up_cas(&self) -> Option<&RunRead> {
-        self.profile.cas.as_ref().map(|_| &self.cas)
-    }
-
     /// A restored personal home holds no record blob rows: each blob is
     /// fetched from its cloud path on its first request.
     pub(in crate::storage::disk_backup::run_restore) fn require_empty_local_cas(
