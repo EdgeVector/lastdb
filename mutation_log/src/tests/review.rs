@@ -53,8 +53,8 @@ fn repeated_writer_seq_with_different_content_is_conflict() {
 }
 
 #[test]
-fn reappend_of_a_trimmed_submission_is_rejected() {
-    let (mut state, publisher, published, person, submission) = copied_submission();
+fn pending_submission_survives_trim_and_can_be_reappended() {
+    let (mut state, publisher, published, _person, submission) = copied_submission();
     state = ack(&state, &published, 3);
     state = ack(&state, &submission, 2);
     state = snapshot(&state, &publisher, 4);
@@ -62,10 +62,15 @@ fn reappend_of_a_trimmed_submission_is_rejected() {
     assert!(state
         .entries
         .iter()
-        .all(|row| row.entry.writer.key != person));
-    let again = copy_of(&state, &published, &submission, 2, 1, b"one");
-    let refused = try_append(&state, &published, vec![again]);
-    assert_eq!(refused.as_ref().err(), Some(&LogError::UnknownSubmission));
+        .any(|row| row.entry.writer == submission
+            && row.entry.writer_seq == 2
+            && row.entry.payload == b"two"));
+    let again = copy_of(&state, &published, &submission, 2, 2, b"two");
+    let stored = try_append(&state, &published, vec![again]).expect("reappend");
+    assert!(matches!(
+        stored.outcome,
+        Outcome::Appended(AppendOutcome::Accepted { .. })
+    ));
 }
 
 #[test]
@@ -104,7 +109,7 @@ fn trimmed_reappend_retry_is_duplicate() {
     state = ack(&state, &published, 3);
     state = ack(&state, &submission, 3);
     state = snapshot(&state, &publisher, 4);
-    state = trim(&state, &publisher, 4);
+    state = trim(&state, &publisher, 4 + MAX_RETENTION_MS);
     assert!(state.entries.is_empty());
     let repeat = try_append(&state, &published, vec![stored.clone()]).expect("exact retry");
     assert_eq!(

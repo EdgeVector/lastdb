@@ -71,6 +71,7 @@ fn caught_up_receiver_does_not_pin_the_floor_or_expire() {
     .expect("trim")
     .state;
     assert!(state.entries.is_empty());
+    assert_eq!(state.trimmed_through, 4);
 }
 
 #[test]
@@ -115,7 +116,11 @@ fn scoped_head_ack_does_not_pin_trim() {
     )
     .expect("trim")
     .state;
-    assert!(state.entries.is_empty());
+    assert!(state
+        .entries
+        .iter()
+        .all(|row| row.entry.incorporated_from.is_none() && row.entry.writer == submission));
+    assert_eq!(state.entries.len(), 1);
     assert_eq!(state.trimmed_through, head.cursor);
 }
 

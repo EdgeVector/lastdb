@@ -74,6 +74,15 @@ pub enum Command {
         /// Shell clock reading.
         now_ms: u64,
     },
+    /// Mark a pending submission so trim can drop it before it ages out.
+    Reject {
+        /// Publisher key, or an owner key.
+        caller: PrincipalId,
+        /// Writer (node key, device) of the submission.
+        writer: Writer,
+        /// Writer sequence of that submission.
+        writer_seq: u64,
+    },
 }
 
 /// What a successful step did.
@@ -100,6 +109,8 @@ pub enum Outcome {
     Revoked,
     /// The snapshot cut that was stored.
     Snapshot(Snapshot),
+    /// A pending submission was marked rejected.
+    Rejected,
     /// The prefix through `through` has been dropped.
     Trimmed {
         /// New trim floor.
@@ -172,6 +183,14 @@ pub fn step(
             (state, Outcome::Snapshot(snapshot))
         }
         Command::Trim { caller, now_ms } => trim(state, &caller, now_ms)?,
+        Command::Reject {
+            caller,
+            writer,
+            writer_seq,
+        } => (
+            state.reject_submission(&caller, &writer, writer_seq)?,
+            Outcome::Rejected,
+        ),
     };
     Ok(StepResult { state, outcome })
 }

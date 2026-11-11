@@ -5,6 +5,7 @@ mod append;
 mod cursor;
 mod device;
 mod namespace;
+mod pending;
 mod removal;
 mod retain;
 mod review;

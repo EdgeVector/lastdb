@@ -144,6 +144,12 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
         if entry.writer_seq > last {
             continue;
         }
+        if submission_rejected(state, &entry.writer, entry.writer_seq) {
+            return Err(marked_rejected(&entry.writer, entry.writer_seq));
+        }
+        if submission_expired(state, &entry.writer, entry.writer_seq) {
+            return Err(marked_expired(&entry.writer, entry.writer_seq));
+        }
         match stored_entry(state, &entry.writer, entry.writer_seq) {
             Some(stored) if same_content(&stored.entry, entry) => {}
             None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => {}
@@ -158,6 +164,36 @@ fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'
         .entries
         .iter()
         .find(|stored| stored.entry.writer == *writer && stored.entry.writer_seq == seq)
+}
+
+fn submission_expired(state: &LogState, writer: &Writer, seq: u64) -> bool {
+    record_status(state, writer, seq) == Some(crate::SubmissionStatus::Expired)
+}
+
+fn submission_rejected(state: &LogState, writer: &Writer, seq: u64) -> bool {
+    state.rejected.contains(&(writer.clone(), seq))
+        || record_status(state, writer, seq) == Some(crate::SubmissionStatus::Rejected)
+}
+
+fn record_status(state: &LogState, writer: &Writer, seq: u64) -> Option<crate::SubmissionStatus> {
+    state
+        .submission_records
+        .get(&(writer.clone(), seq))
+        .map(|record| record.status)
+}
+
+fn marked_expired(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionExpired {
+        writer: writer.clone(),
+        writer_seq,
+    }
+}
+
+fn marked_rejected(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionRejected {
+        writer: writer.clone(),
+        writer_seq,
+    }
 }
 
 fn trimmed_tip(state: &LogState, writer: &Writer) -> u64 {
@@ -211,6 +247,12 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     };
     if &entry.writer.key != publisher {
         return Err(LogError::InvalidEntry);
+    }
+    if submission_rejected(state, &from.writer, from.writer_seq) {
+        return Err(marked_rejected(&from.writer, from.writer_seq));
+    }
+    if submission_expired(state, &from.writer, from.writer_seq) {
+        return Err(marked_expired(&from.writer, from.writer_seq));
     }
     let Some(stored) = stored_entry(state, &from.writer, from.writer_seq) else {
         return Err(LogError::UnknownSubmission);

@@ -58,6 +58,8 @@ writer's `writer_seq` is gap-free:
 - `writer_seq <= last` with the same content is a duplicate
 - `writer_seq <= last` with different content, while the entry is still stored, is `Conflict`, and the call is not `Ok`
 - `writer_seq <= last` after that entry has been trimmed is a duplicate
+- `writer_seq <= last` for a pending submission that aged out is `SubmissionExpired`, naming that writer and sequence
+- `writer_seq <= last` for a rejected pending submission is `SubmissionRejected`, naming that writer and sequence
 - `last + 1` is accepted
 - a higher value is a gap, and the batch is not stored
 
@@ -71,9 +73,24 @@ nothing and does not move that device's tip. A different payload is
 `Conflict`. A batch that mixes an already copied submission with a new entry
 is rejected. The repeat check runs before the submission lookup, so an exact
 retry of a copy whose submission was trimmed is a duplicate. A new writer
-sequence that names a trimmed submission is refused. The `incorporated` set
-is stored with the log. Trim drops a key when the submission it names is
-dropped. A persistent adapter stores the set alongside the log.
+sequence that names a trimmed incorporated submission is refused. A pending
+submission stays in the log until the publisher re-appends it, rejects it,
+or 30 days pass. The snapshot does not include pending submissions. Trim
+drops entries around a young pending submission and leaves that submission
+in place. Acking a scan cursor that covered the submission does not drop it.
+After 30 days, the author's retry and a re-append are `SubmissionExpired`,
+naming that writer and sequence. A rejected submission can be trimmed while
+it is still young. The author's retry and a re-append are then
+`SubmissionRejected`, naming that writer and sequence. A rejection stays in
+force while the entry is stored, including after 30 days, so a re-append
+stays `SubmissionRejected` and a later drop is not recorded as expired.
+When trim drops the entry, the log keeps one record: the writer, the writer
+sequence, rejected or expired, and the time the entry was dropped. The
+record has no payload. Records are kept for the life of the log, so a later
+retry is never a duplicate. Trim does not remove them. The
+`incorporated` set is stored with the log. Trim drops a key when the
+submission it names is dropped. A persistent adapter stores the sets
+alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp
 `(authored_at_ms, writer, sequence)`. An append is one transaction of
