@@ -5,11 +5,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 from cost import CapExceeded
 from plan import still_running, writer_calls
-from routes import READS, RouteError, path_for, request_body, require_entries_above, require_trim
+from routes import (
+    READS, RouteError, check_success, path_for, prove_trimmed_list, request_body,
+    require_head, require_snapshot, require_trim,
+)
 from stats import summarize
 
 
 ERROR_RATE = 0.01
+DISABLED_FIELD = "mutation_log.disabled"
+DISABLED = "mutation log is disabled"
 
 
 class LoadError(Exception):
@@ -63,7 +68,13 @@ class Session:
         self.device_prefix = "d"
         self.created = False
 
-    def call(self, operation, required=False, **fields):
+    def call(self, operation, required=False, accept=(), **fields):
+        status, payload = self.exchange(operation, required=required, accept=accept, **fields)
+        if status >= 400 and status not in accept:
+            return None
+        return payload
+
+    def exchange(self, operation, required=False, accept=(), **fields):
         if self.stop.is_set():
             raise LoadError("stopped")
         body = self._body(operation, fields)
@@ -73,63 +84,72 @@ class Session:
         except CapExceeded:
             self.stop.set()
             raise
-        status, payload, latency = self.transport(
-            "POST", path_for(operation), body)
-        self._count(status, latency, required)
-        if status >= 400:
-            return None
-        if not isinstance(payload, dict):
-            self.stop.set()
-            raise LoadError("ambiguous")
-        return payload
+        status, payload, latency = self.transport("POST", path_for(operation), body)
+        self._observe(status, payload, latency, required, accept)
+        if status < 400:
+            try:
+                check_success(operation, payload)
+            except RouteError:
+                self.stop.set()
+                raise
+        return status, payload
 
-    def _count(self, status, latency, required):
+    def _observe(self, status, payload, latency, required, accept):
+        disabled = status == 404 and _disabled(payload)
+        failed = status >= 500 or status <= 0
+        ambiguous = not isinstance(payload, dict)
+        client_error = status >= 400 and status not in accept
         with self._lock:
             self.samples.append(latency)
             self.calls += 1
-            client_error = status >= 400
-            if client_error:
+            if client_error or failed or disabled or ambiguous:
                 self.errors += 1
-            failed = status >= 500 or status <= 0
-            rate = self.calls and self.errors / self.calls > ERROR_RATE
-            if failed or rate or (client_error and required):
-                self.stop.set()
-                raise LoadError("http" if failed or required else "error-rate")
+            rate = self.errors / self.calls > ERROR_RATE
+        if disabled:
+            self.stop.set()
+            raise LoadError(DISABLED)
+        if failed:
+            self.stop.set()
+            raise LoadError("http")
+        if ambiguous:
+            self.stop.set()
+            raise LoadError("ambiguous")
+        if client_error and (required or rate):
+            self.stop.set()
+            raise LoadError("http" if required else "error-rate")
 
     def _body(self, operation, fields):
-        common = {
-            "version": 2,
-            "account_id": self.account_id,
-            "database_id": self.database_id,
-            "stream_id": self.database_id,
-        }
+        if operation in ("head", "snapshot", "trim"):
+            return request_body(operation, {})
+        database = self.database_id
+        if operation == "create-database":
+            return request_body(operation, {"database_id": database, "kind": "personal"})
+        device = "{0}-d{1}".format(self.device_prefix, fields["index"])
         if operation == "append":
-            common.update({
-                "writer_key": self.writer_key,
-                "device": "{0}-d{1}".format(self.device_prefix, fields["index"]),
-                "writer_seq": str(fields["seq"]),
-                "authored_at_ms": str(self.clock()),
-                "namespace": "load",
-                "payload": "load",
+            return request_body(operation, {
+                "database_id": database,
+                "device_id": device,
+                "entries": [{
+                    "authored_at_ms": self.clock(),
+                    "namespace": "load",
+                    "payload": "load",
+                    "writer_seq": fields["seq"],
+                }],
             })
-        elif operation == "list":
-            common.update({"after": "0", "limit": "20"})
-        elif operation == "ack":
-            common.update({
-                "writer_key": self.writer_key,
-                "device": "{0}-d{1}".format(self.device_prefix, fields["index"]),
-                "through": str(fields["seq"]),
+        if operation == "list":
+            return request_body(operation, {
+                "after": fields.get("after", 0),
+                "database_id": database,
+                "device_id": device,
+                "limit": 20,
             })
-        elif operation == "snapshot":
-            common.update({
-                "at_ms": str(self.clock()),
-                "snapshot_ref": "load-" + self.database_id,
+        if operation == "ack":
+            return request_body(operation, {
+                "database_id": database,
+                "device_id": device,
+                "through": fields["seq"],
             })
-        elif operation == "trim":
-            common.update({"now_ms": str(self.clock())})
-        elif operation not in ("create-database", "head"):
-            raise RouteError("route")
-        return request_body(operation, common)
+        raise RouteError("route")
 
 
 def drive(spec, session):
@@ -148,10 +168,10 @@ def drive(spec, session):
         if spec.trim:
             _trim(session)
     except CapExceeded:
-        return _report(session, session.clock() - started, "cap")
-    except (LoadError, RouteError):
-        return _report(session, session.clock() - started, "error")
-    return _report(session, session.clock() - started, "complete")
+        return _report(session, session.clock() - started, "cap", "")
+    except (LoadError, RouteError) as error:
+        return _report(session, session.clock() - started, "error", str(error))
+    return _report(session, session.clock() - started, "complete", "")
 
 
 def _script(spec, session, index):
@@ -177,15 +197,24 @@ def _steady(spec, session, started):
 
 def _trim(session):
     head = session.call("head", required=True)
-    if head is None or "trimmed_through" not in head:
+    if require_head(head) is None:
         raise LoadError("ambiguous")
-    session.call("snapshot", required=True)
-    trimmed = session.call("trim", required=True)
-    through, _dropped = require_trim(head["trimmed_through"], trimmed)
-    listed = session.call("list", required=True)
-    require_entries_above(through, listed)
+    require_snapshot(session.call("snapshot", required=True))
+    through = require_trim(session.call("trim", required=True))
+    status, listed = session.exchange(
+        "list", required=True, accept=(409,), index=0, after=0)
+    prove_trimmed_list(through, status, listed)
 
 
-def _report(session, elapsed_ms, stopped):
+def _report(session, elapsed_ms, stopped, message):
     summary = summarize(session.samples, session.errors, elapsed_ms)
-    return {"stopped": stopped, "summary": summary, "estimate": session.ledger.snapshot()}
+    report = {"stopped": stopped, "summary": summary, "estimate": session.ledger.snapshot()}
+    if message:
+        report["message"] = message
+    return report
+
+
+def _disabled(payload):
+    if not isinstance(payload, dict):
+        return False
+    return payload.get("code") == DISABLED_FIELD or payload.get("field") == DISABLED_FIELD

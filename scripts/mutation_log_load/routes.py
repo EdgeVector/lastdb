@@ -1,8 +1,9 @@
-"""Mutation-log routes and the exact bodies those routes accept.
+"""Mutation-log routes and the bodies those routes accept.
 
-Every path is under ``/api/cloud/backups/v2/mutation-log/``. A body is a
-fixed set of fields. ``database_id`` and ``stream_id`` are the same load id.
-Snapshot bytes stay in the table; the snapshot ref is only a label.
+Every path is under ``/api/cloud/backups/v2/mutation-log/``. Head, snapshot,
+and trim have no request struct: the database is the token stream id, and
+the body is empty. Other counters are JSON numbers. The payload is the
+string ``load``. Snapshot bytes stay in the table; the snapshot ref is a label.
 """
 
 import json
@@ -15,25 +16,21 @@ OPERATIONS = (
     "create-database", "append", "head", "list", "ack", "revoke", "snapshot", "trim",
 )
 READS = frozenset({"head", "list"})
-WRITES = frozenset(OPERATIONS) - READS
+EMPTY = frozenset({"head", "snapshot", "trim"})
+ENTRY_FIELDS = (
+    "accepted_at_ms", "authored_at_ms", "delivery_seq", "namespace", "payload",
+    "writer_device", "writer_key", "writer_seq",
+)
 
 FIELDS = {
-    "create-database": ("account_id", "database_id", "stream_id", "version"),
-    "append": (
-        "account_id", "authored_at_ms", "database_id", "device", "namespace",
-        "payload", "stream_id", "version", "writer_key", "writer_seq",
-    ),
-    "head": ("account_id", "database_id", "stream_id", "version"),
-    "list": ("account_id", "after", "database_id", "limit", "stream_id", "version"),
-    "ack": (
-        "account_id", "database_id", "device", "stream_id", "through", "version",
-        "writer_key",
-    ),
-    "revoke": ("account_id", "database_id", "stream_id", "version", "writer_key"),
-    "snapshot": (
-        "account_id", "at_ms", "database_id", "snapshot_ref", "stream_id", "version",
-    ),
-    "trim": ("account_id", "database_id", "now_ms", "stream_id", "version"),
+    "create-database": ("database_id", "kind"),
+    "append": ("database_id", "device_id", "entries"),
+    "head": (),
+    "list": ("after", "database_id", "device_id", "limit"),
+    "ack": ("database_id", "device_id", "through"),
+    "revoke": ("capability", "database_id", "principal"),
+    "snapshot": (),
+    "trim": (),
 }
 
 
@@ -51,9 +48,24 @@ def request_body(operation, fields):
     allowed = FIELDS[operation]
     if set(fields) != set(allowed):
         raise RouteError("body")
-    if fields["version"] != 2 or fields["database_id"] != fields["stream_id"]:
-        raise RouteError("body")
+    if operation in EMPTY:
+        return b""
     allow_stream(fields["database_id"])
+    if operation == "create-database" and fields["kind"] not in ("personal", "shareable"):
+        raise RouteError("body")
+    if operation == "append":
+        _entries(fields["entries"])
+        _device(fields["device_id"])
+    if operation == "list":
+        _u64(fields["after"])
+        _u64(fields["limit"])
+        _device(fields["device_id"])
+    if operation == "ack":
+        _u64(fields["through"])
+        _device(fields["device_id"])
+    if operation == "revoke":
+        _text(fields["principal"])
+        _text(fields["capability"])
     encoded = json.dumps(fields, separators=(",", ":"), sort_keys=True).encode("utf-8")
     parsed = json.loads(encoded)
     if set(parsed) != set(allowed):
@@ -77,20 +89,117 @@ def require_object(value, required):
     return value
 
 
-def require_trim(before_floor, response):
-    """The floor moved and at least one stored entry was dropped."""
-    body = require_object(response, ("through", "dropped"))
-    through = decimal(body["through"])
-    dropped = decimal(body["dropped"])
-    if through <= decimal(before_floor) or dropped < 1:
-        raise RouteError("trim")
-    return through, dropped
+def check_success(operation, payload):
+    if operation == "head":
+        require_head(payload)
+    elif operation == "list":
+        require_list(payload)
+    elif operation == "ack":
+        require_ack(payload)
+    elif operation == "snapshot":
+        require_snapshot(payload)
+    elif operation == "trim":
+        require_trim(payload)
+    elif operation == "revoke":
+        require_revoke(payload)
+    elif operation in ("create-database", "append"):
+        require_object(payload, ())
+    else:
+        raise RouteError("route")
 
 
-def require_entries_above(floor, response):
-    body = require_object(response, ("entries",))
-    if not isinstance(body["entries"], list):
+def require_head(body):
+    body = require_object(body, ("cursor",))
+    if body["cursor"] is None:
+        return None
+    return decimal(body["cursor"])
+
+
+def require_list(body):
+    page = require_object(body, ("entries", "next"))
+    if not isinstance(page["entries"], list):
         raise RouteError("ambiguous")
-    for entry in body["entries"]:
-        if decimal(require_object(entry, ("delivery_seq",))["delivery_seq"]) <= floor:
+    for entry in page["entries"]:
+        require_object(entry, ENTRY_FIELDS)
+    if page["next"] is not None:
+        decimal(page["next"])
+    return page
+
+
+def require_ack(body):
+    return decimal(require_object(body, ("through",))["through"])
+
+
+def require_revoke(body):
+    body = require_object(body, ("revoked",))
+    if body["revoked"] is not True:
+        raise RouteError("revoke")
+    return body
+
+
+def require_snapshot(body):
+    body = require_object(body, ("at_ms", "snapshot_ref", "through_delivery_seq"))
+    decimal(body["through_delivery_seq"])
+    decimal(body["at_ms"])
+    if not isinstance(body["snapshot_ref"], str) or not body["snapshot_ref"]:
+        raise RouteError("snapshot")
+    return body
+
+
+def require_trim(response):
+    """The trim floor moved past zero. There is no dropped count."""
+    body = require_object(response, ("snapshot_due", "through"))
+    if not isinstance(body["snapshot_due"], bool):
+        raise RouteError("ambiguous")
+    through = decimal(body["through"])
+    if through <= 0:
+        raise RouteError("trim")
+    return through
+
+
+def prove_trimmed_list(through, status, body):
+    """A list from zero conflicts at the snapshot, or starts after the floor."""
+    if status == 409:
+        page = require_object(body, ("code", "snapshot_through"))
+        if page.get("code") != "predecessor_conflict":
             raise RouteError("trim")
+        if decimal(page["snapshot_through"]) < through:
+            raise RouteError("trim")
+        return
+    if status != 200:
+        raise RouteError("trim")
+    page = require_list(body)
+    for entry in page["entries"]:
+        if decimal(entry["delivery_seq"]) <= through:
+            raise RouteError("trim")
+
+
+def _entries(entries):
+    if not isinstance(entries, list) or not entries:
+        raise RouteError("body")
+    for entry in entries:
+        if set(entry) != {"authored_at_ms", "namespace", "payload", "writer_seq"}:
+            raise RouteError("body")
+        _u64(entry["writer_seq"])
+        _u64(entry["authored_at_ms"])
+        _text(entry["namespace"])
+        if not isinstance(entry["payload"], str):
+            raise RouteError("body")
+
+
+def _u64(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RouteError("body")
+
+
+def _device(value):
+    if not isinstance(value, str) or not value or len(value) > 64:
+        raise RouteError("body")
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789-_"
+    if any(ch not in allowed for ch in value):
+        raise RouteError("body")
+
+
+def _text(value):
+    if not isinstance(value, str) or not value or len(value) > 128:
+        raise RouteError("body")

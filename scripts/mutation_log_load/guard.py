@@ -1,11 +1,12 @@
 """Refuse every target except the DEV mutation-log table in us-west-2.
 
 DEV and PROD share account 152335099025, so the region is the guard.
-The only table is ``ExememMutationLog-dev``. The only database id is
-``c1da11d0-load-<run>``. Snapshot bytes are rows in that table. This
-module has no object-store target.
+The only table is ``ExememMutationLog-dev``. The database id is a protocol
+Id: a UUID whose first group is ``c1da11d0``, derived from the run id.
+Snapshot bytes are rows in that table. This module has no object-store target.
 """
 
+import hashlib
 import json
 import re
 
@@ -13,7 +14,9 @@ import re
 DEV_TABLE = "ExememMutationLog-dev"
 DEV_REGION = "us-west-2"
 DEV_ACCOUNT = "152335099025"
-STREAM_ID = re.compile(r"c1da11d0-load-[1-9][0-9]{0,18}")
+STREAM_ID = re.compile(
+    r"c1da11d0-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ROLE_ARN = re.compile(
     r"arn:aws:iam::" + DEV_ACCOUNT + r":role/[A-Za-z0-9+=,.@_-]{1,64}")
 BATCH_LIMIT = 25
@@ -87,7 +90,11 @@ def allow_stream(value):
 
 
 def database_id_for_run(run_id):
-    return allow_stream("c1da11d0-load-" + str(run_id))
+    if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+        raise GuardError("database")
+    digest = hashlib.sha256(run_id.encode("ascii")).hexdigest()
+    return allow_stream("c1da11d0-{0}-{1}-{2}-{3}".format(
+        digest[0:4], digest[4:8], digest[8:12], digest[12:24]))
 
 
 def query_request(table, database_id):

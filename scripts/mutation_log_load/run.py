@@ -28,7 +28,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    refuse_prod_environment, unprocessed_ids)
 from plan import phases
 from stats import format_summary
-from node_auth import NodeKey, account_id, authorization
+from node_auth import NodeKey, TokenError, account_id, authorization
 
 
 REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
@@ -40,8 +40,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def post(endpoint, key, database_id, method, path, body):
+    if method != "POST":
+        raise GuardError("method")
     issued = time.time_ns() // 1_000_000
-    header, _digest = authorization(key, method, path, database_id, issued)
+    header, _encoded = authorization(key, path, database_id, issued, body)
     request = urllib.request.Request(
         endpoint + path, data=body, method=method,
         headers={"Authorization": header, "Content-Type": "application/json"})
@@ -157,6 +159,8 @@ def main(argv):
         for spec in phases(args.level):
             report = drive(spec, session)
             reports.append(report)
+            if report.get("message"):
+                print(report["message"], file=sys.stderr)
             if report["stopped"] != "complete":
                 break
     finally:
@@ -175,6 +179,6 @@ def main(argv):
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except (GuardError, LoadError, KeyError, OSError) as error:
+    except (GuardError, LoadError, TokenError, KeyError, OSError) as error:
         print("mutation-log load refused: {0}".format(error), file=sys.stderr)
         sys.exit(1)
