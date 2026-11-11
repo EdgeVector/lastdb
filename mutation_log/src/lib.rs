@@ -44,7 +44,9 @@ pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
     StoredEntry, SubmissionRecord, SubmissionStatus, Writer,
 };
-pub use namespace::{classify_shareable, NamespaceKind, NamespacePolicy, SHAREABLE_NAMESPACES};
+pub use namespace::{
+    classify_shareable, BoundPolicy, NamespaceKind, NamespacePolicy, SHAREABLE_NAMESPACES,
+};
 pub use port::MutationLog;
 pub use read::{
     entry_visible, filter_readable, merge_order, ListPage, Recovery, Reset, ScopedHead,

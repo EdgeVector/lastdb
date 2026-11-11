@@ -8,6 +8,9 @@ description = "Pure unified cloud mutation log. One ordered log per database. No
 [lints]
 workspace = true
 
+[dependencies]
+database_policy = { path = "../database_policy" }
+
 [lib]
 path = "src/lib.rs"
 # Library only. The sharing exception is lastdb_node's share_invitation_ci target.

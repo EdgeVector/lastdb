@@ -1,27 +1,76 @@
 {
-  "spec_version": "1.0",
+  "catalog_label": "1.0",
+  "registry_version": 1,
+  "reserved_databases": [
+    {
+      "name": "graph",
+      "reservation": "unprovisioned"
+    },
+    {
+      "name": "social",
+      "reservation": "requires_own_spec",
+      "spec": { "name": "social", "version": 1 },
+      "schema_body": true
+    },
+    {
+      "name": "medical",
+      "reservation": "requires_own_spec",
+      "schema_body": false
+    },
+    {
+      "name": "finance",
+      "reservation": "requires_own_spec",
+      "schema_body": false
+    },
+    {
+      "name": "work",
+      "reservation": "requires_own_spec",
+      "schema_body": false
+    }
+  ],
+  "personal": {
+    "name": "personal",
+    "shareable": false,
+    "spec": null
+  },
+  "specs": [
+    {
+      "name": "social",
+      "version": 1,
+      "catalog_label": "1.0",
+      "shareable": true,
+      "namespaces": ["social"],
+      "independently_named_instances": true,
+      "schemas": ["Card", "Photo", "Album", "AlbumItem", "Comment"]
+    },
+    {
+      "name": "lastdb-files",
+      "version": 1,
+      "catalog_label": "1.0",
+      "shareable": true,
+      "publication": true,
+      "reserved_database_name": false,
+      "namespaces": ["lastdb-files"],
+      "schemas": ["FileCatalog", "FileChunk"]
+    }
+  ],
   "namespaces": [
     {
       "namespace": "social-graph",
       "visibility": "personal-only",
-      "schemas": [
-        "Person",
-        "Circle",
-        "Membership",
-        "Binding"
-      ]
+      "schemas": ["Person", "Circle", "Membership", "Binding"]
     },
     {
       "namespace": "social",
       "visibility": "shareable",
-      "kind": "social",
-      "schemas": [
-        "Card",
-        "Photo",
-        "Album",
-        "AlbumItem",
-        "Comment"
-      ]
+      "spec": { "name": "social", "version": 1 },
+      "schemas": ["Card", "Photo", "Album", "AlbumItem", "Comment"]
+    },
+    {
+      "namespace": "lastdb-files",
+      "visibility": "shareable",
+      "spec": { "name": "lastdb-files", "version": 1 },
+      "schemas": ["FileCatalog", "FileChunk"]
     }
   ]
 }

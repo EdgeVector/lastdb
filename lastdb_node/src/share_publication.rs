@@ -44,6 +44,9 @@ pub struct PublicationMarker {
     pub environment: ShareEnvironment,
     #[serde(default, skip_serializing_if = "WriteMode::is_publisher_only")]
     pub write_mode: WriteMode,
+    /// Registry spec object. Absent on a legacy marker, which is not a binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<crate::share_spec::PublicationSpec>,
 }
 
 pub struct PreparedPublication {
@@ -146,7 +149,15 @@ pub fn prepare(
     owner_home: &Path,
     environment: ShareEnvironment,
     write_mode: WriteMode,
+    spec_name: Option<&str>,
+    spec_version: Option<u32>,
 ) -> Result<PreparedPublication, String> {
+    let spec = crate::share_spec::binding_for_create(spec_name, spec_version)?.map(|binding| {
+        crate::share_spec::PublicationSpec {
+            name: binding.name().to_owned(),
+            version: binding.version(),
+        }
+    });
     let owner = owner_seed(owner_home)?;
     let signer = signer(&owner)?;
     let id =
@@ -159,15 +170,34 @@ pub fn prepare(
             publisher: publisher(&signer)?,
             environment,
             write_mode,
+            spec,
         },
         seed,
     })
+}
+
+fn spec_parts(spec: Option<&crate::share_spec::PublicationSpec>) -> (Option<&str>, Option<u32>) {
+    match spec {
+        Some(spec) => (Some(spec.name.as_str()), Some(spec.version)),
+        None => (None, None),
+    }
+}
+
+/// Refuse arbitrary file import unless this home is legacy or `lastdb-files`.
+pub fn require_files_publication(home: &Path) -> Result<(), String> {
+    let marker = read_marker(&owned(home)?)?
+        .ok_or("file sharing requires the home created by share create")?;
+    let (name, version) = spec_parts(marker.spec.as_ref());
+    crate::share_spec::require_files(name, version)
 }
 
 pub(crate) fn load(home: &Path, owner_home: &Path) -> Result<PublicationIdentity, String> {
     crate::offline_home::refuse_primary(home)?;
     let directory = owned(home)?;
     let marker = read_marker(&directory)?.ok_or("share publication marker is missing")?;
+    let (name, version) = spec_parts(marker.spec.as_ref());
+    // `None` keeps the legacy publication path and does not admit a spec.
+    crate::share_spec::resolve_stored(name, version)?;
     let owner = owner_seed(owner_home)?;
     let signer = signer(&owner)?;
     if publisher(&signer)? != marker.publisher {
