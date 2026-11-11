@@ -2,4 +2,5 @@
 //!
 //! [`Host`]: crate::host::Host
 
+pub mod saved_query;
 pub mod ttl_sweep;
