@@ -1,7 +1,7 @@
 //! Owner-facing local journal ports for shared database replication.
 
 use super::{portable_schema::PortableReplaySchema, MutationManager};
-use crate::db_operations::metadata_store::OutgoingPortablePage;
+use crate::db_operations::OutgoingPortablePage;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::JournalSchema;
@@ -32,10 +32,11 @@ impl MutationManager {
         transaction::request_scope(self.db_ops.native_runtime(), async {
             self.stage_recorded_definitions(definitions).await?;
             let bound = self.journal_schemas(definitions).await?;
-            self.db_ops
+            Ok(self
+                .db_ops
                 .metadata()
                 .bind_portable_journal(stream, bound, device, initialize_publisher)
-                .await
+                .await?)
         })
         .await
     }
@@ -64,7 +65,7 @@ impl MutationManager {
                 admitted.insert(alias.clone(), set.current.clone());
             }
             let bound = self.journal_schemas(&admitted).await?;
-            metadata.admit_portable_schemas(bound).await
+            Ok(metadata.admit_portable_schemas(bound).await?)
         })
         .await
     }
@@ -88,7 +89,11 @@ impl MutationManager {
                 return Ok(());
             }
             let bound = self.journal_schemas(&stale).await?;
-            self.db_ops.metadata().rebind_portable_schemas(bound).await
+            Ok(self
+                .db_ops
+                .metadata()
+                .rebind_portable_schemas(bound)
+                .await?)
         })
         .await
     }
@@ -148,31 +153,34 @@ impl MutationManager {
 
     /// The next bounded immutable prefix after this writer's accepted head.
     pub async fn portable_outgoing(&self) -> Result<OutgoingPortablePage, SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_outgoing())
-            .await
+            .await?)
     }
 
     /// The bound writer's durable local and cloud positions.
     pub async fn portable_writer_progress(
         &self,
     ) -> Result<(WriterStream, StreamProgress), SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_writer_progress())
-            .await
+            .await?)
     }
 
     /// Map each bound immutable service identity to its local schema alias.
     pub async fn portable_writer_schemas(&self) -> Result<BTreeMap<String, String>, SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_bound_schemas())
-            .await
+            .await?)
     }
 
     /// Read the exact sealed file version named by an outgoing entry.

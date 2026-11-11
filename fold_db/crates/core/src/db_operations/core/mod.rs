@@ -1,10 +1,10 @@
 use super::change_feed::ChangeFeedStore;
-use super::metadata_store::MetadataStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::field_key_store::FieldKeyStore;
+use crate::storage::format::metadata::Metadata;
 use std::sync::Arc;
 
 mod open;
@@ -33,7 +33,7 @@ pub struct DbOperations {
     /// Main namespace: records, alternate keys, and delete metadata.
     record_store: RecordStore,
     /// Metadata namespace for mutation author clocks
-    metadata_store: MetadataStore,
+    metadata: Metadata,
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
@@ -69,9 +69,9 @@ impl DbOperations {
         crate::storage::disk_pack::PackReadScope::for_runtime(&self.runtime).await
     }
 
-    /// Access the typed author-clock metadata store.
-    pub fn metadata(&self) -> &MetadataStore {
-        &self.metadata_store
+    /// Access the typed author-clock metadata format.
+    pub(crate) fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     /// Native status, cleanup and request coordination; no logical raw writer.
@@ -90,7 +90,7 @@ impl DbOperations {
         self.schema_store.flush().await?;
         self.field_keys.flush().await?;
         self.record_store.flush().await?;
-        self.metadata_store.flush().await?;
+        self.metadata.flush().await?;
         Ok(())
     }
 }

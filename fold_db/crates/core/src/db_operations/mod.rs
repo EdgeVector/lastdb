@@ -4,7 +4,6 @@ pub mod core;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
 pub mod delete_ledger;
-pub mod metadata_store;
 pub mod record_store;
 /// Field key bundles are storage key material; the store lives in
 /// `storage`. This path stays for existing callers.
@@ -15,6 +14,7 @@ pub mod search_index;
 mod storage_breakdown;
 // Re-exports
 pub use crate::storage::field_key_store::{FieldKeyBundle, FieldKeyStore};
+pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
 pub use admin_db::{
     DbInventory, MainKeyClass, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
     SchemaStorageReport,
@@ -28,7 +28,6 @@ pub use core::{
 pub use delete_ledger::{
     key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,
 };
-pub use metadata_store::MetadataStore;
 pub use record_store::{RecordStore, WalkStats, WriterWatch, RECORD_WALK_ROWS};
 pub use schema_store::SchemaStore;
 pub use search_index::{

@@ -13,11 +13,12 @@ impl MutationManager {
     pub async fn portable_definitions(
         &self,
     ) -> Result<BTreeMap<String, PortableSchemaDefinition>, SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_definitions())
-            .await
+            .await?)
     }
 
     /// Every definition each shared alias accepted, its current one included.
@@ -72,7 +73,7 @@ impl MutationManager {
         {
             return Err(invalid("every shared alias requires its schema definition"));
         }
-        metadata.stage_portable_definitions(definitions).await
+        Ok(metadata.stage_portable_definitions(definitions).await?)
     }
 
     /// Install log definitions that this home lacks before their records

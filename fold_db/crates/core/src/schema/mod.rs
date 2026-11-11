@@ -24,7 +24,6 @@
 // Internal modules
 pub mod core;
 
-pub mod interpreter;
 pub mod manifest_retention;
 pub mod mutation_author;
 pub mod schema_types;
@@ -33,14 +32,11 @@ pub mod types;
 
 // Public re-exports
 pub use core::SchemaCore;
-pub use interpreter::SchemaInterpreter;
-pub use lastdb_model::schema::logical_rules::{
-    require_logical_filter, require_logical_layout, require_logical_query_controls,
-};
+pub use lastdb_model::schema::logical_rules::{require_logical_filter, require_logical_layout};
 pub use manifest_retention::{
     min_manifest_ttl_seconds, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
-    ManifestRetentionStatus, RetentionPolicyInReach, RetentionReach, RetentionSharing,
-    MAX_MANIFEST_TTL_SECONDS, MIN_MANIFEST_TTL_ENV, MIN_MANIFEST_TTL_SECONDS,
+    ManifestRetentionStatus, MAX_MANIFEST_TTL_SECONDS, MIN_MANIFEST_TTL_ENV,
+    MIN_MANIFEST_TTL_SECONDS,
 };
 pub use schema_types::{
     RetentionSource, SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState,

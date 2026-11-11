@@ -90,7 +90,7 @@ impl RecordFormat {
         for key in &keys {
             family.require_key(key)?;
         }
-        let stored = self.main_store.inner().get_many(keys.clone()).await?;
+        let stored = self.main_store.get_many(keys.clone()).await?;
         if stored.len() != keys.len() {
             return Err(SchemaError::InvalidData(
                 "schema release read batch is incomplete".into(),
@@ -114,7 +114,7 @@ impl RecordFormat {
             .into_iter()
             .map(|(key, _)| KvMutation::delete(key))
             .collect();
-        self.main_store.inner().batch_mutate(deletes).await?;
+        self.main_store.batch_mutate(deletes).await?;
         let references = files
             .into_iter()
             .map(|key| {

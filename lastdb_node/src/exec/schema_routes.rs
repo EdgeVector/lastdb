@@ -180,11 +180,15 @@ pub(super) async fn execute_seed_system_schema_route(
         return response;
     }
     let schema_name = request.schema.name.clone();
-    let schema = match fold_db::schema::SchemaInterpreter::interpret(request.schema) {
-        Ok(schema) => schema,
-        Err(error) => return mapped_error_response("system seed setup failed", error.into(), ctx),
-    };
-    match host.db.schema_manager().load_schema_internal(schema).await {
+    if let Err(error) = request.schema.validate() {
+        return mapped_error_response("system seed setup failed", error.into(), ctx);
+    }
+    match host
+        .db
+        .schema_manager()
+        .load_schema_internal(request.schema)
+        .await
+    {
         Ok(()) => json_ok(&envelope(
             &serde_json::json!({
                 "system_seed_schema": schema_name,

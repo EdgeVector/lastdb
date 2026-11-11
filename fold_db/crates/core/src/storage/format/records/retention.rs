@@ -67,7 +67,7 @@ impl RecordFormat {
     }
 
     async fn mark_live_file_page(&self, after: Vec<u8>) -> Result<FileRetention, SchemaError> {
-        let rows = page(self.main_store.inner().as_ref(), RECORD_PREFIX, after, 64).await?;
+        let rows = page(self.main_store.as_ref(), RECORD_PREFIX, after, 64).await?;
         let Some((last, _)) = rows.last() else {
             return Ok(FileRetention::Files(Vec::new()));
         };

@@ -20,17 +20,6 @@ impl FieldKeyStore {
         Ok(metadata.range_profile)
     }
 
-    pub(super) fn validate_metadata(
-        &self,
-        field_key: &str,
-        metadata: Option<&BundleMetadata>,
-    ) -> StorageResult<()> {
-        if let Some(metadata) = metadata {
-            self.metadata_contract(field_key, metadata)?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn schema_profile(&self, schema: &Schema) -> StorageResult<FieldRangeProfile> {
         schema
             .require_record_keys()

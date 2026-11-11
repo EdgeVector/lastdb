@@ -12,20 +12,11 @@ pub(super) fn applied_report(
     binding: &str,
     anchor: &str,
     confirmed: bool,
-    moved_from: Option<String>,
 ) -> Value {
-    let moved_from = moved_from.or_else(|| outcome.moved_from.clone());
-    let mut notes = apply_notes(assessment, outcome);
-    if let Some(from) = &moved_from {
-        notes.insert(
-            0,
-            format!("the retention policy followed the schema from {from} to {anchor}"),
-        );
-    }
+    let notes = apply_notes(assessment, outcome);
     let mut report = assessment.report(binding, anchor, confirmed);
     report.insert("status".into(), json!(outcome.status));
     report.insert("effective".into(), json!(outcome.effective));
-    report.insert("moved_from".into(), json!(moved_from));
     report.insert("notes".into(), json!(notes));
     Value::Object(report)
 }

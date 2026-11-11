@@ -16,8 +16,7 @@ impl SchemaStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<String>, Option<String>), SchemaError> {
-        let anchor = self.retention_anchor(schema).await?;
-        let (first, end) = exact_prefix_bounds(&retention_hash_partition_prefix(&anchor));
+        let (first, end) = exact_prefix_bounds(&retention_hash_partition_prefix(schema));
         let start = match cursor {
             Some(cursor) => URL_SAFE_NO_PAD.decode(cursor).map_err(invalid)?,
             None => first.as_bytes().to_vec(),
@@ -31,7 +30,6 @@ impl SchemaStore {
         while let Some((start, end, asked)) = walk.request() {
             let result = self
                 .schema_states_store
-                .inner()
                 .scan_range_yielding(&start, &end, asked, 0)
                 .await;
             match result.map_err(SchemaError::from) {

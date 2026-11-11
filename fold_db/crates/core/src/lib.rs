@@ -26,7 +26,7 @@ pub mod access;
 /// The maximum size of one field value. The shell installs the parsed limit.
 pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
-pub use lastdb_model::{canonical, constants, hex, json_order};
+pub use lastdb_model::{canonical, hex, json_order};
 /// The stored record value of a home and its cap.
 pub use lastdb_model::{portable_mutation, portable_replay, record_replacement, record_value};
 
@@ -35,10 +35,6 @@ pub mod crypto;
 pub mod db_operations;
 pub mod error;
 pub mod fold_db_core;
-/// One accounted process memory budget — the warm set limit projected to RSS,
-/// with the deferred-write window derived from what is left under the node's
-/// RSS guard.
-pub mod memory_budget;
 #[cfg(unix)]
 pub mod process_cpu;
 /// On-disk record formats of the typed stores (model layer).

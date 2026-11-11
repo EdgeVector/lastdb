@@ -22,8 +22,6 @@ pub struct NativeDiskStatus {
     pub core_warm_purged: u64,
     /// Warm set byte charge and the enforced clean-record retention limit.
     pub core_warm_bytes: crate::resident::CoreWarmByteStats,
-    pub core_memory: crate::resident::CoreMemoryStats,
-    pub(crate) core_model: crate::resident::CoreModelStats,
 }
 
 #[derive(Clone)]
@@ -84,14 +82,9 @@ impl PackRuntime {
             |view| (view.current.generation(), view.current.frontier()),
         );
         let accepted = queue.request_count();
-        let (core, core_bytes, core_memory, core_model) = {
+        let (core, core_bytes) = {
             let mut core = self.core.lock().expect("native core status");
-            (
-                core.stats(),
-                core.byte_stats(),
-                core.memory_stats(),
-                core.model_stats(),
-            )
+            (core.stats(), core.byte_stats())
         };
         NativeDiskStatus {
             cleanup: self.status_cleanup(),
@@ -109,8 +102,6 @@ impl PackRuntime {
             core_warm_misses: core.misses,
             core_warm_purged: core.purged,
             core_warm_bytes: core_bytes,
-            core_memory,
-            core_model,
         }
     }
 
@@ -138,20 +129,10 @@ impl PackRuntime {
             view.revision = revision;
         }
         for request in requests {
-            // Later raw effects invalidate an earlier request's clean cache
-            // even when the later request uses the disk-only memory fallback.
+            // Later raw effects invalidate an earlier request's clean cache.
             laststore::commit_timing::during("memory_invalidation_us", || {
                 self.invalidate_changed_records(&request.changed_coordinates());
             });
-            if let Some(protection) = request
-                .path_protection
-                .lock()
-                .expect("committed core paths")
-                .as_ref()
-            {
-                let _timing = laststore::commit_timing::stage("memory_typed_install_us");
-                protection.publish_clean()?;
-            }
         }
         if !records.is_empty() {
             let _timing = laststore::commit_timing::stage("memory_record_install_us");
@@ -171,13 +152,13 @@ impl PackRuntime {
         Ok(())
     }
 
-    /// The view write lock excludes captures until these raw records and their
-    /// epochs agree with the newly visible complete mutation.
+    /// The view write lock excludes captures until these raw records agree
+    /// with the newly visible complete mutation.
     fn invalidate_changed_records(&self, changes: &[(String, String)]) {
         self.core
             .lock()
             .expect("core publication invalidation")
-            .invalidate_sources(changes);
+            .invalidate_records(changes);
     }
 }
 

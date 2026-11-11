@@ -119,29 +119,22 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         _ => return error_response(400, "action must be get, set, or clear", ctx),
     };
     match result {
-        Ok(policy) => retention_response(store, &body.schema, policy, may_expire, ctx).await,
+        Ok(policy) => retention_response(&body.schema, policy.as_ref(), may_expire, ctx),
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),
     }
 }
 
-async fn retention_response(
-    store: &fold_db::db_operations::SchemaStore,
+fn retention_response(
     schema: &str,
-    policy: Option<fold_db::schema::SchemaRetentionPolicy>,
+    policy: Option<&fold_db::schema::SchemaRetentionPolicy>,
     may_expire: bool,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    let anchor = match store.retention_anchor(schema).await {
-        Ok(anchor) => anchor,
-        Err(error) => {
-            return error_response(400, &format!("schema retention failed: {error}"), ctx)
-        }
-    };
     json_ok(&envelope(
         &serde_json::json!({
             "schema": schema,
             "retention_policy": policy,
-            "anchor": anchor,
+            "anchor": schema,
             "existing_records_may_expire": may_expire,
         }),
         ctx.user_id.as_str(),

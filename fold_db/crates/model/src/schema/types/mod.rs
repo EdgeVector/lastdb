@@ -14,7 +14,6 @@ pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSI
 pub use cas::CasExpectation;
 pub use declarative_schemas::DeclarativeSchemaDefinition;
 pub use errors::SchemaError;
-pub use field::{FieldKind, FieldVariant};
 pub use field_value_type::FieldValueType;
 pub use key_config::KeyConfig;
 pub use key_value::KeyValue;

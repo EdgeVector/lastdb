@@ -27,8 +27,6 @@ impl FoldDB {
             search_outbox_inbox,
             offline_maintenance,
         } = init;
-        // Initialize pending task tracker
-        let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
 
         let schema_manager = Arc::new(
             SchemaCore::new(Arc::clone(&db_ops))
@@ -54,7 +52,6 @@ impl FoldDB {
             Arc::clone(&db_ops),
             Arc::clone(&schema_manager),
             signer,
-            Arc::clone(&pending_tasks),
             search_outbox_inbox,
             author_clock_state,
         ));
@@ -65,14 +62,11 @@ impl FoldDB {
             info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
         }
 
-        Self::log_memory_budget();
-
         Ok(Self {
             schema_manager,
             db_ops: Arc::clone(&db_ops),
             query_executor,
             mutation_manager,
-            pending_tasks,
             record_blob_source: std::sync::RwLock::new(None),
         })
     }

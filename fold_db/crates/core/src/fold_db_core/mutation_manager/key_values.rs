@@ -29,7 +29,7 @@ pub(in crate::fold_db_core::mutation_manager) fn validate_field_value(
     field_name: &str,
     value: &serde_json::Value,
 ) -> Result<bool, SchemaError> {
-    if !schema.runtime_fields.contains_key(field_name) {
+    if !schema.has_field(field_name) {
         return Err(SchemaError::InvalidData(format!(
             "field '{field_name}' is not declared in schema '{schema_name}'"
         )));

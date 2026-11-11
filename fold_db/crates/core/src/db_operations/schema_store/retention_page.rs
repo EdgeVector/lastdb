@@ -19,8 +19,7 @@ impl SchemaStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<KeyValue>, Option<String>), SchemaError> {
-        let anchor = self.retention_anchor(schema_name).await?;
-        let prefix = retention_age_prefix(&anchor);
+        let prefix = retention_age_prefix(schema_name);
         let first = format!("{prefix}{:020}", 0);
         let end = format!("{prefix}{cutoff:020}");
         let start = match after {
@@ -37,7 +36,7 @@ impl SchemaStore {
         let next = rows.last().map(|(key, _)| key.clone());
         let latest_keys: Vec<_> = rows
             .iter()
-            .map(|(_, entry)| retention_age_latest_key(&anchor, &entry.key))
+            .map(|(_, entry)| retention_age_latest_key(schema_name, &entry.key))
             .collect();
         let latest = self
             .schema_states_store

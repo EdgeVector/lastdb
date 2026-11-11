@@ -138,7 +138,6 @@ impl SpaceWalk {
         // The walk reads nothing more for a row of the page.
         let page = records
             .main_store
-            .inner()
             .scan_range_yielding(self.start.as_bytes(), self.end.as_bytes(), ask, 1)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
