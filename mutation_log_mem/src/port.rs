@@ -27,12 +27,22 @@ pub trait MutationLog {
     /// Record the reader's cursor. The value is the stored cursor.
     fn ack(&mut self, consumer: &PrincipalId, through: u64) -> Result<u64, LogError>;
 
-    /// Grant read or append on this database.
-    fn grant(&mut self, principal: PrincipalId, capability: Capability) -> Result<(), LogError>;
+    /// Grant read or append on this database. `caller` is the publisher or a device grantee.
+    fn grant(
+        &mut self,
+        caller: &PrincipalId,
+        principal: PrincipalId,
+        capability: Capability,
+    ) -> Result<(), LogError>;
 
-    /// Remove a grant. A missing grant succeeds.
-    fn revoke(&mut self, principal: &PrincipalId, capability: &Capability) -> Result<(), LogError>;
+    /// Remove a grant. A missing grant succeeds. `caller` must be allowed to revoke.
+    fn revoke(
+        &mut self,
+        caller: &PrincipalId,
+        principal: &PrincipalId,
+        capability: &Capability,
+    ) -> Result<(), LogError>;
 
-    /// Cut a snapshot at the supplied time.
-    fn snapshot(&mut self, at_ms: u64) -> Snapshot;
+    /// Cut a snapshot at the supplied time. `caller` must be allowed to maintain the log.
+    fn snapshot(&mut self, caller: &PrincipalId, at_ms: u64) -> Result<Snapshot, LogError>;
 }

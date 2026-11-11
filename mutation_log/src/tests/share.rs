@@ -8,6 +8,7 @@ fn granted_share() -> (LogState, PrincipalId, StreamId, PrincipalId, PrincipalId
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: receiver.clone(),
             capability: Capability::Receive,
         },
@@ -18,6 +19,7 @@ fn granted_share() -> (LogState, PrincipalId, StreamId, PrincipalId, PrincipalId
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: contributor.clone(),
             capability: Capability::Submit {
                 stream: stream("contrib"),
@@ -30,6 +32,7 @@ fn granted_share() -> (LogState, PrincipalId, StreamId, PrincipalId, PrincipalId
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: other,
             capability: Capability::Submit {
                 stream: stream("other-contrib"),

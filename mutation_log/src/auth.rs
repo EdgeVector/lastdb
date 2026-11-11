@@ -47,11 +47,19 @@ impl LogState {
 
     /// Grant read or append access. Sharing grants this and nothing about storage.
     ///
+    /// `caller` must be the publisher, or a device grantee of a personal
+    /// database. The first personal device grant is made by that device.
     /// A second identical grant is the same state. A personal database rejects
     /// [`Capability::Receive`] and [`Capability::Submit`]. A shareable database
     /// rejects [`Capability::Device`].
-    pub fn grant(&self, principal: PrincipalId, capability: Capability) -> Result<Self, LogError> {
+    pub fn grant(
+        &self,
+        caller: &PrincipalId,
+        principal: PrincipalId,
+        capability: Capability,
+    ) -> Result<Self, LogError> {
         self.reject_wrong_kind(&capability)?;
+        authorize_grant(self, caller, &principal, &capability)?;
         if self
             .grants
             .iter()
@@ -68,14 +76,18 @@ impl LogState {
         Ok(next)
     }
 
-    /// Remove one grant. The principal's ack is removed with it.
+    /// Remove one grant. The principal's ack and open append go with it.
     ///
-    /// Revoking a grant that is not present leaves the state unchanged.
+    /// `can_read` is false for that capability on the returned state. Revoking
+    /// a grant that is not present leaves the state unchanged. There is no
+    /// key rotation; this is the whole removal path.
     pub fn revoke(
         &self,
+        caller: &PrincipalId,
         principal: &PrincipalId,
         capability: &Capability,
     ) -> Result<Self, LogError> {
+        self.authorize_maintainer(caller)?;
         let Some(index) = self
             .grants
             .iter()
@@ -88,7 +100,22 @@ impl LogState {
         if !next.reader_allowed(principal) {
             next.acks.remove(principal);
         }
+        clear_inflight(&mut next, principal, capability);
         Ok(next)
+    }
+
+    /// Publisher, or a device grantee, may snapshot and trim.
+    pub(crate) fn authorize_maintainer(&self, caller: &PrincipalId) -> Result<(), LogError> {
+        match &self.kind {
+            DatabaseKind::Shareable { publisher, .. } => caller_is(caller, publisher),
+            DatabaseKind::Personal => {
+                if holds_device(self, caller) {
+                    Ok(())
+                } else {
+                    Err(LogError::Unauthorized)
+                }
+            }
+        }
     }
 
     fn reject_wrong_kind(&self, capability: &Capability) -> Result<(), LogError> {
@@ -145,6 +172,7 @@ fn insert_role(state: &mut LogState, stream: &StreamId, role: StreamRole) -> Res
                 stream.clone(),
                 StreamProgress {
                     last_writer_seq: 0,
+                    trimmed_writer_seq: 0,
                     role,
                 },
             );
@@ -155,13 +183,75 @@ fn insert_role(state: &mut LogState, stream: &StreamId, role: StreamRole) -> Res
     }
 }
 
+fn authorize_grant(
+    state: &LogState,
+    caller: &PrincipalId,
+    principal: &PrincipalId,
+    capability: &Capability,
+) -> Result<(), LogError> {
+    match &state.kind {
+        DatabaseKind::Shareable { publisher, .. } => caller_is(caller, publisher),
+        DatabaseKind::Personal => {
+            let bootstrapping = !state
+                .grants
+                .iter()
+                .any(|grant| matches!(grant.capability, Capability::Device { .. }));
+            if bootstrapping {
+                return if caller == principal && matches!(capability, Capability::Device { .. }) {
+                    Ok(())
+                } else {
+                    Err(LogError::Unauthorized)
+                };
+            }
+            if holds_device(state, caller) {
+                Ok(())
+            } else {
+                Err(LogError::Unauthorized)
+            }
+        }
+    }
+}
+
+fn caller_is(caller: &PrincipalId, expected: &PrincipalId) -> Result<(), LogError> {
+    if caller == expected {
+        Ok(())
+    } else {
+        Err(LogError::Unauthorized)
+    }
+}
+
+fn clear_inflight(state: &mut LogState, principal: &PrincipalId, capability: &Capability) {
+    let stream = match capability {
+        Capability::Device { stream } | Capability::Submit { stream } => stream,
+        Capability::Receive => return,
+    };
+    if state.inflight.get(stream) == Some(principal) {
+        state.inflight.remove(stream);
+    }
+}
+
+pub(crate) fn is_publisher(state: &LogState, principal: &PrincipalId) -> bool {
+    matches!(&state.kind, DatabaseKind::Shareable { publisher, .. } if publisher == principal)
+}
+
+pub(crate) fn submit_streams(state: &LogState, principal: &PrincipalId) -> Vec<StreamId> {
+    state
+        .grants
+        .iter()
+        .filter_map(|grant| match &grant.capability {
+            Capability::Submit { stream } if grant.principal == *principal => Some(stream.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn holds_device(database: &LogState, principal: &PrincipalId) -> bool {
     database.grants.iter().any(|grant| {
         grant.principal == *principal && matches!(grant.capability, Capability::Device { .. })
     })
 }
 
-fn holds_receive(database: &LogState, principal: &PrincipalId) -> bool {
+pub(crate) fn holds_receive(database: &LogState, principal: &PrincipalId) -> bool {
     database
         .grants
         .iter()

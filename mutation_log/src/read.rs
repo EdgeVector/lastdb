@@ -3,13 +3,15 @@ use crate::{
     Stamp, StoredEntry, LIST_PAGE_LIMIT,
 };
 
-/// Head a reader is allowed to see. This is not the raw delivery head when
-/// some later entries are hidden from that reader.
+/// Head a reader is allowed to see.
+///
+/// `cursor` is not the raw delivery head. A share receiver's cursor is the
+/// publisher stream's writer sequence. Hidden submissions do not move it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
-    /// Delivery sequence of the last visible entry.
-    pub delivery_seq: u64,
-    /// Stamp of that entry.
+    /// Cursor in the sequence space this reader may observe.
+    pub cursor: u64,
+    /// Stamp of the last visible entry.
     pub stamp: Stamp,
 }
 
@@ -18,7 +20,8 @@ pub struct ScopedHead {
 pub struct ListPage {
     /// Visible entries, oldest first.
     pub entries: Vec<StoredEntry>,
-    /// Cursor for the next call. Unchanged when the page is empty.
+    /// Cursor for the next call, in this reader's sequence space.
+    /// Unchanged when the page is empty. Hidden entries do not advance it.
     pub next: u64,
 }
 
@@ -93,13 +96,14 @@ impl LogState {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
+        let space = crate::cursor::cursor_space(self, reader);
         Ok(self
             .entries
             .iter()
             .rev()
             .find(|stored| entry_visible(self, stored, reader, policy))
             .map(|stored| ScopedHead {
-                delivery_seq: stored.delivery_seq,
+                cursor: crate::cursor::cursor_of(&space, stored),
                 stamp: stored.entry.stamp(),
             }))
     }
@@ -119,13 +123,11 @@ impl LogState {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        let floor = self.effective_floor(now_ms);
-        if after < floor {
+        let floor = self.effective_floor(now_ms, policy);
+        let mark = crate::cursor::expiry_mark(self, reader, floor, policy);
+        if after < mark {
             return Err(LogError::CursorExpired {
-                snapshot_through: self
-                    .snapshot
-                    .as_ref()
-                    .map_or(0, |cut| cut.through_delivery_seq),
+                snapshot_through: crate::cursor::snapshot_mark(self, reader, policy),
             });
         }
         Ok(page(self, reader, after, limit, policy))
@@ -139,13 +141,18 @@ fn page(
     limit: usize,
     policy: &impl NamespacePolicy,
 ) -> ListPage {
+    let space = crate::cursor::cursor_space(state, reader);
     let mut entries = Vec::new();
     let mut next = after;
     for stored in &state.entries {
-        if stored.delivery_seq <= after || !entry_visible(state, stored, reader, policy) {
+        if !entry_visible(state, stored, reader, policy) {
             continue;
         }
-        next = stored.delivery_seq;
+        let cursor = crate::cursor::cursor_of(&space, stored);
+        if cursor <= after {
+            continue;
+        }
+        next = cursor;
         entries.push(stored.clone());
         if entries.len() == limit {
             break;

@@ -25,6 +25,7 @@
 
 mod append;
 mod auth;
+mod cursor;
 mod error;
 mod id;
 mod model;

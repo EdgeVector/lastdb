@@ -19,8 +19,14 @@ pub enum LogError {
     StreamMismatch,
     /// An entry broke a structural rule, such as incorporation off the publisher stream.
     InvalidEntry,
+    /// `incorporated_from` did not match a stored submission.
+    UnknownSubmission,
+    /// A port operation received an outcome from a different command.
+    UnexpectedOutcome,
     /// A writer sequence was zero, repeated, or unordered inside the batch.
     InvalidSequence,
+    /// The stream has no representable successor. `u64::MAX` is never stored.
+    SequenceExhausted,
     /// The next writer sequence skipped ahead of the stream's last accepted value.
     Gap {
         /// The next sequence the stream can accept.
@@ -64,7 +70,22 @@ impl fmt::Display for LogError {
                 write!(formatter, "entry stream or author differs from the batch")
             }
             Self::InvalidEntry => write!(formatter, "invalid log entry"),
+            Self::UnknownSubmission => {
+                write!(
+                    formatter,
+                    "incorporation does not match a pending submission"
+                )
+            }
+            Self::UnexpectedOutcome => {
+                write!(
+                    formatter,
+                    "log step returned an outcome this operation does not use"
+                )
+            }
             Self::InvalidSequence => write!(formatter, "invalid writer sequence"),
+            Self::SequenceExhausted => {
+                write!(formatter, "writer sequence space is exhausted at u64::MAX")
+            }
             Self::Gap { expected, got } => {
                 write!(
                     formatter,
@@ -95,7 +116,12 @@ impl fmt::Display for LogError {
                     "cursor expired; snapshot covers {snapshot_through}"
                 )
             }
-            Self::AckAhead => write!(formatter, "ack is ahead of the log head"),
+            Self::AckAhead => {
+                write!(
+                    formatter,
+                    "ack is ahead of the entries this principal can see"
+                )
+            }
             Self::AckRegress => write!(formatter, "ack moved backward"),
         }
     }

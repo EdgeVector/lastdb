@@ -65,6 +65,11 @@ Testable rule:
 
 1. A receiver of a share reads only entries the publisher authored into the
    shared database's log. The read is scoped to `(database_id, publisher stream)`.
+   The receiver's cursor is that stream's writer sequence, not the global
+   delivery sequence. A receiver who has read every publisher entry is caught
+   up: the ack does not pin the trim floor on a hidden delivery sequence, and
+   `list` does not expire that cursor. `CursorExpired.snapshot_through` is in
+   the same writer sequence, so it does not reveal another stream's position.
 2. A contributor's submission is not readable by other receivers. It is a
    submission stream. Only the publisher, and the submitting contributor for
    that contributor's own entries, can read it.
@@ -79,6 +84,10 @@ Testable rule:
 6. App-private namespaces are allowed in the personal database.
 7. A personal database cannot be granted to a receiver
    (`PersonalNotShareable`). A contributor grant is rejected there too.
+
+Removing a participant is `revoke`. `can_read` is false on the returned
+state, and that principal's open append is cleared. This log does not rotate
+keys, re-key a database, or move an epoch.
 
 Enforcement for stored bytes is Exemem's read path, not only the client.
 This pure core models the same rule so a later read path can call it. The
